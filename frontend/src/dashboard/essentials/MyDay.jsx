@@ -61,7 +61,7 @@ function classify(r) {
   const title = r.title || '';
   if (r.decision) return 'approval';
   if (r.module === 'documents') return 'signature';
-  if (r.module === 'timecard') return /^Review /.test(title) ? 'timesheet_review' : /timesheet fix/i.test(title) ? 'punch' : 'timecard';
+  if (r.module === 'timecard') return /^Review /.test(title) ? 'timesheet_review' : /time ?sheet fix/i.test(title) ? 'punch' : 'timecard';
   if (r.module === 'tickets') return 'ticket';
   if (r.module === 'shifts') return 'shift';
   if (r.module === 'items') return 'item';

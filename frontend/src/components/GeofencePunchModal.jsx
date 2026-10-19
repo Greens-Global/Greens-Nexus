@@ -24,16 +24,16 @@ import { formatDistance, formatAccuracy } from '../lib/distance';
 // site they were judged against. `onEditSite` (managers only) hands off to the
 // punch editor, whose work-site picker reassigns the punch's location.
 
-const COLORS = { in_fence: '#15803d', out_of_fence: '#dc2626', remote: '#6b7280', low_accuracy: '#6b7280', gps_only: '#6b7280', no_location: '#9ca3af', no_site: '#6b7280' };
-const LABEL = { in_fence: 'Inside geofence', out_of_fence: 'Out of Location', remote: 'Remote', low_accuracy: 'Low accuracy', no_location: 'No GPS captured', no_site: 'No site mapped' };
+const COLORS = { in_fence: '#15803d', out_of_fence: '#dc2626', remote: '#6b7280', low_accuracy: '#6b7280', gps_only: '#6b7280', no_location: '#9ca3af', location_off: '#9ca3af', no_site: '#6b7280' };
+const LABEL = { in_fence: 'Inside geofence', out_of_fence: 'Out of Location', remote: 'Remote', low_accuracy: 'Low accuracy', no_location: 'No Location', location_off: 'Location Off', no_site: 'No site mapped' };
 
 function pinSvg(color, slashed) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="36" viewBox="0 0 26 36"><path d="M13 1C6.4 1 1 6.4 1 13c0 9 12 22 12 22s12-13 12-22C25 6.4 19.6 1 13 1z" fill="${color}" stroke="#fff" stroke-width="2"/><circle cx="13" cy="13" r="4.5" fill="#fff"/>${slashed ? '<path d="M4 4L22 22" stroke="#dc2626" stroke-width="3"/>' : ''}</svg>`;
 }
-const iconFor = (status) => L.divIcon({ className: '', html: pinSvg(COLORS[status] || COLORS.no_location, status === 'no_location'), iconSize: [26, 36], iconAnchor: [13, 35], popupAnchor: [0, -30] });
+const iconFor = (status) => L.divIcon({ className: '', html: pinSvg(COLORS[status] || COLORS.no_location, (status === 'no_location' || status === 'location_off')), iconSize: [26, 36], iconAnchor: [13, 35], popupAnchor: [0, -30] });
 
 function Pin({ status, size = 14 }) {
-  return <span aria-label={LABEL[status] || status} title={LABEL[status] || status} style={{ display: 'inline-block', width: size, height: size * 1.38 }} dangerouslySetInnerHTML={{ __html: pinSvg(COLORS[status] || COLORS.no_location, status === 'no_location').replace('width="26" height="36"', `width="${size}" height="${Math.round(size * 1.38)}"`) }} />;
+  return <span aria-label={LABEL[status] || status} title={LABEL[status] || status} style={{ display: 'inline-block', width: size, height: size * 1.38 }} dangerouslySetInnerHTML={{ __html: pinSvg(COLORS[status] || COLORS.no_location, (status === 'no_location' || status === 'location_off')).replace('width="26" height="36"', `width="${size}" height="${Math.round(size * 1.38)}"`) }} />;
 }
 
 const KIND = { in: 'In', out: 'Out' };
@@ -225,7 +225,7 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
                       const isFocus = focused && selected.has(p.id);
                       const where = p.geoStatus === 'in_fence' ? (p.workSiteName || 'Location')
                         : out ? (addresses[p.id] || (addresses[p.id] === '' ? `${distText(p.distanceM)} from ${p.workSiteName || 'the nearest location'}` : 'Looking up address...'))
-                        : p.geoStatus === 'remote' ? 'Remote' : p.geoStatus === 'no_location' ? 'No GPS captured' : (p.workSiteName ? `Near ${p.workSiteName}` : 'GPS only');
+                        : p.geoStatus === 'remote' ? 'Remote' : p.geoStatus === 'no_location' ? 'No Location' : p.geoStatus === 'location_off' ? 'Location Off' : (p.workSiteName ? `Near ${p.workSiteName}` : 'GPS only');
                       return (
                         <tr key={p.id} data-focus={isFocus || undefined} style={{ background: rowBg, boxShadow: isFocus ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : undefined, fontWeight: isFocus ? 600 : undefined }}>
                           <td style={{ ...td, whiteSpace: 'nowrap' }}>{new Date(`${p.localDate}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td>

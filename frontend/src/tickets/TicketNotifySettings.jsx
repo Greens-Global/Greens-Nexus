@@ -16,6 +16,7 @@ const EVENT_LABELS = {
   created: 'Ticket created', assigned: 'Ticket assigned', updated: 'Replies to the requester',
   resolved: 'Ticket resolved', reopened: 'Ticket reopened', approval_required: 'Approval required',
   overdue_reminder: 'Due and overdue reminders (Teams from the manager, and the bell)',
+  sla_breach: 'SLA breach alerts (the bell, to the assignee and the department lead)',
 };
 const STATUS_META = {
   sent: { color: NX.green, Icon: CheckCircle2 }, failed: { color: NX.red, Icon: AlertTriangle },
@@ -126,7 +127,7 @@ export default function TicketNotifySettings() {
             </div>
 
             <div style={{ ...card, padding: 18 }}>
-              <label style={fieldLabel}>Notification types</label>
+              <label style={fieldLabel}>Notification Types</label>
               {Object.entries(EVENT_LABELS).map(([k, lab]) => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
                   <span style={{ fontSize: 13.5 }}>{lab}</span>

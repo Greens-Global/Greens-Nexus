@@ -93,7 +93,7 @@ def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, hea
         comment_html = f"""
     <tr>
       <td style="padding:0 28px 18px">
-        <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;margin:0 0 6px">{escape(comment_label or 'Latest comment')}</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;margin:0 0 6px">{escape(comment_label or 'Latest Comment')}</div>
         <div style="background:#f3f4f6;border-left:3px solid {th.color('#0f3d2e')};border-radius:6px;padding:13px 16px;font-size:14px;line-height:1.6;color:#111827;white-space:pre-wrap;word-break:break-word">{rich_to_email_html(comment_text, 4000)}</div>
       </td>
     </tr>"""
@@ -216,14 +216,14 @@ def created_email_requester(*, t: dict, base_url: str, logo_url: str) -> tuple[s
     subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
-        heading="Your ticket has been submitted",
+        heading="Your Ticket Has Been Submitted",
         intro="Thanks - we've received your request and it's now in the queue for triage.",
         rows=[
             ("Description", rich_to_email_html(t.get("description"))),
             ("Department", t.get("departmentName") or "-"),
             ("Category", t.get("typeLabel") or "-"),
             ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
-            ("Created by", t.get("requesterName") or t.get("requesterId")),
+            ("Created By", t.get("requesterName") or t.get("requesterId")),
             ("Created", t.get("createdAtDisplay") or "-"),
             ("Status", TICKET_STATUS_META.get(t["status"], {}).get("label", t["status"])),
         ],
@@ -237,14 +237,14 @@ def created_email_triage(*, t: dict, base_url: str, logo_url: str) -> tuple[str,
     subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
-        heading="A new ticket needs to be assigned",
+        heading="A New Ticket Needs to Be Assigned",
         intro="This ticket has been raised and is waiting for someone to be assigned to it.",
         rows=[
             ("Description", rich_to_email_html(t.get("description"))),
             ("Department", t.get("departmentName") or "-"),
             ("Category", t.get("typeLabel") or "-"),
             ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
-            ("Created by", t.get("requesterName") or t.get("requesterId")),
+            ("Created By", t.get("requesterName") or t.get("requesterId")),
             ("Created", t.get("createdAtDisplay") or "-"),
         ],
         cta_label="Assign Ticket", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
@@ -252,21 +252,24 @@ def created_email_triage(*, t: dict, base_url: str, logo_url: str) -> tuple[str,
     return subject, html
 
 
-def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
+def approval_email(*, t: dict, base_url: str, logo_url: str, for_requester: bool = False) -> tuple[str, str]:
+    """`for_requester`: the approver has no desk access, so the button opens
+    the ticket in Support (their entry point) rather than the Tickets module."""
     subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
-        heading="This ticket is waiting for your approval",
+        heading="This Ticket Is Waiting for Your Approval",
         intro="You are listed as the approver for this request. Please review it and approve or reject so work can proceed.",
         rows=[
             ("Description", rich_to_email_html(t.get("description"))),
             ("Department", t.get("departmentName") or "-"),
             ("Category", t.get("typeLabel") or "-"),
             ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
-            ("Requested by", t.get("requesterName") or t.get("requesterId")),
+            ("Requested By", t.get("requesterName") or t.get("requesterId")),
             ("Created", t.get("createdAtDisplay") or "-"),
         ],
-        cta_label="Review & Approve", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
+        cta_label="Review & Approve", cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester),
+        logo_url=logo_url,
     )
     return subject, html
 
@@ -278,7 +281,7 @@ def _comment_block(t: dict, latest_comment: str) -> dict:
     if not latest_comment:
         return {}
     actor = t.get("actorName") or t.get("actorEmail")
-    return {"comment_label": f"Latest comment - {actor}", "comment_text": latest_comment}
+    return {"comment_label": f"Latest Comment - {actor}", "comment_text": latest_comment}
 
 
 def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_requester: bool = False,
@@ -291,16 +294,16 @@ def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_
     )
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
-        heading="Ticket assigned" if audience != "assignee" else "You've been assigned a ticket",
+        heading="Ticket Assigned" if audience != "assignee" else "You've Been Assigned a Ticket",
         intro=intro,
         rows=[
             ("Department", t.get("departmentName") or "-"),
-            ("Assigned to", f"{t.get('assigneeName') or t.get('assigneeId')} ({t.get('assigneeId')})"),
-            ("Assigned by", t.get("actorName") or t.get("actorEmail")),
+            ("Assigned To", f"{t.get('assigneeName') or t.get('assigneeId')} ({t.get('assigneeId')})"),
+            ("Assigned By", t.get("actorName") or t.get("actorEmail")),
             ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
             ("Assigned", t.get("eventAtDisplay") or "-"),
             ("Status", TICKET_STATUS_META.get(t["status"], {}).get("label", t["status"])),
-            ("Due date", t.get("dueDateDisplay") or "-"),
+            ("Due Date", t.get("dueDateDisplay") or "-"),
         ],
         cta_label="Open Ticket", cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester), logo_url=logo_url,
         note="Action required." if audience == "assignee" else "",
@@ -322,7 +325,7 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
         subject = _ticket_subject(t)
         html = ticket_email_html(
             ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
-            heading=f"{actor} replied to this ticket",
+            heading=f"{actor} Replied to This Ticket",
             intro="Open the ticket to respond - the latest conversation is below.",
             rows=[], cta_label="View Ticket", cta_url=_ticket_url(base_url, t["id"], for_requester=True), logo_url=logo_url,
             thread=thread,
@@ -332,18 +335,18 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
     # No "Update" row - the intro line already says what changed. Comments get
     # their own full-width block below the table instead of a cramped row.
     rows = [
-        ("Previous status", TICKET_STATUS_META.get(prev_status, {}).get("label", prev_status) if prev_status else "-"),
-        ("Updated status", TICKET_STATUS_META.get(t["status"], {}).get("label", t["status"])),
-        ("Updated by", actor),
+        ("Previous Status", TICKET_STATUS_META.get(prev_status, {}).get("label", prev_status) if prev_status else "-"),
+        ("Updated Status", TICKET_STATUS_META.get(t["status"], {}).get("label", t["status"])),
+        ("Updated By", actor),
         ("Updated", t.get("eventAtDisplay") or "-"),
-        ("Current assignee", t.get("assigneeName") or t.get("assigneeId") or "Unassigned"),
+        ("Current Assignee", t.get("assigneeName") or t.get("assigneeId") or "Unassigned"),
     ]
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
-        heading="Your ticket has an update",
+        heading="Your Ticket Has an Update",
         intro=f"{actor} made a change to this ticket: {update_kind}.",
         rows=rows, cta_label="View Ticket", cta_url=_ticket_url(base_url, t["id"], for_requester=True), logo_url=logo_url,
-        comment_label=f"Latest comment - {actor}" if latest_comment else "",
+        comment_label=f"Latest Comment - {actor}" if latest_comment else "",
         comment_text=latest_comment,
     )
     return subject, html
@@ -366,14 +369,14 @@ def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str,
                 "Reopen the ticket from the link above if this didn't fully resolve your issue.")
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
-        heading="This ticket has been resolved",
+        heading="This Ticket Has Been Resolved",
         intro="Here's a summary of the resolution.",
         rows=[
             ("Resolution", t.get("resolutionLabel") or "-"),
-            ("Resolution notes", t.get("resolutionNote") or "-"),
-            ("Resolved by", t.get("actorName") or t.get("actorEmail")),
+            ("Resolution Notes", t.get("resolutionNote") or "-"),
+            ("Resolved By", t.get("actorName") or t.get("actorEmail")),
             ("Resolved", t.get("eventAtDisplay") or "-"),
-            ("Total resolution time", t.get("resolutionDuration") or "-"),
+            ("Total Resolution Time", t.get("resolutionDuration") or "-"),
         ],
         cta_label="Confirm Resolution" if audience == "requester" else "Review Ticket",
         cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester), secondary_ctas=secondary, note=note, logo_url=logo_url,
@@ -387,13 +390,13 @@ def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "",
     subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
-        heading="This ticket has been reopened",
+        heading="This Ticket Has Been Reopened",
         intro=f"{t.get('actorName') or t.get('actorEmail')} reopened this ticket - it needs another look.",
         rows=[
             ("Reason", reason or "No reason given"),
-            ("Reopened by", t.get("actorName") or t.get("actorEmail")),
+            ("Reopened By", t.get("actorName") or t.get("actorEmail")),
             ("Reopened", t.get("eventAtDisplay") or "-"),
-            ("Current assignee", t.get("assigneeName") or t.get("assigneeId") or "Unassigned"),
+            ("Current Assignee", t.get("assigneeName") or t.get("assigneeId") or "Unassigned"),
             ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
         ],
         cta_label="Open Ticket", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
@@ -417,13 +420,13 @@ def escalated_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> 
     )
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
-        heading="This ticket has been escalated",
+        heading="This Ticket Has Been Escalated",
         intro=intro,
         rows=[
             ("Description", rich_to_email_html(t.get("description"))),
             ("Department", t.get("departmentName") or "-"),
             ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
-            ("Escalated by", t.get("actorName") or t.get("actorEmail")),
+            ("Escalated By", t.get("actorName") or t.get("actorEmail")),
             ("Escalated", t.get("eventAtDisplay") or "-"),
             ("Requester", t.get("requesterName") or t.get("requesterId")),
             ("Assignee", t.get("assigneeName") or t.get("assigneeId") or "Unassigned"),
@@ -498,13 +501,13 @@ def walkthrough_email(*, property_name: str, property_id: str, actor_name: str, 
     who = actor_name or "A colleague"
     at = f" at {property_name}" if property_name else ""
     heading, intro = {
-        "requester": (f"Your {n} ticket{s}{at} were submitted",
+        "requester": (f"Your {n} Ticket{s}{at} Were Submitted",
                       f"{who} filed these in one batch. Each is its own ticket, and you will hear about each one as it is worked."),
-        "assignee": (f"You were assigned {n} ticket{s}{at}",
+        "assignee": (f"You Were Assigned {n} Ticket{s}{at}",
                      f"Assigned in a batch by {who}."),
-        "asset_manager": (f"{n} new ticket{s}{at}",
+        "asset_manager": (f"{n} New Ticket{s}{at}",
                           f"{who} filed these for the property. They show under the property's Maintenance > Open Tickets."),
-    }.get(audience, (f"{n} new ticket{s}{at} to assign",
+    }.get(audience, (f"{n} New Ticket{s}{at} to Assign",
                      f"Filed in one batch by {who}. Each needs an owner."))
     th = email_theme.current()
     base = (base_url or "").rstrip("/")
@@ -546,7 +549,7 @@ def walkthrough_email(*, property_name: str, property_id: str, actor_name: str, 
     </td></tr>
   </table>
 </div>"""
-    return f"{n} new ticket{s}{at} - Batch Create", html
+    return f"{n} New Ticket{s}{at} - Batch Create", html
 
 
 # ── Overdue reminders (Oct 15 2026, ticket_overdue.py) ──────────────────────
@@ -565,11 +568,11 @@ def _overdue_heading(rows: list, audience: str, dept_name: str = "") -> tuple[st
     s = "s" if n != 1 else ""
     if audience == "lead":
         where = f" in {dept_name}" if dept_name else ""
-        return (f"{n} ticket{s}{where} past due",
+        return (f"{n} Ticket{s}{where} Past Due",
                 f"These ticket{s} are past due and earlier reminders to the assignee went unanswered.")
     if all(r["late"] <= 0 for r in rows):
-        return (f"{n} ticket{s} due today", f"These ticket{s} assigned to you are due today and not closed yet.")
-    return (f"{n} ticket{s} not closed", f"These ticket{s} assigned to you are due or past due and not closed yet.")
+        return (f"{n} Ticket{s} Due Today", f"These ticket{s} assigned to you are due today and not closed yet.")
+    return (f"{n} Ticket{s} Not Closed", f"These ticket{s} assigned to you are due or past due and not closed yet.")
 
 
 def overdue_teams_html(*, rows: list, audience: str, base_url: str, first_name: str = "",

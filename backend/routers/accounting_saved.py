@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 import models
 from auth import _LEVELS, _MODULE_LEVEL_RANK, company_of, get_current_user, require_module_grant
 from database import get_db
-from routers.accounting import ACCOUNTING_SCOPE_MODULE, ACCOUNTING_SCOPE_TYPE
+from routers.accounting import ACCOUNTING_SCOPE_MODULE, ACCOUNTING_SCOPE_TYPE, entity_scope
 
 router = APIRouter(
     prefix="/accounting",
@@ -197,7 +197,7 @@ def share_report(body: ShareBody, user: dict = Depends(get_current_user), db: Se
     note = (body.message or "").strip()[:600]
     db.add(models.NexusNotification(
         id=str(uuid.uuid4()), type="accounting_report_shared", recipient=recipient,
-        title=f"A report was shared with you: {name}",
+        title=f"A Report Was Shared With You: {name}",
         body=(note + " " if note else "") + "Open Accounting, Reports, then Saved Reports.",
         ref_id=row.id, item_name=name, requested_by=me,
         action=json.dumps({"view": "accounting", "sub": "reports"}), actioned=False, read_by="",
@@ -420,7 +420,17 @@ def delete_package(package_id: str, user: dict = Depends(get_current_user), db: 
 
 
 # ── Who may read which entities ──────────────────────────────────────────────
-_manage_access = require_module_grant("accounting", "full")
+_manage_full = require_module_grant("accounting", "full")
+
+
+def _manage_access(user: dict = Depends(_manage_full), scope: dict = Depends(entity_scope)) -> dict:
+    """Full grant AND no entity limit (Oct 17 review): a Full holder limited
+    to some entities could otherwise lift anyone's limit (entities: []) or hand
+    out entities beyond their own reach - and two of them could lift each
+    other. Only someone who reads every entity decides who reads which."""
+    if scope["allowed"] is not None:
+        raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities, so you cannot manage who reads which entities.")
+    return user
 
 
 def _holders(db: Session) -> dict[str, int]:

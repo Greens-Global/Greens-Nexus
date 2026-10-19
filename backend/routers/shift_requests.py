@@ -136,13 +136,38 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # team's open pool; a manager approves it unless
              # releaseNeedsApproval is off; and open shifts of every team
              # in the company are offered to everyone, not only that team.
-             "releaseShifts": False, "releaseNeedsApproval": True, "openShiftsAcrossTeams": False}
+             "releaseShifts": False, "releaseNeedsApproval": True, "openShiftsAcrossTeams": False,
+             # Live overtime alert (Neil, Oct 17 2026, overtime_watch.py): a
+             # quiet bell to the manager when someone clocked in is this many
+             # minutes from daily overtime (people on the 'ca' rule) or from
+             # weekly overtime on the payroll week. OFF by default - a CA
+             # team on 8-hour days would hear about every person every day;
+             # 0 turns one threshold off.
+             "otAlertOn": False, "otAlertDailyLeadMin": 30, "otAlertWeeklyLeadMin": 120,
+             # Pay period close alerts (Oct 19 2026, timesheet_alerts.py): a
+             # Time Sheet still waiting on its approver this many days after
+             # the period ended is escalated to the approver's own manager,
+             # else the company's HR contact; 0 = no escalation.
+             "timesheetEscalateDays": 2,
+             # Location Trail While Clocked In (Neil's checklist, Oct 20 2026,
+             # routers/location_trail.py): the web app shares the person's
+             # location about every 5 minutes while they are clocked in (not
+             # on break) and their browser already allows location. OFF by
+             # default - nothing is collected until a company turns it on.
+             "locationTrailOn": False,
+             # A break that never ended (Oct 20 2026, break_watch.py): the
+             # employee gets one "Still on Break?" bell after this many
+             # minutes on an open break, their manager one rollup at twice
+             # that; 0 = off.
+             "breakNudgeMin": 60}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
 _INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftEarlyMin": (0, 240),
                  "ruleMinRestHours": (0, 24), "ruleMaxDaysInRow": (0, 14), "ruleDailyOtHours": (0, 24),
-                 "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100)}
+                 "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100),
+                 "otAlertDailyLeadMin": (0, 240), "otAlertWeeklyLeadMin": (0, 480),
+                 "timesheetEscalateDays": (0, 30), "breakNudgeMin": (0, 240)}
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers", "release": "releaseShifts"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -337,6 +362,12 @@ class SettingsIn(BaseModel):
     releaseShifts: Optional[bool] = None        # staff may release a shared shift to the open pool (Phase 3b)
     releaseNeedsApproval: Optional[bool] = None # a manager approves a release; off = at once
     openShiftsAcrossTeams: Optional[bool] = None   # open shifts of every team in the company, for everyone
+    otAlertOn: Optional[bool] = None            # live overtime alert to the manager (Oct 17; off by default)
+    otAlertDailyLeadMin: Optional[int] = None   # 0-240; minutes before daily overtime ('ca' rule); 0 = off
+    otAlertWeeklyLeadMin: Optional[int] = None  # 0-480; minutes before weekly overtime; 0 = off
+    timesheetEscalateDays: Optional[int] = None # 0-30; days after a pay period before an unapproved sheet escalates; 0 = off
+    locationTrailOn: Optional[bool] = None      # web location trail while clocked in (Oct 20; off by default)
+    breakNudgeMin: Optional[int] = None         # 0-240; minutes on an open break before "Still on Break?"; manager at 2x; 0 = off
 
 
 @router.get("/settings")
@@ -580,7 +611,7 @@ def _approver_emails(db: Session, r: models.ShiftRequest, actor: str) -> list:
 
 def _notify_approvers(db: Session, r: models.ShiftRequest, names: dict, actor: str) -> None:
     for rec in _approver_emails(db, r, actor):
-        _bell(db, rec, "Shift request to approve", _describe(r, names) + ".", r.id, actor, _APPROVER_ACTION)
+        _bell(db, rec, "Shift Request to Approve", _describe(r, names) + ".", r.id, actor, _APPROVER_ACTION)
 
 
 def _open_visible(row, my_groups, cfg: dict = None, groups: dict = None, company: str = "") -> bool:
@@ -739,7 +770,7 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
         r.status, r.decided_by, r.decided_at = "approved", me, _now()
         who = names.get(me, me)
         for rec in _approver_emails(db, r, me):
-            _bell(db, rec, "Shift released to the open pool",
+            _bell(db, rec, "Shift Released to the Open Pool",
                   f"{who} released {_when(r.shift_date, r.shift_start, r.shift_end)} to the open pool"
                   + (f": {r.note}" if r.note else ".") + " No approval was needed."
                   + (" The unshared edit to this shift was dropped - the shared times went to the pool." if had_edit else ""),
@@ -747,7 +778,7 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
     elif kind in ("open", "release"):
         _notify_approvers(db, r, names, me)
     else:
-        _bell(db, target_email, f"Shift {_KIND_LABEL[kind]} request", _describe(r, names) + ". Accept or decline it in My Shifts.",
+        _bell(db, target_email, f"Shift {_KIND_LABEL[kind].title()} Request", _describe(r, names) + ". Accept or decline it in My Shifts.",
               r.id, me, _EMPLOYEE_ACTION)
     db.commit()
     return _dicts(db, [r], names)[0]
@@ -795,13 +826,13 @@ def respond(req_id: str, body: RespondIn, user: dict = Depends(get_current_user)
     names = _names(db)
     if body.accept:
         r.status = "pending_manager"
-        _bell(db, r.requester_email, "Shift request accepted",
+        _bell(db, r.requester_email, "Shift Request Accepted",
               f"{names.get(me, me)} accepted your {_KIND_LABEL[r.kind]}. It now needs a manager's approval.",
               r.id, me, _EMPLOYEE_ACTION)
         _notify_approvers(db, r, names, me)
     else:
         r.status, r.decided_at, r.decided_by = "declined", _now(), me
-        _bell(db, r.requester_email, "Shift request declined",
+        _bell(db, r.requester_email, "Shift Request Declined",
               f"{names.get(me, me)} declined your {_KIND_LABEL[r.kind]}" + (f": {r.peer_note}" if r.peer_note else "."),
               r.id, me, _EMPLOYEE_ACTION)
     db.commit()
@@ -968,8 +999,8 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str, force: bool = False)
         # describes a shift that no longer has an owner: cancelled, the same
         # way a publish cancels them (cancel_requests_for_shifts), with this
         # request itself left alone.
-        _end_others(db, [shift.id], r.id, actor, "cancelled", RELEASED_NOTE, "Shift request cancelled",
-                    "A shift in your request was released to the open pool before it was decided, so the request was cancelled.")
+        _end_others(db, [shift.id], r.id, actor, "cancelled", RELEASED_NOTE, "Shift Request Canceled",
+                    "A shift in your request was released to the open pool before it was decided, so the request was canceled.")
         return []
     if r.kind == "swap":
         other = _live_shift(db, r.target_shift_id, lock=True)
@@ -1021,8 +1052,8 @@ def cancel_requests_for_shifts(db: Session, shift_ids: list, actor: str) -> int:
     """Publishing an edit or a removal of a shift (routers/timeclock.
     publish_schedule) cancels the pending swap / offer / open requests
     about it and bells the requester. Returns how many."""
-    return _end_others(db, list(shift_ids), "", actor, "cancelled", CHANGED_NOTE, "Shift request cancelled",
-                       "A shift in your request was changed or removed before it was decided, so the request was cancelled.")
+    return _end_others(db, list(shift_ids), "", actor, "cancelled", CHANGED_NOTE, "Shift Request Canceled",
+                       "A shift in your request was changed or removed before it was decided, so the request was canceled.")
 
 
 @router.post("/{req_id}/decide")
@@ -1046,13 +1077,13 @@ def decide(req_id: str, body: DecideIn, user: dict = Depends(require_schedule_wr
         r.status = "approved"
         # Other requests on these shifts no longer describe the schedule:
         # they are DECLINED with the reason, not "cancelled" as if withdrawn.
-        _end_others(db, moved, r.id, actor, "declined", FILLED_NOTE, "Shift request declined",
+        _end_others(db, moved, r.id, actor, "declined", FILLED_NOTE, "Shift Request Declined",
                     "Another request filled a shift in your request, so it could not go ahead.")
-        title, verb = "Shift request approved", "approved"
+        title, verb = "Shift Request Approved", "approved"
     else:
         r.decision_note, r.decided_by, r.decided_at = note, actor, now
         r.status = "declined"
-        title, verb = "Shift request declined", "declined"
+        title, verb = "Shift Request Declined", "declined"
     for p in people:
         body_text = f"Your manager {verb}: {_describe(r, names)}" + (f". Note: {r.decision_note}" if r.decision_note else ".")
         _bell(db, p, title, body_text, r.id, actor, _EMPLOYEE_ACTION)

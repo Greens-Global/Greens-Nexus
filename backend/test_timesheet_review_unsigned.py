@@ -63,7 +63,7 @@ class FinalizeUnsignedTests(MatrixCase):
         self.assertTrue(any(line.startswith("Approved by") for line in log), log)
         self.assertTrue(any("Finalized without the employee's signature" in line for line in log), log)
         self.assertTrue(self.db.query(models.NexusNotification).filter_by(
-            recipient=MGR, title="Timesheet finalized by HR").first())
+            recipient=MGR, title="Time Sheet Finalized by HR").first())
 
     def test_hr_edited_card_waiting_for_resign(self):
         self._to("approved")

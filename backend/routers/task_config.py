@@ -413,7 +413,7 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
             ids.append(row.id)
             for who in row.assignee_emails or []:
                 if who != actor:
-                    task_notify(db, kind="task_assigned", for_email=who, title="You were assigned a task",
+                    task_notify(db, kind="task_assigned", for_email=who, title="You Were Assigned a Task",
                                 body=row.title, task_id=row.id,
                                 nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
         parent.subtask_ids = ids
@@ -942,7 +942,8 @@ def changelog_entry_to_dict(e: models.TaskChangelogEntry) -> dict:
 
 def changelog_comment_to_dict(c: models.TaskChangelogComment) -> dict:
     return {"id": c.id, "entryId": c.entry_id, "authorId": _nz(c.author_email),
-            "body": c.body or "", "createdAt": c.created_at or ""}
+            "body": c.body or "", "createdAt": c.created_at or "",
+            "parentId": c.parent_id or None, "mentions": c.mentions if isinstance(c.mentions, list) else []}
 
 
 class ChangelogEntryBody(BaseModel):
@@ -953,12 +954,56 @@ class ChangelogEntryBody(BaseModel):
 class ChangelogCommentBody(BaseModel):
     id: Optional[str] = None
     body: str
+    parentId: Optional[str] = None          # a reply to this comment
+    mentions: Optional[list[str]] = None    # work emails @mentioned
+
+
+# Reactions on an update (Pranshu, Oct 16 2026) - the same words, in the same
+# order, as frontend tasks/ChangelogView.jsx REACTIONS.
+CHANGELOG_REACTIONS = ("like", "celebrate", "love", "helpful", "confused")
+# Read out of the server, never stored in an entry's payload: the screen sends
+# the whole entry back on every save.
+_CHANGELOG_COMPUTED = ("reactions", "myReactions", "commentCount")
+
+
+def _stored_payload(payload: dict) -> dict:
+    return {k: v for k, v in (payload or {}).items() if k not in _CHANGELOG_COMPUTED}
+
+
+def _reaction_summary(db: Session, email: str, entry_ids=None) -> dict:
+    """{entry_id: {"reactions": {kind: n}, "myReactions": [kind]}}."""
+    q = db.query(models.ChangelogReaction)
+    if entry_ids is not None:
+        q = q.filter(models.ChangelogReaction.entry_id.in_(list(entry_ids)))
+    out: dict = {}
+    for r in q.all():
+        s = out.setdefault(r.entry_id, {"reactions": {}, "myReactions": []})
+        s["reactions"][r.reaction] = s["reactions"].get(r.reaction, 0) + 1
+        if r.email == email:
+            s["myReactions"].append(r.reaction)
+    return out
 
 
 @view_router.get("/task-changelog")
-def list_changelog(db: Session = Depends(get_db)):
-    rows = db.query(models.TaskChangelogEntry).order_by(models.TaskChangelogEntry.created_at.desc()).all()
-    return [changelog_entry_to_dict(e) for e in rows]
+def list_changelog(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Everything this person may see (changelog_reach.visible): admins get
+    every update; everyone else what is Released, not hidden and aimed at
+    them, plus their own submissions."""
+    import changelog_reach
+    changelog_reach.promote_scheduled(db)
+    ctx = changelog_reach.viewer(db, user)
+    rows = [e for e in db.query(models.TaskChangelogEntry).order_by(models.TaskChangelogEntry.created_at.desc()).all()
+            if changelog_reach.visible(changelog_reach.payload_of(e), ctx)]
+    reactions = _reaction_summary(db, (user["email"] or "").lower())
+    comments = dict(db.query(models.TaskChangelogComment.entry_id, func.count(models.TaskChangelogComment.id))
+                    .group_by(models.TaskChangelogComment.entry_id).all())
+    out = []
+    for e in rows:
+        d = changelog_entry_to_dict(e)
+        d.update(reactions.get(e.id, {"reactions": {}, "myReactions": []}))
+        d["commentCount"] = comments.get(e.id, 0)
+        out.append(d)
+    return out
 
 
 def _seen_row(db: Session, email: str) -> models.ChangelogSeen:
@@ -984,19 +1029,31 @@ def _mark_changelog_seen(db: Session, email: str) -> None:
     email = (email or "").lower().strip()
     if not email:
         return
-    _seen_row(db, email).last_seen_at = now_iso()
+    row = _seen_row(db, email)
+    now = now_iso()
+    # A new visit (30+ minutes after the last one) keeps the old one as
+    # prev_seen_at - "new since your last visit" reads it.
+    last = _changelog_instant(row.last_seen_at)
+    if last and datetime.now(timezone.utc) - last > timedelta(minutes=30):
+        row.prev_seen_at = row.last_seen_at
+    row.last_seen_at = now
 
 
 @router.post("/task-changelog", status_code=201)
 def create_changelog(body: ChangelogEntryBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    from routers.changelog_lifecycle import clean_payload
     now = now_iso()
-    e = models.TaskChangelogEntry(id=body.id or gen_id(), payload=body.payload or {},
+    e = models.TaskChangelogEntry(id=body.id or gen_id(), payload=clean_payload(_stored_payload(body.payload), None),
                                   created_at=now, updated_at=now)
     db.add(e)
     if (body.payload or {}).get("status") == "Released":
         _mark_changelog_seen(db, user["email"])
+    import changelog_reach
+    changelog_reach.record_history(db, e.id, user["email"], "created", {})
     db.commit()
     db.refresh(e)
+    if (body.payload or {}).get("status") == "Released":
+        changelog_reach.on_released(db, [e])
     return changelog_entry_to_dict(e)
 
 
@@ -1005,12 +1062,19 @@ def update_changelog(entry_id: str, body: ChangelogEntryBody, user: dict = Depen
     e = db.query(models.TaskChangelogEntry).filter(models.TaskChangelogEntry.id == entry_id).first()
     if not e:
         raise HTTPException(404, "Changelog entry not found")
-    e.payload = body.payload or {}
+    import changelog_reach
+    from routers.changelog_lifecycle import clean_payload
+    before = dict(e.payload) if isinstance(e.payload, dict) else {}
+    # issue / prodAt / mergeSha are the server's (changelog_lifecycle).
+    e.payload = clean_payload(_stored_payload(body.payload), before)
     e.updated_at = now_iso()
+    changelog_reach.record_history(db, e.id, user["email"], "edit", changelog_reach.diff(before, e.payload))
     if (body.payload or {}).get("status") == "Released":
         _mark_changelog_seen(db, user["email"])
     db.commit()
     db.refresh(e)
+    if (e.payload or {}).get("status") == "Released" and changelog_reach.status_of(before) != "Released":
+        changelog_reach.on_released(db, [e])
     return changelog_entry_to_dict(e)
 
 
@@ -1100,7 +1164,10 @@ def _released_updates(db: Session) -> list:
         at = _changelog_instant(p.get("releasedAt") or e.created_at)
         if at:
             rows.append({"id": e.id, "type": p.get("type") or "Update", "at": at,
-                         "merged": _changelog_instant(p.get("mergedAt"))})
+                         "merged": _changelog_instant(p.get("mergedAt")),
+                         # what changelog_reach.visible() reads
+                         "p": {"status": "Released", "hidden": p.get("hidden"), "audience": p.get("audience"),
+                               "authorId": p.get("authorId")}})
     rows.sort(key=lambda r: r["at"], reverse=True)
     _released_cache.update(key=key, rows=rows)
     return rows
@@ -1173,7 +1240,9 @@ def get_feature_banner(user: dict = Depends(get_current_user), db: Session = Dep
     row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
     seen_at = _changelog_instant(row.last_seen_at) if row else None
     floor = max(week_ago, seen_at) if seen_at else week_ago
-    fresh = [r for r in _released_updates(db) if r["at"] > floor]
+    import changelog_reach
+    ctx = changelog_reach.viewer(db, user)
+    fresh = [r for r in _released_updates(db) if r["at"] > floor and changelog_reach.visible(r["p"], ctx)]
     if not any(r["type"] == "New Feature" for r in fresh):
         return {"show": False}
     counts = _category_counts(fresh)
@@ -1202,14 +1271,24 @@ def get_released_since(since: str = "", user: dict = Depends(get_current_user), 
     merge is placed by when it merged, not when its update was published:
     publishing trails the merge by minutes, and a build cut in between already
     contains it. A hand-written update is placed by its release time."""
+    import changelog_reach
     since_at = _changelog_instant(since) or (datetime.now(timezone.utc) - timedelta(days=1))
-    return _category_counts([r for r in _released_updates(db) if (r["merged"] or r["at"]) > since_at])
+    ctx = changelog_reach.viewer(db, user)
+    return _category_counts([r for r in _released_updates(db)
+                             if (r["merged"] or r["at"]) > since_at and changelog_reach.visible(r["p"], ctx)])
 
 
 @router.delete("/task-changelog/{entry_id}", status_code=204)
 def delete_changelog(entry_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskChangelogEntry).filter(models.TaskChangelogEntry.id == entry_id).delete()
     db.query(models.TaskChangelogComment).filter(models.TaskChangelogComment.entry_id == entry_id).delete()
+    db.query(models.ChangelogReaction).filter(models.ChangelogReaction.entry_id == entry_id).delete()
+    db.query(models.ChangelogEntryView).filter(models.ChangelogEntryView.entry_id == entry_id).delete()
+    db.query(models.ChangelogEntryHistory).filter(models.ChangelogEntryHistory.entry_id == entry_id).delete()
+    db.query(models.ChangelogFeedback).filter(models.ChangelogFeedback.entry_id == entry_id).delete()
+    # A request it shipped keeps its status, no longer pointing at it.
+    db.query(models.ChangelogFeedback).filter(models.ChangelogFeedback.shipped_entry_id == entry_id).update(
+        {models.ChangelogFeedback.shipped_entry_id: ""}, synchronize_session=False)
     db.commit()
 
 
@@ -1223,13 +1302,208 @@ def list_changelog_comments(entry_id: str, db: Session = Depends(get_db)):
 @router.post("/task-changelog/{entry_id}/comments", status_code=201)
 def add_changelog_comment(entry_id: str, body: ChangelogCommentBody,
                           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import changelog_reach
+    entry = db.query(models.TaskChangelogEntry).filter(models.TaskChangelogEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(404, "Changelog entry not found")
+    text = (body.body or "").strip()
+    if not text:
+        raise HTTPException(400, "A comment needs some text")
+    parent = ""
+    if body.parentId:
+        top = db.query(models.TaskChangelogComment).filter(models.TaskChangelogComment.id == body.parentId,
+                                                         models.TaskChangelogComment.entry_id == entry_id).first()
+        if not top:
+            raise HTTPException(400, "That comment is not on this update")
+        parent = top.parent_id or top.id      # one level of replies: a reply to a reply joins the thread
+    mentions = sorted({m.strip().lower() for m in (body.mentions or []) if m and "@" in m})[:20]
     c = models.TaskChangelogComment(id=body.id or gen_id(), entry_id=entry_id,
-                                    author_email=user["email"].lower(), body=body.body or "",
-                                    created_at=now_iso())
+                                    author_email=user["email"].lower(), body=text[:4000],
+                                    created_at=now_iso(), parent_id=parent, mentions=mentions)
     db.add(c)
     db.commit()
     db.refresh(c)
+    changelog_reach.on_comment(db, entry, c, user["email"])
     return changelog_comment_to_dict(c)
+
+
+# ── Publishing, reactions and analytics (Pranshu, Oct 16 2026) ──────────────
+# Merged work still publishes on its own; these publish a teammate's
+# submission waiting in Pending Review, and re-publish an edited update.
+# Either stamps the release time to now, so the update leads the feed and
+# counts as fresh for the weekly bar and the bell.
+class ChangelogPublishBody(BaseModel):
+    ids: Optional[list[str]] = None     # these drafts (default: every Pending Review one)
+
+
+def _publish(e: models.TaskChangelogEntry, email: str, db: Session = None) -> None:
+    p = dict(e.payload) if isinstance(e.payload, dict) else {}
+    now = now_iso()
+    if db is not None:
+        import changelog_reach
+        changelog_reach.record_history(db, e.id, email, "republished" if p.get("status") == "Released" else "published", {})
+    if p.get("status") == "Released":
+        p["republishedAt"] = now
+        p["republishCount"] = int(p.get("republishCount") or 0) + 1
+    p["status"] = "Released"
+    p["releasedAt"] = now
+    p["publishedAt"] = now
+    p["publishedBy"] = email
+    # A merged change's version is the day it went out (_release_label).
+    if p.get("origin") == "pr":
+        p["version"] = _release_label()
+    e.payload = p
+    e.updated_at = now
+
+
+@router.post("/task-changelog/publish-pending")
+def publish_pending_changelog(body: ChangelogPublishBody, user: dict = Depends(require_level(3)),
+                              db: Session = Depends(get_db)):
+    """Publish every update waiting in Pending Review (or just the listed ones)."""
+    wanted = set(body.ids or [])
+    done = []
+    for e in db.query(models.TaskChangelogEntry).all():
+        p = e.payload if isinstance(e.payload, dict) else {}
+        status = p.get("status") or ("Pending Review" if p.get("origin") == "pr" else "Released")
+        if status != "Pending Review" or (wanted and e.id not in wanted):
+            continue
+        _publish(e, user["email"].lower(), db)
+        done.append(e)
+    if done:
+        _mark_changelog_seen(db, user["email"])
+    db.commit()
+    import changelog_reach
+    changelog_reach.on_released(db, done)
+    return {"published": len(done), "entries": [changelog_entry_to_dict(e) for e in done]}
+
+
+@router.post("/task-changelog/{entry_id}/publish")
+def publish_changelog(entry_id: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    """Publish a draft, or re-publish an update that is already out."""
+    e = db.query(models.TaskChangelogEntry).filter(models.TaskChangelogEntry.id == entry_id).first()
+    if not e:
+        raise HTTPException(404, "Changelog entry not found")
+    _publish(e, user["email"].lower(), db)
+    _mark_changelog_seen(db, user["email"])
+    db.commit()
+    db.refresh(e)
+    import changelog_reach
+    changelog_reach.on_released(db, [e])
+    return changelog_entry_to_dict(e)
+
+
+class ChangelogReactionBody(BaseModel):
+    reaction: str
+
+
+@view_router.post("/task-changelog/{entry_id}/reactions")
+def toggle_changelog_reaction(entry_id: str, body: ChangelogReactionBody,
+                              user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """One reaction per person per update: set it, switch it to another
+    kind, or take it back by pressing the same one again. Everyone who reads
+    What's New can react."""
+    kind = (body.reaction or "").strip().lower()
+    if kind not in CHANGELOG_REACTIONS:
+        raise HTTPException(400, "Unknown reaction")
+    if not db.query(models.TaskChangelogEntry.id).filter(models.TaskChangelogEntry.id == entry_id).first():
+        raise HTTPException(404, "Changelog entry not found")
+    email = (user["email"] or "").lower()
+    R = models.ChangelogReaction
+    mine = db.query(R).filter(R.entry_id == entry_id, R.email == email).first()
+    if mine and mine.reaction == kind:
+        db.delete(mine)
+    elif mine:
+        mine.reaction, mine.created_at = kind, now_iso()
+    else:
+        try:
+            with db.begin_nested():     # a double click that loses the race is already counted
+                db.add(R(id=gen_id(), entry_id=entry_id, email=email, reaction=kind, created_at=now_iso()))
+        except IntegrityError:
+            pass
+    db.commit()
+    return _reaction_summary(db, email, [entry_id]).get(entry_id, {"reactions": {}, "myReactions": []})
+
+
+CHANGELOG_VIEW_GAP_MINUTES = 30   # a view counts again only after this long
+
+
+class ChangelogViewsBody(BaseModel):
+    ids: list[str]
+
+
+@view_router.post("/task-changelog/views")
+def record_changelog_views(body: ChangelogViewsBody, user: dict = Depends(get_current_user),
+                           db: Session = Depends(get_db)):
+    """These updates were just shown to this person (the What's New tab, or
+    opened in full) - for the analytics in Manage."""
+    email = (user["email"] or "").lower()
+    ids = list(dict.fromkeys(i for i in (body.ids or []) if i))[:100]
+    if not email or not ids:
+        return {"ok": True}
+    E, V = models.TaskChangelogEntry, models.ChangelogEntryView
+    known = {i for (i,) in db.query(E.id).filter(E.id.in_(ids)).all()}
+    now = now_iso()
+    repeat_after = (datetime.now(timezone.utc) - timedelta(minutes=CHANGELOG_VIEW_GAP_MINUTES)).isoformat()
+    rows = {v.entry_id: v for v in db.query(V).filter(V.email == email, V.entry_id.in_(list(known))).all()}
+    for entry_id in (i for i in ids if i in known):
+        if entry_id in rows:
+            # A reload or a second look within the half hour is the same
+            # visit - it would only inflate Views.
+            if (rows[entry_id].last_at or "") < repeat_after:
+                rows[entry_id].views = (rows[entry_id].views or 0) + 1
+                rows[entry_id].last_at = now
+            continue
+        try:
+            with db.begin_nested():     # two tabs at once: the loser's view is in the winner's row
+                db.add(V(id=gen_id(), entry_id=entry_id, email=email, views=1, first_at=now, last_at=now))
+        except IntegrityError:
+            pass
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/task-changelog/analytics")
+def changelog_analytics(user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    """Reach and response per update, and in total, for Manage."""
+    per: dict = {}
+
+    def one(entry_id):
+        return per.setdefault(entry_id, {"viewers": 0, "views": 0, "reactions": {}, "reactionTotal": 0, "comments": 0})
+
+    people, reactors = set(), set()
+    for v in db.query(models.ChangelogEntryView).all():
+        s = one(v.entry_id)
+        s["viewers"] += 1
+        s["views"] += v.views or 0
+        people.add(v.email)
+    for r in db.query(models.ChangelogReaction).all():
+        s = one(r.entry_id)
+        s["reactions"][r.reaction] = s["reactions"].get(r.reaction, 0) + 1
+        s["reactionTotal"] += 1
+        reactors.add(r.email)
+    for entry_id, n in (db.query(models.TaskChangelogComment.entry_id, func.count(models.TaskChangelogComment.id))
+                        .group_by(models.TaskChangelogComment.entry_id).all()):
+        one(entry_id)["comments"] = n
+    totals = {
+        "peopleReached": len(people),
+        "views": sum(s["views"] for s in per.values()),
+        "reactions": sum(s["reactionTotal"] for s in per.values()),
+        "reactors": len(reactors),
+        "comments": sum(s["comments"] for s in per.values()),
+    }
+    return {"totals": totals, "entries": per}
+
+
+@router.get("/task-changelog/{entry_id}/analytics")
+def changelog_entry_analytics(entry_id: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    """Who saw one update and how they reacted, latest first."""
+    V, R = models.ChangelogEntryView, models.ChangelogReaction
+    views = db.query(V).filter(V.entry_id == entry_id).order_by(V.last_at.desc()).all()
+    reactions = db.query(R).filter(R.entry_id == entry_id).order_by(R.created_at.desc()).all()
+    return {
+        "viewers": [{"email": v.email, "views": v.views or 0, "firstAt": v.first_at, "lastAt": v.last_at} for v in views],
+        "reactions": [{"email": r.email, "reaction": r.reaction, "at": r.created_at} for r in reactions],
+    }
 
 
 # ── What's New from merged pull requests ─────────────────────────────────────
@@ -1355,6 +1629,9 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
             "authorId": "",
             "developers": pr.get("developers") or [],
             "sourceKey": pr["key"],
+            # The merge commit: changelog_lifecycle.sync_production checks it
+            # against main for Live in Production.
+            "mergeSha": pr.get("sha", ""),
             # One run publishes several entries at the same releasedAt; this
             # orders them latest merge first.
             "mergedAt": pr.get("mergedAt", ""),
@@ -1370,6 +1647,9 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
     db.commit()
     for e in created:
         db.refresh(e)
+    if created:
+        import changelog_reach
+        changelog_reach.on_released(db, created)
     changelog_auto._write_state(db, {
         "pr_cursor": head,
         "skipped_keys": (skipped_before + [pr["key"] for pr in skipped])[-300:],

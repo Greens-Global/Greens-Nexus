@@ -22,7 +22,7 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 import { SignModal } from './ESign';
 
 const ACTION_LABEL = {
-  submitted: 'submitted the timesheet', resubmitted: 'sent it back to the manager',
+  submitted: 'submitted the time sheet', resubmitted: 'sent it back to the manager',
   sent_back: 'sent it back', agreed: 'agreed and sent it for signature',
   approved: 'reviewed and approved it', employee_approved: 'approved it to sign',
   reopened: 'reopened it', hr_edited: 'changed the hours (HR)', unlocked: 'unlocked it for corrections',
@@ -31,6 +31,11 @@ const ACTION_LABEL = {
   finalized_unsigned: "finalized it without the employee's signature (HR)",
   signed_employee: 'signed as the employee', signed_manager: 'signed as the manager',
   signed_hr: 'signed for HR', completed: 'finalized it for payroll',
+  // CA-rule staff only (Oct 17 2026): the meal and rest break question.
+  break_attested: 'confirmed the meal and rest break statement by signing',
+  break_not_collected: 'signed on paper without the meal and rest break statement',
+  // Oct 20: signed, but a pay setting moved the totals - not finalized.
+  totals_changed: 'Totals changed after approval - sent back to the manager',
 };
 // Oct 16 (Neil): only the employee signs. The lead approver - the manager, or
 // the company's HR contact / a Global Admin when nobody is set - approves by
@@ -144,6 +149,9 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [signing, setSigning] = useState(null);   // Nexus Sign party id
+  // CA-rule staff: no question before signing (Oct 18) - the signing screen
+  // shows the meal and rest break statement and Report a Missed Break.
+  const startSign = (partyId) => setSigning(partyId);
   const [reason, setReason] = useState('');
   if (!review) return null;
   const r = review;
@@ -165,7 +173,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   // Approve & Sign: the envelope goes out and the signing screen opens on it.
   async function approveAndSign() {
     const out = await run(() => api.timesheetReviewSign(r.id), 'Sign it to finalize.');
-    if (out?.myPartyId) setSigning(out.myPartyId);
+    if (out?.myPartyId) startSign(out.myPartyId);
   }
 
   // A missing clock-out, a clock-out with no clock-in or an unended break is
@@ -246,7 +254,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     body = r.canEmployeeApprove ? (
       <>
         <p style={{ fontSize: 13, margin: '0 0 8px' }}>
-          HR changed your hours after {name(r.agreedBy) || mgr} approved them{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. Check them above, then sign the updated timesheet. If something is wrong, ask for a punch fix or tell {mgr} what - it goes back to them.
+          HR changed your hours after {name(r.agreedBy) || mgr} approved them{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. Check them above, then sign the updated time sheet. If something is wrong, ask for a punch fix or tell {mgr} what - it goes back to them.
         </p>
         {noteBox('What is wrong? (required to send it back)')}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -254,12 +262,12 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
             onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Sent back to your manager.')}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Undo2 size={13} /> Not Right - Send Back</button>
           <button className="primary-btn" disabled={busy} onClick={approveAndSign}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><FileSignature size={13} /> Sign Updated Timesheet</button>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><FileSignature size={13} /> Sign Updated Time Sheet</button>
         </div>
       </>
     ) : (
       <p style={{ fontSize: 13, margin: 0 }}>
-        Approved by {name(r.agreedBy) || mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. HR changed the hours since, so it is waiting for {name(r.employeeEmail) || 'the employee'} to sign the updated timesheet.
+        Approved by {name(r.agreedBy) || mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. HR changed the hours since, so it is waiting for {name(r.employeeEmail) || 'the employee'} to sign the updated time sheet.
       </p>
     );
   }
@@ -278,7 +286,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
       <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Employee Not Signing?</div>
       <p style={{ fontSize: 12.5, margin: '0 0 8px', color: r.canFinalizeUnsigned ? 'var(--ink)' : '#b45309' }}>
         {r.canFinalizeUnsigned
-          ? `${r.employeeLeft ? `${name(r.employeeEmail) || 'This person'} is no longer active. ` : ''}You can finalize this period for payroll without their signature. Say why - it is logged on the timesheet.`
+          ? `${r.employeeLeft ? `${name(r.employeeEmail) || 'This person'} is no longer active. ` : ''}You can finalize this period for payroll without their signature. Say why - it is logged on the time sheet.`
           : r.finalizeUnsignedBlocker}
       </p>
       {r.canFinalizeUnsigned && (
@@ -298,9 +306,10 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     </div>
   );
 
+  const sentBack = self && r.status === 'with_employee' && r.canSubmit;   // waiting on me - the Time Sheet tab's count
   return (
-    <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-      <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 8 }}>Timesheet Review &amp; Signature</div>
+    <div className={sentBack ? 'nx-needs-you' : undefined} style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)', ...(sentBack ? { padding: '14px 12px', borderRadius: 10 } : null) }}>
+      <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 8 }}>Time Sheet Review &amp; Signature</div>
       <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>
         The employee and their approver agree the hours, then the employee signs in Nexus Sign (electronically or on paper). That signature finalizes the period for payroll. Period: {periodLabel}.
       </p>
@@ -331,7 +340,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
             <SigCard label="Employee" party={parties.employee} waiting={r.turn === 'employee'} />
           </div>
           {r.myPartyId && (
-            <button className="primary-btn" onClick={() => setSigning(r.myPartyId)}
+            <button className="primary-btn" onClick={() => startSign(r.myPartyId)}
               style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               <FileSignature size={13} /> {r.turn === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
             </button>

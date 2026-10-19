@@ -22,7 +22,7 @@ function setViewport(isMobile) {
 
 const rows = [
   { title: 'Approve: A very long approval title that would wrap onto two lines on a narrow screen', detail: 'Waiting on your decision', module: 'tasks', path: '/tasks/mine?task=t1', taskId: 't1', decision: { kind: 'task_approval', id: 't1' } },
-  { title: 'Submit your time card', detail: 'Pay period ending 10/04/2026 is closed - sign off is still open', module: 'timecard', path: '/timeclock' },
+  { title: 'Submit your time sheet', detail: 'Pay period ending 10/04/2026 is closed - sign off is still open', module: 'timecard', path: '/timeclock' },
   { title: 'Send the Q3 report', detail: 'Due today', module: 'tasks', path: '/tasks/mine?task=t2', taskId: 't2', taskOpen: true },
 ];
 const briefing = (r) => ({ sections: [{ key: 'action_required', label: 'Action Required', rows: r }] });

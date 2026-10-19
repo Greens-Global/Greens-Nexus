@@ -922,7 +922,7 @@ def my_assets(user: dict = Depends(get_current_user), db: Session = Depends(get_
 # ── Ask HR - employee requests (document updates, profile changes, questions) ─
 
 _REQ_TYPES = ("document", "profile", "question", "other")
-_REQ_LABEL = {"document": "Document update", "profile": "Profile change",
+_REQ_LABEL = {"document": "Document Update", "profile": "Profile Change",
               "question": "Question", "other": "Request"}
 
 

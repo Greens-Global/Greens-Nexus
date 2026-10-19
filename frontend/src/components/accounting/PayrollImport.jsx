@@ -16,7 +16,7 @@ import {
 // "HR export and import into QB, as well as the export from QB to Intacct").
 //
 // Payroll Hours to QuickBooks: the period's hours from Nexus time sheets (one
-// company, approved sheets only by default - GET /timeclock/export-hours,
+// company, finalized sheets only by default - GET /timeclock/export-hours,
 // payroll/HR access behind step-up) or from an uploaded hours file, previewed
 // per person, then downloaded as the QuickBooks Desktop time import (IIF) or
 // Intacct's statistical hours journal (STAT, the OSM hours template).
@@ -188,8 +188,10 @@ export function PayrollHoursToQb() {
   const [source, setSource] = useState('nexus');
   const [companies, setCompanies] = useState([]);
   const [company, setCompany] = useState('');
-  const [approvedOnly, setApprovedOnly] = useState(true);
-  const [nexus, setNexus] = useState(null);      // { rows, start, end, company, approvedOnly }
+  // Finalized time sheets only by default (Oct 19): unchecked is a draft
+  // preview that includes time not signed and finalized yet.
+  const [finalizedOnly, setFinalizedOnly] = useState(true);
+  const [nexus, setNexus] = useState(null);      // { rows, start, end, company, finalizedOnly }
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [file, setFile] = useState(null);        // { name, entries, skipped }
@@ -214,8 +216,8 @@ export function PayrollHoursToQb() {
     if (!s.periodStart || !s.periodEnd) { setError('Pick the period start and end.'); return; }
     setBusy('load'); setError('');
     try {
-      const d = await withStepUp(() => api.timeExportHours(s.periodStart, s.periodEnd, { company, approvedOnly }));
-      if (d) setNexus({ rows: d.rows || [], start: s.periodStart, end: s.periodEnd, company, approvedOnly });
+      const d = await withStepUp(() => api.timeExportHours(s.periodStart, s.periodEnd, { company, finalizedOnly }));
+      if (d) setNexus({ rows: d.rows || [], start: s.periodStart, end: s.periodEnd, company, finalizedOnly });
     } catch (e) {
       setError(e?.status === 403 ? 'Time sheet hours need payroll access in People. You can still upload an hours file.' : (e?.message || 'Could not load the hours.'));
     } finally { setBusy(''); }
@@ -237,7 +239,7 @@ export function PayrollHoursToQb() {
     }
     return file ? totalsFromHoursFile(file.entries) : [];
   }, [source, nexus, file]);
-  const stale = source === 'nexus' && nexus && (nexus.start !== s.periodStart || nexus.end !== s.periodEnd || nexus.company !== company || nexus.approvedOnly !== approvedOnly);
+  const stale = source === 'nexus' && nexus && (nexus.start !== s.periodStart || nexus.end !== s.periodEnd || nexus.company !== company || nexus.finalizedOnly !== finalizedOnly);
   const have = people.length > 0 && !stale;
   const totalHours = people.reduce((t, p) => t + Object.values(p.buckets).reduce((a, b) => a + b, 0), 0);
 
@@ -249,7 +251,7 @@ export function PayrollHoursToQb() {
     }
     setBusy('iif'); setError('');
     try {
-      const res = await withStepUp(() => api.timeExportIifFor(nexus.start, nexus.end, { company: nexus.company, approvedOnly: nexus.approvedOnly }));
+      const res = await withStepUp(() => api.timeExportIifFor(nexus.start, nexus.end, { company: nexus.company, finalizedOnly: nexus.finalizedOnly }));
       if (res) downloadBlob(res.filename || `timeclock-${nexus.start}-to-${nexus.end}.iif`, res.blob);
     } catch (e) { setError(e?.message || 'Could not download the QuickBooks file.'); }
     finally { setBusy(''); }
@@ -291,13 +293,18 @@ export function PayrollHoursToQb() {
           {source === 'nexus' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 10 }}>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                <input type="checkbox" checked={approvedOnly} onChange={(e) => setApprovedOnly(e.target.checked)} />
-                Approved time sheets only
+                <input type="checkbox" checked={finalizedOnly} onChange={(e) => setFinalizedOnly(e.target.checked)} />
+                Finalized time sheets only
               </label>
               <button type="button" className="primary-btn" onClick={load} disabled={busy === 'load'} style={btn}>
                 {busy === 'load' ? 'Loading...' : 'Load Hours'}
               </button>
               {stale && <span style={small}>The period or filters changed - load the hours again.</span>}
+            </div>
+          )}
+          {source === 'nexus' && !finalizedOnly && (
+            <div role="note" data-testid="iif-draft-note" style={{ marginTop: 8, fontSize: '0.78rem', color: 'hsl(var(--color-orange))', fontWeight: 600 }}>
+              Draft preview: includes time sheets that are not finalized yet. The QuickBooks file is named DRAFT - do not import it into payroll.
             </div>
           )}
         </div>
@@ -315,14 +322,14 @@ export function PayrollHoursToQb() {
               <span><strong>{fmtH(totalHours) || 0}</strong> hours</span>
               {source === 'nexus' && nexus && <span style={small}>{formatDate(nexus.start)} to {formatDate(nexus.end)}</span>}
               <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" className="primary-btn" disabled={!have || busy === 'iif'} onClick={downloadIif} style={btn}><Download size={14} /> Download QuickBooks IIF</button>
+                <button type="button" className="primary-btn" disabled={!have || busy === 'iif'} onClick={downloadIif} style={btn}><Download size={14} /> {source === 'nexus' && nexus && !nexus.finalizedOnly ? 'Download Draft QuickBooks IIF' : 'Download QuickBooks IIF'}</button>
                 <button type="button" className="secondary-btn" disabled={!have} onClick={downloadStat} style={btn}><Download size={14} /> Download Intacct Hours Import</button>
               </span>
             </div>
             <HoursPreview people={people} showApproval={source === 'nexus'} />
             {people.length > PREVIEW && <div style={small}>Showing the first {PREVIEW} of {people.length}; the downloads have them all.</div>}
             <p style={{ ...small, margin: 0 }}>
-              QuickBooks matches the employee by name and the payroll items Regular Pay, Overtime Pay, Double-time Pay, Sick Pay and Vacation Pay - they must exist in QuickBooks or be mapped when importing.
+              QuickBooks matches the employee by name and the payroll items Regular Pay, Overtime Pay, Double-time Pay, Holiday Pay, Sick Pay, Vacation Pay and Personal Pay - they must exist in QuickBooks or be mapped when importing. Nexus time sheets use each company's names, and its QuickBooks company name, from Settings &gt; Time Clock &gt; Pay Rules &gt; Payroll Export Codes.
             </p>
           </>
         )}

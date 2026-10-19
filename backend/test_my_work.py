@@ -183,7 +183,7 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual((child["project"], child["statusLabel"]), ("Rollout", "In Progress"))
         trow = out["week"][0]
         self.assertEqual(trow, {"kind": "ticket", "id": tk.id, "code": "000027", "title": "VPN down", "project": "IT",
-                                "dueOn": "2026-10-09", "status": "open", "statusLabel": "Open", "priority": "urgent",
+                                "dueOn": "2026-10-09", "dueAt": "", "slaPaused": False, "status": "open", "statusLabel": "Open", "priority": "urgent",
                                 "unread": False, "view": "support", "sub": "", "ticketId": tk.id})
 
     def test_desk_agents_open_tickets_on_the_desk(self):

@@ -37,7 +37,7 @@ const approvalSwitch = (typeLabel) => screen.getByRole('switch', { name: `Requir
 describe('TicketTaxonomySettings - Requires Approval', () => {
   it('shows each type with its approval switch and the hint', async () => {
     render(<TicketTaxonomySettings />);
-    await screen.findByText('Ticket types & intake questions');
+    await screen.findByText('Ticket Types & Intake Questions');
     expect(approvalSwitch('Access Request')).toHaveAttribute('aria-checked', 'true');
     // Retired from the five (Oct 1) - not listed at all.
     expect(screen.queryByRole('switch', { name: 'Requires Approval: Service Request' })).toBeNull();
@@ -48,7 +48,7 @@ describe('TicketTaxonomySettings - Requires Approval', () => {
 
   it('flips the switch and saves the flag per type', async () => {
     render(<TicketTaxonomySettings />);
-    await screen.findByText('Ticket types & intake questions');
+    await screen.findByText('Ticket Types & Intake Questions');
     fireEvent.click(approvalSwitch('Bug Report'));
     fireEvent.click(approvalSwitch('Access Request'));
     expect(approvalSwitch('Bug Report')).toHaveAttribute('aria-checked', 'true');
@@ -65,7 +65,7 @@ describe('TicketTaxonomySettings - Requires Approval', () => {
   it('feeds the loaded taxonomy into typeRequiresApproval, with no hardcoded list', async () => {
     // Save above triggers refreshTicketConfig(), which re-applies the fetched config.
     render(<TicketTaxonomySettings />);
-    await screen.findByText('Ticket types & intake questions');
+    await screen.findByText('Ticket Types & Intake Questions');
     fireEvent.click(screen.getByRole('button', { name: /Save/ }));
     await waitFor(() => expect(typeRequiresApproval('access_request')).toBe(true));
     expect(typeRequiresApproval('bug')).toBe(false);
@@ -78,7 +78,7 @@ const intakeSwitch = (typeLabel) => screen.getByRole('switch', { name: `Offered 
 describe('TicketTaxonomySettings - the five types (Oct 1)', () => {
   it('lists only the five, all on by default', async () => {
     render(<TicketTaxonomySettings />);
-    await screen.findByText('Ticket types & intake questions');
+    await screen.findByText('Ticket Types & Intake Questions');
     const listed = screen.getAllByRole('switch', { name: /^Offered on Submit a Ticket: / })
       .map((el) => el.getAttribute('aria-label').replace('Offered on Submit a Ticket: ', ''));
     expect(listed).toEqual(['Incident', 'Bug Report', 'Feature Request', 'Access Request', 'Other']);
@@ -90,7 +90,7 @@ describe('TicketTaxonomySettings - the five types (Oct 1)', () => {
 
   it('turns a type off and on, and saves only the five', async () => {
     render(<TicketTaxonomySettings />);
-    await screen.findByText('Ticket types & intake questions');
+    await screen.findByText('Ticket Types & Intake Questions');
     fireEvent.click(intakeSwitch('Feature Request'));
     expect(intakeSwitch('Feature Request')).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByText(/TURNED OFF/)).toBeTruthy();
@@ -103,7 +103,7 @@ describe('TicketTaxonomySettings - the five types (Oct 1)', () => {
     api.getTicketTaxonomySettings.mockImplementationOnce(() => Promise.resolve({
       ...JSON.parse(JSON.stringify(CONFIG)), typeOrder: ['incident', 'service_request', 'change_request'] }));
     render(<TicketTaxonomySettings />);
-    await screen.findByText('Ticket types & intake questions');
+    await screen.findByText('Ticket Types & Intake Questions');
     expect(intakeSwitch('Incident')).toHaveAttribute('aria-checked', 'true');
     expect(intakeSwitch('Bug Report')).toHaveAttribute('aria-checked', 'false');
     // The last one on cannot be switched off.
@@ -113,5 +113,45 @@ describe('TicketTaxonomySettings - the five types (Oct 1)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save/ }));
     await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalledTimes(1));
     expect(api.updateTicketTaxonomySettings.mock.calls[0][0].typeOrder).toEqual(['incident', 'bug']);
+  });
+});
+
+// Oct 2026 review: the box clamped on every keystroke, so clearing "48" to
+// retype it snapped to 1 and then read "148".
+describe('TicketTaxonomySettings - SLA hours box', () => {
+  it('keeps what is typed while typing and clamps on blur', async () => {
+    render(<TicketTaxonomySettings />);
+    const box = await screen.findByLabelText('High SLA hours');
+    fireEvent.change(box, { target: { value: '' } });
+    expect(box.value).toBe('');
+    fireEvent.change(box, { target: { value: '4' } });
+    fireEvent.change(box, { target: { value: '48' } });
+    expect(box.value).toBe('48');
+    fireEvent.change(box, { target: { value: '' } });
+    fireEvent.blur(box);
+    expect(box.value).toBe('1');
+  });
+
+  it('saves what is still being typed, clamped', async () => {
+    render(<TicketTaxonomySettings />);
+    const box = await screen.findByLabelText('Urgent SLA hours');
+    fireEvent.change(box, { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalledTimes(1));
+    expect(api.updateTicketTaxonomySettings.mock.calls[0][0].slaTargetHours.urgent).toBe(12);
+  });
+
+  // Honest SLA (Oct 2026): the first-response targets sit under the SLA ones,
+  // defaulting when the saved config predates them.
+  it('edits and saves the first response targets', async () => {
+    render(<TicketTaxonomySettings />);
+    const box = await screen.findByLabelText('Urgent first response hours');
+    expect(box.value).toBe('4');
+    fireEvent.change(box, { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalledTimes(1));
+    const sent = api.updateTicketTaxonomySettings.mock.calls[0][0];
+    expect(sent.firstResponseHours).toEqual({ urgent: 2, high: 8, medium: 24, low: 48 });
+    expect(sent.slaTargetHours.urgent).toBe(24);
   });
 });

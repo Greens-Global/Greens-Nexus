@@ -121,7 +121,7 @@ export default function LoginPage() {
   // and this one collided on the same brief.
   const PANELS = [
     { Icon: CheckSquare, tint: "#dff3fc", fg: "#0998c3", title: "Tasks", sub: "Projects, boards and deadlines" },
-    { Icon: Clock,       tint: P.tint,     fg: P.base,    title: "Time & Attendance", sub: "Punch in, timesheets, payroll" },
+    { Icon: Clock,       tint: P.tint,     fg: P.base,    title: "Time & Attendance", sub: "Punch in, time sheets, payroll" },
     { Icon: Users,       tint: "#e6f7ef", fg: "#00a25b", title: "People", sub: "Profiles, leave and documents" },
     { Icon: Boxes,       tint: "#fff3e3", fg: "#c26f00", title: "Operations", sub: "Sites, staffing and vendors" },
     { Icon: Gauge,       tint: "#ecebfe", fg: "#5145cd", title: "Insights & BI", sub: "KPIs and analytics, every module" },

@@ -132,9 +132,9 @@ class RouteTests(unittest.TestCase):
             db.close()
 
     def test_iif_route_answers_a_file(self):
-        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}")
+        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&finalized_only=false")
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertIn("attachment; filename=timeclock-2026-09-13-to-2026-09-26.iif", r.headers["content-disposition"])
+        self.assertIn("attachment; filename=timeclock-2026-09-13-to-2026-09-26-DRAFT.iif", r.headers["content-disposition"])
         lines = r.text.split("\r\n")
         self.assertEqual(lines[0], "!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME")
         self.assertEqual(lines[2], "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS")
@@ -142,13 +142,13 @@ class RouteTests(unittest.TestCase):
 
     def test_iif_route_keeps_one_company_and_approved_sheets(self):
         # Import Hub (Neil, 10/15): the company picker and "approved only".
-        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&company=co-other")
+        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&company=co-other&finalized_only=false")
         self.assertEqual(r.status_code, 200, r.text)
         self.assertNotIn("Pat Test", r.text)
-        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&company=co-intacct&approved_only=true")
+        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&company=co-intacct&approved_only=true&finalized_only=false")
         self.assertNotIn("Pat Test", r.text)          # not approved yet
         self._approve(PAT)
-        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&company=co-intacct&approved_only=true")
+        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&company=co-intacct&approved_only=true&finalized_only=false")
         self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t1", r.text.split("\r\n"))
 
     def test_hours_route_answers_hours_by_class_without_pay(self):

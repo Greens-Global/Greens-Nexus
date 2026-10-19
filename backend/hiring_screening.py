@@ -151,10 +151,11 @@ def start(db: Session, cand: models.HrCandidate, by: str) -> Optional[models.Tas
             attach_resume(db, cand, cand.resume_url.rsplit("/", 1)[-1].split("-", 1)[-1], got.content,
                           "application/octet-stream", by)
     from routers.hr import _hr_notify
+    from task_due import us_date
     for email in who:
         _hr_notify(db, email, f"Screen {name} - {role}",
                    f"A new candidate for {role}. Read the resume and add your notes before the interview"
-                   + (f" - screening is due {task.due_on}" if task.due_on else "") + ".",
+                   + (f" - screening is due {us_date(task.due_on)}" if task.due_on else "") + ".",
                    ref_id=cand.id, requested_by=by, action={"view": "hr", "sub": "hr-hiring"})
     return task
 

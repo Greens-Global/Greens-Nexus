@@ -45,7 +45,7 @@ const fmtDur = (sec) => {
 };
 const initials = (s) => (s || '?').replace(/^www\./, '').slice(0, 2).toUpperCase();
 const hueOf = (s) => { let h = 0; for (const ch of (s || '')) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; };
-const localTime = (iso) => { try { return new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return iso; } };
+const localTime = (iso) => { try { return new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); } catch { return iso; } };
 
 const CARD = { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--wk-shadow)' };
 // Card-header title (Work OS grammar - sentence case, no uppercase tracking).

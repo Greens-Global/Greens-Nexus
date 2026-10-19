@@ -28,7 +28,7 @@ import io
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -39,13 +39,15 @@ import intacct_gl
 import models
 from auth import get_current_user, require_module_grant
 from database import get_db
-from routers.accounting import _display_name
+from routers.accounting import _display_name, require_unlimited
 from routers.stepup import require_stepup
 
 router = APIRouter(
     prefix="/accounting/allocations",
     tags=["Accounting"],
-    dependencies=[Depends(require_module_grant("accounting", "full"))],
+    # No entity limit (Oct 17 review): the preview, runs and exports carry every
+    # company's wages per person - the same rule as Employee Compensation.
+    dependencies=[Depends(require_module_grant("accounting", "full")), Depends(require_unlimited)],
 )
 
 MAP_KEY = "accounting_allocations_map"
@@ -267,7 +269,15 @@ def preview(month: str, user: dict = Depends(get_current_user), _su: dict = Depe
 class RunBody(BaseModel):
     month: str
     entity: str = ""
-    preview: dict
+    # What the screen showed. Only its totals are read - to refuse a keep when
+    # the figures moved since - never its lines (see save_run).
+    preview: Optional[dict] = None
+
+
+def _same_figures(a: dict, b: dict) -> bool:
+    ta, tb = (a or {}).get("totals") or {}, (b or {}).get("totals") or {}
+    return all(round(float(ta.get(k) or 0), 2) == round(float(tb.get(k) or 0), 2) for k in ("debits", "credits", "wages")) \
+        and int(ta.get("people") or 0) == int(tb.get("people") or 0)
 
 
 def _run_out(r: models.AccountingAllocationRun, db: Session, full: bool = False) -> dict:
@@ -280,7 +290,7 @@ def _run_out(r: models.AccountingAllocationRun, db: Session, full: bool = False)
 
 
 @router.get("/runs")
-def list_runs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_runs(user: dict = Depends(get_current_user), _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     rows = db.query(models.AccountingAllocationRun).order_by(models.AccountingAllocationRun.run_at.desc()).limit(200).all()
     return {"runs": [_run_out(r, db) for r in rows]}
 
@@ -290,7 +300,15 @@ def save_run(body: RunBody, user: dict = Depends(get_current_user), _su: dict = 
     """Keep a preview as a run. The entries must balance; unmapped lines are
     refused so no half-coded file reaches Intacct."""
     _month_range(body.month)
-    pv = body.preview or {}
+    # Rebuilt HERE, never taken from the browser (Oct 17 review): the screen's
+    # copy could be last month's preview still on screen while the new month
+    # loads, and it would have been kept - and exported to Intacct - under the
+    # new month. The client's copy only proves what the person looked at.
+    month = body.month[:7]
+    people, cards = _people_and_cards(db, month)
+    pv = build_preview(db, month, _read_map(db), cards, people)
+    if body.preview is not None and (str(body.preview.get("month") or "")[:7] != month or not _same_figures(body.preview, pv)):
+        raise HTTPException(status_code=409, detail="The figures changed since this preview was built - review the refreshed preview and keep it again.")
     entries = pv.get("entries") or []
     if not entries:
         raise HTTPException(status_code=400, detail="There is nothing to keep - the preview has no lines.")
@@ -300,7 +318,7 @@ def save_run(body: RunBody, user: dict = Depends(get_current_user), _su: dict = 
         raise HTTPException(status_code=400, detail="The entry does not balance.")
     if len(json.dumps(pv)) > 4_000_000:
         raise HTTPException(status_code=400, detail="That run is too large to keep.")
-    row = models.AccountingAllocationRun(id=str(uuid.uuid4()), month=body.month[:7], entity=(body.entity or "").strip()[:40],
+    row = models.AccountingAllocationRun(id=str(uuid.uuid4()), month=month, entity=(body.entity or "").strip()[:40],
                                          run_by=user["email"], run_at=_now(), lines=pv)
     db.add(row)
     db.commit()

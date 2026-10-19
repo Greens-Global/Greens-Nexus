@@ -323,6 +323,8 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   if ((options.method || 'GET').toUpperCase() !== 'GET') {
     _getCache.clear();
     _queryClient?.invalidateQueries();
+    // The sidebar dots and tab counts refresh after any write (lib/useActionCounts.js).
+    window.dispatchEvent(new CustomEvent('nexus:data-written'));
   }
   if (res.status === 204) return null;
   // Parse from text so evidence-photo URLs of the private buckets can be
@@ -709,6 +711,60 @@ export const api = {
   // Red-dot eye icon next to the profile pill: unseen published update since this user's last visit.
   getTaskChangelogUnseen: () => req("/task-changelog/unseen"),
   markTaskChangelogSeen: () => req("/task-changelog/seen", { method: "POST" }),
+  // Publish a draft / re-publish an update, publish the review queue, reactions,
+  // views and Manage's analytics (Pranshu, Oct 16 2026).
+  publishTaskChangelog: (id) => req(`/task-changelog/${id}/publish`, { method: "POST" }),
+  publishPendingTaskChangelog: (ids) => req("/task-changelog/publish-pending", { method: "POST", body: JSON.stringify({ ids: ids || null }) }),
+  reactTaskChangelog: (id, reaction) => req(`/task-changelog/${id}/reactions`, { method: "POST", body: JSON.stringify({ reaction }) }),
+  recordTaskChangelogViews: (ids) => req("/task-changelog/views", { method: "POST", body: JSON.stringify({ ids }) }),
+  getTaskChangelogAnalytics: () => req("/task-changelog/analytics"),
+  getTaskChangelogEntryAnalytics: (id) => req(`/task-changelog/${id}/analytics`),
+  // Follow / digest / RSS, screen hints, feedback, history, bulk, insights
+  // (backend routers/changelog_extras.py, Oct 16 2026).
+  getTaskChangelogMe: () => req("/task-changelog/me"),
+  saveTaskChangelogSubscription: (data) => req("/task-changelog/subscription", { method: "PUT", body: JSON.stringify(data) }),
+  getTaskChangelogFeedLink: () => req("/task-changelog/feed-link"),
+  rotateTaskChangelogFeedLink: () => req("/task-changelog/feed-link/rotate", { method: "POST" }),
+  getTaskChangelogHints: (view) => req(`/task-changelog/hints?view=${encodeURIComponent(view)}`),
+  getTaskChangelogFeedback: (id) => req(`/task-changelog/${id}/feedback`),
+  sendTaskChangelogFeedback: (id, data) => req(`/task-changelog/${id}/feedback`, { method: "POST", body: JSON.stringify(data) }),
+  getTaskChangelogFeedbackList: () => req("/task-changelog-admin/feedback"),
+  getTaskChangelogHistory: (id) => req(`/task-changelog/${id}/history`),
+  bulkTaskChangelog: (data) => req("/task-changelog-admin/bulk", { method: "POST", body: JSON.stringify(data) }),
+  getTaskChangelogAudienceOptions: () => req("/task-changelog-admin/audience-options"),
+  getTaskChangelogInsights: () => req("/task-changelog-admin/insights"),
+  // What's New after release (Oct 18 2026, routers/changelog_lifecycle.py):
+  // request statuses, known issues / rollbacks, tours, live in production.
+  getMyChangelogRequests: () => req("/task-changelog/my-requests"),
+  raiseChangelogRequest: (data) => req("/task-changelog/requests", { method: "POST", body: JSON.stringify(data) }),
+  setChangelogRequestStatus: (id, data) => req(`/task-changelog-admin/requests/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  raiseChangelogIssue: (id, data) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue`, { method: "POST", body: JSON.stringify(data) }),
+  resolveChangelogIssue: (id, data) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue/resolve`, { method: "POST", body: JSON.stringify(data) }),
+  clearChangelogIssue: (id) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue`, { method: "DELETE" }),
+  getChangelogTour: (id) => req(`/task-changelog/${encodeURIComponent(id)}/tour`),
+  finishChangelogTour: (id) => req(`/task-changelog/${encodeURIComponent(id)}/tour-done`, { method: "POST" }),
+  checkChangelogProduction: () => req("/task-changelog-admin/check-production", { method: "POST", timeoutMs: 120_000 }),
+  // Workday > Reimbursements (Oct 18 2026): file, approve, receipt, HR pays.
+  getReimbursements:       ()          => req('/reimbursements'),
+  createReimbursement:     (body)      => req('/reimbursements', { method: 'POST', body: JSON.stringify(body) }),
+  uploadReimbursementReceipt: (form)   => req('/reimbursements/receipt', { method: 'POST', body: form }),
+  decideReimbursement:     (id, body)  => req(`/reimbursements/${id}/decide`, { method: 'POST', body: JSON.stringify(body) }),
+  addReimbursementReceipts: (id, body) => req(`/reimbursements/${id}/receipts`, { method: 'POST', body: JSON.stringify(body) }),
+  resubmitReimbursement:   (id, body)  => req(`/reimbursements/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  cancelReimbursement:     (id)        => req(`/reimbursements/${id}/cancel`, { method: 'POST' }),
+  payReimbursement:        (id, body)  => req(`/reimbursements/${id}/paid`, { method: 'POST', body: JSON.stringify(body) }),
+  reimbursementReceiptUrl: (id, i = 0) => req(`/reimbursements/${id}/receipt-url?i=${i}`),
+  personReimbursements:    (email)     => req(`/reimbursements/person/${encodeURIComponent(email)}`),
+  // Paid leave balances (Oct 19 2026, routers/leave_balances.py).
+  leaveMyBalance:      ()           => req('/leave-balances/me'),
+  leavePersonBalance:  (email)      => req(`/leave-balances/person/${encodeURIComponent(email)}`),
+  leaveAdmin:          ()           => req('/leave-balances/admin'),
+  leaveSetCutover:     (date)       => req('/leave-balances/cutover', { method: 'PUT', body: JSON.stringify({ date }) }),
+  leaveSavePolicies:   (policies)   => req('/leave-balances/policies', { method: 'PUT', body: JSON.stringify({ policies }) }),
+  leaveImport:         (body)       => req('/leave-balances/import', { method: 'POST', body: JSON.stringify(body) }),
+  leaveAdjust:         (body)       => req('/leave-balances/adjust', { method: 'POST', body: JSON.stringify(body) }),
+  leaveAssign:         (email, policyId) => req('/leave-balances/assign', { method: 'PUT', body: JSON.stringify({ email, policy_id: policyId }) }),
+  leaveRecalculate:    ()           => req('/leave-balances/recalculate', { method: 'POST' }),
   // The weekly New Feature bar (components/FeatureBanner.jsx) and its dismissal.
   getFeatureBanner: () => req('/task-changelog/feature-banner'),
   dismissFeatureBanner: () => req('/task-changelog/feature-banner/dismiss', { method: 'POST' }),
@@ -871,6 +927,8 @@ export const api = {
 
   // Nexus Roles
   getMyRole:    ()                    => cachedGet('/roles/me'),
+  // Profile > Date Format (Oct 20 2026) - one of lib/datetime.js DATE_FORMATS.
+  saveMyDateFormat: (dateFormat)      => req('/roles/me/date-format', { method: 'PUT', body: JSON.stringify({ date_format: dateFormat }) }),
   getAllRoles:   ()                   => req('/roles'),
   assignRole:   (email, role, by, displayName) => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by, display_name: displayName || '' }) }),
 
@@ -1477,6 +1535,9 @@ export const api = {
   timesheetReviewSendBack: (id, note)         => req(`/timesheet-review/${id}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
   timesheetReviewAgree:    (id, note = '')    => req(`/timesheet-review/${id}/agree`, { method: 'POST', body: JSON.stringify({ note }) }),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeCancelPunchRequest:  (id) => req(`/timeclock/punch-requests/${id}/cancel`, { method: 'POST' }),
+  timeDismissPunchRequest: (id) => req(`/timeclock/punch-requests/${id}/dismiss`, { method: 'POST' }),
+  timeDismissDecidedPunchRequests: () => req('/timeclock/punch-requests/dismiss-decided', { method: 'POST' }),
   // Employee's own bi-weekly pay-period timecard (payroll rows + composition)
   timeMyPayroll:          (start) => req(`/timeclock/my-payroll?start=${start || ''}`),
   timeOffCreate:     (data)      => req('/timeclock/timeoff', { method: 'POST', body: JSON.stringify(data) }),
@@ -1947,6 +2008,14 @@ export const api = {
   timeRoundingGet:     () => req('/timeclock/payroll/rounding'),
   timeAutoLunchGet:    () => req('/timeclock/payroll/autolunch'),
   timeBreakPolicyGet:  () => req('/timeclock/payroll/breakpolicy'),
+  // Payroll Export Codes (Oct 17): one company's pay item names for the
+  // QuickBooks IIF and Intacct memo; codes {} is Reset to Default.
+  timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),
+  // quickbooksCompanyName (Oct 19): the IIF header's company; undefined leaves it, '' clears it.
+  timeExportCodesSet:  (company, codes, quickbooksCompanyName) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes, quickbooksCompanyName }) }),
+  // Shift differentials + call-back pay (Oct 17): one company's rule, off by default.
+  timePremiumsGet:     (company) => req(`/timeclock/payroll/premiums?company=${encodeURIComponent(company || '')}`),
+  timePremiumsSet:     (company, cfg) => req('/timeclock/payroll/premiums', { method: 'PUT', body: JSON.stringify({ ...cfg, company }) }),
   // ── Shifts rebuild (Oct 2026, CONTRACT.md): the unshared-change count across
   //    the whole schedule, the saved group order, the request settings on
   //    their own, and the manager's time-off list over a date range ──
@@ -1991,11 +2060,12 @@ export const api = {
     reqBlob(`/timeclock/export-intacct.csv?start=${start || ''}&end=${end || ''}&journal=${encodeURIComponent(journal)}&expense=${encodeURIComponent(expense)}&clearing=${encodeURIComponent(clearing)}&location=${encodeURIComponent(location)}`),
   // Accounting > Import Hub, Payroll Hours card (Neil, 10/15): the period's
   // hours by pay class (no pay) for one company, optionally approved time
-  // sheets only, and the QuickBooks IIF with the same filters.
-  timeExportHours:      (start, end, { company = '', approvedOnly = false } = {}) =>
-    req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
-  timeExportIifFor:     (start, end, { company = '', approvedOnly = false } = {}) =>
-    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  // sheets only, and the QuickBooks IIF with the same filters. The IIF is
+  // finalized time sheets only unless finalizedOnly is false (a -DRAFT file, Oct 19).
+  timeExportHours:      (start, end, { company = '', approvedOnly = false, finalizedOnly = false } = {}) =>
+    req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  timeExportIifFor:     (start, end, { company = '', approvedOnly = false, finalizedOnly = true } = {}) =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
   // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
   // liability accounts, the ledger-driven review (balances, principal and
   // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
@@ -2376,6 +2446,63 @@ export const api = {
   timesheetReviewFinalizeUnsigned: (email, start, reason) => req('/timesheet-review/finalize-unsigned', { method: 'POST', body: JSON.stringify({ email, start: start || '', reason }) }),
   timeExportIifFinalized:       (start, end, company) =>
     reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company || '')}&finalized_only=true`, { timeoutMs: 120_000 }),
+  // Approve All Clean (Oct 17): items are [{id}] or [{email, start}], at most
+  // 25 per call (the screen sends 10); each builds its PDF and envelope.
+  timesheetReviewApproveBulk: (items, note = '') => req('/timesheet-review/approve-bulk', { method: 'POST', body: JSON.stringify({ items, note }), timeoutMs: 120_000 }),
+  // Retro Pay (Oct 17): finalized periods a back-dated rate change re-prices -
+  // who is owed what. Payroll guard + step-up, read only.
+  timeRetroPay: (start, end, email = '') =>
+    req(`/timeclock/retro-pay?${new URLSearchParams({ start: start || '', end: end || '', email: email || '' })}`, { timeoutMs: 120_000 }),
+  // Payroll Readiness (Oct 17): who is not ready, variance and anomalies for a
+  // pay period (step-up, like the Payroll card), and HR's per-company thresholds.
+  payrollReadiness:             (start = '', refresh = false) =>
+    req(`/payroll-readiness/report?start=${start || ''}${refresh ? '&refresh=true' : ''}`, { timeoutMs: 120_000 }),
+  // The export's warning: readiness of what an export of [start, end] carries.
+  payrollReadinessExportCheck:  (start, end) =>
+    req(`/payroll-readiness/export-check?start=${start || ''}&end=${end || ''}`, { timeoutMs: 120_000 }),
+  payrollReadinessSettings:     (company = '') => req(`/payroll-readiness/settings?company=${encodeURIComponent(company || '')}`),
+  payrollReadinessSaveSettings: (data) => req('/payroll-readiness/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  // Delegate My Approvals (Oct 17): a stand-in for a date range. /mine =
+  // {canDelegate, delegations (mine), covering (naming me)}; the bare path is
+  // HR / admin - everyone's, and setting one for someone (delegator_email).
+  approvalDelegationsMine:     ()     => req('/approval-delegations/mine'),
+  approvalDelegationCreate:    (data) => req('/approval-delegations/mine', { method: 'POST', body: JSON.stringify(data) }),
+  approvalDelegationRevoke:    (id)   => req(`/approval-delegations/${encodeURIComponent(id)}/revoke`, { method: 'POST' }),
+  approvalDelegationsAll:      (includePast = false) => req(`/approval-delegations${includePast ? '?include_past=true' : ''}`),
+  approvalDelegationCreateFor: (data) => req('/approval-delegations', { method: 'POST', body: JSON.stringify(data) }),
+  // CA meal and rest breaks (Oct 17): the employee's Yes / No before signing,
+  // the manager's premium lines, HR's meal waiver (backend/ca_breaks.py).
+  timesheetBreakClaim:   (rid, data) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-claim`, { method: 'POST', body: JSON.stringify(data) }),
+  breakPremiumAdd:       (data) => req('/ca-breaks/premiums', { method: 'POST', body: JSON.stringify(data) }),
+  breakPremiumRemove:    (id, reason) => req(`/ca-breaks/premiums/${encodeURIComponent(id)}/remove`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  mealWaiver:            (email) => req(`/ca-breaks/waiver?email=${encodeURIComponent(email || '')}`),
+  mealWaiverSend:        (email) => req('/ca-breaks/waiver/send', { method: 'POST', body: JSON.stringify({ email }) }),
+  mealWaiverRevoke:      (email, note) => req('/ca-breaks/waiver/revoke', { method: 'POST', body: JSON.stringify({ email, note }) }),
+  // California Review (Oct 18): HR's queue of CA-rule flags (step-up, like Payroll Readiness).
+  caReview:              (start = '') => req(`/ca-review/report?start=${start || ''}`, { timeoutMs: 120_000 }),
+  caReviewResolve:       (data) => req('/ca-review/resolve', { method: 'POST', body: JSON.stringify(data) }),
+  caReviewReopen:        (data) => req('/ca-review/reopen', { method: 'POST', body: JSON.stringify(data) }),
+  caReviewSettings:      () => req('/ca-review/settings'),
+  caReviewSaveSettings:  (data) => req('/ca-review/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  // What is waiting on me: {counts: {view: {tab: n}}} - routers/action_counts.py.
+  actionCounts:          () => req('/me/action-counts'),
+  // Ticket default assignee per department (Oct 2026, ticket_auto_assign.py) - "" clears it.
+  setTicketDepartmentDefaultAssignee: (deptId, email) => req(`/ticket-departments/${deptId}`, { method: 'PATCH', body: JSON.stringify({ default_assignee_email: email }) }),
+  // Ticket saved replies (Oct 2026, routers/ticket_saved_replies.py). companyId
+  // narrows the shared ones to a ticket's company; personal ones always come.
+  getTicketSavedReplies: (companyId = '') => req(`/ticket-saved-replies${companyId ? `?company_id=${encodeURIComponent(companyId)}` : ''}`),
+  createTicketSavedReply: (data) => req('/ticket-saved-replies', { method: 'POST', body: JSON.stringify(data) }),
+  updateTicketSavedReply: (id, data) => req(`/ticket-saved-replies/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteTicketSavedReply: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Fire-and-forget when a reply is inserted into the composer.
+  countTicketSavedReplyUse: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}/use`, { method: 'POST' }),
+  // Who may be a company's default assignee - its active desk agents (manager+).
+  getTicketDeskAgents: (companyId) => req(`/task-tickets/desk-agents?company_id=${encodeURIComponent(companyId)}`),
+  // Location Trail While Clocked In (Oct 20): the web ping (lib/useLocationTrail.js)
+  // and the trail map (LiveCrewMap: live team positions, one person's day).
+  locationTrailPing: (body)          => req('/timeclock/location-trail/ping', { method: 'POST', body: JSON.stringify(body) }),
+  locationTrailLive: ()              => req('/timeclock/location-trail/live'),
+  locationTrailDay:  (email, date)   => req(`/timeclock/location-trail/day?email=${encodeURIComponent(email || '')}&date=${encodeURIComponent(date)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

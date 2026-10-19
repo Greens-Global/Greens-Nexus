@@ -71,7 +71,7 @@ class RequesterBellTests(unittest.TestCase):
     def test_a_priority_change_alone_bells_the_requester(self):
         self._save(AGENT, priority="high")
         [b] = self._bells()
-        self.assertEqual(b.title, "Your ticket was updated")
+        self.assertEqual(b.title, "Your Ticket Was Updated")
         self.assertIn("Ticket #27 · Printer jam", b.body)
         self.assertIn("Priority set to High", b.body)
         self.assertIn('"ticketId": "t1"', b.action)
@@ -80,7 +80,7 @@ class RequesterBellTests(unittest.TestCase):
         # Assigning an Open ticket also moves it to In Progress - one bell.
         self._save(AGENT, assignee_email=OTHER)
         [b] = self._bells()
-        self.assertEqual(b.title, "Your ticket moved to In Progress")
+        self.assertEqual(b.title, "Your Ticket Moved to In Progress")
         self.assertIn("Assigned to Olive Agent", b.body)
 
     def test_edited_details_are_named(self):
@@ -97,7 +97,7 @@ class RequesterBellTests(unittest.TestCase):
     def test_a_reply_alone_keeps_its_own_bell(self):
         self._save(AGENT, comment="<p>Can you send a photo?</p>")
         [b] = self._bells()
-        self.assertEqual(b.title, "New comment on a ticket")
+        self.assertEqual(b.title, "New Comment on a Ticket")
 
     def test_an_internal_note_never_reaches_the_requester(self):
         self._save(AGENT, comment="<p>Toner on backorder.</p>", comment_internal=True)
@@ -106,7 +106,7 @@ class RequesterBellTests(unittest.TestCase):
     def test_resolving_says_resolved(self):
         self._save(AGENT, status="resolved", resolution_note="Replaced the toner.")
         [b] = self._bells()
-        self.assertEqual(b.title, "Your ticket was Resolved")
+        self.assertEqual(b.title, "Your Ticket Was Resolved")
 
     def test_the_requesters_own_changes_do_not_bell_them(self):
         self._save(REQUESTER, subject="Printer jam - urgent")
@@ -120,7 +120,7 @@ class RequesterBellTests(unittest.TestCase):
         # The assignee hears in the Tickets bell; the main bell carries a
         # ticket's updates only to the person who raised it (Oct 14 2026).
         self.assertEqual([b.title for b in self.db.query(models.TaskNotification)
-                          .filter(models.TaskNotification.for_email == OTHER).all()], ["Ticket moved to Pending"])
+                          .filter(models.TaskNotification.for_email == OTHER).all()], ["Ticket Moved to Pending"])
         self.assertEqual(self._bells(OTHER), [])
         self.assertEqual(len(self._bells()), 1)
 

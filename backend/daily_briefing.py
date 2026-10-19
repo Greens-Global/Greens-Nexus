@@ -330,26 +330,26 @@ def _item_action_rows(db: Session, email: str, is_manager: bool) -> list:
     for c in (db.query(models.ItemCheckout)
               .filter(models.ItemCheckout.status == "pending",
                       models.ItemCheckout.approver_email == email).all()):
-        rows.append({"title": f"Approve checkout: {c.item_name}",
+        rows.append({"title": f"Approve Checkout: {c.item_name}",
                      "detail": f"Requested by {c.requested_by}", "url": items_url, "module": "items",
                      **_since(c.created_at)})
     for c in (db.query(models.ItemCheckout)
               .filter(models.ItemCheckout.status == "approved",
                       models.ItemCheckout.assigned_allocator_email == email).all()):
         # Waiting on the allocator since the approval (resolved_at), not the ask.
-        rows.append({"title": f"Hand over: {c.item_name}",
+        rows.append({"title": f"Hand Over: {c.item_name}",
                      "detail": f"Approved for {c.requested_by}", "url": items_url, "module": "items",
                      **_since(c.resolved_at, c.created_at)})
     for c in (db.query(models.ItemCheckout)
               .filter(models.ItemCheckout.status == "pending_receipt",
                       models.ItemCheckout.requested_by_email == email).all()):
-        rows.append({"title": f"Confirm receipt: {c.item_name}",
+        rows.append({"title": f"Confirm Receipt: {c.item_name}",
                      "detail": "Handed over - confirm you received it", "url": items_url, "module": "items",
                      **_since(c.handed_over_at, c.created_at)})
     for a in (db.query(models.ItemAssignment)
               .filter(models.ItemAssignment.status == "pending_acceptance",
                       models.ItemAssignment.assignee_email == email).all()):
-        rows.append({"title": f"Accept assignment: {a.item_name}",
+        rows.append({"title": f"Accept Assignment: {a.item_name}",
                      "detail": f"Assigned by {a.assigned_by}", "url": items_url, "module": "items",
                      **_since(a.created_at)})
     if is_manager:
@@ -357,7 +357,7 @@ def _item_action_rows(db: Session, email: str, is_manager: bool) -> list:
                   .filter(models.ItemCheckout.extension_status == "pending").all()):
             # No `since`: the extension ask stamps no time of its own and the
             # checkout's created_at is the original request, not this wait.
-            rows.append({"title": f"Approve extension: {c.item_name}",
+            rows.append({"title": f"Approve Extension: {c.item_name}",
                          "detail": f"{c.requested_by} requested {c.extension_days} more day(s)",
                          "url": items_url, "module": "items"})
     return rows
@@ -473,7 +473,8 @@ def _esign_action_rows(db: Session, email: str) -> list:
         rows.append({
             "title": f"Sign: {req.title}",
             "detail": "Signature required",
-            "url": f"{app_url()}{_ESIGN_URL}",
+            # Workday signs it for everyone (Documents needs a grant) - esign._sign_link.
+            "url": f"{app_url()}/workday/sign:{p.id}",
             "module": "documents",
             # A party records no notified_at, so the envelope's send is the
             # closest honest start of the wait.
@@ -522,7 +523,7 @@ def _esign_completed_rows(db: Session, email: str, since_iso: str) -> list:
                         (models.HrSignRequest.created_by == email) |
                         (models.HrSignRequest.id.in_(my_party_reqs))).all()):
         rows.append({
-            "title": f"Fully executed: {req.title}",
+            "title": f"Fully Executed: {req.title}",
             "detail": "Completed",
             "url": f"{app_url()}{_ESIGN_URL}",
             "module": "documents",
@@ -570,7 +571,7 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
             if len(reqs) == 1:
                 r = reqs[0]
                 rows.append({
-                    "title": f"Approve: {name}'s time off ({leave(r)})",
+                    "title": f"Approve: {name}'s Time Off ({leave(r)})",
                     "detail": f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}",
                     "url": f"{app_url()}/timeclock",
                     "module": "time_off",
@@ -585,7 +586,7 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
                 same_type = next(iter(types)) if len(types) == 1 else None
                 label = f"({same_type})" if same_type else f"({len(reqs)} requests)"
                 rows.append({
-                    "title": f"Approve: {name}'s time off {label}",
+                    "title": f"Approve: {name}'s Time Off {label}",
                     "detail": f"{len(reqs)} pending requests - decide each below",
                     "url": f"{app_url()}/timeclock",
                     "module": "time_off",
@@ -674,7 +675,7 @@ def _punch_fix_rows(db: Session, my_reports: dict) -> list:
         items = sorted(got["req"] + got["edit"])
         n = len(items)
         rows.append({
-            "title": f"Approve: {name}'s timesheet fix" + (f"es ({n})" if n > 1 else ""),
+            "title": f"Approve: {name}'s Time Sheet Fix" + (f"es ({n})" if n > 1 else ""),
             "detail": ("Asked to " + items[0][1]) if n == 1 else "; ".join(t for _, t in items[:3]) +
                       (f"; and {n - 3} more" if n > 3 else ""),
             # People > Time > Punch requests (the bell's own target) when there
@@ -710,12 +711,12 @@ def _shift_request_rows(db: Session, email: str, my_reports: dict) -> list:
     for r in sorted(mine, key=lambda x: (x.shift_date or "", x.shift_start or "")):
         label = sr._KIND_LABEL.get(r.kind, r.kind)
         if r.status == "pending_peer":
-            rows.append({"title": f"Respond: shift {label} from {names.get(r.requester_email, r.requester_email)}",
+            rows.append({"title": f"Respond: Shift {label.title()} From {names.get(r.requester_email, r.requester_email)}",
                          "detail": sr._describe(r, names), "url": f"{app_url()}/shifts/mine", "module": "shifts",
                          **_since(r.created_at)})
         else:
             # A swap/offer reaches the manager only once the peer accepted.
-            rows.append({"title": f"Approve: {label} request", "detail": sr._describe(r, names),
+            rows.append({"title": f"Approve: {label.title()} Request", "detail": sr._describe(r, names),
                          "url": f"{app_url()}/shifts/schedule", "module": "shifts",
                          **_since(r.peer_decided_at, r.created_at)})
     return rows
@@ -732,7 +733,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
         q = tsr.queue_row(db, r)
         hours = f"{q['workedMin'] // 60}h {q['workedMin'] % 60:02d}m"
         rows.append({
-            "title": f"Review {q['name']}'s timesheet",
+            "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - {hours}"
                       + (" - resubmitted" if q["resubmitted"] else ""),
             # Workday > Time Sheet, where Timesheets to Review sits (Oct 1) -
@@ -746,7 +747,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
     for q in tsr.not_reviewed(db, email):
         hours = f"{q['workedMin'] // 60}h {q['workedMin'] % 60:02d}m"
         rows.append({
-            "title": f"Review {q['name']}'s timesheet",
+            "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(q['periodStart'])} - {_fmt_date(q['periodEnd'])} - {hours} - not submitted",
             "url": f"{app_url()}/timeclock/timesheet",
             "module": "timecard",
@@ -756,7 +757,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
     for r in db.query(models.TimesheetReview).filter(models.TimesheetReview.employee_email == email,
                                                      models.TimesheetReview.status == "approved").all():
         rows.append({
-            "title": "Sign your updated timesheet",
+            "title": "Sign Your Updated Time Sheet",
             "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - HR changed the hours",
             "url": f"{app_url()}/timeclock/timesheet",
             "module": "timecard",
@@ -789,12 +790,12 @@ def _timecard_rows(db: Session, email: str) -> list:
     # Confirm row first shows two days before the period closes, the Submit
     # row the moment it has closed (midnight after the last day, local).
     if 0 <= days_to_close <= 2:
-        return [{"title": "Confirm your time card",
+        return [{"title": "Confirm Your Time Sheet",
                  "detail": f"Pay period closes {_fmt_date(end)} - review and sign off before it locks",
                  "url": f"{app_url()}/timeclock", "module": "timecard",
                  **_since((end_d - timedelta(days=2)).strftime("%Y-%m-%dT00:00:00"))}]
     if days_to_close == -1:
-        return [{"title": "Submit your time card",
+        return [{"title": "Submit Your Time Sheet",
                  "detail": f"Pay period ending {_fmt_date(end)} is closed - sign off is still open",
                  "url": f"{app_url()}/timeclock", "module": "timecard",
                  **_since((end_d + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00"))}]
@@ -808,7 +809,7 @@ def _item_needs_to_know_rows(db: Session, email: str, since_iso: str, is_manager
               .filter(models.ItemCheckout.status.in_(["approved", "rejected"]),
                       models.ItemCheckout.resolved_at >= since_iso,
                       models.ItemCheckout.requested_by_email == email).all()):
-        rows.append({"title": f"Checkout {c.status}: {c.item_name}",
+        rows.append({"title": f"Checkout {c.status.title()}: {c.item_name}",
                      "detail": (c.reject_reason or "No reason given") if c.status == "rejected" else "Awaiting handover",
                      "url": items_url, "module": "items"})
     if is_manager:
@@ -816,7 +817,7 @@ def _item_needs_to_know_rows(db: Session, email: str, since_iso: str, is_manager
         # perm_return notification broadcasts the same way (recipient="").
         for a in (db.query(models.ItemAssignment)
                   .filter(models.ItemAssignment.status == "return_initiated").all()):
-            rows.append({"title": f"Return pending confirmation: {a.item_name}",
+            rows.append({"title": f"Return Pending Confirmation: {a.item_name}",
                          "detail": f"{a.assignee_name or a.assignee_email} initiated a return",
                          "url": items_url, "module": "items"})
     return rows
@@ -957,14 +958,14 @@ def _item_completed_rows(db: Session, email: str, since_iso: str) -> list:
               .filter(models.ItemCheckout.status == "returned",
                       models.ItemCheckout.returned_at >= since_iso,
                       models.ItemCheckout.requested_by_email == email).all()):
-        rows.append({"title": f"{c.item_name} returned", "detail": "Checkout closed out",
+        rows.append({"title": f"{c.item_name} Returned", "detail": "Checkout closed out",
                      "url": items_url, "module": "items"})
     for a in (db.query(models.ItemAssignment)
               .filter(models.ItemAssignment.status == "closed",
                       models.ItemAssignment.return_accepted_at >= since_iso,
                       (models.ItemAssignment.assignee_email == email) |
                       (models.ItemAssignment.assigned_by_email == email)).all()):
-        rows.append({"title": f"{a.item_name} assignment closed", "detail": "Return accepted",
+        rows.append({"title": f"{a.item_name} Assignment Closed", "detail": "Return accepted",
                      "url": items_url, "module": "items"})
     return rows
 
@@ -1023,7 +1024,7 @@ def _manager_task_completion_rows(db: Session, email: str, since_iso: str, my_re
         detail = "; ".join(shown) + (f"; and {len(hidden)} more" if hidden else "")
         n = len(tasks)
         rows.append({
-            "title": f"{name} completed {n} task{'' if n == 1 else 's'}",
+            "title": f"{name} Completed {n} Task{'' if n == 1 else 's'}",
             "detail": detail,
             "url": f"{app_url()}/tasks/mine?task={tasks[0].id}",
             "module": "tasks",
@@ -1061,7 +1062,7 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict, briefing_date:
                       models.TimeOffRequest.start_date <= today,
                       models.TimeOffRequest.end_date >= today).all()):
         rows.append({
-            "title": f"Out today: {names.get(r.employee_email, r.employee_email)} ({leave(r)})",
+            "title": f"Out Today: {names.get(r.employee_email, r.employee_email)} ({leave(r)})",
             "detail": f"Back after {_fmt_date(r.end_date)}",
             "url": "", "module": "team",
         })
@@ -1070,7 +1071,7 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict, briefing_date:
                       models.TimeOffRequest.status == "approved",
                       models.TimeOffRequest.start_date == tomorrow).all()):
         rows.append({
-            "title": f"Starting leave tomorrow: {names.get(r.employee_email, r.employee_email)}",
+            "title": f"Starting Leave Tomorrow: {names.get(r.employee_email, r.employee_email)}",
             "detail": f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}. Reassign anything time-sensitive today.",
             "url": "", "module": "team",
         })
@@ -1119,10 +1120,10 @@ def _blue_rows_my_manager(db: Session, email: str, briefing_date: str) -> list:
     rows = []
     for r in _approved_leave(db, [(mgr.work_email or "").lower()], briefing_date, tomorrow):
         if r.start_date <= briefing_date:
-            rows.append({"title": f"Your manager {name} is out today",
+            rows.append({"title": f"Your Manager {name} Is Out Today",
                          "detail": f"Back after {_fmt_date(r.end_date)}", "url": "", "module": "team"})
         elif r.start_date == tomorrow:
-            rows.append({"title": f"Your manager {name} is out from tomorrow",
+            rows.append({"title": f"Your Manager {name} Is Out From Tomorrow",
                          "detail": f"Off {_span(r.start_date, r.end_date)}", "url": "", "module": "team"})
     return rows
 
@@ -1145,7 +1146,7 @@ def upcoming_time_off_rows(db: Session, email: str, my_reports: dict, first: str
         for r in _approved_leave(db, [(mgr.work_email or "").lower()], first, last):
             when = (f"Out now, back after {_fmt_date(r.end_date)}" if r.start_date < first
                     else f"Off {_span(r.start_date, r.end_date)}")
-            mine.append({"title": f"Your manager {name}", "detail": when, "url": "", "module": "team"})
+            mine.append({"title": f"Your Manager {name}", "detail": when, "url": "", "module": "team"})
     return mine + rows
 
 
@@ -1257,7 +1258,7 @@ _MODULE_META = {
     "tickets":  "Tickets",
     "documents": "Documents",
     "time_off": "Time Off",
-    "timecard": "Time Card",
+    "timecard": "Time Sheet",
     "shifts":   "Shifts",
     "items":    "Items",
     "team":     "Team",

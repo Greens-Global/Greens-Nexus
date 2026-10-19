@@ -920,13 +920,13 @@ def followup_step(db: Session, iv: HrInterview) -> None:
             iv.followup_status, iv.followup_next_at = "done", ""
             iv.followup_note = ("Scored from the transcript and your notes" if iv.transcript
                                 else f"Scored from the typed answers - no transcript ({setup_problem or 'none'})")
-            _tell(db, iv, f"Interview scored - {name}",
+            _tell(db, iv, f"Interview Scored - {name}",
                   f"{name}: {round(iv.total_score)}/100. {iv.summary[:300]}")
             return
         if iv.transcript and not iv.answers:
             iv.followup_status, iv.followup_next_at = "done", ""
             iv.followup_note = "Transcript saved - this round had no questionnaire to score"
-            _tell(db, iv, f"Interview transcript saved - {name}", "The Teams transcript is on the interview.")
+            _tell(db, iv, f"Interview Transcript Saved - {name}", "The Teams transcript is on the interview.")
             return
     except HTTPException as e:
         setup_problem = setup_problem or str(e.detail)
@@ -940,7 +940,7 @@ def followup_step(db: Session, iv: HrInterview) -> None:
     nothing = not iv.transcript and not any((a.get("answer") or "").strip() for a in (iv.answers or []))
     iv.followup_note = (setup_problem or "No transcript and no typed answers to score") + \
         (" - paste the transcript or type the answers, then Retry." if nothing else " - fix that, then Retry.")
-    _tell(db, iv, f"Interview not scored - {name}", iv.followup_note)
+    _tell(db, iv, f"Interview Not Scored - {name}", iv.followup_note)
 
 
 def recording_step(db: Session, iv: HrInterview) -> None:
@@ -968,12 +968,12 @@ def recording_step(db: Session, iv: HrInterview) -> None:
     else:
         iv.recording_status, iv.recording_next_at = "done", ""
         iv.recording_note = "Recording saved"
-        _tell(db, iv, f"Interview recording saved - {name}",
+        _tell(db, iv, f"Interview Recording Saved - {name}",
               "The Teams recording and transcript are on the interview" + (" and on their profile." if cand and cand.employee_id else "."))
         return
     iv.recording_status, iv.recording_next_at = "failed", ""
     iv.recording_note = why + " - fix that, then Pull Recording."
-    _tell(db, iv, f"Interview recording not saved - {name}", iv.recording_note)
+    _tell(db, iv, f"Interview Recording Not Saved - {name}", iv.recording_note)
 
 
 def process_followups(limit: int = 10) -> int:
@@ -1113,7 +1113,7 @@ def invite_final_round(iid: str, body: FinalRoundIn, user: dict = Depends(requir
                             note="Invited to the final round", by_email=user["email"], created_at=_now()))
         cand.stage = "offer"
     cand.updated_at = _now()
-    _hr_notify(db, iv.created_by, f"Final round booked - {cand_name}",
+    _hr_notify(db, iv.created_by, f"Final Round Booked - {cand_name}",
                f"{cand_name} (scored {round(iv.total_score)}) is invited to the offer discussion.",
                ref_id=cand.id, action={"view": "hr", "sub": "hr-hiring"})
     db.commit()

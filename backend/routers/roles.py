@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from models import NexusRole
+from models import NexusRole, NexusPersonPref
 from auth import get_current_user, require_administrator, require_level, invalidate_role_cache
 
 router = APIRouter(prefix="/roles", tags=["roles"])
@@ -18,6 +18,16 @@ ROLE_LEVEL = {
     "administrator": 4,
     "owner":         5,
 }
+
+
+# Profile > Date Format (Pranshu, Oct 20 2026): the order a person reads dates
+# in, everywhere in Nexus (frontend lib/datetime.js). The first is the default.
+DATE_FORMATS = ("MM/DD/YYYY", "DD/MM/YYYY", "YYYY-MM-DD", "DD MMM YYYY")
+
+
+def _date_format(db: Session, email: str) -> str:
+    row = db.query(NexusPersonPref).filter(NexusPersonPref.email == (email or "").lower()).first()
+    return row.date_format if row is not None and row.date_format in DATE_FORMATS else DATE_FORMATS[0]
 
 
 def _seed_if_empty(db: Session):
@@ -74,7 +84,8 @@ def get_my_role(
     # Externals are also hard-capped at employee level server-side, so report
     # that cap here rather than any stray nexus_roles row.
     if user.get("external"):
-        return {"email": user["email"], "role": "employee", "is_external": True}
+        return {"email": user["email"], "role": "employee", "is_external": True,
+                "date_format": _date_format(db, user["email"])}
     # hr_scope: the caller's own company-scoped People access (Neil, Aug 25) -
     # a list of HrEntity ids, or null when unrestricted. The frontend hides
     # company-wide actions (M365 sync, Company setup) and shows a scope chip.
@@ -89,7 +100,29 @@ def get_my_role(
     return {"email": user["email"], "role": role, "is_external": False,
             "hr_scope": sorted(scope) if scope is not None else None,
             "hr_team": is_team_scope(scope),
-            "time_tracking_exempt": is_time_tracking_exempt(db, user["email"])}
+            "time_tracking_exempt": is_time_tracking_exempt(db, user["email"]),
+            "date_format": _date_format(db, user["email"])}
+
+
+class DateFormatIn(BaseModel):
+    date_format: str
+
+
+@router.put("/me/date-format")
+def save_my_date_format(body: DateFormatIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The signed-in person's own date order - nobody sets it for anyone else."""
+    if body.date_format not in DATE_FORMATS:
+        raise HTTPException(status_code=422, detail=f"Date format must be one of: {', '.join(DATE_FORMATS)}")
+    from datetime import datetime, timezone
+    em = user["email"].lower()
+    row = db.query(NexusPersonPref).filter(NexusPersonPref.email == em).first()
+    if row is None:
+        row = NexusPersonPref(email=em)
+        db.add(row)
+    row.date_format = body.date_format
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return {"date_format": row.date_format}
 
 
 @router.get("")

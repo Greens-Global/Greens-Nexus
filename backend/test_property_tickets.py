@@ -127,7 +127,7 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertNotIn(MANAGER, out["watcherIds"])           # no per-status-move bells later
         bells = self._bells(MANAGER, "ticket_property")
         self.assertEqual(len(bells), 1)
-        self.assertEqual(bells[0].title, "New ticket at Greens Storage Temecula")
+        self.assertEqual(bells[0].title, "New Ticket at Greens Storage Temecula")
 
     def test_a_ticket_without_a_property_is_unchanged(self):
         out = self._one()
@@ -281,7 +281,7 @@ class PropertyTicketTests(unittest.TestCase):
     def test_one_bell_per_person_per_walkthrough(self):
         self._walk([self._line(f"Issue {i}") for i in range(12)])
         self.assertEqual(len(self._bells(MANAGER)), 1)
-        self.assertEqual(self._bells(MANAGER)[0].title, "12 new tickets at Greens Storage Temecula")
+        self.assertEqual(self._bells(MANAGER)[0].title, "12 New Tickets at Greens Storage Temecula")
         for desk in (ADMIN["email"], DESK2):
             self.assertEqual(len(self._bells(desk, "ticket_needs_assignment")), 1)
         self.assertEqual(len(self._bells(WALKER["email"])), 0)   # nothing about your own action
@@ -331,7 +331,7 @@ class PropertyTicketTests(unittest.TestCase):
             ticket_notify.graph_mail.send_mail = real
         to = sorted(r for kw in sent for r in kw["to"])
         self.assertEqual(to, sorted({MANAGER, ADMIN["email"], DESK2}))
-        self.assertTrue(all(kw["subject"] == "5 new tickets at Greens Storage Temecula - Batch Create"
+        self.assertTrue(all(kw["subject"] == "5 New Tickets at Greens Storage Temecula - Batch Create"
                             for kw in sent))
 
     # ── Batch Create (Oct 13 2026): the property is optional. The email test
@@ -344,7 +344,7 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertEqual(out["property"], {"id": "", "name": ""})
         self.assertEqual(self._bells(MANAGER), [])                # no property, no asset manager to tell
         desk_bell = self._bells(ADMIN["email"], "ticket_needs_assignment")[0]
-        self.assertEqual(desk_bell.title, "Batch: 2 new tickets")
+        self.assertEqual(desk_bell.title, "Batch: 2 New Tickets")
 
     def test_the_batch_email_without_a_property_names_none(self):
         import ticket_notify
@@ -357,7 +357,7 @@ class PropertyTicketTests(unittest.TestCase):
         finally:
             ticket_notify.graph_mail.send_mail = real
         self.assertTrue(sent)
-        self.assertTrue(all(kw["subject"] == "2 new tickets - Batch Create" for kw in sent))
+        self.assertTrue(all(kw["subject"] == "2 New Tickets - Batch Create" for kw in sent))
 
     # ── Asset Management: a property's tickets ──
     def test_open_history_and_closed_without_work(self):
@@ -451,7 +451,7 @@ class PropertyTicketTests(unittest.TestCase):
 
     def test_resolving_tells_the_asset_manager_to_review_it(self):
         tid = self._resolved()
-        bells = [b for b in self._bells(MANAGER) if "is resolved" in b.title]
+        bells = [b for b in self._bells(MANAGER) if "Is Resolved" in b.title]
         self.assertEqual(len(bells), 1)
         view = P.property_tickets("gst", user=MANAGER_USER, db=self.db)
         self.assertEqual([t["id"] for t in view["needsAction"]], [tid])
@@ -478,10 +478,25 @@ class PropertyTicketTests(unittest.TestCase):
             models.TaskComment(id=gen_id(), task_id=t["id"], author_email=ADMIN["email"], body="<p>Owner says cheapest quote</p>",
                                created_at="2026-10-06T11:00:00", internal=True)])
         self.db.commit()
-        row = P.property_tickets("gst", user=WALKER, db=self.db)["open"][0]
+        # The property's asset manager (who may Follow) reads the reply; a
+        # read-only asset viewer gets the summary without the conversation
+        # (Oct 18 2026 review - this test used to read it as WALKER, a viewer).
+        row = P.property_tickets("gst", user=MANAGER_USER, db=self.db)["open"][0]
         self.assertEqual(row["latestComment"]["preview"], "Vendor booked for Friday")
         self.assertEqual(row["latestComment"]["authorName"], "ankush")
         self.assertTrue(row["modifiedAt"])
+        self.assertIsNone(P.property_tickets("gst", user=WALKER, db=self.db)["open"][0]["latestComment"])
+
+    def test_a_read_only_viewer_never_gets_the_resolution_vendor_or_cost(self):
+        """Oct 18 2026 review: _summary's `full` flag hid only the requester,
+        so an asset viewer read the desk's resolution note and what was paid."""
+        self._resolved()
+        full = P.property_tickets("gst", user=MANAGER_USER, db=self.db)["history"][0]
+        self.assertEqual((full["resolutionNote"], full["vendor"], full["cost"]),
+                         ("Serviced the unit", "CoolAir", "300.00"))
+        viewer = P.property_tickets("gst", user=WALKER, db=self.db)["history"][0]
+        self.assertEqual((viewer["resolutionNote"], viewer["vendor"], viewer["cost"]), ("", "", ""))
+        self.assertIsNone(viewer["latestComment"])
 
     def test_costs_keep_their_currency_and_totals_never_mix(self):
         self._record(self._resolved(), cost="300")
@@ -509,7 +524,7 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=10)), {"reminded": 0, "opened": 0})
         self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=16))["reminded"], 1)
         self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=17))["reminded"], 0)
-        self.assertEqual(len([b for b in self._bells(MANAGER) if b.title.startswith("Service due")]), 1)
+        self.assertEqual(len([b for b in self._bells(MANAGER) if b.title.startswith("Service Due")]), 1)
         # Due and nobody opened it: a child ticket opens with the parent's details.
         self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=30))["opened"], 1)
         self.db.commit()

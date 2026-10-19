@@ -339,6 +339,57 @@ describe('Companies', () => {
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ noShowOnUsualHours: true }, ''));
   });
 
+  // Live overtime alert (Oct 17 2026): off unless turned on; the two lead
+  // times default to 30 and 120 minutes, clamped to 0-240 and 0-480.
+  it('saves the overtime alert switch and its two lead times', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const on = await screen.findByLabelText('Alert managers before overtime');
+    expect(on.checked).toBe(false);
+    const daily = screen.getByLabelText('Daily overtime warning');
+    const weekly = screen.getByLabelText('Weekly overtime warning');
+    expect(daily.value).toBe('30');
+    expect(weekly.value).toBe('120');
+    expect(screen.getByText(/People on the California overtime rule only/)).toBeTruthy();
+    fireEvent.click(on);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertOn: true }, ''));
+    fireEvent.change(daily, { target: { value: '999' } });
+    fireEvent.blur(daily);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertDailyLeadMin: 240 }, ''));
+    fireEvent.change(weekly, { target: { value: '999' } });
+    fireEvent.blur(weekly);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertWeeklyLeadMin: 480 }, ''));
+    fireEvent.change(weekly, { target: { value: '0' } });
+    fireEvent.blur(weekly);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertWeeklyLeadMin: 0 }, ''));
+  });
+
+  // Stalled Time Sheet escalation (Oct 19-20 2026): default 2 days, 0 = off, clamped to 30.
+  it('saves the days before an unapproved time sheet escalates', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const days = await screen.findByLabelText('Escalate unapproved time sheets after');
+    expect(days.value).toBe('2');
+    expect(screen.getByText('Escalate Unapproved Time Sheets After (Days)')).toBeTruthy();
+    fireEvent.change(days, { target: { value: '45' } });
+    fireEvent.blur(days);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ timesheetEscalateDays: 30 }, ''));
+    fireEvent.change(days, { target: { value: '0' } });
+    fireEvent.blur(days);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ timesheetEscalateDays: 0 }, ''));
+  });
+
+  // Still on break reminder (Oct 20 2026, break_watch.py): default 60, 0 = off, clamped to 240.
+  it('saves the minutes before a still-on-break reminder', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const mins = await screen.findByLabelText('Still on break reminder');
+    expect(mins.value).toBe('60');
+    fireEvent.change(mins, { target: { value: '500' } });
+    fireEvent.blur(mins);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ breakNudgeMin: 240 }, ''));
+    fireEvent.change(mins, { target: { value: '0' } });
+    fireEvent.blur(mins);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ breakNudgeMin: 0 }, ''));
+  });
+
   it('shows the defaults (10 and 15) when the API sends none, and an unchanged value saves nothing', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
     const noShow = await screen.findByLabelText('No-show alert');

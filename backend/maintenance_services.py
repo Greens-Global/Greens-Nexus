@@ -95,7 +95,8 @@ def open_child(db, svc: models.PropertyMaintenanceService, actor: str, *, automa
     note = (f"<p><em>Scheduled service ({recurrence_label(svc.recurrence_unit, svc.recurrence_every)}) "
             f"due {us_date(due)}, from {ticket_no(parent.code) if parent else 'the original ticket'}.</em></p>")
     service_area = T.service_area_for(db, tpl.get("application") or "")
-    sla = T._sla_due_from_priority(db, now, priority)
+    import ticket_sla
+    sla = ticket_sla.targets(db, priority)   # Honest SLA: ticket_sla.start below
 
     code = code_sequence.next_ticket_code(db)   # the never-repeating counter
     t = models.TaskTicket(
@@ -107,9 +108,10 @@ def open_child(db, svc: models.PropertyMaintenanceService, actor: str, *, automa
         watcher_emails=[requester] if requester else [], resolution="", custom_field_values={},
         type_fields={"svc_unit": tpl["location"]} if tpl.get("location") else {}, links=[], task_ids=[],
         component="", csat_rating=0, csat_comment="", application=tpl.get("application") or "",
-        service_area=service_area, sla_due_on=sla, resolved_at="", created_at=now, modified_at=now,
+        service_area=service_area, sla_due_on="", resolved_at="", created_at=now, modified_at=now,
         property_asset_id=svc.property_asset_id, property_name=prop_name, property_locked=1,
         parent_ticket_id=svc.parent_ticket_id, service_id=svc.id, approver_email="", approval_status="none")
+    ticket_sla.start(t, sla)
     db.add(t)
     log_activity(db, type="created", actor_email=(actor or "system"), entity_kind="ticket", entity_id=t.id,
                  entity_code=t.code, entity_title=t.subject,
@@ -129,8 +131,8 @@ def open_child(db, svc: models.PropertyMaintenanceService, actor: str, *, automa
     T._notify_triage(db, t, (actor or "").lower())
     if manager and manager != (actor or "").lower():
         task_notify(db, kind="ticket_property", for_email=manager,
-                    title=(f"Scheduled service opened at {prop_name}" if automatic
-                           else f"Service ticket opened at {prop_name}"),
+                    title=(f"Scheduled Service Opened at {prop_name}" if automatic
+                           else f"Service Ticket Opened at {prop_name}"),
                     body=f"{ticket_no(t.code)} {t.subject} - due {us_date(due)}"[:500],
                     nexus_action={"view": "property-asset", "sub": f"tickets:{svc.property_asset_id}:{t.id}",
                                   "label": "View Property"})
@@ -162,7 +164,7 @@ def run_due(db, today: date | None = None) -> dict:
             name = property_links.display_name(prop) if prop is not None else "the property"
             if mgr:
                 task_notify(db, kind="ticket_property", for_email=mgr,
-                            title=f"Service due {us_date(due)} at {name}",
+                            title=f"Service Due {us_date(due)} at {name}",
                             body=(f"{(svc.template or {}).get('subject') or 'Scheduled service'} - a ticket opens "
                                   "automatically on the due date, or open it now from Maintenance > Recurring Services.")[:500],
                             nexus_action={"view": "property-asset", "sub": f"services:{svc.property_asset_id}",

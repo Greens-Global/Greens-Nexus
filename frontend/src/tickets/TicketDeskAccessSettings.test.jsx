@@ -20,6 +20,7 @@ vi.mock('../api', () => ({
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => isAdmin }) }));
 
 const { api } = await import('../api');
+const { dialog } = await import('../ui/dialog');
 const TicketDeskAccessSettings = (await import('./TicketDeskAccessSettings')).default;
 
 afterEach(() => { cleanup(); isAdmin = true; vi.restoreAllMocks(); });
@@ -36,7 +37,7 @@ describe('TicketDeskAccessSettings', () => {
   });
 
   it('confirms before switching to explicit, then saves', async () => {
-    const ask = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const ask = vi.spyOn(dialog, 'confirm').mockResolvedValue(true);
     render(<TicketDeskAccessSettings />);
     fireEvent.click(await screen.findByRole('radio', { name: /Tickets Access Only/ }));
     fireEvent.click(screen.getByRole('button', { name: /Save/ }));

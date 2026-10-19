@@ -130,7 +130,7 @@ OFFBOARDING = [
     _row("OFF-10", Q1, "Paid Leave Balance For Payout", "payroll", "X", -2, applies=EMP),
     _row("OFF-11", Q1, "Separation Agreement (Only If Severance Is Offered)", "hr", "X", -1, applies=EMP,
          hint="Counsel drafts it. Mark N/A when no severance is offered."),
-    _row("OFF-12", Q1, "Final Timesheet Submitted Before Lockout", "employee", "X", 0,
+    _row("OFF-12", Q1, "Final Time Sheet Submitted Before Lockout", "employee", "X", 0,
          applies={"types": ["employee"], **NOT_DEATH},
          hint="Mid-period leavers submit; the manager writes the final hours on the exit record and Payroll pays from them."),
 
@@ -185,5 +185,5 @@ INACTIVE = [
 DEFAULTS = {
     "onboarding": ("Onboarding", ONBOARDING),
     "offboarding": ("Offboarding", OFFBOARDING),
-    "inactive": ("Leave Or Suspension", INACTIVE),
+    "inactive": ("Leave or Suspension", INACTIVE),
 }

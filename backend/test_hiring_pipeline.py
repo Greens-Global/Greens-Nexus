@@ -559,7 +559,7 @@ class FollowupTests(PipelineCase):
         self.assertEqual((iv.status, iv.followup_status, iv.total_score), ("scored", "done", 68.0))
         answers = {a["qid"]: a["answer"] for a in iv.answers}
         self.assertEqual(answers, {"q1": "Typed: ran the close", "q2": "AI: likes the projects"})
-        self.assertTrue(any("Interview scored" in n.title for n in
+        self.assertTrue(any("Interview Scored" in n.title for n in
                             self.db.query(models.NexusNotification).filter_by(recipient=NEIL).all()))
 
     def test_a_setup_problem_still_scores_the_typed_answers(self):

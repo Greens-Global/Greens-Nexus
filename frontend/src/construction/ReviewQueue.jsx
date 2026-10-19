@@ -16,6 +16,7 @@ import {
   Check, Undo2, ChevronDown, ChevronRight, Sparkles,
 } from 'lucide-react';
 import { api } from '../api';
+import { formatDate } from '../lib/datetime';
 
 const CARD = {
   backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)',
@@ -76,7 +77,7 @@ function LogCard({ log, onDecide, busy }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <strong style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{log.projectName}</strong>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{log.logDate}</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{formatDate(log.logDate, log.logDate)}</span>
               {safety.length > 0 && (
                 <Pill bg="hsl(var(--color-red))" fg="#fff">
                   {safety.length} safety flag{safety.length === 1 ? '' : 's'}

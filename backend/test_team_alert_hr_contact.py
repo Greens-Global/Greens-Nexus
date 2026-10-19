@@ -98,7 +98,7 @@ class HrContactTests(unittest.TestCase):
         self.assertEqual(sorted(timeclock._team_alert_recipients(self.db, EMP, EMP)), sorted([MGR, OWNER]))
 
     def test_a_punch_change_request_reaches_manager_and_hr(self):
-        timeclock._notify_approvers(self.db, employee_email=EMP, title="Timesheet fix requested", body="add an in punch")
+        timeclock._notify_approvers(self.db, employee_email=EMP, title="Time Sheet Fix Requested", body="add an in punch")
         self.db.commit()
         self.assertEqual(self._recipients(), sorted([MGR, HR, OWNER]))
 
@@ -108,8 +108,10 @@ class HrContactTests(unittest.TestCase):
             user={"email": EMP, "level": 1}, db=self.db)
         # A new time-off request goes to the manager and the HR contact; the
         # Global Admins only step in when there is neither (Oct 2, Shifts QA
-        # B4-34: every request used to land on every owner's bell).
-        self.assertEqual(self._recipients(), sorted([MGR, HR]))
+        # B4-34: every request used to land on every owner's bell). The
+        # manager's own manager hears too (Neil, Oct 18 2026: "manager plus
+        # plus") - here that is Neil, as Valinda's manager.
+        self.assertEqual(self._recipients(), sorted([MGR, HR, OWNER]))
 
 
 if __name__ == "__main__":

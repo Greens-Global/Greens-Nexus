@@ -91,6 +91,40 @@ export function EmptyState({ icon: Icon, title, hint }) {
   );
 }
 
+// Escape belongs to the TOPMOST layer only (Oct 2026 ticket review). Every
+// Modal used to listen on window, so Escape in a dialog stacked over the
+// ticket drawer (Resolve, a linked task) closed BOTH. Each layer takes a
+// number at first render - render order is parent before child and older
+// before newer, so the highest live number is the one on top, even when a
+// parent and a child mount in the same commit (where effect order would say
+// the opposite). A key event something else already handled (the app's
+// dialog host calls preventDefault) is left alone too.
+let escapeLayerSeq = 0;
+const escapeLayers = new Set();
+function isTopEscapeLayer(id) {
+  let top = -1;
+  for (const n of escapeLayers) if (n > top) top = n;
+  return id === top;
+}
+// onEscape(e) runs only for the layer on top. `active` false takes the layer
+// out of the stack (an overlay that stays mounted while hidden).
+export function useEscapeLayer(onEscape, active = true) {
+  const [id] = useState(() => { escapeLayerSeq += 1; return escapeLayerSeq; });
+  const cb = useRef(onEscape);
+  useEffect(() => { cb.current = onEscape; });
+  useEffect(() => {
+    if (!active) return undefined;
+    escapeLayers.add(id);
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || !isTopEscapeLayer(id)) return;
+      cb.current?.(e);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { escapeLayers.delete(id); window.removeEventListener('keydown', onKey); };
+  }, [id, active]);
+  return id;
+}
+
 // Centered modal (portal to body so it isn't clipped by overflow containers).
 // `isDirty` + `onSave`: an unintentional exit (overlay click, Escape, the X
 // button) used to discard in-progress edits with no warning - the explicit
@@ -99,7 +133,7 @@ export function EmptyState({ icon: Icon, title, hint }) {
 // the edit away (Aug 18 - "when we click outside... it should ask us for
 // 'Do you want to save'"). With isDirty unset (the default) a modal behaves
 // exactly as before.
-export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 60vw, 980px)', isDirty = false, onSave }) {
+export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 60vw, 980px)', minHeight, isDirty = false, onSave }) {
   // Phones get a full-screen sheet, the shape the task drawer already uses
   // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
   // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
@@ -128,11 +162,7 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
   // the exit first; a caller that closes from its own Save button is instant.
   const [closing, exit] = useExit(onClose);
   const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else exit(); };
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') requestClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, isDirty]);
+  useEscapeLayer(() => requestClose());
   useDialogFocus(panelRef);
   // The phone's Back button closes this sheet, not the screen behind it -
   // asking the same unsaved-work questions the X button asks.
@@ -185,7 +215,7 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
           ? { width: '100%', maxWidth: '100%', borderRadius: 0, border: 'none', ...(vv ? { height: vv.height } : null) }
           // 100% of the overlay's padded box. On a desktop that is the same
           // 86vh as before; pinned to the visual viewport it is what fits.
-          : { width, maxWidth: '100%', maxHeight: vv ? '100%' : '86vh', borderRadius: 16 }),
+          : { width, maxWidth: '100%', maxHeight: vv ? '100%' : '86vh', borderRadius: 16, ...(minHeight ? { minHeight: `min(${minHeight}, 100%)` } : null) }),
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${NX.border2}`, flexShrink: 0 }}>
           <div id={titleId} style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{title}</div>

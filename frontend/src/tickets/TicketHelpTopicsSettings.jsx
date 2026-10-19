@@ -19,10 +19,17 @@
 // per topic below the topic list (its own drag list, so the two lists' drags
 // never mix). Optional for the requester; a topic without any asks nothing more.
 //
+// Default assignee (Oct 2026, backend/ticket_auto_assign.py): a topic may
+// name who a new ticket about it goes straight to, chosen per company (the
+// topic list is shared by every company with a department of that name).
+// It wins over the department's own default (Routing & Escalation). The
+// server checks the person is on that company's desk, and keeps another
+// company's choice - which this screen is not shown - exactly as it was.
+//
 // Manager+ only, like the SLA & Ticket Types panel next to it; the backend's
 // require_manager on the save is the real boundary.
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Save, RotateCcw, X, Tags, ListTree } from 'lucide-react';
+import { Plus, Save, RotateCcw, X, Tags, ListTree, UserCheck } from 'lucide-react';
 import { LoadingState } from '../components/AsyncState';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -30,6 +37,8 @@ import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
 import { TOPIC_MAX_LEN } from './ticketMeta';
 import { refreshTicketConfig } from './ticketConfig';
 import DragList from './DragList';
+import { PersonSelect, usePeople } from '../tasks/components';
+import { useDeskAgents, agentOptions } from './deskAgents';
 
 let _seq = 0;
 const tid = () => `t${++_seq}`;
@@ -52,6 +61,10 @@ function buildState(groups, depts) {
     lists[norm(n)] = (g?.topics || []).map((tp) => ({
       id: tid(), name: tp.name || '', area: tp.area || 'general',
       options: (Array.isArray(tp.options) ? tp.options : []).map((o) => ({ id: tid(), name: String(o || '') })),
+      defaultAssignees: (tp.defaultAssignees && typeof tp.defaultAssignees === 'object') ? { ...tp.defaultAssignees } : {},
+      // Intake questions are edited elsewhere, but must travel with the topic -
+      // a save without them used to wipe every topic's questions.
+      ...(Array.isArray(tp.questions) ? { questions: tp.questions } : {}),
     }));
   }
   const orphans = (groups || [])
@@ -68,6 +81,12 @@ export default function TicketHelpTopicsSettings() {
   const [newTopic, setNewTopic] = useState('');
   const [optFor, setOptFor] = useState(null);   // id of the topic whose sub-options are open
   const [newOption, setNewOption] = useState('');
+  const [asgFor, setAsgFor] = useState(null);   // id of the topic whose default assignees are open
+  const [companies, setCompanies] = useState([]);
+  const people = usePeople();
+  const asgCompanyIds = useMemo(() => (state && sel ? companies.filter((c) => depts.some((d) => d.companyId === c.id && norm(d.name) === sel)).map((c) => c.id) : []),
+    [state, sel, companies, depts]);
+  const deskAgents = useDeskAgents(asgFor ? asgCompanyIds : []);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
@@ -85,7 +104,10 @@ export default function TicketHelpTopicsSettings() {
       apply(cfg.helpTopics || [], live);
     })
     .catch((e) => setErr(e.message || String(e)));
-  useEffect(() => { load(); }, []);   // eslint-disable-line react-hooks/exhaustive-deps -- once, on mount
+  useEffect(() => {
+    load();
+    api.getTicketCompanies().then((rows) => setCompanies(Array.isArray(rows) ? rows : [])).catch(() => {});
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps -- once, on mount
 
   const topics = useMemo(() => (state && sel ? state.lists[sel] || [] : []), [state, sel]);
   const setTopics = (next) => setState((s) => ({ ...s, lists: { ...s.lists, [sel]: next } }));
@@ -104,6 +126,16 @@ export default function TicketHelpTopicsSettings() {
     setNewTopic('');
   };
 
+  // The companies that have a department of the selected name - the ones a
+  // topic default can be set for.
+  const selCompanies = companies.filter((c) => depts.some((d) => d.companyId === c.id && norm(d.name) === sel));
+  const asgTopic = topics.find((tp) => tp.id === asgFor) || null;
+  const setAssignee = (companyId, email) => setTopics(topics.map((x) => {
+    if (x.id !== asgFor) return x;
+    const next = { ...(x.defaultAssignees || {}) };
+    if (email) next[companyId] = email; else delete next[companyId];
+    return { ...x, defaultAssignees: next };
+  }));
   const optTopic = topics.find((tp) => tp.id === optFor) || null;
   const options = optTopic ? optTopic.options || [] : [];
   const setOptions = (next) => setTopics(topics.map((x) => (x.id === optFor ? { ...x, options: next } : x)));
@@ -125,7 +157,10 @@ export default function TicketHelpTopicsSettings() {
             .map((tp) => {
               const opts = (tp.options || []).map((o) => o.name.trim())
                 .filter((o, i, arr) => o && arr.findIndex((x) => norm(x) === norm(o)) === i);
-              return { name: tp.name.trim(), area: tp.area || 'general', ...(opts.length ? { options: opts } : {}) };
+              const asg = Object.fromEntries(Object.entries(tp.defaultAssignees || {}).filter(([c, e]) => c && e));
+              return { name: tp.name.trim(), area: tp.area || 'general', ...(opts.length ? { options: opts } : {}),
+                ...(Array.isArray(tp.questions) ? { questions: tp.questions } : {}),
+                ...(Object.keys(asg).length ? { defaultAssignees: asg } : {}) };
             })
             .filter((tp, i, arr) => tp.name && arr.findIndex((x) => norm(x.name) === norm(tp.name)) === i),
         }))
@@ -161,7 +196,7 @@ export default function TicketHelpTopicsSettings() {
               const on = k === sel;
               const count = (state.lists[k] || []).filter((tp) => tp.name.trim()).length;
               return (
-                <button key={k} type="button" role="tab" aria-selected={on} onClick={() => { setSel(k); setNewTopic(''); setOptFor(null); }}
+                <button key={k} type="button" role="tab" aria-selected={on} onClick={() => { setSel(k); setNewTopic(''); setOptFor(null); setAsgFor(null); }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: 'none',
                     cursor: 'pointer', fontFamily: FONT, fontSize: 13, textAlign: 'left',
@@ -192,7 +227,13 @@ export default function TicketHelpTopicsSettings() {
                     style={{ ...btn(optFor === tp.id ? 'primary' : 'ghost'), padding: '5px 8px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                     <ListTree size={12} /> {(tp.options || []).length || 'None'}
                   </button>
-                  <button type="button" onClick={() => { if (optFor === tp.id) setOptFor(null); setTopics(topics.filter((x) => x.id !== tp.id)); }}
+                  <button type="button" onClick={() => setAsgFor(asgFor === tp.id ? null : tp.id)}
+                    aria-pressed={asgFor === tp.id} aria-label={`Default assignee for ${tp.name}`}
+                    title="Who a new ticket about this topic goes straight to"
+                    style={{ ...btn(asgFor === tp.id ? 'primary' : 'ghost'), padding: '5px 8px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    <UserCheck size={12} /> {Object.keys(tp.defaultAssignees || {}).length || 'None'}
+                  </button>
+                  <button type="button" onClick={() => { if (optFor === tp.id) setOptFor(null); if (asgFor === tp.id) setAsgFor(null); setTopics(topics.filter((x) => x.id !== tp.id)); }}
                     title={`Remove ${tp.name}`} aria-label={`Remove ${tp.name}`}
                     style={{ border: 'none', background: 'none', cursor: 'pointer', color: NX.dim, display: 'grid', placeItems: 'center', padding: 4, flexShrink: 0 }}>
                     <X size={14} />
@@ -209,6 +250,30 @@ export default function TicketHelpTopicsSettings() {
               </button>
             </div>
             {newTopic.trim() && dup(newTopic) && <div style={{ fontSize: 11.5, color: NX.red, marginTop: 4 }}>{selName} already has that topic.</div>}
+
+            {asgTopic && (
+              <div role="region" aria-label={`Default assignee for ${asgTopic.name}`}
+                style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${NX.border}` }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>Default Assignee - {asgTopic.name || 'New Topic'}</div>
+                <div style={{ fontSize: 12, color: NX.faint, marginBottom: 10, lineHeight: 1.5 }}>
+                  A new ticket about this topic that nobody assigned goes straight to this person, ahead of the department&apos;s
+                  default. Pick someone on that company&apos;s ticket desk. Leave it empty to use the department&apos;s default.
+                </div>
+                {selCompanies.length === 0 ? (
+                  <div style={{ fontSize: 12, color: NX.faint }}>No company you can see has a {selName} department.</div>
+                ) : selCompanies.map((c) => (
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                    <span style={{ width: 140, flexShrink: 0, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.name}>{c.name}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <PersonSelect value={(asgTopic.defaultAssignees || {})[c.id] || null}
+                        people={agentOptions(deskAgents[c.id], (asgTopic.defaultAssignees || {})[c.id], people)}
+                        onChange={(email) => setAssignee(c.id, email || '')} placeholder="No default assignee" />
+                    </div>
+                  </div>
+                ))}
+                <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Saved with the topics - click Save below.</div>
+              </div>
+            )}
 
             {optTopic && (
               <div role="region" aria-label={`Which One? options for ${optTopic.name}`}

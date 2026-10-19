@@ -1870,7 +1870,7 @@ def delete_document(did: str, user: dict = Depends(get_current_user), db: Sessio
     # Notify before the delete: after it there is no row left to read a title
     # or an owner off, and a permanent delete is exactly the event an owner
     # most needs to hear about.
-    _notify_owner(db, row, user, "A draft of yours was deleted",
+    _notify_owner(db, row, user, "A Draft of Yours Was Deleted",
                   f'"{row.title}" was permanently deleted by {user["email"]}.')
     db.query(DocumentVersion).filter(DocumentVersion.document_id == did).delete()
     db.delete(row); db.commit()
@@ -1883,7 +1883,7 @@ def archive_document(did: str, user: dict = Depends(get_current_user), db: Sessi
     row.status = "archived"
     row.archived_at = _now_iso()
     row.updated_by = user["email"]; row.updated_at = _now_iso()
-    _notify_owner(db, row, user, "A document of yours was archived",
+    _notify_owner(db, row, user, "A Document of Yours Was Archived",
                   f'"{row.title}" was archived by {user["email"]}. '
                   "You can restore it from My Documents -> Archived.")
     db.commit(); db.refresh(row)

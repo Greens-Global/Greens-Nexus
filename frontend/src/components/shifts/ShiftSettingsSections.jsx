@@ -258,9 +258,29 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
                   hint="Tells the person's manager, their backup manager and the team's schedulers when a shared shift has started, the grace has passed, and this many minutes have gone by with no clock-in. The alert always lands inside the six hours after the start. 0 turns it off." />
                 <MinutesField label="Left Early" aria="Left early" value={cfg.leftEarlyMin} fallback={15} onSave={(n) => save({ ...cfg, leftEarlyMin: n })}
                   hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
+                {/* Stalled Time Sheet escalation (Oct 19 2026, timesheet_alerts.py). */}
+                <MinutesField label="Escalate Unapproved Time Sheets After (Days)" aria="Escalate unapproved time sheets after" unit="days" max={30}
+                  value={cfg.timesheetEscalateDays} fallback={2} onSave={(n) => save({ timesheetEscalateDays: n })}
+                  hint="Days after a pay period ends before a time sheet still waiting on its approver is sent up to the approver's own manager, or else the company's HR contact. 0 turns it off." />
+                {/* A break that never ended (Oct 20 2026, break_watch.py). */}
+                <MinutesField label="Still on Break Reminder" aria="Still on break reminder" max={240}
+                  value={cfg.breakNudgeMin} fallback={60} onSave={(n) => save({ breakNudgeMin: n })}
+                  hint="Minutes on a break that has not ended before the person is asked if they are still on break. Their manager hears at twice this. 0 turns it off." />
               </div>
               <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.noShowOnUsualHours === true} onChange={(e) => save({ noShowOnUsualHours: e.target.checked })} /> Alert for usual hours too</label>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those.</div>
+              {/* Live overtime alert (Oct 17 2026, overtime_watch.py). */}
+              <label style={{ ...CHECK, marginTop: 10 }}><input type="checkbox" checked={cfg.otAlertOn === true} onChange={(e) => save({ otAlertOn: e.target.checked })} /> Alert managers before overtime</label>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. Tells the person's manager and their backup manager once, from the actual punches, when someone clocked in is about to reach overtime.</div>
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 8, opacity: cfg.otAlertOn === true ? 1 : 0.6 }}>
+                <MinutesField label="Daily Overtime Warning" aria="Daily overtime warning" value={cfg.otAlertDailyLeadMin} fallback={30} onSave={(n) => save({ otAlertDailyLeadMin: n })}
+                  hint="Minutes before 8 worked hours in a day. People on the California overtime rule only. 0 turns it off." />
+                <MinutesField label="Weekly Overtime Warning" aria="Weekly overtime warning" max={480} value={cfg.otAlertWeeklyLeadMin} fallback={120} onSave={(n) => save({ otAlertWeeklyLeadMin: n })}
+                  hint="Minutes before 40 hours of regular time in a payroll week (Sunday to Saturday). 0 turns it off." />
+              </div>
+              {/* Location Trail While Clocked In (Oct 20 2026, routers/location_trail.py). */}
+              <label style={{ ...CHECK, marginTop: 10 }}><input type="checkbox" checked={cfg.locationTrailOn === true} onChange={(e) => save({ locationTrailOn: e.target.checked })} /> Location Trail While Clocked In</label>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. When on, Nexus shares each person's location about every 5 minutes while they are clocked in, paused on breaks and stopped at clock out, and only when their browser already allows location. The Time Clock page tells them it is on. Managers see live positions and each day's trail in People - Time - Location Trail. A browser cannot share while the phone screen is locked or Nexus is closed, so the trail has gaps then. Points are kept for 90 days.</div>
             </div>
             <div>
               <div style={LBL}>Rules</div>

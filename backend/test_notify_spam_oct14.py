@@ -107,7 +107,7 @@ class TimecardEditTests(Base):
         self._edit(10)
         self.assertEqual(sorted(b.recipient for b in self.bells()), [HR, MGR])
         for b in self.bells():
-            self.assertEqual(b.title, "Timecard edited - Amy Lee")
+            self.assertEqual(b.title, "Time Sheet Edited - Amy Lee")
             self.assertTrue(b.body.startswith("edit 9"))
 
     def test_another_day_is_another_notice(self):
@@ -133,7 +133,7 @@ class TimecardEditTests(Base):
             timeclock._tell_employee_timecard(self.db, EMP, "2026-10-13", f"change {i}")
         self.db.commit()
         [b] = self.bells(EMP)
-        self.assertEqual(b.title, "Your timecard was changed")
+        self.assertEqual(b.title, "Your Time Sheet Was Changed")
         self.assertEqual(b.body, "change 2\nchange 1\nchange 0")
 
 
@@ -172,7 +172,7 @@ class OutOfFenceTests(Base):
                 timeclock._notify_out_of_fence(self.db, emp, row, geo)
                 self.db.commit()
         [b] = self.bells(MGR)
-        self.assertEqual(b.title, "Out-of-fence punches - Amy Lee")
+        self.assertEqual(b.title, "Out-of-Fence Punches - Amy Lee")
         self.assertEqual(len(b.body.split("\n")), 3)
         self.assertEqual(mail.call_count, 1)
 

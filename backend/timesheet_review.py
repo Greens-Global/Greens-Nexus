@@ -68,6 +68,9 @@ from models import (HrEntity, HrSignParty, HrSignRequest, NexusEmployee, PunchRe
                     TimeApproval, TimePunch, TimesheetReview)
 
 ACTIVE = ("with_manager", "with_employee", "approved", "signing")
+# The reviewer's decisions a stand-in may take (approver delegation, Oct 17) -
+# the rounds that record who they were taken for.
+_DELEGABLE = ("sent_back", "agreed", "approved")
 LINK_KIND = "timesheet"
 # Nexus Sign role keys, in signing order. Only the EMPLOYEE signs (Neil, Oct
 # 16): the lead approver - their manager, or the company's HR contact / a
@@ -216,7 +219,55 @@ def fingerprint(db: Session, email: str, start: str, end: str) -> str:
                     PunchRequest.local_date >= start, PunchRequest.local_date <= end).all())
     body = sorted([p.id, p.kind, p.at, p.pending_at or "", p.edit_status or "", p.category or ""]
                   for p in punches) + sorted(["req", r.id] for r in reqs)
+    # CA meal / rest premium lines change the pay (ca_breaks.py) - only a
+    # card that has any adds them, so every other fingerprint is unchanged.
+    import ca_breaks
+    prem = ca_breaks.premium_rows(db, email, start, end)
+    if prem:
+        body += sorted(["prem", p.id, p.local_date, p.kind] for p in prem)
     return hashlib.sha256(json.dumps(body).encode()).hexdigest()
+
+
+# What the signed PDF prints as totals (build_pdf), by pay type - the numbers a
+# signature vouches for.
+_SIGNED_KEYS = {
+    "hourly": (("regMin", "Regular"), ("otMin", "Overtime"), ("dtMin", "Double Time"), ("sickMin", "Sick"),
+               ("vacationMin", "Vacation"), ("workedMin", "Total Worked"),
+               ("mealPremiumMin", "Meal Premium"), ("restPremiumMin", "Rest Premium")),
+    "fixed": (("workedMin", "Worked"), ("missedFullDays", "Missed Full Days"),
+              ("missedHalfDays", "Missed Half Days"), ("weekendDaysWorked", "Weekend Days Worked")),
+}
+TOTALS_CHANGED_NOTE = "Pay settings changed after approval - sent back for a fresh signature"
+
+
+def signed_totals(card: dict, pay_type: str) -> dict:
+    """The totals and per-day hours a Time Sheet PDF prints - frozen on the
+    round that sent it for signature, compared again when the signature
+    comes back (totals_drift)."""
+    t = card.get("totals") or {}
+    keys = _SIGNED_KEYS["fixed" if pay_type == "fixed" else "hourly"]
+    return {"payType": pay_type, "totals": {k: int(t.get(k) or 0) for k, _l in keys},
+            "days": {d: int(m) for d, m in day_minutes(card, pay_type).items()}}
+
+
+def totals_drift(sent: dict, now: dict) -> list:
+    """Plain-words differences between what was signed and what finalize
+    would record now ([] = the same). Hours are h/m; day counts are counts."""
+    if not sent:
+        return []
+    out = []
+    if sent.get("payType") != now.get("payType"):
+        out.append(f"Pay type {sent.get('payType')} -> {now.get('payType')}")
+        return out
+    labels = dict(_SIGNED_KEYS["fixed" if now.get("payType") == "fixed" else "hourly"])
+    for k, label in labels.items():
+        a, b = int((sent.get("totals") or {}).get(k, 0)), int((now.get("totals") or {}).get(k, 0))
+        if a != b:
+            fmt = _hm if k.endswith("Min") else str
+            out.append(f"{label} {fmt(a)} -> {fmt(b)}")
+    for c in _changes(sent.get("days") or {}, now.get("days") or {}):
+        out.append(f"{us_date(c['date'])} {_hm(c['before'])} -> {_hm(c['after'])}")
+    return out
 
 
 def _changes(before: dict, after: dict) -> list:
@@ -278,18 +329,30 @@ def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
     if employee_request:
         return
     if r.status == "with_manager" and is_employee:
-        raise HTTPException(403, "Your timesheet is with your manager for review. They can send it "
+        raise HTTPException(403, "Your time sheet is with your manager for review. They can send it "
                                  "back to you if something needs changing.")
     if r.status == "with_employee" and not is_employee:
-        raise HTTPException(403, f"This timesheet is back with {display_name(db, email)} for changes. "
+        raise HTTPException(403, f"This time sheet is back with {display_name(db, email)} for changes. "
                                  "It returns to you when they resubmit.")
 
 
 # ── Rounds ────────────────────────────────────────────────────────────────────
 
 def _round(db: Session, r: TimesheetReview, *, by: str, action: str, note: str = "",
-           with_changes: bool = False) -> dict:
+           with_changes: bool = False, extra: dict | None = None) -> dict:
     entry = {"at": _now(), "by": (by or "").lower(), "action": action, "note": (note or "").strip()[:1000]}
+    if action in _DELEGABLE:
+        # A stand-in's decision is logged "by X for Y" (approver delegation,
+        # Oct 17): on the round - the approval log and the PDF read it - and
+        # in audit_logs.
+        import approval_delegation
+        for_ = approval_delegation.acting_for(db, by, r.employee_email)
+        if for_:
+            entry["for"] = for_
+            approval_delegation.audit(db, by, for_, f"Time sheet {action.replace('_', ' ')}",
+                                      "timesheet_reviews", r.id, r.employee_email)
+    if extra:
+        entry.update(extra)
     if with_changes:
         card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
         now = day_minutes(card, r.pay_type)
@@ -323,6 +386,25 @@ def _notify(db: Session, to: str, title: str, body: str, r: TimesheetReview) -> 
     _tc()._hr_notify(db, to, title, body, action=action, priority=1)
 
 
+def _notify_reviewer(db: Session, r: TimesheetReview, title: str, body: str, actor: str = "") -> None:
+    """The time sheet now waits on its reviewer: the reviewer, plus the live
+    stand-in of that reviewer (approver delegation, Oct 17) - one notice each,
+    landing on their Time Sheets to Review list."""
+    _notify(db, r.manager_email, title, body, r)
+    import approval_delegation
+    for dl, dg in approval_delegation.stand_ins(db, r.employee_email, [r.manager_email]):
+        if dl != (actor or "").lower():
+            _tc()._hr_notify(db, dl, title, f"For {display_name(db, dg)}: {body}",
+                             action={"view": "timeclock", "sub": "timesheet"}, priority=1)
+
+
+def _who(db: Session, e: dict) -> str:
+    """A round's actor as the logs print it: 'Max Test', or 'Max Test for
+    Dana Boss' when a stand-in acted (approver delegation)."""
+    who = display_name(db, e.get("by", ""))
+    return f"{who} for {display_name(db, e['for'])}" if e.get("for") else who
+
+
 def _label(r: TimesheetReview) -> str:
     return f"{us_date(r.period_start)} - {us_date(r.period_end)}"
 
@@ -338,7 +420,8 @@ def _void_envelope(db: Session, r: TimesheetReview, actor: str, note: str) -> No
     r.sign_request_id = ""
 
 
-def reopen(db: Session, r: TimesheetReview, actor: str, what: str) -> None:
+def reopen(db: Session, r: TimesheetReview, actor: str, what: str, *, note: str | None = None,
+           extra: dict | None = None) -> None:
     """A change to a timesheet the manager already approved (or that is out
     for the employee's signature) by anyone but HR: it goes back to the
     manager to approve again (Oct 16 - "if the employee is unhappy, they edit
@@ -348,15 +431,15 @@ def reopen(db: Session, r: TimesheetReview, actor: str, what: str) -> None:
     was_signing = r.status == "signing"
     _void_envelope(db, r, actor, what)
     r.status, r.agreed_fingerprint = "with_manager", ""
-    _round(db, r, by=actor, action="reopened", note=what)
+    _round(db, r, by=actor, action="reopened", note=what if note is None else note, extra=extra)
     who = display_name(db, actor)
-    msg = (f"{who} {what} on {display_name(db, r.employee_email)}'s timesheet for {_label(r)} after it was "
+    msg = (f"{who} {what} on {display_name(db, r.employee_email)}'s time sheet for {_label(r)} after it was "
            f"approved{' and sent for signature' if was_signing else ''}, so it is back with the manager to "
            "review and approve again.")
     if actor != (r.manager_email or "").lower():
-        _notify(db, r.manager_email, "Timesheet back for review", msg, r)
+        _notify_reviewer(db, r, "Time Sheet Back for Review", msg, actor)
     if actor != r.employee_email:
-        _notify(db, r.employee_email, "Timesheet back for review", msg, r)
+        _notify(db, r.employee_email, "Time Sheet Back for Review", msg, r)
 
 
 def _hr_override(db: Session, r: TimesheetReview, actor: str, note: str = "") -> None:
@@ -376,8 +459,8 @@ def _hr_override(db: Session, r: TimesheetReview, actor: str, note: str = "") ->
         _void_envelope(db, r, actor, "HR changed the hours")
         r.status = "approved"
     _round(db, r, by=actor, action="hr_edited", note=note)
-    _notify(db, r.employee_email, "Timesheet updated by HR",
-            f"{display_name(db, actor)} (HR) updated your timesheet for {_label(r)}. Review the hours, "
+    _notify(db, r.employee_email, "Time Sheet Updated by HR",
+            f"{display_name(db, actor)} (HR) updated your time sheet for {_label(r)}. Review the hours, "
             "then approve and sign it.", r)
 
 
@@ -400,7 +483,7 @@ def submit_blocker(db: Session, email: str, start: str, end: str) -> str:
     exc = tc._blocking_exceptions(db, email, start, end, with_pending=True)
     if not exc:
         return ""
-    return (f"Fix {'this' if len(exc) == 1 else 'these'} on your timesheet before you submit it - "
+    return (f"Fix {'this' if len(exc) == 1 else 'these'} on your time sheet before you submit it - "
             f"{tc._exception_summary(exc)}.")
 
 
@@ -420,20 +503,38 @@ def approve_blocker(db: Session, email: str, start: str, end: str) -> str:
         if pending:
             # The employee's fixes are on the timecard, waiting on the approver.
             return (f"{display_name(db, email)} has {pending} punch "
-                    f"fix{'' if pending == 1 else 'es'} waiting for your approval on the timesheet above - "
+                    f"fix{'' if pending == 1 else 'es'} waiting for your approval on the time sheet above - "
                     f"approve {'it' if pending == 1 else 'them'} to clear: {tc._exception_summary(exc)}.")
-        return (f"Fix {'this' if len(exc) == 1 else 'these'} on the timesheet before you can approve - "
+        return (f"Fix {'this' if len(exc) == 1 else 'these'} on the time sheet before you can approve - "
                 f"{tc._exception_summary(exc)}. Or send it back to the employee to fix.")
     if pending:
         # Oct 16: the manager resolves every change before approving, so the
         # employee signs a card with nothing left open on it.
         return (f"{display_name(db, email)} has {pending} change{'' if pending == 1 else 's'} waiting for your "
-                f"decision on the timesheet above - approve or reject {'it' if pending == 1 else 'them'} first.")
+                f"decision on the time sheet above - approve or reject {'it' if pending == 1 else 'them'} first.")
     return ""
 
 
 def agree_blocker(db: Session, r: TimesheetReview) -> str:
     return approve_blocker(db, r.employee_email, r.period_start, r.period_end)
+
+
+def review_flag(db: Session, email: str, start: str, end: str, blocker: str | None = None) -> str:
+    """Why Approve All Clean (Oct 17) leaves this time sheet for one-by-one
+    review, in plain words; '' when it is clean. Clean = Approve would go
+    through (approve_blocker: the period is over, no missing punch, no punch
+    fix or edit waiting on a decision) AND the card has no exception at all -
+    an unusually long shift or break, or a shift Nexus auto-closed, does not
+    block Approve but is worth a look before it is approved in bulk.
+    `blocker`: the approve_blocker the caller already worked out."""
+    blocker = approve_blocker(db, email, start, end) if blocker is None else blocker
+    if blocker:
+        return blocker
+    exc = _tc()._period_exceptions(db, email, start, end)
+    if not exc:
+        return ""
+    return (f"Look at {'this' if len(exc) == 1 else 'these'} before approving - "
+            f"{_tc()._exception_summary(exc)}.")
 
 
 def waiting_on(db: Session, reviewer: str) -> list:
@@ -456,6 +557,10 @@ def waiting_on(db: Session, reviewer: str) -> list:
         mine |= {r.employee_email for r in db.query(TimesheetReview)
                  .filter(TimesheetReview.status == "with_manager").all()
                  if not manager_of(db, r.employee_email)}
+    # ...and, while an approver delegation names `reviewer`, the delegator's
+    # people (approval_delegation.delegated_people - never further: no chains).
+    import approval_delegation
+    mine |= set(approval_delegation.delegated_people(db, me))
     if mine:
         seen = {r.id for r in rows}
         rows += [r for r in db.query(TimesheetReview)
@@ -507,20 +612,28 @@ def to_sign(db: Session, signer: str) -> list:
         # The employee's own envelope is listed too: their Time Sheet opens on
         # the CURRENT period while the envelope is for the one just closed, so
         # the card signs it in place from any period (Oct 16).
-        out.append({"id": r.id, "partyId": p.id, "role": p.role_key, "employeeEmail": r.employee_email,
-                    "name": display_name(db, r.employee_email), "periodStart": r.period_start,
-                    "periodEnd": r.period_end, "payType": r.pay_type, "agreedAt": r.agreed_at or "",
-                    "agreedBy": display_name(db, r.agreed_by) if r.agreed_by else ""})
+        row = {"id": r.id, "partyId": p.id, "role": p.role_key, "employeeEmail": r.employee_email,
+               "name": display_name(db, r.employee_email), "periodStart": r.period_start,
+               "periodEnd": r.period_end, "payType": r.pay_type, "agreedAt": r.agreed_at or "",
+               "agreedBy": display_name(db, r.agreed_by) if r.agreed_by else ""}
+        # CA-rule staff only: the meal and rest break statement their
+        # signature confirms, and Report a Missed Break (ca_breaks.py).
+        if p.role_key == "employee" and needs_break_attestation(db, r):
+            row["breakAttestation"] = break_attestation_state(db, r)
+        out.append(row)
     # HR changed an agreed timesheet that was out for signature (Oct 17): its
     # envelope was pulled back, so it has no party yet - without this row the
     # employee had only the one bell to find it by. needsResign: the card
     # sends the fresh envelope (POST /{id}/sign) and opens it.
     for r in db.query(TimesheetReview).filter(TimesheetReview.employee_email == me,
                                               TimesheetReview.status == "approved").all():
-        out.append({"id": r.id, "partyId": "", "role": "employee", "employeeEmail": r.employee_email,
-                    "name": display_name(db, r.employee_email), "periodStart": r.period_start,
-                    "periodEnd": r.period_end, "payType": r.pay_type, "agreedAt": r.agreed_at or "",
-                    "agreedBy": display_name(db, r.agreed_by) if r.agreed_by else "", "needsResign": True})
+        row = {"id": r.id, "partyId": "", "role": "employee", "employeeEmail": r.employee_email,
+               "name": display_name(db, r.employee_email), "periodStart": r.period_start,
+               "periodEnd": r.period_end, "payType": r.pay_type, "agreedAt": r.agreed_at or "",
+               "agreedBy": display_name(db, r.agreed_by) if r.agreed_by else "", "needsResign": True}
+        if needs_break_attestation(db, r):
+            row["breakAttestation"] = break_attestation_state(db, r)
+        out.append(row)
     return sorted(out, key=lambda x: (x["agreedAt"], x["periodStart"]))
 
 
@@ -528,11 +641,14 @@ def queue_row(db: Session, r: TimesheetReview) -> dict:
     """One line of the reviewer's list: who, which period, the hours as last
     submitted, when, their note, and whether Agree would go through now."""
     last = next((e for e in reversed(r.rounds or []) if e.get("action") in ("submitted", "resubmitted")), {})
+    blocker = agree_blocker(db, r)
     return {"id": r.id, "employeeEmail": r.employee_email, "name": display_name(db, r.employee_email),
             "periodStart": r.period_start, "periodEnd": r.period_end, "payType": r.pay_type,
             "workedMin": int(last.get("workedMin") or 0), "submittedAt": last.get("at") or r.updated_at or "",
             "resubmitted": last.get("action") == "resubmitted", "note": last.get("note") or "",
-            "agreeBlocker": agree_blocker(db, r), "notSubmitted": False}
+            "agreeBlocker": blocker, "notSubmitted": False,
+            # Approve All Clean skips it while this says why (Oct 17).
+            "reviewFlag": review_flag(db, r.employee_email, r.period_start, r.period_end, blocker)}
 
 
 def last_closed_period(db: Session, email: str) -> tuple[str, str, str]:
@@ -575,6 +691,9 @@ def not_reviewed(db: Session, reviewer: str) -> list:
     people = set(backup_manager.managed_directly(db, me))
     if _is_global_admin(db, me):
         people |= no_approver(db)
+    # A live approver delegation naming `reviewer` brings the delegator's people.
+    import approval_delegation
+    people |= set(approval_delegation.delegated_people(db, me))
     out = []
     for em in sorted(people - {me}):
         emp = _employee(db, em)
@@ -593,11 +712,13 @@ def not_reviewed(db: Session, reviewer: str) -> list:
                                                TimePunch.local_date >= start, TimePunch.local_date <= end).first()):
                 continue
             card = card_for(db, em, start, end, pay_type)
+            blocker = approve_blocker(db, em, start, end)
             out.append({"id": "", "employeeEmail": em, "name": display_name(db, em), "periodStart": start,
                         "periodEnd": end, "payType": pay_type,
                         "workedMin": int((card.get("totals") or {}).get("workedMin") or 0),
                         "submittedAt": "", "resubmitted": False, "note": "",
-                        "agreeBlocker": approve_blocker(db, em, start, end), "notSubmitted": True})
+                        "agreeBlocker": blocker, "notSubmitted": True,
+                        "reviewFlag": review_flag(db, em, start, end, blocker)})
     return sorted(out, key=lambda x: (x["periodStart"], x["name"]))
 
 
@@ -610,20 +731,20 @@ def submit(db: Session, employee_email: str, anchor: str, note: str = "") -> Tim
     # exemption is set on the person's role in Settings > Access.
     from routers.timeclock import is_time_tracking_exempt
     if is_time_tracking_exempt(db, email):
-        raise HTTPException(400, "You are exempt from time tracking, so there is no timesheet to submit.")
+        raise HTTPException(400, "You are exempt from time tracking, so there is no time sheet to submit.")
     start, end, pay_type = period_for(db, email, anchor)
     r = active_review(db, email, start)
     if r and r.status == "with_manager":
-        raise HTTPException(409, "Your timesheet is already with your manager.")
+        raise HTTPException(409, "Your time sheet is already with your manager.")
     if r and r.status == "signing":
-        raise HTTPException(409, "This timesheet is out for your signature. Sign it, or decline it in "
+        raise HTTPException(409, "This time sheet is out for your signature. Sign it, or decline it in "
                                  "Nexus Sign with a reason to send it back to your manager.")
     if r and r.status == "completed":
-        raise HTTPException(409, "This timesheet is already signed and finalized.")
+        raise HTTPException(409, "This time sheet is already signed and finalized.")
     mgr = manager_of(db, email)
     if not mgr:
         raise HTTPException(409, "You have no manager set in Nexus People, so there is nobody to review "
-                                 "your timesheet. Ask HR to set your manager.")
+                                 "your time sheet. Ask HR to set your manager.")
     if _tc()._finalized_row(db, email, start, end):
         raise HTTPException(409, "This pay period is already finalized.")
     blocker = submit_blocker(db, email, start, end)
@@ -643,22 +764,22 @@ def submit(db: Session, employee_email: str, anchor: str, note: str = "") -> Tim
     r.status = "with_manager"
     _round(db, r, by=email, action="submitted" if first else "resubmitted", note=note, with_changes=True)
     who = display_name(db, email)
-    _notify(db, mgr, "Timesheet to review",
-            f"{who} {'submitted' if first else 'resubmitted'} their timesheet for {_label(r)}."
-            + (f' "{note.strip()[:200]}"' if (note or "").strip() else ""), r)
+    _notify_reviewer(db, r, "Time Sheet to Review",
+                     f"{who} {'submitted' if first else 'resubmitted'} their time sheet for {_label(r)}."
+                     + (f' "{note.strip()[:200]}"' if (note or "").strip() else ""), email)
     db.commit()
     return r
 
 
 def send_back(db: Session, r: TimesheetReview, actor: str, note: str) -> TimesheetReview:
     if r.status != "with_manager":
-        raise HTTPException(409, "Only a timesheet that is with the manager can be sent back.")
+        raise HTTPException(409, "Only a time sheet that is with the manager can be sent back.")
     if not (note or "").strip():
         raise HTTPException(422, "Say what needs changing so they know what to look at.")
     r.status = "with_employee"
     _round(db, r, by=actor, action="sent_back", note=note, with_changes=True)
-    _notify(db, r.employee_email, "Timesheet sent back",
-            f"{display_name(db, actor)} sent your timesheet for {_label(r)} back: \"{note.strip()[:200]}\"", r)
+    _notify(db, r.employee_email, "Time Sheet Sent Back",
+            f"{display_name(db, actor)} sent your time sheet for {_label(r)} back: \"{note.strip()[:200]}\"", r)
     db.commit()
     return r
 
@@ -671,7 +792,7 @@ def approve(db: Session, r: TimesheetReview, actor: str, note: str = "", *, ip: 
     the only signer (Neil's flow); their signature finalizes the period."""
     tc = _tc()
     if r.status != "with_manager":
-        raise HTTPException(409, "Only a timesheet waiting on the manager's review can be approved.")
+        raise HTTPException(409, "Only a time sheet waiting on the manager's review can be approved.")
     today = tc._employee_today(db, r.employee_email)
     if today <= r.period_end:
         raise HTTPException(409, f"This period runs to {us_date(r.period_end)}. Approve it after the "
@@ -707,7 +828,7 @@ def approve_period(db: Session, employee_email: str, anchor: str, actor: str, no
     email = (employee_email or "").strip().lower()
     from routers.timeclock import is_time_tracking_exempt
     if is_time_tracking_exempt(db, email):
-        raise HTTPException(400, "This person is exempt from time tracking, so there is no timesheet to approve.")
+        raise HTTPException(400, "This person is exempt from time tracking, so there is no time sheet to approve.")
     start, end, pay_type = period_for(db, email, anchor)
     r = active_review(db, email, start)
     if r is None:
@@ -718,11 +839,11 @@ def approve_period(db: Session, employee_email: str, anchor: str, actor: str, no
                             rounds=[], last_snapshot={}, status="with_manager", created_at=_now())
         db.add(r)
     elif r.status == "approved":
-        raise HTTPException(409, "This timesheet is approved and waiting for the employee to sign HR's changes.")
+        raise HTTPException(409, "This time sheet is approved and waiting for the employee to sign HR's changes.")
     elif r.status == "with_employee":
-        raise HTTPException(409, "This timesheet is back with the employee for changes.")
+        raise HTTPException(409, "This time sheet is back with the employee for changes.")
     elif r.status in ("signing", "completed"):
-        raise HTTPException(409, "This timesheet is already approved and with the employee to sign.")
+        raise HTTPException(409, "This time sheet is already approved and with the employee to sign.")
     return approve(db, r, actor, note)
 
 
@@ -734,12 +855,12 @@ def employee_approve(db: Session, r: TimesheetReview, actor: str, *, ip: str = "
     manager's own approval sends the first envelope (approve)."""
     actor = (actor or "").lower()
     if actor != r.employee_email:
-        raise HTTPException(403, "Only the employee signs their own timesheet.")
+        raise HTTPException(403, "Only the employee signs their own time sheet.")
     if r.status == "signing":
         return r                               # already out - the panel opens it
     if r.status != "approved":
         raise HTTPException(409, "There is nothing for you to sign yet - your manager's approval sends "
-                                 "the timesheet to you to sign.")
+                                 "the time sheet to you to sign.")
     r.agreed_fingerprint = fingerprint(db, r.employee_email, r.period_start, r.period_end)
     _round(db, r, by=actor, action="employee_approved")
     r.sign_request_id = _send_envelope(db, r, actor, ip=ip, user_agent=user_agent)
@@ -774,14 +895,14 @@ def finalize_unsigned_blocker(db: Session, email: str, start: str, actor: str) -
     plain words; '' when it would go through."""
     email, actor = (email or "").lower(), (actor or "").lower()
     if not is_hr(db, actor, email):
-        return "Only HR can finalize a timesheet without the employee's signature."
+        return "Only HR can finalize a time sheet without the employee's signature."
     s, e, _pt = period_for(db, email, start)
     if _tc()._finalized_row(db, email, s, e):
         return "This pay period is already finalized."
     r = active_review(db, email, s)
     if not _has_left(db, email):
         if not r or r.status not in ("approved", "signing"):
-            return ("The manager approves the timesheet first. HR can finalize it without the employee's "
+            return ("The manager approves the time sheet first. HR can finalize it without the employee's "
                     "signature only once it has waited for their signature, or once they have left.")
         since = _waiting_since(r)
         try:
@@ -835,8 +956,8 @@ def finalize_unsigned(db: Session, email: str, start: str, actor: str, reason: s
     r.status = "completed"
     _round(db, r, by=actor, action="finalized_unsigned", note=reason)
     if r.manager_email and r.manager_email not in (actor, email):
-        _notify(db, r.manager_email, "Timesheet finalized by HR",
-                f"{display_name(db, actor)} (HR) finalized {display_name(db, email)}'s timesheet for "
+        _notify(db, r.manager_email, "Time Sheet Finalized by HR",
+                f"{display_name(db, actor)} (HR) finalized {display_name(db, email)}'s time sheet for "
                 f"{_label(r)} without their signature: \"{reason[:200]}\"", r)
     db.flush()
     tc.finalize_timecard(tc.FinalizeIn(email=email, start=s, end=e, allow_exceptions=True),
@@ -852,7 +973,7 @@ _SIG_TOP, _SIG_ROW = 0.66, 0.095
 # What the employee attests to by signing, printed just above their signature
 # line (Charmi, Oct 1 - the wording from the paper time sheet).
 EMPLOYEE_ATTESTATION = ("By execution and signature of this time sheet, I agree I have reviewed this "
-                        "time card, and agree the hours stated are accurate and correct.")
+                        "time sheet, and agree the hours stated are accurate and correct.")
 
 
 def _sig_fields(last_page: int) -> list:
@@ -866,13 +987,15 @@ def _sig_fields(last_page: int) -> list:
     return fields
 
 
-def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
+def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tuple[bytes, int]:
     """The agreed timesheet as a PDF: every day, the totals, the review history
-    and a signature block on the last page. Returns (bytes, last page index)."""
+    and a signature block on the last page. Returns (bytes, last page index).
+    `card`: the computed card to print (_send_envelope freezes its totals)."""
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
 
-    card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
+    if card is None:
+        card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
     emp = _employee(db, r.employee_email)
     ent = db.query(HrEntity).filter(HrEntity.id == (emp.company if emp else "")).first() if emp else None
     # Every punch prints in the zone it was recorded in (its own tz_offset_min),
@@ -917,14 +1040,16 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
         c.showPage()
         y = H - margin
 
-    text(margin, "TIMESHEET", 16, True)
+    text(margin, "TIME SHEET", 16, True)
     y -= 18
     text(margin, f"{display_name(db, r.employee_email)}  ({r.employee_email})", 10.5, True)
     y -= 14
     text(margin, f"{(ent.name if ent else '') or ''}   Pay period {_label(r)}   "
                  f"{'Salaried (monthly)' if r.pay_type == 'fixed' else 'Hourly (bi-weekly)'}", 9)
     y -= 14
-    text(margin, f"Approved by {display_name(db, r.agreed_by)} on "
+    _agreed = next((e for e in reversed(r.rounds or []) if e.get("action") in ("agreed", "approved")), {})
+    _by = _who(db, _agreed) if _agreed.get("by") == (r.agreed_by or "").lower() else display_name(db, r.agreed_by)
+    text(margin, f"Approved by {_by} on "
                  f"{us_datetime(r.agreed_at, offset) or us_date(r.agreed_at)}. "
                  f"Version {(r.agreed_fingerprint or '')[:12]}", 8, color=(0.4, 0.4, 0.45))
     y -= 22
@@ -978,6 +1103,11 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
         lines = [("Regular", _hm(t.get("regMin"))), ("Overtime", _hm(t.get("otMin"))),
                  ("Double time", _hm(t.get("dtMin"))), ("Sick", _hm(t.get("sickMin"))),
                  ("Vacation", _hm(t.get("vacationMin"))), ("Total worked", _hm(t.get("workedMin")))]
+        # CA meal / rest premiums (ca_breaks.py): 1 hour of pay each, not hours worked.
+        if t.get("mealPremiumMin"):
+            lines.append(("Meal Premium", f"{int(t['mealPremiumMin']) // 60} x 1 hour of pay"))
+        if t.get("restPremiumMin"):
+            lines.append(("Rest Premium", f"{int(t['restPremiumMin']) // 60} x 1 hour of pay"))
     for k, v in lines:
         text(margin, k, 9)
         text(margin + 160, v, 9, True)
@@ -992,11 +1122,14 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
     labels = {"submitted": "submitted", "resubmitted": "resubmitted", "sent_back": "sent back",
               "agreed": "agreed", "declined": "declined", "returned": "returned", "cancelled": "cancelled",
               "approved": "reviewed and approved", "reopened": "reopened it", "hr_edited": "edited it (HR)",
-              "employee_approved": "approved it to sign", "unlocked": "unlocked it", "recalled": "recalled it"}
+              "employee_approved": "approved it to sign", "unlocked": "unlocked it", "recalled": "recalled it",
+              "break_attested": "confirmed the meal and rest break statement by signing",
+              "break_not_collected": "signed on paper without the meal and rest break statement",
+              "totals_changed": "Totals changed after approval - sent back to the manager"}
     for e in (r.rounds or []):
         if y < margin + 30:
             new_page()
-        who = display_name(db, e.get("by", ""))
+        who = _who(db, e)
         line = f"{us_date(e.get('at'))}  {who} {labels.get(e.get('action'), e.get('action'))}"
         if e.get("note"):
             line += f': "{e["note"]}"'
@@ -1013,15 +1146,29 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
     y = H - margin
     text(margin, "Signatures", 12, True)
     y -= 16
-    text(margin, "By signing, the employee attests that the hours on this timesheet are accurate "
+    text(margin, "By signing, the employee attests that the hours on this time sheet are accurate "
                  "for the pay period shown.", 9)
     y -= 14
     text(margin, "The approver does not sign - the approval, and any change HR made, are logged below.", 9)
+    ca = needs_break_attestation(db, r)
+    if ca:
+        # CA-rule staff (Neil, Oct 18 2026): no separate question - the meal
+        # and rest break statement is printed in the box just above the
+        # signature, so signing confirms it (on_progress records it). A missed
+        # break is reported instead of signing (claim_breaks).
+        from reportlab.lib.utils import simpleSplit as _split
+        y -= 22
+        for ln in _split("A missed meal or rest break is reported instead of signing: the time sheet goes "
+                         "back to the manager, who adds the premium pay.", "Helvetica", 8.5, W - 2 * margin):
+            y -= 11
+            text(margin, ln, 8.5, color=(0.4, 0.4, 0.45))
     # The employee's attestation, boxed just above their signature line. Drawn
     # in the free space above the first row, so no signature / date field moves
     # (_sig_fields places them at the same fixed positions).
     from reportlab.lib.utils import simpleSplit
     att_lines = simpleSplit(EMPLOYEE_ATTESTATION, "Helvetica-Bold", 9, W - 2 * margin - 16)
+    if ca:
+        att_lines += simpleSplit(BREAK_STATEMENT, "Helvetica-Bold", 9, W - 2 * margin - 16)
     box_bottom = H - _SIG_TOP * H + 10
     box_h = 12 * len(att_lines) + 10
     c.setStrokeColorRGB(0.6, 0.6, 0.65)
@@ -1071,12 +1218,16 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
              "agreed": "Approved by {who} (manager) on {when}",
              "hr_edited": "Hours changed by {who} (HR) on {when}",
              "employee_approved": "Approved for signature by {who} (employee) on {when}",
-             "finalized_unsigned": "Finalized without the employee's signature by {who} (HR) on {when}"}
+             "finalized_unsigned": "Finalized without the employee's signature by {who} (HR) on {when}",
+             # CA-rule staff only (ca_breaks.py) - no other card has this round.
+             "break_attested": "Meal and rest breaks: confirmed by {who} (employee) by signing on {when}",
+             "break_not_collected": "Meal and rest breaks: signed on paper without the printed statement "
+                                    "(recorded {when})"}
     out = []
     for e in rounds[start:]:
         w = words.get(e.get("action"))
         if w:
-            line = w.format(who=display_name(db, e.get("by", "")), when=us_datetime(e.get("at", ""), offset))
+            line = w.format(who=_who(db, e), when=us_datetime(e.get("at", ""), offset))
             if e.get("note"):
                 line += f' - "{e["note"][:80]}"'
             out.append(line)
@@ -1085,28 +1236,43 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
 
 def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user_agent: str) -> str:
     from routers import esign
-    pdf, last_page = build_pdf(db, r)
+    card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
+    pdf, last_page = build_pdf(db, r, card)
     emp = _employee(db, r.employee_email)
-    safe = esign._safe_filename(f"Timesheet {display_name(db, r.employee_email)} {r.period_start}")
+    safe = esign._safe_filename(f"Time Sheet {display_name(db, r.employee_email)} {us_date(r.period_start).replace('/', '-')}")
     path = f"esign/{uuid.uuid4()}/{safe}.pdf"
     up = esign._storage_put(esign._DOC_BUCKET, path, pdf, "application/pdf")
     if not up.is_success:
-        raise HTTPException(502, "The timesheet could not be stored for signing. Try again.")
+        raise HTTPException(502, "The time sheet could not be stored for signing. Try again.")
     who = {"employee": r.employee_email}
     parties = [esign.PartyIn(role_key=role, name=display_name(db, who[role]), email=who[role],
                              kind="internal", ordinal=i + 1, party_role="signer")
                for i, (role, _l) in enumerate(ROLES)]
     # Sent in the approving manager's name; the employee is the only signer.
     out = esign._create_request(
-        db, {"email": (r.agreed_by or r.manager_email or actor).lower()}, title=f"Timesheet - {display_name(db, r.employee_email)} - {_label(r)}",
+        db, {"email": (r.agreed_by or r.manager_email or actor).lower()}, title=f"Time Sheet - {display_name(db, r.employee_email)} - {_label(r)}",
         source="pdf", template_id="", employee_id=(emp.id if emp else ""), candidate_id="",
         entity_id=(emp.company if emp else ""), body_snapshot=[], pdf_storage_path=path,
         fields=esign._clean_fields(_sig_fields(last_page)),
-        message=f"Please review and sign the timesheet for {_label(r)}.", expires_on="",
+        message=f"Please review and sign the time sheet for {_label(r)}.", expires_on="",
         parties=parties, ip=ip, user_agent=user_agent, routing="sequential",
         excluded_ack=True, document_class="employment")
     req = db.query(HrSignRequest).filter(HrSignRequest.id == out["id"]).first()
     req.link_kind, req.link_id = LINK_KIND, r.id
+    # Freeze the totals this PDF prints on the round that sent it (Oct 20,
+    # Neil's audit): a pay setting changed while it waits for the signature
+    # (rounding, auto-lunch, breaks, the overtime rule, the pay type) would
+    # otherwise finalize numbers the employee never saw - on_completed
+    # compares and reopens instead (totals_drift).
+    rounds = list(r.rounds or [])
+    if rounds:
+        rounds[-1] = {**rounds[-1], "envelope": req.id, "signed": signed_totals(card, r.pay_type)}
+        r.rounds = rounds
+    if needs_break_attestation(db, r):
+        # build_pdf printed the CA meal and rest break statement above the
+        # signature line; on_progress reads this to know a paper copy has it.
+        esign._log(db, req.id, "break_statement",
+                   f'Printed above the employee\'s signature: "{BREAK_STATEMENT}"', ip=ip, user_agent=user_agent)
     return req.id
 
 
@@ -1135,6 +1301,13 @@ def egnyte_folder(db: Session, req) -> str:
         return f"{base.rstrip('/')}/{sub}" if sub else base
     except Exception as e:      # filing must never block sealing
         print(f"[timesheet-review] no Egnyte folder for {getattr(req, 'id', '')}: {type(e).__name__}: {e}")
+        # Egnyte trouble making the folder is a failed filing, not "nothing to
+        # file": logged, so timesheet_filing's retry pass picks it up (Oct 20).
+        try:
+            from routers.esign import _log
+            _log(db, req.id, "archive_failed", f"Egnyte folder not ready: {type(e).__name__}")
+        except Exception:
+            pass
         return ""
 
 
@@ -1155,8 +1328,20 @@ def on_progress(db: Session, req) -> None:
     done = {e.get("action") for e in (r.rounds or [])}
     for p in db.query(HrSignParty).filter(HrSignParty.request_id == req.id).all():
         if p.status == "signed" and f"signed_{p.role_key}" not in done:
+            paper = (p.signature_kind or "") == "paper"
+            if p.role_key == "employee" and needs_break_attestation(db, r) and not break_attested(r):
+                # CA staff (Oct 18): the signature IS the confirmation - the
+                # statement is on the signing screen and printed above the
+                # signature line. Only a paper return of a copy printed
+                # without it (an envelope sent before the statement existed)
+                # is recorded as not confirmed, never as a Yes.
+                if paper and not statement_printed(db, req.id):
+                    _round(db, r, by=p.email, action="break_not_collected",
+                           note="Signed on paper without the meal and rest break statement")
+                else:
+                    _record_break_confirmed(db, r, p, paper)
             _round(db, r, by=p.email, action=f"signed_{p.role_key}",
-                   note="Signed on paper" if (p.signature_kind or "") == "paper" else "")
+                   note="Signed on paper" if paper else "")
 
 
 def on_declined(db: Session, req, party, reason: str) -> None:
@@ -1170,11 +1355,11 @@ def on_declined(db: Session, req, party, reason: str) -> None:
     r.sign_request_id, r.agreed_fingerprint = "", ""
     _round(db, r, by=party.email, action="returned" if party.role_key == "hr" else "declined",
            note=reason, with_changes=True)
-    msg = (f"{display_name(db, party.email)} did not sign the timesheet for {_label(r)}"
+    msg = (f"{display_name(db, party.email)} did not sign the time sheet for {_label(r)}"
            + (f': "{reason.strip()[:200]}"' if (reason or "").strip() else "") + ".")
-    _notify(db, r.manager_email, "Timesheet returned for changes", msg + " It is back with you to review.", r)
+    _notify(db, r.manager_email, "Time Sheet Returned for Changes", msg + " It is back with you to review.", r)
     if (party.email or "").lower() != r.employee_email:
-        _notify(db, r.employee_email, "Timesheet returned for changes", msg, r)
+        _notify(db, r.employee_email, "Time Sheet Returned for Changes", msg, r)
 
 
 def recall_for_change(db: Session, r: TimesheetReview, actor: str, note: str) -> None:
@@ -1194,11 +1379,11 @@ def recall_for_change(db: Session, r: TimesheetReview, actor: str, note: str) ->
     r.status, r.sign_request_id, r.agreed_fingerprint = "with_manager", "", ""
     _round(db, r, by=actor, action="recalled", note=note)
     msg = (f"{display_name(db, actor)} approved a change to {display_name(db, r.employee_email)}'s "
-           f"timesheet for {_label(r)} while it was out for signature ({note}). Signing was cancelled "
-           "and the timesheet is back with the manager to agree again.")
-    _notify(db, r.manager_email, "Timesheet signing recalled", msg, r)
+           f"time sheet for {_label(r)} while it was out for signature ({note}). Signing was canceled "
+           "and the time sheet is back with the manager to agree again.")
+    _notify(db, r.manager_email, "Time Sheet Signing Recalled", msg, r)
     if r.employee_email != r.manager_email:
-        _notify(db, r.employee_email, "Timesheet signing recalled", msg, r)
+        _notify(db, r.employee_email, "Time Sheet Signing Recalled", msg, r)
 
 
 def on_voided(db: Session, req, actor: str) -> None:
@@ -1206,9 +1391,9 @@ def on_voided(db: Session, req, actor: str) -> None:
     if not r or r.status != "signing":
         return
     r.status, r.sign_request_id, r.agreed_fingerprint = "with_manager", "", ""
-    _round(db, r, by=actor, action="cancelled", note="Signing was cancelled in Nexus Sign.")
-    _notify(db, r.manager_email, "Timesheet signing cancelled",
-            f"Signing of {display_name(db, r.employee_email)}'s timesheet for {_label(r)} was cancelled. "
+    _round(db, r, by=actor, action="cancelled", note="Signing was canceled in Nexus Sign.")
+    _notify(db, r.manager_email, "Time Sheet Signing Canceled",
+            f"Signing of {display_name(db, r.employee_email)}'s time sheet for {_label(r)} was canceled. "
             "It is back with you.", r)
 
 
@@ -1220,8 +1405,20 @@ def on_completed(db: Session, req) -> None:
         return
     tc = _tc()
     parties = {p.role_key: p for p in db.query(HrSignParty).filter(HrSignParty.request_id == req.id).all()}
-    worked = int((card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
-                  .get("totals") or {}).get("workedMin") or 0)
+    card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
+    # The numbers signed must be the numbers finalized (Oct 20): recompute the
+    # card and compare it with what the PDF printed. A pay setting that moved
+    # while it waited sends it back rather than finalizing silently. An
+    # envelope sent before this check existed carries nothing to compare.
+    sent = next((e.get("signed") for e in reversed(r.rounds or []) if e.get("envelope") == req.id), None)
+    if sent:
+        now = signed_totals(card, r.pay_type)
+        now["payType"] = period_for(db, r.employee_email, r.period_start)[2]
+        drift = totals_drift(sent, now)
+        if drift:
+            _reopen_totals_changed(db, r, req, drift)
+            return
+    worked = int((card.get("totals") or {}).get("workedMin") or 0)
     base = dict(employee_email=r.employee_email, period_start=r.period_start, period_end=r.period_end,
                 worked_min=worked)
     for kind in ("employee_sign", "manager"):
@@ -1247,6 +1444,28 @@ def on_completed(db: Session, req) -> None:
         tc.finalize_timecard(tc.FinalizeIn(email=r.employee_email, start=r.period_start, end=r.period_end,
                                            allow_exceptions=True),
                              user={"email": approver or r.hr_email, "level": 4}, db=db)
+
+
+def _reopen_totals_changed(db: Session, r: TimesheetReview, req, drift: list) -> None:
+    """The employee signed, but the card no longer computes to what they
+    signed: nothing is finalized. The review goes back to the manager - where
+    any change after approval sends it (reopen) - so a fresh approval sends
+    the current numbers for a fresh signature. The signed envelope stays in
+    Nexus Sign as the record of what was signed, logged as superseded; it is
+    never used for payroll."""
+    from routers.esign import _log
+    detail = "; ".join(drift[:6]) + (f"; and {len(drift) - 6} more" if len(drift) > 6 else "")
+    _log(db, req.id, "superseded", f"{TOTALS_CHANGED_NOTE}: {detail}"[:900])
+    r.status, r.sign_request_id, r.agreed_fingerprint = "with_manager", "", ""
+    _round(db, r, by="", action="totals_changed", note=TOTALS_CHANGED_NOTE, extra={"drift": drift[:20]})
+    who = display_name(db, r.employee_email)
+    msg = (f"{who} signed the time sheet for {_label(r)}, but its totals changed after it was approved "
+           f"({detail}). It was not finalized - it is back with the manager to approve again, and "
+           f"{who} signs the updated version.")
+    _notify_reviewer(db, r, "Time Sheet Back for Review", msg)
+    _notify(db, r.employee_email, "Time Sheet Back for Review",
+            f"Your time sheet for {_label(r)} changed after you signed it ({detail}). Your manager reviews "
+            "it again, then it comes back to you to sign.", r)
 
 
 def safe(fn, *a, **kw) -> None:
@@ -1295,7 +1514,7 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
                 turn = p.role_key
     unsigned_blocker = (finalize_unsigned_blocker(db, email, r.period_start, viewer)
                         if hr_view and r.status in ACTIVE else "")
-    return {
+    out = {
         "canFinalizeUnsigned": hr_view and r.status in ACTIVE and not unsigned_blocker,
         "finalizeUnsignedBlocker": unsigned_blocker,
         "employeeLeft": _has_left(db, email) if hr_view else False,
@@ -1316,3 +1535,115 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
         "submitBlocker": (submit_blocker(db, email, r.period_start, r.period_end)
                           if is_self and r.status in ("with_employee", "approved") else ""),
     }
+    # CA-rule staff only (ca_breaks.py): the meal and rest break statement
+    # their signature confirms. No key for anyone else.
+    if is_self and r.status in ("signing", "approved") and needs_break_attestation(db, r):
+        out["breakAttestation"] = break_attestation_state(db, r)
+    return out
+
+
+# ── CA meal and rest breaks at signing (Neil, Oct 17-18 2026, ca_breaks.py) ──
+#
+# CA-rule hourly staff are NOT asked a separate question (Neil, Oct 18: one
+# step fewer). The statement below is shown on the signing screen and printed
+# in the box just above their signature line, so signing the time sheet
+# confirms it - no tick box. on_progress records the confirmation as a round
+# on the review and an "attested" event on the envelope, which the sealed
+# certificate prints. A missed break is reported INSTEAD of signing: the
+# employee names the day(s) and Meal / Rest, the premium lines are created
+# from the claim, and the time sheet goes back to the manager through
+# reopen() - the same path a punch-fix request takes after approval.
+# Nobody else sees any of this (needs_break_attestation is False).
+
+BREAK_STATEMENT = ("By signing, I confirm that in this pay period I was provided every meal and "
+                   "rest break California law requires.")
+
+
+def needs_break_attestation(db: Session, r: TimesheetReview) -> bool:
+    if (r.pay_type or "hourly") != "hourly":
+        return False
+    import ca_breaks
+    return ca_breaks.is_ca(db, r.employee_email)
+
+
+def break_attested(r: TimesheetReview) -> bool:
+    """The employee confirmed the statement on the envelope out now."""
+    env = r.sign_request_id or ""
+    return bool(env) and any(e.get("action") == "break_attested" and e.get("envelope") == env
+                             for e in (r.rounds or []))
+
+
+def statement_printed(db: Session, request_id: str) -> bool:
+    """This envelope's PDF carries the statement above the signature line
+    (_send_envelope logs it when it builds one)."""
+    from models import HrSignEvent
+    return db.query(HrSignEvent.id).filter(HrSignEvent.request_id == request_id,
+                                           HrSignEvent.type == "break_statement").first() is not None
+
+
+def _record_break_confirmed(db: Session, r: TimesheetReview, party, paper: bool) -> None:
+    _round(db, r, by=party.email, action="break_attested",
+           note="Signed on paper" if paper else "Signed", extra={"envelope": r.sign_request_id})
+    from routers.esign import _log
+    _log(db, r.sign_request_id, "attested",
+         f'{display_name(db, party.email)} signed under the statement: "{BREAK_STATEMENT}"',
+         party_id=party.id, ip=getattr(party, "ip", "") or "", user_agent=getattr(party, "user_agent", "") or "")
+
+
+def break_attestation_state(db: Session, r: TimesheetReview) -> dict:
+    """What the signing screen shows: the statement, the days the meal
+    detection flagged (pre-filled on Report a Missed Break) and the days with
+    work (the pickable ones)."""
+    card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
+    import ca_breaks
+    worked = ca_breaks.worked_days(card.get("days") or [])
+    return {"required": True, "statement": BREAK_STATEMENT, "answered": break_attested(r),
+            "flaggedDays": [{"date": d["date"], "label": d["meal"]["label"], "chip": d["meal"]["chip"]}
+                            for d in (card.get("days") or []) if d.get("meal")],
+            "workedDays": worked}
+
+
+def claim_breaks(db: Session, r: TimesheetReview, actor: str, claims: list, note: str = "") -> TimesheetReview:
+    """Report a Missed Break (instead of signing): the claimed days become premium lines and the time
+    sheet goes back to the manager (reopen - the punch-fix path). Nothing is
+    signed."""
+    import ca_breaks
+    tc = _tc()
+    actor = (actor or "").lower()
+    if actor != r.employee_email:
+        raise HTTPException(403, "Only the employee answers this for their own time sheet.")
+    if not needs_break_attestation(db, r):
+        raise HTTPException(409, "Missed break reports are only for staff on the California overtime rule.")
+    if r.status not in ("signing", "approved"):
+        raise HTTPException(409, "This time sheet is not waiting for your signature.")
+    if tc._finalized_row(db, r.employee_email, r.period_start, r.period_end):
+        raise HTTPException(409, "This pay period is already finalized.")
+    clean, seen = [], set()
+    for c in claims or []:
+        day = str((c or {}).get("date") or "")[:10]
+        kind = str((c or {}).get("kind") or "").lower()
+        if kind not in ca_breaks.KINDS:
+            raise HTTPException(422, "Pick Meal or Rest for each day.")
+        if not (r.period_start <= day <= r.period_end):
+            raise HTTPException(422, f"{us_date(day)} is not in this pay period.")
+        if (day, kind) not in seen:
+            seen.add((day, kind))
+            clean.append({"date": day, "kind": kind})
+    if not clean:
+        raise HTTPException(422, "Pick at least one day and say whether it was a meal or a rest break.")
+    worked = set(ca_breaks.worked_days(card_for(db, r.employee_email, r.period_start, r.period_end,
+                                                r.pay_type).get("days") or []))
+    off = sorted({c["date"] for c in clean if c["date"] not in worked})
+    if off:
+        raise HTTPException(422, f"No time worked on {', '.join(us_date(d) for d in off)} - a missed break "
+                                 "can only be on a day you worked.")
+    note = (note or "").strip()[:500]
+    for c in clean:
+        ca_breaks.add_premium(db, r.employee_email, c["date"], c["kind"], actor, source="claim",
+                              note=note, review_id=r.id)
+    words = "; ".join(f"{us_date(c['date'])} {'Meal' if c['kind'] == 'meal' else 'Rest'}" for c in clean)
+    reopen(db, r, actor, "reported a missed meal or rest break",
+           note=f"Missed breaks: {words}" + (f' - "{note}"' if note else ""),
+           extra={"breakClaims": clean, "claimNote": note})
+    db.commit()
+    return r

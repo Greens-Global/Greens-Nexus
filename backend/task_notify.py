@@ -327,7 +327,7 @@ def _fmt(iso: str) -> str:
         return ""
     try:
         d = datetime.fromisoformat(iso.replace("Z", "+00:00")) if len(iso) > 10 else datetime.fromisoformat(iso + "T00:00:00+00:00")
-        return d.strftime("%b %d, %Y")
+        return d.strftime("%m/%d/%Y")
     except ValueError:
         return iso[:10]
 
@@ -568,7 +568,7 @@ def _recurrence_once(db: Session) -> None:
         fire_task_event(nxt.id, "created")
         log_activity(db, type="recurrence_scheduled", actor_email="system", entity_kind="task",
                      entity_id=nxt.id, entity_code=nxt.code, entity_title=nxt.title,
-                     detail=f"Scheduled occurrence created for {nxt.due_on}")
+                     detail=f"Scheduled occurrence created for {_fmt(nxt.due_on)}")
         db.commit()
         if not cfg["enabledEvents"].get("recurring", True):
             continue

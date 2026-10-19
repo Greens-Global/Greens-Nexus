@@ -435,13 +435,19 @@ export default function HomeView({ onNavigate }) {
                 return (
                   <div key={r.id} data-update-row role="button" tabIndex={0} className="nx-row-hover"
                     onClick={() => openRow(r)} onKeyDown={(e) => { if (e.key === 'Enter') openRow(r); }}
-                    title={`${who} ${whatHappened(r)} · ${formatDateTime(r.at)}`}
+                    title={`${who} ${r.relation === 'mentioned' ? 'mentioned you' : whatHappened(r)} · ${formatDateTime(r.at)}`}
                     style={{ display: 'flex', alignItems: 'flex-start', gap: 10, borderTop: `1px solid ${NX.border2}`, padding: '9px 6px', margin: '0 -6px', borderRadius: 8, cursor: t ? 'pointer' : 'default' }}>
                     <Avatar email={r.actorId} name={who} size={28} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, color: NX.ink, lineHeight: 1.35 }}>
-                        <span style={{ fontWeight: 700 }}>{who}</span> <span style={{ color: NX.dim }}>{whatHappened(r)}</span>
+                        <span style={{ fontWeight: 700 }}>{who}</span> <span style={{ color: NX.dim }}>{r.relation === 'mentioned' ? 'mentioned you' : whatHappened(r)}</span>
                       </div>
+                      {/* A comment shows what was said (Neil, Oct 18 2026). */}
+                      {r.preview && (
+                        <div style={{ fontSize: 12.5, color: NX.ink, lineHeight: 1.4, margin: '2px 0', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
+                          “{r.preview}”
+                        </div>
+                      )}
                       <div style={{ fontSize: 12.5, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: t?.completed ? 'line-through' : 'none' }}>
                         {title}{r.relation === 'collaborator' ? <span style={{ color: NX.faint }}> · Following</span> : null}
                       </div>

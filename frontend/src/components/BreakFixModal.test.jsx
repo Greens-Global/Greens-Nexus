@@ -15,6 +15,9 @@ vi.mock('../api', () => ({
   },
 }));
 
+const confirm = vi.fn();
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirm(...a), prompt: vi.fn() } }));
+
 const { BreakFixModal } = await import('./PayrollTimecard');
 
 const day = { date: '2026-08-05', breaks: [{ start: '2026-08-05T09:00:00', end: '2026-08-05T19:25:00', min: 625, implicit: true }] };
@@ -23,6 +26,7 @@ beforeEach(() => {
   timeAddPunch.mockReset().mockResolvedValue({});
   timePunchRequestCreate.mockReset().mockResolvedValue({});
   timeAdjustPunch.mockReset().mockResolvedValue({});
+  confirm.mockReset().mockResolvedValue(true);
 });
 
 // Delete a break (Charmi, Oct 15 2026).
@@ -51,6 +55,19 @@ describe('BreakFixModal - delete a break', () => {
       ['bs1', { void: true, adjust_note: 'Punched by mistake' }],
     ]);
     expect(timeAddPunch).not.toHaveBeenCalled();
+    // A manager's delete asks first and says how to put the break back (Oct 19).
+    expect(confirm.mock.calls[0][0]).toMatch(/Add Punch with Type Break/);
+  });
+
+  it('keeps the break when the manager says Keep It', async () => {
+    confirm.mockResolvedValue(false);
+    const { onDone } = openWith(twoBreaks, false);
+    fireEvent.change(screen.getByLabelText('What needs fixing'), { target: { value: 'delete' } });
+    fireEvent.change(screen.getByPlaceholderText(/Why - e.g. confirmed/), { target: { value: 'Not a real break' } });
+    fireEvent.click(screen.getByText('Delete Break'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(timeAdjustPunch).not.toHaveBeenCalled();
+    expect(onDone).not.toHaveBeenCalled();
   });
 
   it('opens on the break that never ended, which has only a start punch to remove', async () => {
@@ -99,7 +116,7 @@ describe('BreakFixModal', () => {
     await waitFor(() => expect(timeAddPunch).toHaveBeenCalledWith(expect.objectContaining({
       employee_email: 'aarav@x.com', kind: 'break_end', note: 'Back at 1 PM per Aarav' })));
     expect(timePunchRequestCreate).not.toHaveBeenCalled();
-    expect(toastOk).toHaveBeenCalledWith('Break end added - the timecard is updated.');
+    expect(toastOk).toHaveBeenCalledWith('Break end added - the time sheet is updated.');
     expect(onDone).toHaveBeenCalled();
   });
 
@@ -111,5 +128,25 @@ describe('BreakFixModal', () => {
     fireEvent.click(screen.getByText('Send Request'));
     await waitFor(() => expect(timePunchRequestCreate).toHaveBeenCalledWith(expect.objectContaining({ action: 'add', punch_kind: 'break_end' })));
     expect(timeAddPunch).not.toHaveBeenCalled();
+  });
+});
+
+describe('BreakFixModal - forgot to punch back in (Oct 19)', () => {
+  const lunch = { date: '2026-08-05', breaks: [{ start: '2026-08-05T19:00:00', end: '2026-08-06T01:00:00', min: 360, implicit: true }] };
+  it('opens 30 minutes after the break started and offers one-tap times and reasons', async () => {
+    render(<BreakFixModal day={lunch} email="aarav@x.com" self busy={false} setBusy={() => {}}
+      onDone={() => {}} onClose={() => {}} toastOk={() => {}} toastErr={() => {}} />);
+    const input = document.querySelector('input[type="datetime-local"]');
+    const first = input.value;
+    fireEvent.click(screen.getByText('Back After 1 Hour'));
+    // 30 minutes after the break started, then the 1 hour pick is 30 minutes later still.
+    expect((new Date(input.value) - new Date(first)) / 60000).toBe(30);
+    fireEvent.click(screen.getByText('Back After 30 Min'));
+    expect(input.value).toBe(first);
+    fireEvent.click(screen.getByText('Back After 1 Hour'));
+    fireEvent.click(screen.getByText('A customer came in'));
+    fireEvent.click(screen.getByText('Send Request'));
+    await waitFor(() => expect(timePunchRequestCreate).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'add', punch_kind: 'break_end', reason: 'A customer came in' })));
   });
 });

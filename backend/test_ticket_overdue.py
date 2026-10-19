@@ -57,12 +57,16 @@ class OverdueReminderTests(unittest.TestCase):
         self.db = database.SessionLocal()
         for m in (models.TaskTicket, models.TicketTeamsMessage, models.TaskNotification,
                   models.NexusNotification, models.TaskActivity, models.NexusEmployee,
-                  models.TicketDepartment, models.NexusSetting):
+                  models.TicketDepartment, models.HrDepartment, models.NexusSetting):
             self.db.query(m).delete()
         self.db.add(models.NexusEmployee(id="e1", work_email=ASSIGNEE, first_name="Urmi", last_name="S",
                                          manager_email=MANAGER, status="active"))
         self.db.add(models.NexusEmployee(id="e2", work_email=MANAGER, first_name="Bo", last_name="Ss", status="active"))
-        self.db.add(models.TicketDepartment(id="d1", company_id="c1", name="Facilities", lead_email=LEAD))
+        # The head lives on the department itself (one head everywhere, Oct 15
+        # 2026); a stale head left on the ticket settings row must not be used.
+        self.db.add(models.HrDepartment(id="d1", company_id="c1", name="Facilities", lead_email=LEAD))
+        self.db.add(models.TicketDepartment(id="d1", company_id="c1", name="Facilities",
+                                            lead_email="stale-head@greensglobal.com"))
         self.db.commit()
         ticket_notify.save_settings(self.db, {"enabledEvents": {"overdue_reminder": True}}, "test")
         self.teams = []   # (sender, to, html)
@@ -179,6 +183,7 @@ class OverdueReminderTests(unittest.TestCase):
         self.assertEqual(to_lead[0][0], MANAGER)
         self.assertIn("Facilities", to_lead[0][2])
         self.assertIn("Urmi", to_lead[0][2])
+        self.assertFalse([t for t in self.teams if t[1] == "stale-head@greensglobal.com"])
 
     # ── no email, ever (the briefings already mail people) ─────────────────
     def test_a_failed_teams_message_stays_queued_and_nothing_is_emailed(self):

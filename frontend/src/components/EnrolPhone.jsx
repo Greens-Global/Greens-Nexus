@@ -5,6 +5,7 @@ import { api, API_BASE } from '../api';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { Spinner, LoadingState } from './AsyncState';
+import { formatDate } from '../lib/datetime';
 
 // Enrol a field worker's phone: mint a one-time device token (reuses the
 // silent-agent model) and render a QR that carries EVERYTHING the Nexus Field
@@ -44,7 +45,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
       const r = await api.timeAgentEnroll({ email: em, label: 'Field phone' });
       setPairing({ code: r.token });
       loadDevices();
-    } catch (e) { setErr(e?.message || 'Could not enrol - admin permission is required.'); }
+    } catch (e) { setErr(e?.message || 'Could not enroll - admin permission is required.'); }
     setBusy(false);
   }
 
@@ -73,7 +74,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
       <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <Smartphone size={18} style={{ color: 'var(--pine)' }} />
-          <strong style={{ fontSize: 16 }}>Enrol a phone</strong>
+          <strong style={{ fontSize: 16 }}>Enroll a Phone</strong>
           <div style={{ flex: 1 }} />
           <button onClick={guard.requestClose} style={{ background: 'none', border: 0, cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
@@ -100,7 +101,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
             <button className="primary-btn" onClick={enrol} disabled={busy}
               style={{ marginTop: 16, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy ? <Spinner size={13} /> : <KeyRound size={13} />}
-              Generate pairing QR
+              Generate Pairing QR
             </button>
           </>
         ) : (
@@ -119,7 +120,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
               {email.trim().toLowerCase()} · {serverUrl.trim().replace(/\/$/, '')}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
-              <button className="secondary-btn" onClick={() => { setPairing(null); setEmail(''); }} style={{ fontSize: 12 }}>Enrol Another</button>
+              <button className="secondary-btn" onClick={() => { setPairing(null); setEmail(''); }} style={{ fontSize: 12 }}>Enroll Another</button>
               <button className="primary-btn" onClick={onClose} style={{ fontSize: 12 }}>Done</button>
             </div>
           </>
@@ -128,14 +129,14 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
         {/* Enrolled phones */}
         <div style={{ marginTop: 20, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
           <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
-            Enrolled phones
+            Enrolled Phones
           </div>
           {devices === null ? <LoadingState compact />
             : devices.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No phones enrolled yet.</div>
             : devices.map(d => (
               <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
                 <span style={{ flex: 1, fontSize: 12.5 }}>{d.name || d.email}</span>
-                <span style={{ fontSize: 11, color: 'var(--muted)' }}>{d.lastSeen ? `seen ${d.lastSeen.slice(0, 10)}` : 'never seen'}</span>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>{d.lastSeen ? `seen ${formatDate(d.lastSeen.slice(0, 10))}` : 'never seen'}</span>
                 <button onClick={() => revoke(d.id)} title="Revoke"
                   style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: '#b91c1c', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5 }}>
                   <Ban size={12} /> Revoke

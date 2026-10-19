@@ -8,7 +8,7 @@ import { X, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 //   shots:    [{ id, url, at?, activeView?, idleSec? }]
 //   index:    the open shot's index, or null when closed
 //   setIndex: (i | updater) => void   (pass null to close)
-const t = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+const t = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
 
 export default function ImageLightbox({ shots, index, setIndex }) {
   const openReq = index !== null && index !== undefined && !!(shots && shots[index]);

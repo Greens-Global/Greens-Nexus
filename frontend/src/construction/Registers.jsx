@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Flag, HelpCircle, FileCheck, Plus, Trash2, Sparkles, AlertTriangle } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
+import { formatDate } from '../lib/datetime';
 
 const CARD = {
   backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)',
@@ -56,8 +57,8 @@ const REGISTERS = {
     ],
     title: (r) => r.name,
     meta: (r) => [
-      r.targetDate && `Target ${r.targetDate}`,
-      r.actualDate && `Actual ${r.actualDate}`,
+      r.targetDate && `Target ${formatDate(r.targetDate, r.targetDate)}`,
+      r.actualDate && `Actual ${formatDate(r.actualDate, r.actualDate)}`,
       r.critical && 'Critical path',
       r.confirmedBy && `Confirmed by ${r.confirmedBy}`,
     ],
@@ -86,8 +87,8 @@ const REGISTERS = {
     title: (r) => [r.number, r.subject].filter(Boolean).join(' · ') || 'Untitled RFI',
     meta: (r) => [
       r.ballInCourt && `Ball in court: ${r.ballInCourt}`,
-      r.dueOn && `Due ${r.dueOn}`,
-      r.answeredOn && `Answered ${r.answeredOn}`,
+      r.dueOn && `Due ${formatDate(r.dueOn, r.dueOn)}`,
+      r.answeredOn && `Answered ${formatDate(r.answeredOn, r.answeredOn)}`,
       r.scheduleImpactDays ? `${r.scheduleImpactDays} day schedule impact` : '',
     ],
   },
@@ -115,8 +116,8 @@ const REGISTERS = {
     title: (r) => [r.number, r.title].filter(Boolean).join(' · ') || 'Untitled submittal',
     meta: (r) => [
       r.specSection && `Spec ${r.specSection}`,
-      r.dueOn && `Due ${r.dueOn}`,
-      r.returnedOn && `Returned ${r.returnedOn}`,
+      r.dueOn && `Due ${formatDate(r.dueOn, r.dueOn)}`,
+      r.returnedOn && `Returned ${formatDate(r.returnedOn, r.returnedOn)}`,
       r.revision ? `Revision ${r.revision}` : '',
     ],
   },

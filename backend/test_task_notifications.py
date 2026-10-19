@@ -186,7 +186,7 @@ class BulkNotificationTests(unittest.TestCase):
         bulk_update(BulkUpdate(ids=[t.id], patch={"assignee_email": ASSIGNEE}),
                     user=ACTOR, db=self.db)
         note = self._notifications_for(ASSIGNEE)[0]
-        self.assertEqual(note.title, "You were assigned a task")
+        self.assertEqual(note.title, "You Were Assigned a Task")
         self.assertEqual(note.task_id, t.id)
 
     def test_bulk_writes_an_activity_row_per_task(self):

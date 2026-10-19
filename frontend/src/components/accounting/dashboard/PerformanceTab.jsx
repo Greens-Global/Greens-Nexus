@@ -149,7 +149,7 @@ function BvaTable({ rows }) {
         })}
         {totals('Net income', rows, true)}
       </tbody>
-      <tfoot><tr><td colSpan={7}><Footnote style={{ padding: '0 10px 10px' }}>Rows in grey are within threshold. Groups follow the chart of accounts sections.</Footnote></td></tr></tfoot>
+      <tfoot><tr><td colSpan={7}><Footnote style={{ padding: '0 10px 10px' }}>Rows in gray are within threshold. Groups follow the chart of accounts sections.</Footnote></td></tr></tfoot>
     </table></div>
   );
 }

@@ -1,5 +1,5 @@
 // Financing on an Asset Management property - added for the Oct 7 accounting
-// feedback (Charmi 10/03 #25, "wire this data into Asset Mgt"). Ankush: this is
+// feedback (Charmi 10/03 #25, "wire this data into Asset Mgt"). Note: this is
 // self-contained and mounted with a few lines in asset/App.jsx; the property
 // keeps its ledger entity as `entityCode` in its workspace payload (no new
 // column - property_assets stores the whole object as JSON).

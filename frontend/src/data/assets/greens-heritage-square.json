@@ -1,7 +1,7 @@
 {
   "id": "greens-heritage-square",
   "name": "Greens Heritage Square",
-  "type": "Commercial — Mixed-Use",
+  "type": "Commercial - Mixed-Use",
   "address": "Menifee, CA",
   "snapshot": [
     {
@@ -12,7 +12,7 @@
         { "label": "City", "value": "Menifee" },
         { "label": "State", "value": "CA" },
         { "label": "Zip", "value": "" },
-        { "label": "Current Use", "value": "Commercial — Mixed-Use" },
+        { "label": "Current Use", "value": "Commercial - Mixed-Use" },
         { "label": "Development Stage (Feasibility / Entitlement / Permitting / Construction / Stabilized)", "value": "Construction" }
       ]
     }

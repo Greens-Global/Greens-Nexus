@@ -15,7 +15,7 @@
 // field list are.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { SLA_TARGET_HOURS, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, HELP_TOPICS } from './ticketMeta';
+import { SLA_TARGET_HOURS, FIRST_RESPONSE_HOURS, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, HELP_TOPICS } from './ticketMeta';
 
 const EVENT = 'nexus:ticket-taxonomy-config';
 let _loaded = false;
@@ -52,6 +52,7 @@ function applyConfig(cfg) {
     }
   }
   if (cfg?.slaTargetHours) Object.assign(SLA_TARGET_HOURS, cfg.slaTargetHours);
+  if (cfg?.firstResponseHours) Object.assign(FIRST_RESPONSE_HOURS, cfg.firstResponseHours);
   if (cfg?.types) {
     for (const [key, override] of Object.entries(cfg.types)) {
       if (!TICKET_TYPE_META[key]) continue;   // unknown key - a type an admin retired/renamed the key of, ignore

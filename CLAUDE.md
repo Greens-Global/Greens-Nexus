@@ -44,7 +44,7 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 | Area | Owner | Files |
 |---|---|---|
 | Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
-| Asset Management / Property Portfolio | **Ankush** | `frontend/src/views/PropertyAsset.jsx`, `backend/routers/assets.py`, property models/tables |
+| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `backend/routers/assets.py`, property models/tables |
 
 **Do not modify the other developer's files** — ask them instead.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
@@ -303,7 +303,7 @@ lists every one and counts the archived rows. The custom-status merge that
 used to live in the sync is `backend/task_status_dedupe.py`; the API's
 public-URL helper is `app_url.public_base`.
 
-## Asset Management module — scope (Ankush)
+## Asset Management module — scope (Neil)
 
 Everything currently on the Property Portfolio screen (`PropertyAsset.jsx`) is
 **hardcoded mock data**. The job is to make it real, in roughly this order:
@@ -348,5 +348,14 @@ Old `hardware_assets` table (IT module) is legacy — planned to fold into
   chips and column headers ("In Progress", "On Hold", "Awaiting Approval" -
   never "In progress"; Neil, Sep 30). Body copy, hints, empty states, and
   descriptions stay sentence case.
+- **American English, US formats, no exceptions (Neil, Oct 17 2026 - raised
+  more than once):** every user-facing string, server-built ones included
+  (notification titles and bodies, priority notices, emails, PDFs), shows
+  dates as MM/DD/YYYY - never interpolate a raw ISO `2026-10-04` (route it
+  through `us_date` / `_us_day` on the backend, `formatDate` on the
+  frontend) - times as 12-hour AM/PM, and American spelling. Notice titles
+  are Title Case like any other title. The time record is a **"Time Sheet"**
+  in copy (two words, capitalized in titles) - not "timecard", "time card"
+  or "timesheet"; identifiers and route keys (`timecard`, `timesheet`) stay.
 - Never use em dashes in user-facing copy — plain hyphens ("-"). Em dashes
   read as AI-generated (Visesh, Jul 28).

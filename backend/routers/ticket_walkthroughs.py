@@ -44,13 +44,13 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from pydantic import BaseModel
-from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import code_sequence
 import models
 import property_links
+import ticket_sla
 import ticket_taxonomy
 from auth import get_current_user
 from database import get_db
@@ -108,11 +108,9 @@ def _desc_html(text: str) -> str:
                    for line in (text or "").splitlines() if line.strip())
 
 
-def _active_person(db: Session, email: str) -> bool:
-    emp = (db.query(models.NexusEmployee)
-           .filter(func.lower(models.NexusEmployee.work_email) == email).first())
-    return (emp is not None and (emp.status or "") != "offboarded"
-            and not (getattr(emp, "deleted_at", "") or ""))
+# One People-list check for every person a ticket payload names - shared with
+# create_ticket's assignee and request_approval's approver.
+_active_person = T.active_person
 
 
 def _validate_lines(db: Session, lines: list, desk: bool, gated: set) -> tuple:
@@ -228,7 +226,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
         if em in told:
             continue
         task_notify(db, kind="ticket_assigned", for_email=em,
-                    title=f"You were assigned {len(ts)} ticket{'s' if len(ts) > 1 else ''}{at}",
+                    title=f"You Were Assigned {len(ts)} Ticket{'s' if len(ts) > 1 else ''}{at}",
                     body="; ".join(f"{ticket_no(t.code)} {t.subject}" for t in ts)[:500],
                     ticket_id=ts[0].id if len(ts) == 1 else "",
                     nexus_action={"view": "tickets", "label": "View Ticket" if len(ts) == 1 else "View Tickets"})
@@ -236,7 +234,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
 
     mgr = (batch.asset_manager_email or "").lower()
     if mgr and mgr not in told:
-        task_notify(db, kind="ticket_property", for_email=mgr, title=f"{n} new ticket{s}{at}",
+        task_notify(db, kind="ticket_property", for_email=mgr, title=f"{n} New Ticket{s}{at}",
                     body=f"Batch by {who}: {span}"[:500],
                     nexus_action={"view": "property-asset", "sub": f"tickets:{batch.property_asset_id}",
                                   "label": "View Property"})
@@ -246,7 +244,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
     if req and req not in told:
         # The requester, who may have no Tickets screen: the main bell too.
         task_notify(db, kind="ticket_received", for_email=req, main_bell=True,
-                    title=f"{n} ticket{s} raised for you{at}", body=f"{span} - filed by {who}"[:500],
+                    title=f"{n} Ticket{s} Raised for You{at}", body=f"{span} - filed by {who}"[:500],
                     nexus_action={"view": "support", "label": "View Tickets"})
         told.add(req)
 
@@ -259,7 +257,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
             if em in told:
                 continue
             task_notify(db, kind="ticket_needs_assignment", for_email=em,
-                        title=f"Batch{at}: {n} new ticket{s}",
+                        title=f"Batch{at}: {n} New Ticket{s}",
                         body=f"{span} - {', '.join(parts)}. Filed by {who}."[:500],
                         nexus_action={"view": "tickets", "label": "View Tickets"})
             told.add(em)
@@ -316,7 +314,8 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
     # told once (_bells) and NOT made a watcher - property_links rule 6.
     watchers = T._with_creator(body.watcher_emails, requester, me)
     service_areas = {c["application"]: T.service_area_for(db, c["application"]) for c in clean}
-    sla = {p: T._sla_due_from_priority(db, now, p) for p in {c["priority"] for c in clean}}
+    # Honest SLA: the targets per priority, read before the lock (ticket_sla.start below).
+    sla = {p: ticket_sla.targets(db, p) for p in {c["priority"] for c in clean}}
 
     # 3. Lock, re-check (a twin of this request may have committed while we
     #    validated - Postgres shows its row once the lock is granted), take a
@@ -342,12 +341,13 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
             tags=[], images=[], watcher_emails=list(watchers), resolution="", custom_field_values={},
             type_fields={"svc_unit": c["location"]} if c["location"] else {}, links=[], task_ids=[],
             component="", csat_rating=0, csat_comment="", application=c["application"],
-            service_area=service_areas[c["application"]], sla_due_on=sla[c["priority"]], resolved_at="",
+            service_area=service_areas[c["application"]], sla_due_on="", resolved_at="",
             created_at=now, modified_at=now, property_asset_id=prop_id, property_name=prop_name,
             batch_id=batch_id, approver_email="", property_locked=1 if body.property_locked and prop is not None else 0,
             approval_status="pending" if c["type"] in gated else "none")
+        ticket_sla.start(t, sla[c["priority"]])
         if t.assignee_email:
-            t.status = "in_progress"   # born assigned = already being worked (create_ticket's rule)
+            ticket_sla.set_status(t, "in_progress")   # born assigned = already being worked (create_ticket's rule)
         db.add(t)
         for k, url in enumerate(c["images"]):
             db.add(models.TaskAttachment(id=gen_id(), task_id=t.id, name=f"Photo {k + 1}", size="",

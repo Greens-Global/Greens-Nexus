@@ -21,6 +21,7 @@ import AccessCodeField from './AccessCodeField';
 import AnchoredMenu from './AnchoredMenu';
 import { useRole } from '../contexts/RoleContext';
 import { Spinner, LoadingState } from './AsyncState';
+import BreakAttestModal, { BreakStatement } from './BreakAttestModal';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -1064,7 +1065,7 @@ function UploadField({ field, style, innerRef, record, busy, disabled, error,
   );
 }
 
-export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi, copyApi }) {
+export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi, copyApi, onReportBreak }) {
   // Phone widths: the action bar's one row of controls does not fit, and the
   // signer should never have to scroll back up to finish (Sagar, Sep 22 2026).
   const narrow = useIsMobile('(max-width: 720px)');
@@ -1809,6 +1810,11 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
       {payload.message && (
         <div style={{ fontSize: 13, color: 'var(--muted)', fontStyle: 'italic', marginBottom: 14 }}>“{payload.message}”</div>
       )}
+      {/* CA-rule staff's time sheet (Neil, Oct 18 2026): the meal and rest
+          break statement their signature confirms - no question, no tick. */}
+      {payload.breakAttestation && payload.myTurn && (
+        <BreakStatement attestation={payload.breakAttestation} onReport={onReportBreak} />
+      )}
       {/* An upload field is a small box on a page; a rejected file needs to say
           why somewhere the signer will actually read it. */}
       {uploadErr && (
@@ -1978,6 +1984,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
 export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
   const [payload, setPayload] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [reporting, setReporting] = useState(false);   // CA: Report a Missed Break
   const [boxRef, boxH] = useFillHeight();
   const load = useCallback(
     () => api.mySignRender(partyId).then(setPayload),
@@ -2043,7 +2050,20 @@ export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
             ? <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
             : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
                 gateApi={gateApi} onCleared={() => load().catch(() => {})} uploadApi={uploadApi}
-                historyApi={historyApi} />}
+                historyApi={historyApi}
+                onReportBreak={payload.breakAttestation?.reviewId ? () => setReporting(true) : undefined} />}
+          {/* CA-rule staff: Report a Missed Break instead of signing - the
+              time sheet goes back to the manager and signing closes. */}
+          {reporting && payload?.breakAttestation && (
+            <BreakAttestModal reviewId={payload.breakAttestation.reviewId} attestation={payload.breakAttestation}
+              toastErr={toastErr} onClose={() => setReporting(false)}
+              onSentBack={() => {
+                setReporting(false);
+                toastOk('Sent back to your manager to add the premium pay.');
+                window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
+                onDone();
+              }} />
+          )}
         </div>
       </div>
     </div>
@@ -3629,7 +3649,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
                         onClick={() => { setEditPid(editPid === p.id ? null : p.id); setPf({ name: p.name, email: p.email, access_code: '' }); }}
                         style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px' }}><Pencil size={11} /> Edit</button>
                     )}
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${p.signedAt.slice(0, 10)}` : cc && p.status !== 'signed' ? '-' : m.label}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${formatDate(p.signedAt.slice(0, 10))}` : cc && p.status !== 'signed' ? '-' : m.label}</span>
                   </div>
                   {editPid === p.id && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '0 0 10px 32px', alignItems: 'center' }}>
@@ -3823,7 +3843,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
             <FileSignature size={17} style={{ color: item.myTurn ? '#f59e0b' : 'var(--muted)', flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>from {item.from}{item.expiresOn && ` · expires ${item.expiresOn}`}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>from {item.from}{item.expiresOn && ` · expires ${formatDate(item.expiresOn, item.expiresOn)}`}</div>
             </div>
             {expiryChip(item.expiresOn)}
             {item.myTurn
@@ -3877,7 +3897,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
                       <span style={{ width: 70, height: 4, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
                         <span style={{ display: 'block', height: '100%', width: `${total ? (signed / total) * 100 : 0}%`, background: m.fg }} />
                       </span>
-                      {signed}/{total} signed · sent {(r.createdAt || '').slice(0, 10)}
+                      {signed}/{total} signed · sent {formatDate((r.createdAt || '').slice(0, 10))}
                       {r.routing === 'parallel' && ' · all at once'}
                     </div>
                   </div>

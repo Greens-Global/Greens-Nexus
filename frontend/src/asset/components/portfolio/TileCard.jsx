@@ -224,7 +224,9 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
             )}
           </div>
 
-          <div style={{ marginTop: 'auto', display: 'grid', gridTemplateColumns: `repeat(${visibleStats.length}, 1fr)`, gap: '12px', borderTop: '1px solid var(--border-color)', paddingTop: 13 }}>
+          {/* minmax(0, 1fr), not 1fr: style.css's phone guard stacks any inline
+              "repeat(3, 1fr)", which turned three stats into three tall rows (Oct 17). */}
+          <div style={{ marginTop: 'auto', display: 'grid', gridTemplateColumns: `repeat(${visibleStats.length}, minmax(0, 1fr))`, gap: '12px', borderTop: '1px solid var(--border-color)', paddingTop: 13 }}>
             {visibleStats.map((s, i) => {
               const valStr = String(s.v == null ? '' : s.v);
               const valFontSize = valStr.length > 12 ? '0.72rem' : valStr.length > 9 ? '0.85rem' : '1.06rem';

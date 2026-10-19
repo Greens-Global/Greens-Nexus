@@ -337,7 +337,7 @@ def render(first_name: str, today: date, sections: dict, greeting: str, logo_url
     week_of = f"Week of {datetime.strptime(week_start(today), '%Y-%m-%d').strftime('%m/%d/%Y')}"
     footer = (f"You receive the Weekly Digest every {DAY_NAMES[send_day(cfg) - 1]}, before your shift "
               "starts. It lists everything waiting on you across Nexus - approvals and requests to decide, "
-              "your time card, tickets, items, documents to sign and tasks - and who on your team is off.")
+              "your time sheet, tickets, items, documents to sign and tasks - and who on your team is off.")
     return daily.render_email(first_name, today.isoformat(), sections, greeting=greeting, logo_url=logo_url,
                               title="Weekly Digest", date_label=week_of, intro=_intro(sections),
                               footer=footer, order=ORDER, expanded=True,

@@ -308,8 +308,8 @@ _EXCLUDED_RECORD_CATEGORIES = [
     ("Court orders, notices and filings, or documents for a court proceeding", "15 U.S.C. 7003(b)(1)"),
     ("Notices of default, foreclosure, eviction, or repossession on a primary residence",
      "15 U.S.C. 7003(b)(2)(B)"),
-    ("Notices cancelling utility service", "15 U.S.C. 7003(b)(2)(A)"),
-    ("Notices cancelling or terminating health or life insurance benefits", "15 U.S.C. 7003(b)(2)(C)"),
+    ("Notices canceling utility service", "15 U.S.C. 7003(b)(2)(A)"),
+    ("Notices canceling or terminating health or life insurance benefits", "15 U.S.C. 7003(b)(2)(C)"),
     ("Product recalls, or notices of a material failure affecting health or safety",
      "15 U.S.C. 7003(b)(2)(D)"),
     ("Documents accompanying the transport of hazardous or dangerous materials",
@@ -1126,7 +1126,10 @@ def _sign_link(party: HrSignParty, req: Optional[HrSignRequest] = None) -> str:
     # manager may not hold (Oct 16).
     if (getattr(req, "link_kind", "") or "") == "timesheet":
         return f"{_app_url_fn()}/workday/timesheet"
-    return f"{_app_url_fn()}/documents/documents-esign?sign={party.id}"
+    # Every other teammate signs from Workday too (Oct 18): Documents needs a
+    # grant a plain employee does not hold, so this link used to end on Access
+    # Restricted. Workday's Documents to Sign card opens this envelope.
+    return f"{_app_url_fn()}/workday/sign:{party.id}"
 
 
 def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender: dict, custom: Optional[tuple] = None) -> tuple:
@@ -1148,7 +1151,7 @@ def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender: dict, custo
         from_addr=from_addr,
         display_name=_from_display(sender.get("name") or ""),
         to_email=party.email,
-        subject=f"Action needed: Please sign {req.title}",
+        subject=f"Action Needed: Please Sign {req.title}",
         html=_sign_email_html(party, req, sender, link),
         reply_to=(sender.get("email") or ""),
     )
@@ -1178,7 +1181,7 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
         from_addr=from_addr,
         display_name=_from_display(sender["name"]) if (sender and sender.get("name")) else _SOR_NAME,
         to_email=to_email,
-        subject=custom[0] if custom else f"Completed: All parties have signed {req.title}",
+        subject=custom[0] if custom else f"Completed: All Parties Have Signed {req.title}",
         html=custom[1] if custom else html,
         reply_to=((sender or {}).get("email") or ""),
         pdf=((f"{safe} (signed).pdf", pdf) if attach else None),
@@ -1248,15 +1251,15 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
         # A timesheet is signed from Workday > Time Sheet (Timesheets to Sign),
         # which every manager can open - Documents needs an Access Group grant
         # a plain manager may not hold (Oct 16).
-        _hr_notify(db, party.email, f"Signature required: {req.title}",
+        _hr_notify(db, party.email, f"Signature Required: {req.title}",
                    f"\"{req.title}\" is ready for your signature. Open Workday > Time Sheet to review and sign it.",
                    ref_id=req.id, requested_by=sender_name,
                    action={"view": "timeclock", "sub": "timesheet"}, priority=1)
     elif party.kind == "internal":
-        _hr_notify(db, party.email, f"Signature required: {req.title}",
-                   f"{sender['name']} sent you \"{req.title}\" to sign. Open Documents → Nexus Sign.",
+        _hr_notify(db, party.email, f"Signature Required: {req.title}",
+                   f"{sender['name']} sent you \"{req.title}\" to sign. Open Workday to review and sign it.",
                    ref_id=req.id, requested_by=sender_name,
-                   action={"view": "documents", "sub": "documents-esign"})
+                   action={"view": "myhr", "sub": f"sign:{party.id}"})
     custom = None
     if (getattr(req, "link_kind", "") or "") == "life_event":
         try:
@@ -2052,7 +2055,7 @@ _DOCUMENT_CLASS_SEED = [
     ("eviction_notice", "Eviction or termination-of-tenancy notice", False,
      "15 U.S.C. 7003(b)(2)(B)",
      "Serve on paper by the method the statute requires.", 240),
-    ("utility_cancellation", "Notice cancelling utility service", False,
+    ("utility_cancellation", "Notice canceling utility service", False,
      "15 U.S.C. 7003(b)(2)(A)", "Send on paper.", 250),
     ("insurance_termination", "Cancellation of health or life insurance benefits", False,
      "15 U.S.C. 7003(b)(2)(C)", "Send on paper.", 260),
@@ -2652,7 +2655,8 @@ def my_signatures(user: dict = Depends(get_current_user), db: Session = Depends(
             continue
         out.append({"partyId": p.id, "requestId": req.id, "title": req.title,
                     "message": req.message, "from": req.created_by, "createdAt": req.created_at,
-                    "expiresOn": req.expires_on, "myTurn": _its_their_turn(req, p)})
+                    "expiresOn": req.expires_on, "myTurn": _its_their_turn(req, p),
+                    "linkKind": getattr(req, "link_kind", "") or ""})
     return sorted(out, key=lambda x: (not x["myTurn"], x["createdAt"]))
 
 
@@ -2715,6 +2719,14 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
                "governingLaw": (req.governing_law or _DEFAULT_GOVERNING_LAW).upper(),
                "standaloneConsent": True,
                "expiresOn": req.expires_on}
+    if (getattr(req, "link_kind", "") or "") == "timesheet" and party.role_key == "employee" \
+            and party.status != "signed" and req.status == "pending":
+        # CA-rule staff: the meal and rest break statement their signature
+        # confirms, shown on every signing screen (timesheet_review, Oct 18).
+        import timesheet_review as _tsr
+        _r = _tsr._for(db, req)
+        if _r is not None and _r.status == "signing" and _tsr.needs_break_attestation(db, _r):
+            payload["breakAttestation"] = {**_tsr.break_attestation_state(db, _r), "reviewId": _r.id}
     # What must happen before any of the document is sent to this browser.
     # Withholding the URLs is the enforcement - a client that ignores `gate`
     # still has nothing to render.
@@ -2966,6 +2978,13 @@ def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
               "completed": hle.on_completed, "expired": hle.on_expired}.get(event)
         if fn:
             hle.safe(fn, db, req, *args)
+    elif kind == "meal_waiver":
+        # The California meal period waiver (ca_breaks.py, Oct 17 2026).
+        import ca_breaks
+        fn = {"declined": ca_breaks.on_declined, "voided": ca_breaks.on_voided,
+              "completed": ca_breaks.on_completed}.get(event)
+        if fn:
+            ca_breaks.safe(fn, db, req, *args)
 
 
 def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:
@@ -3039,7 +3058,7 @@ def _apply_saved(db: Session, req: HrSignRequest, party: HrSignParty) -> None:
     party.field_values = party.field_values or {}
     _log(db, req.id, "signed",
          f"{party.name} signed with the signature they adopted once for this packet"
-         + (f" on {adopted[:10]}" if adopted else "")
+         + (f" on {_us_date_slash(adopted)}" if adopted else "")
          + " (signed in to Nexus, identity verified by one-time code) - applied automatically when the packet was sent",
          party_id=party.id)
 
@@ -3193,7 +3212,7 @@ def _apply_decline(db: Session, req: HrSignRequest, party: HrSignParty, reason: 
     _log(db, req.id, "declined", f"{party.name}: {party.decline_reason or 'no reason given'}",
          party_id=party.id, ip=ip, user_agent=ua)
     _link_hook("declined", db, req, party, party.decline_reason)
-    _hr_notify(db, req.created_by, f"Signature declined: {req.title}",
+    _hr_notify(db, req.created_by, f"Signature Declined: {req.title}",
                f"{party.name} declined to sign. {party.decline_reason}".strip(),
                ref_id=req.id, requested_by=party.name,
                action={"view": "documents", "sub": "documents-esign-requests"})
@@ -5226,7 +5245,7 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     # area and having to work out which document the email meant. ESign reads
     # ?request= on mount and opens that envelope.
     deep_link = f"{_app_url_fn()}/documents/documents-esign-requests?request={req.id}"
-    _hr_notify(db, req.created_by, f"Fully executed: {req.title}",
+    _hr_notify(db, req.created_by, f"Fully Executed: {req.title}",
                f"All {n_signers} signer{'s' if n_signers != 1 else ''} have signed \"{req.title}\". "
                f"The sealed document is in Documents → Nexus Sign and in your email.{filed_note}",
                ref_id=req.id,
@@ -5262,7 +5281,7 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     for p in parties:
         if p.kind == "internal":
             if p.email != req.created_by:
-                _hr_notify(db, p.email, f"Fully executed: {req.title}",
+                _hr_notify(db, p.email, f"Fully Executed: {req.title}",
                            "Every required signer has signed. The sealed copy is in "
                            "Documents → Nexus Sign and in your email.",
                            ref_id=req.id,

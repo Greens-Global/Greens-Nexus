@@ -136,12 +136,12 @@ class OfflineDraftTests(unittest.TestCase):
     def test_bullets_are_the_workers_own_words(self):
         out = cr.draft_offline(types.SimpleNamespace(name="P"),
                                _data(logs=[_log("2026-08-04", "Poured footings")]))
-        self.assertEqual(out["summary_of_progress"], ["2026-08-04: Poured footings."])
+        self.assertEqual(out["summary_of_progress"], ["08/04/2026: Poured footings."])
 
     def test_falls_back_to_recorded_activities_when_no_note_was_typed(self):
         out = cr.draft_offline(types.SimpleNamespace(name="P"), _data(
             logs=[_log("2026-08-04", "", [{"activity": "Formwork strip"}])]))
-        self.assertEqual(out["summary_of_progress"], ["2026-08-04: Formwork strip."])
+        self.assertEqual(out["summary_of_progress"], ["08/04/2026: Formwork strip."])
 
     def test_an_empty_week_says_so_rather_than_producing_nothing(self):
         out = cr.draft_offline(types.SimpleNamespace(name="P"), _data())

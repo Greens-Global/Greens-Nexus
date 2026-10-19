@@ -415,7 +415,7 @@ class HiringPacketTests(LifeEventCase):
             self._run_filing_now()
         ev = self._ev(ev.id)
         self.assertEqual(ev.filing_status, "failed")
-        self.assertTrue(any("Not filed in Egnyte" in n.title for n in
+        self.assertTrue(any("Not Filed in Egnyte" in n.title for n in
                             self.db.query(models.NexusNotification).filter_by(recipient=HR).all()))
         # HR retries once Egnyte is back.
         self.egnyte_down = False
@@ -474,7 +474,7 @@ class HiringPacketTests(LifeEventCase):
         self.assertEqual(ev.flags[0]["code"], hle.APPLY_FAILED)
         self.assertIn("RuntimeError: boom", ev.apply_note)
         bells = [n for n in self.db.query(models.NexusNotification).filter_by(recipient=HR).all()
-                 if n.title.startswith("Needs attention")]
+                 if n.title.startswith("Needs Attention")]
         self.assertEqual(bells[0].priority, 1)
         r = self.client.post(f"/hr/life-events/{ev.id}/retry-apply")
         self.assertEqual(r.status_code, 200, r.text)
@@ -517,7 +517,7 @@ class HiringPacketTests(LifeEventCase):
         req = self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).first()
         esign._check_expiry(self.db, req)
         self.assertEqual(self._ev(ev.id).status, "expired")
-        self.assertTrue(any("expired" in n.title for n in
+        self.assertTrue(any("Expired" in n.title for n in
                             self.db.query(models.NexusNotification).filter_by(recipient=HR).all()))
         self.assertEqual(self._send().status, "awaiting_sender")  # a new one can go out
 
@@ -653,9 +653,9 @@ class PromotionTests(LifeEventCase):
         self.assertEqual([h.effective_date for h in hist], ["2026-09-01"])
         self.assertEqual(ev.flags[0]["periods"][0]["start"], "2026-09-06")           # signed period flagged
         bells = {(n.recipient, n.title) for n in self.db.query(models.NexusNotification).all()}
-        self.assertIn((HR, "Review signed timesheets - Erin Lee"), bells)
-        self.assertIn((ERIN, "Your promotion is official"), bells)
-        self.assertIn((MGR, "Promotion signed - Erin Lee"), bells)
+        self.assertIn((HR, "Review Signed Time Sheets - Erin Lee"), bells)
+        self.assertIn((ERIN, "Your Promotion Is Official"), bells)
+        self.assertIn((MGR, "Promotion Signed - Erin Lee"), bells)
         # Filed in Erin's folder under Promotion Documents
         self._run_filing_now()
         self.assertIn("/Promotion Documents/", self.uploads[0][0])
@@ -718,8 +718,8 @@ class PromotionTests(LifeEventCase):
         open_bells = self.db.query(models.NexusNotification).filter_by(ref_id=req.id, priority=1, actioned=False).count()
         self.assertEqual(open_bells, 0)                                             # off the yellow bar for both
         titles = {(n.recipient, n.title) for n in self.db.query(models.NexusNotification).filter_by(ref_id=req.id)}
-        self.assertIn((ADMIN_U["email"], "Role change approved - Erin Lee"), titles)
-        self.assertIn((ERIN, "Your role changed"), titles)
+        self.assertIn((ADMIN_U["email"], "Role Change Approved - Erin Lee"), titles)
+        self.assertIn((ERIN, "Your Role Changed"), titles)
         with self.assertRaises(rc.RoleChangeError) as e:                            # decided once
             rc.decide(self.db, {"email": MGR, "level": 2, "role": "employee"}, req.id, False, "no")
         self.assertEqual(e.exception.status, 409)
@@ -803,7 +803,7 @@ class PromotionTests(LifeEventCase):
         self.assertEqual(self.db.query(models.NexusNotification).filter_by(ref_id=req.id, priority=1,
                                                                            actioned=False).count(), 0)
         titles = {(n.recipient, n.title) for n in self.db.query(models.NexusNotification).filter_by(ref_id="id-erin")}
-        self.assertEqual(titles, {(ERIN, "Your role changed"), (MGR, "Role changed - Erin Lee")})
+        self.assertEqual(titles, {(ERIN, "Your Role Changed"), (MGR, "Role Changed - Erin Lee")})
         audits = self.db.query(models.AuditLog).filter_by(action="Changed role", resource_id="id-erin").all()
         self.assertTrue(any("Team move" in a.details for a in audits))
         with self.assertRaises(rc.RoleChangeError):
@@ -965,7 +965,7 @@ class OffboardTests(LifeEventCase):
         self.assertEqual(self._emp().status, "offboarded")
         ev = self._ev(ev.id)
         self.assertEqual(ev.apply_status, "applied")
-        self.assertTrue(any("is now Left" in n.title for n in self.db.query(models.NexusNotification).all()))
+        self.assertTrue(any("Is Now Left" in n.title for n in self.db.query(models.NexusNotification).all()))
         # The package was still unsigned at the work email when the account
         # closed: it now goes to the personal email, as an external signer.
         self.assertIn("re-sent to erin@gmail.com", ev.apply_note)
@@ -986,7 +986,7 @@ class OffboardTests(LifeEventCase):
         self.assertEqual(hle.apply_due_separations(), 1)
         ev = self._ev(ev.id)
         self.assertIn("no personal email", ev.apply_note)
-        self.assertTrue(any(n.title.startswith("Separation package stuck") and n.priority == 1
+        self.assertTrue(any(n.title.startswith("Separation Package Stuck") and n.priority == 1
                             for n in self.db.query(models.NexusNotification).filter_by(recipient=HR).all()))
 
     def test_today_is_the_business_day_not_utc(self):
@@ -1096,7 +1096,7 @@ class EmailAndRoleTests(LifeEventCase):
         self.assertEqual((role.company_id, role.allowed_modules, role.department), (ENTITY, "", "Operations"))
         self.assertEqual(ev.inputs["role_id"], role.id)
         bells = {(n.recipient, n.title) for n in self.db.query(models.NexusNotification).all()}
-        self.assertIn(("admin@greensglobal.com", "New role needs access - Leasing Coordinator"), bells)
+        self.assertIn(("admin@greensglobal.com", "New Role Needs Access - Leasing Coordinator"), bells)
 
     def test_other_with_an_existing_name_reuses_the_role(self):
         ev = self._send(new_role_name="senior analyst", job_title="")

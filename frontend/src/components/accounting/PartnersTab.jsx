@@ -252,7 +252,7 @@ export default function PartnersTab({ canApprove = false }) {
                 <thead><tr><th style={th}>Record</th><th style={th}>Changes</th><th style={th}>Requested</th><th style={th}>Status</th><th style={th}>Note</th>{canApprove && <th style={th}></th>}</tr></thead>
                 <tbody>
                   {requests.map((r) => (
-                    <tr key={r.id}>
+                    <tr key={r.id} className={canApprove && r.status === 'pending' ? 'nx-needs-you--row' : undefined}>
                       <td style={td}><strong>{r.partnerName || r.partnerId}</strong><div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{r.partnerId}</div></td>
                       <td style={td}>
                         {Object.entries(r.changes || {}).map(([f, v]) => (

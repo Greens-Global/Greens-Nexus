@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, FileText, Circle, CheckCircle, AlertTriangle } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from './AsyncState';
-import { formatTime, formatMonthDay, wallClock } from '../lib/datetime';
+import { formatDate, formatTime, formatMonthDay, wallClock } from '../lib/datetime';
 
 // ── Work Log (BOD/EOD) - a day's planned/completed/pending, read from the
 // Time Clock's Beginning/End-of-day composer. Two surfaces share this same
@@ -130,9 +130,8 @@ export default function WorkLogDrawer({ email, date, name = '', onClose }) {
     return () => { document.body.style.overflow = prev; };
   }, []);
 
-  // MM-DD-YYYY, per the wanted display format.
-  const [y, mo, d] = date.split('-');
-  const niceDate = `${mo}-${d}-${y}`;
+  // MM/DD/YYYY, the US date format used everywhere.
+  const niceDate = formatDate(date, date);
 
   return createPortal(
     <div onMouseDown={(e) => e.target === e.currentTarget && onClose()}

@@ -1068,6 +1068,8 @@ def _run_migrations():
             # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN shift_calendar INTEGER DEFAULT 1",
             "ALTER TABLE nexus_person_prefs ADD COLUMN ical_salt VARCHAR DEFAULT ''",
+            # Profile > Date Format (Oct 20). models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN date_format VARCHAR DEFAULT ''",
             # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
             "ALTER TABLE shift_calendar_events ADD COLUMN attempts INTEGER DEFAULT 0",
             # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
@@ -1080,6 +1082,36 @@ def _run_migrations():
             "ALTER TABLE hr_candidates ADD COLUMN screen_task_id VARCHAR DEFAULT ''",
             # Overdue ticket reminders (Oct 15 2026). models.TaskTicket.overdue_reminder.
             "ALTER TABLE task_tickets ADD COLUMN overdue_reminder JSON DEFAULT '{}'",
+            # What's New replies, mentions and "since your last visit" (Oct 16 2026).
+            "ALTER TABLE task_changelog_comments ADD COLUMN parent_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_changelog_comments ADD COLUMN mentions JSON DEFAULT '[]'",
+            "ALTER TABLE changelog_seen ADD COLUMN prev_seen_at VARCHAR DEFAULT ''",
+            # What's New: request statuses and tour completions (Oct 18 2026).
+            "ALTER TABLE changelog_feedback ADD COLUMN status VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN status_note TEXT DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN status_by VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN status_at VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN shipped_entry_id VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN notified_status VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN module VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_entry_views ADD COLUMN tour_done_at VARCHAR DEFAULT ''",
+            # Ticket email retries resend the first render (Oct 18 2026). models.TicketEmailLog.
+            "ALTER TABLE ticket_email_log ADD COLUMN actor_email VARCHAR DEFAULT ''",
+            "ALTER TABLE ticket_email_log ADD COLUMN html TEXT DEFAULT ''",
+            # Honest SLA (Oct 2026, ticket_sla.py). models.TaskTicket.
+            "ALTER TABLE task_tickets ADD COLUMN sla_due_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN first_response_due_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN first_response_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN sla_paused_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN sla_paused_min INTEGER DEFAULT 0",
+            "ALTER TABLE task_tickets ADD COLUMN sla_fr_alerted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN sla_res_alerted_at VARCHAR DEFAULT ''",
+            # Ticket default assignee per department (Oct 2026, ticket_auto_assign.py). models.TicketDepartment.
+            "ALTER TABLE ticket_departments ADD COLUMN default_assignee_email VARCHAR DEFAULT ''",
+            # A decided punch-fix request cleared from the employee's list (Oct 19). models.PunchRequest.
+            "ALTER TABLE punch_requests ADD COLUMN employee_dismissed_at VARCHAR DEFAULT ''",
+            # Leave balances (Oct 19 2026, leave_balances.py). models.NexusEmployee.leave_policy.
+            "ALTER TABLE nexus_employees ADD COLUMN leave_policy VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2393,6 +2425,8 @@ def _run_migrations():
         # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS shift_calendar INTEGER DEFAULT 1",
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ical_salt VARCHAR DEFAULT ''",
+        # Profile > Date Format (Oct 20). models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS date_format VARCHAR DEFAULT ''",
         # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
         "ALTER TABLE shift_calendar_events ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
         # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
@@ -2405,6 +2439,47 @@ def _run_migrations():
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS screen_task_id VARCHAR DEFAULT ''",
         # Overdue ticket reminders (Oct 15 2026). models.TaskTicket.overdue_reminder.
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS overdue_reminder JSONB DEFAULT '{}'::jsonb",
+        # Approver delegation (Oct 17 2026) - a new table: explicit RLS on top
+        # of the _enable_rls_everywhere sweep. models.ApprovalDelegation.
+        "ALTER TABLE approval_delegations ENABLE ROW LEVEL SECURITY",
+        # What's New replies, mentions and "since your last visit" (Oct 16 2026).
+        "ALTER TABLE task_changelog_comments ADD COLUMN IF NOT EXISTS parent_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_changelog_comments ADD COLUMN IF NOT EXISTS mentions JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE changelog_seen ADD COLUMN IF NOT EXISTS prev_seen_at VARCHAR DEFAULT ''",
+        # What's New: request statuses and tour completions (Oct 18 2026).
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS status_note TEXT DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS status_by VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS status_at VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS shipped_entry_id VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS notified_status VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS module VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_entry_views ADD COLUMN IF NOT EXISTS tour_done_at VARCHAR DEFAULT ''",
+        # Expense reimbursements (Oct 18 2026) - a new table: explicit RLS on
+        # top of the _enable_rls_everywhere sweep. models.ExpenseReimbursement.
+        "ALTER TABLE expense_reimbursements ENABLE ROW LEVEL SECURITY",
+        # Ticket email retries resend the first render (Oct 18 2026). models.TicketEmailLog.
+        "ALTER TABLE ticket_email_log ADD COLUMN IF NOT EXISTS actor_email VARCHAR DEFAULT ''",
+        "ALTER TABLE ticket_email_log ADD COLUMN IF NOT EXISTS html TEXT DEFAULT ''",
+        # Honest SLA (Oct 2026, ticket_sla.py). models.TaskTicket.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_due_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS first_response_due_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS first_response_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_paused_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_paused_min INTEGER DEFAULT 0",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_fr_alerted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_res_alerted_at VARCHAR DEFAULT ''",
+        # Ticket default assignee per department (Oct 2026, ticket_auto_assign.py). models.TicketDepartment.
+        "ALTER TABLE ticket_departments ADD COLUMN IF NOT EXISTS default_assignee_email VARCHAR DEFAULT ''",
+        # Ticket saved replies (Oct 2026) - a new table: explicit RLS on top of
+        # the _enable_rls_everywhere sweep. models.TicketSavedReply.
+        "ALTER TABLE ticket_saved_replies ENABLE ROW LEVEL SECURITY",
+        # A decided punch-fix request cleared from the employee's list (Oct 19). models.PunchRequest.
+        "ALTER TABLE punch_requests ADD COLUMN IF NOT EXISTS employee_dismissed_at VARCHAR DEFAULT ''",
+        # Leave balances (Oct 19 2026, leave_balances.py): the person's policy,
+        # and the ledger - a new table, explicit RLS. models.LeaveLedgerEntry.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS leave_policy VARCHAR DEFAULT ''",
+        "ALTER TABLE leave_ledger ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2843,6 +2918,22 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] ticket sla_due_on backfill skipped: {e}")
+    # Honest SLA (Oct 2026, ticket_sla.backfill): datetime deadlines, the
+    # first response from existing comments, and every deadline already past
+    # marked alerted so the deploy fires no flood of breach bells. Idempotent
+    # - only rows with no sla_due_at yet.
+    try:
+        from database import SessionLocal
+        import ticket_sla
+        db = SessionLocal()
+        try:
+            n = ticket_sla.backfill(db)
+            if n:
+                print(f"[startup] backfilled the SLA clock on {n} ticket(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] ticket SLA clock backfill skipped: {e}")
     # Ticket desk access rule (Oct 2026, ticket_roles.py): pinned once, the
     # first time this database starts without one. Existing data (tickets,
     # tasks or a tasks/tickets grant) -> "legacy", so nobody on the desk loses
@@ -3091,6 +3182,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] no-show loop skipped: {e}")
         try:
+            # Live overtime alert (Oct 17 2026): every five minutes, a quiet
+            # bell to the manager when someone clocked in nears daily ('ca')
+            # or weekly overtime; per-company otAlertOn. See overtime_watch.py.
+            from overtime_watch import overtime_loop
+            _tasks.append(_a.create_task(overtime_loop()))
+        except Exception as e:
+            print(f"[startup] overtime watch loop skipped: {e}")
+        try:
             # Shifts Phase 3a (Oct 14 2026): shared shifts onto people's
             # Outlook calendars - every minute, up to 50 queued rows, Graph
             # app-only in a thread. See shift_calendar.py.
@@ -3127,6 +3226,15 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(leasing_sync_loop()))
         except Exception as e:
             print(f"[startup] leasing sync skipped: {e}")
+        try:
+            # Pay period close alerts (Oct 19 2026): every half hour, in a
+            # thread - one notice per approver per closed period listing the
+            # Time Sheets waiting on them, escalation when approval or the
+            # employee's signature stalls. See timesheet_alerts.py.
+            from timesheet_alerts import period_close_loop
+            _tasks.append(_a.create_task(period_close_loop()))
+        except Exception as e:
+            print(f"[startup] period close alerts loop skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;
@@ -3742,3 +3850,27 @@ from routers import accounting_ask  # noqa: E402
 app.include_router(accounting_ask.router)            # Accounting > Reporting > AMA: Ask My Accountant - questions on ledger lines, the suspense account's lines (Neil, 10/15)
 from routers import shift_ical  # noqa: E402
 app.include_router(shift_ical.router)                # Shifts Phase 3a: the personal calendar subscribe feed (signed link, no login on the .ics) (Neil, 10/14)
+from routers import retro_pay  # noqa: E402
+app.include_router(retro_pay.router)                 # People > Time > Payroll > Retro Pay: back-dated raises owed on finalized periods, read only (Neil, 10/17)
+from routers import payroll_readiness as payroll_readiness_router  # noqa: E402
+app.include_router(payroll_readiness_router.router)  # People > Time > Payroll: Payroll Readiness - who is not ready, variance and anomalies for a pay period (Neil, 10/17)
+from routers import approval_delegations  # noqa: E402
+app.include_router(approval_delegations.router)      # Delegate My Approvals: a stand-in for a date range (Neil, 10/17)
+from routers import ca_breaks as ca_breaks_router  # noqa: E402
+app.include_router(ca_breaks_router.router)          # CA meal / rest premium lines + the meal waiver in Nexus Sign (Neil, 10/17)
+from routers import ca_review as ca_review_router  # noqa: E402
+app.include_router(ca_review_router.router)          # People > Time > Payroll: California Review - CA-rule flags for HR (Neil, 10/18)
+from routers import action_counts  # noqa: E402
+app.include_router(action_counts.router)             # What is waiting on me: the sidebar red dots and tab counts (Pranshu, 10/18)
+from routers import changelog_extras  # noqa: E402
+app.include_router(changelog_extras.router)          # What's New: following + digest, private RSS feed, screen hints, feedback, history, bulk, insights (Oct 16)
+from routers import changelog_lifecycle  # noqa: E402
+app.include_router(changelog_lifecycle.router)       # What's New: request statuses, known issues / rollbacks, deprecations, tours, live in production (Oct 18)
+from routers import reimbursements  # noqa: E402
+app.include_router(reimbursements.router)         # Workday > Reimbursements: out-of-pocket purchases - approve, then HR pays (Neil, 10/18)
+from routers import ticket_saved_replies  # noqa: E402
+app.include_router(ticket_saved_replies.router)   # Tickets: saved replies (canned responses) for the desk's reply composer (Oct 2026)
+from routers import leave_balances as leave_balances_router  # noqa: E402
+app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
+from routers import location_trail as location_trail_router  # noqa: E402
+app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)

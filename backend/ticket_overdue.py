@@ -1,8 +1,10 @@
 """Overdue ticket reminders (Oct 15 2026).
 
-A ticket's assignee hears about it when it reaches its due date
-(`sla_due_on`) still open, so it does not rest on an email they may never
-have opened:
+A ticket's assignee hears about it when it reaches its due date still open,
+so it does not rest on an email they may never have opened. The due DATE is
+the day the SLA deadline (`sla_due_at`, Honest SLA - ticket_sla.py) falls on
+in the assignee's own time zone; a row with no datetime yet uses its old
+`sla_due_on`:
 
 - The first reminder goes out on the due date, in the morning of the
   assignee's own time zone (daily_briefing._person_zone: their Shift preset's
@@ -13,7 +15,7 @@ have opened:
 - ONE message per person per day, listing every ticket of theirs that is due
   today or past due - never one per ticket.
 - After two overdue reminders went unanswered, each later one also goes to
-  the department lead (TicketDepartment.lead_email, else backup_email, of the
+  the department head (HrDepartment.lead_email, else the desk's backup_email, of the
   department the ticket is about - the same lookup as Escalate).
 - Not reminded: resolved and closed tickets, tickets waiting for the
   requester (the delay is not the assignee's), tickets still awaiting
@@ -65,8 +67,18 @@ def first_business_day(d: date) -> date:
     return d
 
 
-def _state(t: models.TaskTicket) -> dict:
-    due = (t.sla_due_on or "")[:10]
+def due_day(t: models.TaskTicket, zone: str = "") -> str:
+    """The assignee's local date of the SLA deadline (YYYY-MM-DD)."""
+    import ticket_sla
+    if t.sla_due_at:
+        return ticket_sla.local_day(t.sla_due_at, zone) or (t.sla_due_on or "")[:10]
+    return (t.sla_due_on or "")[:10]
+
+
+def _state(t: models.TaskTicket, due: str | None = None) -> dict:
+    """Reminder state, keyed by the due date string (`due`: the assignee's
+    local date - due_day)."""
+    due = due if due is not None else (t.sla_due_on or "")[:10]
     s = dict(t.overdue_reminder or {})
     if s.get("due") != due:   # a new due date starts the counts over
         return {"due": due, "sent": 0, "overdue": 0, "on": ""}
@@ -132,10 +144,15 @@ def _deliver(db: Session, *, sender: str, to: str, rows: list, audience: str,
 
 
 def _lead_of(db: Session, t: models.TaskTicket):
-    dept = (db.query(models.TicketDepartment).filter(models.TicketDepartment.id == t.hr_department_id).first()
-            if t.hr_department_id else None)
-    lead = ((dept.lead_email if dept else "") or (dept.backup_email if dept else "") or "").strip().lower()
-    return lead, (dept.name if dept else "")
+    """The department's head - HrDepartment.lead_email, the one head every
+    module reads since Oct 15 2026 (ticket_notify._recipients_for does the
+    same) - else the desk's backup. TicketDepartment.lead_email is history."""
+    if not t.hr_department_id:
+        return "", ""
+    live = db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
+    dept = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == t.hr_department_id).first()
+    lead = ((live.lead_email if live else "") or (dept.backup_email if dept else "") or "").strip().lower()
+    return lead, ((live.name if live else "") or (dept.name if dept else ""))
 
 
 def run(db: Session, local_now=None) -> int:
@@ -144,6 +161,7 @@ def run(db: Session, local_now=None) -> int:
     a person's naive local time - tests pass their own clock."""
     import daily_briefing
     import ticket_notify
+    from sqlalchemy import and_, or_
     from routers.task_util import log_activity
     from routers.timeclock import _shift_local_now
     from timesheet_review import manager_of
@@ -152,10 +170,13 @@ def run(db: Session, local_now=None) -> int:
     if not cfg["enabledEvents"].get("overdue_reminder"):
         return 0
     horizon = (datetime.now(timezone.utc) + timedelta(days=2)).date().isoformat()   # nobody's local date is past UTC + 1
-    tickets = (db.query(models.TaskTicket)
-               .filter(models.TaskTicket.assignee_email != "", models.TaskTicket.sla_due_on != "",
-                       models.TaskTicket.sla_due_on < horizon,
-                       ~models.TaskTicket.status.in_(SKIP_STATUSES))
+    T = models.TaskTicket
+    no_at = or_(T.sla_due_at.is_(None), T.sla_due_at == "")
+    tickets = (db.query(T)
+               .filter(T.assignee_email != "",
+                       or_(and_(T.sla_due_at != "", T.sla_due_at < horizon),
+                           and_(no_at, T.sla_due_on != "", T.sla_due_on < horizon)),
+                       ~T.status.in_(SKIP_STATUSES))
                .all())
     by_person: dict = {}
     for t in tickets:
@@ -169,18 +190,19 @@ def run(db: Session, local_now=None) -> int:
     for email, mine in by_person.items():
         if not ticket_notify._is_sendable(db, email):
             continue
-        local = (local_now(email) if local_now
-                 else _shift_local_now(daily_briefing._person_zone(db, email, briefing_cfg)))
+        zone = daily_briefing._person_zone(db, email, briefing_cfg)
+        local = local_now(email) if local_now else _shift_local_now(zone)
         if local.weekday() >= 5 or not (SEND_FROM <= local.time() < SEND_UNTIL):
             continue
         today = local.date()
-        due_now = [(t, _state(t)) for t in mine if t.sla_due_on[:10] <= today.isoformat()]
+        days = {t.id: due_day(t, zone) for t in mine}
+        due_now = [(t, _state(t, days[t.id])) for t in mine if days[t.id] and days[t.id] <= today.isoformat()]
         if not due_for_reminder([s for _, s in due_now], today):
             continue
 
         sender = manager_of(db, email)
         rows, escalate = [], []
-        for t, s in sorted(due_now, key=lambda p: p[0].sla_due_on):
+        for t, s in sorted(due_now, key=lambda p: (p[0].sla_due_at or p[0].sla_due_on or "")):
             due = date.fromisoformat(s["due"])
             s["sent"] += 1
             if due < today:

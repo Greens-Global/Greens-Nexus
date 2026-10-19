@@ -65,6 +65,9 @@ KNOWN_PUBLIC = {
     "/timeclock/ical/{token}.ics",         # a person's own shift feed for Google / phone calendars (Shifts Phase 3a,
                                            # Oct 15): the HMAC-signed token IS the credential, revocable by rotating
                                            # their salt; own shared shifts only, no-store, in SENSITIVE_PREFIXES
+    "/task-changelog-feed/{token}.xml",    # a person's private What's New RSS feed (Oct 16 2026): the same signed-
+                                           # token pattern, revocable by rotating their salt; only what they may
+                                           # read (changelog_reach.visible), no-store, in SENSITIVE_PREFIXES
     "/esign/public/{token}/sign",          # + access-code lockout
     "/esign/public/{token}/decline",       # + per-IP guessing throttle
     "/esign/public/{token}/download",

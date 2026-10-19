@@ -10,6 +10,7 @@
 // top-level module (views/Tickets.jsx), so this file is Task-only.
 import { useEffect, useState } from 'react';
 import { takePendingOpen } from '../lib/pendingOpen';
+import { PERSON_TASKS_KIND } from '../lib/personTasksNav';
 import { Home, CheckCircle2, FolderKanban, Briefcase, Users, Settings } from 'lucide-react';
 import TasksWorkspace from '../tasks/TasksWorkspace';
 import HomeView from '../tasks/HomeView';
@@ -158,6 +159,7 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     const openPerson = (e) => {
       const email = e.detail?.email;
       if (email) { setPerson({ email, name: e.detail?.name || email }); setPersonTasks(false); }
+      takePendingOpen(PERSON_TASKS_KIND);   // served live - drop the note for a later mount
     };
     // Header search "and N more": the dropdown caps at 20, so the full result
     // set lives here - the workspace with the same words in its search box.
@@ -170,6 +172,10 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     // so it also left the id behind. See lib/pendingOpen.js.
     const pending = takePendingOpen('task');
     if (pending) setSearchTaskId(pending);
+    // A person picked in the header search before this lazy module mounted
+    // (lib/personTasksNav.js).
+    const who = takePendingOpen(PERSON_TASKS_KIND);
+    if (who?.email) { setPerson({ email: who.email, name: who.name || who.email }); setPersonTasks(false); }
     window.addEventListener('nexus:tasks-person', openPerson);
     window.addEventListener('nexus:tasks-search', openSearch);
     window.addEventListener('nexus:tasks-tour', openTour);

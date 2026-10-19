@@ -10,6 +10,8 @@ import io
 import os
 import tempfile
 import unittest
+import uuid
+from unittest import mock
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
@@ -24,6 +26,7 @@ import database  # noqa: E402
 import intacct_gl  # noqa: E402
 import main  # noqa: E402
 import models  # noqa: E402
+from routers.accounting import ACCOUNTING_SCOPE_MODULE, ACCOUNTING_SCOPE_TYPE  # noqa: E402
 from routers.accounting_allocations import _month_range, _split, build_preview  # noqa: E402
 
 models.Base.metadata.create_all(bind=database.engine)
@@ -172,6 +175,7 @@ class RouteTests(unittest.TestCase):
             db.query(models.HrEntity).filter(models.HrEntity.id == "c1").delete(synchronize_session=False)
             db.query(models.NexusSetting).filter(models.NexusSetting.key == "accounting_allocations_map").delete(synchronize_session=False)
             db.query(models.AccountingAllocationRun).delete(synchronize_session=False)
+            db.query(models.NexusAccessScope).filter(models.NexusAccessScope.email == FULL).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -202,8 +206,16 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(r.json()["entries"], [])
         self.assertEqual(self.client.get("/accounting/allocations/preview?month=Sept").status_code, 400)
 
+    def _server_builds(self, mapping=MAPPING):
+        """The server rebuilds the run itself; feed it the fixture roster."""
+        return [mock.patch("routers.accounting_allocations._people_and_cards", return_value=(PEOPLE, CARDS)),
+                mock.patch("routers.accounting_allocations._read_map", return_value=mapping)]
+
     def test_run_is_kept_and_exported_in_the_shared_layout(self):
         _as(FULL)
+        for p in self._server_builds():
+            p.start()
+            self.addCleanup(p.stop)
         pv = build_preview(None, "2026-09", MAPPING, CARDS, PEOPLE)
         r = self.client.post("/accounting/allocations/runs", json={"month": "2026-09", "entity": "", "preview": pv})
         self.assertEqual(r.status_code, 201, r.text)
@@ -219,13 +231,52 @@ class RouteTests(unittest.TestCase):
         xl = self.client.get(f"/accounting/allocations/runs/{rid}/export.xlsx")
         self.assertEqual(xl.status_code, 200)
         self.assertTrue(xl.content.startswith(b"PK"))
-        # Unmapped or unbalanced previews are refused.
-        bad = build_preview(None, "2026-09", {"journal": "GJ", "sites": {}, "companies": {}, "offsite": {}}, CARDS, PEOPLE)
-        self.assertEqual(self.client.post("/accounting/allocations/runs", json={"month": "2026-09", "preview": bad}).status_code, 400)
-        broken = dict(pv, entries=[dict(pv["entries"][0], lines=pv["entries"][0]["lines"][:-1])])
-        self.assertEqual(self.client.post("/accounting/allocations/runs", json={"month": "2026-09", "preview": broken}).status_code, 400)
+        self.assertEqual(self.client.delete(f"/accounting/allocations/runs/{rid}").status_code, 204)
+        # Unmapped is refused - judged on the server's own build.
+        unmapped = {"journal": "GJ", "sites": {}, "companies": {}, "offsite": {}}
+        with mock.patch("routers.accounting_allocations._read_map", return_value=unmapped):
+            bad = build_preview(None, "2026-09", unmapped, CARDS, PEOPLE)
+            self.assertEqual(self.client.post("/accounting/allocations/runs", json={"month": "2026-09", "preview": bad}).status_code, 400)
+        rid = self.client.post("/accounting/allocations/runs", json={"month": "2026-09", "preview": pv}).json()["id"]
         self.assertEqual(self.client.delete(f"/accounting/allocations/runs/{rid}").status_code, 204)
         self.assertEqual(self.client.get("/accounting/allocations/runs").json()["runs"], [])
+
+    def test_run_is_rebuilt_on_the_server_never_taken_from_the_screen(self):
+        """Oct 17 review: last month's preview still on screen while the new
+        month loads must not be kept under the new month, and lines sent by the
+        browser never reach the run or the Intacct file."""
+        _as(FULL)
+        for p in self._server_builds():
+            p.start()
+            self.addCleanup(p.stop)
+        pv = build_preview(None, "2026-09", MAPPING, CARDS, PEOPLE)
+        # The screen still shows September while October is asked for.
+        r = self.client.post("/accounting/allocations/runs", json={"month": "2026-10", "preview": pv})
+        self.assertEqual(r.status_code, 409, r.text)
+        # Figures that moved since the preview was built.
+        stale = dict(pv, totals=dict(pv["totals"], debits=pv["totals"]["debits"] + 1))
+        self.assertEqual(self.client.post("/accounting/allocations/runs", json={"month": "2026-09", "preview": stale}).status_code, 409)
+        self.assertEqual(self.client.get("/accounting/allocations/runs").json()["runs"], [])
+        # Lines altered in the browser (totals left alone) are ignored: the run
+        # holds the server's own build.
+        forged = dict(pv, entries=[dict(pv["entries"][0], lines=[dict(pv["entries"][0]["lines"][0], acct_no="99999")] + pv["entries"][0]["lines"][1:])] + pv["entries"][1:])
+        r = self.client.post("/accounting/allocations/runs", json={"month": "2026-09", "preview": forged})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.json()["preview"]["entries"], pv["entries"])
+
+    def test_closed_to_an_entity_limited_full_holder(self):
+        """Oct 17 review: the preview, runs and exports hold every company's
+        wages per person - an entity limit closes them (like Compensation)."""
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusAccessScope(id=str(uuid.uuid4()), email=FULL, module_id=ACCOUNTING_SCOPE_MODULE,
+                                           scope_type=ACCOUNTING_SCOPE_TYPE, scope_id="15000", created_by="t", created_at="2026-10-17"))
+            db.commit()
+        finally:
+            db.close()
+        _as(FULL)
+        for path in ("/accounting/allocations/map", "/accounting/allocations/preview?month=2026-09", "/accounting/allocations/runs"):
+            self.assertEqual(self.client.get(path).status_code, 403, path)
 
 
 if __name__ == "__main__":
