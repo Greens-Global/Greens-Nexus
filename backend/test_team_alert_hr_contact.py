@@ -108,8 +108,10 @@ class HrContactTests(unittest.TestCase):
             user={"email": EMP, "level": 1}, db=self.db)
         # A new time-off request goes to the manager and the HR contact; the
         # Global Admins only step in when there is neither (Oct 2, Shifts QA
-        # B4-34: every request used to land on every owner's bell).
-        self.assertEqual(self._recipients(), sorted([MGR, HR]))
+        # B4-34: every request used to land on every owner's bell). The
+        # manager's own manager hears too (Neil, Oct 18 2026: "manager plus
+        # plus") - here that is Neil, as Valinda's manager.
+        self.assertEqual(self._recipients(), sorted([MGR, HR, OWNER]))
 
 
 if __name__ == "__main__":

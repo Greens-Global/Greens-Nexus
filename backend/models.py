@@ -6782,3 +6782,44 @@ class ChangelogSubscription(Base):
     digest     = Column(Boolean, default=False)
     feed_salt  = Column(String, default="")
     updated_at = Column(String, default="")
+
+
+class ExpenseReimbursement(Base):
+    """An out-of-pocket purchase an employee wants paid back (Neil, Oct 18
+    2026: "the employee sends an email to accounting, it gets forwarded 8 or
+    9 times, sometimes they are paid late, sometimes not at all").
+
+    Workday > Reimbursements (a tile beside Ask HR). The employee picks who
+    approves it (their manager by default); then HR - the same people as on
+    time sheets (timesheet_review.is_hr) - approves and pays it.
+    status: submitted -> approver_approved -> hr_approved -> paid;
+            sent_back (edit + resubmit), rejected, canceled.
+    Receipts: the private hr-docs bucket (reimbursements/<email>/...), opened
+    through a 5-minute signed link by the employee, the approver or HR."""
+    __tablename__ = "expense_reimbursements"
+    id              = Column(String, primary_key=True)
+    employee_email  = Column(String, index=True)
+    employee_name   = Column(String, default="")
+    company         = Column(String, default="")      # HrEntity id
+    item            = Column(String, default="")      # what was bought
+    category        = Column(String, default="other")
+    category_other  = Column(String, default="")      # when category is "other"
+    details         = Column(Text, default="")        # what it was for
+    vendor          = Column(String, default="")
+    amount          = Column(Float, default=0.0)
+    currency        = Column(String, default="USD")
+    purchase_date   = Column(String, default="")      # YYYY-MM-DD
+    approver_email  = Column(String, index=True)
+    receipts        = Column(JSON, default=list)      # [{path, name}]
+    status          = Column(String, default="submitted", index=True)
+    approved_by     = Column(String, default="")      # the picked approver's decision
+    approved_at     = Column(String, default="")
+    hr_by           = Column(String, default="")      # HR's approval
+    hr_at           = Column(String, default="")
+    paid_by         = Column(String, default="")
+    paid_on         = Column(String, default="")      # YYYY-MM-DD
+    payment_method  = Column(String, default="")      # payroll | ach | check | other
+    payment_ref     = Column(String, default="")
+    history         = Column(JSON, default=list)      # [{at, by, action, note}]
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")

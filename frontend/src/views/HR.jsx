@@ -13,7 +13,7 @@ import {
   Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check, TrendingUp, LogOut,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
-  Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
+  Building2, Trash2, MapPinned, Wallet, Receipt, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
   ListChecks, RefreshCw, Video, Hourglass,
@@ -59,6 +59,7 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 import { ApprovalDelegationsAdmin } from '../components/DelegateApprovals';
+import { PersonReimbursements } from '../components/Reimbursements';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -1756,6 +1757,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const tabs = (teamView ? [
     ['overview', 'Overview', Contact],
     directReport && ['pay', 'Pay & Benefits', Wallet],
+    directReport && ['expenses', 'Expenses', Receipt],
     ['assets', 'Assets', Briefcase],
     ['location', 'Work Mode', MapPinned],
     ['access', 'Access', Shield],
@@ -1763,6 +1765,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   ] : [
     ['overview', 'Overview', Contact],
     canSeeComp && ['pay', 'Pay & Benefits', Wallet],
+    ['expenses', 'Expenses', Receipt],
     ['compliance', 'Compliance', ShieldCheck],
     ['assets', 'Assets', Briefcase],
     ['location', 'Work Mode', MapPinned],
@@ -2081,6 +2084,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'access' && <RoleHistory employeeId={e.id} refreshKey={`${requestsKey}-${eventsKey}-${e.updatedAt || ''}`} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
+
+        {/* Every reimbursement this person filed, with receipts and history (Oct 18 2026). */}
+        {tab === 'expenses' && e.workEmail && <PersonReimbursements email={e.workEmail.toLowerCase()} toastErr={toastErr} />}
 
         {tab === 'checklist' && <ChecklistSection employee={e} canEdit={canEditChecklist && !isRemoved} myEmail={viewerEmail} toastOk={toastOk} toastErr={toastErr} />}
 
