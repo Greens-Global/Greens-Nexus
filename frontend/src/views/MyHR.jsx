@@ -14,6 +14,7 @@ import { canPreview } from '../egnyte/lib';
 import { MyChecklistSteps } from '../components/HrChecklists';
 import MyShifts from '../components/MyShifts';
 import DelegateApprovalsCard from '../components/DelegateApprovals';
+import ReimbursementsTile from '../components/Reimbursements';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -115,7 +116,7 @@ function Stat({ label, value, hint, color, Icon, hero, title, onClick }) {
     : <div className={cls} style={{ cursor: 'default' }} title={title}>{body}</div>;
 }
 
-export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null, focusConfirm = '' }) {
+export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null, focusConfirm = '', openReimbursements = false }) {
   // A "confirm your schedule" bell or email (Shifts Phase 3a) lands here:
   // My Schedule shows that share's banner - bring the card into view.
   useEffect(() => {
@@ -466,6 +467,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null, foc
             {/* Styled as the place to go (Pranshu, Oct 15 2026): a soft tint of
                 the hero's blue-to-green, a solid badge and an Ask a Question
                 pill - wd-askhr in TimeClock.jsx's Workday styles. */}
+            {/* Ask HR and Reimbursements share the last cell as two compact rows (Oct 18 2026). */}
+            <div className="wd-actions">
             <button type="button" className="dk-stat wd-stat wd-askhr" onClick={openAskPanel}
               aria-label={askUnseen ? `Ask HR, ${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR` : 'Ask HR'}>
               <span className="wd-askhr-badge" aria-hidden="true">
@@ -476,11 +479,15 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null, foc
                 <span className="wd-askhr-title">Ask HR</span>
                 <span className={`wd-askhr-sub${askUnseen ? ' wd-askhr-sub--new' : ''}`}>
                   {askUnseen ? `${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR`
-                    : askOpenCount ? `${askOpenCount} open request${askOpenCount === 1 ? '' : 's'}` : 'Documents, profile changes, questions'}
+                    : askOpenCount ? `${askOpenCount} open request${askOpenCount === 1 ? '' : 's'}` : 'Documents, changes, questions'}
                 </span>
               </span>
               <span className="wd-askhr-cta" aria-hidden="true">{askUnseen ? 'View' : 'Ask a Question'} <ArrowRight size={13} /></span>
+              <ArrowRight className="wd-askhr-go" size={15} aria-hidden="true" />
             </button>
+            {/* Reimbursements (Neil, Oct 18 2026): beside Ask HR, a panel - not a new tab. */}
+            <ReimbursementsTile autoOpen={openReimbursements} flash={flash} />
+            </div>
           </div>
         </>
       ) : !profErr && <SkeletonBlocks count={1} height={74} />}

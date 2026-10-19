@@ -130,6 +130,27 @@ class HelpTopicsAndOrderTests(unittest.TestCase):
         # A topic nobody edited carries no list - it keeps asking its area's.
         self.assertNotIn("questions", it["Egnyte"])
 
+    def test_a_save_without_questions_keeps_each_topics_questions(self):
+        # The Help Topics screen used to send topics without `questions`,
+        # wiping every topic's intake questions on each save (Oct 18 review).
+        self._save_questions([{"label": "Which camera?", "type": "text"}])
+        ticket_taxonomy.save_config(self.db, {"helpTopics": [
+            {"label": "IT", "departments": ["it"], "topics": [
+                {"name": "Egnyte", "area": "files"}, {"name": "Cameras", "area": "security"}]},
+        ]}, MANAGER["email"])
+        it = self._it_topics()
+        self.assertEqual([q["label"] for q in it["Cameras"]["questions"]], ["Which camera?"])
+        self.assertNotIn("questions", it["Egnyte"])
+        # ...also when the screen re-sends the group with its department list
+        # changed (an "orphan" group), and a brand-new topic inherits nothing.
+        ticket_taxonomy.save_config(self.db, {"helpTopics": [
+            {"label": "IT", "departments": ["it", "it support"], "topics": [
+                {"name": "Cameras", "area": "security"}, {"name": "Drones", "area": "security"}]},
+        ]}, MANAGER["email"])
+        it = self._it_topics()
+        self.assertEqual([q["label"] for q in it["Cameras"]["questions"]], ["Which camera?"])
+        self.assertNotIn("questions", it["Drones"])
+
     def test_an_empty_question_list_is_kept_meaning_ask_nothing(self):
         self.assertEqual(self._save_questions([])["Cameras"]["questions"], [])
 

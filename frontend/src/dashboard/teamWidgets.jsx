@@ -46,7 +46,7 @@ export function ticketQueueRows(tickets = [], myEmail = '', onDesk = false) {
       id: t.id, title: `${ticketNoShort(t.code) ? `${ticketNoShort(t.code)} · ` : ''}${t.subject || 'Untitled ticket'}`,
       meta: `${PRIORITY_LABEL[t.priority] || t.priority || 'Medium'} · ${TICKET_STATUS_META[t.status]?.label || t.status || 'Open'}`,
       status: sla === 'breached' ? 'overdue' : sla === 'at_risk' ? 'pending' : 'info',
-      statusLabel: sla === 'breached' ? 'SLA Breached' : sla === 'at_risk' ? 'At Risk' : (PRIORITY_LABEL[t.priority] || ''),
+      statusLabel: sla === 'breached' ? 'SLA Breached' : sla === 'at_risk' ? 'At Risk' : sla === 'paused' ? 'Paused' : (PRIORITY_LABEL[t.priority] || ''),
       sort: [sla === 'breached' ? 0 : sla === 'at_risk' ? 1 : 2, PRIORITY_RANK[t.priority] ?? 2, t.createdAt || ''],
     };
   };

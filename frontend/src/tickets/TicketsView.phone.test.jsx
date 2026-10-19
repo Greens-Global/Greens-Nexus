@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, act, within } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act, within, waitFor } from '@testing-library/react';
 
 // The Tickets list on a phone (Oct 2026 mobile pass): a rotate across 640px
 // must never crash the view, and the phone layout gets its own search, sort,
@@ -140,7 +140,8 @@ describe('Tickets on a phone', () => {
     expect(box.getAttribute('type')).toBe('text');
     expect(box.getAttribute('inputmode')).toBe('search');
     fireEvent.change(box, { target: { value: 'vpn' } });
-    expect(screen.queryByText('Printer jam')).toBeNull();
+    // The list filters on a debounced copy of the box (~200ms).
+    await waitFor(() => expect(screen.queryByText('Printer jam')).toBeNull());
     expect(screen.getByText('VPN down')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
     expect(screen.getByText('Printer jam')).toBeTruthy();
@@ -191,7 +192,7 @@ describe('Tickets on a phone', () => {
     expect(done.parentElement.style.position).toBe('sticky');
     expect(screen.queryByRole('button', { name: 'Clear All' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /All priorities/ }));
+    fireEvent.click(screen.getByRole('button', { name: /All Priorities/ }));
     fireEvent.click(within(screen.getByPlaceholderText('Search…').parentElement).getByText('High'));
     expect(screen.queryByText('Printer jam')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Clear All' }));

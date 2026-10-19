@@ -711,6 +711,60 @@ export const api = {
   // Red-dot eye icon next to the profile pill: unseen published update since this user's last visit.
   getTaskChangelogUnseen: () => req("/task-changelog/unseen"),
   markTaskChangelogSeen: () => req("/task-changelog/seen", { method: "POST" }),
+  // Publish a draft / re-publish an update, publish the review queue, reactions,
+  // views and Manage's analytics (Pranshu, Oct 16 2026).
+  publishTaskChangelog: (id) => req(`/task-changelog/${id}/publish`, { method: "POST" }),
+  publishPendingTaskChangelog: (ids) => req("/task-changelog/publish-pending", { method: "POST", body: JSON.stringify({ ids: ids || null }) }),
+  reactTaskChangelog: (id, reaction) => req(`/task-changelog/${id}/reactions`, { method: "POST", body: JSON.stringify({ reaction }) }),
+  recordTaskChangelogViews: (ids) => req("/task-changelog/views", { method: "POST", body: JSON.stringify({ ids }) }),
+  getTaskChangelogAnalytics: () => req("/task-changelog/analytics"),
+  getTaskChangelogEntryAnalytics: (id) => req(`/task-changelog/${id}/analytics`),
+  // Follow / digest / RSS, screen hints, feedback, history, bulk, insights
+  // (backend routers/changelog_extras.py, Oct 16 2026).
+  getTaskChangelogMe: () => req("/task-changelog/me"),
+  saveTaskChangelogSubscription: (data) => req("/task-changelog/subscription", { method: "PUT", body: JSON.stringify(data) }),
+  getTaskChangelogFeedLink: () => req("/task-changelog/feed-link"),
+  rotateTaskChangelogFeedLink: () => req("/task-changelog/feed-link/rotate", { method: "POST" }),
+  getTaskChangelogHints: (view) => req(`/task-changelog/hints?view=${encodeURIComponent(view)}`),
+  getTaskChangelogFeedback: (id) => req(`/task-changelog/${id}/feedback`),
+  sendTaskChangelogFeedback: (id, data) => req(`/task-changelog/${id}/feedback`, { method: "POST", body: JSON.stringify(data) }),
+  getTaskChangelogFeedbackList: () => req("/task-changelog-admin/feedback"),
+  getTaskChangelogHistory: (id) => req(`/task-changelog/${id}/history`),
+  bulkTaskChangelog: (data) => req("/task-changelog-admin/bulk", { method: "POST", body: JSON.stringify(data) }),
+  getTaskChangelogAudienceOptions: () => req("/task-changelog-admin/audience-options"),
+  getTaskChangelogInsights: () => req("/task-changelog-admin/insights"),
+  // What's New after release (Oct 18 2026, routers/changelog_lifecycle.py):
+  // request statuses, known issues / rollbacks, tours, live in production.
+  getMyChangelogRequests: () => req("/task-changelog/my-requests"),
+  raiseChangelogRequest: (data) => req("/task-changelog/requests", { method: "POST", body: JSON.stringify(data) }),
+  setChangelogRequestStatus: (id, data) => req(`/task-changelog-admin/requests/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  raiseChangelogIssue: (id, data) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue`, { method: "POST", body: JSON.stringify(data) }),
+  resolveChangelogIssue: (id, data) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue/resolve`, { method: "POST", body: JSON.stringify(data) }),
+  clearChangelogIssue: (id) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue`, { method: "DELETE" }),
+  getChangelogTour: (id) => req(`/task-changelog/${encodeURIComponent(id)}/tour`),
+  finishChangelogTour: (id) => req(`/task-changelog/${encodeURIComponent(id)}/tour-done`, { method: "POST" }),
+  checkChangelogProduction: () => req("/task-changelog-admin/check-production", { method: "POST", timeoutMs: 120_000 }),
+  // Workday > Reimbursements (Oct 18 2026): file, approve, receipt, HR pays.
+  getReimbursements:       ()          => req('/reimbursements'),
+  createReimbursement:     (body)      => req('/reimbursements', { method: 'POST', body: JSON.stringify(body) }),
+  uploadReimbursementReceipt: (form)   => req('/reimbursements/receipt', { method: 'POST', body: form }),
+  decideReimbursement:     (id, body)  => req(`/reimbursements/${id}/decide`, { method: 'POST', body: JSON.stringify(body) }),
+  addReimbursementReceipts: (id, body) => req(`/reimbursements/${id}/receipts`, { method: 'POST', body: JSON.stringify(body) }),
+  resubmitReimbursement:   (id, body)  => req(`/reimbursements/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  cancelReimbursement:     (id)        => req(`/reimbursements/${id}/cancel`, { method: 'POST' }),
+  payReimbursement:        (id, body)  => req(`/reimbursements/${id}/paid`, { method: 'POST', body: JSON.stringify(body) }),
+  reimbursementReceiptUrl: (id, i = 0) => req(`/reimbursements/${id}/receipt-url?i=${i}`),
+  personReimbursements:    (email)     => req(`/reimbursements/person/${encodeURIComponent(email)}`),
+  // Paid leave balances (Oct 19 2026, routers/leave_balances.py).
+  leaveMyBalance:      ()           => req('/leave-balances/me'),
+  leavePersonBalance:  (email)      => req(`/leave-balances/person/${encodeURIComponent(email)}`),
+  leaveAdmin:          ()           => req('/leave-balances/admin'),
+  leaveSetCutover:     (date)       => req('/leave-balances/cutover', { method: 'PUT', body: JSON.stringify({ date }) }),
+  leaveSavePolicies:   (policies)   => req('/leave-balances/policies', { method: 'PUT', body: JSON.stringify({ policies }) }),
+  leaveImport:         (body)       => req('/leave-balances/import', { method: 'POST', body: JSON.stringify(body) }),
+  leaveAdjust:         (body)       => req('/leave-balances/adjust', { method: 'POST', body: JSON.stringify(body) }),
+  leaveAssign:         (email, policyId) => req('/leave-balances/assign', { method: 'PUT', body: JSON.stringify({ email, policy_id: policyId }) }),
+  leaveRecalculate:    ()           => req('/leave-balances/recalculate', { method: 'POST' }),
   // The weekly New Feature bar (components/FeatureBanner.jsx) and its dismissal.
   getFeatureBanner: () => req('/task-changelog/feature-banner'),
   dismissFeatureBanner: () => req('/task-changelog/feature-banner/dismiss', { method: 'POST' }),
@@ -1479,6 +1533,9 @@ export const api = {
   timesheetReviewSendBack: (id, note)         => req(`/timesheet-review/${id}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
   timesheetReviewAgree:    (id, note = '')    => req(`/timesheet-review/${id}/agree`, { method: 'POST', body: JSON.stringify({ note }) }),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeCancelPunchRequest:  (id) => req(`/timeclock/punch-requests/${id}/cancel`, { method: 'POST' }),
+  timeDismissPunchRequest: (id) => req(`/timeclock/punch-requests/${id}/dismiss`, { method: 'POST' }),
+  timeDismissDecidedPunchRequests: () => req('/timeclock/punch-requests/dismiss-decided', { method: 'POST' }),
   // Employee's own bi-weekly pay-period timecard (payroll rows + composition)
   timeMyPayroll:          (start) => req(`/timeclock/my-payroll?start=${start || ''}`),
   timeOffCreate:     (data)      => req('/timeclock/timeoff', { method: 'POST', body: JSON.stringify(data) }),
@@ -2425,6 +2482,18 @@ export const api = {
   caReviewSaveSettings:  (data) => req('/ca-review/settings', { method: 'PUT', body: JSON.stringify(data) }),
   // What is waiting on me: {counts: {view: {tab: n}}} - routers/action_counts.py.
   actionCounts:          () => req('/me/action-counts'),
+  // Ticket default assignee per department (Oct 2026, ticket_auto_assign.py) - "" clears it.
+  setTicketDepartmentDefaultAssignee: (deptId, email) => req(`/ticket-departments/${deptId}`, { method: 'PATCH', body: JSON.stringify({ default_assignee_email: email }) }),
+  // Ticket saved replies (Oct 2026, routers/ticket_saved_replies.py). companyId
+  // narrows the shared ones to a ticket's company; personal ones always come.
+  getTicketSavedReplies: (companyId = '') => req(`/ticket-saved-replies${companyId ? `?company_id=${encodeURIComponent(companyId)}` : ''}`),
+  createTicketSavedReply: (data) => req('/ticket-saved-replies', { method: 'POST', body: JSON.stringify(data) }),
+  updateTicketSavedReply: (id, data) => req(`/ticket-saved-replies/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteTicketSavedReply: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Fire-and-forget when a reply is inserted into the composer.
+  countTicketSavedReplyUse: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}/use`, { method: 'POST' }),
+  // Who may be a company's default assignee - its active desk agents (manager+).
+  getTicketDeskAgents: (companyId) => req(`/task-tickets/desk-agents?company_id=${encodeURIComponent(companyId)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

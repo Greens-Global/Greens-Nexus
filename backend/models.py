@@ -878,6 +878,9 @@ class NexusEmployee(Base):
     geofence_lng      = Column(String, default="")
     geofence_radius_m = Column(Integer, default=0)             # 0 = no personal geofence (fall back to work sites)
     geofence_label    = Column(String, default="")            # human label (address, or "From last punch MM/DD")
+    # Leave policy (Oct 19 2026, leave_balances.py): '' = the default for the
+    # person's country / California rule; else a policy id HR picked.
+    leave_policy      = Column(String, default="")
     geofence_source   = Column(String, default="")            # last_punch | address | manual
     geofence_set_by   = Column(String, default="")
     geofence_set_at   = Column(String, default="")
@@ -1518,6 +1521,10 @@ class TicketDepartment(Base):
     # ticket.") Off hides it from the Submit a Ticket picker only - tickets
     # already filed against it keep showing its name.
     enabled    = Column(Boolean, default=True)
+    # Default assignee (Oct 2026, ticket_auto_assign.py): a new ticket filed
+    # against this department that nobody assigned goes straight to this
+    # person, after the help topic's own default. "" = none.
+    default_assignee_email = Column(String, default="")
 
 
 class HrWorkSite(Base):
@@ -2911,6 +2918,9 @@ class PunchRequest(Base):
     # '' = Regular, or "Sick" / "Vacation" / "Personal" - set on the clock-in
     # when the request is approved, so the block lands as that leave.
     category       = Column(String, default="")
+    # When the employee cleared this decided request from their list - kept
+    # on the server so it stays cleared on every device (Miranda, Oct 18).
+    employee_dismissed_at = Column(String, default="")
 
 
 class MonitoringConsent(Base):
@@ -3479,6 +3489,23 @@ class TaskTicket(Base):
     # those went out after the due date, "on": the assignee's local date of
     # the last one}. A changed due date starts the counts over.
     overdue_reminder    = Column(JSON, default=dict)
+    # Honest SLA (Oct 2026, ticket_sla.py). ISO UTC datetimes. sla_due_at is
+    # the resolution deadline with every completed pause already added;
+    # sla_due_on above stays its UTC date for back-compat. The clock pauses
+    # (sla_paused_at set) while waiting on the requester and while resolved /
+    # closed. first_response_at is "" until someone other than the requester
+    # (or whoever filed it for them) replies where the requester can see it.
+    # sla_fr_alerted_at / sla_res_alerted_at: the deadline a breach alert went
+    # out for ("" = not alerted). Cleared only when the deadline moves back
+    # into the future (a pause or a priority change), so a ticket alerts again
+    # only after it passes the new deadline - never twice for one breach.
+    sla_due_at            = Column(String, default="")
+    first_response_due_at = Column(String, default="")
+    first_response_at     = Column(String, default="")
+    sla_paused_at         = Column(String, default="")
+    sla_paused_min        = Column(Integer, default=0)
+    sla_fr_alerted_at     = Column(String, default="")
+    sla_res_alerted_at    = Column(String, default="")
 
 
 class TicketEmailLog(Base):
@@ -3499,7 +3526,7 @@ class TicketEmailLog(Base):
     recipient            = Column(String, default="")
     recipient_role       = Column(String, default="")     # requester|it_admin|assignee|ticket_admin
     subject              = Column(String, default="")
-    status               = Column(String, default="pending")   # pending|sent|failed|retrying
+    status               = Column(String, default="pending")   # pending|sending|sent|failed (retrying: rows from before the claim)
     graph_message_id     = Column(String, default="")
     conversation_id      = Column(String, default="")
     internet_message_id  = Column(String, default="")
@@ -3507,6 +3534,12 @@ class TicketEmailLog(Base):
     error                = Column(String, default="")
     created_at           = Column(String, default="")
     updated_at           = Column(String, default="")
+    # Ticket review (Oct 18 2026): who caused the event, and the email exactly
+    # as first rendered, so a retry resends what failed (and names the real
+    # actor) instead of rebuilding it with the recipient as the actor. The
+    # body is cleared once the row is sent - only unsent rows carry it.
+    actor_email          = Column(String, default="")
+    html                 = Column(Text, default="")
 
 
 class TaskTicketComponent(Base):
@@ -3570,6 +3603,10 @@ class TaskChangelogComment(Base):
     author_email = Column(String, default="")
     body         = Column(String, default="")
     created_at   = Column(String, default="")
+    # Replies and @mentions (Pranshu, Oct 16 2026): the comment this one
+    # answers ('' = top level), and the work emails it mentions.
+    parent_id    = Column(String, default="")
+    mentions     = Column(JSON, default=list)
 
 
 class TaskEvent(Base):
@@ -4679,6 +4716,10 @@ class ChangelogSeen(Base):
     # When this person last dismissed (or followed) the weekly New Feature bar
     # - it stays away for 7 days after (Neil, Oct 12 2026). UTC ISO.
     banner_seen_at = Column(String, default="")
+    # The visit before this one (Oct 16 2026): "new since your last visit" is
+    # what was released after it. Moves up when a visit starts 30+ minutes
+    # after the last one (task_config._mark_changelog_seen).
+    prev_seen_at   = Column(String, default="")
 
 
 class AiConversation(Base):
@@ -6677,3 +6718,179 @@ class CaReviewResolution(Base):
     resolved_at    = Column(String, default="")
     reopened_by    = Column(String, default="")
     reopened_at    = Column(String, default="")
+
+
+class ChangelogReaction(Base):
+    """One person's reaction to a What's New update (Pranshu, Oct 16 2026):
+    `reaction` is one of task_config.CHANGELOG_REACTIONS (like, celebrate,
+    love, helpful, confused). ONE reaction per person per update: picking
+    another kind replaces theirs, pressing theirs again takes it back. New table - create_all
+    builds it; RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "changelog_reactions"
+    __table_args__ = (UniqueConstraint("entry_id", "email", name="uq_changelog_reaction"),)
+    id         = Column(String, primary_key=True)
+    entry_id   = Column(String, index=True, nullable=False)
+    email      = Column(String, nullable=False)                # lowercased
+    reaction   = Column(String, nullable=False)
+    created_at = Column(String, default="")
+
+
+class ChangelogEntryView(Base):
+    """Who has seen a What's New update, for its analytics (Pranshu, Oct 16
+    2026). One row per person and update: `views` counts the times it was
+    shown to them (on the What's New tab or opened in full), first/last_at
+    bracket them. New table - create_all builds it; RLS comes from
+    main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "changelog_entry_views"
+    __table_args__ = (UniqueConstraint("entry_id", "email", name="uq_changelog_entry_view"),)
+    id       = Column(String, primary_key=True)
+    entry_id = Column(String, index=True, nullable=False)
+    email    = Column(String, nullable=False)                  # lowercased
+    views    = Column(Integer, default=1)
+    first_at = Column(String, default="")
+    last_at  = Column(String, default="")
+    # Finished the update's guided tour (Oct 18 2026, changelog_lifecycle).
+    tour_done_at = Column(String, default="")
+
+
+class ChangelogEntryHistory(Base):
+    """Every change to a What's New update (Oct 16 2026): who, when, and the
+    fields that changed as {field: [old, new]} (text cut to 500 characters;
+    screenshots are never copied). `action` is edit | published | republished
+    | hidden | shown | pinned | unpinned. New table - create_all builds it; RLS
+    comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "changelog_entry_history"
+    id       = Column(String, primary_key=True)
+    entry_id = Column(String, index=True, nullable=False)
+    at       = Column(String, default="")
+    by_email = Column(String, default="")
+    action   = Column(String, default="edit")
+    changes  = Column(JSON, default=dict)
+
+
+class ChangelogFeedback(Base):
+    """Feedback on a What's New update (Oct 16 2026). kind "helpful": one per
+    person, helpful 1 (yes) or 0 (no), with an optional note. kind "request":
+    a feature request raised from the update, any number. New table -
+    create_all builds it; RLS comes from main._enable_rls_everywhere's sweep."""
+    __tablename__ = "changelog_feedback"
+    id         = Column(String, primary_key=True)
+    entry_id   = Column(String, index=True, nullable=False)
+    email      = Column(String, nullable=False)                # lowercased
+    kind       = Column(String, default="helpful")             # helpful | request
+    helpful    = Column(Integer, default=1)
+    note       = Column(Text, default="")
+    created_at = Column(String, default="")
+    # A feature request's road to shipping (Oct 18 2026, changelog_lifecycle):
+    # status '' = New, then Under Review / Planned / In Progress / Shipped /
+    # Declined. `shipped_entry_id` is the update that delivered it; the
+    # requester's bell rings once per status (`notified_status`) - for
+    # Shipped only once that update is released. `module` is set on a
+    # request raised on its own (entry_id '').
+    status           = Column(String, default="")
+    status_note      = Column(Text, default="")
+    status_by        = Column(String, default="")
+    status_at        = Column(String, default="")
+    shipped_entry_id = Column(String, default="")
+    notified_status  = Column(String, default="")
+    module           = Column(String, default="")
+
+
+class ChangelogSubscription(Base):
+    """What a person follows in What's New (Oct 16 2026): modules and
+    categories (lowercased names) bring a bell notice when a matching update
+    is released; `digest` adds the Monday email of last week's updates;
+    `feed_salt` signs their private RSS link (rotating it kills old links).
+    New table - create_all builds it; RLS comes from the startup sweep."""
+    __tablename__ = "changelog_subscriptions"
+    email      = Column(String, primary_key=True)              # lowercased
+    modules    = Column(JSON, default=list)
+    categories = Column(JSON, default=list)
+    digest     = Column(Boolean, default=False)
+    feed_salt  = Column(String, default="")
+    updated_at = Column(String, default="")
+
+
+class ExpenseReimbursement(Base):
+    """An out-of-pocket purchase an employee wants paid back (Neil, Oct 18
+    2026: "the employee sends an email to accounting, it gets forwarded 8 or
+    9 times, sometimes they are paid late, sometimes not at all").
+
+    Workday > Reimbursements (a tile beside Ask HR). The employee picks who
+    approves it (their manager by default); then HR - the same people as on
+    time sheets (timesheet_review.is_hr) - approves and pays it.
+    status: submitted -> approver_approved -> hr_approved -> paid;
+            sent_back (edit + resubmit), rejected, canceled.
+    Receipts: the private hr-docs bucket (reimbursements/<email>/...), opened
+    through a 5-minute signed link by the employee, the approver or HR."""
+    __tablename__ = "expense_reimbursements"
+    id              = Column(String, primary_key=True)
+    employee_email  = Column(String, index=True)
+    employee_name   = Column(String, default="")
+    company         = Column(String, default="")      # HrEntity id
+    item            = Column(String, default="")      # what was bought
+    category        = Column(String, default="other")
+    category_other  = Column(String, default="")      # when category is "other"
+    details         = Column(Text, default="")        # what it was for
+    vendor          = Column(String, default="")
+    amount          = Column(Float, default=0.0)
+    currency        = Column(String, default="USD")
+    purchase_date   = Column(String, default="")      # YYYY-MM-DD
+    approver_email  = Column(String, index=True)
+    receipts        = Column(JSON, default=list)      # [{path, name}]
+    status          = Column(String, default="submitted", index=True)
+    approved_by     = Column(String, default="")      # the picked approver's decision
+    approved_at     = Column(String, default="")
+    hr_by           = Column(String, default="")      # HR's approval
+    hr_at           = Column(String, default="")
+    paid_by         = Column(String, default="")
+    paid_on         = Column(String, default="")      # YYYY-MM-DD
+    payment_method  = Column(String, default="")      # payroll | ach | check | other
+    payment_ref     = Column(String, default="")
+    history         = Column(JSON, default=list)      # [{at, by, action, note}]
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")
+
+
+class TicketSavedReply(Base):
+    """A saved reply (canned response) for the service desk (Oct 2026,
+    routers/ticket_saved_replies.py). Inserted into the ticket drawer's reply
+    composer with its placeholders filled ({requester_first_name},
+    {ticket_number}...) and edited there - never sent on its own.
+
+    owner_email "" = shared with the company's desk (created, edited and
+    deleted by ticket supervisors only); otherwise personal to that agent.
+    body is rich text, sanitized on save. New table - create_all builds it;
+    RLS: the explicit ALTER in main.py plus the startup sweep."""
+    __tablename__ = "ticket_saved_replies"
+    id          = Column(String, primary_key=True)
+    company_id  = Column(String, default="", index=True)   # HrEntity id
+    owner_email = Column(String, default="", index=True)   # "" = shared
+    title       = Column(String, default="")
+    body        = Column(Text, default="")
+    help_topic  = Column(String, default="")               # optional, for suggesting
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    modified_at = Column(String, default="")
+    use_count   = Column(Integer, default=0)
+
+
+class LeaveLedgerEntry(Base):
+    """One change to a person's paid leave balance, in HOURS (Neil / Charmi
+    call, Oct 19 2026 - leave_balances.py). A balance is the sum of its rows
+    plus the policy's grants, so every number can be traced. Kinds: opening
+    (the one-time import as of the cutover), accrual (vacation earned from a
+    finalized period's worked hours), used (sick / vacation paid in a
+    finalized period, negative), adjust (an HR correction with a note).
+    New table - create_all builds it; RLS line in main.py."""
+    __tablename__ = "leave_ledger"
+    id             = Column(String, primary_key=True)
+    employee_email = Column(String, nullable=False, index=True)
+    bucket         = Column(String, default="vacation")   # vacation | sick
+    hours          = Column(Float, default=0)             # signed
+    kind           = Column(String, default="adjust")     # opening | accrual | used | adjust
+    effective_date = Column(String, default="")           # YYYY-MM-DD
+    ref_id         = Column(String, default="", index=True)  # the finalize row (TimeApproval.id) for accrual / used
+    note           = Column(String, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")

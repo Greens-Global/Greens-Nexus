@@ -331,7 +331,7 @@ class PropertyTicketTests(unittest.TestCase):
             ticket_notify.graph_mail.send_mail = real
         to = sorted(r for kw in sent for r in kw["to"])
         self.assertEqual(to, sorted({MANAGER, ADMIN["email"], DESK2}))
-        self.assertTrue(all(kw["subject"] == "5 new tickets at Greens Storage Temecula - Batch Create"
+        self.assertTrue(all(kw["subject"] == "5 New Tickets at Greens Storage Temecula - Batch Create"
                             for kw in sent))
 
     # ── Batch Create (Oct 13 2026): the property is optional. The email test
@@ -357,7 +357,7 @@ class PropertyTicketTests(unittest.TestCase):
         finally:
             ticket_notify.graph_mail.send_mail = real
         self.assertTrue(sent)
-        self.assertTrue(all(kw["subject"] == "2 new tickets - Batch Create" for kw in sent))
+        self.assertTrue(all(kw["subject"] == "2 New Tickets - Batch Create" for kw in sent))
 
     # ── Asset Management: a property's tickets ──
     def test_open_history_and_closed_without_work(self):
@@ -478,10 +478,25 @@ class PropertyTicketTests(unittest.TestCase):
             models.TaskComment(id=gen_id(), task_id=t["id"], author_email=ADMIN["email"], body="<p>Owner says cheapest quote</p>",
                                created_at="2026-10-06T11:00:00", internal=True)])
         self.db.commit()
-        row = P.property_tickets("gst", user=WALKER, db=self.db)["open"][0]
+        # The property's asset manager (who may Follow) reads the reply; a
+        # read-only asset viewer gets the summary without the conversation
+        # (Oct 18 2026 review - this test used to read it as WALKER, a viewer).
+        row = P.property_tickets("gst", user=MANAGER_USER, db=self.db)["open"][0]
         self.assertEqual(row["latestComment"]["preview"], "Vendor booked for Friday")
         self.assertEqual(row["latestComment"]["authorName"], "ankush")
         self.assertTrue(row["modifiedAt"])
+        self.assertIsNone(P.property_tickets("gst", user=WALKER, db=self.db)["open"][0]["latestComment"])
+
+    def test_a_read_only_viewer_never_gets_the_resolution_vendor_or_cost(self):
+        """Oct 18 2026 review: _summary's `full` flag hid only the requester,
+        so an asset viewer read the desk's resolution note and what was paid."""
+        self._resolved()
+        full = P.property_tickets("gst", user=MANAGER_USER, db=self.db)["history"][0]
+        self.assertEqual((full["resolutionNote"], full["vendor"], full["cost"]),
+                         ("Serviced the unit", "CoolAir", "300.00"))
+        viewer = P.property_tickets("gst", user=WALKER, db=self.db)["history"][0]
+        self.assertEqual((viewer["resolutionNote"], viewer["vendor"], viewer["cost"]), ("", "", ""))
+        self.assertIsNone(viewer["latestComment"])
 
     def test_costs_keep_their_currency_and_totals_never_mix(self):
         self._record(self._resolved(), cost="300")

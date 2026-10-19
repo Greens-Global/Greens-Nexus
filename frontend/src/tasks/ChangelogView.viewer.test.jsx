@@ -12,6 +12,7 @@ vi.mock('../api', () => ({
   },
 }));
 vi.mock('../contexts/RoleContext', () => ({
+  MODULES: [{ id: 'tickets', label: 'Tickets' }, { id: 'tasks', label: 'Tasks' }],
   useRole: () => ({ myEmail: 'viewer@greensglobal.com', can: () => false, myGrantedModules: new Map() }),
 }));
 
@@ -31,11 +32,11 @@ beforeEach(() => {
 });
 
 describe("What's New for a reader without edit permission", () => {
-  it('shows every update but no Add, no Manage tab', async () => {
+  it('shows every update but no Add, no Manage', async () => {
     render(<Changelog />);
     expect(await screen.findByText('Faster lists')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Add New Update' })).toBeNull();
-    expect(screen.queryByRole('tab', { name: /Manage/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Manage' })).toBeNull();
   });
 
   it('reads the comments, without a box to post one', async () => {

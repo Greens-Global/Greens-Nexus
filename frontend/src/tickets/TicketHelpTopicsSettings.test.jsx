@@ -28,6 +28,10 @@ vi.mock('../api', () => ({
     getTicketTaxonomySettings: vi.fn(() => Promise.resolve(JSON.parse(JSON.stringify(CONFIG)))),
     getTicketDepartments: vi.fn(() => Promise.resolve(DEPTS)),
     updateTicketTaxonomySettings: vi.fn((b) => Promise.resolve(b)),
+    getTicketCompanies: vi.fn(() => Promise.resolve([{ id: 'c1', name: 'Greens' }, { id: 'c2', name: 'Greens India' }, { id: 'c3', name: 'No IT Here' }])),
+    getPeopleDirectory: vi.fn(() => Promise.resolve([{ email: 'sam@x.com', name: 'Sam Patel' }, { email: 'pat@x.com', name: 'Pat Plain' }])),
+    // Only desk agents of that company are offered (GET /task-tickets/desk-agents).
+    getTicketDeskAgents: vi.fn((id) => Promise.resolve(id === 'c2' ? [{ email: 'sam@x.com', name: 'Sam Patel' }] : [])),
   },
 }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myLevel: 4 }) }));
@@ -118,5 +122,50 @@ describe('TicketHelpTopicsSettings', () => {
     await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalled());
     const it_ = api.updateTicketTaxonomySettings.mock.calls[0][0].helpTopics[0];
     expect(it_.topics).toEqual([{ name: 'Nexus', area: 'tasks', options: ['Tasks'] }, { name: 'Printer or Scanner', area: 'hardware' }]);
+  });
+
+  // Default assignee per topic, per company (Oct 2026, ticket_auto_assign.py).
+  it('shows a topic\'s default assignee per company and keeps it on save', async () => {
+    const cfg = JSON.parse(JSON.stringify(CONFIG));
+    cfg.helpTopics[0].topics[1].defaultAssignees = { c2: 'sam@x.com' };
+    api.getTicketTaxonomySettings.mockResolvedValueOnce(cfg);
+    render(<Panel />);
+    await screen.findAllByRole('tab');
+    fireEvent.click(screen.getByRole('button', { name: 'Default assignee for Printer or Scanner' }));
+    const region = screen.getByRole('region', { name: 'Default assignee for Printer or Scanner' });
+    // Only the companies with an IT department are offered.
+    await waitFor(() => expect(region.textContent).toContain('Greens India'));
+    expect(region.textContent).toContain('Greens');
+    expect(region.textContent).not.toContain('No IT Here');
+    await waitFor(() => expect(region.textContent).toContain('Sam Patel'));
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalled());
+    const it_ = api.updateTicketTaxonomySettings.mock.calls[0][0].helpTopics[0];
+    expect(it_.topics[1]).toEqual({ name: 'Printer or Scanner', area: 'hardware', defaultAssignees: { c2: 'sam@x.com' } });
+    expect(it_.topics[0]).toEqual({ name: 'Nexus', area: 'tasks' });
+  });
+
+  it('offers only the company\'s desk agents as default assignee', async () => {
+    render(<Panel />);
+    await screen.findAllByRole('tab');
+    fireEvent.click(screen.getByRole('button', { name: 'Default assignee for Nexus' }));
+    await waitFor(() => expect(api.getTicketDeskAgents).toHaveBeenCalledWith('c2'));
+    expect(api.getTicketDeskAgents).toHaveBeenCalledWith('c1');
+    expect(api.getTicketDeskAgents).not.toHaveBeenCalledWith('c3');
+  });
+
+  // Oct 18 review: a save used to wipe every topic's intake questions.
+  it('keeps each topic\'s intake questions on save', async () => {
+    const cfg = JSON.parse(JSON.stringify(CONFIG));
+    const qs = [{ key: 'svc_whichPrinter', label: 'Which printer?', type: 'text', req: false }];
+    cfg.helpTopics[0].topics[1].questions = qs;
+    cfg.helpTopics[0].topics[0].questions = [];
+    api.getTicketTaxonomySettings.mockResolvedValueOnce(cfg);
+    render(<Panel />);
+    await screen.findAllByRole('tab');
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalled());
+    const it_ = api.updateTicketTaxonomySettings.mock.calls[0][0].helpTopics[0];
+    expect(it_.topics).toEqual([{ name: 'Nexus', area: 'tasks', questions: [] }, { name: 'Printer or Scanner', area: 'hardware', questions: qs }]);
   });
 });

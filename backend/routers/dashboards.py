@@ -415,9 +415,10 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
             closed = live.filter(M.TaskTicket.status == "closed").count()
             resolved = live.filter(M.TaskTicket.status == "resolved").count()
             unassigned = open_q.filter(M.TaskTicket.assignee_email == "").count()
-            # Mirrors _sla_breached in routers/tickets.py: no due date, or
-            # already resolved/closed, never counts as breached.
-            sla_breached = open_q.filter(M.TaskTicket.sla_due_on != "", M.TaskTicket.sla_due_on < today).count()
+            # Mirrors _sla_breached in routers/tickets.py (ticket_sla.breached):
+            # the clock is running and the deadline has passed - to the minute.
+            import ticket_sla
+            sla_breached = live.filter(ticket_sla.breached_filter(ticket_sla.iso(ticket_sla.utcnow()))).count()
             waiting = live.filter(M.TaskTicket.status.in_(["waiting_user", "waiting_vendor", "on_hold"])).count()
             active_open = max(0, open_count - waiting)
             return {
@@ -759,13 +760,14 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
         return _by_person(db, emails, titles[metric])
 
     if module == "tickets":
+        import ticket_sla as _ticket_sla
         q = db.query(M.TaskTicket)
         if _cscope is not None:
             q = q.filter(M.TaskTicket.company_id.in_(_cscope))
         closed_states = ("resolved", "closed")
         pred = {
             "open": lambda t: t.status not in closed_states,
-            "sla_breached": lambda t: t.status not in closed_states and t.sla_due_on and t.sla_due_on < today,
+            "sla_breached": lambda t: _ticket_sla.breached(t),
             "resolved": lambda t: t.status == "resolved",
             "closed": lambda t: t.status == "closed",
             "unassigned": lambda t: t.status not in closed_states and not t.assignee_email,

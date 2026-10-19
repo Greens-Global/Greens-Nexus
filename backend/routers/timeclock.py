@@ -54,8 +54,18 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     ShiftAvailability, TimecardNote, PayrollRateHistory, ShiftAvailabilityDate,
                     ShiftAvailabilityPref)
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
-from routers.esign import _client_meta
+from client_ip import client_ip as _trusted_ip
 from routers.stepup import require_stepup
+
+
+def _client_meta(request) -> tuple:
+    """(ip, user_agent) for a punch / consent record. The IP is the one
+    client_ip vouches for (the right-hand end of X-Forwarded-For past the
+    Cloudflare hops), not the first hop - which is whatever the caller sent,
+    and showed odd addresses on punches (Neil, Oct 18 2026)."""
+    if request is None:
+        return "", ""
+    return _trusted_ip(request), (request.headers.get("user-agent", "") or "")[:300]
 from currency import is_currency
 import ca_breaks
 import payroll_codes
@@ -1975,6 +1985,12 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                        approved_by=user["email"], approved_at=_now_iso(), kind="final",
                        note=_snap)
     db.add(row)
+    # The last time sheet of the company's period: tell HR the QuickBooks
+    # export is ready (Neil, Oct 19). Never blocks the finalize.
+    try:
+        _notify_period_ready(db, email, body.start, body.end, _is_fixed)
+    except Exception as _ready_err:  # noqa: BLE001
+        print(f"[payroll-ready] {email} {body.start}: {_ready_err}")
     # Signed snapshot for the employee's record - the finalized hours plus all three
     # signatures (their own, the manager's approval, this HR finalization). The
     # just-added finalize row isn't flushed yet, so it's passed in explicitly.
@@ -1997,8 +2013,69 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                f"Your time sheet {_us_span(body.start, body.end)} is finalized for payroll "
                f"({worked // 60}h {worked % 60:02d}m) and locked. Signatures: {_sigs}.",
                action={"view": "timeclock", "sub": "timesheet"})
+    # Paid leave (leave_balances.py, Oct 19): the vacation this period earned
+    # and the sick / vacation it paid. Never blocks payroll.
+    try:
+        import leave_balances
+        leave_balances.record_period(db, email, body.start, body.end, row.id, user["email"])
+    except Exception as _leave_err:  # noqa: BLE001
+        print(f"[leave] could not record {email} {body.start}-{body.end}: {_leave_err}")
     db.commit()
     return {"finalized": {"by": row.approved_by, "at": row.approved_at, "workedMin": worked}}
+
+
+def _notify_period_ready(db: Session, email: str, start: str, end: str, is_fixed: bool) -> None:
+    """When the time sheet just finalized is the last open one of its
+    company's pay period, one bell to that company's HR contact: the period
+    is ready for the QuickBooks export, with the sick / vacation hours in it
+    so QuickBooks knows what leave was used (Neil, Oct 19: "Charmi should get
+    some sort of a notification on her exported time card file"). "Everyone"
+    = the company's people with punches in the period on the same pay basis
+    (hourly by period, salaried by month). Once per company and period."""
+    import timesheet_review
+    from models import HrEntity
+    em = (email or "").strip().lower()
+    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == em).first()
+    company = (emp.company if emp else "") or ""
+    hr = timesheet_review.hr_of(db, em)
+    if not company or not hr:
+        return
+    ref = f"payroll-ready:{company}:{start}:{end}"
+    if db.query(NexusNotification).filter(NexusNotification.ref_id == ref,
+                                          NexusNotification.recipient == hr).first():
+        return
+    _end_nx = (date.fromisoformat(end) + timedelta(days=1)).isoformat()
+    punched = {(e or "").lower() for (e,) in db.query(TimePunch.employee_email)
+               .filter(TimePunch.voided == 0, TimePunch.at >= start, TimePunch.at < _end_nx).distinct().all()}
+    staff = {(e.work_email or "").lower() for e in db.query(NexusEmployee.work_email)
+             .filter(NexusEmployee.company == company, NexusEmployee.work_email != "").all()}
+    exempt = time_tracking_exempt_emails(db)
+    people = {p for p in (punched & staff) - set(exempt)
+              if (_pay_type(db, p) == "fixed") == bool(is_fixed)}
+    people.add(em)
+    done = {(e or "").lower() for (e,) in db.query(TimeApproval.employee_email)
+            .filter(TimeApproval.kind == "final", TimeApproval.revoked == 0,
+                    TimeApproval.period_start == start, TimeApproval.period_end == end).all()}
+    done.add(em)           # the row just added is not flushed yet
+    if people - done:
+        return
+    sick = vac = 0
+    for p in people:
+        try:
+            t = (_fixed_card(db, p, start) if is_fixed else _compute_timecard(db, p, start, end)).get("totals", {})
+        except Exception:  # noqa: BLE001 - a card that will not read just leaves its hours out
+            continue
+        sick += int(t.get("sickMin") or 0) + int(t.get("personalMin") or 0)
+        vac += int(t.get("vacationMin") or 0)
+    ent = db.query(HrEntity).filter(HrEntity.id == company).first()
+    name = (ent.name if ent else "") or "Your company"
+    leave = (f" Leave in it: {sick / 60:g} h sick, {vac / 60:g} h vacation - enter it against each person's "
+             f"balance in QuickBooks." if (sick or vac) else " No sick or vacation hours in it.")
+    _hr_notify(db, hr, "Payroll Ready to Export",
+               f"All {len(people)} time sheet{'s' if len(people) != 1 else ''} for {name}, {_us_span(start, end)}, "
+               f"are finalized. Download the QuickBooks IIF from People > Time > Payroll.{leave}",
+               ref_id=ref, priority=1,
+               action={"view": "hr", "sub": "hr-time", "start": start, "payType": "fixed" if is_fixed else "hourly"})
 
 
 @router.post("/unfinalize")
@@ -2014,6 +2091,9 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administr
         raise HTTPException(404, "No finalization found for this period")
     row.revoked = 1
     row.revoked_by = user["email"]
+    # Its leave rows go with it; finalizing again writes them afresh.
+    import leave_balances
+    leave_balances.remove_period(db, row.id)
     # A period signed through Nexus Sign keeps its review row as "completed",
     # which refused every new submission - so an unlocked period could never be
     # re-agreed or re-signed (Oct 16). Close that review out as "unlocked"; the
@@ -3159,6 +3239,7 @@ def _pr_dict(r: PunchRequest) -> dict:
         "decidedBy": r.decided_by, "decidedAt": r.decided_at, "decisionNote": r.decision_note,
         "appliedPunchId": r.applied_punch_id, "createdAt": r.created_at,
         "category": r.category or "",
+        "dismissed": bool(getattr(r, "employee_dismissed_at", "") or ""),
     }
 
 
@@ -3232,6 +3313,16 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
     category = ((body.category or "").strip()[:80]
                 if action == "add" and (body.punch_kind or "in") == "in" else "")
+    if category:
+        # Paid leave needs paid leave left (Neil, Oct 19: before 90 days
+        # "they can mark that they're sick, but they don't get the ability to
+        # credit sick pay"). Only once balances are set up (leave_balances.py).
+        import leave_balances
+        _bucket = leave_balances.bucket_of(category)
+        _have = leave_balances.available(db, email, _bucket) if _bucket else None
+        if _have is not None and _have <= 0:
+            raise HTTPException(400, f"You have no paid {_bucket} time available, so this can't be marked "
+                                     f"{category}. Choose Regular, or ask HR about your balance.")
     req = PunchRequest(id=str(uuid.uuid4()), employee_email=email, employee_name=name,
                        action=action, punch_kind=body.punch_kind or "in", at=at_utc,
                        local_date=local_date, tz_offset_min=body.tz_offset_min or 0,
@@ -3267,6 +3358,66 @@ def my_punch_requests(user: dict = Depends(get_current_user), db: Session = Depe
     rows = (db.query(PunchRequest).filter(PunchRequest.employee_email == user["email"])
             .order_by(PunchRequest.created_at.desc()).limit(50).all())
     return [_pr_dict(r) for r in rows]
+
+
+def _my_request(db: Session, req_id: str, email: str) -> PunchRequest:
+    r = (db.query(PunchRequest)
+         .filter(PunchRequest.id == req_id, PunchRequest.employee_email == email)
+         .with_for_update().first())
+    if not r:
+        raise HTTPException(404, "Request not found")
+    return r
+
+
+@router.post("/punch-requests/{req_id}/cancel")
+def cancel_punch_request(req_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The employee takes back their own request while it is still pending -
+    one filed by mistake otherwise sat there blocking the right one as a
+    duplicate, with no way out (Miranda, Oct 18). Nothing was on the timecard
+    yet, so nothing changes there; the approver's notice is closed."""
+    email = user["email"]
+    r = _my_request(db, req_id, email)
+    if r.status == "cancelled":
+        return _pr_dict(r)
+    if r.status != "pending":
+        raise HTTPException(409, f"This request was already {r.status} - it can't be cancelled.")
+    now = _now_iso()
+    r.status = "cancelled"
+    r.decided_by, r.decided_at, r.decision_note = email, now, "Cancelled by the employee"
+    r.employee_dismissed_at = now
+    for n in (db.query(NexusNotification)
+              .filter(NexusNotification.ref_id == r.id, NexusNotification.type == "custom_alert",
+                      NexusNotification.actioned == False)  # noqa: E712
+              .all()):
+        n.actioned = True
+    db.commit()
+    return _pr_dict(r)
+
+
+@router.post("/punch-requests/{req_id}/dismiss")
+def dismiss_punch_request(req_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Clear a decided request from the employee's own list. Stored on the
+    row, not in the browser, so it stays cleared on every device and login
+    (Miranda, Oct 18: "clear ALL these old notifications EVERY time")."""
+    r = _my_request(db, req_id, user["email"])
+    if r.status == "pending":
+        raise HTTPException(409, "This request is still waiting for your approver - cancel it instead.")
+    if not r.employee_dismissed_at:
+        r.employee_dismissed_at = _now_iso()
+        db.commit()
+    return _pr_dict(r)
+
+
+@router.post("/punch-requests/dismiss-decided")
+def dismiss_decided_punch_requests(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Clear All: every decided request of mine leaves my list."""
+    now = _now_iso()
+    n = (db.query(PunchRequest)
+         .filter(PunchRequest.employee_email == user["email"], PunchRequest.status != "pending",
+                 func.coalesce(PunchRequest.employee_dismissed_at, "") == "")
+         .update({PunchRequest.employee_dismissed_at: now}, synchronize_session=False))
+    db.commit()
+    return {"cleared": n}
 
 
 @router.get("/punch-requests")
@@ -3595,6 +3746,17 @@ def _refuse_own_decision(user: dict, employee_email: str) -> None:
         raise HTTPException(403, "Someone else must approve your own punch fix.")
 
 
+def _pr_what(r) -> str:
+    """What a request asked for, with its date, for the employee's notice:
+    'add a clock-in punch at 8:30 AM on 10/17/2026' (Miranda, Oct 18 - the
+    notices and the list never said which day)."""
+    if r.action == "add" and r.at:
+        t, d = _punch_when(r)
+        return f"add a {_kind_label(r.punch_kind)} punch at {t} on {d}"
+    day = _us_day(r.local_date)
+    return f"remove a punch on {day}" if day else "remove a punch"
+
+
 @router.patch("/punch-requests/{req_id}")
 def decide_punch_request(req_id: str, body: PunchRequestDecision,
                          user: dict = Depends(require_approval_write), db: Session = Depends(get_db)):
@@ -3682,7 +3844,7 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                                                     f"Approved together with the {_kind_label(r.punch_kind)} "
                                                     f"at {_punch_when(r)[0]} on {_punch_when(r)[1]}.")
                     _hr_notify(db, p.employee_email, "Time Sheet Fix Approved",
-                               "Your request to add a punch was approved.",
+                               f"Your request to {_pr_what(p)} was approved.",
                                ref_id=p.id, action={"view": "timeclock", "sub": "timesheet"})
                 note = (note + " " if note else "") + "Also added the " + ", ".join(
                     f"{_kind_label(p.punch_kind)} at {_punch_when(p)[0]}" for p in partners) + " from the same fix."
@@ -3697,14 +3859,14 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                 tp.adjust_note = f"Voided via approved punch-fix request. {note}".strip()
                 r.applied_punch_id = tp.id
         _hr_notify(db, r.employee_email, "Time Sheet Fix Approved",
-                   f"Your request to {'add' if r.action=='add' else 'remove'} a punch was approved."
+                   f"Your request to {_pr_what(r)} was approved."
                    + (f" Note: {note}" if note else ""),
                    ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
         # Every copy of an applied fix is now a duplicate (no bell for those).
         _close_dupes(db, [r] + partners, user, now, _DUPE_APPROVED)
     else:  # rejected
         _hr_notify(db, r.employee_email, "Time Sheet Fix Rejected",
-                   f"Your request to {'add' if r.action=='add' else 'remove'} a punch was not approved."
+                   f"Your request to {_pr_what(r)} was not approved."
                    + (f" Reason: {note}" if note else ""),
                    ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
         _close_dupes(db, [r], user, now, _DUPE_REJECTED)
@@ -5286,7 +5448,7 @@ class TrackClockIn(BaseModel):
 
 
 @router.post("/track/clock")
-def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device),
+def track_clock(body: TrackClockIn, request: Request, dev: AgentDevice = Depends(get_agent_device),
                 db: Session = Depends(get_db)):
     """Clock in/out from the enrolled phone (token-authed, no Microsoft login -
     same self-punch model as the desktop agent's auto-clock). Punching in also
@@ -5309,6 +5471,8 @@ def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device)
                      tz_offset_min=body.tz_offset_min or 0,
                      lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
                      accuracy_m=max(0, int(body.accuracy_m or 0)),
+                     # Phone punches carried no IP, so the hover showed none (Oct 18 2026).
+                     ip=_client_meta(request)[0], user_agent=_client_meta(request)[1],
                      source="mobile", created_by=email, created_at=now, **geo))
     if body.kind == "in":
         if _live_consent(db, email) is not None:
@@ -8301,6 +8465,21 @@ def _employee_today(db: Session, email: str) -> str:
     return (datetime.now(timezone.utc) - timedelta(minutes=off)).strftime("%Y-%m-%d")
 
 
+def _employee_zone_key(db: Session, email: str) -> str:
+    """Which display zone ('india' / 'california') the employee's OWN time sheet
+    reads in (Neil, Oct 18 2026): where the employee is, never where the
+    viewer's browser is - acting as a California employee from India showed
+    AM punches. Their latest punch's offset says where they work (IST is
+    -330 in JS getTimezoneOffset terms); no punch yet = their People country."""
+    p = (db.query(TimePunch.tz_offset_min).filter(TimePunch.employee_email == email)
+         .order_by(TimePunch.at.desc()).first())
+    if p is not None and p[0] is not None:
+        return "india" if int(p[0]) == -330 else "california"
+    emp = (db.query(NexusEmployee.country)
+           .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
+    return "india" if emp and (emp[0] or "").strip().upper() in ("IN", "INDIA") else "california"
+
+
 def _employee_now(db: Session, email: str) -> datetime:
     """The employee's LOCAL wall-clock time (naive), for comparing against a shift
     start time. Same offset source as _employee_today."""
@@ -9879,6 +10058,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
         card["review"] = _review_state(db, user["email"], card["periodStart"], user, team=False)
         # Only the employee's OWN notes - never the manager/HR note (Oct 12).
         card["notes"] = _timecard_notes(db, user["email"], card["periodStart"], card["periodEnd"], own=True)
+        card["zoneKey"] = _employee_zone_key(db, user["email"])
         return card
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
@@ -9887,6 +10067,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
     card["periodStart"], card["periodEnd"] = p_start, p_end
     card["periodDays"] = _PAYPERIOD_DAYS
     card["notes"] = _timecard_notes(db, user["email"], p_start, p_end, own=True)
+    card["zoneKey"] = _employee_zone_key(db, user["email"])
     return card
 
 
@@ -10884,11 +11065,47 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
     _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                        title="Time-Off Request",
                        body=f"{who} requested {_bell_kind(row)} "
-                            f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.{_bell_reason(row)}",
+                            f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}."
+                            f"{_bell_reason(row)}{_leave_balance_note(db, user['email'], row)}",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"}, owners_as_fallback=True,
-                       extra_recipients=_approver_stand_ins(db, user["email"], user["email"]))
+                       extra_recipients=[*_approver_stand_ins(db, user["email"], user["email"]),
+                                         *_skip_level_manager(db, user["email"])])
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
+
+
+def _leave_balance_note(db: Session, email: str, row) -> str:
+    """" Vacation balance: 32 h, 8 h after this." for the approver's bell
+    (leave_balances.py) - only once balances are set up, never for a
+    confidential request (its type is shared, its balance is not needed)."""
+    try:
+        import leave_balances
+        bucket = leave_balances.bucket_of(row.type)
+        if not bucket or _is_confidential(row):
+            return ""
+        b = leave_balances.balances(db, email)
+        if not b.get("live"):
+            return ""
+        have = float(b[bucket]["available"]) - float(b[bucket]["upcoming"])
+        need = leave_balances.request_hours(row, float(b["policy"].get("hoursPerDay") or 8))
+        left = have - need
+        tail = f"{left:g} h after this" if left >= 0 else f"{-left:g} h more than they have - the rest would be unpaid"
+        return f" {bucket.title()} balance: {have:g} h, {tail}."
+    except Exception:  # noqa: BLE001 - a balance problem never blocks a request
+        return ""
+
+
+def _skip_level_manager(db: Session, email: str) -> list[str]:
+    """A time-off request goes to the manager AND the manager's manager (Neil,
+    Oct 18 2026: "manager plus plus" - when a manager is off they are actually
+    off, so the level above has to see it too). [] when there is no second level."""
+    def mgr_of(e):
+        row = (db.query(NexusEmployee.manager_email)
+               .filter(func.lower(NexusEmployee.work_email) == (e or "").strip().lower()).first())
+        return ((row[0] if row else "") or "").strip().lower()
+    first = mgr_of(email)
+    second = mgr_of(first) if first else ""
+    return [second] if second and second not in (first, (email or "").strip().lower()) else []
 
 
 class TimeOffOnBehalfIn(TimeOffIn):

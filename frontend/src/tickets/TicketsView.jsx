@@ -5,8 +5,8 @@
 // and theme still come from ../tasks - so the task module itself is untouched.
 // Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Plus, Pencil, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Play, MousePointer2, Check } from 'lucide-react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Plus, Pencil, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, MessageSquareText, Zap, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Play, MousePointer2, Check } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
@@ -23,14 +23,15 @@ import {
 } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
-import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, UnassignedAvatar, SelectMenu, useImageZoom } from '../tasks/components';
+import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, UnassignedAvatar, SelectMenu, useImageZoom, useEscapeLayer } from '../tasks/components';
+import { dialog as appDialog } from '../ui/dialog';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, ColResizer } from '../tasks/tableCols';
 import {
-  fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, NO_RECORDING_TYPES,
+  fmtDate, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
-  SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue, toEmailList,
+  SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, slaSortKey, fmtDueAt, slaMet, isBlankFieldValue, toEmailList,
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
   ticketNo, ticketNoShort, normalizeCode,
@@ -43,7 +44,7 @@ import {
 import { HELP_SUBTOPIC_KEY, HELP_SUBTOPIC_LABEL, topicOptions, helpWithLabel } from './ticketMeta';
 import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketConfig';
 import {
-  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect, TicketPeopleMultiSelect,
+  TypeFieldInput, TicketTypeIcon, SlaBadge, FirstResponseIndicator, TicketStatusChip, TicketSelect, TicketPeopleMultiSelect,
 } from './TicketAtoms';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
@@ -51,7 +52,8 @@ import { buildTicketTourSteps } from './ticketTourSteps';
 import TicketDeflection from '../support/TicketDeflection';
 import { toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
-import TicketOpening from './TicketOpening';
+import TicketOpening, { TicketNotFound } from './TicketOpening';
+import { confirmSwitchTicket } from './drawerGuard';
 import { PropertySelect } from './PropertySelect';
 import { uploadTicketEvidence } from './evidenceUpload';
 import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
@@ -62,6 +64,7 @@ import { useFrequentCollaborators } from '../tasks/frequentPeople';
 import { useTicketAccess } from './ticketAccess';
 import CreateModeTabs from './CreateModeTabs';
 import { registerTour } from '../lib/tours';
+import SavedReplyPicker from './SavedReplyPicker';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -100,7 +103,8 @@ const TICKET_COLUMNS = [
   // the pair ran past the column and painted over the one after it.
   { key: 'state', label: 'Status', width: 180, shrink: 170, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
   { key: 'priority', label: 'Priority', width: 180, shrink: 160, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
-  { key: 'due', label: 'Due Date', width: 110, shrink: 92, sort: (t) => t.slaDueOn || '' },
+  // Wide enough for the deadline's date AND time ("10/19/2026 3:00 PM").
+  { key: 'due', label: 'Due Date', width: 150, shrink: 120, sort: slaSortKey },
   { key: 'requester', label: 'Requester', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
   { key: 'assignee', label: 'Assignee', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
   { key: 'created', label: 'Created', width: 110, shrink: 92, sort: (t) => t.createdAt || '' },
@@ -250,10 +254,10 @@ const typeOptions = () => TICKET_TYPE_KEYS.map((ty) => [ty, TICKET_TYPE_META[ty]
 // dropdown (Neil, Sep 30) - where a requester (or the desk re-typing a
 // ticket) actually picks one.
 const typeIntakeOptions = () => TICKET_TYPE_ORDER.map((ty) => ({ id: ty, label: TICKET_TYPE_META[ty].label, desc: TICKET_TYPE_META[ty].hint || '' }));
-const slaFilterOptions = [['all', 'Any SLA'], ['breached', 'SLA breached'], ['at_risk', 'Due soon'], ['ok', 'On track']];
+const slaFilterOptions = [['all', 'Any SLA'], ['breached', 'SLA Breached'], ['at_risk', 'Due Soon'], ['ok', 'On Track'], ['paused', 'Paused']];
 // Open/Unassigned are buckets, not statuses - they must be listed or the
 // control renders blank when a summary tile selects one.
-const statusFilterOptions = () => [['all', 'All statuses'], ['open', 'Open (not resolved)'],
+const statusFilterOptions = () => [['all', 'All Statuses'], ['open', 'Open (Not Resolved)'],
   ['unassigned', 'Unassigned'], ...statusOptions()];
 const serviceAreaOptions = () => SERVICE_AREAS.map((a) => [a.key, a.label]);
 const groupByOptions = () => GROUP_BY_OPTIONS.map((g) => [g.key, g.label]);
@@ -272,7 +276,7 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
     helpWithLabel(t), serviceAreaLabel(t.serviceArea) || '',
     companyName(t.companyId) || '', hrDeptName(t.hrDepartmentId) || '',
     TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
-    t.slaDueOn ? fmtDate(t.slaDueOn) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
+    (t.slaDueAt || t.slaDueOn) ? fmtDueAt(t) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
     t.assigneeId ? (nameOf(t.assigneeId) || t.assigneeId) : '', t.createdAt ? fmtDate(t.createdAt) : '',
     t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', richToPlain(t.description),
     latestCommentText(t.latestComment, nameOf),
@@ -354,12 +358,12 @@ function TicketMobileFilters({
       <div style={wrap}>
         <label style={lab}>Priority</label>
         <TicketSelect value={priorityFilter} onChange={setPriorityFilter} style={row}
-          options={[['all', 'All priorities'], ...priorityOptions()]} />
+          options={[['all', 'All Priorities'], ...priorityOptions()]} />
       </div>
       <div style={wrap}>
         <label style={lab}>Type</label>
         <TicketSelect value={typeFilter} onChange={setTypeFilter} style={row}
-          options={[['all', 'All types'], ...typeOptions()]} />
+          options={[['all', 'All Types'], ...typeOptions()]} />
       </div>
       <div style={wrap}>
         <label style={lab}>SLA</label>
@@ -369,13 +373,13 @@ function TicketMobileFilters({
         <div style={wrap}>
           <label style={lab}>Department</label>
           <TicketSelect value={hrDeptFilter} onChange={setHrDeptFilter} style={row} searchPlaceholder="Search departments…"
-            options={[['all', 'All departments'], ['', 'No department'], ...hrDepts.map((d) => [d.id, d.name])]} />
+            options={[['all', 'All Departments'], ['', 'No Department'], ...hrDepts.map((d) => [d.id, d.name])]} />
         </div>
       )}
       <div style={wrap}>
         <label style={lab}>Service Area</label>
         <TicketSelect value={serviceAreaFilter} onChange={setServiceAreaFilter} style={row}
-          options={[['all', 'All service areas'], ['', 'Not set'], ...serviceAreaOptions()]} />
+          options={[['all', 'All Service Areas'], ['', 'Not Set'], ...serviceAreaOptions()]} />
       </div>
       {assigneeOptions.length > 0 && (
         <div style={wrap}>
@@ -386,7 +390,7 @@ function TicketMobileFilters({
       )}
       {showGroup && (
         <div style={wrap}>
-          <label style={lab}>Group by</label>
+          <label style={lab}>Group By</label>
           <TicketSelect value={groupBy} onChange={setGroupBy} options={groupByOptions()} style={row} />
         </div>
       )}
@@ -448,12 +452,12 @@ function TicketFilterMenu({
         <div style={wrap}>
           <label style={lab}>Priority</label>
           <TicketSelect value={priorityFilter} onChange={setPriorityFilter} style={rowStyle}
-            options={[['all', 'All priorities'], ...priorityOptions()]} />
+            options={[['all', 'All Priorities'], ...priorityOptions()]} />
         </div>
         <div style={wrap}>
           <label style={lab}>Type</label>
           <TicketSelect value={typeFilter} onChange={setTypeFilter} style={rowStyle}
-            options={[['all', 'All types'], ...typeOptions()]} />
+            options={[['all', 'All Types'], ...typeOptions()]} />
         </div>
         <div style={wrap}>
           <label style={lab}>SLA</label>
@@ -463,13 +467,13 @@ function TicketFilterMenu({
           <div style={wrap}>
             <label style={lab}>Department</label>
             <TicketSelect value={hrDeptFilter} onChange={setHrDeptFilter} style={rowStyle} searchPlaceholder="Search departments…"
-              options={[['all', 'All departments'], ['', 'No department'], ...hrDepts.map((d) => [d.id, d.name])]} />
+              options={[['all', 'All Departments'], ['', 'No Department'], ...hrDepts.map((d) => [d.id, d.name])]} />
           </div>
         )}
         <div style={wrap}>
           <label style={lab}>Service Area</label>
           <TicketSelect value={serviceAreaFilter} onChange={setServiceAreaFilter} style={rowStyle}
-            options={[['all', 'All service areas'], ['', 'Not set'], ...serviceAreaOptions()]} />
+            options={[['all', 'All Service Areas'], ['', 'Not Set'], ...serviceAreaOptions()]} />
         </div>
         {assigneeOptions.length > 0 && (
           <div style={wrap}>
@@ -480,7 +484,7 @@ function TicketFilterMenu({
         )}
         {active > 0 && (
           <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all'); }}
-            style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 12.5 }}>Clear filters</button>
+            style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 12.5 }}>Clear Filters</button>
         )}
       </AnchoredMenu>
     </>
@@ -504,26 +508,61 @@ function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showG
         style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', fontFamily: FONT }}>
         {showGroup && (
           <>
-            <div style={sectionLabel}>Group by</div>
+            <div style={sectionLabel}>Group By</div>
             <div style={{ padding: '0 12px 10px' }}>
               <TicketSelect value={groupBy} onChange={setGroupBy} options={groupByOptions()} style={{ width: '100%' }} />
             </div>
             <div style={{ borderTop: `1px solid ${NX.border2}` }} />
           </>
         )}
-        <div style={sectionLabel}>Saved views</div>
+        <div style={sectionLabel}>Saved Views</div>
         {views.length === 0 && <div style={{ padding: '0 12px 8px', fontSize: 12.5, color: NX.faint }}>No saved views yet.</div>}
         {views.map((v) => (
           <div key={v.id} style={{ display: 'flex', alignItems: 'center' }}>
             <button onClick={() => { onApply(v); setOpen(false); }} style={{ ...item, flex: 1, minWidth: 0 }}>
               <Bookmark size={13} style={{ color: NX.faint, flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name}</span>
             </button>
-            <button onClick={() => onDelete(v.id)} title="Delete view" style={{ ...btn('ghost'), padding: 6, color: NX.faint }}><X size={13} /></button>
+            <button onClick={() => { setOpen(false); onDelete(v); }} title="Delete view" aria-label={`Delete view ${v.name}`} style={{ ...btn('ghost'), padding: 6, color: NX.faint }}><X size={13} /></button>
           </div>
         ))}
-        <button onClick={() => { onSave(); setOpen(false); }} style={{ ...item, color: NX.blue, fontWeight: 600 }}><Plus size={14} />Save current view…</button>
+        <button onClick={() => { onSave(); setOpen(false); }} style={{ ...item, color: NX.blue, fontWeight: 600 }}><Plus size={14} />Save Current View…</button>
       </AnchoredMenu>
     </>
+  );
+}
+
+// Names a saved view - the shared Modal, in place of window.prompt. `onSave`
+// returns a promise; a failure stays in the dialog with the reason.
+export function SaveViewDialog({ onSave, onClose }) {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const go = async () => {
+    if (busy || !name.trim()) return;
+    setBusy(true); setErr('');
+    try { await onSave(name.trim()); onClose(); }
+    catch (e) { setErr(`Could not save the view: ${e?.message || e}`); setBusy(false); }
+  };
+  return (
+    <Modal title="Save View" onClose={onClose} minHeight="60vh" isDirty={!!name.trim() && !busy} onSave={go} footer={
+      <>
+        <button style={btn('outline')} onClick={onClose}>Cancel</button>
+        <button style={{ ...btn('primary'), opacity: busy || !name.trim() ? 0.6 : 1 }} onClick={go} disabled={busy || !name.trim()}>
+          {busy ? 'Saving…' : 'Save View'}
+        </button>
+      </>
+    }>
+      <div style={field}>
+        <label style={label} htmlFor="ticket-view-name">View Name</label>
+        <input id="ticket-view-name" autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }}
+          placeholder="e.g. My open hardware tickets" style={{ ...inputStyle, fontFamily: FONT }} />
+        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+          Saves the tab, filters, department, search, sort and grouping you have on screen now.
+        </div>
+        {err && <div role="alert" style={{ ...requiredHint, marginTop: 8 }}>{err}</div>}
+      </div>
+    </Modal>
   );
 }
 
@@ -544,7 +583,7 @@ function TicketColumnsMenu({ columns, hidden, toggleHidden, cols }) {
       </button>
       <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} align="end"
         style={{ width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 8 }}>
-        <div style={{ padding: '4px 6px 8px', fontSize: 12, fontWeight: 600, color: NX.dim }}>Show columns</div>
+        <div style={{ padding: '4px 6px 8px', fontSize: 12, fontWeight: 600, color: NX.dim }}>Show Columns</div>
         {hideable.map((c) => {
           const checked = !hidden.includes(c.key);
           const lastOne = checked && visibleCount <= 1;
@@ -607,8 +646,8 @@ export default function TicketsView() {
   // Companies - same lookup pattern as hrDepts, for the Company column/export.
   const [companies, setCompanies] = useState([]);
   useEffect(() => { api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([])); }, []);
-  const companyName = (id) => companies.find((c) => c.id === id)?.name || '';
-  const hrDeptName = (id) => hrDepts.find((d) => d.id === id)?.name || '';
+  const companyName = useCallback((id) => companies.find((c) => c.id === id)?.name || '', [companies]);
+  const hrDeptName = useCallback((id) => hrDepts.find((d) => d.id === id)?.name || '', [hrDepts]);
   // Requests parked on my approval - same reasoning: count the queue, not the view.
   const approvalCount = useMemo(() => {
     const me = (myEmail || '').toLowerCase();
@@ -624,6 +663,14 @@ export default function TicketsView() {
     : 0), [tickets, itAdmin]);
   const [scope, setScope] = useState('all');   // all | mine (requester) | assigned | approve | route
   const [search, setSearch] = useState('');
+  // The list filters on a debounced copy (~200ms) so a long queue is not
+  // re-filtered and re-rendered on every keystroke. Clearing applies at once.
+  const [searchQ, setSearchQ] = useState('');
+  useEffect(() => {
+    if (!search) { setSearchQ(''); return undefined; }
+    const id = setTimeout(() => setSearchQ(search), 200);
+    return () => clearTimeout(id);
+  }, [search]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -638,7 +685,12 @@ export default function TicketsView() {
   // Which drawer tab to land on - the Latest Comment cell opens straight onto
   // the Conversation (Neil, Oct 1).
   const [openTab, setOpenTab] = useState(null);
-  const openTicket = (id, tab = null) => { setOpenTab(tab); setOpenId(id); };
+  const openTicket = useCallback((id, tab = null) => { setOpenTab(tab); setOpenId(id); }, []);
+  // What the open drawer holds unsaved (TicketDrawer keeps it current), and
+  // which ticket that is - read by the bell's open-ticket handler below.
+  const drawerDirtyRef = useRef(false);
+  const openIdRef = useRef(openId);
+  useEffect(() => { openIdRef.current = openId; }, [openId]);
   const [selected, setSelected] = useState(() => new Set());
   // Phones have no row checkboxes, so a selection made on desktop must not
   // survive a rotate into the phone layout - the bulk pill would float over a
@@ -675,8 +727,16 @@ export default function TicketsView() {
   // param cannot reach a module that is already mounted (clicking a second
   // notification while sitting on this screen). Same shape as the Task
   // module's `nexus:open-task` - see views/Tasks.jsx.
+  // A ticket opened over one with held edits asks first - switching used to
+  // throw the unsaved edits away without a word (the drawer remounts).
   useEffect(() => {
-    const openTicket = (e) => { const id = e.detail?.ticketId; if (id) setOpenId(id); };
+    const openTicket = async (e) => {
+      const id = e.detail?.ticketId;
+      if (!id || id === openIdRef.current) return;
+      if (drawerDirtyRef.current && !(await confirmSwitchTicket())) return;
+      setOpenTab(null);
+      setOpenId(id);
+    };
     window.addEventListener('nexus:open-ticket', openTicket);
     // This module is lazy(), so on a first visit the event above has already
     // fired by the time we get here - the bell leaves the id behind for us.
@@ -763,7 +823,11 @@ export default function TicketsView() {
     // was on screen and shows a different list than the one it names.
     setServiceAreaFilter(f.serviceAreaFilter ?? 'all');
     setAssigneeFilter(f.assigneeFilter ?? 'all');
+    // Department was never saved, so a view applied while a department was
+    // picked kept it and showed a different list than the one it names.
+    setHrDeptFilter(f.hrDeptFilter ?? 'all');
     setSearch(f.search ?? '');
+    if (f.sort?.key) setSort({ key: f.sort.key, dir: f.sort.dir === 'asc' ? 'asc' : 'desc' });
     if (v.group) setGroupBy(v.group);
     if (v.view) setView(v.view);
   };
@@ -773,17 +837,21 @@ export default function TicketsView() {
     setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all');
     setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all');
   };
-  const saveTicketView = () => {
-    const name = window.prompt('Name this view');
-    if (!name || !name.trim()) return;
-    createTicketView({
-      name: name.trim(), view, group: groupBy,
-      filters: { scope, statusFilter, priorityFilter, typeFilter, slaFilter, serviceAreaFilter, assigneeFilter, search },
-    }).catch((e) => alert(`Could not save view: ${e.message || e}`));
+  // Save View names the view in its own small dialog (SaveViewDialog) - it
+  // used to be window.prompt.
+  const [namingView, setNamingView] = useState(false);
+  const saveTicketView = (name) => createTicketView({
+    name, view, group: groupBy,
+    filters: { scope, statusFilter, priorityFilter, typeFilter, slaFilter, serviceAreaFilter, assigneeFilter, hrDeptFilter, search, sort },
+  });
+  const removeTicketView = async (v) => {
+    if (!(await appDialog.confirm(`Delete the saved view "${v.name}"?`, { title: 'Delete Saved View', confirmText: 'Delete', danger: true }))) return;
+    try { await deleteTicketView(v.id); }
+    catch (e) { appDialog.alert(`Could not delete the view: ${e?.message || e}`); }
   };
 
   const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = searchQ.trim().toLowerCase();
     const me = (myEmail || '').toLowerCase();
     return tickets.filter((t) => {
       if (scope === 'mine' && (t.requesterId || '').toLowerCase() !== me) return false;
@@ -813,7 +881,7 @@ export default function TicketsView() {
       }
       return true;
     });
-  }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, assigneeFilter, serviceAreaFilter, approvalCount]);
+  }, [tickets, scope, myEmail, searchQ, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, assigneeFilter, serviceAreaFilter]);
 
   // List-view sort - applied before grouping so it holds within each bucket too.
   const sortTickets = useCallback((list) => {
@@ -842,8 +910,11 @@ export default function TicketsView() {
   // hiding them behind a collapsed toggle would bury the very thing they asked
   // for - the partition is skipped and they render as the main (only) list.
   const statusFilterIsClosedOnly = statusFilter === 'resolved' || statusFilter === 'closed';
-  const mainVisible = statusFilterIsClosedOnly ? visible : visible.filter((t) => !CLOSED_STATES.includes(t.status));
-  const completedVisible = statusFilterIsClosedOnly ? [] : visible.filter((t) => CLOSED_STATES.includes(t.status));
+  // Memoized: unmemoized, both were new arrays every render, which re-ran the
+  // sorts below (and re-rendered every row) on any state change at all.
+  const [mainVisible, completedVisible] = useMemo(() => (statusFilterIsClosedOnly ? [visible, []]
+    : [visible.filter((t) => !CLOSED_STATES.includes(t.status)), visible.filter((t) => CLOSED_STATES.includes(t.status))]),
+  [visible, statusFilterIsClosedOnly]);
   const sortedVisible = useMemo(() => sortTickets(mainVisible), [mainVisible, sortTickets]);
   const sortedCompleted = useMemo(() => sortTickets(completedVisible), [completedVisible, sortTickets]);
 
@@ -862,7 +933,7 @@ export default function TicketsView() {
       : groupBy === 'type' ? (TICKET_TYPE_META[k]?.label || k)
       // Tickets raised before service areas existed carry none - "Not set" is
       // the same wording the filter uses for them.
-      : groupBy === 'serviceArea' ? (k ? serviceAreaLabel(k) || k : 'Not set')
+      : groupBy === 'serviceArea' ? (k ? serviceAreaLabel(k) || k : 'Not Set')
       : groupBy === 'assignee' ? (k ? nameOf(k) || k : 'Unassigned')
       : '');
     for (const t of sortedVisible) { const k = keyOf(t); if (!buckets.has(k)) buckets.set(k, { key: k || '-', label: labelOf(k), rows: [] }); buckets.get(k).rows.push(t); }
@@ -876,11 +947,17 @@ export default function TicketsView() {
   const toggleBtn = (on) => ({ ...btn('ghost'), padding: '6px 10px', borderRadius: 7, gap: 6, background: on ? NX.surface : 'transparent', color: on ? NX.ink : NX.dim, boxShadow: on ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' });
 
   // Bulk selection (list view only). Selection is cleared when it no longer matches.
-  const toggleSel = (id) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleSel = useCallback((id) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }), []);
   const clearSel = () => setSelected(new Set());
   const selIds = [...selected].filter((id) => visible.some((t) => t.id === id));
-  // Select-all - scoped to the currently filtered/sorted queue, not the whole table.
-  const allVisibleIds = visible.map((t) => t.id);
+  // Select-all - the rows actually on screen: each group's first 200, plus
+  // the Completed section only while it is open. It used to take every
+  // filtered ticket, so a bulk Delete also hit the collapsed Completed ones
+  // nobody could see (Oct 2026 review).
+  const allVisibleIds = useMemo(() => [
+    ...groups.flatMap((g) => g.rows.slice(0, 200)),
+    ...(completedCollapsed ? [] : sortedCompleted.slice(0, 200)),
+  ].map((t) => t.id), [groups, completedCollapsed, sortedCompleted]);
   const allSelected = allVisibleIds.length > 0 && allVisibleIds.every((id) => selected.has(id));
   const someSelected = !allSelected && allVisibleIds.some((id) => selected.has(id));
   const toggleSelectAll = () => setSelected(allSelected ? new Set() : new Set(allVisibleIds));
@@ -890,26 +967,45 @@ export default function TicketsView() {
   const [resolveReq, setResolveReq] = useState(null);   // { ids, status, mode? }
   // The row's Mark Resolved: `mode` is 'self_resolve' for the requester (an
   // optional "What fixed it?") or 'resolve' for the desk (a written resolution).
-  const requestResolve = (tk, mode = 'resolve') => setResolveReq({ ids: [tk.id], status: 'resolved', mode });
-  const guardedUpdate = (id, patch) => {
-    const tk = tickets.find((x) => x.id === id);
+  const requestResolve = useCallback((tk, mode = 'resolve') => setResolveReq({ ids: [tk.id], status: 'resolved', mode }), []);
+  // Read through a ref so the callback stays stable for the memoized rows.
+  const ticketsRef = useRef(tickets);
+  useEffect(() => { ticketsRef.current = tickets; }, [tickets]);
+  const guardedUpdate = useCallback((id, patch) => {
+    const tk = ticketsRef.current.find((x) => x.id === id);
     if (patch?.status && needsResolution(tk, patch.status)) {
       setResolveReq({ ids: [id], status: patch.status });
       return Promise.resolve(tk);
     }
     return updateTicket(id, patch);
+  }, [updateTicket]);
+  // Every bulk action runs each ticket on its own and reports what did not
+  // go through ("2 of 5 could not be updated: <reason>"); the ones that
+  // failed stay selected so they can be retried. It used to swallow every
+  // error and clear the selection as if all had worked.
+  const runBulk = async (ids, fn, verb) => {
+    const results = await Promise.allSettled(ids.map((id) => fn(id)));
+    const failed = ids.filter((_, i) => results[i].status === 'rejected');
+    setSelected(new Set(failed));
+    if (failed.length) reportBulkFailure(results, ids.length, verb);
   };
   const bulkPatch = async (patch) => {
     if (patch?.status && selIds.some((id) => needsResolution(tickets.find((x) => x.id === id), patch.status))) {
       setResolveReq({ ids: selIds, status: patch.status });
       return;
     }
-    await Promise.all(selIds.map((id) => updateTicket(id, patch).catch(() => {}))); clearSel();
+    await runBulk(selIds, (id) => updateTicket(id, patch), 'updated');
   };
   const bulkDelete = async () => {
-    if (!window.confirm(`Delete ${selIds.length} ticket${selIds.length === 1 ? '' : 's'}? Their history is kept and a manager can restore them.`)) return;
-    await Promise.all(selIds.map((id) => deleteTicket(id).catch(() => {}))); clearSel();
+    const ids = selIds;
+    if (!(await appDialog.confirm(`Delete ${ids.length} ticket${ids.length === 1 ? '' : 's'}? Their history is kept and a manager can restore them.`,
+      { title: ids.length === 1 ? 'Delete Ticket' : 'Delete Tickets', confirmText: 'Delete', danger: true }))) return;
+    await runBulk(ids, (id) => deleteTicket(id), 'deleted');
   };
+  // A board drop / the phone's Move To: same Resolve gate, and a failure
+  // says so instead of the card silently snapping back.
+  const moveOnBoard = useCallback((id, status) => guardedUpdate(id, { status })
+    .catch((e) => appDialog.alert(`Could not move the ticket: ${e?.message || e}`)), [guardedUpdate]);
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', position: 'relative' }}>
@@ -1012,7 +1108,7 @@ export default function TicketsView() {
             >
               <Download size={15} />Export
             </button>
-            <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={saveTicketView} onDelete={(id) => deleteTicketView(id).catch(() => {})}
+            <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={() => setNamingView(true)} onDelete={removeTicketView}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'} />
             {view === 'list' && (
               <TicketColumnsMenu columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={cols} />
@@ -1107,7 +1203,8 @@ export default function TicketsView() {
         {view === 'reports' ? (
           <TicketReports tickets={visible} nameOf={nameOf} hrDeptName={hrDeptName} />
         ) : view === 'board' ? (
-          <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={(id, status) => guardedUpdate(id, { status }).catch(() => {})} mobile={isMobile} />
+          <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={moveOnBoard} mobile={isMobile}
+            canMove={(t) => ticketRights(t, myEmail, privileged).canEditStatus} />
         ) : visible.length === 0 ? (
           <EmptyState icon={TicketToken} title={tickets.length ? 'No Tickets' : 'No Tickets Yet'}
             hint={tickets.length ? 'No tickets match your filters.' : `Nothing has been submitted so far. ${isMobile ? 'Tap + below' : 'Choose Create'} to report a problem or ask for help.`} />
@@ -1122,9 +1219,9 @@ export default function TicketsView() {
                 )}
                 {g.rows.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
-                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
-                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} mobile />
+                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
+                    onResolve={requestResolve} people={people}
+                    checked={selected.has(t.id)} onToggle={toggleSel} band={idx % 2 === 1} mobile />
                 ))}
                 {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
               </div>
@@ -1143,9 +1240,9 @@ export default function TicketsView() {
                 </button>
                 {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
-                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
-                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} mobile />
+                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
+                    onResolve={requestResolve} people={people}
+                    checked={selected.has(t.id)} onToggle={toggleSel} band={idx % 2 === 1} mobile />
                 ))}
                 {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
               </div>
@@ -1192,9 +1289,9 @@ export default function TicketsView() {
                       the Created Date column on a wide screen. */}
                   {g.rows.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
-                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
-                      checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
+                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
+                    onResolve={requestResolve} people={people}
+                      checked={selected.has(t.id)} onToggle={toggleSel} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
                 </div>
@@ -1215,9 +1312,9 @@ export default function TicketsView() {
                   </button>
                   {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
-                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
-                      checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
+                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
+                    onResolve={requestResolve} people={people}
+                      checked={selected.has(t.id)} onToggle={toggleSel} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
                 </div>
@@ -1283,17 +1380,25 @@ export default function TicketsView() {
       )}
 
       {creating && <CreateTicketModal onClose={() => setCreating(false)} />}
-      {openId && <TicketDrawer key={openId} ticketId={openId} initialTab={openTab} onClose={() => { setOpenId(null); setOpenTab(null); }} />}
+      {namingView && <SaveViewDialog onSave={saveTicketView} onClose={() => setNamingView(false)} />}
+      {openId && <TicketDrawer key={openId} ticketId={openId} initialTab={openTab} dirtyRef={drawerDirtyRef} onClose={() => { setOpenId(null); setOpenTab(null); }} />}
       {resolveReq && (
         <TicketActionDialog mode={resolveReq.mode || 'resolve'} targetStatus={resolveReq.status}
           ticket={resolveReq.ids.length === 1 ? tickets.find((x) => x.id === resolveReq.ids[0]) : null}
           onSubmit={async (p) => {
             // Bulk: one resolution for all of them, each still refused
             // server-side on its own if something is wrong with it.
-            const results = await Promise.allSettled(resolveReq.ids.map((id) => updateTicket(id, p)));
-            const failed = results.filter((r) => r.status === 'rejected');
-            if (resolveReq.ids.length > 1) clearSel();
-            if (failed.length) throw new Error(failed[0].reason?.message || 'Could not resolve.');
+            const ids = resolveReq.ids;
+            const results = await Promise.allSettled(ids.map((id) => updateTicket(id, p)));
+            const failed = ids.filter((_, i) => results[i].status === 'rejected');
+            if (ids.length === 1) {
+              if (failed.length) throw new Error(results[0].reason?.message || 'Could not resolve.');
+              return;
+            }
+            // Bulk: the ones that failed stay selected, and the dialog closes
+            // with a count of what did not go through.
+            setSelected(new Set(failed));
+            if (failed.length) reportBulkFailure(results, ids.length, 'resolved');
           }}
           onClose={() => setResolveReq(null)} />
       )}
@@ -1304,6 +1409,20 @@ export default function TicketsView() {
       )}
     </div>
   );
+}
+
+// "2 of 5 could not be updated: <first reason>" after a bulk action. Exported
+// for its test.
+export function bulkFailureMessage(results, total, verb) {
+  const failed = results.filter((r) => r.status === 'rejected');
+  if (!failed.length) return '';
+  const reason = failed[0].reason?.message || (typeof failed[0].reason === 'string' ? failed[0].reason : '');
+  return `${failed.length} of ${total} ticket${total === 1 ? '' : 's'} could not be ${verb}${reason ? `: ${reason}` : '.'}`
+    + (failed.length < total ? ' The rest went through; the ones that failed are still selected.' : '');
+}
+function reportBulkFailure(results, total, verb) {
+  const msg = bulkFailureMessage(results, total, verb);
+  if (msg) appDialog.alert(msg, { title: 'Some Tickets Not Changed' });
 }
 
 // Column header for the desktop list view - driven by TICKET_COLUMNS/cols so
@@ -1389,7 +1508,7 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
     setOpen(false);
     if (id === value || busy) return;
     setBusy(true);
-    onChange(id).catch((e) => alert(`Could not update: ${e.message || e}`)).finally(() => setBusy(false));
+    onChange(id).catch((e) => appDialog.alert(`Could not update: ${e.message || e}`)).finally(() => setBusy(false));
   };
   return (
     <div ref={anchorRef} onClick={(e) => { e.stopPropagation(); if (!busy) setOpen((o) => !o); }}
@@ -1424,13 +1543,36 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
   );
 }
 
+// The drawer's edit gates for one ticket, in one place for the list row, the
+// board and the phone's Move To (Oct 2026 review: the board let anyone drag
+// any card, and the row's status cell skipped the requester carve-out the
+// drawer applies). UI convenience only - _ticket_edit_scope in
+// backend/routers/tickets.py is the real boundary.
+export function ticketRights(t, myEmail, privileged) {
+  const me = (myEmail || '').toLowerCase();
+  const isRequester = (t.requesterId || '').toLowerCase() === me;
+  const isAssignee = (t.assigneeId || '').toLowerCase() === me;
+  const priv = !!privileged;
+  const requesterLocked = isRequester && !isAssignee && !priv && t.status !== 'open';
+  const locked = t.status === 'in_progress' && !!t.assigneeId;
+  const canWorking = priv || (!requesterLocked && (locked ? isAssignee : true));
+  const requesterOnly = isRequester && !priv && !isAssignee;
+  return { isRequester, isAssignee, requesterOnly, canWorking, canEditStatus: canWorking && !requesterOnly };
+}
+
 // `mobile` comes from TicketsView, never from a useIsMobile() of the row's own:
 // two hooks listening to the same media query flip on separate renders, so on a
 // rotate across 640px a row could switch to the desktop grid while its parent
 // was still rendering the phone list (which passes no `cols`) and crash the
 // whole view on cols.map.
-function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, updateTicket, onOpen, onOpenConversation, onResolve, people, checked, onToggle, cols, band = false, mobile = false }) {
+// Memoized, with id-taking callbacks (onOpen(id, tab), onToggle(id)) that
+// TicketsView keeps stable - so ticking one checkbox or typing in the search
+// box re-renders the rows that changed, not all of them.
+const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, updateTicket, onOpen, onResolve, people, checked, onToggle, cols, band = false, mobile = false }) {
   const isMobile = !!mobile || !Array.isArray(cols);
+  const open = () => onOpen(t.id);
+  const openConversation = () => onOpen(t.id, 'conversation');
+  const toggle = () => onToggle(t.id);
   const [assigning, setAssigning] = useState(false);
   // Resting background: selection wins, then the zebra band. Hover is the
   // .nx-row-hover class (style.css) - the Accounting ledger's whole-row
@@ -1440,7 +1582,8 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, up
   // contract the task rich-list rows use, so the two grids read identically.
   const cell = { minWidth: 0, minHeight: TICKET_ROW_H, display: 'flex', alignItems: 'center', padding: '0 12px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
   const sla = slaState(t);
-  const slaM = (sla === 'breached' || sla === 'at_risk') ? SLA_META[sla] : null;
+  // Paused (waiting on the requester) reads as its own quiet state, never late.
+  const slaM = (sla === 'breached' || sla === 'at_risk' || sla === 'paused') ? SLA_META[sla] : null;
   const approvalM = t.approvalStatus === 'pending' ? APPROVAL_META.pending : null;
   const staleM = commentStale(t) ? COMMENT_STALE_META : null;
   // The HR department is what routed this ticket, so it belongs on the row.
@@ -1449,18 +1592,11 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, up
   // Same canWorking the drawer enforces for type/status/priority/assignee/
   // department/resolution - never let the list's inline dropdown drift from
   // it (see TicketDrawer below and InlineTicketSelect above).
-  const myEmailLower = (myEmail || '').toLowerCase();
-  const rowIsRequester = (t.requesterId || '').toLowerCase() === myEmailLower;
-  const rowIsAssignee = (t.assigneeId || '').toLowerCase() === myEmailLower;
-  const rowPrivileged = !!privileged;
-  const rowRequesterLocked = rowIsRequester && !rowIsAssignee && !rowPrivileged && t.status !== 'open';
-  const rowLocked = t.status === 'in_progress' && !!t.assigneeId;
-  const canWorking = rowPrivileged || (!rowRequesterLocked && (rowLocked ? rowIsAssignee : true));
+  const { canWorking, canEditStatus, requesterOnly: rowRequesterOnly } = ticketRights(t, myEmail, privileged);
   // Mark Resolved from the row (Neil, Oct 1): the person who raised it may
   // resolve their own still-active ticket whatever its state ("a colleague
   // helped me" - optional comment, no write-up); anyone who can work it gets
   // the desk's Resolve dialog. Mirrors _requester_self_resolve server-side.
-  const rowRequesterOnly = rowIsRequester && !rowPrivileged && !rowIsAssignee;
   const canResolveRow = !!onResolve && !CLOSED_STATES.includes(t.status) && (rowRequesterOnly || canWorking);
   const resolveRow = (e) => { e.stopPropagation(); onResolve(t, rowRequesterOnly ? 'self_resolve' : 'resolve'); };
   // Assigning is the desk's (the drawer hides Assign To from a requester on an
@@ -1474,7 +1610,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, up
   // and bulk edit is a desktop job.
   if (isMobile) {
     return (
-      <div onClick={onOpen} className="nx-row-hover" data-selected={checked ? 'true' : undefined} style={{
+      <div onClick={open} className="nx-row-hover" data-selected={checked ? 'true' : undefined} style={{
         display: 'flex', flexDirection: 'column', gap: 6, padding: '11px 12px',
         borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: rowBg,
       }}>
@@ -1504,13 +1640,13 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, up
           {/* Words, not icon-only chips with a hover title - a phone has no
               hover. The SLA due date reads as a date (red once breached, amber
               when due soon) and a quiet ticket says it needs a comment. */}
-          {t.slaDueOn && !CLOSED_STATES.includes(t.status) && (
-            <span data-testid="ticket-row-due" title={slaM ? `${slaM.label} - SLA due ${fmtDate(t.slaDueOn)}` : `SLA due ${fmtDate(t.slaDueOn)}`}
+          {(t.slaDueAt || t.slaDueOn) && !CLOSED_STATES.includes(t.status) && (
+            <span data-testid="ticket-row-due" title={slaM ? `${slaM.label} - SLA due ${fmtDueAt(t)}` : `SLA due ${fmtDueAt(t)}`}
               style={slaM
                 ? { ...chip(slaM.color, slaM.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px', fontWeight: 700 }
                 : { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: NX.dim }}>
               {slaM ? <slaM.Icon size={11} /> : <Clock size={11} style={{ color: NX.faint }} />}
-              Due {fmtDate(t.slaDueOn)}
+              {sla === 'paused' ? 'Paused' : `Due ${fmtDueAt(t)}`}
             </span>
           )}
           {staleM && (
@@ -1544,11 +1680,11 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, up
           )}
         </div>
         {t.latestComment && (
-          <LatestCommentPreview compact comment={t.latestComment} nameOf={nameOf} onOpen={onOpenConversation || onOpen} />
+          <LatestCommentPreview compact comment={t.latestComment} nameOf={nameOf} onOpen={openConversation} />
         )}
         {assigning && (
           <TicketAssignSheet value={t.assigneeId || ''} people={people}
-            onPick={(email) => { updateTicket(t.id, { assigneeId: email || '' }).catch((err) => alert(`Could not assign: ${err.message || err}`)); }}
+            onPick={(email) => { updateTicket(t.id, { assigneeId: email || '' }).catch((err) => appDialog.alert(`Could not assign: ${err.message || err}`)); }}
             onClose={() => setAssigning(false)} />
         )}
       </div>
@@ -1566,7 +1702,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, up
   const cells = {
     checkbox: (
       <div style={{ ...cell, justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
-        <input type="checkbox" checked={!!checked} onChange={onToggle}
+        <input type="checkbox" checked={!!checked} onChange={toggle}
           title="Select" style={{ cursor: 'pointer', width: 15, height: 15, margin: 0, accentColor: NX.blue }} />
       </div>
     ),
@@ -1600,7 +1736,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, up
     // InlineTicketSelect so clicking offers a dropdown right there - no drawer.
     state: (
       <div style={{ ...cell, overflow: 'hidden' }} title={approvalM ? `${stateM.label} · awaiting approval` : stateM.label}>
-        <InlineTicketSelect value={t.status} options={statusOptions()} meta={TICKET_STATUS_META} editable={canWorking}
+        <InlineTicketSelect value={t.status} options={statusOptions()} meta={TICKET_STATUS_META} editable={canEditStatus}
           onChange={(v) => updateTicket(t.id, { status: v })}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
             <StatusLabel label={stateM.label} color={stateM.color} />
@@ -1621,9 +1757,9 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, up
     // within a day, plain otherwise.
     due: (
       <div style={{ ...cell, justifyContent: 'flex-start', gap: 5, overflow: 'hidden' }}
-        title={slaM ? `${slaM.label} - SLA due ${fmtDate(t.slaDueOn)}` : undefined}>
+        title={slaM ? `${slaM.label} - SLA due ${fmtDueAt(t)}` : undefined}>
         {slaM ? <slaM.Icon size={12} style={{ color: slaM.color, flexShrink: 0 }} /> : <Clock size={12} style={{ color: NX.faint, flexShrink: 0 }} />}
-        <span style={{ fontSize: 12, color: slaM ? slaM.color : NX.dim, fontWeight: slaM ? 600 : 400, textAlign: 'left' }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}</span>
+        <span style={{ fontSize: 12, color: slaM ? slaM.color : NX.dim, fontWeight: sla === 'breached' || sla === 'at_risk' ? 600 : 400, textAlign: 'left' }}>{fmtDueAt(t)}</span>
       </div>
     ),
     requester: (
@@ -1659,7 +1795,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, up
         )}
         {(t.latestComment || !staleM) && (
           <div style={{ minWidth: 0, flex: 1 }}>
-            <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} onOpen={onOpenConversation || onOpen} />
+            <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} onOpen={openConversation} />
           </div>
         )}
       </div>
@@ -1682,14 +1818,14 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, up
   };
 
   return (
-    <div onClick={onOpen} className="nx-row-hover" data-selected={checked ? 'true' : undefined} style={{
+    <div onClick={open} className="nx-row-hover" data-selected={checked ? 'true' : undefined} style={{
       display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch',
       borderBottom: `1px solid ${NX.border}`, cursor: 'pointer', background: rowBg,
     }}>
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>
   );
-}
+});
 
 // Real Supabase Storage upload for ticket evidence (screenshots, documents,
 // screen recordings) - works for any file size, unlike the old inline-data-URL
@@ -1712,9 +1848,15 @@ async function uploadTicketFile(ticketId, f) {
   let url = '';
   let ok = true;
   try { url = await uploadTicketEvidence(f, kind); } catch { ok = false; }
-  await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
+  // The server refuses a URL outside our storage (400) - that file is not on
+  // the ticket either, so it counts as failed too.
+  try { await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }); } catch { ok = false; }
   return ok;
 }
+
+// "Could not attach <name>: <server's reason>" - a refused attachment (e.g.
+// a URL outside our storage, 400) used to vanish without a word.
+const attachFailed = (name) => (e) => appDialog.alert(`Could not attach "${name}": ${e?.message || e}`, { title: 'Attachment Not Saved' });
 
 // Shared Record + Upload control - a screen recording (optionally with mic
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
@@ -1758,7 +1900,7 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
       // startBugRecording. Anything else (unsupported browser, NotFoundError,
       // etc.) is worth telling the requester about.
       if (e?.name !== 'NotAllowedError' && e?.name !== 'AbortError') {
-        alert(e?.message || 'Could not start screen recording.');
+        appDialog.alert(e?.message || 'Could not start screen recording.');
       }
     }
   };
@@ -2106,8 +2248,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     try {
       const { text } = await api.ocrImage(f);
       if (text && text.trim()) set('subject', (form.subject ? `${form.subject} ` : '') + text.trim().replace(/\s+/g, ' '));
-      else alert('No text found in the image.');
-    } catch { alert("Couldn't extract text from the image."); }
+      else appDialog.alert('No text found in the image.');
+    } catch { appDialog.alert("Couldn't extract text from the image."); }
     finally { setOcrBusy(false); }
   };
 
@@ -2146,7 +2288,11 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         typeFields[HELP_SUBTOPIC_KEY] = tf[HELP_SUBTOPIC_KEY];
       }
       const created = await createTicket({
-        subject: form.subject.trim(), description, type: form.type, priority: form.priority, status: form.status,
+        subject: form.subject.trim(), description, type: form.type, priority: form.priority,
+        // No status (and never an assignee) from this form: the server opens
+        // every new ticket, and a non-desk requester sending either is refused
+        // (403). Sent only if something ever picks a status other than Open.
+        ...(form.status && form.status !== 'open' ? { status: form.status } : {}),
         // Requester = who it is for (defaults to me; the server checks anyone
         // else against the People list and records me as the creator). SLA due
         // date is derived from priority; the service area from the topic.
@@ -2154,7 +2300,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         application: form.application.trim(),
         // Collaborators - the server adds you too when it is for someone else.
         watcherIds: (form.watcherIds || []).filter((e) => e && e !== requester),
-        slaDueOn: slaDueFromPriority(form.priority),
+        // A preview only - the server sets the deadline (sla_due_at) itself.
+        slaDueOn: slaDueFromPriority(form.priority).slice(0, 10),
         typeFields,
         ...(fromTask ? { fromTaskId: fromTask.id, closeSourceTask: closeSource } : {}),
         ...(form.propertyAssetId && deptTakesProperty ? { propertyAssetId: form.propertyAssetId } : {}),
@@ -2166,13 +2313,13 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
       // ticket still saves, and any failed file gets one combined warning
       // (not one alert per file) rather than being silently dropped.
       if (created?.id && inlineImages.length) {
-        await Promise.all(inlineImages.map((a) => api.addTicketAttachment(created.id, a).catch(() => {})));
+        await Promise.all(inlineImages.map((a) => api.addTicketAttachment(created.id, a).catch(attachFailed(a.name))));
       }
       if (created?.id && attachments.length) {
         const results = await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
         const failed = attachments.filter((_, i) => !results[i]);
         if (failed.length) {
-          alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) - they won't be playable/downloadable.`);
+          appDialog.alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) - they won't be playable/downloadable.`);
         }
       }
       onCreated?.(created);
@@ -2181,7 +2328,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         window.dispatchEvent(new CustomEvent('nexus:tickets-changed', { detail: { propertyId: created.propertyAssetId } }));
       }
       onClose();
-    } catch (e) { alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
+    } catch (e) { appDialog.alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
   };
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
@@ -2548,11 +2695,18 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       : mode === 'confirm'
         ? { status: 'closed', csatRating: rating, csatComment: comment.trim() }
         : { status: 'reopened', reopen_reason: reason.trim() };
-    try { await onSubmit(patch); onClose(); }
-    catch (e) { alert(e?.message || String(e)); setBusy(false); }
+    // onSubmit resolving to exactly `false` means nothing was saved (the
+    // person chose Keep Editing over someone else's change) - stay open
+    // rather than closing as if it had worked.
+    try {
+      if ((await onSubmit(patch)) === false) { setBusy(false); return; }
+      onClose();
+    } catch (e) { appDialog.alert(e?.message || String(e)); setBusy(false); }
   };
   return (
-    <Modal title={title} onClose={onClose} width={480} footer={
+    // The shared popup size (60vw, at least 60vh; a full-screen sheet on
+    // phones) - it was a fixed 480px box floating mid-page.
+    <Modal title={title} onClose={onClose} minHeight="60vh" footer={
       <>
         <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={go} disabled={busy}>
@@ -2710,13 +2864,14 @@ function readOnlyFieldValue(f, value, nameOf) {
 // module for someone without the desk grant.
 // `startEditing` opens straight into the title/description editor - the
 // Support list's pencil (Neil, Sep 30) lands here.
-export function TicketDrawer({ ticketId, onClose, startEditing = false, initialTab = null }) {
+export function TicketDrawer({ ticketId, onClose, startEditing = false, initialTab = null, dirtyRef = null }) {
   const { tickets, ticketsLoaded, tasks, projects = [], loading: tasksLoading,
     addTicketLink, removeTicketLink, escalateTicket, createTaskFromTicket, myEmail, nameOf, updateTicket, deleteTicket,
-    refresh } = useTasks();
-  // An approval decision changes status/resolution server-side, so pull the whole
-  // list rather than patching one field locally.
-  const onDecided = () => refresh?.();
+    reloadTickets } = useTasks();
+  // An approval decision changes status/resolution server-side, so pull the
+  // ticket list rather than patching one field locally - the tickets only,
+  // not the whole task workspace.
+  const onDecided = () => reloadTickets?.();
   const people = usePeople();
   const collabExtras = useCollaboratorExtras();
   const sites = useTicketSites();
@@ -2786,6 +2941,31 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     return () => clearOpenTicketId(ticketId);
   }, [ticketId]);
   const t = tickets.find((x) => x.id === ticketId);
+  // The ticket as it was when this visit started (or at the last save), so
+  // Done can tell whether someone else changed a field underneath the edits
+  // held here (Oct 2026 review) - see changedUnderneath below.
+  const baseRef = useRef(null);
+  useEffect(() => { if (t && !baseRef.current) baseRef.current = t; }, [t]);
+  // Pasted images already stored by a Done whose save then failed - filed
+  // under Attachments by the save that lands (see commit).
+  const storedImagesRef = useRef([]);
+  // Not in the list that has landed: the list may simply predate the ticket
+  // (a bell click on a ticket raised seconds ago - the background refresh is
+  // once a minute), so pull the tickets once more before saying it is gone.
+  const [refetch, setRefetch] = useState('idle');   // idle | loading | done
+  useEffect(() => {
+    if (t || !ticketsLoaded || refetch !== 'idle' || !reloadTickets) return;
+    setRefetch('loading');
+    Promise.resolve(reloadTickets()).catch(() => {}).finally(() => setRefetch('done'));
+  }, [t, ticketsLoaded, refetch, reloadTickets]);
+  // Tells the screen that opened this drawer whether closing it now would
+  // throw edits away (a bell click opening another ticket asks first).
+  const dirtyNow = Object.keys(pending).length > 0 || !isEmptyDoc(reply.body);
+  useEffect(() => {
+    if (!dirtyRef) return undefined;
+    dirtyRef.current = dirtyNow;
+    return () => { dirtyRef.current = false; };
+  }, [dirtyRef, dirtyNow]);
   const meIsRequester = !!t && (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
   useEffect(() => {
     if (!t || !meIsRequester || seenBefore !== undefined) return;
@@ -2831,8 +3011,13 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // Opened from an email link before the ticket list has landed: show the
   // "Opening your ticket" screen rather than nothing (Oct 1 - it read as the
   // link not working). Once the list is in, a ticket that still is not there
-  // (deleted, or not yours to see) renders nothing, as before.
-  if (!t) return ticketsLoaded ? null : <TicketOpening onClose={onClose} />;
+  // (deleted, or not yours to see) says so with a way out - it used to render
+  // nothing at all, which read as a dead click (Oct 2026 review: a ticket
+  // raised on someone's behalf, opened from Support).
+  if (!t) {
+    return ticketsLoaded && (refetch === 'done' || !reloadTickets)
+      ? <TicketNotFound onClose={onClose} /> : <TicketOpening onClose={onClose} />;
+  }
 
   // Before a ticket is "in_progress" (with an assignee), the requester has
   // full edit access and anyone else can triage/self-assign it (working
@@ -2931,12 +3116,21 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // you feel like it," which is not what the button is for - so it stays
   // hidden for them until the SLA is actually missed (Pranshu, Sep 10 2026).
   // Mirrors the server check in escalate_ticket (backend/routers/tickets.py).
-  const slaBreached = !!(t.slaDueOn && t.slaDueOn < today());
+  const slaBreached = slaState(t) === 'breached';
   const canEscalate = !CLOSED_STATES.includes(t.status)
     && ((isRequester && slaBreached) || isAssignee || privileged);
   // Saves at once - kept for the links and tasks below, which are their own
   // records and never mail the requester.
-  const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
+  // This visit's own saves move the base along too, so they never read as
+  // "changed by someone else" when Done goes out.
+  const patch = (p) => updateTicket(t.id, p)
+    .then((r) => {
+      if (baseRef.current && r?.id) {
+        baseRef.current = { ...baseRef.current, ...Object.fromEntries(Object.keys(p).map((k) => [k, r[k]])), modifiedAt: r.modifiedAt };
+      }
+      return r;
+    })
+    .catch((e) => appDialog.alert(`Could not update ticket: ${e.message || e}`));
   // The ticket as it will be once Done is clicked: what is saved, with the
   // held edits on top. Permissions above still read the SAVED ticket - that
   // is what the server checks the save against.
@@ -2954,18 +3148,61 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const dirty = Object.keys(pending).length > 0 || hasReply;
   // Done: everything held, plus the reply, in one save. `extra` is a dialog's
   // own change (Confirm / Reopen) that goes out with the rest.
+  // Returns false when nothing went out because the person chose not to
+  // overwrite someone else's change.
   const commit = async (extra = {}) => {
-    const body = { ...pending, ...extra };
+    if (!Object.keys(pending).length && !hasReply && !Object.keys(extra).length) return true;
+    // Someone else saved this ticket while these edits were held, and a field
+    // being sent is one they changed: ask before overwriting their change.
+    const clashes = changedUnderneath(Object.keys(pending));
+    if (clashes.length && !(await appDialog.confirm(
+      'This ticket was changed by someone else while you were editing. Save anyway?',
+      { title: 'Ticket Changed', confirmText: 'Save Anyway', cancelText: 'Keep Editing' }))) return false;
+    // A screenshot pasted into the reply or the description is held inline
+    // (a data: URL) while typing. Before it goes out it is stored in the
+    // private ticket-evidence bucket and the HTML points at that copy, the
+    // way the create form does it - so the ticket, its activity and its
+    // emails never carry a megabyte of base64. Each one is also filed under
+    // Attachments once the save lands. A failed upload keeps the inline copy
+    // - never worse. The stored copy goes straight back into the held edit,
+    // so a save that fails and is retried does not upload the same images
+    // again.
+    const upload = async (f) => {
+      const url = await uploadTicketEvidence(f, 'image');
+      storedImagesRef.current.push({ name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind: 'image', url });
+      return { url };
+    };
+    let replyBody = reply.body;
+    if (hasReply) {
+      replyBody = await externalizeInlineImages(reply.body, upload);
+      if (replyBody !== reply.body) setReply((r) => ({ ...r, body: replyBody }));
+    }
+    let description = pending.description;
+    if (description) {
+      description = await externalizeInlineImages(description, upload);
+      if (description !== pending.description) setPending((p) => ({ ...p, description }));
+    }
+    const body = { ...pending, ...(description !== undefined ? { description } : {}), ...extra };
     if (hasReply) {
       // A reply being written AND a dialog's own comment (Mark Resolved's
       // "What fixed it?") go out as one reply, the dialog's line last.
-      body.comment = extra.comment ? `${reply.body}${extra.comment}` : reply.body;
+      body.comment = extra.comment ? `${replyBody}${extra.comment}` : replyBody;
       body.comment_internal = reply.internal;
     }
-    if (!Object.keys(body).length) return;
-    await updateTicket(t.id, body);
+    const saved = await updateTicket(t.id, body);
+    for (const a of storedImagesRef.current) api.addTicketAttachment(t.id, a).catch(attachFailed(a.name));
+    storedImagesRef.current = [];
+    baseRef.current = saved && saved.id ? saved : null;
     setPending({});
     setReply({ body: '', internal: false });
+    return true;
+  };
+  // The held fields someone else changed since this visit started (or since
+  // its last save). Nothing when the live ticket has not moved on.
+  const changedUnderneath = (keys) => {
+    const base = baseRef.current;
+    if (!base || base === t || (base.modifiedAt || '') === (t.modifiedAt || '')) return [];
+    return keys.filter((k) => JSON.stringify(base[k] ?? '') !== JSON.stringify(t[k] ?? ''));
   };
   // The requester's Confirm Resolution is held like any other edit; Done is
   // where it is asked how satisfied they are (Oct 1) - the survey saves the
@@ -2976,11 +3213,14 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     if (confirmingClose) { setDialog({ mode: 'confirm', viaDone: true }); return; }
     if (!dirty) { onClose(); return; }
     setSaving(true);
-    try { await commit(); onClose(); }
-    catch (e) { alert(`Could not update ticket: ${e.message || e}`); setSaving(false); }
+    try {
+      if (await commit()) { onClose(); return; }
+      setSaving(false);
+    } catch (e) { appDialog.alert(`Could not update ticket: ${e.message || e}`); setSaving(false); }
   };
-  const closeDrawer = () => {
-    if (dirty && !window.confirm('Discard your changes to this ticket? Nothing has been saved or sent yet.')) return;
+  const closeDrawer = async () => {
+    if (dirty && !(await appDialog.confirm('Discard your changes to this ticket? Nothing has been saved or sent yet.',
+      { title: 'Discard Changes?', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true }))) return;
     onClose();
   };
   // A move into Resolved/Closed goes through the Resolve dialog (it needs a
@@ -2995,15 +3235,16 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const startEdit = () => { setDraft({ subject: v.subject || '', description: v.description || '' }); setEditing(true); };
   const saveEdit = () => {
     const d = draft || {};
-    if (!(d.subject || '').trim()) { alert('The title cannot be empty.'); return; }
+    if (!(d.subject || '').trim()) { appDialog.alert('The title cannot be empty.'); return; }
     stage({ subject: d.subject.trim(), description: d.description || '' });
     setEditing(false); setDraft(null);
   };
-  const escalate = () => {
-    if (!window.confirm('Escalate this ticket? The department head will get an email that it needs urgent attention.')) return;
+  const escalate = async () => {
+    if (!(await appDialog.confirm('Escalate this ticket? The department head will get an email that it needs urgent attention.',
+      { title: 'Escalate Ticket', confirmText: 'Escalate' }))) return;
     escalateTicket(t.id)
-      .then(() => alert('Escalated - the department head has been notified.'))
-      .catch((e) => alert(`Could not escalate: ${e.message || e}`));
+      .then(() => appDialog.alert('Escalated - the department head has been notified.', { title: 'Escalated' }))
+      .catch((e) => appDialog.alert(`Could not escalate: ${e.message || e}`));
   };
   // Same "ask a reason" pattern as the approval-reject flow - the Outlook
   // reopened-ticket email includes it, so the assignee/dept lead knows why.
@@ -3018,7 +3259,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     try {
       const { task } = await createTaskFromTicket(t.id);
       setOpenTaskId(task.id);
-    } catch (e) { alert(`Could not create task: ${e.message || e}`); }
+    } catch (e) { appDialog.alert(`Could not create task: ${e.message || e}`); }
   };
   const linkTask = (taskId) => { if (taskId && !taskIds.includes(taskId)) patch({ taskIds: [...(t.taskIds || []), taskId] }); };
   const unlinkTask = (taskId) => {
@@ -3028,9 +3269,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   };
   const overdue = slaBreached && !CLOSED_STATES.includes(t.status);
 
-  const remove = () => {
-    if (!window.confirm(`Delete ${ticketNo(t.code) || 'this ticket'}? Its history is kept and a manager can restore it.`)) return;
-    deleteTicket(t.id).then(onClose).catch((e) => alert(`Could not delete ticket: ${e.message || e}`));
+  const remove = async () => {
+    if (!(await appDialog.confirm(`Delete ${ticketNo(t.code) || 'this ticket'}? Its history is kept and a manager can restore it.`,
+      { title: 'Delete Ticket', confirmText: 'Delete', danger: true }))) return;
+    deleteTicket(t.id).then(onClose).catch((e) => appDialog.alert(`Could not delete ticket: ${e.message || e}`));
   };
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
@@ -3087,7 +3329,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         )}
         {dirty && (
           <span style={{ fontSize: 12, color: NX.amber, fontWeight: 600 }} title="Nothing is saved or sent to the requester until you click Done">
-            Unsaved changes
+            Unsaved Changes
           </span>
         )}
         <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }} onClick={done} disabled={saving}
@@ -3163,10 +3405,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           buried under the whole field list (people kept missing them). */}
       <div style={{ borderTop: `1px solid ${NX.border}`, marginTop: 12, paddingTop: 12 }}>
         {/* Segmented control - same mode-switch grammar as the rest of the module */}
-        <div style={{ display: 'inline-flex', gap: 2, marginBottom: 16, background: NX.border2, borderRadius: 9, padding: 2, flexWrap: 'wrap' }}>
+        <div className="scroll-tabs" style={{ display: 'inline-flex', gap: 2, marginBottom: 16, background: NX.border2, borderRadius: 9, padding: 2, maxWidth: '100%', overflowX: 'auto' }}>
           {[['overview', 'Overview', ClipboardList], ['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
             <button key={k} onClick={() => { setTab(k); if (k === 'conversation') setNewReplies(0); }} style={{
-              ...btn('ghost'), gap: 6, fontSize: 12.5, fontWeight: 600, padding: '6px 10px', borderRadius: 7,
+              ...btn('ghost'), gap: 6, fontSize: 12.5, fontWeight: 600, padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap', flexShrink: 0,
               background: tab === k ? NX.surface : 'transparent', color: tab === k ? NX.ink : NX.dim,
               boxShadow: tab === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
             }}><Icon size={14} />{lab}
@@ -3344,7 +3586,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           <label style={label}>Service Area</label>
           {fullAccess ? (
             <TicketSelect value={v.serviceArea || ''} onChange={(val) => stage({ serviceArea: val })} style={sel}
-              placeholder="Not set" options={[['', 'Not set'], ...serviceAreaOptions()]} />
+              placeholder="Not Set" options={[['', 'Not Set'], ...serviceAreaOptions()]} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(v.serviceArea) || '-'}</div>
           )}
@@ -3357,12 +3599,16 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         <div style={field}>
           <label style={label}>SLA Due Date</label>
           {/* Read-only always (Pranshu, Sep 17 2026) - it follows Priority
-              automatically (_sla_due_from_priority in update_ticket), and a
+              automatically (ticket_sla.recompute in update_ticket), and a
               manual DateField editor here let it drift out of step with the
-              priority it's supposed to track. Change Priority to move it. */}
-          <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-            {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
+              priority it's supposed to track. Change Priority to move it.
+              A moment, not a day (Honest SLA, Oct 2026): date and time, and
+              Paused while the ticket waits on the requester. */}
+          <div data-testid="ticket-sla-due" style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {fmtDueAt(t)}
+            {slaState(t) === 'paused' && <SlaBadge t={t} />}
           </div>
+          <FirstResponseIndicator t={t} />
           {/* "Needs a comment" - a signal separate from the due date above:
               nobody has said anything in longer than this priority's
               check-in cadence, whether or not the due date has passed. */}
@@ -3377,8 +3623,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           <div style={field}>
             <label style={label}>Resolution</label>
             <TicketSelect value={v.resolution || ''} onChange={(val) => stage({ resolution: val })} style={sel}
-              disabled={!canWorking} placeholder="- pick -"
-              options={[['', '- pick -'], ...TICKET_RESOLUTION.map((r) => [r.key, r.label])]} />
+              disabled={!canWorking} placeholder="Select One"
+              options={[['', 'Select One'], ...TICKET_RESOLUTION.map((r) => [r.key, r.label])]} />
           </div>
         )}
       </div>
@@ -3426,8 +3672,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
 
       <div style={field}>
         <label style={label}>Linked Tickets</label>
-        <TicketLinks ticket={t} tickets={tickets} onAdd={(target, type) => addTicketLink(t.id, target, type).catch((e) => alert(e.message || e))}
-          onRemove={(target) => removeTicketLink(t.id, target).catch(() => {})} readOnly={!fullAccess} />
+        <TicketLinks ticket={t} tickets={tickets} onAdd={(target, type) => addTicketLink(t.id, target, type).catch((e) => appDialog.alert(`Could not link the ticket: ${e.message || e}`))}
+          onRemove={(target) => removeTicketLink(t.id, target).catch((e) => appDialog.alert(`Could not remove the link: ${e.message || e}`))} readOnly={!fullAccess} />
       </div>
 
       {CLOSED_STATES.includes(t.status) && !(t.csatRating > 0) && (
@@ -3446,7 +3692,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             // who raised the ticket just replies (Neil, Sep 30: "they should
             // not see public reply versus an internal note").
             canInternal={(privileged || isAssignee || !isRequester) && deskAccess.canReadInternal}
-            canDelete={deskAccess.canDelete} />
+            canDelete={deskAccess.canDelete}
+            // Saved Replies are the desk's (Oct 2026) - never the requester view.
+            savedReplies={deskAccess.canWorkQueue && (privileged || isAssignee || !isRequester)}
+            ticket={t} myEmail={myEmail} />
         )}
         {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete} />}
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
@@ -3461,7 +3710,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         // Self-resolve is the requester's own finishing move too.
         // The satisfaction survey raised by Done closes the drawer once saved.
         onSubmit={(p) => (dialog.mode === 'resolve' ? stage(p)
-          : dialog.viaDone ? commit(p).then(() => onClose()) : commit(p))} onClose={() => setDialog(null)} />
+          : dialog.viaDone ? commit(p).then((ok) => { if (ok) onClose(); return ok; }) : commit(p))} onClose={() => setDialog(null)} />
     )}
     {requestingControl && (
       <LiveView assist email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />
@@ -3638,7 +3887,7 @@ function TicketTasks({ taskIds, tasks, tasksLoading = false, onOpen, onSpawn, on
               options={options.map((task) => [task.id, `${task.code ? `${task.code} · ` : ''}${task.title}`])}
               onChange={(id) => { if (id) onLink(id); setLinking(false); }} />
           ) : (
-            <button onClick={() => setLinking(true)} style={{ ...btn('ghost'), fontSize: 12, color: NX.dim }}><Link2 size={13} /> Link existing</button>
+            <button onClick={() => setLinking(true)} style={{ ...btn('ghost'), fontSize: 12, color: NX.dim }}><Link2 size={13} /> Link Existing</button>
           )}
         </div>
       )}
@@ -3771,7 +4020,7 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
     const deptAcc = new Map();
     for (const t of tickets) { const k = t.hrDepartmentId || ''; deptAcc.set(k, (deptAcc.get(k) || 0) + 1); }
     const byDepartment = [...deptAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([k, n], i) => ({ label: k ? (hrDeptName(k) || k) : 'No department', value: n, color: PAL[i % 8] }));
+      .map(([k, n], i) => ({ label: k ? (hrDeptName(k) || k) : 'No Department', value: n, color: PAL[i % 8] }));
     // Which apps generate the work, and which service areas carry it. The two
     // cuts the desk cannot get from any other dimension: department says whose
     // problem it is, these say what the problem is IN.
@@ -3782,7 +4031,7 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
     const areaAcc = new Map();
     for (const t of tickets) { const k = t.serviceArea || ''; areaAcc.set(k, (areaAcc.get(k) || 0) + 1); }
     const byServiceArea = [...areaAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([k, n], i) => ({ label: k ? (serviceAreaLabel(k) || k) : 'Not set', value: n, color: PAL[i % 8] }));
+      .map(([k, n], i) => ({ label: k ? (serviceAreaLabel(k) || k) : 'Not Set', value: n, color: PAL[i % 8] }));
     // recurrence signal - cluster by normalised subject; 2+ = a repeat worth investigating
     const norm = (s) => (s || '').toLowerCase().replace(/[0-9]+/g, '').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
     const recAcc = new Map();
@@ -3794,8 +4043,8 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
       ? (resolved.reduce((s, t) => s + Math.max(0, (new Date(t.resolvedAt) - new Date(t.createdAt))), 0) / resolved.length) / 86400000
       : null;
     // SLA compliance among closed tickets that had a due date: resolved on/before due
-    const closedWithSla = tickets.filter((t) => CLOSED_STATES.includes(t.status) && t.slaDueOn && t.resolvedAt);
-    const met = closedWithSla.filter((t) => t.resolvedAt.slice(0, 10) <= t.slaDueOn).length;
+    const closedWithSla = tickets.filter((t) => CLOSED_STATES.includes(t.status) && (t.slaDueAt || t.slaDueOn) && t.resolvedAt);
+    const met = closedWithSla.filter(slaMet).length;
     const compliance = closedWithSla.length ? Math.round((met / closedWithSla.length) * 100) : null;
     const breaching = tickets.filter((t) => slaState(t) === 'breached').length;
     const atRisk = tickets.filter((t) => slaState(t) === 'at_risk').length;
@@ -3865,9 +4114,13 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
 // The reply being written is the drawer's (`reply` / `onReplyChange`): it is
 // posted with the rest of the ticket's changes when Done is clicked, never on
 // its own - see TicketDrawer's `commit`.
-function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone }) {
+function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone, savedReplies = false, ticket = null, myEmail = '' }) {
   const [rows, setRows] = useState(null);
   const [attaching, setAttaching] = useState(false);
+  const [pickingReply, setPickingReply] = useState(false);
+  // A saved reply lands in the composer, filled in, for editing - added after
+  // whatever is already written, never sent on its own.
+  const insertSaved = (html) => onReplyChange((r) => ({ ...r, body: isEmptyDoc(r.body) ? html : `${r.body || ''}${html}` }));
   const { body, internal } = reply;
   const setBody = (b) => onReplyChange((r) => ({ ...r, body: b }));
   const setInternal = (i) => onReplyChange((r) => ({ ...r, internal: i }));
@@ -3878,13 +4131,22 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
   // reload() above only re-fetches the comment thread, so without this the
   // ticket sitting in TasksContext's own state still held the OLD
   // lastCommentAt, and the badge never cleared after actually commenting
-  // (Pranshu, Sep 17 2026). refresh() re-pulls the ticket list so the drawer
-  // (and every list/board cell showing this ticket) picks up the new value.
-  const { refresh } = useTasks();
+  // (Pranshu, Sep 17 2026). reloadTickets() re-pulls the ticket list - only
+  // the tickets, not the whole task workspace (Oct 2026 review) - so the
+  // drawer (and every list/board cell showing this ticket) picks up the new
+  // value.
+  const { reloadTickets } = useTasks();
   const reload = () => api.getTicketComments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
-  const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); await Promise.all([reload(), refresh()]); };
+  const del = async (c) => {
+    const ok = await appDialog.confirm(`Delete this ${c.internal ? 'internal note' : 'comment'}? It cannot be brought back.`,
+      { title: c.internal ? 'Delete Internal Note' : 'Delete Comment', confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    try { await api.deleteTicketComment(c.id); }
+    catch (e) { appDialog.alert(`Could not delete it: ${e?.message || e}`, { title: 'Not Deleted' }); return; }
+    await Promise.all([reload(), reloadTickets?.()]);
+  };
 
   // Record / attach from the conversation (Pranshu, Oct 6: "if the same issue
   // happens again there's no option to add a recording again"). The file goes
@@ -3895,9 +4157,9 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
     const kind = attachmentKindOf(f);
     let url = '';
     try { url = await uploadTicketEvidence(f, kind); } catch (e) {
-      alert(`"${f.name}" couldn't be stored: ${e?.message || 'upload failed'}.`);
+      appDialog.alert(`"${f.name}" couldn't be stored: ${e?.message || 'upload failed'}.`);
     }
-    await api.addTicketAttachment(ticketId, { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind, url }).catch(() => {});
+    await api.addTicketAttachment(ticketId, { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind, url }).catch(attachFailed(f.name));
     setAttaching(false);
     if (!url) return;
     const text = kind === 'video' ? 'Screen recording' : f.name;
@@ -3918,13 +4180,13 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{nameOf(c.authorId) || c.authorId}</span>
-                    {c.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3 }}><Lock size={10} /> Internal note</span>}
+                    {c.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3 }}><Lock size={10} /> Internal Note</span>}
                     {newSince !== undefined && (c.createdAt || '') > newSince && (
                       <span style={{ ...chip(NX.blue, 'rgba(37,99,235,0.14)'), fontSize: 10.5 }}>New</span>
                     )}
                     <span style={{ fontSize: 11, color: NX.faint }}>{formatDateTime(c.createdAt)}</span>
                     {canDelete && (
-                      <button onClick={() => del(c.id)} title="Delete" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>
+                      <button onClick={() => del(c)} title="Delete" aria-label="Delete comment" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>
                     )}
                   </div>
                   {/* richBodyHtml sanitizes, and wraps a plain-text body (every
@@ -3938,7 +4200,7 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
       </div>
       {/* Public reply vs internal note toggle - the desk's only. */}
       {canInternal && <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-        {[['reply', 'Public reply', false], ['note', 'Internal note', true]].map(([k, lab, isInt]) => (
+        {[['reply', 'Public Reply', false], ['note', 'Internal Note', true]].map(([k, lab, isInt]) => (
           <button key={k} onClick={() => setInternal(isInt)} style={{
             ...btn('ghost'), padding: '5px 10px', fontSize: 12, borderRadius: 7,
             background: internal === isInt ? (isInt ? 'rgba(245,158,11,0.16)' : 'rgba(37,99,235,0.12)') : 'transparent',
@@ -3961,6 +4223,12 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
         <RecordUploadButtons compact disabled={attaching} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
           onFile={attach} onRecordingChange={returnToTicketAfterRecording(ticketId)} />
+        {savedReplies && (
+          <button type="button" onClick={() => setPickingReply(true)}
+            style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <MessageSquareText size={13} /> Saved Replies
+          </button>
+        )}
         {attaching && <Spinner size={14} />}
         <span style={{ fontSize: 11, color: NX.faint }}>Saved to Attachments and linked in your reply. Ctrl+V pastes a screenshot straight into the reply.</span>
       </div>
@@ -3973,6 +4241,10 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
           </span>
         )}
       </div>
+      {pickingReply && (
+        <SavedReplyPicker ticket={ticket} agentEmail={myEmail} nameOf={nameOf}
+          onInsert={insertSaved} onClose={() => setPickingReply(false)} />
+      )}
     </div>
   );
 }
@@ -3980,15 +4252,12 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
 // ── Attachment viewer ────────────────────────────────────────────────────────
 // In-app viewer: images, recordings and PDFs open over the drawer instead of a
 // new tab. z sits ABOVE the ticket modal (4000) and BELOW the recorder pill
-// (6000). Escape is captured so it closes the viewer without also closing the
+// (6000). It is an Escape layer of its own (useEscapeLayer, the same stack
+// every Modal is on), so Escape closes the viewer without also closing the
 // drawer underneath; files with no inline renderer (docx, xlsx…) get a clean
 // download card rather than a broken embed.
 function AttachmentViewer({ att, onClose }) {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
+  useEscapeLayer(() => onClose());
   if (!att) return null;
   const isPdf = /\.pdf($|\?)/i.test(att.name || '') || /\.pdf($|\?)/i.test(att.url || '');
   const body = att.kind === 'image' ? (
@@ -4055,15 +4324,22 @@ function TicketAttachments({ ticketId, ticketType, canDelete = false }) {
     try {
       url = await uploadTicketEvidence(f, kind);
     } catch (e) {
-      alert(`"${f.name}" was recorded but couldn't be stored: ${e?.message || 'upload failed'}. It won't be playable/downloadable.`);
+      appDialog.alert(`"${f.name}" was recorded but couldn't be stored: ${e?.message || 'upload failed'}. It won't be playable/downloadable.`);
     }
-    await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
+    await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(attachFailed(f.name));
     setBusy(false);
     reload();
   };
   const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) sendFile(f); };
   const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
-  const del = async (id) => { await api.deleteTicketAttachment(id).catch(() => {}); reload(); };
+  const del = async (a) => {
+    const ok = await appDialog.confirm(`Remove "${a.name}" from this ticket? It cannot be brought back.`,
+      { title: 'Remove Attachment', confirmText: 'Remove', danger: true });
+    if (!ok) return;
+    try { await api.deleteTicketAttachment(a.id); }
+    catch (e) { appDialog.alert(`Could not remove the attachment: ${e?.message || e}`, { title: 'Not Removed' }); }
+    reload();
+  };
   // Recording from an EXISTING ticket's Attachments tab, mirroring the create
   // form's onRecChange (recordingDraft.js): sendFile already uploads fine
   // even if this component unmounts mid-flight (it's just async API calls,
@@ -4141,7 +4417,7 @@ function TicketAttachments({ ticketId, ticketType, canDelete = false }) {
                 {showActions && (
                   <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', gap: 4 }}>
                     {a.url && <a href={toDownloadUrl(a.url)} download={a.name} title="Download" style={actionBtn}><Download size={12} /></a>}
-                    {canDelete && <button onClick={() => del(a.id)} title="Remove" style={actionBtn}><X size={12} /></button>}
+                    {canDelete && <button onClick={() => del(a)} title="Remove" aria-label={`Remove ${a.name}`} style={actionBtn}><X size={12} /></button>}
                   </div>
                 )}
               </div>
@@ -4251,6 +4527,22 @@ function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
         if (a.type === 'comment_deleted') {
           try { removed = JSON.parse(a.detail); } catch { /* plain-text row */ }
         }
+        // Default assignee (Oct 2026): written by Nexus, not by a person, so
+        // the line is the sentence itself - "Assigned to Sam Patel
+        // automatically (help topic: Printer or Scanner)".
+        if (a.type === 'auto_assigned' || a.type === 'auto_assign_gap') {
+          const gap = a.type === 'auto_assign_gap';
+          return (
+            <div key={a.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+              <span aria-hidden style={{ width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center', flexShrink: 0,
+                background: gap ? 'rgba(245,158,11,0.16)' : NX.surface2, color: gap ? NX.amber : NX.dim }}>
+                {gap ? <AlertTriangle size={12} /> : <Zap size={12} />}
+              </span>
+              <span style={{ color: gap ? NX.amber : NX.dim, fontWeight: gap ? 600 : 400 }}>{a.detail}</span>
+              <span style={{ color: NX.faint, marginLeft: 'auto', fontSize: 11, whiteSpace: 'nowrap' }}>{formatDateTime(a.at)}</span>
+            </div>
+          );
+        }
         return (
           <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
@@ -4283,7 +4575,9 @@ function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
 // picker instead - routed through the same onMove (TicketsView's guardedUpdate)
 // a drop uses, so moving to Resolved/Closed still asks for the resolution.
 // Columns narrow to leave the next one peeking in and snap as they scroll.
-function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false }) {
+// `canMove(t)`: the drawer's status gate (ticketRights.canEditStatus) - a card
+// someone may not move is neither draggable nor offered a Move To picker.
+function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false, canMove = () => true }) {
   const [dragId, setDragId] = useState(null);
   const [over, setOver] = useState(null);
   return (
@@ -4296,7 +4590,11 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false }) {
           <div key={s}
             onDragOver={(e) => { e.preventDefault(); setOver(s); }}
             onDragLeave={() => setOver((o) => (o === s ? null : o))}
-            onDrop={() => { if (dragId) onMove(dragId, s); setDragId(null); setOver(null); }}
+            onDrop={() => {
+              const dragged = dragId && tickets.find((x) => x.id === dragId);
+              if (dragged && dragged.status !== s) onMove(dragId, s);
+              setDragId(null); setOver(null);
+            }}
             style={{ width: mobile ? 'min(260px, 82vw)' : 260, flexShrink: 0, background: over === s ? `${m.color}12` : NX.surface2, border: `1px solid ${over === s ? m.color : NX.border}`, borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 8,
               ...(mobile ? { scrollSnapAlign: 'start', boxSizing: 'border-box' } : null) }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px' }}>
@@ -4304,9 +4602,13 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false }) {
               <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{m.label}</span>
               <span style={{ fontSize: 12, color: NX.faint, marginLeft: 'auto' }}>{col.length}</span>
             </div>
-            {col.slice(0, 100).map((t) => (
-              <div key={t.id} draggable={!mobile} onDragStart={mobile ? undefined : () => setDragId(t.id)} onDragEnd={mobile ? undefined : () => setDragId(null)} onClick={() => onOpen(t.id)}
-                style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 10, cursor: mobile ? 'pointer' : 'grab', opacity: dragId === t.id ? 0.5 : 1, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+            {col.slice(0, 100).map((t) => {
+              const movable = canMove(t);
+              const drag = !mobile && movable;
+              return (
+              <div key={t.id} draggable={drag} onDragStart={drag ? () => setDragId(t.id) : undefined} onDragEnd={drag ? () => setDragId(null) : undefined} onClick={() => onOpen(t.id)}
+                title={!mobile && !movable ? 'You cannot change this ticket\'s status' : undefined}
+                style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 10, cursor: drag ? 'grab' : 'pointer', opacity: dragId === t.id ? 0.5 : 1, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <TicketTypeIcon type={t.type} size={14} />
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: NX.faint }}>{ticketNoShort(t.code)}</span>
@@ -4319,7 +4621,7 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false }) {
                   </span>
                   {t.assigneeId && <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />}
                 </div>
-                {mobile && (
+                {mobile && movable && (
                   // A native select: the phone's own picker, which no column or
                   // scroller can clip. Clicks stop here so they never open the card.
                   <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -4332,9 +4634,10 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false }) {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
             {col.length > 100 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '6px 0' }}>+ {col.length - 100} more - filter to narrow down</div>}
-            {col.length === 0 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '10px 0' }}>-</div>}
+            {col.length === 0 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '10px 0' }}>No tickets</div>}
           </div>
         );
       })}

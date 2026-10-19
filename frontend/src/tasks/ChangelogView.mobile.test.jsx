@@ -11,6 +11,7 @@ vi.mock('../api', () => ({
   },
 }));
 vi.mock('../contexts/RoleContext', () => ({
+  MODULES: [{ id: 'tickets', label: 'Tickets' }, { id: 'tasks', label: 'Tasks' }],
   useRole: () => ({ myEmail: 'admin@greensglobal.com', can: () => true }),
 }));
 vi.mock('./components', async (importOriginal) => ({ ...(await importOriginal()), useIsMobile: () => true }));
@@ -40,7 +41,9 @@ describe("What's New on a phone", () => {
     await screen.findByText('First fix');
     expect(screen.getByRole('button', { name: 'Add New Update' }).textContent).toBe('Add');
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(["What's New", 'Timeline', 'Versions', 'Manage1']);
+    // Version History is part of the Timeline, Manage a header button (Oct 16 2026).
+    expect(tabs.map((t) => t.textContent)).toEqual(['Latest', 'Timeline']);
+    expect(screen.getByRole('button', { name: 'Manage' }).textContent).toBe('Manage1');
     expect(tabs[0].querySelector('svg')).toBeNull();
   });
 
@@ -66,7 +69,7 @@ describe("What's New on a phone", () => {
 
   it('Manage rows keep labelled 40px edit and delete targets', async () => {
     render(<Changelog />);
-    fireEvent.click(await screen.findByRole('tab', { name: /Manage/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage' }));
     const edit = await screen.findByRole('button', { name: 'Edit First fix' });
     expect(edit.style.width).toBe('40px');
     expect(within(edit.parentElement).getByRole('button', { name: 'Delete First fix' })).toBeTruthy();

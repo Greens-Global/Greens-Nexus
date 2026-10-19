@@ -73,3 +73,31 @@ export function restoreRequestBody(body) {
     try { return decodeURIComponent(enc); } catch { return whole; }
   });
 }
+
+/** May a rich-text body (comment, description) load this image? Only our own
+ * storage: the Supabase project's storage URLs (canonical or signed), the
+ * /files/view viewer (as VIEW_PREFIX itself - relative behind the BFF - or
+ * that path on this page's own origin, an image copied from another Nexus
+ * page), and an inline data: image (a paste that has not been stored yet, or
+ * whose upload failed). Never any other same-origin path - an <img> loads
+ * with the session cookie, so /api/auth/logout would sign the reader out -
+ * and never anything with a backslash, which browsers read as a slash
+ * ("/\evil.com" is another site). Anything else is a remote image that would
+ * load for every reader the moment the body renders (a tracking pixel), so
+ * sanitizeRichHtml shows it as a link instead. */
+export function isOwnImageUrl(u) {
+  const s = String(u || '').trim();
+  if (!s || s.includes('\\')) return false;
+  if (/^data:image\//i.test(s)) return true;
+  if (SUPABASE_URL && s.startsWith(`${SUPABASE_URL}/storage/v1/`)) return true;
+  if (s.startsWith(VIEW_PREFIX)) return true;
+  // The viewer's path on this page's own origin, absolute.
+  const origin = typeof window !== 'undefined' && window.location ? window.location.origin : '';
+  return !!origin && s.startsWith(`${origin}${VIEWER_PATH}`);
+}
+// VIEW_PREFIX's path and query start ("/api/files/view?u=" behind the BFF,
+// "/files/view?u=" otherwise).
+const VIEWER_PATH = (() => {
+  if (VIEW_PREFIX.startsWith('/')) return VIEW_PREFIX;
+  try { const p = new URL(VIEW_PREFIX); return `${p.pathname}${p.search}`; } catch { return VIEW_PREFIX; }
+})();

@@ -20,6 +20,7 @@ vi.mock('../lib/peoplePhotos', () => ({
   usePhotoMap: () => ({ 'pranshu.pandey@greensglobal.com': 'https://example.test/pranshu.jpg' }),
 }));
 vi.mock('../contexts/RoleContext', () => ({
+  MODULES: [{ id: 'tickets', label: 'Tickets' }, { id: 'tasks', label: 'Tasks' }],
   useRole: () => ({ myEmail: 'admin@greensglobal.com', can: () => true }),
 }));
 
@@ -41,7 +42,8 @@ beforeEach(() => {
 
 async function openManage() {
   render(<Changelog />);
-  fireEvent.click(await screen.findByRole('tab', { name: /Manage/ }));
+  // Manage is a header button, not a tab (Pranshu, Oct 16 2026).
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage' }));
 }
 
 describe("What's New automatic publishing status", () => {
@@ -120,12 +122,18 @@ describe("What's New automatic publishing status", () => {
     }]);
     render(<Changelog />);
     expect(await screen.findByText('One update')).toBeTruthy();
-    // The row holds exactly the two columns - the day label is above it, not
-    // inside the cards' column where it pushed the first card down.
+    // The row holds exactly the two columns, and each starts with the same
+    // 20px line - the day label on the left, the count on the right (Oct 16
+    // 2026: pinned updates live in the left column too, so the summary is not
+    // pushed below them). The first card and the summary start level.
     const row = document.querySelector('[data-whats-new-row]');
     expect(row.children.length).toBe(2);
-    expect(row.children[0].textContent).not.toMatch(/^(Today|Yesterday)/i);
-    expect(row.children[1].textContent).toMatch(/^Activity Summary/);
+    const [left, right] = row.children;
+    expect(left.firstElementChild.hasAttribute('data-col-label')).toBe(true);
+    expect(right.firstElementChild.hasAttribute('data-col-label')).toBe(true);
+    expect(left.firstElementChild.style.height).toBe(right.firstElementChild.style.height);
+    expect(right.firstElementChild.textContent).toBe('1 Update');
+    expect(right.children[1].textContent).toMatch(/^Activity Summary/);
   });
 
   it("What's New shows the whole latest release day, so a hand-written note isn't pushed off", async () => {

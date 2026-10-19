@@ -19,12 +19,14 @@ import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
+import { dialog } from '../ui/dialog';
 import { getPosition, punchPosition } from '../lib/geoPosition';
 import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 import { formatDistance, formatAccuracy } from '../lib/distance';
+import { LeaveBalanceCard, RequestBalanceHint, useMyLeaveBalance } from '../components/LeaveBalances';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
 import { useActionCounts, withBadges, tabCount } from '../lib/useActionCounts';
@@ -71,7 +73,8 @@ const TAB_META = {
 // 'timecard' is what the timesheet review bells (sent back, finalized,
 // unlocked) carry for the employee - that is the Time Sheet tab (Oct 16: it
 // used to fall through to Overview).
-const tabFor = (sub) => (sub === 'clock' || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
+// "reimbursements" (a reimbursement bell, Oct 18 2026) is the Overview with its panel open.
+const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
   : sub === 'timecard' ? 'timesheet' : sub);
 // "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
 const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
@@ -159,6 +162,20 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
        row: chip, then number / label / hint, then the arrow. */
     .wd-statgrid { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
     .wd-statgrid--nohours { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    /* Ask HR + Reimbursements (Oct 18 2026): two compact rows sharing the last
+       cell, so neither squeezes the row to "Document..." - the same tile look,
+       a smaller badge, no pill. */
+    .wd-actions { display: grid; grid-template-rows: 1fr 1fr; gap: 8px; min-width: 0; }
+    .wd-actions > .dk-stat.wd-stat.wd-askhr { padding: 8px 12px; gap: 10px; min-height: 0; box-shadow: 0 3px 10px rgba(43, 69, 225, .08); }
+    .wd-actions > .dk-stat.wd-stat.wd-askhr::after { width: 64px; height: 64px; right: -22px; top: -22px; }
+    .wd-actions .wd-askhr-badge { width: 30px; height: 30px; border-radius: 9px; box-shadow: 0 3px 8px rgba(43, 69, 225, .25); }
+    .wd-actions .wd-askhr-badge svg { width: 15px; height: 15px; }
+    .wd-actions .wd-askhr-dot { top: -3px; right: -3px; width: 9px; height: 9px; }
+    .wd-actions .wd-askhr-title { font-size: 13.5px; }
+    .wd-actions .wd-askhr-sub { font-size: 11px; margin-top: 1px; }
+    .wd-actions .wd-askhr-cta { display: none; }
+    .wd-actions .wd-askhr-go { margin-left: auto; flex-shrink: 0; color: var(--muted); transition: transform .15s ease, color .15s ease; }
+    .wd-actions .wd-askhr:hover .wd-askhr-go { color: var(--wk-brand, #2b45e1); transform: translateX(2px); }
     /* Ask HR tile (Oct 15 2026): a light echo of the hero's gradient so it reads
        as the place to go for HR, with a solid badge and a call-to-action pill. */
     .dk-stat.wd-stat.wd-askhr { position: relative; overflow: hidden; border: 1px solid rgba(43, 69, 225, .18);
@@ -194,7 +211,9 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
       /* The hero spans the row, so an even child count leaves the last tile alone
          beside an empty cell (Ask HR, cut to "Documents, profile ch...") - it takes the row. */
       .wd-statgrid > .wd-hero ~ :last-child:nth-child(even),
-      .wd-statgrid--nohours > :last-child:nth-child(odd) { grid-column: 1 / -1; } }
+      .wd-statgrid--nohours > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+      /* On their own full-width row the two sit side by side. */
+      .wd-actions { grid-template-rows: none; grid-template-columns: 1fr 1fr; } }
     @media (max-width: 600px) {
       .wd-statgrid { grid-template-columns: 1fr 1fr; gap: 10px; }
       .wd-hero .dk-stat-sub { display: block; }
@@ -482,6 +501,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // Held past the address rewrite below (it goes back to plain 'overview').
   const [focusConfirm, setFocusConfirm] = useState(() => confirmOf(activeSub));
   useEffect(() => { const c = confirmOf(activeSub); if (c) setFocusConfirm(c); }, [activeSub]);
+  // A reimbursement bell lands on "reimbursements": open that panel (Oct 18 2026).
+  const [openReimb, setOpenReimb] = useState(() => activeSub === 'reimbursements');
+  useEffect(() => { if (activeSub === 'reimbursements') { setOpenReimb(true); window.dispatchEvent(new CustomEvent('nexus:open-reimbursements')); } }, [activeSub]);
   const [tab, setTab] = useState(() => {
     const t = tabFor(activeSub) || tabFor(initialTab);
     return TAB_META[t] ? t : 'overview';
@@ -490,7 +512,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const t = tabFor(activeSub);
     if (TAB_META[t] && t !== tab) setTab(t);
     // An old 'clock' or 'shifts' address already shows Overview - rewrite it to say so.
-    else if ((activeSub === 'clock' || /^shifts(:|$)/.test(activeSub || '')) && onSubChange) onSubChange(tab);
+    else if ((activeSub === 'clock' || activeSub === 'reimbursements' || /^shifts(:|$)/.test(activeSub || '')) && onSubChange) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
@@ -526,15 +548,34 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // stack fresh when one is created (a timeclock-changed event fires on success).
   const loadMyRequests = useCallback(() => { api.timeMyPunchRequests().then(setMyReqs).catch(() => {}); }, []);
   // Decided requests (approved/rejected) can be dismissed once the employee has
-  // seen them; pending ones stay until decided. Dismissals persist per-browser.
-  const [dismissedReqs, setDismissedReqs] = useState(() => {
+  // seen them; pending ones can be cancelled. Dismissals are saved on the
+  // server (Miranda, Oct 18: a browser-only dismissal came back on every
+  // login); the old browser list still hides what it hid before.
+  const [dismissedReqs] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem('nx-timereq-dismissed') || '[]')); } catch { return new Set(); }
   });
-  const dismissReq = (id) => setDismissedReqs(prev => {
-    const n = new Set(prev); n.add(id);
-    try { localStorage.setItem('nx-timereq-dismissed', JSON.stringify([...n])); } catch { /* ignore */ }
-    return n;
-  });
+  const [reqBusy, setReqBusy] = useState('');
+  const dismissReq = (id) => {
+    setMyReqs(rs => rs.map(r => (r.id === id ? { ...r, dismissed: true } : r)));
+    api.timeDismissPunchRequest(id).catch(() => loadMyRequests());
+  };
+  const dismissAllReqs = () => {
+    setMyReqs(rs => rs.map(r => (r.status !== 'pending' ? { ...r, dismissed: true } : r)));
+    api.timeDismissDecidedPunchRequests().catch(() => loadMyRequests());
+  };
+  const cancelReq = async (r) => {
+    const what = r.action === 'add' ? `the ${(KIND_LABEL[r.punchKind] || r.punchKind).toLowerCase()} at ${localTime(r.at)}` : 'this punch removal';
+    if (!await dialog.confirm(`Cancel your request for ${what}? Nothing on your time sheet changes.`,
+      { title: 'Cancel Request', confirmText: 'Cancel Request', cancelText: 'Keep It', danger: true })) return;
+    setReqBusy(r.id);
+    try {
+      await api.timeCancelPunchRequest(r.id);
+      toast(true, 'Request cancelled.');
+      window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+    } catch (e) { toast(false, e?.message || 'Could not cancel the request.'); }
+    setReqBusy('');
+    loadMyRequests();
+  };
   const [, setTick] = useState(0);             // re-render for the live timer
   useEffect(() => { loadMyRequests(); }, [loadMyRequests]);
   const msgTimer = useRef(null);
@@ -644,9 +685,15 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // backend only accepts on a single day, so start/end date stay locked
   // together while it's off.
   const [toForm, setToForm] = useState({ type: 'personal', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
+  // Past dates are grayed out by default (Neil, Oct 18 2026); "Request for a
+  // Past Date" opens them for a request someone missed filing on time.
+  const [toPast, setToPast] = useState(false);
+  const toToday = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; })();
   const [toBusy, setToBusy] = useState(false);
   const [toCancelling, setToCancelling] = useState(null);
   useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
+  // Paid leave balances (Oct 19 2026) - shown once HR has set them up.
+  const [leaveBal, reloadLeaveBal] = useMyLeaveBalance();
   // The admins' requests on/off switch (Sep 29, Shifts settings). The
   // reasons themselves are the fixed REQUEST_TIMEOFF_TYPES list (Neil, Oct 1).
   const [toTypes, setToTypes] = useState(null);
@@ -674,6 +721,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   async function submitTimeoff() {
     if (toBusy) return;
     if (!toForm.start || !toForm.end) { toast(false, 'Pick the start and end dates.'); return; }
+    if (!toPast && toForm.start < toToday) { toast(false, 'That date has passed. Choose "Request for a Past Date" to ask for it anyway.'); return; }
     const st = toPartialOk ? toForm.startTime : '';
     const et = toPartialOk ? toForm.endTime : '';
     if (!toForm.allDay && (!st || !et)) { toast(false, 'Set the start and end times, or switch All day back on.'); return; }
@@ -687,6 +735,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       toast(true, 'Time-off request sent - your manager gets a notification.');
       setToForm({ type: 'personal', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
       api.timeOffMine().then(setTimeoff).catch(() => {});
+      reloadLeaveBal();
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
     setToBusy(false);
   }
@@ -698,6 +747,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       await api.timeOffCancel(id);
       toast(true, 'Request cancelled.');
       api.timeOffMine().then(setTimeoff).catch(() => {});
+      reloadLeaveBal();
     } catch (e) { toast(false, e?.message || 'Could not cancel the request.'); }
     setToCancelling(null);
   }
@@ -1295,7 +1345,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Nexus Sign documents waiting on me, signed here (Oct 18) - Documents needs a grant. */}
       {tab === 'overview' && <DocumentsToSign focusParty={signOf(activeSub)} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'overview' && (
-        <MyHROverview focusConfirm={focusConfirm} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
+        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
       {/* Timesheets submitted to me, not decided yet - above my own timesheet,
@@ -1319,12 +1369,30 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           My pending/decided punch requests sit above it: add/remove requests don't
           appear in the grid until approved, so this is the only place they show.
           Decided ones can be dismissed once seen; pending ones stay until decided. */}
-      {(() => {
-        const visible = myReqs.filter(r => r.status === 'pending' || !dismissedReqs.has(r.id));
+      {/* Each request shows on the pay period it belongs to (Neil, Oct 18
+          2026: six requests for last period sat on the current one) - the
+          time sheet calls this with the period on screen, under its approve
+          and sign panel. A request with no date shows on the current period. */}
+      <PayrollTimecard selfMode toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} selfTop={(pStart, pEnd) => {
+        const now = new Date();
+        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const day = (r) => r.localDate || today;
+        const inPeriod = (r) => day(r) >= pStart && day(r) <= pEnd;
+        const visible = myReqs.filter(r => r.status !== 'cancelled'
+          && (r.status === 'pending' || !(r.dismissed || dismissedReqs.has(r.id))) && inPeriod(r));
         if (!visible.length) return null;
+        const decidedCount = visible.filter(r => r.status !== 'pending').length;
         return (
         <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {visible.slice(0, 8).map(r => {
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)' }}>Change Requests This Period</span>
+            <span style={{ flex: 1 }} />
+            {decidedCount > 1 && (
+              <button onClick={dismissAllReqs} title="Clear every approved and rejected request from this list"
+                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11.5, fontWeight: 700, padding: '2px 4px' }}>Clear All</button>
+            )}
+          </div>
+          {visible.slice(0, 20).map(r => {
             const c = r.status === 'approved' ? 'hsl(var(--color-green))'
               : r.status === 'rejected' ? 'hsl(var(--color-red))' : '#b45309';
             const tint = r.status === 'approved' ? 'hsla(var(--color-green),0.1)'
@@ -1338,6 +1406,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               <div key={r.id}
                 style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5, padding: '8px 12px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10 }}>
                 <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'capitalize', color: c, background: tint, padding: '2px 10px', borderRadius: 999, flexShrink: 0 }}>{r.status}</span>
+                {r.localDate && <span style={{ color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{formatWeekday(r.localDate + 'T12:00:00')} {formatDate(r.localDate + 'T12:00:00')}</span>}
                 <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{r.action === 'add' ? `Add ${(KIND_LABEL[r.punchKind] || r.punchKind).toLowerCase()}${when}` : 'Remove a punch'}</span>
                 {r.reason && <span style={{ color: 'var(--muted)' }}>Your reason: “{r.reason}”</span>}
                 {r.status === 'rejected' && r.decisionNote && <span style={{ color: 'hsl(var(--color-red))' }}>Approver: “{r.decisionNote}”</span>}
@@ -1345,21 +1414,30 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 {decided
                   ? <button onClick={() => dismissReq(r.id)} title="Dismiss" aria-label="Dismiss this request"
                       style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', padding: 2, flexShrink: 0 }}><X size={14} /></button>
-                  : <span style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic', flexShrink: 0 }}>waiting for approver</span>}
+                  : <>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic', flexShrink: 0 }}>waiting for approver</span>
+                      {/* Take a request back while it's pending (Miranda, Oct 18: one
+                          filed by mistake blocked the right one as "already asked"). */}
+                      <button onClick={() => cancelReq(r)} disabled={reqBusy === r.id} title="Cancel this request"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', flexShrink: 0,
+                          cursor: reqBusy === r.id ? 'default' : 'pointer', fontSize: 11, fontWeight: 700, color: '#b91c1c',
+                          padding: '2px 6px', opacity: reqBusy === r.id ? 0.5 : 1 }}>
+                        {reqBusy === r.id ? <Spinner size={11} /> : <X size={11} />} Cancel
+                      </button>
+                    </>}
               </div>
             );
           })}
         </div>
         );
-      })()}
-
-      <PayrollTimecard selfMode toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />
+      }} />
       </>)}
 
 
       {/* Time off */}
 
       {tab === 'timeoff' && (<>
+      <LeaveBalanceCard balance={leaveBal} />
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 14 }}>
           <span className="wkc-chip"><CalendarDays size={14} /></span>
@@ -1381,13 +1459,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               </div>
               <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
                 <span style={TO_LBL}>From</span>
-                <input className="form-input" type="date" value={toForm.start}
+                <input className="form-input" type="date" value={toForm.start} min={toPast ? undefined : toToday}
                   onChange={e => setToForm(f => ({ ...f, start: e.target.value, end: f.allDay ? (f.end && f.end >= e.target.value ? f.end : e.target.value) : e.target.value }))}
                   style={{ fontSize: 12.5, minWidth: 0 }} />
               </label>
               <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
                 <span style={TO_LBL}>To</span>
-                <input className="form-input" type="date" value={toForm.end} disabled={!toForm.allDay} min={toForm.start || undefined}
+                <input className="form-input" type="date" value={toForm.end} disabled={!toForm.allDay} min={toForm.start || (toPast ? undefined : toToday)}
                   title={toForm.allDay ? undefined : 'A specific-hours request is single-day only'}
                   onChange={e => setToForm(f => ({ ...f, end: e.target.value }))}
                   style={{ fontSize: 12.5, minWidth: 0, opacity: toForm.allDay ? 1 : 0.55 }} />
@@ -1399,6 +1477,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 All day
               </label>
             </div>
+            <button type="button" onClick={() => setToPast(p => !p)}
+              style={{ justifySelf: 'start', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--wk-brand)' }}>
+              {toPast ? 'Only Upcoming Dates' : 'Request for a Past Date'}
+            </button>
+
+            <RequestBalanceHint balance={leaveBal} type={toForm.type}
+              hours={toPartialOk ? toTotalHours : toTotalDays * (Number(leaveBal?.policy?.hoursPerDay) || 8)} />
 
             {/* Specific hours: only offered on a one-day range, since that's
                 all the backend accepts a start/end time on. */}
