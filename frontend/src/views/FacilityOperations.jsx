@@ -7,7 +7,7 @@
 // is instant. Nexus only reads - payments, leases and tenant edits stay in
 // Cubby, and each tenant row links there.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
@@ -19,6 +19,7 @@ import RateManagement from '../operations/RateManagement';
 import Reports from '../operations/Reports';
 import Lookup from '../operations/Lookup';
 import SyncStatus from '../operations/SyncStatus';
+import Revenue from '../operations/Revenue';
 import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
 
@@ -32,7 +33,11 @@ const TABS = [
   { key: 'worklist',    label: 'Worklist',        Icon: ListChecks },
   { key: 'market',      label: 'Rate Management', Icon: Scale },
   { key: 'reports',     label: 'Reports',         Icon: FileSpreadsheet },
+  // Rent changes for existing tenants (Neil, Oct 20) - managers and admins, or an Operations Full grant.
+  { key: 'revenue',     label: 'Revenue Management', Icon: TrendingUp },
 ];
+// Tabs that pick one facility themselves and are not about a period.
+const NO_PERIOD = new Set(['market', 'revenue']);
 // Market Rates keeps its own records and compares one facility at a time, so
 // the period and the "as of today" note do not apply to it.
 const TAB_KEYS = new Set(TABS.map((t) => t.key));
@@ -73,6 +78,8 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   // Only managers and above are told about the missing key; everyone sees the delayed chip.
   const role = useRole();
   const canSeeKeyHint = role?.can?.('manager') ?? false;
+  const canRevenue = role?.canAccessModule ? role.canAccessModule('operations', 'manager', 'full') : canSeeKeyHint;
+  const tabs = canRevenue ? TABS : TABS.filter((t) => t.key !== 'revenue');
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;   // StrictMode mounts twice; the second mount must turn it back on
@@ -128,7 +135,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
+      <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} />
 
       <div className="view-header">
         <div className="view-title-group">
@@ -182,7 +189,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
             </div>}
             <div className="ops-bar-right">
               <Lookup />
-              {sub !== 'market' && (
+              {!NO_PERIOD.has(sub) && (
                 <label className="ops-period">
                   <span>Period</span>
                   <select value={period} onChange={(e) => setPeriod(e.target.value)}>
@@ -192,7 +199,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
               )}
             </div>
           </div>
-          {sub !== 'market' && (
+          {!NO_PERIOD.has(sub) && (
             <p className="ops-note">
               Occupancy, rent and balances are as of today. Move-ins, collections and failed payments cover {range.label.toLowerCase()} ({formatDate(range.from)} - {formatDate(range.to)}).
             </p>
@@ -205,6 +212,9 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {sub === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
           {sub === 'market' && <RateManagement facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />}
           {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} />}
+          {sub === 'revenue' && (canRevenue
+            ? <Revenue facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />
+            : <div className="dash-card"><div className="ops-empty">Revenue Management is for managers and administrators.</div></div>)}
         </div>
       )}
     </div>

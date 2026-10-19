@@ -2513,6 +2513,21 @@ export const api = {
   // Operations (Oct 20): the words that make a Cubby unit type a mailbox or a switched-off record.
   getOpsUnitClasses:  ()     => req('/facility-ops/unit-classes'),
   saveOpsUnitClasses: (data) => req('/facility-ops/unit-classes', { method: 'PUT', body: JSON.stringify(data) }),
+  // Operations > Revenue Management (Oct 20): rent changes for existing tenants.
+  opsRevenueTenants:    (facilityId) => req(`/facility-ops/revenue/tenants?facility_id=${encodeURIComponent(facilityId)}`),
+  opsRevenueStrategies: () => req('/facility-ops/revenue/strategies'),
+  opsRevenueSaveStrategy: (id, data) => req(id ? `/facility-ops/revenue/strategies/${encodeURIComponent(id)}` : '/facility-ops/revenue/strategies', { method: id ? 'PUT' : 'POST', body: JSON.stringify(data) }),
+  opsRevenueArchiveStrategy: (id) => req(`/facility-ops/revenue/strategies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  opsRevenuePreview:    (data) => req('/facility-ops/revenue/preview', { method: 'POST', body: JSON.stringify(data) }),
+  opsRevenueCreateBatch: (data) => req('/facility-ops/revenue/batches', { method: 'POST', body: JSON.stringify(data) }),
+  opsRevenueBatches:    (facilityId) => req(`/facility-ops/revenue/batches?facility_id=${encodeURIComponent(facilityId || '')}`),
+  opsRevenueBatch:      (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}`),
+  opsRevenueSetStatus:  (id, status, note = '') => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/status`, { method: 'POST', body: JSON.stringify({ status, note }) }),
+  opsRevenueRemoveChange: (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}`, { method: 'DELETE' }),
+  opsRevenuePush:       (id, cid, useCubbyDate = false) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/push`, { method: 'POST', body: JSON.stringify({ use_cubby_date: useCubbyDate }), timeoutMs: 60_000 }),
+  opsRevenueEntered:    (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/entered`, { method: 'POST' }),
+  opsRevenueExport:     (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/export`),
+  opsRevenueLetters:    (id) => reqBlob(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/letters.pdf`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
