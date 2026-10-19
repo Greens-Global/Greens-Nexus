@@ -6199,6 +6199,10 @@ class NexusPersonPref(Base):
     # The per-person salt in their calendar subscribe link (routers/
     # shift_ical.py): rotating it invalidates every link issued before.
     ical_salt   = Column(String, default="")
+    # Ticket Reports (Oct 2026, ticket_reports.py): 1 = the Monday Weekly
+    # Ticket Report email reaches them (when they supervise the desk and the
+    # desk-wide switch is on); 0 = they opted out. ALTER lines in main.py.
+    ticket_weekly_report = Column(Integer, default=1)
 
 
 class TaskAutomationRun(Base):
@@ -6894,3 +6898,23 @@ class LeaveLedgerEntry(Base):
     note           = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+class TicketReportEmailLog(Base):
+    """One row per person per reported week a Weekly Ticket Report email was
+    claimed (ticket_reports.py, Oct 2026) - written BEFORE the send and unique
+    on (recipient, week_start), so a restart or a second worker can never send
+    the same week twice. New table - create_all builds it; RLS line in main.py
+    plus the _enable_rls_everywhere sweep."""
+    __tablename__ = "ticket_report_email_log"
+    __table_args__ = (UniqueConstraint("recipient", "week_start", name="uq_ticket_report_email_week"),)
+    id            = Column(String, primary_key=True)   # uuid
+    recipient     = Column(String, nullable=False, index=True)
+    week_start    = Column(String, nullable=False, index=True)   # the reported Monday, YYYY-MM-DD
+    status        = Column(String, default="sending")  # sending | sent | failed | empty
+    sent_at       = Column(String, default="")         # UTC iso; '' when nothing was mailed
+    error         = Column(String, default="")
+    created_count = Column(Integer, default=0)
+    resolved_count = Column(Integer, default=0)
+    open_count    = Column(Integer, default=0)
+    created_at    = Column(String, default="")
