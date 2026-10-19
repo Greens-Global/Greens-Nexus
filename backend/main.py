@@ -3856,6 +3856,8 @@ from routers import ca_breaks as ca_breaks_router  # noqa: E402
 app.include_router(ca_breaks_router.router)          # CA meal / rest premium lines + the meal waiver in Nexus Sign (Neil, 10/17)
 from routers import ca_review as ca_review_router  # noqa: E402
 app.include_router(ca_review_router.router)          # People > Time > Payroll: California Review - CA-rule flags for HR (Neil, 10/18)
+from routers import action_counts  # noqa: E402
+app.include_router(action_counts.router)             # What is waiting on me: the sidebar red dots and tab counts (Pranshu, 10/18)
 from routers import changelog_extras  # noqa: E402
 app.include_router(changelog_extras.router)          # What's New: following + digest, private RSS feed, screen hints, feedback, history, bulk, insights (Oct 16)
 from routers import changelog_lifecycle  # noqa: E402

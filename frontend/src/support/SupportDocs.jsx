@@ -2,15 +2,24 @@
 //
 // Content lives in docsContent.js (one entry per left-nav module); the
 // pictures are drawn wireframes from DocShots.jsx, not captured screenshots.
-// Layout: a grouped module index on the left (a dropdown on phones), the
-// selected module's article on the right. Each article reads top to bottom:
-// what it is for, a picture, step-by-step walkthroughs (every step is one
-// action, so the count on each card is the click count), every feature, what
-// managers/admins get, and tips.
+//
+// Layout (Oct 19 2026 redesign - the three-column card grid of long steps read
+// as clutter): a reading page, not a dashboard.
+//   THESIS      One reading column. How-tos are a list of questions opened one
+//               at a time into a vertical stepper; features are a definition
+//               table. No card grids.
+//   OWN-WORLD   Nexus tokens (--card / --line / --ink / --muted / --wk-brand),
+//               hairline dividers instead of boxes, brand only for the current
+//               page, the open how-to and step markers.
+//   STORY       Find the module, scan "how do I", open one, follow the steps,
+//               glance at the feature table, read what managers get.
+//   VIEWPORT    Module rail left (sticky), the page in the middle (title,
+//               tagline, Where / Who facts, Open), On This Page right with the
+//               current section lit as you scroll.
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Search, ArrowUpRight, ChevronLeft, ChevronRight, CheckCircle2, MousePointerClick,
-  ShieldCheck, Lightbulb, MapPin, UserCheck, BookOpen, X, Rocket,
+  Search, ArrowUpRight, ArrowLeft, ArrowRight, ChevronLeft, ChevronDown, Check,
+  ShieldCheck, Lightbulb, BookOpen, X, Rocket,
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark, Users,
   Megaphone, Gauge, KeyRound, HelpCircle, Settings, Handshake, Receipt,
@@ -36,7 +45,6 @@ const ICONS = {
   Users, Megaphone, Gauge, KeyRound, HelpCircle, Settings, Handshake, Receipt,
 };
 
-const BRAND = 'var(--wk-brand, #2b45e1)';
 const LAST_KEY = 'nexus-support-docs-last';
 
 // Everything searchable about an entry, lowercased once.
@@ -55,197 +63,209 @@ function writeLast(id) {
   try { localStorage.setItem(LAST_KEY, id); } catch { /* private window - fine */ }
 }
 
-function SectionTitle({ children, icon: Icon }) {
-  return (
-    <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px', fontSize: 15, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
-      {Icon && <Icon size={16} style={{ color: BRAND }} />}{children}
-    </h3>
-  );
+// A step reads as an instruction plus detail: its first sentence (or the part
+// before a colon) is the action, the rest is the explanation. Short steps are
+// all action.
+const LEAD = /^(.{8,150}?[.:!?])\s+(?=["'(A-Z0-9])/;
+function splitStep(s) {
+  const m = LEAD.exec(s);
+  return m ? [m[1], s.slice(m[0].length)] : [s, ''];
 }
 
-function StepNumber({ n }) {
+function SectionHeading({ id, children, aside }) {
   return (
-    <span style={{
-      flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: BRAND, color: '#fff',
-      fontSize: 11.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1,
-    }}>{n}</span>
-  );
-}
-
-function Walkthrough({ w, id }) {
-  return (
-    <div id={id} className="docs-card" style={{ display: 'flex', flexDirection: 'column', gap: 12, scrollMarginTop: 90 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <div style={{ flex: 1, fontWeight: 700, fontSize: 14, color: 'var(--ink)', lineHeight: 1.35 }}>{w.title}</div>
-        <span title="Each step is one action" style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0, fontSize: 11, fontWeight: 700,
-          color: BRAND, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 999, padding: '3px 9px',
-        }}>
-          <MousePointerClick size={12} /> {w.steps.length} {w.steps.length === 1 ? 'Step' : 'Steps'}
-        </span>
-      </div>
-      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {w.steps.map((s, i) => (
-          <li key={i} style={{ display: 'flex', gap: 10, fontSize: 13, lineHeight: 1.55, color: 'var(--ink)' }}>
-            <StepNumber n={i + 1} /><span>{s}</span>
-          </li>
-        ))}
-      </ol>
+    <div className="docs-h3-row">
+      <h3 id={id} className="docs-h3">{children}</h3>
+      {aside}
     </div>
   );
 }
 
-function Article({ doc, onPrev, onNext, prev, next }) {
+function Steps({ steps }) {
+  return (
+    <ol className="docs-steps">
+      {steps.map((s, i) => {
+        const [lead, rest] = splitStep(s);
+        return (
+          <li key={i} className="docs-step">
+            <span className="docs-step-n" aria-hidden="true">{i + 1}</span>
+            <div className="docs-step-body">
+              <span className="docs-step-lead">{lead}</span>
+              {rest && <span className="docs-step-rest"> {rest}</span>}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function HowTo({ w, id, open, onToggle }) {
+  const panel = `${id}-steps`;
+  return (
+    <div id={id} className={`docs-howto${open ? ' open' : ''}`}>
+      <button type="button" className="docs-howto-head" aria-expanded={open} aria-controls={panel} onClick={onToggle}>
+        <ChevronDown size={16} className="docs-howto-chev" aria-hidden="true" />
+        <span className="docs-howto-title">{w.title}</span>
+        <span className="docs-howto-count">{w.steps.length} {w.steps.length === 1 ? 'Step' : 'Steps'}</span>
+      </button>
+      {open && <div id={panel} className="docs-howto-panel"><Steps steps={w.steps} /></div>}
+    </div>
+  );
+}
+
+function Article({ doc, prev, next, onPrev, onNext, isOpen, onToggle, onSetAll }) {
   const Icon = ICONS[doc.icon] || BookOpen;
   const legend = shotLegend(doc.shot);
   const openModule = () => window.dispatchEvent(new CustomEvent('nexus:navigate', {
     detail: doc.sub ? { view: doc.view, sub: doc.sub } : { view: doc.view },
   }));
+  const anchors = (doc.walkthroughs || []).map((w) => walkthroughAnchor(w.title));
+  const allOpen = anchors.length > 0 && anchors.every(isOpen);
 
   return (
-    <article id={sectionDomId(doc.id)} style={{ display: 'flex', flexDirection: 'column', gap: 26, minWidth: 0, scrollMarginTop: 80 }}>
-      {/* Header */}
-      <header style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div style={{
-          width: 48, height: 48, borderRadius: 13, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: BRAND, color: '#fff', boxShadow: '0 6px 18px rgba(43,69,225,.25)',
-        }}><Icon size={23} /></div>
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{doc.group}</div>
-          <h2 style={{ margin: '2px 0 4px', fontSize: 24, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.02em' }}>{doc.name}</h2>
-          <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)', lineHeight: 1.5 }}>{doc.tagline}</p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
-            <span className="docs-chip"><MapPin size={12} /> {doc.where}</span>
-            <span className="docs-chip"><UserCheck size={12} /> {doc.access}</span>
-          </div>
+    <article id={sectionDomId(doc.id)} className="docs-page">
+      <header className="docs-page-head">
+        <div className="docs-crumb">Documentation <span aria-hidden="true">/</span> {doc.group}</div>
+        <div className="docs-title-row">
+          <span className="docs-mod-icon" aria-hidden="true"><Icon size={20} /></span>
+          <h2 className="docs-h2">{doc.name}</h2>
+          {doc.view && (
+            <button type="button" className="primary-btn docs-open" onClick={openModule}>
+              Open {doc.name} <ArrowUpRight size={14} />
+            </button>
+          )}
         </div>
-        {doc.view && (
-          <button type="button" className="primary-btn" onClick={openModule} style={{ flexShrink: 0 }}>
-            Open {doc.name} <ArrowUpRight size={14} />
-          </button>
-        )}
+        <p className="docs-lede">{doc.tagline}</p>
+        <dl className="docs-facts">
+          <div><dt>Where</dt><dd>{doc.where}</dd></div>
+          <div><dt>Who Can Use It</dt><dd>{doc.access}</dd></div>
+        </dl>
       </header>
 
-      {/* What it is for */}
-      <section id={sectionDomId(doc.id, 'sec-purpose')} style={{ scrollMarginTop: 90 }}>
-        <SectionTitle icon={BookOpen}>What It Is For</SectionTitle>
-        <p style={{ margin: '0 0 14px', fontSize: 14, lineHeight: 1.65, color: 'var(--ink)' }}>{doc.purpose}</p>
-        {doc.gains?.length > 0 && (
-          <div className="docs-card" style={{ background: 'var(--mist)' }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>What You Get</div>
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8 }}>
+      <section className="docs-sec">
+        <SectionHeading id={sectionDomId(doc.id, 'sec-purpose')}>Overview</SectionHeading>
+        <div className={doc.gains?.length ? 'docs-overview' : undefined}>
+          <p className="docs-prose">{doc.purpose}</p>
+          {doc.gains?.length > 0 && (
+            <ul className="docs-gains" aria-label="What you get">
+              <li className="docs-gains-title" aria-hidden="true">What You Get</li>
               {doc.gains.map((g) => (
-                <li key={g} style={{ display: 'flex', gap: 9, fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink)' }}>
-                  <CheckCircle2 size={16} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 2 }} />{g}
-                </li>
+                <li key={g}><Check size={15} aria-hidden="true" />{g}</li>
               ))}
             </ul>
-          </div>
-        )}
+          )}
+        </div>
       </section>
 
-      {/* Picture */}
       {doc.shot && (
-        <section id={sectionDomId(doc.id, 'sec-shot')} style={{ scrollMarginTop: 90 }}>
-          <SectionTitle>What It Looks Like</SectionTitle>
-          <div className="docs-shot">
-            <div style={{ minWidth: 0 }}><DocShot shot={doc.shot} /></div>
+        <section className="docs-sec">
+          <SectionHeading id={sectionDomId(doc.id, 'sec-shot')}>What It Looks Like</SectionHeading>
+          <figure className="docs-figure">
+            <div className="docs-figure-art"><DocShot shot={doc.shot} /></div>
             {legend.length > 0 && (
-              <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 9, alignSelf: 'start' }}>
+              <ol className="docs-legend">
                 {legend.map((l, i) => (
-                  <li key={i} style={{ display: 'flex', gap: 9, fontSize: 13, lineHeight: 1.45, color: 'var(--ink)' }}>
-                    <StepNumber n={i + 1} /><span>{l}</span>
-                  </li>
+                  <li key={i}><span className="docs-step-n" aria-hidden="true">{i + 1}</span><span>{l}</span></li>
                 ))}
               </ol>
             )}
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Simplified illustration. Your screen shows your own data and may have a few more buttons.</div>
+            <figcaption>Simplified illustration. Your screen shows your own data and may have a few more buttons.</figcaption>
+          </figure>
         </section>
       )}
 
-      {/* Walkthroughs */}
       {doc.walkthroughs?.length > 0 && (
-        <section id={sectionDomId(doc.id, 'sec-steps')} style={{ scrollMarginTop: 90 }}>
-          <SectionTitle icon={MousePointerClick}>How To Use It, Step by Step</SectionTitle>
-          <div className="docs-grid">
-            {doc.walkthroughs.map((w) => <Walkthrough key={w.title} w={w} id={sectionDomId(doc.id, walkthroughAnchor(w.title))} />)}
+        <section className="docs-sec">
+          <SectionHeading
+            id={sectionDomId(doc.id, 'sec-steps')}
+            aside={anchors.length > 1 && (
+              <button type="button" className="docs-textbtn" onClick={() => onSetAll(allOpen ? [] : anchors)}>
+                {allOpen ? 'Collapse All' : 'Expand All'}
+              </button>
+            )}
+          >
+            How-To Guides <span className="docs-count">{doc.walkthroughs.length}</span>
+          </SectionHeading>
+          <div className="docs-howtos">
+            {doc.walkthroughs.map((w) => {
+              const a = walkthroughAnchor(w.title);
+              return <HowTo key={w.title} w={w} id={sectionDomId(doc.id, a)} open={isOpen(a)} onToggle={() => onToggle(a)} />;
+            })}
           </div>
         </section>
       )}
 
-      {/* Features */}
       {doc.features?.length > 0 && (
-        <section id={sectionDomId(doc.id, 'sec-features')} style={{ scrollMarginTop: 90 }}>
-          <SectionTitle icon={Sparkles}>Every Feature, Explained</SectionTitle>
-          <div className="docs-feature-grid">
+        <section className="docs-sec">
+          <SectionHeading id={sectionDomId(doc.id, 'sec-features')}>
+            Features <span className="docs-count">{doc.features.length}</span>
+          </SectionHeading>
+          <dl className="docs-deflist">
             {doc.features.map((f) => (
-              <div key={f.name} id={sectionDomId(doc.id, featureAnchor(f.name))} style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', scrollMarginTop: 90 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>{f.name}</div>
-                <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--muted)' }}>{f.desc}</div>
+              <div key={f.name} id={sectionDomId(doc.id, featureAnchor(f.name))} className="docs-defrow">
+                <dt>{f.name}</dt>
+                <dd>{f.desc}</dd>
               </div>
             ))}
-          </div>
+          </dl>
         </section>
       )}
 
-      {/* Roles (Getting Started only) */}
       {doc.id === 'getting-started' && (
-        <section id={sectionDomId(doc.id, 'sec-roles')} style={{ scrollMarginTop: 90 }}>
-          <SectionTitle icon={Users}>Roles in Nexus</SectionTitle>
-          <div className="docs-feature-grid">
+        <section className="docs-sec">
+          <SectionHeading id={sectionDomId(doc.id, 'sec-roles')}>Roles in Nexus</SectionHeading>
+          <dl className="docs-deflist">
             {ROLE_TIERS.map((r, i) => (
-              <div key={r.name} style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <span style={{ fontSize: 10.5, fontWeight: 800, color: BRAND, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 6, padding: '1px 6px' }}>Level {i + 1}</span>
-                  <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
-                </div>
-                <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--muted)' }}>{r.desc}</div>
+              <div key={r.name} className="docs-defrow">
+                <dt><span className="docs-level">Level {i + 1}</span>{r.name}</dt>
+                <dd>{r.desc}</dd>
               </div>
             ))}
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '16px 0 8px' }}>Access Levels on a Module</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          </dl>
+          <h4 className="docs-h4">Access Levels on a Module</h4>
+          <dl className="docs-deflist docs-deflist--compact">
             {ACCESS_LEVELS.map((a) => (
-              <span key={a.name} className="docs-chip" style={{ fontSize: 12.5 }}><b style={{ color: 'var(--ink)' }}>{a.name}</b> - {a.desc}</span>
+              <div key={a.name} className="docs-defrow"><dt>{a.name}</dt><dd>{a.desc}</dd></div>
             ))}
-          </div>
+          </dl>
         </section>
       )}
 
-      {/* Managers & admins */}
       {doc.manager?.points?.length > 0 && (
-        <section>
-          <div id={sectionDomId(doc.id, MANAGER_ANCHOR)} className="docs-card" style={{ borderLeft: `4px solid ${BRAND}`, scrollMarginTop: 90 }}>
-            <SectionTitle icon={ShieldCheck}>{doc.manager.title}</SectionTitle>
-            <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {doc.manager.points.map((p) => <li key={p} style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink)' }}>{p}</li>)}
+        <section className="docs-sec">
+          <div id={sectionDomId(doc.id, MANAGER_ANCHOR)} className="docs-callout">
+            <div className="docs-callout-head"><ShieldCheck size={16} aria-hidden="true" /><h3 className="docs-h3">{doc.manager.title}</h3></div>
+            <ul>
+              {doc.manager.points.map((p) => <li key={p}>{p}</li>)}
             </ul>
           </div>
         </section>
       )}
 
-      {/* Tips */}
       {doc.tips?.length > 0 && (
-        <section id={sectionDomId(doc.id, TIPS_ANCHOR)} style={{ scrollMarginTop: 90 }}>
-          <SectionTitle icon={Lightbulb}>Good To Know</SectionTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <section className="docs-sec">
+          <SectionHeading id={sectionDomId(doc.id, TIPS_ANCHOR)}>Good To Know</SectionHeading>
+          <ul className="docs-tips">
             {doc.tips.map((t) => (
-              <div key={t} style={{ display: 'flex', gap: 10, padding: '10px 14px', borderRadius: 10, background: 'hsla(var(--color-orange),0.08)', border: '1px solid hsla(var(--color-orange),0.2)', fontSize: 13, lineHeight: 1.55, color: 'var(--ink)' }}>
-                <Lightbulb size={15} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0, marginTop: 2 }} />{t}
-              </div>
+              <li key={t}><Lightbulb size={15} aria-hidden="true" /><span>{t}</span></li>
             ))}
-          </div>
+          </ul>
         </section>
       )}
 
-      {/* Prev / next */}
-      <nav style={{ display: 'flex', justifyContent: 'space-between', gap: 10, borderTop: '1px solid var(--line)', paddingTop: 18, flexWrap: 'wrap' }}>
+      <nav className="docs-pager" aria-label="More modules">
         {prev ? (
-          <button type="button" className="secondary-btn" onClick={onPrev}><ChevronLeft size={14} /> {prev.name}</button>
+          <button type="button" className="docs-pager-link" onClick={onPrev}>
+            <span className="docs-pager-dir"><ArrowLeft size={13} /> Previous</span>
+            <span className="docs-pager-name">{prev.name}</span>
+          </button>
         ) : <span />}
         {next && (
-          <button type="button" className="secondary-btn" onClick={onNext}>{next.name} <ChevronRight size={14} /></button>
+          <button type="button" className="docs-pager-link docs-pager-link--next" onClick={onNext}>
+            <span className="docs-pager-dir">Next <ArrowRight size={13} /></span>
+            <span className="docs-pager-name">{next.name}</span>
+          </button>
         )}
       </nav>
     </article>
@@ -268,6 +288,14 @@ function takeUrlTarget() {
   } catch { return null; }
 }
 
+// Which how-tos are open, per page: the first one, plus a how-to a link or a
+// help search pointed at. Kept by doc id so a new page starts fresh.
+const firstOpen = (docId, anchor) => {
+  const d = DOCS.find((x) => x.id === docId);
+  const first = d?.walkthroughs?.[0] ? walkthroughAnchor(d.walkthroughs[0].title) : null;
+  return { docId, set: new Set([first, anchor].filter(Boolean)), closed: new Set() };
+};
+
 export default function SupportDocs({ canImplement = false, startOnGuide = false, onBack = null }) {
   // Where to open: a deep link (URL, or a help search that navigated here)
   // wins over the page this person last read.
@@ -278,6 +306,7 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
   useEffect(() => { if (startOnGuide && canImplement) setSection('guide'); }, [startOnGuide, canImplement]);
   // Section to scroll to and flash once the page for it has rendered.
   const [flash, setFlash] = useState(() => (initialTarget ? { ...initialTarget, at: Date.now() } : null));
+  const [opened, setOpened] = useState(() => (initialTarget ? firstOpen(initialTarget.docId, initialTarget.anchor) : firstOpen(null)));
 
   // Only the modules this person can actually open - the same rule as the
   // left menu (see docsAccess.js). Nobody reads up on a module they cannot see.
@@ -295,6 +324,7 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
       setQuery('');
       setActiveId(docId);
       writeLast(docId);
+      setOpened(firstOpen(docId, anchor));
       setFlash({ docId, anchor: anchor || null, at: Date.now() });
     };
     window.addEventListener(DOCS_OPEN_EVENT, onOpen);
@@ -321,15 +351,15 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
   }, [flash]);
 
   const q = query.trim().toLowerCase();
+  const words = useMemo(() => (q ? q.split(/\s+/) : []), [q]);
   const matches = useMemo(() => {
-    if (!q) return null;
-    const words = q.split(/\s+/);
+    if (!words.length) return null;
     const hits = new Set(INDEX.filter((e) => words.every((w) => e.text.includes(w))).map((e) => e.id));
     // Plus the help search's matches, so the words people actually use
     // ("pto", "my laptop is broken") find the module whose page answers them.
     for (const r of searchDocs(q, { limit: 12, perDoc: 1 })) hits.add(r.docId);
     return hits;
-  }, [q]);
+  }, [q, words]);
   const visible = matches ? allowed.filter((d) => matches.has(d.id)) : allowed;
 
   // A remembered page the person can no longer open falls back to the first
@@ -341,37 +371,80 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
   const doc = allowed[idx];
   const onGuide = canImplement && section === 'guide';
 
+  const { set: openSet, closed } = opened.docId === doc.id ? opened : firstOpen(doc.id);
+  // While searching, a how-to whose words match opens by itself.
+  const searchOpen = (a) => {
+    if (!words.length) return false;
+    const w = doc.walkthroughs?.find((x) => walkthroughAnchor(x.title) === a);
+    const text = w ? [w.title, ...w.steps].join(' ').toLowerCase() : '';
+    return words.every((x) => text.includes(x));
+  };
+  // `closed` remembers a how-to the reader shut, so a search match stays shut.
+  const isOpen = (a) => !closed.has(a) && (openSet.has(a) || searchOpen(a));
+  const toggle = (a) => {
+    const set = new Set(openSet);
+    const shut = new Set(closed);
+    if (isOpen(a)) { set.delete(a); shut.add(a); } else { set.add(a); shut.delete(a); }
+    setOpened({ docId: doc.id, set, closed: shut });
+  };
+  const setAll = (list) => {
+    const all = (doc.walkthroughs || []).map((w) => walkthroughAnchor(w.title));
+    setOpened({ docId: doc.id, set: new Set(list), closed: new Set(all.filter((a) => !list.includes(a))) });
+  };
+
   const select = (id) => {
     setActiveId(id);
     writeLast(id);
     topRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
   };
 
-  // On This Page (Oct 15 2026): the article's own sections, for the right
-  // rail on wide screens - the space beside the article used to sit empty.
+  // On This Page: the article's own sections, lit as they scroll past.
   const outline = doc ? [
-    ['What It Is For', 'sec-purpose'],
+    ['Overview', 'sec-purpose'],
     doc.shot && ['What It Looks Like', 'sec-shot'],
-    doc.walkthroughs?.length && ['Step by Step', 'sec-steps'],
-    doc.features?.length && ['Every Feature', 'sec-features'],
+    doc.walkthroughs?.length && ['How-To Guides', 'sec-steps'],
+    doc.features?.length && ['Features', 'sec-features'],
     doc.id === 'getting-started' && ['Roles in Nexus', 'sec-roles'],
     doc.manager?.points?.length && [doc.manager.title, MANAGER_ANCHOR],
     doc.tips?.length && ['Good To Know', TIPS_ANCHOR],
   ].filter(Boolean) : [];
+  const outlineKey = outline.map((o) => o[1]).join('|');
+  // Lit section, kept with its page so a new page starts on its first section.
+  const [lit, setLit] = useState({ docId: null, anchor: null });
+  const current = lit.docId === doc.id ? lit.anchor : outline[0]?.[1];
+  useEffect(() => {
+    if (onGuide) return undefined;
+    // The last section whose heading has passed under the header is the one
+    // being read. Captured, so it hears whichever element is scrolling.
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const anchors = outlineKey.split('|');
+        let at = anchors[0];
+        for (const a of anchors) {
+          const el = document.getElementById(sectionDomId(doc.id, a));
+          if (el && el.getBoundingClientRect().top < 140) at = a;
+        }
+        setLit({ docId: doc.id, anchor: at });
+      });
+    };
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => { cancelAnimationFrame(raf); document.removeEventListener('scroll', onScroll, { capture: true }); };
+  }, [doc.id, outlineKey, onGuide]);
   const jump = (anchor) => document.getElementById(sectionDomId(doc.id, anchor))?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
 
   return (
-    <div ref={topRef} style={{ display: 'flex', flexDirection: 'column', gap: 16, scrollMarginTop: 80 }}>
-      {/* One toolbar (Pranshu, Oct 15 2026: the hero card wasted space): back,
-          the title, the Module Guides | Implementation Guide switch for
-          administrators, and the module search on the right. */}
+    <div ref={topRef} className="docs-root">
+      {/* One toolbar: back, the title, the Module Guides | Implementation Guide
+          switch for administrators, and the module search on the right. */}
       <div className="docs-toolbar">
         {onBack && (
           <button type="button" className="docs-back" onClick={onBack} aria-label="Back to Help Center" title="Back to Help Center">
             <ChevronLeft size={16} />
           </button>
         )}
-        <h2 className="docs-title"><BookOpen size={17} style={{ color: BRAND }} /> Documentation</h2>
+        <h2 className="docs-title">Documentation</h2>
         {canImplement && (
           <div role="tablist" aria-label="Documentation sections" className="docs-tabs scroll-tabs">
             {[['modules', 'Module Guides', BookOpen], ['guide', 'Implementation Guide', Rocket]].map(([key, label, I]) => {
@@ -386,13 +459,11 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
         )}
         {!onGuide && (
           <div className="docs-search">
-            <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
+            <Search size={15} className="docs-search-icon" aria-hidden="true" />
             <input type="text" className="form-input" value={query} onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search e.g. time off, cart, signature…" aria-label="Search the documentation"
-              style={{ width: '100%', paddingLeft: 32, paddingRight: 30, fontSize: 13.5 }} />
+              placeholder="Search e.g. time off, cart, signature…" aria-label="Search the documentation" />
             {query && (
-              <button type="button" onClick={() => setQuery('')} aria-label="Clear search"
-                style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}>
+              <button type="button" className="docs-search-clear" onClick={() => setQuery('')} aria-label="Clear search">
                 <X size={14} />
               </button>
             )}
@@ -405,61 +476,67 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
           <ImplementationGuide />
         </Suspense>
       ) : (
-      <div className="docs-layout docs-layout--toc">
-        {/* Index - desktop */}
-        <aside className="docs-index" aria-label="Modules">
-          {visible.length === 0 && (
-            <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 10px' }}>Nothing matches "{query.trim()}".</div>
-          )}
-          {DOC_GROUPS.map((g) => {
-            const items = visible.filter((d) => d.group === g);
-            if (!items.length) return null;
-            return (
-              <div key={g} style={{ marginBottom: 10 }}>
-                <div className="docs-index-group">{g}</div>
-                {items.map((d) => {
-                  const I = ICONS[d.icon] || BookOpen;
-                  const on = d.id === doc.id;
-                  return (
-                    <button key={d.id} type="button" onClick={() => select(d.id)} className={`docs-index-item${on ? ' active' : ''}`}>
-                      <I size={15} style={{ flexShrink: 0 }} />
-                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </aside>
+        <div className="docs-layout docs-layout--toc">
+          {/* Index - desktop */}
+          <aside className="docs-index" aria-label="Modules">
+            {visible.length === 0 && (
+              <div className="docs-index-empty">Nothing matches "{query.trim()}".</div>
+            )}
+            {DOC_GROUPS.map((g) => {
+              const items = visible.filter((d) => d.group === g);
+              if (!items.length) return null;
+              return (
+                <div key={g} className="docs-index-sec">
+                  <div className="docs-index-group">{g}</div>
+                  {items.map((d) => {
+                    const I = ICONS[d.icon] || BookOpen;
+                    const on = d.id === doc.id;
+                    return (
+                      <button key={d.id} type="button" onClick={() => select(d.id)} className={`docs-index-item${on ? ' active' : ''}`} aria-current={on ? 'page' : undefined}>
+                        <I size={15} aria-hidden="true" />
+                        <span className="docs-index-name">{d.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </aside>
 
-        {/* Index - phones */}
-        <select className="form-input docs-index-select" value={doc.id} onChange={(e) => select(e.target.value)} aria-label="Choose a module">
-          {DOC_GROUPS.map((g) => {
-            const items = visible.filter((d) => d.group === g);
-            return items.length ? (
-              <optgroup key={g} label={g}>{items.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</optgroup>
-            ) : null;
-          })}
-        </select>
+          {/* Index - phones */}
+          <select className="form-input docs-index-select" value={doc.id} onChange={(e) => select(e.target.value)} aria-label="Choose a module">
+            {DOC_GROUPS.map((g) => {
+              const items = visible.filter((d) => d.group === g);
+              return items.length ? (
+                <optgroup key={g} label={g}>{items.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</optgroup>
+              ) : null;
+            })}
+          </select>
 
-        <div className="docs-article">
-          <Article
-            doc={doc}
-            prev={allowed[idx - 1]}
-            next={allowed[idx + 1]}
-            onPrev={() => select(allowed[idx - 1].id)}
-            onNext={() => select(allowed[idx + 1].id)}
-          />
+          <div className="docs-article">
+            <Article
+              doc={doc}
+              prev={allowed[idx - 1]}
+              next={allowed[idx + 1]}
+              onPrev={() => select(allowed[idx - 1].id)}
+              onNext={() => select(allowed[idx + 1].id)}
+              isOpen={isOpen}
+              onToggle={toggle}
+              onSetAll={setAll}
+            />
+          </div>
+
+          {/* On This Page - wide screens only (style.css hides it below 1280px). */}
+          <nav className="docs-toc" aria-label="On this page">
+            <div className="docs-toc-title">On This Page</div>
+            {outline.map(([label, anchor]) => (
+              <button key={anchor} type="button" onClick={() => jump(anchor)}
+                className={`docs-toc-item${current === anchor ? ' active' : ''}`} aria-current={current === anchor ? 'location' : undefined}>
+                {label}
+              </button>
+            ))}
+          </nav>
         </div>
-
-        {/* On This Page - wide screens only (style.css hides it below 1280px). */}
-        <nav className="docs-toc" aria-label="On this page">
-          <div className="docs-index-group" style={{ padding: '0 0 6px' }}>On This Page</div>
-          {outline.map(([label, anchor]) => (
-            <button key={anchor} type="button" onClick={() => jump(anchor)} className="docs-toc-item">{label}</button>
-          ))}
-        </nav>
-      </div>
       )}
     </div>
   );

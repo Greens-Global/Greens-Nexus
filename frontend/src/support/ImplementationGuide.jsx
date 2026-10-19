@@ -2,12 +2,17 @@
 // organization, phase by phase. Content is support/implementationContent.js;
 // the done-checks are ONE shared list for every administrator
 // (routers/implementation.py), so the team implementing sees the same
-// progress and who ticked what. Same layout as Documentation (SupportDocs):
-// a rail on the left (a dropdown on phones), one page at a time on the right.
+// progress and who ticked what.
+//
+// Layout (Oct 19 2026 redesign, the same reading page as Documentation): a
+// rail on the left with overall progress and the phases as a timeline (a
+// dropdown on phones); one page at a time in the middle - the phase's why,
+// decisions and steps in one column, with its Done When checklist pinned
+// beside them so progress is always in view.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowUpRight, BadgeCheck, Bell, BookOpen, Building2, CalendarClock, CheckSquare, ChevronLeft, ChevronRight,
-  Clock, ClipboardList, Cloud, Compass, HelpCircle, Lightbulb, ListChecks, MousePointerClick, Package, Palette,
+  ArrowLeft, ArrowRight, ArrowUpRight, BadgeCheck, Bell, BookOpen, Building2, CalendarClock, Check, CheckSquare, ChevronRight,
+  Clock, ClipboardList, Cloud, Compass, HelpCircle, ListChecks, Package, Palette,
   RefreshCw, Rocket, ShieldCheck, Target, TriangleAlert, Users, Waypoints,
 } from 'lucide-react';
 import { api } from '../api';
@@ -16,8 +21,6 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { IMPL_INTRO, IMPL_CONCEPTS, IMPL_DISCOVERY, IMPL_PHASES, IMPL_CHECK_IDS } from './implementationContent';
 
 const ICONS = { ClipboardList, Cloud, Palette, Building2, ShieldCheck, Users, Clock, CalendarClock, ListChecks, CheckSquare, Package, Bell, BadgeCheck, Rocket, RefreshCw };
-const BRAND = 'var(--wk-brand, #2b45e1)';
-const GREEN = 'hsl(var(--color-green))';
 const LAST_KEY = 'nexus-impl-guide-last';
 
 const PAGES = [
@@ -26,7 +29,6 @@ const PAGES = [
   { id: 'discovery', group: 'Start Here', name: 'Discovery Questions', Icon: HelpCircle },
   ...IMPL_PHASES.map((p) => ({ id: p.id, group: 'Phases', name: p.title, Icon: ICONS[p.icon] || BookOpen, phase: p })),
 ];
-const GROUPS = ['Start Here', 'Phases'];
 
 function readLast() {
   try { const v = localStorage.getItem(LAST_KEY); return PAGES.some((p) => p.id === v) ? v : 'overview'; } catch { return 'overview'; }
@@ -36,11 +38,19 @@ function writeLast(id) {
 }
 const go = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub: sub || null } }));
 
-function SectionTitle({ icon: Icon, children }) {
+// Same instruction-plus-detail split as Documentation's steps.
+const LEAD = /^(.{8,150}?[.:!?])\s+(?=["'(A-Z0-9])/;
+function splitStep(s) {
+  const m = LEAD.exec(s);
+  return m ? [m[1], s.slice(m[0].length)] : [s, ''];
+}
+
+function SectionHeading({ children, aside }) {
   return (
-    <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px', fontSize: 15, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
-      {Icon && <Icon size={16} style={{ color: BRAND }} />}{children}
-    </h3>
+    <div className="docs-h3-row">
+      <h3 className="docs-h3">{children}</h3>
+      {aside}
+    </div>
   );
 }
 
@@ -48,37 +58,33 @@ function Bar({ done, total, height = 6 }) {
   const pct = total ? Math.round((done / total) * 100) : 0;
   return (
     <div role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label={`${done} of ${total} done`}
-      style={{ height, borderRadius: 999, background: 'var(--mist)', overflow: 'hidden' }}>
-      <div style={{ width: `${pct}%`, height: '100%', borderRadius: 999, background: pct === 100 ? GREEN : BRAND, transition: 'width .25s' }} />
+      className="impl-bar" style={{ height }}>
+      <div className={pct === 100 ? 'complete' : ''} style={{ width: `${pct}%` }} />
     </div>
-  );
-}
-
-function Chip({ children, tone }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, padding: '3px 10px', borderRadius: 999,
-      color: tone === 'green' ? GREEN : 'var(--ink)', background: tone === 'green' ? 'hsla(var(--color-green),0.1)' : 'var(--mist)', border: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
-      {children}
-    </span>
   );
 }
 
 function CheckRow({ check, state, busy, onToggle, nameOf }) {
   const on = !!state;
   return (
-    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderRadius: 10, cursor: busy ? 'wait' : 'pointer',
-      border: `1px solid ${on ? 'hsla(var(--color-green),0.35)' : 'var(--line)'}`, background: on ? 'hsla(var(--color-green),0.06)' : 'var(--card)' }}>
-      <input type="checkbox" checked={on} disabled={busy} onChange={(e) => onToggle(check.id, e.target.checked)}
-        style={{ width: 17, height: 17, marginTop: 1, accentColor: 'hsl(var(--color-green))', cursor: 'inherit', flexShrink: 0 }} />
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: 'block', fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.45, textDecoration: on ? 'line-through' : 'none', textDecorationColor: 'var(--muted)' }}>{check.text}</span>
-        {on && (
-          <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-            Done by {nameOf(state.by) || state.by} on {formatDate(state.at)}
-          </span>
-        )}
+    <label className={`impl-check${on ? ' done' : ''}${busy ? ' busy' : ''}`}>
+      <input type="checkbox" checked={on} disabled={busy} onChange={(e) => onToggle(check.id, e.target.checked)} />
+      <span className="impl-check-body">
+        <span className="impl-check-text">{check.text}</span>
+        {on && <span className="impl-check-by">Done by {nameOf(state.by) || state.by} on {formatDate(state.at)}</span>}
       </span>
     </label>
+  );
+}
+
+function PageHead({ crumb, title, lede, children }) {
+  return (
+    <header className="docs-page-head">
+      <div className="docs-crumb">Implementation Guide <span aria-hidden="true">/</span> {crumb}</div>
+      <h2 className="docs-h2">{title}</h2>
+      {lede && <p className="docs-lede">{lede}</p>}
+      {children}
+    </header>
   );
 }
 
@@ -86,85 +92,90 @@ function PhasePage({ p, done, busyId, onToggle, nameOf }) {
   const total = p.checks.length;
   const n = p.checks.filter((c) => done[c.id]).length;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-          <Chip>Phase {p.n}</Chip>
-          <Chip><Users size={12} /> {p.owner}</Chip>
-          <Chip><Clock size={12} /> {p.time}</Chip>
-          {n === total && <Chip tone="green"><BadgeCheck size={12} /> Complete</Chip>}
-        </div>
-        <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.02em' }}>{p.title}</h2>
-        <p style={{ margin: 0, fontSize: 14.5, color: 'var(--muted)', lineHeight: 1.55 }}>{p.summary}</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, maxWidth: 420 }}>
-          <div style={{ flex: 1 }}><Bar done={n} total={total} /></div>
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{n} of {total} done</span>
-        </div>
-      </div>
-
-      <section>
-        <SectionTitle icon={Lightbulb}>Why This Matters</SectionTitle>
-        <p style={{ margin: 0, fontSize: 14, color: 'var(--ink)', lineHeight: 1.65 }}>{p.why}</p>
-        {p.needs?.length > 0 && (
-          <div style={{ marginTop: 10, fontSize: 13, color: 'var(--muted)' }}>
-            <strong style={{ color: 'var(--ink)' }}>Needs first:</strong> {p.needs.join(' ')}
+    <div className="docs-page">
+      <PageHead crumb={`Phase ${p.n}`} title={p.title} lede={p.summary}>
+        <dl className="docs-facts docs-facts--3">
+          <div><dt>Owner</dt><dd>{p.owner}</dd></div>
+          <div><dt>Effort</dt><dd>{p.time}</dd></div>
+          <div>
+            <dt>Progress</dt>
+            <dd className="impl-progress-fact">
+              <Bar done={n} total={total} height={5} />
+              <span>{n === total ? <><BadgeCheck size={13} aria-hidden="true" /> Complete</> : `${n} of ${total} done`}</span>
+            </dd>
           </div>
-        )}
-      </section>
+        </dl>
+      </PageHead>
 
-      {p.decisions?.length > 0 && (
-        <section>
-          <SectionTitle icon={Target}>Decide With the Client First</SectionTitle>
-          <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 7 }}>
-            {p.decisions.map((d) => <li key={d} style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55 }}>{d}</li>)}
-          </ul>
-        </section>
-      )}
+      <div className="impl-split">
+        <div className="impl-main">
+          <section className="docs-sec">
+            <SectionHeading>Why This Matters</SectionHeading>
+            <p className="docs-prose">{p.why}</p>
+            {p.needs?.length > 0 && (
+              <p className="impl-needs"><strong>Needs first:</strong> {p.needs.join(' ')}</p>
+            )}
+          </section>
 
-      <section>
-        <SectionTitle icon={MousePointerClick}>Steps</SectionTitle>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {p.steps.map((s, i) => (
-            <div key={s.title} className="docs-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: '50%', background: BRAND, color: '#fff', fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
-                <div style={{ flex: 1, minWidth: 200 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>{s.title}</div>
-                  {s.where && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{s.where}</div>}
-                </div>
-                {s.view && (
-                  <button type="button" className="secondary-btn" onClick={() => go(s.view, s.sub)}
-                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px' }}>
-                    Open <ArrowUpRight size={12} />
-                  </button>
-                )}
-              </div>
-              <ul style={{ margin: 0, paddingLeft: 52, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {s.items.map((it) => <li key={it} style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55 }}>{it}</li>)}
+          {p.decisions?.length > 0 && (
+            <section className="docs-sec">
+              <SectionHeading>Decide With the Client First</SectionHeading>
+              <ul className="impl-decisions">
+                {p.decisions.map((d) => <li key={d}><Target size={14} aria-hidden="true" /><span>{d}</span></li>)}
               </ul>
-            </div>
-          ))}
-        </div>
-      </section>
+            </section>
+          )}
 
-      <section>
-        <SectionTitle icon={ListChecks}>Done When</SectionTitle>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', margin: '-6px 0 10px' }}>Shared with every administrator - tick a check only when it is really true.</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {p.checks.map((c) => <CheckRow key={c.id} check={c} state={done[c.id]} busy={busyId === c.id} onToggle={onToggle} nameOf={nameOf} />)}
-        </div>
-      </section>
+          <section className="docs-sec">
+            <SectionHeading>Steps <span className="docs-count">{p.steps.length}</span></SectionHeading>
+            <ol className="docs-steps impl-steps">
+              {p.steps.map((s, i) => (
+                <li key={s.title} className="docs-step">
+                  <span className="docs-step-n" aria-hidden="true">{i + 1}</span>
+                  <div className="docs-step-body">
+                    <div className="impl-step-head">
+                      <div className="impl-step-titles">
+                        <span className="docs-step-lead">{s.title}</span>
+                        {s.where && <span className="impl-step-where">{s.where}</span>}
+                      </div>
+                      {s.view && (
+                        <button type="button" className="secondary-btn impl-open" onClick={() => go(s.view, s.sub)}>
+                          Open <ArrowUpRight size={12} />
+                        </button>
+                      )}
+                    </div>
+                    <ul className="impl-step-items">
+                      {s.items.map((it) => <li key={it}>{it}</li>)}
+                    </ul>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
 
-      {p.pitfalls?.length > 0 && (
-        <section>
-          <SectionTitle icon={TriangleAlert}>Watch Out For</SectionTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {p.pitfalls.map((t) => (
-              <div key={t} style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, padding: '10px 14px', borderRadius: 10, background: 'rgba(180,83,9,0.07)', borderLeft: '3px solid #b45309' }}>{t}</div>
-            ))}
+          {p.pitfalls?.length > 0 && (
+            <section className="docs-sec">
+              <SectionHeading>Watch Out For</SectionHeading>
+              <ul className="docs-tips docs-tips--warn">
+                {p.pitfalls.map((t) => <li key={t}><TriangleAlert size={15} aria-hidden="true" /><span>{t}</span></li>)}
+              </ul>
+            </section>
+          )}
+        </div>
+
+        <aside className="impl-done" aria-label="Done when">
+          <div className="impl-done-head">
+            <ListChecks size={16} aria-hidden="true" />
+            <h3 className="docs-h3">Done When</h3>
+            <span className="impl-done-count">{n}/{total}</span>
           </div>
-        </section>
-      )}
+          <Bar done={n} total={total} height={4} />
+          <p className="impl-done-hint">Shared with every administrator - tick a check only when it is really true.</p>
+          <div className="impl-checks">
+            {p.checks.map((c) => <CheckRow key={c.id} check={c} state={done[c.id]} busy={busyId === c.id} onToggle={onToggle} nameOf={nameOf} />)}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -173,40 +184,46 @@ function OverviewPage({ done, onOpen }) {
   const total = IMPL_CHECK_IDS.length;
   const n = IMPL_CHECK_IDS.filter((id) => done[id]).length;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <div>
-        <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.02em' }}>Set Nexus Up the Way the Organization Runs</h2>
-        <p style={{ margin: 0, fontSize: 14.5, color: 'var(--muted)', lineHeight: 1.6 }}>{IMPL_INTRO.lead}</p>
-        <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--muted)', lineHeight: 1.55 }}>{IMPL_INTRO.audience}</p>
-      </div>
-      <section>
-        <SectionTitle icon={BookOpen}>How to Use This Guide</SectionTitle>
-        <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 7 }}>
-          {IMPL_INTRO.howTo.map((t) => <li key={t} style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55 }}>{t}</li>)}
-        </ul>
-      </section>
-      <section>
-        <SectionTitle icon={ListChecks}>Progress</SectionTitle>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, maxWidth: 520 }}>
-          <div style={{ flex: 1 }}><Bar done={n} total={total} height={8} /></div>
-          <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{n} of {total} checks done</span>
-        </div>
-        <div className="docs-grid">
-          {IMPL_PHASES.map((p) => {
-            const I = ICONS[p.icon] || BookOpen;
-            const pn = p.checks.filter((c) => done[c.id]).length;
+    <div className="docs-page">
+      <PageHead crumb="Start Here" title="Set Nexus Up the Way the Organization Runs" lede={IMPL_INTRO.lead}>
+        <p className="impl-audience">{IMPL_INTRO.audience}</p>
+      </PageHead>
+
+      <section className="docs-sec">
+        <SectionHeading>How to Use This Guide</SectionHeading>
+        <ol className="docs-steps">
+          {IMPL_INTRO.howTo.map((t, i) => {
+            const [lead, rest] = splitStep(t);
             return (
-              <button key={p.id} type="button" className="docs-card" onClick={() => onOpen(p.id)}
-                style={{ textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <I size={16} style={{ color: pn === p.checks.length ? GREEN : BRAND, flexShrink: 0 }} />
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>Phase {p.n}</span>
-                  <span style={{ flex: 1 }} />
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: pn === p.checks.length ? GREEN : 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{pn}/{p.checks.length}</span>
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>{p.title}</div>
-                <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>{p.summary}</div>
-                <Bar done={pn} total={p.checks.length} height={4} />
+              <li key={t} className="docs-step">
+                <span className="docs-step-n" aria-hidden="true">{i + 1}</span>
+                <div className="docs-step-body"><span className="docs-step-lead">{lead}</span>{rest && <span className="docs-step-rest"> {rest}</span>}</div>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+
+      <section className="docs-sec">
+        <SectionHeading aside={<span className="impl-total">{n} of {total} checks done</span>}>Phases</SectionHeading>
+        <Bar done={n} total={total} height={6} />
+        <div className="impl-phase-table">
+          {IMPL_PHASES.map((p) => {
+            const pn = p.checks.filter((c) => done[c.id]).length;
+            const complete = pn === p.checks.length;
+            return (
+              <button key={p.id} type="button" className={`impl-phase-row${complete ? ' complete' : ''}`} onClick={() => onOpen(p.id)}>
+                <span className="impl-node" aria-hidden="true">{complete ? <Check size={13} strokeWidth={3} /> : p.n}</span>
+                <span className="impl-phase-text">
+                  <span className="impl-phase-name">{p.title}</span>
+                  <span className="impl-phase-sum">{p.summary}</span>
+                </span>
+                <span className="impl-phase-owner">{p.owner}</span>
+                <span className="impl-phase-prog">
+                  <Bar done={pn} total={p.checks.length} height={4} />
+                  <span>{pn}/{p.checks.length}</span>
+                </span>
+                <ChevronRight size={15} className="impl-phase-chev" aria-hidden="true" />
               </button>
             );
           })}
@@ -218,15 +235,12 @@ function OverviewPage({ done, onOpen }) {
 
 function ConceptsPage() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div>
-        <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.02em' }}>How Nexus Is Organized</h2>
-        <p style={{ margin: 0, fontSize: 14.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-          Read this once before Phase 1. Every setting in the phases fits into this picture: an organization holds companies; each company has departments, locations, holidays and job roles; people belong to a company, hold a job role and report to someone.
-        </p>
-      </div>
+    <div className="docs-page">
+      <PageHead crumb="Start Here" title="How Nexus Is Organized"
+        lede="Read this once before Phase 1. Every setting in the phases fits into this picture: an organization holds companies; each company has departments, locations, holidays and job roles; people belong to a company, hold a job role and report to someone." />
       {/* The shape, as a simple tree - the words below explain each box. */}
-      <div className="docs-card" aria-label="Organization, companies, roles and people" style={{ fontSize: 13, lineHeight: 1.9, color: 'var(--ink)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', overflowX: 'auto', whiteSpace: 'pre' }}>
+      <section className="docs-sec">
+        <pre className="impl-tree" aria-label="Organization, companies, roles and people">
 {`Organization  (Global Settings, Microsoft 365 tenant)
 ├─ Company  (legal entity: domains, managers, HR contact)
 │   ├─ Departments
@@ -236,33 +250,30 @@ function ConceptsPage() {
 │   └─ Job Roles  (tier + modules + time-clock rules + Teams destination)
 │        └─ People  (company, department, Reports To, pay, contact)
 └─ Access Groups  (extra modules on top of a job role)`}
-      </div>
-      <div className="docs-grid">
-        {IMPL_CONCEPTS.map((c) => (
-          <div key={c.term} className="docs-card">
-            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)', marginBottom: 5 }}>{c.term}</div>
-            <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55 }}>{c.text}</div>
-          </div>
-        ))}
-      </div>
+        </pre>
+      </section>
+      <section className="docs-sec">
+        <SectionHeading>The Terms</SectionHeading>
+        <dl className="docs-deflist">
+          {IMPL_CONCEPTS.map((c) => (
+            <div key={c.term} className="docs-defrow"><dt>{c.term}</dt><dd>{c.text}</dd></div>
+          ))}
+        </dl>
+      </section>
     </div>
   );
 }
 
 function DiscoveryPage() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div>
-        <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.02em' }}>Discovery Questions</h2>
-        <p style={{ margin: 0, fontSize: 14.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-          Ask these at kickoff (Phase 0). Every answer feeds a later phase, so collecting them first turns setup into data entry.
-        </p>
-      </div>
+    <div className="docs-page">
+      <PageHead crumb="Start Here" title="Discovery Questions"
+        lede="Ask these at kickoff (Phase 0). Every answer feeds a later phase, so collecting them first turns setup into data entry." />
       {IMPL_DISCOVERY.map((a) => (
-        <section key={a.area}>
-          <SectionTitle icon={HelpCircle}>{a.area}</SectionTitle>
-          <ol style={{ margin: 0, paddingLeft: 22, display: 'flex', flexDirection: 'column', gap: 7 }}>
-            {a.questions.map((q) => <li key={q} style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55 }}>{q}</li>)}
+        <section key={a.area} className="docs-sec">
+          <SectionHeading>{a.area} <span className="docs-count">{a.questions.length}</span></SectionHeading>
+          <ol className="impl-questions">
+            {a.questions.map((q) => <li key={q}>{q}</li>)}
           </ol>
         </section>
       ))}
@@ -309,42 +320,58 @@ export default function ImplementationGuide({ toastErr }) {
   };
   const counts = useMemo(() => Object.fromEntries(IMPL_PHASES.map((p) => [p.id, [p.checks.filter((c) => done[c.id]).length, p.checks.length]])), [done]);
   const allDone = IMPL_CHECK_IDS.filter((id) => done[id]).length;
+  const prev = PAGES[idx - 1];
+  const next = PAGES[idx + 1];
 
   return (
-    <div ref={topRef} style={{ display: 'flex', flexDirection: 'column', gap: 16, scrollMarginTop: 80 }}>
+    <div ref={topRef} className="docs-root">
       <div className="docs-layout docs-layout--guide">
         <aside className="docs-index" aria-label="Implementation guide sections">
-          {/* Overall progress (Oct 15 2026: was a hero card above the guide). */}
-          <div style={{ padding: '4px 10px 12px', marginBottom: 8, borderBottom: '1px solid var(--line)' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>
-              {loadErr ? <span style={{ color: '#b45309' }}>{loadErr} <button type="button" onClick={load} style={{ border: 'none', background: 'none', color: BRAND, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Retry</button></span>
+          {/* Overall progress. */}
+          <div className="impl-rail-progress">
+            <div className="impl-rail-progress-text">
+              {loadErr ? <span className="impl-err">{loadErr} <button type="button" onClick={load}>Retry</button></span>
                 : `${allDone} of ${IMPL_CHECK_IDS.length} checks done`}
             </div>
-            <Bar done={allDone} total={IMPL_CHECK_IDS.length} height={6} />
+            <Bar done={allDone} total={IMPL_CHECK_IDS.length} height={5} />
           </div>
-          {GROUPS.map((g) => (
-            <div key={g} style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '0 10px 5px' }}>{g}</div>
-              {PAGES.filter((p) => p.group === g).map((p) => {
+
+          <div className="docs-index-sec">
+            <div className="docs-index-group">Start Here</div>
+            {PAGES.filter((p) => !p.phase).map((p) => {
+              const on = p.id === page.id;
+              return (
+                <button key={p.id} type="button" onClick={() => select(p.id)} className={`docs-index-item${on ? ' active' : ''}`} aria-current={on ? 'page' : undefined}>
+                  <p.Icon size={15} aria-hidden="true" />
+                  <span className="docs-index-name">{p.name}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* The phases as a timeline: a node per phase on one line, green once its checks are all done. */}
+          <div className="docs-index-sec">
+            <div className="docs-index-group">Phases</div>
+            <div className="impl-timeline">
+              {PAGES.filter((p) => p.phase).map((p) => {
                 const on = p.id === page.id;
-                const c = counts[p.id];
-                const complete = c && c[0] === c[1];
+                const [cn, ct] = counts[p.id];
+                const complete = cn === ct;
                 return (
-                  <button key={p.id} type="button" onClick={() => select(p.id)} className={`docs-index-item${on ? ' active' : ''}`} aria-current={on ? 'page' : undefined}>
-                    {complete && !on ? <BadgeCheck size={15} style={{ flexShrink: 0, color: GREEN }} /> : <p.Icon size={15} style={{ flexShrink: 0 }} />}
-                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.phase ? `${p.phase.n}. ` : ''}{p.name}
-                    </span>
-                    {c && <span style={{ fontSize: 11, fontWeight: 700, opacity: 0.8, fontVariantNumeric: 'tabular-nums' }}>{c[0]}/{c[1]}</span>}
+                  <button key={p.id} type="button" onClick={() => select(p.id)} aria-current={on ? 'page' : undefined}
+                    className={`docs-index-item impl-tl-item${on ? ' active' : ''}${complete ? ' complete' : ''}`}>
+                    <span className="impl-node" aria-hidden="true">{complete ? <Check size={11} strokeWidth={3} /> : p.phase.n}</span>
+                    <span className="docs-index-name">{p.name}</span>
+                    <span className="impl-tl-count">{cn}/{ct}</span>
                   </button>
                 );
               })}
             </div>
-          ))}
+          </div>
         </aside>
 
         <select className="form-input docs-index-select" value={page.id} onChange={(e) => select(e.target.value)} aria-label="Choose a section">
-          {GROUPS.map((g) => (
+          {['Start Here', 'Phases'].map((g) => (
             <optgroup key={g} label={g}>
               {PAGES.filter((p) => p.group === g).map((p) => <option key={p.id} value={p.id}>{p.phase ? `${p.phase.n}. ` : ''}{p.name}</option>)}
             </optgroup>
@@ -355,20 +382,22 @@ export default function ImplementationGuide({ toastErr }) {
           {page.id === 'overview' ? <OverviewPage done={done} onOpen={select} />
             : page.id === 'concepts' ? <ConceptsPage />
               : page.id === 'discovery' ? <DiscoveryPage />
-                  : <PhasePage p={page.phase} done={done} busyId={busyId} onToggle={toggle} nameOf={nameOf} />}
+                : <PhasePage p={page.phase} done={done} busyId={busyId} onToggle={toggle} nameOf={nameOf} />}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 28, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
-            {idx > 0 ? (
-              <button type="button" className="secondary-btn" onClick={() => select(PAGES[idx - 1].id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-                <ChevronLeft size={14} /> {PAGES[idx - 1].name}
+          <nav className="docs-pager" aria-label="More sections">
+            {prev ? (
+              <button type="button" className="docs-pager-link" onClick={() => select(prev.id)}>
+                <span className="docs-pager-dir"><ArrowLeft size={13} /> Previous</span>
+                <span className="docs-pager-name">{prev.phase ? `${prev.phase.n}. ` : ''}{prev.name}</span>
               </button>
             ) : <span />}
-            {idx < PAGES.length - 1 && (
-              <button type="button" className="secondary-btn" onClick={() => select(PAGES[idx + 1].id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-                {PAGES[idx + 1].name} <ChevronRight size={14} />
+            {next && (
+              <button type="button" className="docs-pager-link docs-pager-link--next" onClick={() => select(next.id)}>
+                <span className="docs-pager-dir">Next <ArrowRight size={13} /></span>
+                <span className="docs-pager-name">{next.phase ? `${next.phase.n}. ` : ''}{next.name}</span>
               </button>
             )}
-          </div>
+          </nav>
         </div>
       </div>
     </div>
