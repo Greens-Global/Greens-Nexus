@@ -9656,12 +9656,25 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         if e and e not in _names:
             _names[e] = _display_name(db, e)
         return _names.get(e, "")
+    # Color banding (Pranshu, Oct 19 - SwipeClock's green / blue): "clock" is a
+    # punch exactly as the clock took it, "byHr" one HR entered or last changed
+    # (timesheet_review.is_hr: the HR contact, an administrator or a Full HR grant).
+    import timesheet_review as _tsr
+    _hr_actor = {}
+
+    def _by_hr(p):
+        actor = (p.adjusted_by if p.adjusted_at else p.created_by if p.source == "manual" else "") or ""
+        if actor and actor not in _hr_actor:
+            _hr_actor[actor] = _tsr.is_hr(db, actor, em)
+        return bool(actor) and _hr_actor[actor]
     punch_meta = {p.id: {"kind": p.kind, "at": p.at, "originalAt": p.original_at or "",
                          "source": _src.get(p.source or "", p.source or ""), "ip": p.ip or "",
                          "site": p.work_site_name or "", "manual": p.source in ("manual", "self_manual"),
                          "createdBy": _who(p.created_by), "createdAt": p.created_at or "",
                          "adjustedBy": _who(p.adjusted_by), "adjustedAt": p.adjusted_at or "",
-                         "adjustNote": p.adjust_note or ""} for p in punches}
+                         "adjustNote": p.adjust_note or "",
+                         "clock": not p.adjusted_at and (p.source or "") not in ("manual", "self_manual", "auto_eod", "projection"),
+                         "byHr": _by_hr(p)} for p in punches}
 
     # Shift differentials + call-back pay (pay_premiums.py) - off by default
     # per company; while off nothing below changes.

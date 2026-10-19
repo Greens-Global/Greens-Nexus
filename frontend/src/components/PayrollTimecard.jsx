@@ -1285,6 +1285,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       ) : phone ? (
         hourlyPhoneDays()
       ) : (
+        <>
+        {!self && <TimeColorKey />}
         <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 8, background: 'var(--card)' }}>
           {/* SwipeClock's card, cell for cell (Neil / Pranshu, Oct 16): a tight
               bordered grid - Date, Edit / Add, In, Out, Deducted Time, Category,
@@ -1459,6 +1461,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             )}
           </table>
         </div>
+        </>
       )}
 
       {/* Summary + acknowledgment */}
@@ -1805,6 +1808,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           "bring that for salaried also"): one row per shift, a Break row under
           it for each break punched, the note line only when there is a note.
           Day and Effect on pay are the salaried card's own columns. */}
+      {!self && <TimeColorKey />}
       <div style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 8, background: 'var(--card)' }}>
         <table style={{ width: '100%', minWidth: 820, borderCollapse: 'collapse' }}>
           <thead>
@@ -2078,6 +2082,17 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   );
 }
 
+// The key to the In / Out color banding (Pranshu, Oct 19), above the grid on
+// the manager / HR card. Classes live in style.css so dark mode has its own shades.
+function TimeColorKey() {
+  return (
+    <div className="pt-time-key" aria-label="Time colors">
+      <span><i className="pt-time-key-dot pt-time-clock" /> Clock Punch</span>
+      <span><i className="pt-time-key-dot pt-time-hr" /> <b className="pt-time-hr">Edited by HR</b></span>
+    </div>
+  );
+}
+
 // SwipeClock's Punch History (Neil, Oct 16), on hover: the exact time and what
 // it was rounded to, where the punch came from (app, browser, a manager's
 // entry) with its site and IP, who entered or changed it and when.
@@ -2149,8 +2164,11 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
       <button onClick={() => { if (!id) return; setVal(utcToInput(raw)); setEditing(true); }}
         title={[punchHistory(meta, rounded), id ? (self ? 'Click to propose a new time - goes to your approver; pay unchanged until approved' : 'Click to edit this punch time - the original stays on record') : ''].filter(Boolean).join('\n')}
         style={{ background: 'none', border: 'none', padding: 0, cursor: id ? 'pointer' : 'default', font: 'inherit', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        {/* A punch someone entered or changed reads bold, as on SwipeClock. */}
-        <span style={{ borderBottom: id ? `1px dashed ${self ? 'var(--wk-brand)' : 'var(--line-strong,var(--line))'}` : '1px dashed var(--line-strong,var(--line))', color: self && id ? 'var(--wk-brand)' : undefined, fontWeight: (meta?.manual || meta?.adjustedAt) ? 800 : self && id ? 600 : undefined }}>{t12(rounded)}</span>
+        {/* A punch someone entered or changed reads bold, as on SwipeClock; on
+            the manager / HR card it is also color-banded: green straight off the
+            clock, blue entered or changed by HR (punchMeta.clock / .byHr). */}
+        <span className={!self ? (meta?.byHr ? 'pt-time-hr' : meta?.clock ? 'pt-time-clock' : undefined) : undefined}
+          style={{ borderBottom: id ? `1px dashed ${self ? 'var(--wk-brand)' : 'var(--line-strong,var(--line))'}` : '1px dashed var(--line-strong,var(--line))', color: self && id ? 'var(--wk-brand)' : undefined, fontWeight: (meta?.manual || meta?.adjustedAt) ? 800 : self && id ? 600 : undefined }}>{t12(rounded)}</span>
         {self && id && <Pencil size={10} style={{ opacity: 0.7, flexShrink: 0, color: 'var(--wk-brand)' }} />}
         {showRaw && <span style={{ fontSize: 10.5, fontStyle: 'italic', color: 'var(--muted)' }}>{t12s(raw)}</span>}
       </button>

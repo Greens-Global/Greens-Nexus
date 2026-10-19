@@ -6311,3 +6311,15 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .nx-md table { border-collapse: collapse; margin: 0 0 8px; font-size: .95em; }
 .nx-md th, .nx-md td { border: 1px solid var(--line, #d1d5db); padding: 4px 8px; text-align: left; }
 .nx-md h1, .nx-md h2, .nx-md h3 { font-size: 1em; margin: 10px 0 6px; }
+
+/* People > Time > Payroll: In / Out color banding (Pranshu, Oct 19 - SwipeClock's
+   green / blue). Green = the punch exactly as the clock took it, blue = entered
+   or changed by HR. A shade per theme so both stay readable (AA on the card). */
+.pt-time-clock { color: #15803d; }
+.pt-time-hr { color: #1d4ed8; }
+[data-theme="dark"] .pt-time-clock { color: #4ade80; }
+[data-theme="dark"] .pt-time-hr { color: #7aa7ff; }
+.pt-time-key { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.pt-time-key span { display: inline-flex; align-items: center; gap: 6px; }
+.pt-time-key b { font-weight: 800; }
+.pt-time-key-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; }
