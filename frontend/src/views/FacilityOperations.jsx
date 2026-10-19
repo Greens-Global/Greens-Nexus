@@ -6,8 +6,8 @@
 // One fetch feeds all four tabs and the facility picker, so switching either
 // is instant. Nexus only reads - payments, leases and tenant edits stay in
 // Cubby, and each tenant row links there.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge, Map as MapIcon } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
@@ -15,12 +15,18 @@ import { formatDate } from '../lib/datetime';
 import { combine, PERIODS, periodRange } from '../operations/model';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { Overview, Collections, Units, Worklist } from '../operations/OpsTabs';
-import Market from '../operations/Market';
+import RateManagement from '../operations/RateManagement';
 import Reports from '../operations/Reports';
 import Lookup from '../operations/Lookup';
 import SyncStatus from '../operations/SyncStatus';
+import Revenue from '../operations/Revenue';
+import Portfolio from '../operations/Portfolio';
+import ThirdPartyPanel from '../operations/ThirdPartyPanel';
+import { isThirdParty, managedLabel, dataAsOf } from '../operations/thirdParty';
 import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
+// Site Map (Oct 20): the 3D site model with layers. Lazy, so three.js loads only on that tab.
+const SiteMap = lazy(() => import('../operations/SiteMap'));
 
 const SYNC_POLL_MS = 3000;
 const NOT_CONNECTED = "Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.";
@@ -30,9 +36,16 @@ const TABS = [
   { key: 'collections', label: 'Collections',     Icon: HandCoins },
   { key: 'units',       label: 'Units & Pricing', Icon: Warehouse },
   { key: 'worklist',    label: 'Worklist',        Icon: ListChecks },
-  { key: 'market',      label: 'Market Rates',    Icon: Scale },
+  { key: 'market',      label: 'Rate Management', Icon: Scale },
   { key: 'reports',     label: 'Reports',         Icon: FileSpreadsheet },
+  // Rent changes for existing tenants (Neil, Oct 20) - managers and admins, or an Operations Full grant.
+  { key: 'revenue',     label: 'Revenue Management', Icon: TrendingUp },
+  // The Daily Flash for any set of properties, with its own picker and month (Neil, Oct 20).
+  { key: 'portfolio',   label: 'Portfolio',       Icon: Gauge },
+  { key: 'site-map',    label: 'Site Map',        Icon: MapIcon },
 ];
+// Tabs that pick one facility themselves and are not about a period.
+const NO_PERIOD = new Set(['market', 'revenue', 'site-map']);
 // Market Rates keeps its own records and compares one facility at a time, so
 // the period and the "as of today" note do not apply to it.
 const TAB_KEYS = new Set(TABS.map((t) => t.key));
@@ -66,6 +79,20 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Stores another operator runs (CubeSmart, Oct 20 2026): their own read, so a
+  // Cubby problem never hides them and theirs never hides Cubby's.
+  const [thirdParty, setThirdParty] = useState([]);
+  const loadThirdParty = useCallback(async () => {
+    try {
+      const r = await api.getThirdPartyFacilities?.();
+      if (r) setThirdParty(r.facilities || []);
+    } catch (err) {
+      console.error('Operations: could not load the operator-managed stores', err);
+    }
+  }, []);
+  useEffect(() => { loadThirdParty(); }, [loadThirdParty]);
+  useEffect(() => pollWhileVisible(() => loadThirdParty(), 5 * 60 * 1000), [loadThirdParty]);
+
   // Refresh asks the server for a Cubby sync (it runs in the background), polls
   // until it is done, then re-reads the figures. A sync someone else started
   // counts too: wait for it instead of starting another.
@@ -73,6 +100,8 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   // Only managers and above are told about the missing key; everyone sees the delayed chip.
   const role = useRole();
   const canSeeKeyHint = role?.can?.('manager') ?? false;
+  const canRevenue = role?.canAccessModule ? role.canAccessModule('operations', 'manager', 'full') : canSeeKeyHint;
+  const tabs = canRevenue ? TABS : TABS.filter((t) => t.key !== 'revenue');
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;   // StrictMode mounts twice; the second mount must turn it back on
@@ -107,7 +136,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   // on screen stay put until the new ones arrive.
   useEffect(() => pollWhileVisible(() => load(), 5 * 60 * 1000), [load]);
 
-  const facilities = useMemo(() => state.data?.facilities || [], [state.data]);
+  const facilities = useMemo(() => [...(state.data?.facilities || []), ...thirdParty], [state.data, thirdParty]);
   const scope = useMemo(
     () => (picked === 'all' ? facilities : facilities.filter((f) => f.id === picked)),
     [facilities, picked],
@@ -128,14 +157,14 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
+      <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} />
 
       <div className="view-header">
         <div className="view-title-group">
           <h2>Operations</h2>
           <p>
             {state.data
-              ? <>{`${state.data.organization || 'Storage facilities'} - ${facilities.length} facilities from Cubby, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
+              ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} managed by an operator` : ''}, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
               : 'Storage facility figures from Cubby'}
           </p>
         </div>
@@ -170,18 +199,25 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
         </p>
       )}
 
-      {state.status === 'ready' && facilities.length > 0 && (
+      {state.status === 'ready' && facilities.length > 0 && sub === 'portfolio' && <Portfolio />}
+
+      {state.status === 'ready' && facilities.length > 0 && sub !== 'portfolio' && (
         <div className="ops-root">
           <div className="ops-bar-top">
-            <div className="ops-pills" role="group" aria-label="Facility">
+            {/* Rate Management picks its facility from a dropdown of its own (Neil, Oct 20). */}
+            {sub !== 'market' && <div className="ops-pills" role="group" aria-label="Facility">
               <button type="button" className="ops-pill" aria-pressed={picked === 'all'} onClick={() => setPicked('all')}>All Facilities</button>
               {facilities.map((f) => (
-                <button type="button" key={f.id} className="ops-pill" aria-pressed={picked === f.id} onClick={() => setPicked(f.id)}>{f.shortName}</button>
+                <button type="button" key={f.id} className="ops-pill" aria-pressed={picked === f.id} onClick={() => setPicked(f.id)}
+                  title={isThirdParty(f) ? `${managedLabel(f)} - ${dataAsOf(f)}` : undefined}>
+                  {f.shortName}
+                  {isThirdParty(f) && <span className="ops-pill-tag">{managedLabel(f)}</span>}
+                </button>
               ))}
-            </div>
+            </div>}
             <div className="ops-bar-right">
               <Lookup />
-              {sub !== 'market' && (
+              {!NO_PERIOD.has(sub) && (
                 <label className="ops-period">
                   <span>Period</span>
                   <select value={period} onChange={(e) => setPeriod(e.target.value)}>
@@ -191,18 +227,24 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
               )}
             </div>
           </div>
-          {sub !== 'market' && (
+          {!NO_PERIOD.has(sub) && (
             <p className="ops-note">
               Occupancy, rent and balances are as of today. Move-ins, collections and failed payments cover {range.label.toLowerCase()} ({formatDate(range.from)} - {formatDate(range.to)}).
             </p>
           )}
 
+          {sub === 'overview' && <ThirdPartyPanel facilities={scope.filter(isThirdParty)} canUpload={canSeeKeyHint} onSaved={loadThirdParty} />}
           {sub === 'overview' && <Overview data={data} facilities={facilities} scope={scope} many={many} range={range} focus={focus} go={go} onPick={setPicked} onJump={jump} />}
           {sub === 'collections' && <Collections data={data} scope={scope} trend={state.data.trend} many={many} range={range} focus={focus} go={go} />}
-          {sub === 'units' && <Units data={data} many={many} focus={focus} go={go} />}
+          {sub === 'units' && <Units data={data} many={many} focus={focus} go={go}
+            unitClasses={state.data.unitClasses} canEditClasses={canSeeKeyHint} onClassesSaved={() => load(true)} />}
           {sub === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
-          {sub === 'market' && <Market facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />}
-          {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} />}
+          {sub === 'market' && <RateManagement facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />}
+          {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} onPick={setPicked} />}
+          {sub === 'revenue' && (canRevenue
+            ? <Revenue facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />
+            : <div className="dash-card"><div className="ops-empty">Revenue Management is for managers and administrators.</div></div>)}
+          {sub === 'site-map' && <Suspense fallback={<LoadingState size="section" label="Loading the site map" minHeight={420} />}><SiteMap facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} /></Suspense>}
         </div>
       )}
     </div>

@@ -13,6 +13,8 @@ import { useEffect, useState } from 'react';
 import { ArrowUpRight, ChevronLeft, ChevronRight, ExternalLink, Search, X } from 'lucide-react';
 import { formatDate } from '../lib/datetime';
 import { AGING, LEAD_STATUS, OFF_MARKET_REASON, agingLabel, attentionItems, collectionSeries, count, historyWindow, money, pastDueTrend, pct, periodStats, tidy } from './model';
+import { mailboxOccupancy, rentedAll, storageOccupancy, storageRent } from './occupancy';
+import UnitClasses from './UnitClasses';
 import { AgingChart, CollectionsChart, Legend, MovesChart, PastDueTrendChart, RentedTrendChart, UnitMixChart } from './charts';
 
 // A KPI is a button: it names where it goes ("Past Due, $8,937. Show tenants past due").
@@ -137,7 +139,9 @@ const facilityCol = (many) => ({ head: 'Facility', cell: (r) => r.facility, when
 
 export function Overview({ data, facilities, scope, many, range, focus, go, onPick, onJump }) {
   useScrollTo(focus);
-  const rentable = data.units.rented + data.units.vacant;
+  const occ = storageOccupancy(data.units);
+  const boxes = mailboxOccupancy(data.mailboxes);
+  const renters = rentedAll(data);
   const stats = periodStats(data, range);
   const net = stats.moveIns - stats.moveOuts;
   const months = historyWindow(data.history, range);
@@ -145,17 +149,22 @@ export function Overview({ data, facilities, scope, many, range, focus, go, onPi
   return (
     <>
       <div className="kpi-grid">
-        <Kpi label="Occupancy" value={pct(data.units.rented, data.units.total)}
-          sub={`${count(data.units.rented)} of ${count(data.units.total)} units - ${pct(data.units.rented, rentable)} of rentable`}
+        <Kpi label="Storage Occupancy" value={pct(occ.rented, occ.rentable)}
+          sub={`${count(occ.rented)} of ${count(occ.rentable)} rentable units${occ.offMarket ? ` - ${count(occ.offMarket)} off market not counted` : ''}`}
           to="Show occupancy by unit type" onClick={() => go('units', 'unit-types')} />
+        {boxes && (
+          <Kpi label="Mailbox Occupancy" value={pct(boxes.rented, boxes.total)}
+            sub={`${count(boxes.rented)} of ${count(boxes.total)} mailboxes rented`}
+            to="Show mailboxes by unit type" onClick={() => go('units', 'unit-types')} />
+        )}
         <Kpi label="Monthly Rent Roll" value={money(data.rent.rentRoll, { compact: true })}
-          sub={data.units.rented ? `${money(data.rent.rentRoll / data.units.rented)} average per rented unit` : ''}
+          sub={renters ? `${money(data.rent.rentRoll / renters)} average per rented unit` : ''}
           to="Show rent by unit type" onClick={() => go('units', 'unit-types')} />
         <Kpi label="Past Due" value={money(data.pastDue.total, { compact: true })}
           sub={`${count(data.pastDue.tenants)} tenants - ${pct(data.pastDue.total, data.rent.rentRoll)} of a month's rent`}
           to="Show tenants past due" onClick={() => go('collections', 'past-due')} />
-        <Kpi label="On Autopay" value={pct(data.autoPay, data.units.rented, 0)}
-          sub={`${count(data.autoPay)} of ${count(data.units.rented)} rented units`}
+        <Kpi label="On Autopay" value={pct(data.autoPay, renters, 0)}
+          sub={`${count(data.autoPay)} of ${count(renters)} rented units`}
           to="Show past-due tenants who are not on autopay" onClick={() => go('collections', 'past-due', 'no-autopay')} />
         <Kpi label="Net Move-Ins" value={`${net > 0 ? '+' : ''}${net}`}
           sub={`${count(stats.moveIns)} in, ${count(stats.moveOuts)} out - ${range.label.toLowerCase()}`}
@@ -163,7 +172,7 @@ export function Overview({ data, facilities, scope, many, range, focus, go, onPi
       </div>
 
       <div className="ops-grid-3-2">
-        <Card title="Units by Facility" sub={many ? 'Select a bar to see only that facility' : 'Rented, vacant and off-market units'}
+        <Card title="Units by Facility" sub={`${many ? 'Storage units. Select a bar to see only that facility' : 'Rented, vacant and off-market storage units'}${boxes ? '. Mailboxes are counted apart.' : ''}`}
           right={<Legend items={[['Rented', 'var(--ops-s1)'], ['Vacant', 'var(--ops-s2)'], ['Off Market', 'var(--ops-neutral)']]} />}>
           <UnitMixChart facilities={scope} onPick={many ? onPick : undefined} />
         </Card>
@@ -195,12 +204,13 @@ export function Overview({ data, facilities, scope, many, range, focus, go, onPi
           <Rows limit={20} label="facilities" empty="No facilities." rows={facilities} columns={[
             { head: 'Facility', cell: (f) => <button type="button" className="ops-cell" onClick={() => onPick(f.id)}>{f.shortName}</button> },
             { head: 'Units', num: true, cell: (f) => count(f.units.total) },
-            { head: 'Occupancy', num: true, cell: (f) => <button type="button" className="ops-cell" onClick={() => onJump('units', f.shortName, 'unit-types')}>{pct(f.units.rented, f.units.total)}</button> },
+            { head: 'Occupancy', num: true, cell: (f) => { const o = storageOccupancy(f.units); return <button type="button" className="ops-cell" onClick={() => onJump('units', f.shortName, 'unit-types')}>{pct(o.rented, o.rentable)}</button>; } },
+            { head: 'Mailboxes', num: true, when: facilities.some((f) => f.mailboxes?.total), cell: (f) => { const b = mailboxOccupancy(f.mailboxes); return b ? `${pct(b.rented, b.total, 0)} of ${count(b.total)}` : '-'; } },
             { head: 'Off Market', num: true, cell: (f) => <button type="button" className="ops-cell" onClick={() => onJump('units', f.shortName, 'off-market')}>{count(f.units.unavailable)}</button> },
             { head: 'Rent Roll', num: true, cell: (f) => money(f.rent.rentRoll) },
             { head: 'Past Due', num: true, cell: (f) => <button type="button" className="ops-cell" onClick={() => onJump('collections', f.shortName, 'past-due')}>{money(f.pastDue.total)}</button> },
             { head: 'Past Due / Rent', num: true, cell: (f) => pct(f.pastDue.total, f.rent.rentRoll) },
-            { head: 'Autopay', num: true, cell: (f) => pct(f.autoPay, f.units.rented, 0) },
+            { head: 'Autopay', num: true, cell: (f) => pct(f.autoPay, rentedAll(f), 0) },
             { head: 'Net This Month', num: true, cell: (f) => { const n = f.moves.insMtd - f.moves.outsMtd; return `${n > 0 ? '+' : ''}${n}`; } },
           ]} />
         </Card>
@@ -298,7 +308,7 @@ export function Collections({ data, scope, trend, many, range, focus, go }) {
 
 // ── Units & Pricing ───────────────────────────────────────────────────────────
 
-export function Units({ data, many, focus, go }) {
+export function Units({ data, many, focus, go, unitClasses, canEditClasses, onClassesSaved }) {
   useScrollTo(focus);
   return (
     <>
@@ -310,12 +320,12 @@ export function Units({ data, many, focus, go }) {
           sub="Vacant units at today's street rate"
           to="Show empty rent by unit type" onClick={() => go('units', 'unit-types')} />
         <Kpi label="Off Market" value={count(data.units.unavailable)}
-          sub={`${pct(data.units.unavailable, data.units.total)} of all units cannot be rented`}
+          sub={`${pct(data.units.unavailable, data.units.total)} of storage units cannot be rented`}
           to="Show the off-market units and why" onClick={() => go('units', 'off-market')} />
         <Kpi label="Under Street Rate" value={money(data.rent.belowStreetGap, { compact: true })}
           sub={`Per month, across ${count(data.rent.belowStreetCount)} tenants`}
           to="Show tenants paying under the street rate" onClick={() => go('units', 'below-street')} />
-        <Kpi label="Rent per Rented Sq Ft" value={data.area.rented ? money(data.rent.rentRoll / data.area.rented, { exact: true }) : '-'}
+        <Kpi label="Rent per Rented Sq Ft" value={data.area.rented ? money(storageRent(data) / data.area.rented, { exact: true }) : '-'}
           sub={`${count(data.area.rented)} of ${count(data.area.total)} sq ft rented`}
           to="Show rent by unit type" onClick={() => go('units', 'unit-types')} />
       </div>
@@ -347,7 +357,7 @@ export function Units({ data, many, focus, go }) {
             { head: 'Moved In', cell: (r) => formatDate(r.moveIn, '-') },
           ]} />
         </Card>
-        <Card id="off-market" focus={focus} title="Off-Market Units" sub="Units that cannot be rented, and why">
+        <Card id="off-market" focus={focus} title="Off-Market Units" sub="Storage units that cannot be rented, and why. Mailboxes are not listed.">
           <Rows limit={6} label="units" empty="Every unit can be rented." rows={data.offMarket} columns={[
             { head: 'Unit', cell: (r) => strong(r.unit) },
             facilityCol(many),
@@ -358,6 +368,8 @@ export function Units({ data, many, focus, go }) {
           ]} />
         </Card>
       </div>
+
+      <UnitClasses rules={unitClasses} canEdit={canEditClasses} onSaved={onClassesSaved} />
     </>
   );
 }

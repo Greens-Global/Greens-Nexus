@@ -1,10 +1,11 @@
 // Operations -> Market Rates: our street rate against nearby facilities, size
 // by size, and a suggested rate.
 //
-// Competitor rates come from two places: each competitor's own public pricing
-// page, read once a day by the server (ops_market_engine.py - an identified
-// reader that obeys robots.txt), and what people record by hand (a call, a
-// drive-by, a site that cannot be read). Who is nearby comes from
+// Competitor rates come from three places: the StorTrack feed Cubby includes in
+// our plan (ops_stortrack.py, read from Cubby's warehouse a few times a day),
+// each competitor's own public pricing page, read once a day by the server
+// (ops_market_engine.py - an identified reader that obeys robots.txt), and
+// what people record by hand (a call, a drive-by, a site that cannot be read). Who is nearby comes from
 // OpenStreetMap, which must be credited wherever that list is shown. The
 // suggested rate is a rule printed on the screen, not an opinion: the median
 // competitor rate, moved by how full we are, held to a 10% step. The written
@@ -13,7 +14,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { useRole } from '../contexts/RoleContext';
+import { formatDate, formatDateTime, formatTime } from '../lib/datetime';
 import { count, money, pct } from './model';
 
 const signed = (cents) => `${cents > 0 ? '+' : cents < 0 ? '-' : ''}${money(Math.abs(cents))}`;
@@ -38,8 +40,60 @@ function position(r) {
   return ['status-approved', 'At Market'];
 }
 
-// One observation says where it came from.
-const sourceLabel = (source) => (source === 'web' ? 'Read From Website' : 'Entered by Staff');
+// One observation says where it came from: StorTrack, the competitor's website, or a person.
+const SOURCE_CHIP = {
+  stortrack: ['pill-info', 'StorTrack', 'From the StorTrack rate feed (through Cubby)'],
+  web: ['status-approved', 'Website', "Read from the competitor's own pricing page"],
+  manual: ['pill-muted', 'Manual', 'Entered by staff'],
+};
+export function SourceChip({ source }) {
+  const [cls, label, title] = SOURCE_CHIP[source] || SOURCE_CHIP.manual;
+  return <span className={`status-badge ${cls}`} title={title}>{label}</span>;
+}
+
+// "StorTrack last synced 10/20/2026 9:05 AM", the Sync Now button for
+// managers, and a quiet "not connected yet" until the warehouse key is set.
+export function StorTrackStatus({ st, canSync, facilityId, onSaved }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!st) return null;
+  if (!st.connected) {
+    return (
+      <p className="ops-note" data-testid="stortrack-status">
+        <strong>StorTrack not connected yet.</strong> {st.hint || 'Rates from the StorTrack feed appear here once the Cubby warehouse key is set.'}
+      </p>
+    );
+  }
+  const sync = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const out = await api.syncOpsStorTrack(facilityId);
+      if (out?.market) onSaved(out.market);
+    } catch (err) {
+      console.error('Operations: StorTrack sync failed', err);
+      setError(err?.status === 409 ? 'A StorTrack sync is already running. The rates will update when it finishes.'
+        : 'StorTrack could not be synced just now. Try again in a few minutes.');
+    } finally { setBusy(false); }
+  };
+  const when = st.lastSyncedAt ? `${formatDate(st.lastSyncedAt)} ${formatTime(st.lastSyncedAt)}` : '';
+  return (
+    <div className="ops-note" data-testid="stortrack-status" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+      <span>
+        <SourceChip source="stortrack" />{' '}
+        {st.running ? 'StorTrack sync running now.' : when ? `StorTrack last synced ${when}` : 'StorTrack has not synced yet.'}
+        {st.lastStatus === 'error' && st.lastDetail ? ` The last try did not finish: ${st.lastDetail}.` : ''}
+      </span>
+      {canSync && (
+        <button type="button" className="secondary-btn" onClick={sync} disabled={busy || st.running}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <RefreshCw size={14} aria-hidden="true" /> {busy ? 'Syncing' : 'Sync StorTrack Now'}
+        </button>
+      )}
+      {error && <span className="ops-form-error" role="alert">{error}</span>}
+    </div>
+  );
+}
 
 // How the last read of a competitor's rates page went.
 const CHECK_STATUS = {
@@ -76,7 +130,7 @@ function RateMoves({ moves }) {
                   <span className={`status-badge ${v.percent < 0 ? 'pill-info' : 'status-pending'}`}>{v.percent > 0 ? '+' : ''}{v.percent}%</span>
                 </td>
                 <td data-th="Date Seen">{formatDate(v.date)}</td>
-                <td data-th="Source">{sourceLabel(v.source)}{v.promo ? <span className="ops-delta"> - {v.promo}</span> : null}</td>
+                <td data-th="Source"><SourceChip source={v.source} />{v.promo ? <span className="ops-delta"> - {v.promo}</span> : null}</td>
               </tr>
             ))}
           </tbody>
@@ -210,7 +264,7 @@ function Competitor({ c, engine, onSaved, onRemove }) {
         </div>
         {latest?.rate ? (
           <div className="ops-comp-line">
-            Latest: {sizeLabel(latest)} at {money(latest.rate)}{latest.promo ? ` (${latest.promo})` : ''} - {sourceLabel(latest.source)}
+            Latest: {sizeLabel(latest)} at {money(latest.rate)}{latest.promo ? ` (${latest.promo})` : ''} <SourceChip source={latest.source} />
           </div>
         ) : null}
         {editing ? (
@@ -369,6 +423,8 @@ function Analysis({ facilityId, ready }) {
 
 export default function Market({ facility, facilities, onPick }) {
   const [state, setState] = useState({ status: 'loading', data: null });
+  const role = useRole();
+  const canSync = role?.can?.('manager') ?? false;
   const facilityId = facility?.id;
 
   const load = useCallback(async () => {
@@ -422,10 +478,13 @@ export default function Market({ facility, facilities, onPick }) {
       </div>
 
       <p className="ops-note">
-        Rates come from each competitor&apos;s own public pricing page, read {every} by an identified reader that follows the
-        site&apos;s robots rules, plus anything staff record by hand; a site that blocks automated readers or loads prices with
-        scripts has to be entered by hand.{m.engine && !m.engine.connected ? ' The automatic reader is not connected on this server yet.' : ''}
+        Rates come from the StorTrack feed through Cubby, from each competitor&apos;s own public pricing page, read {every} by an
+        identified reader that follows the site&apos;s robots rules, and from anything staff record by hand; a site that blocks
+        automated readers or loads prices with scripts has to be entered by hand. Every source counts the standard (regular)
+        rate.{m.engine && !m.engine.connected ? ' The automatic reader is not connected on this server yet.' : ''}
       </p>
+
+      <StorTrackStatus st={m.stortrack} canSync={canSync} facilityId={facilityId} onSaved={setData} />
 
       {m.moves?.length > 0 && <RateMoves moves={m.moves} />}
 
@@ -445,7 +504,7 @@ export default function Market({ facility, facilities, onPick }) {
             <thead><tr>
               <th>Unit Type</th><th className="num">Occupancy</th><th className="num">Our Street Rate</th><th className="num">Our Average Rent</th>
               <th className="num">Market Low</th><th className="num">Market Median</th><th className="num">Market High</th>
-              <th>Position</th><th className="num">Suggested</th><th>Why</th>
+              <th>Position</th><th>Sources</th><th className="num">Suggested</th><th>Why</th>
             </tr></thead>
             <tbody>
               {m.rows.map((r) => {
@@ -460,6 +519,7 @@ export default function Market({ facility, facilities, onPick }) {
                     <td data-th="Market Median" className="num">{r.marketMedian == null ? '-' : money(r.marketMedian)}</td>
                     <td data-th="Market High" className="num">{r.marketHigh == null ? '-' : money(r.marketHigh)}</td>
                     <td data-th="Position"><span className={`status-badge ${cls}`}>{label}</span></td>
+                    <td data-th="Sources">{r.sources?.length ? r.sources.map((x) => <SourceChip key={x} source={x} />) : '-'}</td>
                     <td data-th="Suggested" className="num">
                       {r.suggested == null ? '-' : <><strong>{money(r.suggested)}</strong>{r.change !== 0 && <span className="ops-delta"> {signed(r.change)}</span>}</>}
                     </td>

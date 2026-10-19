@@ -210,10 +210,11 @@ class RequestRateLimit(BaseHTTPMiddleware):
                           "/timeclock/agent/self-enroll", "/timeclock/agent/release",
                           "/hr/intake/public/",
                           "/timeclock/ical/",   # the calendar subscribe feed: a signed link, no login (Shifts Phase 3a)
-                          "/task-changelog-feed/")   # What's New RSS: a signed link, no login (Oct 16 2026)
+                          "/task-changelog-feed/",   # What's New RSS: a signed link, no login (Oct 16 2026)
+                          "/unit-map/")   # customer unit map: a signed link, no login (Oct 20 2026)
     # Routes whose path IS the credential: the trip log names the prefix,
     # never the token (the security log is durable).
-    TOKEN_PATH_PREFIXES = ("/timeclock/ical/", "/task-changelog-feed/")
+    TOKEN_PATH_PREFIXES = ("/timeclock/ical/", "/task-changelog-feed/", "/unit-map/")
     SHARED_SOURCE_PER_MIN = int(os.getenv("NEXUS_RL_SHARED", "120"))
     SHARED_SOURCE_PREFIXES = ("/mail-actions/", "/briefing-actions/", "/webhooks/github")
     EXEMPT_PREFIXES = ("/health", "/version")

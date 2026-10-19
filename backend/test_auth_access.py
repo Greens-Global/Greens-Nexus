@@ -47,6 +47,8 @@ KNOWN_PUBLIC = {
     "/auth/login", "/auth/callback",       # BFF login: OAuth flow can't require auth; callback is state+PKCE guarded
     "/auth/logout",                        # only clears the session cookie; harmless without a valid session
     "/site-models/public/{pid}",           # customer unit finder (/map/<id>): geometry + unit numbers, never occupancy (routers/site_models.public_view)
+    "/unit-map/t/{token}",                 # customer unit map (/find/<token>): HMAC-signed {model, unit}; one unit + geometry, never occupancy (routers/unit_map.py)
+    "/unit-map/u",                         # Cubby template link: per-facility HMAC key -> the signed token; same customer view
     "/branding/config",                    # login screen needs it pre-auth
     "/stepup/config",                      # same posture
     # Boot-failure beacon from public/guard.js: fired while the app cannot

@@ -79,6 +79,8 @@ const CAMEL_TO_SNAKE = {
   propertyLocked: 'property_locked',
   // Honest SLA (Oct 2026) - server-derived; mapped so it never goes out camelCased.
   slaDueAt: 'sla_due_at',
+  // The ticket's Unit at its property (Ops review, Oct 20).
+  propertyUnit: 'property_unit',
 };
 function toBody(patch) {
   const out = {};

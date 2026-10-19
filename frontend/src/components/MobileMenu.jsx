@@ -60,6 +60,9 @@ export const SUBMENUS = {
     { sub: 'worklist',    label: 'Worklist' },
     { sub: 'market',      label: 'Market Rates' },
     { sub: 'reports',     label: 'Reports' },
+    { sub: 'revenue',     label: 'Revenue Management' },
+    { sub: 'portfolio',   label: 'Portfolio' },
+    { sub: 'site-map',    label: 'Site Map' },
   ],
   hr: [
     { sub: 'hr-people', label: 'People' },

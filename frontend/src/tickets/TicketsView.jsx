@@ -26,12 +26,11 @@ import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
 import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, UnassignedAvatar, SelectMenu, useImageZoom, useEscapeLayer } from '../tasks/components';
 import { dialog as appDialog } from '../ui/dialog';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
-import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, ColResizer } from '../tasks/tableCols';
 import {
   fmtDate, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
-  SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, slaSortKey, fmtDueAt, slaMet, isBlankFieldValue, toEmailList,
+  SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, slaSortKey, fmtDueAt, isBlankFieldValue, toEmailList,
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
   ticketNo, ticketNoShort, normalizeCode,
@@ -55,6 +54,8 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import TicketOpening, { TicketNotFound } from './TicketOpening';
 import { confirmSwitchTicket } from './drawerGuard';
 import { PropertySelect } from './PropertySelect';
+import { TicketPropertyIntake, TicketPropertyDetail, SuggestPropertyLinksButton } from './TicketPropertyFields';
+import { useTicketPropertyRules, propertyRequiredFor, usePropertyUnits } from './ticketPropertyLink';
 import { uploadTicketEvidence } from './evidenceUpload';
 import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
@@ -65,6 +66,7 @@ import { useTicketAccess } from './ticketAccess';
 import CreateModeTabs from './CreateModeTabs';
 import { registerTour } from '../lib/tours';
 import SavedReplyPicker from './SavedReplyPicker';
+import TicketReports from './TicketReports';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -714,6 +716,13 @@ export default function TicketsView() {
   // doesn't reopen it.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    // The Weekly Ticket Report email links to ?view=reports.
+    if (params.get('view') === 'reports') {
+      setView('reports');
+      params.delete('view');
+      const left = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (left ? `?${left}` : ''));
+    }
     const tid = params.get('ticket');
     if (!tid) return;
     setOpenId(tid);
@@ -882,6 +891,23 @@ export default function TicketsView() {
       return true;
     });
   }, [tickets, scope, myEmail, searchQ, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, assigneeFilter, serviceAreaFilter]);
+
+  // Reports (server-side, TicketReports.jsx) take the list's filters that the
+  // report endpoint understands; status, SLA, scope and search are list-only.
+  // The list's '' ("No Department" / "Not Set") travels as 'none'.
+  const reportFilters = useMemo(() => {
+    const v = (x) => (x === 'all' ? '' : x);
+    const blank = (x) => (x === '' ? 'none' : v(x));
+    return { priority: v(priorityFilter), type: v(typeFilter), department: blank(hrDeptFilter),
+      assignee: v(assigneeFilter), service_area: blank(serviceAreaFilter) };
+  }, [priorityFilter, typeFilter, hrDeptFilter, assigneeFilter, serviceAreaFilter]);
+  const reportFilterLabels = useMemo(() => [
+    priorityFilter !== 'all' && `Priority: ${PRIORITY_META[priorityFilter]?.label || priorityFilter}`,
+    typeFilter !== 'all' && `Type: ${TICKET_TYPE_META[typeFilter]?.label || typeFilter}`,
+    hrDeptFilter !== 'all' && `Department: ${hrDeptFilter === '' ? 'No Department' : (hrDeptName(hrDeptFilter) || hrDeptFilter)}`,
+    assigneeFilter !== 'all' && `Assignee: ${nameOf(assigneeFilter) || assigneeFilter}`,
+    serviceAreaFilter !== 'all' && `Service Area: ${serviceAreaFilter === '' ? 'Not Set' : (serviceAreaLabel(serviceAreaFilter) || serviceAreaFilter)}`,
+  ].filter(Boolean), [priorityFilter, typeFilter, hrDeptFilter, assigneeFilter, serviceAreaFilter, hrDeptName, nameOf]);
 
   // List-view sort - applied before grouping so it holds within each bucket too.
   const sortTickets = useCallback((list) => {
@@ -1108,6 +1134,7 @@ export default function TicketsView() {
             >
               <Download size={15} />Export
             </button>
+            {privileged && <SuggestPropertyLinksButton style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13 }} />}
             <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={() => setNamingView(true)} onDelete={removeTicketView}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'} />
             {view === 'list' && (
@@ -1201,7 +1228,7 @@ export default function TicketsView() {
         // both change on one re-render (rotating the phone, List <-> Board).
         paddingTop: view === 'board' ? 12 : 16, paddingLeft: view === 'board' ? 12 : 16, paddingRight: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 8 : 76 }}>
         {view === 'reports' ? (
-          <TicketReports tickets={visible} nameOf={nameOf} hrDeptName={hrDeptName} />
+          <TicketReports listFilters={reportFilters} filterLabels={reportFilterLabels} companies={companies} />
         ) : view === 'board' ? (
           <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={moveOnBoard} mobile={isMobile}
             canMove={(t) => ticketRights(t, myEmail, privileged).canEditStatus} />
@@ -1622,7 +1649,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
               {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
             </div>
             <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>
-              {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}
+              {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}{t.source === 'email' ? ' · Via Email' : ''}
             </div>
           </div>
           {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} />}
@@ -1719,7 +1746,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
             {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
           </div>
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>
-            {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}
+            {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}{t.source === 'email' ? ' · Via Email' : ''}
           </div>
         </div>
       </div>
@@ -2140,6 +2167,13 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // Ask "Which property?" only for a team that takes one - a building, site
   // operations or site security team (the server enforces the same rule).
   const deptTakesProperty = groupTakesProperty(helpGroupFor(deptName));
+  // Ops review (Neil, Oct 20): a Buildings & Maintenance ticket names its
+  // property, and at a Cubby store its unit - TicketPropertyFields.jsx. The
+  // desk may file without (the server's rule too).
+  const propRules = useTicketPropertyRules();
+  const { canWorkQueue: deskIntake } = useTicketAccess();
+  const mustNameProperty = deptTakesProperty && !deskIntake && propertyRequiredFor(propRules, form.application);
+  const propUnits = usePropertyUnits(deptTakesProperty ? (form.propertyAssetId || '') : '');
   // Raised from a property (Asset Management): start on the team that handles
   // buildings once the departments arrive - once, and never over a pick.
   // Adjusting state while rendering (React's pattern for "derive once from
@@ -2196,8 +2230,11 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     for (const f of typeFieldDefs) {
       if (f.req && isBlankFieldValue(tf[f.key])) out.add(f.key);
     }
+    if (mustNameProperty && !form.propertyAssetId) out.add('propertyAssetId');
+    if (mustNameProperty && form.propertyAssetId && propUnits.required && !String(form.propertyUnit || '').trim()) out.add('propertyUnit');
     return out;
-  }, [form.subject, form.companyId, form.hrDepartmentId, form.application, showCompanyPicker, deptOptions, typeFieldDefs, tf]);
+  }, [form.subject, form.companyId, form.hrDepartmentId, form.application, showCompanyPicker, deptOptions, typeFieldDefs, tf,
+    mustNameProperty, form.propertyAssetId, form.propertyUnit, propUnits.required]);
 
   // ── Mobile capture shortcuts (mirrors CreateTaskModal) ──
   // Photo / attach / scan sit in the footer so they're one tap away on a phone.
@@ -2304,7 +2341,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         slaDueOn: slaDueFromPriority(form.priority).slice(0, 10),
         typeFields,
         ...(fromTask ? { fromTaskId: fromTask.id, closeSourceTask: closeSource } : {}),
-        ...(form.propertyAssetId && deptTakesProperty ? { propertyAssetId: form.propertyAssetId } : {}),
+        ...(form.propertyAssetId && deptTakesProperty ? { propertyAssetId: form.propertyAssetId, propertyUnit: String(form.propertyUnit || '').trim() } : {}),
         // Raised from the property itself: it stays that property's ticket.
         ...(forProperty && form.propertyAssetId === forProperty.id ? { propertyLocked: true } : {}),
       });
@@ -2392,7 +2429,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // come before the questions they add.
   // Convert to Ticket: what came across, and each required field still empty.
   const fieldLabel = (k) => ({ subject: 'Title', companyId: 'Company', hrDepartmentId: 'Department',
-    application: 'What Do You Need Help With?' }[k] || typeFieldDefs.find((f) => f.key === k)?.label || k);
+    application: 'What Do You Need Help With?', propertyAssetId: 'Property', propertyUnit: 'Unit' }[k] || typeFieldDefs.find((f) => f.key === k)?.label || k);
   const carried = fromTask ? ['title', 'description', 'priority', 'requester',
     ...((form.watcherIds || []).length ? ['collaborators'] : []),
     ...(fromTask.fileCount ? [`${fromTask.fileCount} file${fromTask.fileCount > 1 ? 's' : ''}`] : [])] : [];
@@ -2575,18 +2612,14 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
       </div>
 
       {deptTakesProperty && (
-        <div style={field}>
-          <label style={label}>Property</label>
-          {forProperty ? (
-            // Raised from the property itself - fixed, not a choice.
-            <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', background: NX.surface2, color: NX.ink }}>{forProperty.name}</div>
-          ) : (
-            <PropertySelect value={form.propertyAssetId} onChange={(v) => set('propertyAssetId', v)} style={sel} />
-          )}
-          {sub(forProperty
-            ? `Shows on ${forProperty.name}'s Maintenance in Asset Management.`
-            : 'Optional - pick it and the ticket shows on that property in Asset Management.')}
-        </div>
+        // Property + Unit (Ops review, Oct 20). Raised from the property
+        // itself (forProperty), the property is fixed, not a choice.
+        <TicketPropertyIntake fixed={forProperty} value={form.propertyAssetId} unit={form.propertyUnit || ''}
+          onChange={(v) => { set('propertyAssetId', v); set('propertyUnit', ''); }}
+          onUnitChange={(v) => set('propertyUnit', v)}
+          required={mustNameProperty} unitRequired={mustNameProperty && propUnits.required}
+          invalidProperty={err('propertyAssetId')} invalidUnit={err('propertyUnit')}
+          text={`${form.subject} ${form.description || ''}`} units={propUnits} style={sel} />
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
@@ -3356,7 +3389,16 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           </div>
         ) : (<>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>{v.subject}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>
+              {v.subject}
+              {/* Raised by email (ticket_inbound.py) - a quiet note, not a chip. */}
+              {t.source === 'email' && (
+                <span title="Raised by an email to the support mailbox"
+                  style={{ marginLeft: 8, fontSize: 11.5, fontWeight: 500, color: NX.faint, whiteSpace: 'nowrap' }}>
+                  Via Email
+                </span>
+              )}
+            </div>
             {canEditText && (
               <button type="button" onClick={startEdit} title="Edit title and description" aria-label="Edit title and description"
                 style={{ ...btn('ghost'), padding: 5, color: NX.dim, flexShrink: 0 }}><Pencil size={15} /></button>
@@ -3578,6 +3620,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             </>)}
           </div>
         )}
+        {/* Unit + View Property (Ops review, Oct 20) - TicketPropertyFields.jsx. */}
+        <TicketPropertyDetail v={v} canEdit={fullAccess} stage={stage} style={sel} />
         {/* Derived from the application by the server, and re-derived whenever
             it changes. A manager can still override it here for an app the
             directory has mapped wrongly - correcting the mapping itself is a
@@ -3997,110 +4041,6 @@ function CsatWidget({ ticket, canRate, onRate, onComment }) {
       ) : ticket.csatComment ? (
         <p style={{ margin: '6px 0 0', fontSize: 12.5, color: NX.dim, fontStyle: 'italic' }}>“{ticket.csatComment}”</p>
       ) : null}
-    </div>
-  );
-}
-
-// ── Reports - open-by-status/type/assignee, avg resolution, SLA compliance ─────
-function TicketReports({ tickets, nameOf, hrDeptName }) {
-  const stats = useMemo(() => {
-    const open = tickets.filter((t) => !CLOSED_STATES.includes(t.status));
-    const byStatus = TICKET_STATUS_ORDER.map((s) => ({ label: TICKET_STATUS_META[s].label, value: tickets.filter((t) => t.status === s).length, color: TICKET_STATUS_META[s].color })).filter((d) => d.value > 0);
-    // Every type that has tickets - a type switched off, or retired, still counts.
-    const byType = Object.keys(TICKET_TYPE_META).map((ty) => ({ label: TICKET_TYPE_META[ty].label, value: tickets.filter((t) => (t.type || 'request') === ty).length, color: TICKET_TYPE_META[ty].color })).filter((d) => d.value > 0);
-    const byPriority = PRIORITY_ORDER.map((p) => ({ label: PRIORITY_META[p].label, value: tickets.filter((t) => t.priority === p).length, color: PRIORITY_META[p].color })).filter((d) => d.value > 0);
-    const PAL = ['#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
-    // top assignees among open tickets
-    const acc = new Map();
-    for (const t of open) { const k = t.assigneeId || ''; acc.set(k, (acc.get(k) || 0) + 1); }
-    const byAssignee = [...acc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([k, n], i) => ({ label: k ? (nameOf(k) || k) : 'Unassigned', value: n, color: PAL[i % 8] }));
-    // Where tickets come from. HR Department is the routing dimension - it decides
-    // which lead triages the ticket - so it's the cut worth showing.
-    const deptAcc = new Map();
-    for (const t of tickets) { const k = t.hrDepartmentId || ''; deptAcc.set(k, (deptAcc.get(k) || 0) + 1); }
-    const byDepartment = [...deptAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([k, n], i) => ({ label: k ? (hrDeptName(k) || k) : 'No Department', value: n, color: PAL[i % 8] }));
-    // Which apps generate the work, and which service areas carry it. The two
-    // cuts the desk cannot get from any other dimension: department says whose
-    // problem it is, these say what the problem is IN.
-    const appAcc = new Map();
-    for (const t of tickets) { const k = t.application || ''; if (!k) continue; appAcc.set(k, (appAcc.get(k) || 0) + 1); }
-    const byApplication = [...appAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([k, n], i) => ({ label: k, value: n, color: PAL[i % 8] }));
-    const areaAcc = new Map();
-    for (const t of tickets) { const k = t.serviceArea || ''; areaAcc.set(k, (areaAcc.get(k) || 0) + 1); }
-    const byServiceArea = [...areaAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([k, n], i) => ({ label: k ? (serviceAreaLabel(k) || k) : 'Not Set', value: n, color: PAL[i % 8] }));
-    // recurrence signal - cluster by normalised subject; 2+ = a repeat worth investigating
-    const norm = (s) => (s || '').toLowerCase().replace(/[0-9]+/g, '').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
-    const recAcc = new Map();
-    for (const t of tickets) { const k = norm(t.subject); if (!k) continue; if (!recAcc.has(k)) recAcc.set(k, { label: t.subject, count: 0 }); recAcc.get(k).count += 1; }
-    const recurring = [...recAcc.values()].filter((g) => g.count >= 2).sort((a, b) => b.count - a.count).slice(0, 6);
-    // avg resolution time (days) for resolved tickets with both timestamps
-    const resolved = tickets.filter((t) => t.resolvedAt && t.createdAt);
-    const avgDays = resolved.length
-      ? (resolved.reduce((s, t) => s + Math.max(0, (new Date(t.resolvedAt) - new Date(t.createdAt))), 0) / resolved.length) / 86400000
-      : null;
-    // SLA compliance among closed tickets that had a due date: resolved on/before due
-    const closedWithSla = tickets.filter((t) => CLOSED_STATES.includes(t.status) && (t.slaDueAt || t.slaDueOn) && t.resolvedAt);
-    const met = closedWithSla.filter(slaMet).length;
-    const compliance = closedWithSla.length ? Math.round((met / closedWithSla.length) * 100) : null;
-    const breaching = tickets.filter((t) => slaState(t) === 'breached').length;
-    const atRisk = tickets.filter((t) => slaState(t) === 'at_risk').length;
-    const rated = tickets.filter((t) => (t.csatRating || 0) > 0);
-    const avgCsat = rated.length ? rated.reduce((s, t) => s + t.csatRating, 0) / rated.length : null;
-    return { total: tickets.length, open: open.length, byStatus, byType, byPriority, byAssignee, byDepartment, byApplication, byServiceArea, recurring, avgDays, compliance, breaching, atRisk, avgCsat };
-  }, [tickets, nameOf, hrDeptName]);
-
-  if (tickets.length === 0) return <EmptyState icon={BarChart3} title="No Data" hint="No tickets match your filters." />;
-
-  const Stat = ({ label: lab, value, color }) => (
-    <div style={{ flex: '1 1 130px', borderRadius: 14, border: `1px solid ${NX.border}`, background: NX.surface, padding: '14px 16px' }}>
-      <div style={{ fontSize: 24, fontWeight: 800, color: color || NX.ink }}>{value}</div>
-      <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{lab}</div>
-    </div>
-  );
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <Stat label="Total Tickets" value={stats.total} />
-        <Stat label="Open" value={stats.open} color={NX.blue} />
-        <Stat label="SLA Breached" value={stats.breaching} color={stats.breaching ? NX.red : NX.ink} />
-        <Stat label="Due Soon" value={stats.atRisk} color={stats.atRisk ? NX.amber : NX.ink} />
-        <Stat label="Avg Resolution" value={stats.avgDays == null ? '-' : `${stats.avgDays.toFixed(1)}d`} />
-        <Stat label="SLA Compliance" value={stats.compliance == null ? '-' : `${stats.compliance}%`} color={stats.compliance != null && stats.compliance < 80 ? NX.red : NX.green} />
-        <Stat label="Avg CSAT" value={stats.avgCsat == null ? '-' : `${stats.avgCsat.toFixed(1)}★`} color={stats.avgCsat != null && stats.avgCsat >= 4 ? NX.green : NX.ink} />
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
-        <Card title="By status"><Donut segments={stats.byStatus} total={stats.byStatus.reduce((s, d) => s + d.value, 0)} /></Card>
-        <Card title="By type"><LightBar data={stats.byType} /></Card>
-        <Card title="By priority"><LightBar data={stats.byPriority} /></Card>
-        <Card title="By department"><LightBar data={stats.byDepartment} /></Card>
-        <Card title="By service area"><LightBar data={stats.byServiceArea} /></Card>
-        <Card title="By Help Topic">
-          {stats.byApplication.length === 0
-            ? <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: NX.faint }}>No tickets name an application yet.</div>
-            : <LightBar data={stats.byApplication} />}
-        </Card>
-        <Card title="Open by assignee"><LightBar data={stats.byAssignee} /></Card>
-        <Card title="Recurring issues (repeat signal)">
-          {stats.recurring.length === 0
-            ? <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: NX.faint }}>No repeats yet - every subject is unique.</div>
-            : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {stats.recurring.map((g) => (
-                  <div key={g.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ ...chip(NX.red, 'rgba(220,38,38,0.14)'), flexShrink: 0 }}>×{g.count}</span>
-                    <span style={{ fontSize: 12.5, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.label}</span>
-                  </div>
-                ))}
-                <div style={{ fontSize: 11, color: NX.faint, marginTop: 2 }}>Repeats often signal a fix-once/capital-replacement opportunity, not more repairs.</div>
-              </div>
-            )}
-        </Card>
-      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Camera, Sun, Moon, Palette, Check, PanelLeft, Globe2, Signature, Copy, Mail, ChevronDown, ChevronUp, CalendarDays } from 'lucide-react';
+import { X, Camera, Sun, Moon, Palette, Check, PanelLeft, Globe2, Signature, Copy, Mail, ChevronDown, ChevronUp, CalendarDays, BadgeCheck } from 'lucide-react';
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
@@ -318,13 +318,18 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
         <div style={{ borderTop: '1px solid var(--line)', padding: '14px 18px 18px', fontFamily: 'Inter, sans-serif' }}>
           <label htmlFor="profile-date-format" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>
             <CalendarDays size={11} /> Date Format
+            {getDateFormat() === DATE_FORMATS[0] && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4, padding: '1px 7px', borderRadius: 999, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', letterSpacing: 0, textTransform: 'none', fontSize: 10.5 }}>
+                <BadgeCheck size={11} /> Default
+              </span>
+            )}
           </label>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-            How every date in Nexus reads for you.
+            How every date in Nexus reads for you. MM/DD/YYYY is the default for everyone.
           </div>
           <select id="profile-date-format" value={getDateFormat()} onChange={(e) => saveDateFormat(e.target.value)} disabled={dateFmtStatus === 'Saving...'}
             style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'inherit' }}>
-            {DATE_FORMATS.map((f) => <option key={f} value={f}>{f} - {formatDate(new Date(), '', undefined, f)}</option>)}
+            {DATE_FORMATS.map((f) => <option key={f} value={f}>{f} - {formatDate(new Date(), '', undefined, f)}{f === DATE_FORMATS[0] ? ' (Default)' : ''}</option>)}
           </select>
           {dateFmtStatus && <div style={{ fontSize: 11.5, color: dateFmtStatus === 'Saving...' ? 'var(--muted)' : 'hsl(var(--color-red))', marginTop: 6 }}>{dateFmtStatus}</div>}
         </div>
