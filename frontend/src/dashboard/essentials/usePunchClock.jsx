@@ -18,7 +18,7 @@ import BodModal from '../../components/BodModal';
 import { punchDurable, replayPending, readPending } from '../../lib/punchQueue';
 import { bodDurable } from '../../lib/bodQueue';
 import { punchPosition } from '../../lib/geoPosition';
-import { requiredPunchPosition, showLocationRequired, locationPermission, isLocationRequiredError, LOCATION_NEXT_STEP, LOCATION_SHORT } from '../../lib/punchLocation';
+import { requiredPunchPosition, showLocationRequired, locationPermission, isLocationRequiredError, needsLocation, LOCATION_NEXT_STEP, LOCATION_SHORT } from '../../lib/punchLocation';
 import { applyPunch, useTimeStatus, refetchTimeStatusFresh } from '../../lib/useTimeStatus';
 import { pairLocalAgent } from '../../lib/agentPair';
 import { formatTime } from '../../lib/datetime';
@@ -165,7 +165,7 @@ export function usePunchClock() {
     }
     // Require Location to Punch (Oct 19 2026): a browser that already said
     // no is told how to fix it before the screen picker or any message.
-    if (status?.locationRequired && await locationPermission() === 'denied') {
+    if (needsLocation(status, kind) && await locationPermission() === 'denied') {
       say(false, `Your company requires a location to punch. ${LOCATION_NEXT_STEP}`, LOCATION_SHORT);
       await showLocationRequired('denied');
       return false;
@@ -248,8 +248,8 @@ export function usePunchClock() {
       let pos = early ?? await punchPosition(kind);
       // Require Location to Punch (Oct 19 2026): one longer try, then the
       // how-to - never a location-less punch.
-      if (status?.locationRequired && !pos) pos = await requiredPunchPosition(null);
-      if (status?.locationRequired && !pos) {
+      if (needsLocation(status, kind) && !pos) pos = await requiredPunchPosition(null);
+      if (needsLocation(status, kind) && !pos) {
         if (kind === 'in') dropCapture();
         say(false, `Your company requires a location to punch. ${LOCATION_NEXT_STEP}`, LOCATION_SHORT);
         await showLocationRequired();

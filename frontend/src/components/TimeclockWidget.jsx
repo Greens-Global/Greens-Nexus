@@ -485,15 +485,9 @@ export default function TimeclockWidget() {
       return false;
     }
     eodAckRef.current = false;
-    let pos = await punchPosition('out');   // short budget: the punch landing comes first
-    // Require Location to Punch (Oct 19 2026): one longer try, then the how-to.
-    if (status?.locationRequired && !pos) pos = await requiredPunchPosition(null);
-    if (status?.locationRequired && !pos) {
-      say(LOCATION_SHORT);
-      setBusy(false);
-      await showLocationRequired();
-      return false;
-    }
+    // Clock-out never waits on Require Location to Punch (Visesh, Oct 19): it
+    // always lands, and reads "No Location" on the Time Sheet without one.
+    const pos = await punchPosition('out');   // short budget: the punch landing comes first
     const res = await punchDurable({ kind: 'out', tzOffsetMin: new Date().getTimezoneOffset(), pos });
     if (res.ok) {
       setLostOut(false);

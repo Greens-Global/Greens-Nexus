@@ -1079,7 +1079,9 @@ def punch(body: PunchIn, request: Request,
     # Require Location to Punch (Oct 19 2026): per company, off by default.
     # Checked before the day-message gates so the person fixes location first.
     # 400 (not 409): the offline queue treats it as a real refusal, never parks it.
-    if not _has_coords(body.lat, body.lng) and _location_required(db, email):
+    # Clock-out is never refused (Visesh, Oct 19): an open shift is worse than
+    # a punch without a location - it lands and reads "No Location".
+    if body.kind != "out" and not _has_coords(body.lat, body.lng) and _location_required(db, email):
         raise HTTPException(400, {"code": "location_required", "message": LOCATION_REQUIRED_MSG})
     # Beginning / End-of-day messages are POLICY, enforced here for every
     # surface (Neil, Oct 16: "enforced per policy everywhere based on roles"),

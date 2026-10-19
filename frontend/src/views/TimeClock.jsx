@@ -21,7 +21,7 @@ import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
 import { getPosition, punchPosition } from '../lib/geoPosition';
-import { requiredPunchPosition, showLocationRequired, locationPermission, isLocationRequiredError } from '../lib/punchLocation';
+import { requiredPunchPosition, showLocationRequired, locationPermission, isLocationRequiredError, needsLocation } from '../lib/punchLocation';
 import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
@@ -785,7 +785,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     // Require Location to Punch (Oct 19 2026): a browser that has already
     // said no is told how to fix it BEFORE the day message, so nobody writes
     // a message for a punch that cannot record.
-    if (status?.locationRequired && await locationPermission() === 'denied') {
+    if (needsLocation(status, kind) && await locationPermission() === 'denied') {
       await showLocationRequired('denied');
       return;
     }
@@ -859,8 +859,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     ]);
     // Require Location to Punch (Oct 19 2026): no fix -> one more try with a
     // longer timeout, then a blocking how-to instead of a location-less punch.
-    const pos = status?.locationRequired ? await requiredPunchPosition(firstPos) : firstPos;
-    if (status?.locationRequired && !pos) {
+    const pos = needsLocation(status, kind) ? await requiredPunchPosition(firstPos) : firstPos;
+    if (needsLocation(status, kind) && !pos) {
       setBusy('');
       await showLocationRequired();
       return;

@@ -160,7 +160,7 @@ class PunchLocationRequired(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self._last().lat, HERE["lat"])
 
-    def test_on_refuses_break_and_clock_out_without_location(self):
+    def test_on_refuses_breaks_but_lets_clock_out_through(self):
         self._require()
         self.assertEqual(self._punch("in", **HERE).status_code, 200)
         r = self._punch("break_start")
@@ -170,11 +170,11 @@ class PunchLocationRequired(unittest.TestCase):
         r = self._punch("break_end")
         self.assertEqual(r.status_code, 400, r.text)
         self.assertEqual(self._punch("break_end", **HERE).status_code, 200)
+        # Clock-out is never refused (Visesh, Oct 19): it lands as "No Location".
         r = self._punch("out")
-        self.assertEqual(r.status_code, 400, r.text)
-        self.assertEqual(self._last().kind, "break_end")
-        self.assertEqual(self._punch("out", **HERE).status_code, 200)
+        self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self._last().kind, "out")
+        self.assertEqual(self._last().geo_status, "no_location")
 
     def test_state_machine_refusal_still_wins(self):
         """A punch the state machine refuses keeps its 409 - location is not

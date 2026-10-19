@@ -48,6 +48,15 @@ describe('punchLocation', () => {
     expect(alert).toHaveBeenCalledWith(expect.stringContaining('Set Location to Allow'), expect.objectContaining({ title: 'Location Required' }));
   });
 
+  it('clock-out never needs a location; other punches do only when required', () => {
+    const on = { locationRequired: true };
+    expect(mod.needsLocation(on, 'in')).toBe(true);
+    expect(mod.needsLocation(on, 'break_start')).toBe(true);
+    expect(mod.needsLocation(on, 'out')).toBe(false);
+    expect(mod.needsLocation({ locationRequired: false }, 'in')).toBe(false);
+    expect(mod.needsLocation(null, 'in')).toBe(false);
+  });
+
   it('recognizes the server refusal', () => {
     expect(mod.isLocationRequiredError({ status: 400, detail: { code: 'location_required' } })).toBe(true);
     expect(mod.isLocationRequiredError({ status: 409, detail: { code: 'bod_required' } })).toBe(false);

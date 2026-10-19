@@ -28,6 +28,10 @@ export async function locationPermission() {
   } catch { return ''; }
 }
 
+/** Whether this punch must carry a location. Clock-out never does (Visesh,
+ *  Oct 19): it always goes through and reads "No Location" on the Time Sheet. */
+export const needsLocation = (status, kind) => !!status?.locationRequired && kind !== 'out';
+
 /** True when the server refused a punch for want of a location. */
 export const isLocationRequiredError = (e) => e?.detail?.code === 'location_required';
 
