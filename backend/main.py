@@ -27,6 +27,7 @@ from routers import github_webhook  # PR/push merged to dev/main -> admin notifi
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
 from routers import facility_ops  # Operations: storage facility figures read from Cubby (Oct 2026)
+from routers import ops_rates  # Operations -> Rate Management: proposed street rates, push to Cubby (Oct 20 2026)
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import hr_life_events as hr_life_events_router  # hiring packet / promotion / separation via Nexus Sign (Oct 2026)
@@ -1112,6 +1113,17 @@ def _run_migrations():
             "ALTER TABLE punch_requests ADD COLUMN employee_dismissed_at VARCHAR DEFAULT ''",
             # Leave balances (Oct 19 2026, leave_balances.py). models.NexusEmployee.leave_policy.
             "ALTER TABLE nexus_employees ADD COLUMN leave_policy VARCHAR DEFAULT ''",
+            # StorTrack into Market Rates (Oct 2026, ops_stortrack.py). models.OpsCompetitor / OpsCompetitorRate.
+            "ALTER TABLE ops_competitors ADD COLUMN stortrack_key VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_ops_competitors_stortrack_key ON ops_competitors (stortrack_key)",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN online_cents INTEGER",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN promo_cents INTEGER",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN climate BOOLEAN",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN drive_up BOOLEAN",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN elevator BOOLEAN",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN space_type VARCHAR DEFAULT ''",
+            # Ticket -> property unit (Ops review, Oct 20) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN property_unit VARCHAR DEFAULT ''",
             # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived. models.TaskTicket.
             "ALTER TABLE task_tickets ADD COLUMN source VARCHAR DEFAULT ''",
             # Inbound mail: what Exchange said about the sender (mail_inbound.auth_verdict).
@@ -2487,6 +2499,39 @@ def _run_migrations():
         # and the ledger - a new table, explicit RLS. models.LeaveLedgerEntry.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS leave_policy VARCHAR DEFAULT ''",
         "ALTER TABLE leave_ledger ENABLE ROW LEVEL SECURITY",
+        # StorTrack into Market Rates (Oct 2026, ops_stortrack.py). models.OpsCompetitor / OpsCompetitorRate.
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS stortrack_key VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_ops_competitors_stortrack_key ON ops_competitors (stortrack_key)",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS online_cents INTEGER",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS promo_cents INTEGER",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS climate BOOLEAN",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS drive_up BOOLEAN",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS elevator BOOLEAN",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS space_type VARCHAR DEFAULT ''",
+        # Rate Management (Oct 20 2026, ops_rate_mgmt.py) - two new tables, explicit RLS. models.OpsRateDraft / OpsRatePush.
+        "ALTER TABLE ops_rate_drafts ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_rate_pushes ENABLE ROW LEVEL SECURITY",
+        # Operations > Revenue Management (Oct 20 2026, ops_revenue.py) - new
+        # tables, explicit RLS. models.OpsRevenueStrategy / Batch / Change / Audit.
+        "ALTER TABLE ops_revenue_strategies ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_revenue_batches ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_revenue_changes ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_revenue_audit ENABLE ROW LEVEL SECURITY",
+        # Third-party managed properties (Operations, Oct 20 2026): CubeSmart's
+        # SRE Summary, Daily Flash and rent roll. Five new tables - RLS per
+        # CLAUDE.md. third_party_models.py.
+        "ALTER TABLE third_party_properties ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE third_party_sre_months ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE third_party_flash_days ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE third_party_rent_rolls ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE third_party_imports ENABLE ROW LEVEL SECURITY",
+        # Ticket -> property unit (Neil, Ops review Oct 20): the unit (or
+        # "Common Area") a property ticket is about. ticket_property_link.py.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_unit VARCHAR DEFAULT ''",
+        # Operations > Reports (Oct 20 2026, ops_reports.py / ops_report_builder.py):
+        # new tables, explicit RLS. models.OpsReportCache, models.OpsSavedReport.
+        "ALTER TABLE ops_report_cache ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_saved_reports ENABLE ROW LEVEL SECURITY",
         # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived
         # (models.TaskTicket.source), and the inbound log - a new table:
         # explicit RLS on top of the sweep. models.TicketInboundEmail.
@@ -3388,6 +3433,16 @@ async def lifespan(app: FastAPI):
                 print("[startup] Cubby snapshot loop skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Cubby snapshot loop skipped: {e}")
+        # Third-party properties nightly fetch (Operations, Oct 20 2026): OFF
+        # unless NEXUS_THIRD_PARTY_FETCH=on and the source's credentials are
+        # app settings - the loop idles otherwise. Deployed worker only.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from third_party_fetch import third_party_fetch_loop
+                _tasks.append(_a.create_task(third_party_fetch_loop()))
+        except Exception as e:
+            print(f"[startup] third-party fetch loop skipped: {e}")
         # Market watch (Operations, Oct 2026): once a day, reads each watched
         # competitor's public pricing page (robots.txt honored, identified
         # reader). Deployed worker only - a laptop must not send those requests.
@@ -3451,6 +3506,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] changelog auto-draft skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] changelog auto-draft skipped: {e}")
+        # Ops Report Builder schedules (Oct 20 2026): saved reports emailed
+        # weekly / monthly to their recipients. Deployed worker only - a laptop
+        # must not mail the team.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ops_report_builder import ops_report_schedule_loop
+                _tasks.append(_a.create_task(ops_report_schedule_loop()))
+            else:
+                print("[startup] Ops report schedules skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Ops report schedules skipped: {e}")
         # Weekly Ticket Report (Oct 2026, ticket_reports.py): Monday 7 AM in
         # each desk supervisor's own zone, one email per person per week
         # (claimed in ticket_report_email_log before the send). Deployed-worker
@@ -3769,6 +3836,7 @@ app.include_router(pfs.router)                # Personal Financial Statements (o
 app.include_router(leasing.router)            # Leasing: tenants, rent over time, expected vs received
 app.include_router(operations.router)
 app.include_router(facility_ops.router)       # Operations: occupancy, collections, pricing, worklist
+app.include_router(ops_rates.router)          # Operations -> Rate Management (drafts, push to Cubby, rate history)
 app.include_router(unifi.router)
 app.include_router(dashboard.router)
 app.include_router(dashboards_router.router)
@@ -3925,5 +3993,20 @@ from routers import leave_balances as leave_balances_router  # noqa: E402
 app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
 from routers import location_trail as location_trail_router  # noqa: E402
 app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)
+from routers import ops_revenue as ops_revenue_router  # noqa: E402
+app.include_router(ops_revenue_router.router)     # Operations > Revenue Management: rent changes for existing tenants (Neil, 10/20)
+from routers import ops_portfolio as ops_portfolio_router  # noqa: E402
+app.include_router(ops_portfolio_router.router)   # Operations > Portfolio: a Daily Flash for any set of properties (Neil, 10/20)
+from routers import third_party as third_party_router  # noqa: E402 - also registers third_party_models before create_all
+app.include_router(third_party_router.router)     # Operations: CubeSmart-managed stores - SRE / Daily Flash / rent roll upload, nightly fetch OFF (Neil, 10/20)
+from routers import ticket_property as ticket_property_router  # noqa: E402
+app.include_router(ticket_property_router.router)  # Tickets <-> properties: rules, suggest, units, Suggest Property Links (Neil, Ops 10/20)
+from routers import facility_maintenance_map  # noqa: E402
+app.include_router(facility_maintenance_map.router)  # Operations: open tickets + maintenance per Cubby unit, for the map layer (Neil, Ops 10/20)
+from routers import ops_reports as ops_reports_router  # noqa: E402
+app.include_router(ops_reports_router.router)     # Operations > Reports: Cubby's reports interactive + Report Builder (Neil, 10/20)
+from routers import unit_map as unit_map_router  # noqa: E402
+app.include_router(unit_map_router.ops_router)     # Operations > Site Map: site model + layers per facility (Neil, 10/20)
+app.include_router(unit_map_router.public_router)  # Customer unit map /find/<token>: one unit, the route, no login (Neil, 10/20)
 from routers import ticket_reports as ticket_reports_router  # noqa: E402
 app.include_router(ticket_reports_router.router)   # Tickets > Reports: the server-side report, its CSV and the weekly email opt-out (Oct 2026)

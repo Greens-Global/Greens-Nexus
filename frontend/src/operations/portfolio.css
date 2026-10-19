@@ -1,0 +1,36 @@
+/* Operations > Portfolio (Daily Flash). Colors come from ops.css's roles. */
+.pf-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: start; }
+@media (max-width: 1280px) { .pf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .pf-grid { grid-template-columns: minmax(0, 1fr); } }
+.pf-card { min-width: 0; }
+
+/* Charts keep a readable width on a phone and scroll sideways inside their card. */
+.pf-chart-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+.pf-table td, .pf-table th { white-space: nowrap; }
+.pf-table .pf-total td { font-weight: 700; border-top: 1px solid var(--line); }
+.pf-table .pf-sub td { font-size: 12.5px; color: var(--muted); }
+.pf-table .pf-sub td:first-child { padding-left: 28px; }
+.pf-table .pf-extra td { color: var(--ink); border-top: 1px dashed var(--line); }
+.pf-na { color: var(--muted); cursor: help; }
+.pf-expand { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.pf-expand:hover { color: var(--ops-s1); }
+.pf-expand:focus-visible { outline: 2px solid var(--ops-s1); outline-offset: 2px; }
+
+.pf-net { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.pf-net div { display: flex; flex-direction: column; gap: 4px; }
+.pf-net span { font-size: 12px; color: var(--muted); }
+.pf-net b { font-size: 22px; font-variant-numeric: tabular-nums; }
+
+.pf-picker { position: relative; }
+.pf-picker-btn { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
+.pf-picker-panel { position: absolute; left: 0; top: calc(100% + 8px); z-index: 30; width: min(460px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.pf-picker-groups { display: flex; flex-wrap: wrap; gap: 6px; }
+.pf-picker-list { list-style: none; margin: 0; padding: 0; }
+.pf-picker-list label { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13.5px; }
+.pf-picker-list li:last-child label { border-bottom: none; }
+.pf-picker-list input { width: 16px; height: 16px; accent-color: var(--ops-s1); }
+.pf-picker-name { font-weight: 600; color: var(--ink); }
+.pf-picker-meta { margin-left: auto; font-size: 12px; color: var(--muted); text-align: right; }
+.pf-off { cursor: not-allowed; opacity: .7; }
+@media (max-width: 760px) { .pf-root .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pf-root .kpi-value { font-size: 22px; } }

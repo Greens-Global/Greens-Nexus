@@ -1,7 +1,8 @@
 """Operations (storage facilities): the figures behind the Operations screen,
 read from Cubby through `cubby.py`, plus the Market Rates tab's own records
-(`ops_market.py`) and the reader that finds nearby facilities and reads their
-public pricing pages (`ops_market_engine.py`).
+(`ops_market.py`), the reader that finds nearby facilities and reads their
+public pricing pages (`ops_market_engine.py`) and the StorTrack feed from
+Cubby's warehouse (`ops_stortrack.py`).
 
 Same door as the sidebar: supervisors and above, or anyone whose Access Group
 grants the Operations module. The payload names tenants who owe money, so it
@@ -22,7 +23,9 @@ import cubby_sync
 import models
 import ops_market
 import ops_market_engine
-from auth import get_current_user, require_level_or_module
+import ops_stortrack
+import ops_unit_classes
+from auth import get_current_user, require_level_or_module, require_manager
 from database import get_db
 
 router = APIRouter(
@@ -145,12 +148,16 @@ def _competitor_dict(c: models.OpsCompetitor, rates: list) -> dict:
 def _rate_dict(r: models.OpsCompetitorRate) -> dict:
     return {"id": r.id, "competitorId": r.competitor_id, "width": r.width, "depth": r.depth,
             "parking": bool(r.parking), "rate": r.rate_cents, "promo": r.promo or "",
-            "observedOn": r.observed_on, "enteredBy": r.entered_by or "", "source": r.source or "manual"}
+            "observedOn": r.observed_on, "enteredBy": r.entered_by or "", "source": r.source or "manual",
+            # StorTrack only (None from the other sources).
+            "online": r.online_cents, "promoRate": r.promo_cents, "climate": r.climate, "driveUp": r.drive_up,
+            "spaceType": r.space_type or ""}
 
 
 def _obs(r: models.OpsCompetitorRate) -> dict:
     return {"competitor_id": r.competitor_id, "width": r.width, "depth": r.depth, "parking": bool(r.parking),
-            "rate_cents": r.rate_cents, "observed_on": r.observed_on, "created_at": r.created_at}
+            "rate_cents": r.rate_cents, "observed_on": r.observed_on, "created_at": r.created_at,
+            "climate": r.climate, "source": r.source or "manual"}
 
 
 def _market(db: Session, facility: dict) -> dict:
@@ -172,6 +179,7 @@ def _market(db: Session, facility: dict) -> dict:
         "rows": rows,
         "moves": ops_market_engine.rate_moves(db, fid, today),
         "engine": {"connected": _engine_connected(), "everyHours": ops_market_engine.watch_hours()},
+        "stortrack": ops_stortrack.status(db),
     }
 
 
@@ -351,3 +359,48 @@ async def market_analysis(facility_id: str, db: Session = Depends(get_db)):
         print(f"[ops-market] analysis failed: {type(e).__name__}")
         raise HTTPException(status_code=424, detail="The analysis could not be written just now. Try again in a minute.") from e
     return {**out, "writtenAt": _now(), "sizesCompared": len(rows)}
+
+
+# ── StorTrack (Oct 2026): Cubby's competitor rate feed, from its BigQuery warehouse ──
+
+@router.post("/market/stortrack/sync")
+async def stortrack_sync(facility_id: str = "", user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Import the newest StorTrack rates now (managers and above). The same
+    incremental import the schedule runs; it waits for the answer (a minute or
+    so at most) and returns the facility's refreshed tab when one is named."""
+    import cubby_warehouse
+    if not cubby_warehouse.configured():
+        raise HTTPException(status_code=503, detail=ops_stortrack.NOT_CONNECTED)
+    result = await asyncio.to_thread(ops_stortrack.sync, db, "manual", user.get("email") or "")
+    if result["status"] == "busy":
+        raise HTTPException(status_code=409, detail="A StorTrack sync is already running. The rates will update when it finishes.")
+    if result["status"] == "error":
+        raise HTTPException(status_code=424, detail=f"StorTrack could not be read: {result['detail']}")
+    out = {"result": result}
+    if facility_id:
+        facility = await _facility(facility_id)
+        out["market"] = await asyncio.to_thread(_market, db, facility)
+    return out
+
+# ── Unit classes (Neil, Oct 20 2026): which Cubby unit types are mailboxes ────
+# Cubby has no mailbox flag; ops_unit_classes matches words in the pricing
+# group name. Anyone on the screen can read the words; a manager (or an
+# Operations editor) changes them, and the next read uses them. Plain `def`
+# endpoints: FastAPI runs them in its thread pool, off the event loop.
+
+class UnitClassesBody(BaseModel):
+    mailbox: list[str] = Field(default_factory=list, max_length=ops_unit_classes.MAX_WORDS)
+    excluded: list[str] = Field(default_factory=list, max_length=ops_unit_classes.MAX_WORDS)
+
+
+@router.get("/unit-classes")
+def unit_classes(db: Session = Depends(get_db)):
+    return {**ops_unit_classes.load(db), "defaults": ops_unit_classes.DEFAULTS}
+
+
+@router.put("/unit-classes")
+def save_unit_classes(body: UnitClassesBody, db: Session = Depends(get_db),
+                      user: dict = Depends(require_level_or_module(3, "operations", "editor"))):
+    saved = ops_unit_classes.save(db, body.model_dump(), user.get("email") or "")
+    cubby.forget()   # this worker re-reads now; the others within a minute (cubby.READ_TTL)
+    return {**saved, "defaults": ops_unit_classes.DEFAULTS}

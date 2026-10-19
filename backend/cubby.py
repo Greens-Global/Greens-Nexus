@@ -33,6 +33,8 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+import ops_unit_classes as uc
+
 BASE = os.environ.get("CUBBY_BASE_URL", "https://api.cubbystorage.com/v1").rstrip("/")
 APP_URL = "https://app.cubbystorage.com"
 DEFAULT_TZ = "America/Los_Angeles"
@@ -159,24 +161,38 @@ def _tenant_url(customer_id: str) -> str:
     return f"{APP_URL}/tenants/{customer_id}" if customer_id else ""
 
 
-def summarize_facility(fac: dict, raw: dict) -> dict:
+def summarize_facility(fac: dict, raw: dict, rules: dict | None = None) -> dict:
+    """One facility's figures. `rules` (ops_unit_classes.load()) says which
+    pricing groups are mailboxes and which records are not units at all;
+    None = the defaults."""
     today: date = raw["today"]
     today_s = today.isoformat()
     month = today_s[:7]
-    rr = raw["rent_roll"]
+    # Every unit is storage, a mailbox, or a switched-off record (ops_unit_classes).
+    # Switched-off records count nowhere. Tenants and money (rent roll, past due,
+    # locks, autopay) cover storage AND mailboxes; occupancy, vacancy, off market
+    # and area cover storage only, and mailboxes get their own counts.
+    kind_of = {r.get("unitId"): uc.unit_class(r.get("pricingGroupName"), rules) for r in raw["rent_roll"]}
+    rr = [r for r in raw["rent_roll"] if kind_of[r.get("unitId")] != uc.EXCLUDED]
+    storage = [r for r in rr if kind_of[r.get("unitId")] == uc.STORAGE]
+    boxes = [r for r in rr if kind_of[r.get("unitId")] == uc.MAILBOX]
 
-    rented = [r for r in rr if r.get("status") == "RENTED"]
-    vacant = [r for r in rr if r.get("status") == "VACANT"]
-    held = [r for r in rr if r.get("status") not in ("RENTED", "VACANT")]
+    def split(rows):
+        return ([r for r in rows if r.get("status") == "RENTED"], [r for r in rows if r.get("status") == "VACANT"],
+                [r for r in rows if r.get("status") not in ("RENTED", "VACANT")])
+    rented = [r for r in rr if r.get("status") == "RENTED"]          # every tenant, mailboxes too
+    s_rented, vacant, held = split(storage)
+    b_rented, b_vacant, b_held = split(boxes)
 
     def area(rows):
         return round(sum((r.get("width") or 0) * (r.get("depth") or 0) for r in rows))
 
     rent_roll = sum(r.get("monthlyRentalAmount") or 0 for r in rented)
+    mailbox_rent_roll = sum(r.get("monthlyRentalAmount") or 0 for r in b_rented)
     street_rented = sum(r.get("standardRate") or 0 for r in rented)
     vacant_potential = sum(r.get("standardRate") or 0 for r in vacant)
 
-    unit_name = {r["unitId"]: (r.get("unitName") or "").strip() for r in rr}
+    unit_name = {r["unitId"]: (r.get("unitName") or "").strip() for r in raw["rent_roll"]}
     by_customer = {r["customerId"]: r for r in rented if r.get("customerId")}
     by_unit = {r["unitId"]: r for r in rented}
     # A tenant can rent several units. Cubby's payment rows name the tenant
@@ -194,7 +210,7 @@ def summarize_facility(fac: dict, raw: dict) -> dict:
         g = groups.setdefault(name, {"name": name, "total": 0, "rented": 0, "vacant": 0, "unavailable": 0,
                                      "street": r.get("standardRate") or 0, "rentSum": 0, "vacantPotential": 0,
                                      "width": r.get("width") or 0, "depth": r.get("depth") or 0,
-                                     "parking": "parking" in name.lower()})
+                                     "parking": "parking" in name.lower(), "kind": kind_of[r.get("unitId")]})
         g["total"] += 1
         if r.get("status") == "RENTED":
             g["rented"] += 1
@@ -257,8 +273,11 @@ def summarize_facility(fac: dict, raw: dict) -> dict:
     history = []
     for ym in months:
         end = _month_end(ym, today).isoformat()
+        # Storage units only, like the occupancy figure (a lease on a unit
+        # Cubby no longer lists counts as storage).
         occupied = sum(1 for le in leases
-                       if (le.get("moveInDate") or "9") <= end and not ((le.get("moveOutDate") or "") and le["moveOutDate"] <= end))
+                       if kind_of.get(le.get("unitId"), uc.STORAGE) == uc.STORAGE
+                       and (le.get("moveInDate") or "9") <= end and not ((le.get("moveOutDate") or "") and le["moveOutDate"] <= end))
         history.append({"month": ym, "moveIns": moved_in.get(ym, 0), "moveOuts": moved_out.get(ym, 0), "rented": occupied})
 
     active = [le for le in leases if not ((le.get("moveOutDate") or "") and le["moveOutDate"] <= today_s)]
@@ -333,9 +352,15 @@ def summarize_facility(fac: dict, raw: dict) -> dict:
         "asOf": today_s,
         # Where the facility is, for Market Rates' nearby search. None when Cubby has no map pin.
         "lat": _coord(fac.get("latitude"), 90), "lng": _coord(fac.get("longitude"), 180),
-        "units": {"total": len(rr), "rented": len(rented), "vacant": len(vacant), "unavailable": len(held)},
-        "area": {"total": area(rr), "rented": area(rented)},
-        "rent": {"rentRoll": rent_roll, "streetRented": street_rented, "vacantPotential": vacant_potential,
+        # Storage units only. Rentable = rented + vacant; off market = the rest.
+        "units": {"total": len(storage), "rented": len(s_rented), "vacant": len(vacant), "unavailable": len(held)},
+        # Mailboxes, counted apart (Neil, Oct 20 2026). Cubby marks an unrented
+        # mailbox unrentable, so its occupancy is rented of ALL mailboxes.
+        "mailboxes": {"total": len(boxes), "rented": len(b_rented), "vacant": len(b_vacant), "unavailable": len(b_held)},
+        "excludedUnits": len(raw["rent_roll"]) - len(rr),
+        "area": {"total": area(storage), "rented": area(s_rented)},
+        "rent": {"rentRoll": rent_roll, "mailboxRentRoll": mailbox_rent_roll,
+                 "streetRented": street_rented, "vacantPotential": vacant_potential,
                  "belowStreetGap": below_gap, "belowStreetCount": len(below)},
         "autoPay": sum(1 for r in rented if r.get("autoPayEnabled")),
         "protected": protected,
@@ -364,12 +389,23 @@ def summarize_facility(fac: dict, raw: dict) -> dict:
     }
 
 
-def build(pulled: dict) -> dict:
+def build(pulled: dict, rules: dict | None = None) -> dict:
     return {
         "organization": pulled.get("organization") or "",
         "fetchedAt": datetime.now(timezone.utc).isoformat(),
-        "facilities": [summarize_facility(f, r) for f, r in zip(pulled["facilities"], pulled["raw"])],
+        "unitClasses": rules or uc.DEFAULTS,
+        "facilities": [summarize_facility(f, r, rules) for f, r in zip(pulled["facilities"], pulled["raw"])],
     }
+
+
+def _rules() -> dict:
+    """The saved mailbox / excluded words, or the defaults when the setting
+    cannot be read (a database blip must not sink the screen). Blocking."""
+    try:
+        return uc.load()
+    except Exception as e:  # noqa: BLE001
+        print(f"[cubby] unit classes fell back to defaults: {type(e).__name__}")
+        return uc.DEFAULTS
 
 
 # ── Daily history ─────────────────────────────────────────────────────────────
@@ -388,6 +424,7 @@ def save_snapshots(payload: dict) -> None:
             if row is None:
                 row = models.CubbyDailySnapshot(id=sid, facility_id=f["id"], snapshot_date=f["asOf"])
                 db.add(row)
+            # Storage units only from Oct 20 2026 (mailboxes are counted apart).
             row.units_total = f["units"]["total"]
             row.units_rented = f["units"]["rented"]
             row.units_vacant = f["units"]["vacant"]
@@ -528,7 +565,7 @@ def _load() -> dict:
             _live = (time.monotonic(), pull())
         _kick_sync()
         pulled = {**_live[1], "syncedAt": "", "syncStatus": "live", "syncRunning": True}
-    payload = build(pulled)
+    payload = build(pulled, _rules())
     payload["fetchedAt"] = pulled["syncedAt"] or payload["fetchedAt"]
     payload["syncedAt"] = pulled["syncedAt"]
     payload["syncStatus"] = pulled["syncStatus"]
@@ -575,7 +612,7 @@ def after_sync() -> None:
     forget()
     pulled = _from_db()
     if pulled:
-        save_snapshots(build(pulled))
+        save_snapshots(build(pulled, _rules()))
 
 
 # ── Lookup and report exports (read from the same rows the screen shows) ─────
@@ -692,4 +729,12 @@ async def cubby_snapshot_loop():
                 await asyncio.to_thread(cubby_sync.record_not_configured)
         except Exception as e:  # noqa: BLE001
             print(f"[cubby] loop error: {type(e).__name__}: {getattr(e, 'message', '')}")
+        # StorTrack (Market Rates, Oct 2026): rides this loop at a lower
+        # cadence - ops_stortrack acts only every few hours and does nothing
+        # without the warehouse key. Its own try, so it can never stop Cubby.
+        try:
+            import ops_stortrack
+            await asyncio.to_thread(ops_stortrack.sync_if_due)
+        except Exception as e:  # noqa: BLE001
+            print(f"[stortrack] loop error: {type(e).__name__}")
         await asyncio.sleep(SYNC_EVERY_SEC)

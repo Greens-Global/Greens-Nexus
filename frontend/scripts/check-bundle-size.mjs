@@ -235,7 +235,14 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // close / break settings) measured 12974 KB and failed the dev Cloudflare
 // Pages build and archive-assets. leaflet was already in the bundle; all app
 // code, no new dependency. Deliberate.
-const TOTAL_KB     = 13150;
+// Oct 20, 2026: 13150 -> 13500. The Ops review release (Neil's Oct 20 call):
+// Rate Management, Revenue Management, Portfolio (Daily Flash), Reports +
+// Report Builder, CubeSmart-managed stores, ticket <-> property links and the
+// Ops Site Map / customer unit map with the site model rebuild measured
+// 13165 KB together (dev 12777). The builder, Site Map and public unit map are
+// already lazy chunks; this sums every shipped file regardless. App code only,
+// no new dependency. Deliberate.
+const TOTAL_KB     = 13500;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

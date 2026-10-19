@@ -12,6 +12,7 @@ const getFacilityOps = vi.fn();
 const facilityOpsLookup = vi.fn();
 const facilityOpsReport = vi.fn();
 const getOpsMarket = vi.fn();
+const getOpsRates = vi.fn();
 const recordOpsRate = vi.fn();
 const getOpsNearby = vi.fn();
 const addOpsCompetitor = vi.fn();
@@ -24,8 +25,10 @@ vi.mock('../api', () => ({ api: {
   checkOpsCompetitor: (...a) => checkOpsCompetitor(...a), updateOpsCompetitor: (...a) => updateOpsCompetitor(...a),
   getFacilityOps: (...a) => getFacilityOps(...a), facilityOpsLookup: (...a) => facilityOpsLookup(...a),
   facilityOpsReport: (...a) => facilityOpsReport(...a), getOpsMarket: (...a) => getOpsMarket(...a),
-  recordOpsRate: (...a) => recordOpsRate(...a),
+  recordOpsRate: (...a) => recordOpsRate(...a), getOpsRates: (...a) => getOpsRates(...a),
   getCubbySync: (...a) => getCubbySync(...a), startCubbySync: (...a) => startCubbySync(...a),
+  // Reports > Reports (Oct 20) loads its list on open; the export test below uses Quick Exports.
+  opsReportCatalog: () => Promise.resolve({ categories: [], reports: [] }),
 } }));
 let isManager = false;
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: (r) => (r === 'manager' ? isManager : true) }) }));
@@ -38,6 +41,18 @@ vi.mock('../components/ModuleTabs', () => ({
 }));
 
 const FacilityOperations = (await import('./FacilityOperations')).default;
+
+// Rate Management (Oct 20 2026) is the market tab now: its facility is a dropdown, and the
+// competitor set and manual entry (the Market screen) open from Comp Set & Manual Entry.
+const RATES_VIEW = { facilityId: 'fac_a', facility: 'Temecula', name: 'Greens Storage Temecula', asOf: '2026-10-13', address: '', billingCycle: 'MONTHLY',
+  lastSurvey: '', cubbyGroups: { ok: true, count: 0, error: '' }, compSet: { active: 0, web: 0, stortrack: 0, manual: 0, closed: 0 },
+  kpis: { vsMarket: null, rateable: 0, belowMarket: 0, occupancy: 0, units: 0, rented: 0, offline: 0, ready: 0, readyDelta: 0 },
+  attention: [], rows: [], competitors: [], freshDays: 120, minCompetitors: 2, pushes: [], canEdit: true, canPush: true };
+async function openCompSet(id = 'fac_a') {
+  getOpsRates.mockResolvedValue({ ...RATES_VIEW, facilityId: id });
+  fireEvent.change(await screen.findByLabelText('Facility'), { target: { value: id } });
+  fireEvent.click(await screen.findByRole('button', { name: /Comp Set & Manual Entry/ }));
+}
 const { default: SyncStatus } = await import('../operations/SyncStatus');
 const { syncDelayed } = await import('../operations/sync');
 
@@ -85,7 +100,7 @@ describe('Operations module', () => {
   it('draws every tab from one read', async () => {
     const { rerender } = render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
     expect(await screen.findByText('Facility Scorecard')).toBeTruthy();
-    expect(screen.getByText('76.7%')).toBeTruthy();                       // 115 rented of 150 units
+    expect(screen.getByText('82.1%')).toBeTruthy();                       // 115 rented of 140 rentable storage units
     rerender(<FacilityOperations activeSub="collections" onSubChange={() => {}} />);
     expect(screen.getByText('Tenants Past Due', { selector: '.dash-card-title' })).toBeTruthy();
     rerender(<FacilityOperations activeSub="units" onSubChange={() => {}} />);
@@ -176,6 +191,7 @@ describe('Operations module', () => {
   it('exports a list from the screen and a report from Cubby', async () => {
     facilityOpsReport.mockResolvedValue({ title: 'Rent Roll', asOf: '2026-10-13', columns: ['Unit'], rows: [['A12']] });
     render(<FacilityOperations activeSub="reports" onSubChange={() => {}} />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Quick Exports' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
     expect(downloadCsv.mock.calls[0][0]).toBe('Tenants Past Due - All Facilities - 10-13-2026.csv');
     expect(downloadCsv.mock.calls[0][2]).toHaveLength(2);
@@ -192,9 +208,9 @@ describe('Operations module', () => {
     getOpsMarket.mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', freshDays: 120, minCompetitors: 2, rows: [row],
       competitors: [{ id: 'c1', name: 'StorQuest', distanceMiles: 1.2, rates: [{ observedOn: '2026-10-01' }] }] });
     render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
-    expect(await screen.findByText('Choose a Facility')).toBeTruthy();
+    expect((await screen.findAllByText('Choose a Facility')).length).toBeGreaterThan(0);
     expect(getOpsMarket).not.toHaveBeenCalled();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Temecula' })[0]);
+    await openCompSet();
     expect(await screen.findByText('9% Below')).toBeTruthy();                 // $200 against a $220 median
     expect(screen.getByText('$205')).toBeTruthy();
     expect(getOpsMarket).toHaveBeenCalledWith('fac_a');
@@ -217,19 +233,19 @@ describe('Operations module', () => {
     addOpsCompetitor.mockResolvedValue({ ...market, competitors: [competitor, blocked] });
     checkOpsCompetitor.mockResolvedValue({ ...market, competitors: [{ ...competitor, lastDetail: 'Read 7 rates' }, blocked] });
     render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Temecula' }))[0]);
+    await openCompSet();
 
     // The move: $129 to $145, up 12.4%, seen 10/13.
     const moves = (await screen.findByText('Rate Moves')).closest('.dash-card');
     expect(moves.textContent).toContain('10% or more in the last 30 days');
     expect([...moves.querySelectorAll('tbody td')].map((td) => td.textContent))
-      .toEqual(['Example Storage', '10 x 10', '$129', '$145', '+12.4%', '10/13/2026', 'Read From Website']);
+      .toEqual(['Example Storage', '10 x 10', '$129', '$145', '+12.4%', '10/13/2026', 'Website']);
     expect(screen.getByText(/read once a day by an identified reader that follows the site's robots rules/)).toBeTruthy();
 
     // The competitor: where its rates are read from and how the last read went.
     const row = screen.getByRole('link', { name: 'www.example.com/units' }).closest('li');
     expect(row.textContent).toContain('Rates Read Read 6 rates. Checked 10/13/2026, 4:05 PM.');
-    expect(row.textContent).toContain('Latest: 10 x 10 at $145 - Read From Website');
+    expect(row.textContent).toContain('Latest: 10 x 10 at $145 Website');
     expect(row.querySelector('input[type="checkbox"]').checked).toBe(true);
 
     // Nearby, with the OpenStreetMap credit, and Add sends what OpenStreetMap knew.
@@ -253,7 +269,7 @@ describe('Operations module', () => {
     getOpsNearby.mockRejectedValue(Object.assign(new Error('boom'), { status: 424 }));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Temecula' }))[0]);
+    await openCompSet();
     expect(await screen.findByText(/The nearby list could not be loaded just now/)).toBeTruthy();
     expect(screen.getByText('Our Rates Against the Market')).toBeTruthy();
     expect(screen.queryByText('Rate Moves')).toBeNull();
@@ -366,7 +382,7 @@ describe('Operations figures', () => {
 
   it('flags a facility with many units off the market', () => {
     const items = attentionItems([facility('fac_c', 'Valley Center', { units: { total: 100, rented: 60, vacant: 10, unavailable: 30 } })]);
-    expect(items.map((i) => [i.tab, i.text])).toContainEqual(['units', '30 of 100 units are off the market (30%)']);
+    expect(items.map((i) => [i.tab, i.text])).toContainEqual(['units', '30 of 100 storage units are off the market (30%)']);
     expect(items[0].tab).toBe('collections');                              // money owed leads the list
   });
 

@@ -1253,6 +1253,15 @@ export const api = {
   getOpsNearby: (facilityId) => req(`/facility-ops/market/nearby?facility_id=${encodeURIComponent(facilityId)}`, { timeoutMs: 45_000 }),
   recordOpsRate: (data) => req("/facility-ops/market/rates", { method: "POST", body: JSON.stringify(data) }),
   opsMarketAnalysis: (facilityId) => req(`/facility-ops/market/analysis?facility_id=${encodeURIComponent(facilityId)}`, { method: "POST" }),
+  // StorTrack (Oct 2026): import the newest rates from Cubby's warehouse now (managers and above).
+  syncOpsStorTrack: (facilityId) => req(`/facility-ops/market/stortrack/sync?facility_id=${encodeURIComponent(facilityId || "")}`, { method: "POST", timeoutMs: 180_000 }),
+  // Rate Management (Oct 20 2026): the CMA table, proposed-rate drafts, Review & Push to Cubby, rate history.
+  getOpsRates: (facilityId) => req(`/facility-ops/rates?facility_id=${encodeURIComponent(facilityId)}`),
+  saveOpsRateDraft: (data) => req("/facility-ops/rates/draft", { method: "PUT", body: JSON.stringify(data) }),
+  pushOpsRates: (facilityId, unitTypes) => req("/facility-ops/rates/push", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, confirm: true }), timeoutMs: 180_000 }),
+  getOpsRateHistory: (facilityId, unitType) => req(`/facility-ops/rates/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
+  getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
 
   // Dev
   getDevProjects: () => req("/dev-projects"),
@@ -2503,6 +2512,65 @@ export const api = {
   locationTrailPing: (body)          => req('/timeclock/location-trail/ping', { method: 'POST', body: JSON.stringify(body) }),
   locationTrailLive: ()              => req('/timeclock/location-trail/live'),
   locationTrailDay:  (email, date)   => req(`/timeclock/location-trail/day?email=${encodeURIComponent(email || '')}&date=${encodeURIComponent(date)}`),
+  // Operations (Oct 20): the words that make a Cubby unit type a mailbox or a switched-off record.
+  getOpsUnitClasses:  ()     => req('/facility-ops/unit-classes'),
+  saveOpsUnitClasses: (data) => req('/facility-ops/unit-classes', { method: 'PUT', body: JSON.stringify(data) }),
+  // Operations > Revenue Management (Oct 20): rent changes for existing tenants.
+  opsRevenueTenants:    (facilityId) => req(`/facility-ops/revenue/tenants?facility_id=${encodeURIComponent(facilityId)}`),
+  opsRevenueStrategies: () => req('/facility-ops/revenue/strategies'),
+  opsRevenueSaveStrategy: (id, data) => req(id ? `/facility-ops/revenue/strategies/${encodeURIComponent(id)}` : '/facility-ops/revenue/strategies', { method: id ? 'PUT' : 'POST', body: JSON.stringify(data) }),
+  opsRevenueArchiveStrategy: (id) => req(`/facility-ops/revenue/strategies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  opsRevenuePreview:    (data) => req('/facility-ops/revenue/preview', { method: 'POST', body: JSON.stringify(data) }),
+  opsRevenueCreateBatch: (data) => req('/facility-ops/revenue/batches', { method: 'POST', body: JSON.stringify(data) }),
+  opsRevenueBatches:    (facilityId) => req(`/facility-ops/revenue/batches?facility_id=${encodeURIComponent(facilityId || '')}`),
+  opsRevenueBatch:      (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}`),
+  opsRevenueSetStatus:  (id, status, note = '') => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/status`, { method: 'POST', body: JSON.stringify({ status, note }) }),
+  opsRevenueRemoveChange: (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}`, { method: 'DELETE' }),
+  opsRevenuePush:       (id, cid, useCubbyDate = false) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/push`, { method: 'POST', body: JSON.stringify({ use_cubby_date: useCubbyDate }), timeoutMs: 60_000 }),
+  opsRevenueEntered:    (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/entered`, { method: 'POST' }),
+  opsRevenueExport:     (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/export`),
+  opsRevenueLetters:    (id) => reqBlob(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/letters.pdf`),
+  // Operations: stores another operator runs (CubeSmart, Oct 20 2026). Upload
+  // with commit=false is a validation preview; commit=true saves (upsert).
+  getThirdPartyFacilities: () => req('/third-party/ops-facilities'),
+  getThirdPartyProperties: () => req('/third-party/properties'),
+  uploadThirdPartyReport: (file, { kind = 'auto', propertyId = '', asOf = '', commit = false } = {}) => {
+    const fd = new FormData();
+    fd.append('file', file); fd.append('kind', kind); fd.append('property_id', propertyId);
+    fd.append('as_of', asOf); fd.append('commit', commit ? 'true' : 'false');
+    return req('/third-party/upload', { method: 'POST', body: fd, timeoutMs: 120_000 });
+  },
+  // Tickets <-> properties (Neil, Ops review 10/20) - routers/ticket_property.py.
+  getTicketPropertyRules:   () => cachedGet('/ticket-property/rules', 300_000),
+  suggestTicketProperty:    (text) => req(`/ticket-property/suggest?text=${encodeURIComponent(String(text || '').slice(0, 1500))}`),
+  getTicketPropertyUnits:   (id) => cachedGet(`/ticket-property/units/${encodeURIComponent(id)}`, 300_000),
+  getPropertyLinkSuggestions: () => req('/ticket-property/link-suggestions'),
+  applyPropertyLinkSuggestion: (ticketId, body) => req(`/ticket-property/link-suggestions/${encodeURIComponent(ticketId)}`, { method: 'POST', body: JSON.stringify(body) }),
+  dismissPropertyLinkSuggestion: (ticketId) => req(`/ticket-property/link-suggestions/${encodeURIComponent(ticketId)}/dismiss`, { method: 'POST' }),
+  // Operations > Reports (Neil, Oct 20): Cubby's reports as interactive tables,
+  // tenant / unit drill-down, and the Report Builder (saved, shared, scheduled).
+  opsReportCatalog: () => req('/ops-reports/catalog'),
+  opsReport: (kind, { facilityId = '', start = '', end = '' } = {}) =>
+    req(`/ops-reports/run/${encodeURIComponent(kind)}?${new URLSearchParams({ facility_id: facilityId, start, end })}`),
+  opsTenant: (facilityId, customerId) => req(`/ops-reports/tenant?${new URLSearchParams({ facility_id: facilityId, customer_id: customerId })}`),
+  opsTenantLedger: (facilityId, customerId) => req(`/ops-reports/tenant/ledger?${new URLSearchParams({ facility_id: facilityId, customer_id: customerId })}`),
+  opsUnit: (facilityId, unitId) => req(`/ops-reports/unit?${new URLSearchParams({ facility_id: facilityId, unit_id: unitId })}`),
+  opsBuilderRegistry: () => req('/ops-reports/builder/registry'),
+  opsBuilderRun: (spec) => req('/ops-reports/builder/run', { method: 'POST', body: JSON.stringify({ spec }) }),
+  opsSavedReports: () => req('/ops-reports/saved'),
+  createOpsSavedReport: (data) => req('/ops-reports/saved', { method: 'POST', body: JSON.stringify(data) }),
+  updateOpsSavedReport: (id, data) => req(`/ops-reports/saved/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteOpsSavedReport: (id) => req(`/ops-reports/saved/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  shareOpsSavedReport: (id, recipient, message = '') => req(`/ops-reports/saved/${encodeURIComponent(id)}/share`, { method: 'POST', body: JSON.stringify({ recipient, message }) }),
+  sendOpsSavedReport: (id, toMe = false) => req(`/ops-reports/saved/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify({ to_me: toMe }) }),
+  // Operations > Site Map (Oct 20): the site model per Cubby facility with the
+  // layer facts, the customer link for a unit, and the Customer Entrance pin.
+  getOpsSiteMapFacilities: ()            => req('/facility-ops/site-map/facilities'),
+  getOpsSiteMap:           (facilityId)  => req(`/facility-ops/site-map?facility_id=${encodeURIComponent(facilityId)}`),
+  getOpsCustomerLink:      (facilityId, unit) => req('/facility-ops/site-map/customer-link', { method: 'POST', body: JSON.stringify({ facility_id: facilityId, unit }) }),
+  saveOpsEntrance:         (body)        => req('/facility-ops/site-map/entrance', { method: 'PUT', body: JSON.stringify(body) }),
+  // Maintenance layer: built by the maintenance work (another branch); a 404 means not connected yet.
+  getOpsMaintenanceMap:    (facilityId)  => req(`/facility-ops/maintenance-map?facility_id=${encodeURIComponent(facilityId)}`),
   // Email to ticket (Oct 2026, ticket_inbound.py): the support mailbox's log
   // (supervisors, last 100) and a pass now instead of waiting for the loop.
   getTicketInboundLog: (params = {}) => req(`/task-tickets/inbound/log?${new URLSearchParams(params).toString()}`),
@@ -2540,5 +2608,19 @@ export const submitPublicIntake = (token, values) => _publicIntake(token, {
 export async function fetchPublicSiteModel(id) {
   const res = await fetch(`${BASE}/site-models/public/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error(res.status === 404 ? 'No map for this property' : `Could not load the map (${res.status})`);
+  return res.json();
+}
+
+// Customer unit map (/find/<token>, /find/u?f=..&k=..&unit=..) - one customer's
+// unit and the route to it, no login (routers/unit_map.py).
+export async function fetchPublicUnitMap(token) {
+  const res = await fetch(`${BASE}/unit-map/t/${encodeURIComponent(token)}`);
+  if (!res.ok) { let d = ''; try { d = (await res.json()).detail; } catch { /* not JSON */ } throw new Error(typeof d === 'string' && d ? d : res.status === 429 ? 'Too many requests - try again in a minute.' : `Could not load the map (${res.status})`); }
+  return res.json();
+}
+export async function fetchPublicUnitMapTemplate(params) {
+  const q = new URLSearchParams({ f: params.f || '', k: params.k || '', unit: params.unit || '' });
+  const res = await fetch(`${BASE}/unit-map/u?${q}`);
+  if (!res.ok) { let d = ''; try { d = (await res.json()).detail; } catch { /* not JSON */ } throw new Error(typeof d === 'string' && d ? d : `Could not load the map (${res.status})`); }
   return res.json();
 }

@@ -3506,6 +3506,12 @@ class TaskTicket(Base):
     sla_paused_min        = Column(Integer, default=0)
     sla_fr_alerted_at     = Column(String, default="")
     sla_res_alerted_at    = Column(String, default="")
+    # The unit (or "Common Area") a property ticket is about (Neil, Ops review
+    # Oct 20). Checked against the facility's Cubby units when the property is
+    # a Cubby store, else free text - see ticket_property_link.clean_unit.
+    property_unit         = Column(String, default="")
+
+
     # How the ticket arrived (Oct 2026): "" = filed in the app, "email" = a
     # new email to the support mailbox (ticket_inbound.py). Set server-side
     # only; the drawer and list show "Via Email".
@@ -6064,6 +6070,10 @@ class OpsCompetitor(Base):
     last_status     = Column(String, default="")    # ok | no_rates_found | blocked_by_robots | blocked | unreachable | not_connected | error
     last_detail     = Column(String, default="")
     watch           = Column(Boolean, default=True) # read by the daily run
+    # StorTrack (Cubby's competitor rate feed, ops_stortrack.py, Oct 2026):
+    # "name|street|zip" normalized, set on a competitor the feed added or
+    # matched, so the next import finds it again.
+    stortrack_key   = Column(String, default="", index=True)
 
 
 class OpsCompetitorRate(Base):
@@ -6083,6 +6093,16 @@ class OpsCompetitorRate(Base):
     source        = Column(String, default="manual")              # manual | import | web (read from the competitor's page)
     entered_by    = Column(String, default="")
     created_at    = Column(String, default="")
+    # StorTrack (ops_stortrack.py, Oct 2026; source "stortrack"). rate_cents
+    # stays the standard (regular) rate like every other source; the feed
+    # also carries the web price and the promotional price, and tells unit
+    # variants of one size apart. None = the source did not say.
+    online_cents  = Column(Integer)
+    promo_cents   = Column(Integer)
+    climate       = Column(Boolean)
+    drive_up      = Column(Boolean)
+    elevator      = Column(Boolean)
+    space_type    = Column(String, default="")
 
 
 # ---------------------------------------------------------------------------
@@ -6910,6 +6930,177 @@ class LeaveLedgerEntry(Base):
     note           = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+class OpsRateDraft(Base):
+    """Operations -> Rate Management (Neil / Miranda, Oct 20 2026): a street
+    rate someone proposed for one of our unit types (a Cubby pricing group)
+    and has not pushed yet. One row per facility and unit type, replaced in
+    place; pushing it (ops_rate_mgmt.py) deletes it and writes OpsRatePush.
+    New table - create_all builds it; RLS line in main.py."""
+    __tablename__ = "ops_rate_drafts"
+    id                 = Column(String, primary_key=True)
+    facility_id        = Column(String, index=True, nullable=False)   # our Cubby facility
+    unit_type          = Column(String, default="")                   # Cubby pricing group name
+    pricing_group_id   = Column(String, default="")                   # Cubby pricingGroupId, when known
+    proposed_cents     = Column(Integer, default=0)                   # new SELL (web) rate
+    proposed_set_cents = Column(Integer)                              # new SET (standard) rate; None = moves with the sell rate
+    note               = Column(String, default="")
+    updated_by         = Column(String, default="")
+    updated_at         = Column(String, default="")
+    created_at         = Column(String, default="")
+
+
+class OpsRatePush(Base):
+    """Audit log of every street rate change Nexus sent to Cubby (one row per
+    unit type per push, failed tries included) - Rate Management's history of
+    OUR rates. Rows are only ever added. New table - RLS line in main.py."""
+    __tablename__ = "ops_rate_pushes"
+    id                  = Column(String, primary_key=True)
+    batch_id            = Column(String, index=True, default="")    # one Review & Push click
+    facility_id         = Column(String, index=True, nullable=False)
+    unit_type           = Column(String, default="")
+    pricing_group_id    = Column(String, default="")
+    old_set_cents       = Column(Integer)
+    old_sell_cents      = Column(Integer)
+    new_set_cents       = Column(Integer)
+    new_sell_cents      = Column(Integer)
+    vacant              = Column(Integer, default=0)
+    monthly_delta_cents = Column(Integer, default=0)                # (new sell - old sell) x vacant units
+    status              = Column(String, default="")                # ok | failed | skipped
+    detail              = Column(String, default="")
+    pushed_by           = Column(String, default="")
+    pushed_at           = Column(String, default="", index=True)
+
+
+# ── Operations > Revenue Management (Neil, Oct 20 2026, ops_revenue.py) ──────
+# Rent changes for EXISTING tenants (ECRI). New tables - create_all builds
+# them; explicit RLS lines in main.py on top of _enable_rls_everywhere.
+
+class OpsRevenueStrategy(Base):
+    """A saved, reusable rent-change rule: +X% or +$Y, capped at the street
+    rate (or street + Z%), with who qualifies and the notice it needs."""
+    __tablename__ = "ops_revenue_strategies"
+    id               = Column(String, primary_key=True)   # uuid
+    name             = Column(String, default="")
+    method           = Column(String, default="percent")  # percent | amount
+    increase_pct     = Column(Float, default=0)           # method percent: +X%
+    increase_cents   = Column(Integer, default=0)         # method amount: +$Y
+    cap_mode         = Column(String, default="street")   # street | street_plus | none
+    cap_pct          = Column(Float, default=0)           # cap_mode street_plus: street + Z%
+    round_dollar     = Column(Boolean, default=True)      # new rent rounded to a whole dollar
+    min_months_in    = Column(Integer, default=12)        # months since move-in
+    min_months_since = Column(Integer, default=12)        # months since the last increase
+    skip_balance     = Column(Boolean, default=True)      # skip tenants who owe money
+    notice_days      = Column(Integer, default=30)        # written notice before the effective date
+    active           = Column(Boolean, default=True)
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class OpsRevenueBatch(Base):
+    """One application of a strategy at one facility: who, when, the effective
+    date and the status (draft | approved | notified | applied | canceled)."""
+    __tablename__ = "ops_revenue_batches"
+    id             = Column(String, primary_key=True)
+    facility_id    = Column(String, index=True, nullable=False)
+    facility_name  = Column(String, default="")
+    strategy_id    = Column(String, default="")
+    strategy_name  = Column(String, default="")
+    strategy       = Column(JSON, default=dict)            # the rule as it was when the batch was built
+    scope_type     = Column(String, default="")            # unit_type | tenants | tenant
+    scope_label    = Column(String, default="")
+    effective_date = Column(String, default="")            # YYYY-MM-DD
+    notice_date    = Column(String, default="")            # YYYY-MM-DD, effective - notice days
+    status         = Column(String, default="draft", index=True)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    approved_by    = Column(String, default="")
+    approved_at    = Column(String, default="")
+    notified_by    = Column(String, default="")
+    notified_at    = Column(String, default="")
+    applied_by     = Column(String, default="")
+    applied_at     = Column(String, default="")
+    canceled_by    = Column(String, default="")
+    canceled_at    = Column(String, default="")
+    note           = Column(Text, default="")
+
+
+class OpsRevenueChange(Base):
+    """One tenant's proposed rent change inside a batch, and how it reached
+    Cubby (pushed through the API, or entered there by staff)."""
+    __tablename__ = "ops_revenue_changes"
+    id                 = Column(String, primary_key=True)
+    batch_id           = Column(String, index=True, nullable=False)
+    facility_id        = Column(String, index=True, nullable=False)
+    lease_id           = Column(String, default="", index=True)
+    unit_id            = Column(String, default="")
+    customer_id        = Column(String, default="")
+    tenant_name        = Column(String, default="")
+    unit_name          = Column(String, default="")
+    unit_type          = Column(String, default="")
+    move_in_date       = Column(String, default="")
+    last_increase_date = Column(String, default="")
+    current_cents      = Column(Integer, default=0)
+    street_cents       = Column(Integer, default=0)
+    new_cents          = Column(Integer, default=0)
+    status             = Column(String, default="pending")    # pending | pushed | entered | failed | removed
+    cubby_change_date  = Column(String, default="")           # the dates Cubby scheduled it for
+    cubby_notice_date  = Column(String, default="")
+    pushed_by          = Column(String, default="")
+    pushed_at          = Column(String, default="")
+    push_detail        = Column(String, default="")
+
+
+class OpsRevenueAudit(Base):
+    """Every step of a batch and every Cubby push attempt, success or not."""
+    __tablename__ = "ops_revenue_audit"
+    id         = Column(String, primary_key=True)
+    batch_id   = Column(String, index=True, nullable=False)
+    change_id  = Column(String, default="")
+    actor      = Column(String, default="")
+    action     = Column(String, default="")   # created | approved | notified | applied | canceled | removed | pushed | push_failed | entered | letters | export
+    detail     = Column(JSON, default=dict)
+    created_at = Column(String, default="")
+
+
+# ── Operations > Reports (Neil, Ops review, Oct 20 2026) ─────────────────────
+# ops_reports.py / ops_report_builder.py. New tables - create_all builds them;
+# explicit RLS lines in main.py on top of the startup sweep.
+
+class OpsReportCache(Base):
+    """One Cubby report answer per (report, facility, month): the general
+    ledgers, merchant disbursements, lease compliance. Cleaned of contact
+    fields and card / check digits before it is written."""
+    __tablename__ = "ops_report_cache"
+    id          = Column(String, primary_key=True)          # "<kind>:<facility_id>:<YYYY-MM | current>"
+    kind        = Column(String, default="")
+    facility_id = Column(String, default="", index=True)
+    period      = Column(String, default="")
+    payload     = Column(JSON, default=dict)
+    fetched_at  = Column(String, default="")                # UTC iso
+
+
+class OpsSavedReport(Base):
+    """A Report Builder spec saved under a name. Private to its owner unless
+    shared with the Operations team; optionally emailed on a schedule."""
+    __tablename__ = "ops_saved_reports"
+    id               = Column(String, primary_key=True)
+    owner_email      = Column(String, default="", index=True)
+    name             = Column(String, default="")
+    spec             = Column(JSON, default=dict)           # ops_report_builder.validate() output - never SQL
+    shared           = Column(Boolean, default=False)
+    schedule         = Column(String, default="")           # '' | weekly | monthly
+    schedule_day     = Column(Integer, default=0)           # weekly: 0 = Monday .. 6; monthly: 1-28
+    recipients       = Column(JSON, default=list)           # Nexus People work emails
+    last_sent_period = Column(String, default="")           # the claim: a period is sent once
+    last_sent_at     = Column(String, default="")
+    last_attempt_at  = Column(String, default="")
+    last_error       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
 
 
 class TicketInboundEmail(Base):

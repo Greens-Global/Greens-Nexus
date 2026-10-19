@@ -6,7 +6,7 @@ import { PropertyTicketComposer, PropertyTicketDrawer, PropertyWalkthroughMount 
 import { AddToMaintenanceModal, NeedsActionPanel, RecurringServicesPanel } from './MaintenanceReview.jsx';
 import { MaintenanceLogFilters } from './MaintenanceLogFilters.jsx';
 import { EMPTY_LOG_FILTER, applyLogFilter, logSummary } from '../../lib/maintenanceLog.js';
-import { usePropertyTickets, ticketMaintenanceRows } from '../../lib/propertyTickets.js';
+import { usePropertyTickets, ticketMaintenanceRows, openTicketLogRows } from '../../lib/propertyTickets.js';
 import { api } from '../../../api.js';
 
 /**
@@ -56,14 +56,15 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
     setOpened(row || null);    // eslint-disable-line react-hooks/set-state-in-effect
   }, [data, opened?.pending, opened?.id]);
 
-  const allRows = [...rows, ...ticketMaintenanceRows(data, property)];
+  // Open tickets sit in the log too (Ops review, Oct 20): one place for every item.
+  const allRows = [...rows, ...ticketMaintenanceRows(data, property), ...openTicketLogRows(data, property)];
   const unitRows =
     unitFilter === 'all' ? allRows : unitFilter === 'common' ? allRows.filter((r) => !r.unit) : allRows.filter((r) => r.unit === unitFilter);
   const filteredRows = applyLogFilter(unitRows, logFilter);
   const editRow = (id) => {
     if (String(id).startsWith('ticket:')) {
       const tid = String(id).slice(7);
-      setOpened((data?.history || []).find((t) => t.id === tid) || null);
+      setOpened([...(data?.history || []), ...(data?.open || [])].find((t) => t.id === tid) || null);
     } else onEdit(id);
   };
   const followAll = async (list) => {
@@ -169,7 +170,7 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
         <MaintenanceLogFilters rows={unitRows} value={logFilter} onChange={setLogFilter} />
         <CollectionTable
           coll="maintenance"
-          summaryOverride={logSummary(filteredRows)}
+          summaryOverride={logSummary(filteredRows.filter((r) => !r._openTicket))}
           leadColumn={TICKET_COLUMN}
           rows={filteredRows}
           active={property}

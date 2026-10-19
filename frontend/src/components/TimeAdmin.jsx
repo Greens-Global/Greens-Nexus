@@ -18,6 +18,7 @@ import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner, Spinner } from './AsyncState';
 import { formatDate, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
 import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
+import { TIMEOFF_FILTERS, countByStatus, filterAndSortTimeoff, nextSort } from '../lib/timeOffFilter';
 import { takePendingOpen } from '../lib/pendingOpen';
 import TimesheetsToReview from './TimesheetsToReview';
 import { Avatar } from '../tasks/components';
@@ -119,6 +120,13 @@ function AdminDayRow({ date, email, d, approval, onApprove, timeZone }) {
 // The Adjust input shows the punch on the EMPLOYEE's clock; saveEdit turns
 // what was typed back into UTC on that same clock (Oct 20).
 const utcToInput = (iso, tz) => zonedInputValue(iso, tz);
+
+function readTimeoffFilter(key) {
+  try {
+    const v = localStorage.getItem(key);
+    return TIMEOFF_FILTERS.some(([f]) => f === v) ? v : 'pending';
+  } catch { return 'pending'; }
+}
 
 function weekRange(offset = 0) {
   const now = new Date();
@@ -481,7 +489,16 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   const STRIP_KEY = 'nexus.timeadmin.strip';
   const [stripOpen, setStripOpen] = useState(() => { try { return localStorage.getItem(STRIP_KEY) !== 'collapsed'; } catch { return true; } });
   const toggleStrip = () => setStripOpen(o => { const next = !o; try { localStorage.setItem(STRIP_KEY, next ? 'open' : 'collapsed'); } catch { /* private window */ } return next; });
-  const [timeoffPendingOnly, setTimeoffPendingOnly] = useState(false);
+  // Time Off status chips (Charmi, Oct 20): opens on Pending - the requests
+  // that still need a decision - and remembers each viewer's last chip.
+  const timeoffFilterKey = `nexus.timeadmin.timeoffFilter.${(myEmail || '').toLowerCase()}`;
+  const [timeoffFilter, setTimeoffFilterState] = useState(() => readTimeoffFilter(timeoffFilterKey));
+  useEffect(() => { setTimeoffFilterState(readTimeoffFilter(timeoffFilterKey)); }, [timeoffFilterKey]);
+  const setTimeoffFilter = (f) => {
+    setTimeoffFilterState(f);
+    try { localStorage.setItem(timeoffFilterKey, f); } catch { /* private window */ }
+  };
+  const [timeoffSort, setTimeoffSort] = useState(null);   // null = server order (newest first)
   const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
   function openReviewList() {
     const el = reviewRef.current;
@@ -589,7 +606,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           ['trail', 'Location Trail', MapPin]].map(([key, label, Icon, badge, waiting]) => {
           const on = view === key;
           return (
-            <button key={key} onClick={() => { setView(key); setTimeoffPendingOnly(false); }}
+            <button key={key} onClick={() => setView(key)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 14px', border: 'none', background: 'none',
                 cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: on ? 700 : 600,
                 color: on ? 'var(--wk-brand)' : 'var(--muted)', whiteSpace: 'nowrap', marginBottom: -1,
@@ -1034,14 +1051,38 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
 
       {view === 'timeoff' && (
         <>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-          {timeoffPendingOnly && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)', marginRight: 'auto' }}>
-              Showing {pendingCount} pending request{pendingCount === 1 ? '' : 's'}
-              <button type="button" className="secondary-btn" onClick={() => setTimeoffPendingOnly(false)}
-                style={{ fontSize: 12, padding: '4px 10px' }}>Show All</button>
-            </span>
-          )}
+        {(() => {
+          const counts = countByStatus(timeoff);
+          const shownRows = filterAndSortTimeoff(timeoff, timeoffFilter, timeoffSort);
+          const chips = TIMEOFF_FILTERS.filter(([k]) => k !== 'cancelled' || counts.cancelled > 0 || timeoffFilter === 'cancelled');
+          const sortHead = (key, label, style) => {
+            const on = timeoffSort?.key === key;
+            return (
+              <button type="button" onClick={() => setTimeoffSort(cur => nextSort(cur, key))}
+                aria-sort={on ? (timeoffSort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
+                title={`Sort by ${label}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                  font: 'inherit', color: on ? 'var(--ink)' : 'inherit', fontWeight: on ? 700 : 500, ...style }}>
+                {label}
+                <span aria-hidden="true" style={{ fontSize: 10, opacity: on ? 1 : 0.35 }}>{on ? (timeoffSort.dir === 'asc' ? '\u25B2' : '\u25BC') : '\u2195'}</span>
+              </button>
+            );
+          };
+          return (<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          <div className="chip-row" role="group" aria-label="Filter by status" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginRight: 'auto' }}>
+            {chips.map(([k, label]) => {
+              const on = timeoffFilter === k;
+              return (
+                <button key={k} type="button" onClick={() => setTimeoffFilter(k)} aria-pressed={on}
+                  style={{ padding: '6px 14px', borderRadius: 10, border: `1px solid ${on ? 'var(--wk-brand)' : 'var(--wk-line2)'}`,
+                    background: on ? 'var(--wk-brand-tint)' : 'var(--card)', color: on ? 'var(--wk-brand)' : 'var(--muted)',
+                    fontWeight: 700, fontSize: 12.5, cursor: 'pointer', fontFamily: 'var(--wk-font)', whiteSpace: 'nowrap' }}>
+                  {label} ({counts[k]})
+                </button>
+              );
+            })}
+          </div>
           <button className="primary-btn" onClick={() => setObo({ email: '', type: 'vacation', start: '', end: '', note: '', confidential: false })}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}>
             <Plus size={13} /> Request on Behalf
@@ -1049,14 +1090,23 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         </div>
         <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, padding: '10px 14px', background: 'var(--wk-hover)', fontSize: 12.5, fontWeight: 500, color: 'var(--wk-dim)' }}>
-            <span>Requested by</span><span>Type</span><span>Period</span><span>Days</span><span>Approver</span><span style={{ textAlign: 'right' }}>Status</span>
+            <span>{sortHead('name', 'Requested By')}</span><span>Type</span><span>{sortHead('period', 'Period')}</span><span>Days</span><span>Approver</span>
+            <span style={{ display: 'flex', justifyContent: 'flex-end' }}>{sortHead('status', 'Status')}</span>
           </div>
           {timeoffErr ? (
             <div style={{ padding: '14px 16px' }}><ErrorBanner message="Couldn't load time-off requests right now." onRetry={loadTimeoff} /></div>
-          ) : (timeoffPendingOnly ? pendingCount : timeoff.length) === 0 && (
-            <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>{timeoffPendingOnly ? 'No requests are waiting for a decision.' : 'No time-off requests yet.'}</div>
+          ) : shownRows.length === 0 && (
+            <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
+              {timeoff.length === 0 ? 'No time-off requests yet.'
+                : timeoffFilter === 'pending' ? 'No requests are waiting for a decision.'
+                : `No ${timeoffFilter} requests.`}
+              {timeoff.length > 0 && (
+                <button type="button" className="secondary-btn" onClick={() => setTimeoffFilter('all')}
+                  style={{ fontSize: 12, padding: '4px 10px', marginLeft: 8 }}>Show All</button>
+              )}
+            </div>
           )}
-          {(timeoffPendingOnly ? timeoff.filter(t => t.status === 'pending') : timeoff).slice(0, 150).map(r => {
+          {shownRows.slice(0, 150).map(r => {
             // Working days (Mon-Fri), a partial day as its share of 8 hours - the
             // same count the employee sees on their Time Off tab (lib/workdayStats.js).
             const days = leaveRequestDays(r);
@@ -1100,8 +1150,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
               </div>
             );
           })}
-          {timeoff.length > 150 && <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>Showing 150 of {timeoff.length} - filter to narrow down.</div>}
+          {shownRows.length > 150 && <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>Showing 150 of {shownRows.length} - filter to narrow down.</div>}
         </div>
+        </>);
+        })()}
         </>
       )}
 

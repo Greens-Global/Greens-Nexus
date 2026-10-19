@@ -39,6 +39,7 @@ import ticket_auto_assign
 from ticket_roles import require_ticket_agent, require_ticket_supervisor
 import ticket_mail_templates as tmpl
 import property_links
+import ticket_property_link
 from app_url import app_url
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
@@ -261,6 +262,7 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "maintenanceVendor": _nz(t.maintenance_vendor), "maintenanceCost": _nz(t.maintenance_cost),
             "propertyLocked": bool(t.property_locked), "parentTicketId": _nz(t.parent_ticket_id),
             "serviceId": _nz(t.service_id),
+            "propertyUnit": _nz(getattr(t, "property_unit", "")),
             # How it arrived (Oct 2026): "email" = raised by email (ticket_inbound.py).
             "source": _nz(getattr(t, "source", "")),
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
@@ -587,6 +589,8 @@ class TicketBody(BaseModel):
     # Raised from the property itself in Asset Management: the property is
     # then fixed for the ticket's life (Pranshu, 10/06). Only ever restricts.
     property_locked: Optional[bool] = False
+    # The unit (or "Common Area") - ticket_property_link.clean_unit.
+    property_unit: Optional[str] = ""
 
 
 class TicketUpdate(BaseModel):
@@ -636,6 +640,7 @@ class TicketUpdate(BaseModel):
     property_asset_id: Optional[str] = None
     maintenance_vendor: Optional[str] = None
     maintenance_cost: Optional[str] = None
+    property_unit: Optional[str] = None
 
 
 def _next_ticket_code(db: Session) -> str:
@@ -1096,8 +1101,10 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     # team (property_links rule 4). Validated before anything is written.
     prop = (property_links.require_linkable(db, body.property_asset_id, user)
             if (body.property_asset_id or "").strip() else None)
-    if prop is not None:
-        property_links.require_department_takes_property(db, body.hr_department_id)
+    # Ops review (Oct 20): a facilities-topic ticket may link whatever team it
+    # is filed under, must name its property, and may name its unit.
+    unit = ticket_property_link.check_intake(db, user, body, prop, service_area_for(db, body.application or ""),
+                                             _has_desk_grant(user, db))
     prop_manager = property_links.manager_email(db, prop) if prop is not None else ""
     # Same never-trust-the-client-alone posture requester_email just got above.
     company_id = _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
@@ -1132,6 +1139,7 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     if prop is not None:
         t.property_asset_id, t.property_name = prop.id, property_links.display_name(prop)
         t.property_locked = 1 if body.property_locked else 0
+        t.property_unit = unit
     # Approval gate, decided by the TYPE's admin switch (requiresApproval in the
     # ticket taxonomy, read at this moment) and never trusted from the client, so a
     # caller cannot post approval_status="approved" to skip it.
@@ -1627,7 +1635,12 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # changes under an existing link (moved from Maintenance to HR).
     final_pid = data.get("property_asset_id", t.property_asset_id or "")
     if final_pid and ("property_asset_id" in data or "hr_department_id" in data):
-        property_links.require_department_takes_property(db, data.get("hr_department_id", t.hr_department_id))
+        ticket_property_link.require_takes_property(
+            db, data.get("hr_department_id", t.hr_department_id),
+            data.get("service_area") or (service_area_for(db, data["application"] or "") if "application" in data
+                                         else t.service_area))
+    # The unit follows its property: checked against it, cleared with it.
+    ticket_property_link.check_update(db, t, data, new_prop)
     if "maintenance_cost" in data:
         data["maintenance_cost"] = property_links.normalize_cost(data["maintenance_cost"])
     if "maintenance_vendor" in data:

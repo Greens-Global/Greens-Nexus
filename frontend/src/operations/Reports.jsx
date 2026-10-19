@@ -1,11 +1,18 @@
-// Operations -> Reports: every list on the other tabs, and Cubby's own rent
-// roll and aged receivables, as a spreadsheet. Follows the facility picker;
-// the period only applies where a report is about activity over time.
-import { useState } from 'react';
+// Operations -> Reports. Three parts (Neil, Oct 20):
+//   Reports        - Cubby's report list as interactive tables (CubbyReports.jsx)
+//   Report Builder - your own metrics, saved, shared and scheduled (lazy-loaded)
+//   Quick Exports  - every list on the other tabs, and Cubby's own rent roll
+//                    and aged receivables, as a spreadsheet (Oct 13).
+// Follows the facility picker; the period only applies where a report is
+// about activity over time.
+import { lazy, Suspense, useState } from 'react';
 import { Download } from 'lucide-react';
+import { SkeletonBlocks } from '../components/AsyncState';
+import CubbyReports from './CubbyReports';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { csvName, downloadCsv } from './csv';
+import { rentedAll } from './occupancy';
 import { AGING, LEAD_STATUS, OFF_MARKET_REASON, agingLabel, periodStats, tidy } from './model';
 
 const usd = (cents) => ((Number(cents) || 0) / 100).toFixed(2);
@@ -17,9 +24,12 @@ function localReports(data, facilities, scope, range) {
   const stats = periodStats(data, range);
   return [
     ['Facility Scorecard', 'One line per facility: units, occupancy, rent roll, past due, autopay.', () => [
-      ['Facility', 'Units', 'Rented', 'Vacant', 'Off Market', 'Occupancy', 'Rent Roll', 'Past Due', 'Past Due / Rent', 'Tenants Past Due', 'On Autopay'],
-      scope.map((f) => [f.shortName, f.units.total, f.units.rented, f.units.vacant, f.units.unavailable, pctOf(f.units.rented, f.units.total),
-        usd(f.rent.rentRoll), usd(f.pastDue.total), pctOf(f.pastDue.total, f.rent.rentRoll), f.pastDue.tenants, pctOf(f.autoPay, f.units.rented)]),
+      // Storage units, occupancy of rentable ones; mailboxes in their own columns (occupancy.js).
+      ['Facility', 'Storage Units', 'Rented', 'Vacant', 'Off Market', 'Occupancy (of Rentable)', 'Mailboxes', 'Mailboxes Rented', 'Mailbox Occupancy',
+        'Rent Roll', 'Past Due', 'Past Due / Rent', 'Tenants Past Due', 'On Autopay'],
+      scope.map((f) => [f.shortName, f.units.total, f.units.rented, f.units.vacant, f.units.unavailable, pctOf(f.units.rented, f.units.rented + f.units.vacant),
+        f.mailboxes?.total || 0, f.mailboxes?.rented || 0, pctOf(f.mailboxes?.rented || 0, f.mailboxes?.total || 0),
+        usd(f.rent.rentRoll), usd(f.pastDue.total), pctOf(f.pastDue.total, f.rent.rentRoll), f.pastDue.tenants, pctOf(f.autoPay, rentedAll(f))]),
     ]],
     ['Tenants Past Due', 'Who owes, how much, and how old the balance is.', () => [
       ['Facility', 'Unit', 'Tenant', 'Amount Due', 'Oldest Balance', ...AGING.map((a) => a.label), 'Paid Through', 'Autopay', 'Overlocked'],
@@ -70,7 +80,33 @@ const CUBBY_REPORTS = [
   ['aged-receivables', 'Aged Receivables', 'Every past-due lease from Cubby with its balance split by age.'],
 ];
 
-export default function Reports({ data, facilities, scope, range }) {
+const ReportBuilder = lazy(() => import('./ReportBuilder'));
+
+const SECTIONS = [['reports', 'Reports'], ['builder', 'Report Builder'], ['exports', 'Quick Exports']];
+
+export default function Reports({ data, facilities, scope, range, onPick }) {
+  const [section, setSection] = useState('reports');
+  const pick = (id) => onPick?.(id);
+  return (
+    <>
+      <div className="ops-pills scroll-tabs" role="tablist" aria-label="Reports">
+        {SECTIONS.map(([key, label]) => (
+          <button key={key} type="button" role="tab" className="ops-pill" aria-selected={section === key} aria-pressed={section === key}
+            onClick={() => setSection(key)}>{label}</button>
+        ))}
+      </div>
+      {section === 'reports' && <CubbyReports facilities={facilities} scope={scope} range={range} onPick={pick} />}
+      {section === 'builder' && (
+        <Suspense fallback={<div className="dash-card"><SkeletonBlocks count={3} height={70} /></div>}>
+          <ReportBuilder scope={scope} facilities={facilities} />
+        </Suspense>
+      )}
+      {section === 'exports' && <QuickExports data={data} facilities={facilities} scope={scope} range={range} />}
+    </>
+  );
+}
+
+function QuickExports({ data, facilities, scope, range }) {
   const [busy, setBusy] = useState('');
   const [failed, setFailed] = useState('');
   const one = scope.length === 1 ? scope[0] : null;
