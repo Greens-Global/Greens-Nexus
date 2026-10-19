@@ -3222,6 +3222,15 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(leasing_sync_loop()))
         except Exception as e:
             print(f"[startup] leasing sync skipped: {e}")
+        try:
+            # Pay period close alerts (Oct 19 2026): every half hour, in a
+            # thread - one notice per approver per closed period listing the
+            # Time Sheets waiting on them, escalation when approval or the
+            # employee's signature stalls. See timesheet_alerts.py.
+            from timesheet_alerts import period_close_loop
+            _tasks.append(_a.create_task(period_close_loop()))
+        except Exception as e:
+            print(f"[startup] period close alerts loop skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;
