@@ -15,7 +15,7 @@ import { formatDate } from '../lib/datetime';
 import { combine, PERIODS, periodRange } from '../operations/model';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { Overview, Collections, Units, Worklist } from '../operations/OpsTabs';
-import Market from '../operations/Market';
+import RateManagement from '../operations/RateManagement';
 import Reports from '../operations/Reports';
 import Lookup from '../operations/Lookup';
 import SyncStatus from '../operations/SyncStatus';
@@ -30,7 +30,7 @@ const TABS = [
   { key: 'collections', label: 'Collections',     Icon: HandCoins },
   { key: 'units',       label: 'Units & Pricing', Icon: Warehouse },
   { key: 'worklist',    label: 'Worklist',        Icon: ListChecks },
-  { key: 'market',      label: 'Market Rates',    Icon: Scale },
+  { key: 'market',      label: 'Rate Management', Icon: Scale },
   { key: 'reports',     label: 'Reports',         Icon: FileSpreadsheet },
 ];
 // Market Rates keeps its own records and compares one facility at a time, so
@@ -173,12 +173,13 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
       {state.status === 'ready' && facilities.length > 0 && (
         <div className="ops-root">
           <div className="ops-bar-top">
-            <div className="ops-pills" role="group" aria-label="Facility">
+            {/* Rate Management picks its facility from a dropdown of its own (Neil, Oct 20). */}
+            {sub !== 'market' && <div className="ops-pills" role="group" aria-label="Facility">
               <button type="button" className="ops-pill" aria-pressed={picked === 'all'} onClick={() => setPicked('all')}>All Facilities</button>
               {facilities.map((f) => (
                 <button type="button" key={f.id} className="ops-pill" aria-pressed={picked === f.id} onClick={() => setPicked(f.id)}>{f.shortName}</button>
               ))}
-            </div>
+            </div>}
             <div className="ops-bar-right">
               <Lookup />
               {sub !== 'market' && (
@@ -201,7 +202,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {sub === 'collections' && <Collections data={data} scope={scope} trend={state.data.trend} many={many} range={range} focus={focus} go={go} />}
           {sub === 'units' && <Units data={data} many={many} focus={focus} go={go} />}
           {sub === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
-          {sub === 'market' && <Market facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />}
+          {sub === 'market' && <RateManagement facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />}
           {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} />}
         </div>
       )}

@@ -6911,3 +6911,44 @@ class LeaveLedgerEntry(Base):
     note           = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+class OpsRateDraft(Base):
+    """Operations -> Rate Management (Neil / Miranda, Oct 20 2026): a street
+    rate someone proposed for one of our unit types (a Cubby pricing group)
+    and has not pushed yet. One row per facility and unit type, replaced in
+    place; pushing it (ops_rate_mgmt.py) deletes it and writes OpsRatePush.
+    New table - create_all builds it; RLS line in main.py."""
+    __tablename__ = "ops_rate_drafts"
+    id                 = Column(String, primary_key=True)
+    facility_id        = Column(String, index=True, nullable=False)   # our Cubby facility
+    unit_type          = Column(String, default="")                   # Cubby pricing group name
+    pricing_group_id   = Column(String, default="")                   # Cubby pricingGroupId, when known
+    proposed_cents     = Column(Integer, default=0)                   # new SELL (web) rate
+    proposed_set_cents = Column(Integer)                              # new SET (standard) rate; None = moves with the sell rate
+    note               = Column(String, default="")
+    updated_by         = Column(String, default="")
+    updated_at         = Column(String, default="")
+    created_at         = Column(String, default="")
+
+
+class OpsRatePush(Base):
+    """Audit log of every street rate change Nexus sent to Cubby (one row per
+    unit type per push, failed tries included) - Rate Management's history of
+    OUR rates. Rows are only ever added. New table - RLS line in main.py."""
+    __tablename__ = "ops_rate_pushes"
+    id                  = Column(String, primary_key=True)
+    batch_id            = Column(String, index=True, default="")    # one Review & Push click
+    facility_id         = Column(String, index=True, nullable=False)
+    unit_type           = Column(String, default="")
+    pricing_group_id    = Column(String, default="")
+    old_set_cents       = Column(Integer)
+    old_sell_cents      = Column(Integer)
+    new_set_cents       = Column(Integer)
+    new_sell_cents      = Column(Integer)
+    vacant              = Column(Integer, default=0)
+    monthly_delta_cents = Column(Integer, default=0)                # (new sell - old sell) x vacant units
+    status              = Column(String, default="")                # ok | failed | skipped
+    detail              = Column(String, default="")
+    pushed_by           = Column(String, default="")
+    pushed_at           = Column(String, default="", index=True)
