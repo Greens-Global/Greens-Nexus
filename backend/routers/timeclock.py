@@ -1452,6 +1452,10 @@ def team_timesheet(start: str = "", end: str = "",
               for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all() if e.work_email}
     for r in rows:
         r["companyId"] = co_ids.get(r["email"], "")
+        # The EMPLOYEE's IANA zone (the one their own Time Sheet reads in), so
+        # People > Time shows and edits punches on their clock, not the
+        # viewer's browser (Oct 20). One lookup per person per call.
+        r["timeZone"] = _employee_tz(db, r["email"])
     return _no_pay(db, user, {"rows": rows})
 
 

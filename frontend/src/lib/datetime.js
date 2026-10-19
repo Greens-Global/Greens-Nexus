@@ -231,3 +231,73 @@ export function zonedDateTime(v, timeZone, viewerZone) {
   const zone = tz ? zoneAbbr(tz, d) : '';
   return { date, time, zone, differs, label: differs && zone ? `${time} ${zone}` : time };
 }
+
+// ── Typing a time on the EMPLOYEE's clock (People > Time, Oct 20) ────────────
+// A manager in India adjusting a Pacific employee's punch types the time the
+// employee lived ("9:00 AM"), not their own. These convert between a stored
+// UTC instant and a datetime-local value ('YYYY-MM-DDTHH:MM') on a zone's
+// wall, DST-correct. No zone (or an unknown one) = the viewer's browser zone,
+// which is what the inputs did before.
+function validZone(timeZone) {
+  if (!timeZone) return '';
+  try { new Intl.DateTimeFormat('en-US', { timeZone }); return timeZone; } catch { return ''; }
+}
+function utcInstant(v) {
+  const naive = typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(v);
+  return toDate(naive ? `${v}Z` : v);
+}
+// The zone's wall clock at an instant, as the UTC-epoch milliseconds of that wall time.
+function wallMs(ms, timeZone) {
+  const parts = {};
+  for (const p of new Intl.DateTimeFormat('en-US', {
+    timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(new Date(ms))) parts[p.type] = p.value;
+  return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour % 24, +parts.minute, +parts.second);
+}
+
+// The zone's offset at an instant in JS getTimezoneOffset terms (UTC minus
+// local, minutes): Pacific is 420 in summer and 480 in winter, India -330 -
+// what the timeclock stores as a punch's tz_offset_min.
+export function zoneOffsetMin(timeZone, v = new Date()) {
+  const d = utcInstant(v);
+  if (!d) return 0;
+  const tz = validZone(timeZone);
+  if (!tz) return d.getTimezoneOffset();
+  const ms = Math.floor(d.getTime() / 60000) * 60000;
+  return Math.round((ms - wallMs(ms, tz)) / 60000);
+}
+
+// Stored UTC instant -> datetime-local value on the zone's wall.
+//   zonedInputValue('2026-10-17T15:30:00', 'America/Los_Angeles') -> '2026-10-17T08:30'
+export function zonedInputValue(v, timeZone) {
+  const d = utcInstant(v);
+  if (!d) return '';
+  return new Date(d.getTime() - zoneOffsetMin(timeZone, d) * 60000).toISOString().slice(0, 16);
+}
+
+// datetime-local value on the zone's wall -> naive UTC 'YYYY-MM-DDTHH:MM:SS'
+// (how the timeclock stores `at`). A wall time that happens twice (the
+// fall-back hour) is the first one; one that never happens (the spring-forward
+// gap) moves forward an hour, as the clocks did: 2:30 AM on 03/08/2026 Pacific
+// is saved as 3:30 AM PDT.
+//   zonedInputToUtc('2026-10-17T09:00', 'America/Los_Angeles') -> '2026-10-17T16:00:00'
+export function zonedInputToUtc(value, timeZone) {
+  const m = typeof value === 'string' && value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return '';
+  const tz = validZone(timeZone);
+  if (!tz) {
+    const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+    return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 19);
+  }
+  const guess = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  if (isNaN(guess)) return '';
+  const o1 = zoneOffsetMin(tz, guess);
+  let t = guess + o1 * 60000;
+  const o2 = zoneOffsetMin(tz, t);
+  if (o2 !== o1) {
+    const t2 = guess + o2 * 60000;
+    if (wallMs(t2, tz) === guess) t = t2;   // else the gap: keep the pre-change offset
+  }
+  return new Date(t).toISOString().slice(0, 19);
+}

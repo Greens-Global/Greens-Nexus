@@ -23,7 +23,7 @@ os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 
 import database  # noqa: E402
 import models  # noqa: E402
-from routers.timeclock import list_exceptions, list_punch_requests  # noqa: E402
+from routers.timeclock import list_exceptions, list_punch_requests, team_timesheet  # noqa: E402
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -93,6 +93,16 @@ class ActionLogTests(unittest.TestCase):
         self.db.commit()
         reqs = list_punch_requests("pending", user=ADMIN, db=self.db)
         self.assertEqual(reqs[0]["timeZone"], "Asia/Kolkata")
+
+    def test_team_timesheet_rows_carry_the_employees_zone(self):
+        """People > Time shows and edits each person's punches on THEIR clock
+        (Oct 20), so every team row carries their zone."""
+        self.db.query(models.TimePunch).filter(models.TimePunch.id == "p2").update({"tz_offset_min": -330})
+        self.db.commit()
+        rows = team_timesheet(start=self.start, end=self.end, user=ADMIN, db=self.db)["rows"]
+        zones = {r["email"]: r["timeZone"] for r in rows}
+        self.assertEqual(zones[WORKING], "America/Los_Angeles")
+        self.assertEqual(zones[FORGOT], "Asia/Kolkata")
 
 
 if __name__ == "__main__":

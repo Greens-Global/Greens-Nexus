@@ -16,7 +16,7 @@ import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner, Spinner } from './AsyncState';
-import { formatDate, zonedDateTime } from '../lib/datetime';
+import { formatDate, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
 import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
 import { takePendingOpen } from '../lib/pendingOpen';
 import TimesheetsToReview from './TimesheetsToReview';
@@ -54,7 +54,11 @@ function ConfidentialMark() {
 // stamp who adjusted; voids hide from totals but stay in the record.
 
 const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break start', break_end: 'Break end' };
-const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '-';
+// A punch on the EMPLOYEE's clock (`tz` = the team row's timeZone), labeled
+// "8:30 AM PT" only when the viewer's clock reads differently (Oct 20).
+const localTime = (iso, tz) => (iso && zonedDateTime(iso, tz)?.label) || '-';
+// The employee's zone label when it is not the viewer's ('' otherwise).
+const zoneTag = (tz) => { const z = zonedDateTime(new Date(), tz); return z?.differs ? z.zone : ''; };
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 // The viewer's LOCAL calendar date - toISOString is UTC, which after 5 PM
 // Pacific made "This week" run Tuesday to Monday (Oct 16).
@@ -62,7 +66,7 @@ const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2
 
 // One day inside the person drawer - click to reveal the working/idle
 // breakdown and the desktop agent's app/window log for that day.
-function AdminDayRow({ date, email, d, approval, onApprove }) {
+function AdminDayRow({ date, email, d, approval, onApprove, timeZone }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
@@ -103,7 +107,7 @@ function AdminDayRow({ date, email, d, approval, onApprove }) {
           ) : (d.punches || []).map((p, i) => (
             <span key={i} style={{ fontSize: 11.5, color: 'var(--muted)' }}>
               <span style={{ fontWeight: 700, color: 'var(--ink)', textTransform: 'capitalize' }}>{String(p.kind || '').replace(/_/g, ' ')}</span>
-              {' '}{(() => { try { return new Date(p.at + (p.at.endsWith('Z') ? '' : 'Z')).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }); } catch { return p.at; } })()}
+              {' '}{localTime(p.at, timeZone)}
             </span>
           ))}
         </div>
@@ -111,10 +115,9 @@ function AdminDayRow({ date, email, d, approval, onApprove }) {
     </div>
   );
 }
-const utcToInput = (iso) => {
-  const d = new Date(iso + 'Z');
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-};
+// The Adjust input shows the punch on the EMPLOYEE's clock; saveEdit turns
+// what was typed back into UTC on that same clock (Oct 20).
+const utcToInput = (iso, tz) => zonedInputValue(iso, tz);
 
 function weekRange(offset = 0) {
   const now = new Date();
@@ -434,7 +437,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     if (busy) return; setBusy(true);
     try {
       await api.timeAdjustPunch(edit.id, {
-        at: edit.atInput ? new Date(edit.atInput).toISOString().slice(0, 19) : undefined,
+        at: edit.atInput ? zonedInputToUtc(edit.atInput, edit.timeZone) || undefined : undefined,
         note: edit.note, void: edit.voided, adjust_note: edit.adjustNote || '',
       });
       toastOk('Punch updated - the original time stays on record.');
@@ -448,9 +451,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     if (!addP.at) { toastErr('Pick the punch time.'); return; }
     setBusy(true);
     try {
+      // Typed on the employee's clock; the offset is their zone's on that
+      // date (DST-correct), so the punch lands on their local day (Oct 20).
+      const tz = (rows || []).find(x => x.email === addFor)?.timeZone;
+      const at = zonedInputToUtc(addP.at, tz);
       await api.timeAddPunch({ employee_email: addFor, kind: addP.kind,
-        at: new Date(addP.at).toISOString().slice(0, 19),
-        tz_offset_min: new Date().getTimezoneOffset(), note: addP.note });
+        at, tz_offset_min: zoneOffsetMin(tz, at), note: addP.note });
       toastOk('Punch added.');
       setAddFor(null); setAddP({ kind: 'out', at: '', note: '' }); load(true);
     } catch (e) { toastErr(e?.message || 'Could not add the punch.'); }
@@ -687,8 +693,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                           background: p.voided ? 'transparent' : p.geoStatus === 'out_of_fence' ? 'rgba(180,83,9,0.1)' : 'var(--mist)',
                           border: '1px solid var(--line)', color: p.voided ? 'var(--line)' : 'var(--ink)',
                           textDecoration: p.voided ? 'line-through' : 'none' }}>
-                          <b>{KIND_LABEL[p.kind]}</b> {localTime(p.at)}
-                          {p.originalAt && <span title={`Originally ${localTime(p.originalAt)} - adjusted by ${p.adjustedBy}`} style={{ color: '#b45309', fontWeight: 700 }}>✎</span>}
+                          <b>{KIND_LABEL[p.kind]}</b> {localTime(p.at, r.timeZone)}
+                          {p.originalAt && <span title={`Originally ${localTime(p.originalAt, r.timeZone)} - adjusted by ${p.adjustedBy}`} style={{ color: '#b45309', fontWeight: 700 }}>✎</span>}
                           {p.lat && (
                             <a href={`https://www.google.com/maps?q=${p.lat},${p.lng}`} target="_blank" rel="noopener noreferrer"
                               title={`${p.geoStatus === 'in_fence' ? `At ${p.workSiteName}` : `${formatDistance(p.distanceM)} from ${p.workSiteName || 'nearest site'}`} (${formatAccuracy(p.accuracyM)})`}
@@ -697,7 +703,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                             </a>
                           )}
                           {p.source !== 'web' && <span title={p.source === 'self_manual' ? `Self-corrected: ${p.note}` : p.source === 'offline' ? `Recorded offline: ${p.note}` : `Added by ${p.createdBy}`} style={{ fontSize: 10, fontWeight: 800, color: '#b45309' }}>M</span>}
-                          <button onClick={() => setEdit({ ...p, atInput: utcToInput(p.at), adjustNote: '' })} title="Adjust / void"
+                          <button onClick={() => setEdit({ ...p, timeZone: r.timeZone, atInput: utcToInput(p.at, r.timeZone), adjustNote: '' })} title="Adjust / void"
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 1 }}>
                             <Pencil size={11} />
                           </button>
@@ -1164,7 +1170,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   Days <span style={{ fontWeight: 500, color: 'var(--muted)' }}>- click one for its punches</span>
                 </div>
                 {Object.keys(p.days || {}).sort().map(date => (
-                  <AdminDayRow key={date} date={date} email={p.email} d={p.days[date]}
+                  <AdminDayRow key={date} date={date} email={p.email} d={p.days[date]} timeZone={p.timeZone}
                     approval={(p.dayApprovals || {})[date]}
                     onApprove={() => approveDays(p.email, [date])} />
                 ))}
@@ -1204,9 +1210,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             </div>
             <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
               {edit.originalAt && (
-                <p style={{ margin: 0, fontSize: 11.5, color: '#b45309' }}>Original time on record: {localTime(edit.originalAt)} (adjusted by {edit.adjustedBy})</p>
+                <p style={{ margin: 0, fontSize: 11.5, color: '#b45309' }}>Original time on record: {localTime(edit.originalAt, edit.timeZone)} (adjusted by {edit.adjustedBy})</p>
               )}
-              <div><label style={FL}>Time</label>
+              <div><label style={FL}>Time{zoneTag(edit.timeZone) ? ` (${zoneTag(edit.timeZone)}, the employee's clock)` : ''}</label>
                 <input className="form-input" type="datetime-local" value={edit.atInput}
                   onChange={e => setEdit(x => ({ ...x, atInput: e.target.value }))} style={{ width: '100%' }} /></div>
               <div><label style={FL}>Punch note</label>
@@ -1306,7 +1312,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 <select className="form-input" value={addP.kind} onChange={e => setAddP(p => ({ ...p, kind: e.target.value }))} style={{ width: '100%' }}>
                   {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                 </select></div>
-              <div><label style={FL}>Time</label>
+              <div><label style={FL}>{(() => { const t = zoneTag((rows || []).find(x => x.email === addFor)?.timeZone); return t ? `Time (${t}, the employee's clock)` : 'Time'; })()}</label>
                 <input className="form-input" type="datetime-local" value={addP.at} onChange={e => setAddP(p => ({ ...p, at: e.target.value }))} style={{ width: '100%' }} /></div>
               <div><label style={FL}>Note</label>
                 <input className="form-input" placeholder="e.g. forgot to punch out" value={addP.note}

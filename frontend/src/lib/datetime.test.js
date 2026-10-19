@@ -91,3 +91,57 @@ describe("zonedDateTime (an approver reads the employee's clock, Oct 19)", () =>
     expect(formatDate('2026-10-18T05:00:00Z', '', 'America/Los_Angeles')).toBe('10/17/2026');
   });
 });
+
+describe("Typing a punch time on the employee's clock (People > Time, Oct 20)", () => {
+  const LA = 'America/Los_Angeles', IN = 'Asia/Kolkata';
+  it('reads the zone offset in getTimezoneOffset terms, DST-correct', async () => {
+    const { zoneOffsetMin } = await import('./datetime');
+    expect(zoneOffsetMin(LA, '2026-10-17T15:30:00')).toBe(420);   // PDT
+    expect(zoneOffsetMin(LA, '2026-12-01T15:30:00')).toBe(480);   // PST
+    expect(zoneOffsetMin(IN, '2026-10-17T15:30:00')).toBe(-330);
+    // Either side of the spring-forward instant (03/08/2026 10:00 UTC) and the fall-back one (11/01/2026 09:00 UTC).
+    expect(zoneOffsetMin(LA, '2026-03-08T09:59:00')).toBe(480);
+    expect(zoneOffsetMin(LA, '2026-03-08T10:00:00')).toBe(420);
+    expect(zoneOffsetMin(LA, '2026-11-01T08:59:00')).toBe(420);
+    expect(zoneOffsetMin(LA, '2026-11-01T09:00:00')).toBe(480);
+  });
+  it('shows a stored UTC instant as the zone-local input value', async () => {
+    const { zonedInputValue } = await import('./datetime');
+    expect(zonedInputValue('2026-10-17T15:30:00', LA)).toBe('2026-10-17T08:30');
+    expect(zonedInputValue('2026-10-17T15:30:00', IN)).toBe('2026-10-17T21:00');
+    expect(zonedInputValue('2026-12-01T17:00:00', LA)).toBe('2026-12-01T09:00');
+    expect(zonedInputValue('2026-10-18T05:00:00Z', LA)).toBe('2026-10-17T22:00');
+    expect(zonedInputValue('', LA)).toBe('');
+  });
+  it('converts a zone-local input to UTC across DST', async () => {
+    const { zonedInputToUtc } = await import('./datetime');
+    expect(zonedInputToUtc('2026-10-17T09:00', LA)).toBe('2026-10-17T16:00:00');
+    expect(zonedInputToUtc('2026-12-01T09:00', LA)).toBe('2026-12-01T17:00:00');
+    expect(zonedInputToUtc('2026-10-17T09:00', IN)).toBe('2026-10-17T03:30:00');
+    // Spring forward: 1:30 AM is PST, 3:30 AM is PDT, 2:30 AM never happened (saved as 3:30 AM PDT).
+    expect(zonedInputToUtc('2026-03-08T01:30', LA)).toBe('2026-03-08T09:30:00');
+    expect(zonedInputToUtc('2026-03-08T03:30', LA)).toBe('2026-03-08T10:30:00');
+    expect(zonedInputToUtc('2026-03-08T02:30', LA)).toBe('2026-03-08T10:30:00');
+    // Fall back: 1:30 AM happens twice - the first (PDT) one; 2:30 AM is PST.
+    expect(zonedInputToUtc('2026-11-01T01:30', LA)).toBe('2026-11-01T08:30:00');
+    expect(zonedInputToUtc('2026-11-01T02:30', LA)).toBe('2026-11-01T10:30:00');
+    expect(zonedInputToUtc('', LA)).toBe('');
+  });
+  it('round-trips every hour across both DST changes', async () => {
+    const { zonedInputToUtc, zonedInputValue } = await import('./datetime');
+    for (const day of ['2026-03-07', '2026-03-08', '2026-10-31', '2026-11-01', '2026-11-02']) {
+      for (let h = 0; h < 24; h += 1) {
+        const v = `${day}T${String(h).padStart(2, '0')}:15`;
+        if (v === '2026-03-08T02:15') continue;   // the gap
+        expect(zonedInputValue(zonedInputToUtc(v, LA), LA)).toBe(v);
+        expect(zonedInputValue(zonedInputToUtc(v, IN), IN)).toBe(v);
+      }
+    }
+  });
+  it("falls back to the viewer's zone without a zone", async () => {
+    const { zonedInputToUtc, zonedInputValue } = await import('./datetime');
+    const v = '2026-10-17T09:00';
+    expect(zonedInputToUtc(v, '')).toBe(new Date(2026, 9, 17, 9, 0).toISOString().slice(0, 19));
+    expect(zonedInputValue(zonedInputToUtc(v, 'Not/AZone'), '')).toBe(v);
+  });
+});
