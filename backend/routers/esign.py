@@ -1126,7 +1126,10 @@ def _sign_link(party: HrSignParty, req: Optional[HrSignRequest] = None) -> str:
     # manager may not hold (Oct 16).
     if (getattr(req, "link_kind", "") or "") == "timesheet":
         return f"{_app_url_fn()}/workday/timesheet"
-    return f"{_app_url_fn()}/documents/documents-esign?sign={party.id}"
+    # Every other teammate signs from Workday too (Oct 18): Documents needs a
+    # grant a plain employee does not hold, so this link used to end on Access
+    # Restricted. Workday's Documents to Sign card opens this envelope.
+    return f"{_app_url_fn()}/workday/sign:{party.id}"
 
 
 def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender: dict, custom: Optional[tuple] = None) -> tuple:
@@ -1254,9 +1257,9 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
                    action={"view": "timeclock", "sub": "timesheet"}, priority=1)
     elif party.kind == "internal":
         _hr_notify(db, party.email, f"Signature Required: {req.title}",
-                   f"{sender['name']} sent you \"{req.title}\" to sign. Open Documents → Nexus Sign.",
+                   f"{sender['name']} sent you \"{req.title}\" to sign. Open Workday to review and sign it.",
                    ref_id=req.id, requested_by=sender_name,
-                   action={"view": "documents", "sub": "documents-esign"})
+                   action={"view": "myhr", "sub": f"sign:{party.id}"})
     custom = None
     if (getattr(req, "link_kind", "") or "") == "life_event":
         try:
@@ -2652,7 +2655,8 @@ def my_signatures(user: dict = Depends(get_current_user), db: Session = Depends(
             continue
         out.append({"partyId": p.id, "requestId": req.id, "title": req.title,
                     "message": req.message, "from": req.created_by, "createdAt": req.created_at,
-                    "expiresOn": req.expires_on, "myTurn": _its_their_turn(req, p)})
+                    "expiresOn": req.expires_on, "myTurn": _its_their_turn(req, p),
+                    "linkKind": getattr(req, "link_kind", "") or ""})
     return sorted(out, key=lambda x: (not x["myTurn"], x["createdAt"]))
 
 

@@ -5,6 +5,7 @@ import { BFF_MODE, bffLogout } from '../bffAuth';
 import { useRole, ROLES, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
 import { usePersonPhoto } from '../lib/peoplePhotos';
 import { NAV } from './Sidebar';
+import { useActionCounts, moduleCount } from '../lib/useActionCounts';
 
 // Sub-screens per module - the same sub ids the views' tab strips use, so a
 // tap deep-links exactly where the in-page tab would. Modules absent here
@@ -86,6 +87,7 @@ export const SUBMENUS = {
 export default function MobileMenu({ open, onClose, onNavigate, activeView, theme, onThemeToggle }) {
   const { instance, accounts } = useMsal();
   const { myRole, can, myGrantedModules, isExternal } = useRole();
+  const counts = useActionCounts();
   const account  = accounts[0];
   const name     = account?.name ?? 'User';
   const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
@@ -167,7 +169,10 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
           if (item.divider) return <div key={`d${i}`} className="mobile-menu-divider" />;
           return (
             <button key={item.view} className={`mobile-menu-row${activeView === item.view ? ' active' : ''}`} onClick={() => openRow(item)}>
-              <span className="mobile-menu-row-label">{renderIcon(item)}<span>{item.label}</span></span>
+              <span className="mobile-menu-row-label">
+                <span className="nav-ico">{renderIcon(item)}{moduleCount(counts, item.view) > 0 && <span className="nav-dot" role="img" aria-label={`${moduleCount(counts, item.view)} waiting`} />}</span>
+                <span>{item.label}</span>
+              </span>
               <ChevronRight size={17} />
             </button>
           );
