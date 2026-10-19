@@ -294,6 +294,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       note = r;
     }
     setBulkBusy(true);
+    // Off the list at once; this run still reads the list it started with.
+    dropPunchReqs(ids);
     let ok = 0, dupes = 0; const fails = [];
     // Apply in punch order (oldest first, clock-in before clock-out) so a
     // selected pair never hits the sequence guard because its later half
@@ -330,14 +332,27 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       if (r === null) return;   // cancelled - do NOT reject
       note = r;
     }
+    // The row leaves the list the moment the decision is made (Visesh, Oct 19:
+    // it sat there 4-5 seconds - the save, then a full list reload). The save
+    // and the refresh run behind it; a failure brings the row back.
+    dropPunchReqs([id]);
     try {
       const res = await api.timeDecidePunchRequest(id, { status, note });
       if (res && res.status && res.status !== status) toastOk('That punch is already on the time sheet - closed as a duplicate.');
       // Approving can also set aside a punch the fix replaces - say which (Oct 7).
       else toastOk(status === 'approved' && /Replaced|Also added/.test(res?.decisionNote || '') ? `Approved. ${res.decisionNote}` : `Request ${status}.`);
-      loadPunchReqs();
       load(true);   // an approved add/remove changes the timecard - keep the rows in sync
     } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
+    loadPunchReqs();
+  }
+
+  // Take decided requests off the list right away - and their copies (the same
+  // fix asked twice), which the server closes with them.
+  function dropPunchReqs(ids) {
+    setPunchReqs(prev => {
+      const keys = new Set(prev.filter(r => ids.includes(r.id)).map(punchReqKey));
+      return prev.filter(r => !ids.includes(r.id) && !keys.has(punchReqKey(r)));
+    });
   }
 
   async function revokeApproval(id) {

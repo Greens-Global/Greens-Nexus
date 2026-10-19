@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ArrowRight, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone } from '../lib/displayTz';
@@ -620,7 +620,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // Full-width rows across the hourly table: Date, Edit, In, Out, Deducted
   // Time, Category, Total Hours, OT, Loc, [Pay Rate], [Wage] - SwipeClock's
   // order (Neil, Oct 16): the actions up front, the outputs at the end.
-  const span = 12 - (showPay ? 0 : 2);
+  const span = 13 - (showPay ? 0 : 2);   // + Hrs/Day (Oct 18 2026)
   const mgrAp = data?.approval;        // manager approval (step 1 of 2)
   // Never surface a raw email - fall back to a name formatted from the local-part.
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
@@ -771,6 +771,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         rows.push({ type: 'day', ds, seg, base: seg, band, first: i === 0, last: i === segs.length - 1, segLast: true, brkCount: (seg.breaks || []).length });
         (seg.breaks || []).forEach(b => rows.push({ type: 'break', ds, seg: breakSeg(b), brk: b, base: seg, band, first: false }));
       });
+      // Hrs/Day (Neil, Oct 18 2026 - SwipeClock's down arrow): the day's
+      // total sits on its LAST row; every row above it points down to it.
+      rows[rows.length - 1].dayLast = true;
       // A shift Nexus auto-closed at end of day (no clock-out was recorded):
       // one loud line under the day - the segment above pays 0 until fixed.
       if (segs.some(s => (s.flags || []).includes('auto_clock_out'))) rows.push({ type: 'auto', ds });
@@ -803,6 +806,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const pm = data?.punchMeta || {};
   // What a row's Edit opens: the shift's form, or the break fixer on a Break row.
   const isBreakRow = (r) => r.type === 'break';
+  // Hrs/Day: the day's total on its last row, an arrow down to it on the rows above.
+  const hrsDay = (r) => (r.dayLast
+    ? hhmm(byDate[r.ds]?.workedMin ?? r.seg?.workedMin ?? 0)
+    : <ArrowDown size={12} aria-label="continues below" style={{ color: 'var(--muted)', verticalAlign: 'middle' }} />);
   const editRow = (r) => isBreakRow(r) ? setBreakFix({ date: r.ds, breaks: r.base?.breaks || [] }) : setEditDay({ date: r.ds, seg: r.base || r.seg });
 
   // ── A day's pieces, drawn by BOTH the desktop table and the phone day cards
@@ -1302,6 +1309,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th title="Lunch taken out of a long shift that recorded no break" style={gh}>Deducted Time</th>
                 <th style={gh}>Category</th>
                 <th title="Hours paid for the shift - the time between clock-in and clock-out, minus its breaks" style={gh}>Total Hours</th>
+                <th title="The day's total, on its last row - the rows above point down to it" style={gh}>Hrs/Day</th>
                 <th title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×" style={gh}>OT</th>
                 <th style={gh}>Loc</th>
                 {showPay && <th title="The rate in effect that day" style={gh}>Pay Rate</th>}
@@ -1387,7 +1395,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={gc}>{hEdit(r)}</td>
                   <td style={gc}>{hIn(r)}</td>
                   <td style={gc} title={`${hhmm(r.brk.min)} break${r.brk.paidMin > 0 ? ` - ${r.brk.paidMin}m of it paid` : ''}`}>{hOut(r)}</td>
-                  {/* The columns from Deducted Time on are the shift's, merged down over its breaks. */}
+                  {/* The columns from Deducted Time on are the shift's, merged down over its breaks -
+                      all but Hrs/Day, which every row has (the arrow, or the day's total on the last). */}
+                  <td style={{ ...gc, fontWeight: 700 }}>{hrsDay(r)}</td>
                 </tr>
               ) : (() => { const rs = 1 + (r.brkCount || 0); return (
                 /* Alternate days, not rows (Pranshu, Oct 16): the shift, its
@@ -1407,6 +1417,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                       <td rowSpan={rs} style={{ ...gc, color: r.seg.deductedMin ? '#b45309' : undefined }}>{r.seg.deductedMin ? `−${r.seg.deductedMin}m` : '-'}</td>
                       <td rowSpan={rs} style={gc}>{r.seg.category || '-'}</td>
                       <td rowSpan={rs} style={{ ...gc, fontWeight: 700 }}>{hhmm(r.seg.workedMin)}</td>
+                      <td style={{ ...gc, fontWeight: 700 }}>{hrsDay(r)}</td>
                       <td rowSpan={rs} style={{ ...gc, color: r.seg.dtMin ? '#b91c1c' : r.seg.otMin ? '#b45309' : undefined, fontWeight: (r.seg.otMin || r.seg.dtMin) ? 700 : 400 }}>
                         {(r.seg.otMin || r.seg.dtMin)
                           ? [r.seg.otMin ? hhmm(r.seg.otMin) : '', r.seg.dtMin ? `${hhmm(r.seg.dtMin)} 2×` : ''].filter(Boolean).join(' · ')
@@ -1435,6 +1446,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...gc, color: T.deductedMin ? '#b45309' : undefined }}>{T.deductedMin ? `−${T.deductedMin}m` : '-'}</td>
                   <td style={gc}></td>
                   <td style={gc}>{hhmm((T.regMin || 0) + (T.otMin || 0) + (T.dtMin || 0))}</td>
+                  <td style={gc}></td>
                   <td style={gc}>{(T.otMin || T.dtMin) ? [T.otMin ? hhmm(T.otMin) : '', T.dtMin ? `${hhmm(T.dtMin)} 2×` : ''].filter(Boolean).join(' · ') : '-'}</td>
                   <td style={gc}></td>
                   {showPay && <td style={gc}></td>}
@@ -1448,6 +1460,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     <td style={gc}></td>
                     <td style={gc}>{label}</td>
                     <td style={gc}>{hhmm(min)}</td>
+                    <td style={gc}></td>
                     <td style={gc}></td>
                     <td style={gc}></td>
                     {showPay && <td style={gc}></td>}
@@ -2191,6 +2204,19 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
 // the change is on record. An employee (self) still sends a request for their
 // approver, as before. Before this a break that never ended could not be fixed
 // by a manager at all, and it blocks sign-off.
+// "YYYY-MM-DDTHH:mm" (a datetime-local value) plus m minutes, in local time.
+function addMinutesInput(v, m) {
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return v;
+  d.setMinutes(d.getMinutes() + m);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+const BREAK_REASONS_SELF = ['Forgot to punch back in', 'A customer came in', 'Took a call', "It didn't record"];
+const BREAK_REASONS_MANAGER = ['Confirmed with the employee', 'Forgot to punch back in', 'A customer came in'];
+const QUICK_CHIP = { fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 999, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' };
+const QUICK_CHIP_ON = { borderColor: 'var(--wk-brand)', color: 'var(--wk-brand)', background: 'hsla(var(--color-green),0.08)' };
+
 export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onDone, onClose, toastOk, toastErr }) {
   // A break the day's clock-out closed (implicit) is one whose END never landed -
   // by far the common case, so open on it with its start time already known.
@@ -2198,8 +2224,14 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
   // Adding a WHOLE break is the Add punch form with Type = Break (Neil, Oct 13).
   const [kind, setKind] = useState(unended ? 'break_end' : 'break_start');
   const [endAt, setEndAt] = useState(`${day.date}T12:30`);
+  // A break that never ended opens on 30 minutes after it started, with one-tap
+  // 30 min / 45 min / 1 hour - the weekly "I went to lunch, a customer came in,
+  // I never punched back in" (Charmi, Oct 19). It used to open on the break's
+  // own start time, which can never be saved, so every fix began with typing.
+  const unendedStart = unended?.start ? utcToInput(unended.start) : '';
   const [at, setAt] = useState(() => {
-    const anchor = unended?.start || (day.breaks || [])[0]?.end || '';
+    if (unendedStart) return addMinutesInput(unendedStart, 30);
+    const anchor = (day.breaks || [])[0]?.end || '';
     return anchor ? utcToInput(anchor) : `${day.date}T12:00`;
   });
   const [reason, setReason] = useState('');
@@ -2216,6 +2248,11 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
   async function removeBreak() {
     const b = deletable[delIdx];
     if (!b) return;
+    // A manager's delete is immediate, so it asks first and says how to put it
+    // back (Charmi, Oct 19: "then I won't be able to add it back").
+    if (!self && !await dialog.confirm(
+      `Delete the ${brLabel(b)} break? Its punches come off the time sheet (the record keeps them). To put a break back later, use Add Punch with Type Break.`,
+      { title: 'Delete Break', confirmText: 'Delete Break', cancelText: 'Keep It', danger: true })) return;
     // End first, then start: never leave a lone break_end behind.
     const ids = [b.endId, b.startId].filter(Boolean);
     setBusy(true);
@@ -2308,6 +2345,19 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
           ) : (
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>{kind === 'both' ? 'Break start' : label} time
             <input autoFocus type="datetime-local" className="form-input" value={at} onChange={e => setAt(e.target.value)} style={{ width: '100%', fontSize: 13 }} />
+            {kind === 'break_end' && unendedStart && (
+              <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                {[30, 45, 60].map(m => {
+                  const v = addMinutesInput(unendedStart, m);
+                  return (
+                    <button key={m} type="button" onClick={() => setAt(v)} aria-pressed={at === v}
+                      style={{ ...QUICK_CHIP, ...(at === v ? QUICK_CHIP_ON : {}) }}>
+                      Back After {m === 60 ? '1 Hour' : `${m} Min`}
+                    </button>
+                  );
+                })}
+              </span>
+            )}
           </label>
           )}
           {kind === 'both' && (
@@ -2318,6 +2368,14 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>{self ? 'Reason (sent to your approver - not the time)' : 'Reason (kept on record and shown to the employee)'}
             <input className="form-input" value={reason} onChange={e => setReason(e.target.value)}
               placeholder={self ? "Why it's missing - e.g. ended my break on my phone and it didn't record" : 'Why - e.g. confirmed with them they were back at 1:00 PM'} style={{ width: '100%', fontSize: 13 }} />
+            {!isDelete && (
+              <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                {(self ? BREAK_REASONS_SELF : BREAK_REASONS_MANAGER).map(r => (
+                  <button key={r} type="button" onClick={() => setReason(r)} aria-pressed={reason === r}
+                    style={{ ...QUICK_CHIP, ...(reason === r ? QUICK_CHIP_ON : {}) }}>{r}</button>
+                ))}
+              </span>
+            )}
           </label>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
@@ -2381,13 +2439,29 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     if (inAt && outAt && new Date(outAt) <= new Date(inAt)) {
       fail('The clock-out has to be after the clock-in.'); return;
     }
+    // A pair of requests goes in whole or not at all: when the second half is
+    // refused, the first is taken back, so closing the popup after the error
+    // really leaves nothing behind (Miranda, Oct 18: the clock-in stayed
+    // pending and blocked her next try as "already asked").
+    const sendRequests = async (bodies) => {
+      const sent = [];
+      try {
+        for (const b of bodies) sent.push(await api.timePunchRequestCreate(b));
+      } catch (err) {
+        for (const r of sent) { if (r?.id) await api.timeCancelPunchRequest(r.id).catch(() => {}); }
+        if (sent.length) window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+        throw err;
+      }
+    };
     // A break: the two times are its start and end, inside a shift that day.
     if (isBreak && canAddBreak && self) {
       if (!reason.trim()) { fail('Add a reason so your approver can confirm it.'); return; }
       setBusy(true);
       try {
-        await api.timePunchRequestCreate({ action: 'add', punch_kind: 'break_start', at: inputToUtc(inAt), tz_offset_min: tzFor(inAt), reason: reason.trim() });
-        await api.timePunchRequestCreate({ action: 'add', punch_kind: 'break_end', at: inputToUtc(outAt), tz_offset_min: tzFor(outAt), reason: reason.trim() });
+        await sendRequests([
+          { action: 'add', punch_kind: 'break_start', at: inputToUtc(inAt), tz_offset_min: tzFor(inAt), reason: reason.trim() },
+          { action: 'add', punch_kind: 'break_end', at: inputToUtc(outAt), tz_offset_min: tzFor(outAt), reason: reason.trim() },
+        ]);
         toastOk?.('Request sent to your approver - it shows on your time sheet as Not Yet Approved until they decide.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
         onDone();
@@ -2416,10 +2490,8 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
         const adds = [];
         if (needIn) adds.push(['in', inAt]);
         if (needOut) adds.push(['out', outAt]);
-        for (const [kind, at] of adds) {
-          await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim(),
-            category: kind === 'in' && LEAVE_TYPES.includes(type) ? type : '' });
-        }
+        await sendRequests(adds.map(([kind, at]) => ({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim(),
+          category: kind === 'in' && LEAVE_TYPES.includes(type) ? type : '' })));
         toastOk?.('Request sent to your approver - it shows on your time sheet as Not Yet Approved until they decide.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));   // refresh the request stack
         onDone();

@@ -323,6 +323,8 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   if ((options.method || 'GET').toUpperCase() !== 'GET') {
     _getCache.clear();
     _queryClient?.invalidateQueries();
+    // The sidebar dots and tab counts refresh after any write (lib/useActionCounts.js).
+    window.dispatchEvent(new CustomEvent('nexus:data-written'));
   }
   if (res.status === 204) return null;
   // Parse from text so evidence-photo URLs of the private buckets can be
@@ -753,6 +755,16 @@ export const api = {
   payReimbursement:        (id, body)  => req(`/reimbursements/${id}/paid`, { method: 'POST', body: JSON.stringify(body) }),
   reimbursementReceiptUrl: (id, i = 0) => req(`/reimbursements/${id}/receipt-url?i=${i}`),
   personReimbursements:    (email)     => req(`/reimbursements/person/${encodeURIComponent(email)}`),
+  // Paid leave balances (Oct 19 2026, routers/leave_balances.py).
+  leaveMyBalance:      ()           => req('/leave-balances/me'),
+  leavePersonBalance:  (email)      => req(`/leave-balances/person/${encodeURIComponent(email)}`),
+  leaveAdmin:          ()           => req('/leave-balances/admin'),
+  leaveSetCutover:     (date)       => req('/leave-balances/cutover', { method: 'PUT', body: JSON.stringify({ date }) }),
+  leaveSavePolicies:   (policies)   => req('/leave-balances/policies', { method: 'PUT', body: JSON.stringify({ policies }) }),
+  leaveImport:         (body)       => req('/leave-balances/import', { method: 'POST', body: JSON.stringify(body) }),
+  leaveAdjust:         (body)       => req('/leave-balances/adjust', { method: 'POST', body: JSON.stringify(body) }),
+  leaveAssign:         (email, policyId) => req('/leave-balances/assign', { method: 'PUT', body: JSON.stringify({ email, policy_id: policyId }) }),
+  leaveRecalculate:    ()           => req('/leave-balances/recalculate', { method: 'POST' }),
   // The weekly New Feature bar (components/FeatureBanner.jsx) and its dismissal.
   getFeatureBanner: () => req('/task-changelog/feature-banner'),
   dismissFeatureBanner: () => req('/task-changelog/feature-banner/dismiss', { method: 'POST' }),
@@ -1521,6 +1533,9 @@ export const api = {
   timesheetReviewSendBack: (id, note)         => req(`/timesheet-review/${id}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
   timesheetReviewAgree:    (id, note = '')    => req(`/timesheet-review/${id}/agree`, { method: 'POST', body: JSON.stringify({ note }) }),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeCancelPunchRequest:  (id) => req(`/timeclock/punch-requests/${id}/cancel`, { method: 'POST' }),
+  timeDismissPunchRequest: (id) => req(`/timeclock/punch-requests/${id}/dismiss`, { method: 'POST' }),
+  timeDismissDecidedPunchRequests: () => req('/timeclock/punch-requests/dismiss-decided', { method: 'POST' }),
   // Employee's own bi-weekly pay-period timecard (payroll rows + composition)
   timeMyPayroll:          (start) => req(`/timeclock/my-payroll?start=${start || ''}`),
   timeOffCreate:     (data)      => req('/timeclock/timeoff', { method: 'POST', body: JSON.stringify(data) }),
@@ -2465,6 +2480,8 @@ export const api = {
   caReviewReopen:        (data) => req('/ca-review/reopen', { method: 'POST', body: JSON.stringify(data) }),
   caReviewSettings:      () => req('/ca-review/settings'),
   caReviewSaveSettings:  (data) => req('/ca-review/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  // What is waiting on me: {counts: {view: {tab: n}}} - routers/action_counts.py.
+  actionCounts:          () => req('/me/action-counts'),
   // Ticket default assignee per department (Oct 2026, ticket_auto_assign.py) - "" clears it.
   setTicketDepartmentDefaultAssignee: (deptId, email) => req(`/ticket-departments/${deptId}`, { method: 'PATCH', body: JSON.stringify({ default_assignee_email: email }) }),
   // Ticket saved replies (Oct 2026, routers/ticket_saved_replies.py). companyId
