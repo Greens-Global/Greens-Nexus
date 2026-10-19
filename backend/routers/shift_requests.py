@@ -156,7 +156,13 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # Time Sheet still waiting on its approver this many days after
              # the period ended is escalated to the approver's own manager,
              # else the company's HR contact; 0 = no escalation.
-             "timesheetEscalateDays": 2}
+             "timesheetEscalateDays": 2,
+             # Location Trail While Clocked In (Neil's checklist, Oct 20 2026,
+             # routers/location_trail.py): the web app shares the person's
+             # location about every 5 minutes while they are clocked in (not
+             # on break) and their browser already allows location. OFF by
+             # default - nothing is collected until a company turns it on.
+             "locationTrailOn": False}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
@@ -364,6 +370,7 @@ class SettingsIn(BaseModel):
     otAlertWeeklyLeadMin: Optional[int] = None  # 0-480; minutes before weekly overtime; 0 = off
     requireLocationToPunch: Optional[bool] = None   # refuse a live punch with no coordinates (Oct 19; off by default)
     timesheetEscalateDays: Optional[int] = None # 0-30; days after a pay period before an unapproved sheet escalates; 0 = off
+    locationTrailOn: Optional[bool] = None      # web location trail while clocked in (Oct 20; off by default)
 
 
 @router.get("/settings")

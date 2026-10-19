@@ -2492,6 +2492,11 @@ export const api = {
   countTicketSavedReplyUse: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}/use`, { method: 'POST' }),
   // Who may be a company's default assignee - its active desk agents (manager+).
   getTicketDeskAgents: (companyId) => req(`/task-tickets/desk-agents?company_id=${encodeURIComponent(companyId)}`),
+  // Location Trail While Clocked In (Oct 20): the web ping (lib/useLocationTrail.js)
+  // and the trail map (LiveCrewMap: live team positions, one person's day).
+  locationTrailPing: (body)          => req('/timeclock/location-trail/ping', { method: 'POST', body: JSON.stringify(body) }),
+  locationTrailLive: ()              => req('/timeclock/location-trail/live'),
+  locationTrailDay:  (email, date)   => req(`/timeclock/location-trail/day?email=${encodeURIComponent(email || '')}&date=${encodeURIComponent(date)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

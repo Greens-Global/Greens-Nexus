@@ -3866,3 +3866,5 @@ from routers import ticket_saved_replies  # noqa: E402
 app.include_router(ticket_saved_replies.router)   # Tickets: saved replies (canned responses) for the desk's reply composer (Oct 2026)
 from routers import leave_balances as leave_balances_router  # noqa: E402
 app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
+from routers import location_trail as location_trail_router  # noqa: E402
+app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)

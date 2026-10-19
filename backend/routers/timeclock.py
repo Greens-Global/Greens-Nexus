@@ -421,6 +421,16 @@ def _location_required(db: Session, email: str) -> bool:
         return False   # a settings read failure never blocks punching
 
 
+def _location_trail_on(db: Session, email: str) -> bool:
+    """Location Trail While Clocked In is on for this person's company
+    (routers/location_trail.py stores the web pings)."""
+    from routers.shift_requests import settings_for as _sr_settings_for
+    try:
+        return bool(_sr_settings_for(db, email).get("locationTrailOn"))
+    except Exception:
+        return False
+
+
 def _geo_context(db: Session, email: str = "") -> dict:
     """What this person's punches are judged against, loaded ONCE per request
     (a timecard judges every punch in the period): every mapped site on their
@@ -969,6 +979,9 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         # Require Location to Punch (Oct 19 2026): the clients block a punch
         # with no location up front instead of letting the server refuse it.
         "locationRequired": _location_required(db, email),
+        # Location Trail While Clocked In (Oct 20 2026): the web app's ping
+        # hook runs only when this is true (lib/useLocationTrail.js).
+        "locationTrail": _location_trail_on(db, email),
         "bodRequired": (has_bod is None and has_in is None) and not _bod_ex,
         # Role-flagged people skip EVERY message prompt (BOD, EOD, break start/
         # end) - punches go straight through (Neil, Aug 25).
