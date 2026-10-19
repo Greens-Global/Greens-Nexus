@@ -19,7 +19,7 @@ import {
   Check, UserCog, Users, Laptop, Banknote, Package, Landmark,
 } from 'lucide-react';
 import { api } from '../api';
-import { formatDate } from '../lib/datetime';
+import { formatDate, toDateInputValue } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
 import { SkeletonBlocks, Spinner } from './AsyncState';
@@ -763,7 +763,7 @@ export function MyChecklistSteps() {
             {g.title} {g.sub && <span style={{ fontWeight: 400, color: 'var(--muted)' }}>· {g.sub}</span>}
           </div>
           {g.steps.map(s => (
-            <div key={s.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+            <div key={s.id} className={!s.dueDate || s.dueDate.slice(0, 10) <= toDateInputValue(new Date()) ? 'nx-needs-you' : undefined} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
               <button onClick={() => done(s)} title="Mark as done" aria-label={`Mark ${s.title} as done`}
                 style={{ background: 'none', border: 'none', padding: 2, cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }}>
                 <Circle size={17} />

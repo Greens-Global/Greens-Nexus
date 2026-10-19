@@ -180,7 +180,7 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
   const meta = [a.author_name || a.author_email, formatDate(a.created_at)].filter(Boolean).join(' - ');
   const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
   return (
-    <div style={{ borderBottom: '1px solid var(--line, #eef0f3)' }}>
+    <div className={needsAck ? 'nx-needs-you--row' : undefined} style={{ borderBottom: '1px solid var(--line, #eef0f3)' }}>
       <div role="button" tabIndex={0} aria-expanded={expanded} onClick={onToggle}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
         className="dash-link-row"

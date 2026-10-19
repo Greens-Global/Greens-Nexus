@@ -146,6 +146,23 @@ def _without_meal_flags(out: dict) -> dict:
     return out
 
 
+def _without_color_flags(out: dict) -> dict:
+    """The payroll grid's color banding (Oct 19 2026) adds "clock" / "byHr" to
+    each punchMeta entry - display only, no pay; not part of this feature."""
+    for k, v in list(out.items()):
+        if not k.startswith(("card", "fixed")):
+            continue
+        c = json.loads(v)
+        meta = c.get("punchMeta") or {}
+        if not any("clock" in m or "byHr" in m for m in meta.values()):
+            continue
+        for m in meta.values():
+            m.pop("clock", None)
+            m.pop("byHr", None)
+        out[k] = json.dumps(c, sort_keys=True)
+    return out
+
+
 def _outputs(db) -> dict:
     """Every pay surface of the fixture, as text."""
     out = {}
@@ -154,7 +171,7 @@ def _outputs(db) -> dict:
         out[f"card:{em}"] = json.dumps(c, sort_keys=True)
     out["fixed:" + F] = json.dumps(tc._fixed_card(db, F, PS), sort_keys=True)
     out["csv"] = _stream(tc.export_csv(start=PS, end=PE, mode="summary", user=HR, _su={}, db=db))
-    out["iif"] = tc.export_iif(start=PS, end=PE, user=HR, _su={}, db=db).body.decode()
+    out["iif"] = tc.export_iif(start=PS, end=PE, finalized_only=False, user=HR, _su={}, db=db).body.decode()
     out["hours"] = json.dumps(tc.export_hours(start=PS, end=PE, user=HR, _su={}, db=db), sort_keys=True)
     out["intacct"] = tc.export_intacct(start="2026-09-01", end="2026-09-30", expense="6000", clearing="2100",
                                        location="L1", user=HR, _su={}, db=db).body.decode()
@@ -202,7 +219,7 @@ class OffIsIdenticalTests(Base):
             return json.load(fh)
 
     def _assert_same(self, golden):
-        got = _without_meal_flags(_outputs(self.db))
+        got = _without_color_flags(_without_meal_flags(_outputs(self.db)))
         self.assertEqual(sorted(got), sorted(golden))
         for k in golden:
             self.assertEqual(got[k], golden[k], f"{k} changed while the feature is off")
@@ -356,7 +373,7 @@ class ExportAndFinalizeTests(Base):
         _save(self.db, CO1, {"enabled": True, "differentials": [NIGHT], "callBack": CALLBACK})
 
     def test_exports_carry_the_new_classes(self):
-        iif = tc.export_iif(start=PS, end=PE, user=HR, _su={}, db=self.db).body.decode()
+        iif = tc.export_iif(start=PS, end=PE, finalized_only=False, user=HR, _su={}, db=self.db).body.decode()
         self.assertIn("\tShift Differential\t8.00\t", iif)
         self.assertIn("\tCall-Back Pay\t1.00\t", iif)
         bob_lines = [ln for ln in iif.splitlines() if "Bob Premium" in ln]
@@ -516,7 +533,7 @@ class WithCaBreakPremiumsTests(Base):
         tue = next(d for d in card["days"] if d["date"] == "2026-09-15")
         self.assertEqual((tue["diffMin"], tue["mealPremiumMin"], tue["mealPremiumPay"]), (480, 60, 20.0))
         # IIF: both items on Tuesday, differentials first (their classes come first).
-        iif = tc.export_iif(start=PS, end=PE, user=HR, _su={}, db=self.db).body.decode()
+        iif = tc.export_iif(start=PS, end=PE, finalized_only=False, user=HR, _su={}, db=self.db).body.decode()
         tue_rows = [ln.split("\t")[5] for ln in iif.splitlines() if ln.startswith("TIMEACT\t9/15/2026\t") and "Alice" in ln]
         self.assertEqual(tue_rows[-2:], ["Shift Differential", "Meal Premium"])
         # CSV: both column sets, each only because it is present.

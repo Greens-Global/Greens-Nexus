@@ -16,6 +16,7 @@ import { NX, FONT, btn, card, chip, input as inputStyle } from './theme';
 import { Avatar, Modal, usePeople, useIsMobile } from './components';
 import { LoadingState } from '../components/AsyncState';
 import { formatDateTime, formatFullDate } from './changelogDates';
+import { formatDate } from '../lib/datetime';
 import { RequestStatusChip, RequestStatusEditor, REQUEST_STATUSES, TourHost, startTour } from './changelogLifecycle';
 
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -618,7 +619,7 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 export function buildPrintReport(entries, analytics, insights, statusOf) {
   const t = analytics?.totals || {};
   const d = new Date();
-  const today = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
+  const today = formatDate(d);
   const tiles = [
     ['Published', entries.filter((e) => statusOf(e) === 'Released').length], ['People Reached', t.peopleReached ?? '-'],
     ['Views', t.views ?? '-'], ['Reactions', t.reactions ?? '-'], ['Comments', t.comments ?? '-'],

@@ -128,3 +128,74 @@ def save_codes(db: Session, company_id: str, codes: dict, by: str) -> dict:
     row.updated_by = by
     db.commit()
     return kept
+
+
+# ── QuickBooks company name (Oct 19 2026) ─────────────────────────────────────
+# The IIF header's COMPANYNAME has to match the QuickBooks company file the
+# time is imported into. It is the export's company: HR's saved "QuickBooks
+# Company Name" for it (another `nexus_settings` row, {company_id: name}),
+# else the company's own name (HrEntity.name). A file that spans several
+# companies, or none, keeps the name the export always wrote.
+QB_COMPANY_KEY = "quickbooks_company_names"
+FALLBACK_COMPANY = "Greens Global"
+QB_COMPANY_MAX_LEN = 100
+
+
+def clean_company(value) -> str:
+    """A company name safe in the IIF header: no tabs or line breaks."""
+    s = " ".join(str(value or "").replace("\t", " ").replace("\r", " ").replace("\n", " ").split())
+    return s[:QB_COMPANY_MAX_LEN].strip()
+
+
+def _qb_names(db: Session) -> dict:
+    row = db.query(NexusSetting).filter(NexusSetting.key == QB_COMPANY_KEY).first()
+    try:
+        raw = json.loads(row.value) if row and row.value else {}
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): clean_company(v) for k, v in raw.items() if clean_company(v)}
+
+
+def qb_company_override(db: Session, company_id: str) -> str:
+    """HR's saved QuickBooks company name for one company ('' = none)."""
+    return _qb_names(db).get(company_id or "", "")
+
+
+def qb_company_default(db: Session, company_id: str) -> str:
+    """The name the IIF uses when HR saved none: the company's own name."""
+    from models import HrEntity
+    ent = db.query(HrEntity).filter(HrEntity.id == company_id).first() if company_id else None
+    return clean_company(ent.name if ent else "") or FALLBACK_COMPANY
+
+
+def qb_company_name(db: Session, company_ids) -> str:
+    """The IIF header's COMPANYNAME for a file holding these companies'
+    people: one company -> its saved name, else its own name; several or
+    none -> FALLBACK_COMPANY."""
+    ids = {c for c in (company_ids or ()) if c}
+    if len(ids) != 1:
+        return FALLBACK_COMPANY
+    (cid,) = ids
+    return qb_company_override(db, cid) or qb_company_default(db, cid)
+
+
+def save_qb_company_name(db: Session, company_id: str, name, by: str) -> str:
+    """Save (or, blank, clear) one company's QuickBooks company name.
+    Commits; returns the name as stored ('' = cleared)."""
+    company_id = company_id or ""
+    name = clean_company(name)
+    stored = _qb_names(db)
+    if name:
+        stored[company_id] = name
+    else:
+        stored.pop(company_id, None)
+    row = db.query(NexusSetting).filter(NexusSetting.key == QB_COMPANY_KEY).first()
+    if not row:
+        row = NexusSetting(key=QB_COMPANY_KEY)
+        db.add(row)
+    row.value = json.dumps(stored, sort_keys=True)
+    row.updated_by = by
+    db.commit()
+    return name

@@ -1068,6 +1068,8 @@ def _run_migrations():
             # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN shift_calendar INTEGER DEFAULT 1",
             "ALTER TABLE nexus_person_prefs ADD COLUMN ical_salt VARCHAR DEFAULT ''",
+            # Profile > Date Format (Oct 20). models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN date_format VARCHAR DEFAULT ''",
             # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
             "ALTER TABLE shift_calendar_events ADD COLUMN attempts INTEGER DEFAULT 0",
             # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
@@ -2428,6 +2430,8 @@ def _run_migrations():
         # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS shift_calendar INTEGER DEFAULT 1",
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ical_salt VARCHAR DEFAULT ''",
+        # Profile > Date Format (Oct 20). models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS date_format VARCHAR DEFAULT ''",
         # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
         "ALTER TABLE shift_calendar_events ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
         # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
@@ -3239,6 +3243,15 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(leasing_sync_loop()))
         except Exception as e:
             print(f"[startup] leasing sync skipped: {e}")
+        try:
+            # Pay period close alerts (Oct 19 2026): every half hour, in a
+            # thread - one notice per approver per closed period listing the
+            # Time Sheets waiting on them, escalation when approval or the
+            # employee's signature stalls. See timesheet_alerts.py.
+            from timesheet_alerts import period_close_loop
+            _tasks.append(_a.create_task(period_close_loop()))
+        except Exception as e:
+            print(f"[startup] period close alerts loop skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;
@@ -3877,6 +3890,8 @@ from routers import ca_breaks as ca_breaks_router  # noqa: E402
 app.include_router(ca_breaks_router.router)          # CA meal / rest premium lines + the meal waiver in Nexus Sign (Neil, 10/17)
 from routers import ca_review as ca_review_router  # noqa: E402
 app.include_router(ca_review_router.router)          # People > Time > Payroll: California Review - CA-rule flags for HR (Neil, 10/18)
+from routers import action_counts  # noqa: E402
+app.include_router(action_counts.router)             # What is waiting on me: the sidebar red dots and tab counts (Pranshu, 10/18)
 from routers import changelog_extras  # noqa: E402
 app.include_router(changelog_extras.router)          # What's New: following + digest, private RSS feed, screen hints, feedback, history, bulk, insights (Oct 16)
 from routers import changelog_lifecycle  # noqa: E402
@@ -3887,3 +3902,5 @@ from routers import ticket_saved_replies  # noqa: E402
 app.include_router(ticket_saved_replies.router)   # Tickets: saved replies (canned responses) for the desk's reply composer (Oct 2026)
 from routers import leave_balances as leave_balances_router  # noqa: E402
 app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
+from routers import location_trail as location_trail_router  # noqa: E402
+app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)

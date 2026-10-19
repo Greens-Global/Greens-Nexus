@@ -27,8 +27,8 @@ describe('LocCell', () => {
     expect(text({ geo: 'out_of_fence', workSite: 'Menifee', distance: 21000, out: '' })).toBe('Out of Location');
   });
 
-  it('no GPS at all is Location off', () => {
-    expect(text({ geo: 'no_location', workSite: '', out: '' })).toBe('Location off');
+  it('no GPS at all is No Location', () => {
+    expect(text({ geo: 'no_location', workSite: '', out: '' })).toBe('No Location');
   });
 
   it('a rough out-punch is called out without a site name', () => {
@@ -41,7 +41,7 @@ describe('LocCell', () => {
     const cases = [
       ['a plain site name', { geo: 'in_fence', workSite: 'GS Temecula', out: '' }, 'GS Temecula'],
       ['Out of Location with a different Out site', { geo: 'out_of_fence', workSite: 'Menifee', out: '2026-09-25T17:40:00', geoOut: 'in_fence', workSiteOut: 'GS Temecula' }, 'Out of Location GS Temecula'],
-      ['Location off', { geo: 'no_location', workSite: '', out: '' }, 'Location off'],
+      ['No Location', { geo: 'no_location', workSite: '', out: '' }, 'No Location'],
       ['Approx. Location', { geo: 'low_accuracy', workSite: 'Menifee', out: '' }, 'Approx. Location'],
       ['an Out-punch tail alone', { geo: '', workSite: '', out: '2026-09-25T17:40:00', geoOut: 'out_of_fence', workSiteOut: 'Menifee' }, 'Out of Location'],
     ];

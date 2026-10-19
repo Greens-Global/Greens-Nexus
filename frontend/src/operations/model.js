@@ -3,6 +3,7 @@
 // facility; `combine` adds any set of them into one block of the same shape,
 // so "All Facilities" and a single facility render through the same code.
 // Money is integer cents until `money` formats it.
+import { formatMonthDayNumeric } from '../lib/datetime';
 
 export const AGING = [
   { key: 'd0_30', label: '0-30 Days' },
@@ -58,10 +59,9 @@ export function monthLabel(ym) {
   const [y, m] = String(ym || '').split('-');
   return MONTHS[Number(m) - 1] ? `${MONTHS[Number(m) - 1]} '${y.slice(2)}` : '';
 }
-// "2026-10-13" -> "10/13"
+// "2026-10-13" -> "10/13" (in the person's date order)
 export function dayLabel(iso) {
-  const [, m, d] = String(iso || '').split('-');
-  return m && d ? `${m}/${d}` : '';
+  return formatMonthDayNumeric(String(iso || '').slice(0, 10), true);
 }
 
 // The period selector. Occupancy, rent and balances are always "as of today";

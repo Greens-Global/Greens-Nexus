@@ -473,7 +473,8 @@ def _esign_action_rows(db: Session, email: str) -> list:
         rows.append({
             "title": f"Sign: {req.title}",
             "detail": "Signature required",
-            "url": f"{app_url()}{_ESIGN_URL}",
+            # Workday signs it for everyone (Documents needs a grant) - esign._sign_link.
+            "url": f"{app_url()}/workday/sign:{p.id}",
             "module": "documents",
             # A party records no notified_at, so the envelope's send is the
             # closest honest start of the wait.

@@ -7,6 +7,7 @@ import { apiTokenRequest } from '../authConfig';
 import { queryClient, qk } from '../lib/queryClient';
 import { BFF_MODE } from '../bffAuth';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
+import { setDateFormat } from '../lib/datetime';
 
 const RoleCtx = createContext(null);
 
@@ -170,6 +171,8 @@ export function RoleProvider({ children }) {
             setIsExternal(!!data.is_external);
             setHrScope(Array.isArray(data.hr_scope) ? data.hr_scope : null);
             setHrTeam(!!data.hr_team);
+            // shortcut: a format changed on another device shows here from the next render on, not on screens already drawn; this browser remembers it for the next load.
+            if (data.date_format) setDateFormat(data.date_format);
             if (typeof data.time_tracking_exempt === 'boolean') {
               setTimeTrackingExempt(data.time_tracking_exempt);
               rememberTimeExempt(data.email, data.time_tracking_exempt);

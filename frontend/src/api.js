@@ -323,6 +323,8 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   if ((options.method || 'GET').toUpperCase() !== 'GET') {
     _getCache.clear();
     _queryClient?.invalidateQueries();
+    // The sidebar dots and tab counts refresh after any write (lib/useActionCounts.js).
+    window.dispatchEvent(new CustomEvent('nexus:data-written'));
   }
   if (res.status === 204) return null;
   // Parse from text so evidence-photo URLs of the private buckets can be
@@ -925,6 +927,8 @@ export const api = {
 
   // Nexus Roles
   getMyRole:    ()                    => cachedGet('/roles/me'),
+  // Profile > Date Format (Oct 20 2026) - one of lib/datetime.js DATE_FORMATS.
+  saveMyDateFormat: (dateFormat)      => req('/roles/me/date-format', { method: 'PUT', body: JSON.stringify({ date_format: dateFormat }) }),
   getAllRoles:   ()                   => req('/roles'),
   assignRole:   (email, role, by, displayName) => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by, display_name: displayName || '' }) }),
 
@@ -2007,7 +2011,8 @@ export const api = {
   // Payroll Export Codes (Oct 17): one company's pay item names for the
   // QuickBooks IIF and Intacct memo; codes {} is Reset to Default.
   timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),
-  timeExportCodesSet:  (company, codes) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes }) }),
+  // quickbooksCompanyName (Oct 19): the IIF header's company; undefined leaves it, '' clears it.
+  timeExportCodesSet:  (company, codes, quickbooksCompanyName) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes, quickbooksCompanyName }) }),
   // Shift differentials + call-back pay (Oct 17): one company's rule, off by default.
   timePremiumsGet:     (company) => req(`/timeclock/payroll/premiums?company=${encodeURIComponent(company || '')}`),
   timePremiumsSet:     (company, cfg) => req('/timeclock/payroll/premiums', { method: 'PUT', body: JSON.stringify({ ...cfg, company }) }),
@@ -2055,11 +2060,12 @@ export const api = {
     reqBlob(`/timeclock/export-intacct.csv?start=${start || ''}&end=${end || ''}&journal=${encodeURIComponent(journal)}&expense=${encodeURIComponent(expense)}&clearing=${encodeURIComponent(clearing)}&location=${encodeURIComponent(location)}`),
   // Accounting > Import Hub, Payroll Hours card (Neil, 10/15): the period's
   // hours by pay class (no pay) for one company, optionally approved time
-  // sheets only, and the QuickBooks IIF with the same filters.
-  timeExportHours:      (start, end, { company = '', approvedOnly = false } = {}) =>
-    req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
-  timeExportIifFor:     (start, end, { company = '', approvedOnly = false } = {}) =>
-    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  // sheets only, and the QuickBooks IIF with the same filters. The IIF is
+  // finalized time sheets only unless finalizedOnly is false (a -DRAFT file, Oct 19).
+  timeExportHours:      (start, end, { company = '', approvedOnly = false, finalizedOnly = false } = {}) =>
+    req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  timeExportIifFor:     (start, end, { company = '', approvedOnly = false, finalizedOnly = true } = {}) =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
   // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
   // liability accounts, the ledger-driven review (balances, principal and
   // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
@@ -2478,6 +2484,8 @@ export const api = {
   caReviewReopen:        (data) => req('/ca-review/reopen', { method: 'POST', body: JSON.stringify(data) }),
   caReviewSettings:      () => req('/ca-review/settings'),
   caReviewSaveSettings:  (data) => req('/ca-review/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  // What is waiting on me: {counts: {view: {tab: n}}} - routers/action_counts.py.
+  actionCounts:          () => req('/me/action-counts'),
   // Ticket default assignee per department (Oct 2026, ticket_auto_assign.py) - "" clears it.
   setTicketDepartmentDefaultAssignee: (deptId, email) => req(`/ticket-departments/${deptId}`, { method: 'PATCH', body: JSON.stringify({ default_assignee_email: email }) }),
   // Ticket saved replies (Oct 2026, routers/ticket_saved_replies.py). companyId
@@ -2490,6 +2498,11 @@ export const api = {
   countTicketSavedReplyUse: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}/use`, { method: 'POST' }),
   // Who may be a company's default assignee - its active desk agents (manager+).
   getTicketDeskAgents: (companyId) => req(`/task-tickets/desk-agents?company_id=${encodeURIComponent(companyId)}`),
+  // Location Trail While Clocked In (Oct 20): the web ping (lib/useLocationTrail.js)
+  // and the trail map (LiveCrewMap: live team positions, one person's day).
+  locationTrailPing: (body)          => req('/timeclock/location-trail/ping', { method: 'POST', body: JSON.stringify(body) }),
+  locationTrailLive: ()              => req('/timeclock/location-trail/live'),
+  locationTrailDay:  (email, date)   => req(`/timeclock/location-trail/day?email=${encodeURIComponent(email || '')}&date=${encodeURIComponent(date)}`),
   // Email to ticket (Oct 2026, ticket_inbound.py): the support mailbox's log
   // (supervisors, last 100) and a pass now instead of waiting for the loop.
   getTicketInboundLog: (params = {}) => req(`/task-tickets/inbound/log?${new URLSearchParams(params).toString()}`),

@@ -19,7 +19,7 @@ import { replayPendingBods } from './bodQueue';
 //   2. If it still fails, PARK it along with the time it was meant for.
 //   3. REPLAY it on the next load, at the RIGHT time either way: inside the
 //      server's 15-minute clicked_at window as a normal punch, and after that as
-//      a flagged self_manual backfill.
+//      a flagged offline backfill (within 24 hours - older needs a punch fix request).
 //
 // A punch the server REFUSED is never parked. That one is not lost, it is wrong,
 // and replaying it later would only make it wrong later.
@@ -71,9 +71,10 @@ async function landedPunch(kind) {
  *      or { ok: false, error, unreachable?, queued? } - unreachable means the
  *      server never gave an answer, queued means it is parked for replay.
  */
-export async function punchDurable({ kind, tzOffsetMin, clickedAt = '', pos = null, extra = null }) {
+export async function punchDurable({ kind, tzOffsetMin, clickedAt = '', pos = null, extra = null, locationOff = false }) {
   const body = {
     kind, ...(pos || {}), tz_offset_min: tzOffsetMin,
+    ...(!pos && locationOff ? { location_off: true } : {}),   // shows Location Off, not No Location
     ...(clickedAt ? { clicked_at: clickedAt } : {}),
     ...(extra || {}),
   };
@@ -153,11 +154,15 @@ async function _replayPending() {
       });
       return { restored: true, punch: r.punch, entry: p };
     }
-    // Past the window: the only way to keep the REAL time is the backfill path,
-    // which records source=self_manual and so is flagged for approver review -
-    // correct, and visibly not a silent edit.
+    // Past the window: the only way to keep the REAL time is the offline
+    // backfill path, which records source=offline and tells the manager -
+    // correct, and visibly not a silent edit. The server takes it only from
+    // this queue (offline_queue + queued_at) and only within 24 hours; an
+    // older one comes back as a refusal telling them to send a punch fix
+    // request (Oct 19).
     const punch = await api.timeSelfPunch({
       kind: p.kind, at: p.at, tz_offset_min: p.tz_offset_min,
+      offline_queue: true, queued_at: p.queued_at || p.at,
       note: 'Recorded offline - Nexus could not reach the server when this punch was made.',
     });
     return { restored: true, backfilled: true, punch, entry: p };

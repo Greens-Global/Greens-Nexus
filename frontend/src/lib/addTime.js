@@ -1,10 +1,12 @@
 // Add Time (Oct 14 2026): the words the modal and its tests share. Kept out
 // of the component file so fast refresh keeps working there.
+import { formatMonthDayNumeric } from './datetime';
+
 export const DAY_MS = 86400000;
 export const localKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 export const nextDay = (ds) => localKey(new Date(new Date(`${ds}T12:00:00`).getTime() + DAY_MS));
 export const weekday = (ds) => new Date(`${ds}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' });
-export const monthDay = (ds) => new Date(`${ds}T12:00:00`).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+export const monthDay = (ds) => formatMonthDayNumeric(`${ds}T12:00:00`);
 export const hm = (min) => `${Math.floor((min || 0) / 60)}h ${String((min || 0) % 60).padStart(2, '0')}m`;
 export const t12 = (hhmm) => {
   const [h, m] = String(hhmm || '').split(':').map(Number);

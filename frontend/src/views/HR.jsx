@@ -60,6 +60,7 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 import { ApprovalDelegationsAdmin } from '../components/DelegateApprovals';
+import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { PersonReimbursements } from '../components/Reimbursements';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
@@ -1315,7 +1316,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {open.map(r => (
-          <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px' }}>
+          <div key={r.id} className="nx-needs-you" style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
@@ -5407,6 +5408,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const [comp, setComp] = useState(COMP_DEFAULTS);
   const [bank, setBank] = useState([]);
   const [payroll, setPayroll] = useState({});   // what the timecard currently uses (read-only context)
+  const [ownPayLocked, setOwnPayLocked] = useState(false);   // your own record: another admin or HR sets your pay (Oct 20)
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const setC = (k, v) => setComp(p => ({ ...p, [k]: v }));
@@ -5426,7 +5428,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
         if (nextComp.overtimeRule === undefined || nextComp.overtimeRule === null) nextComp.overtimeRule = '';
         if (!(r.compensation || {}).fullDayHours && pr.fullDayHours) nextComp.fullDayHours = String(pr.fullDayHours);
         const nextBank = r.bank || [];
-        setComp(nextComp); setBank(nextBank); setPayroll(pr);
+        setComp(nextComp); setBank(nextBank); setPayroll(pr); setOwnPayLocked(!!r.ownPayLocked);
         baselineRef.current = { comp: nextComp, bank: nextBank };
       })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
@@ -5476,6 +5478,12 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         ) : (
           <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
+            {ownPayLocked && (
+              <div data-testid="own-pay-hint" style={{ fontSize: 12, color: 'var(--muted)', background: 'var(--bg-2, rgba(0,0,0,0.03))', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Lock size={12} /> Another administrator or HR sets your pay - you can still update your bank accounts.
+              </div>
+            )}
+            <fieldset disabled={ownPayLocked} data-testid="comp-pay-fields" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 10 }}>BASE PAY</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div><label style={FL}>BASE AMOUNT</label><input className="form-input" style={{ width: '100%' }} type="number" value={comp.base} onChange={e => setC('base', e.target.value)} placeholder="e.g. 90000" /></div>
@@ -5510,6 +5518,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                 <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Set on the person's role in Settings &gt; Access, beside the screen-share exemption.</div>
               </div>
             </div>
+            </fieldset>
 
             {comp.history?.length > 0 && (
               <div style={{ marginTop: 16 }}>
@@ -5896,6 +5905,7 @@ function PendingRoleBadge({ req, onOpen }) {
 const PHONE_FILTER = { flex: '1 1 calc(50% - 4px)', width: 'auto', minWidth: 0 };
 
 export default function HR({ activeSub, onSubChange }) {
+  const waiting = useActionCounts();   // the tab counts - `counts` below is the people tallies
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
   // E-Sign moved to its own top-level Documents module (Jul 2026); legacy
   // 'hr-esign*' deep-links are redirected there by the effect below.
@@ -6237,7 +6247,7 @@ export default function HR({ activeSub, onSubChange }) {
 
       {/* Tabs - desktop renders them centered in the top header; phones keep
           the in-page strip (ModuleTabs handles both) */}
-      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
+      <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} />
 
       {sub === 'hr-hiring' && (
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}
@@ -6399,7 +6409,7 @@ export default function HR({ activeSub, onSubChange }) {
                   {paged.map(e => {
                     const sm = STATUS_META[e.status] || STATUS_META.active;
                     return (
-                      <tr key={e.id} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}>
+                      <tr key={e.id} className={pendingRoles[e.id]?.canDecide ? 'nx-needs-you--row' : undefined} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
                             <Avatar e={e} card={false} />
@@ -6447,7 +6457,7 @@ export default function HR({ activeSub, onSubChange }) {
                       const sm = STATUS_META[e.status] || STATUS_META.active;
                       const active = selectedId === e.id;
                       return (
-                        <button key={e.id} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}
+                        <button key={e.id} className={pendingRoles[e.id]?.canDecide && !active ? 'nx-needs-you--row' : undefined} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}
                           style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none', borderBottom: '1px solid var(--line)', cursor: 'pointer', background: active ? 'var(--wk-brand-tint)' : 'none', fontFamily: 'inherit' }}>
                           <Avatar e={e} />
                           <div style={{ flex: 1, minWidth: 0 }}>

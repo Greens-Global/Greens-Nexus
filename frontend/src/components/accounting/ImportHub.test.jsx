@@ -39,20 +39,35 @@ describe('Import Hub', () => {
     expect(screen.getByRole('tab', { name: /QuickBooks Payroll to Intacct/ })).toBeTruthy();
   });
 
-  it('loads approved Nexus hours for a company and downloads the QuickBooks IIF', async () => {
+  it('loads finalized Nexus hours for a company and downloads the QuickBooks IIF', async () => {
     render(<ImportHub />);
     fireEvent.click(screen.getByRole('tab', { name: /Payroll Hours to QuickBooks/ }));
     await screen.findByRole('option', { name: 'Sample Co' });
     fireEvent.change(screen.getByRole('combobox', { name: 'Company' }), { target: { value: 'c1' } });
     fireEvent.click(screen.getByRole('button', { name: 'Load Hours' }));
     expect(within(await screen.findByRole('table', { name: 'Hours Preview' })).getByText('Pat Lane')).toBeTruthy();
-    expect(api.timeExportHours).toHaveBeenCalledWith(expect.any(String), expect.any(String), { company: 'c1', approvedOnly: true });
+    expect(api.timeExportHours).toHaveBeenCalledWith(expect.any(String), expect.any(String), { company: 'c1', finalizedOnly: true });
     expect(screen.getByText('Approved')).toBeTruthy();
+    expect(screen.queryByTestId('iif-draft-note')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Download QuickBooks IIF/ }));
     await waitFor(() => expect(saved).toEqual(['timeclock.iif']));
-    expect(api.timeExportIifFor.mock.calls[0][2]).toEqual({ company: 'c1', approvedOnly: true });
+    expect(api.timeExportIifFor.mock.calls[0][2]).toEqual({ company: 'c1', finalizedOnly: true });
     fireEvent.click(screen.getByRole('button', { name: /Download Intacct Hours Import/ }));
     expect(saved[1]).toMatch(/^Intacct Hours Import - /);
+  });
+
+  it('includes unfinalized time only when asked, as a labeled draft', async () => {
+    api.timeExportIifFor.mockClear();
+    render(<ImportHub />);
+    fireEvent.click(screen.getByRole('tab', { name: /Payroll Hours to QuickBooks/ }));
+    const box = screen.getByRole('checkbox', { name: /Finalized time sheets only/ });
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    expect(screen.getByTestId('iif-draft-note').textContent).toMatch(/Draft preview/);
+    fireEvent.click(screen.getByRole('button', { name: 'Load Hours' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Download Draft QuickBooks IIF/ }));
+    await waitFor(() => expect(api.timeExportIifFor).toHaveBeenCalled());
+    expect(api.timeExportIifFor.mock.calls[0][2]).toEqual({ company: '', finalizedOnly: false });
   });
 
   it('turns a QuickBooks payroll report into a balanced Intacct import once the pay date is in', async () => {
