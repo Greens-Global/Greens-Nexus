@@ -2190,14 +2190,42 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
                                          background_tasks))
 
 
+def _resume_on_requester_reply(db: Session, t: models.TaskTicket, user: dict) -> bool:
+    """The requester (or whoever filed it for them) answered a ticket that was
+    Waiting for User: the ball is back with the desk. In Progress when someone
+    has it, else Open - through ticket_sla.set_status, so the SLA clock
+    resumes - with the history line and the participants' "Ticket Moved"
+    bell a status change in the drawer sends. A desk agent's reply never moves
+    the status. Does not commit. True when the status moved."""
+    if (t.status or "") not in ticket_sla.WAITING_STATUSES:
+        return False
+    me = (user.get("email") or "").strip().lower()
+    if me not in {(t.requester_email or "").strip().lower(), (t.created_by_email or "").strip().lower()} - {""}:
+        return False
+    if ticket_roles.can_work_queue(user, db):
+        return False
+    ticket_sla.set_status(t, "in_progress" if (t.assignee_email or "").strip() else "open")
+    t.modified_at = now_iso()
+    label = tmpl.status_label(t.status)
+    log_activity(db, type="status_changed", actor_email=user["email"], entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail=f"changed status to {label}")
+    _notify_participants(db, t, user["email"], kind="ticket_status",
+                         title=f"Ticket Moved to {label}", body=f"{ticket_no(t.code)} · {t.subject}")
+    return True
+
+
 def post_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: str, internal: bool,
                         background_tasks: BackgroundTasks) -> models.TaskComment:
     """Everything POST /task-tickets/{id}/comments does once the caller is
     allowed to comment (_require_ticket_participant) - THE way a reply is
     posted, so one that arrives by email (ticket_inbound.py) brings the same
     bells, mentions, history, first-response stamp, email and Teams message
-    as one typed in the drawer. Commits."""
+    as one typed in the drawer - and a requester's reply to a ticket Waiting
+    for User resumes it (_resume_on_requester_reply). Commits."""
     c, internal = _record_ticket_comment(db, t, user, text or "", bool(internal))
+    if not internal:
+        _resume_on_requester_reply(db, t, user)
     db.commit()
     db.refresh(c)
     if not internal and get_notify_settings(db).get("commentsTrigger", True):
@@ -3117,7 +3145,7 @@ def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager
     # and a default department must be one of that company's.
     import ticket_inbound
     try:
-        patch = ticket_inbound.clean_settings_patch(db, patch)
+        patch = ticket_inbound.clean_settings_patch(db, patch, user)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return save_notify_settings(db, patch, user["email"])

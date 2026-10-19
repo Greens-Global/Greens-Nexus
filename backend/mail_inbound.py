@@ -223,15 +223,20 @@ def resolve_person(db, from_email: str) -> tuple[str, str]:
     """(nexus email, rejection reason). The address a reply is sent FROM is not
     always the address Nexus knows a person by: Outlook may deliver as the
     @greensg.onmicrosoft.com relay for the same human. Matched on the local
-    part, exactly as the Asana sync resolves identity, and an ambiguous local
-    part is refused rather than guessed - guessing here attributes someone's
-    words to someone else."""
+    part, exactly as the Asana sync resolves identity - but only on our own
+    domains - and an ambiguous local part is refused rather than guessed:
+    guessing here attributes someone's words to someone else."""
     addr = (from_email or "").strip().lower()
     if not addr or "@" not in addr:
         return "", "no sender address"
 
     emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == addr).first()
-    if not emp:
+    # The local-part match exists for the @greensg.onmicrosoft.com relay. On
+    # any other domain it would read neil@gmail.com as neil@greensglobal.com,
+    # so it is allowed only on our own domains (auth.INTERNAL_DOMAINS); an
+    # exact work_email or NexusRole match is unaffected.
+    import auth
+    if not emp and addr.rsplit("@", 1)[1] in auth.INTERNAL_DOMAINS:
         local = addr.split("@", 1)[0]
         matches = [e for e in db.query(models.NexusEmployee)
                    .filter(models.NexusEmployee.work_email.like(f"{local}@%")).all()

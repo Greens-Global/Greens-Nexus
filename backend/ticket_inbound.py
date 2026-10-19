@@ -134,7 +134,7 @@ def _own_mailboxes(db, cfg: dict) -> list[str]:
                         body_parse.reply_mailbox(tcfg), tcfg.get("fromMailbox") or "") if m and "@" in m]
 
 
-def clean_settings_patch(db, patch: dict) -> dict:
+def clean_settings_patch(db, patch: dict, user: dict | None = None) -> dict:
     """The inbound half of a ticket notification settings save, checked.
     Raises ValueError with the reason to show. Leaves every other key alone.
 
@@ -142,7 +142,10 @@ def clean_settings_patch(db, patch: dict) -> dict:
         drains must never read one mailbox - each would mark the other's mail
         read and file it away);
       - inboundDefaultDepartment: {companyId: departmentId}, each department
-        one of THAT company's (People > Companies > Departments)."""
+        one of THAT company's (People > Companies > Departments). Behind
+        the company wall: `user` sets or clears entries only for companies
+        their scope admits (auth.company_ok); every other company's entry is
+        kept exactly as stored, whatever the patch says about it."""
     patch = dict(patch or {})
     current = ticket_notify.get_settings(db)
     if "inboundMailbox" in patch:
@@ -163,11 +166,14 @@ def clean_settings_patch(db, patch: dict) -> dict:
         raw = patch.get("inboundDefaultDepartment") or {}
         if not isinstance(raw, dict):
             raise ValueError("Default departments must be a company-to-department map.")
+        import auth
+        scope = auth.company_scope(user, db) if user is not None else None
         stored = current.get("inboundDefaultDepartment") or {}
-        out = {}
+        # Not theirs to change: kept as stored, never taken from the patch.
+        out = {c: d for c, d in stored.items() if not auth.company_ok(c, scope)}
         for cid, did in raw.items():
             cid, did = str(cid or "").strip(), str(did or "").strip()
-            if not cid or not did:
+            if not cid or not did or not auth.company_ok(cid, scope):
                 continue
             dept = (db.query(models.HrDepartment)
                     .filter(models.HrDepartment.id == did, models.HrDepartment.company_id == cid).first())
@@ -201,16 +207,10 @@ def resolve_sender(db, from_email: str) -> tuple[str, str]:
     internal. There is no public portal (agreed): a guest or external account
     cannot email the desk, and nor can a role holder with no People record
     (their ticket would have no company)."""
-    import auth
     from routers import tickets as T
-    addr = (from_email or "").strip().lower()
-    # resolve_person also matches on the local part alone (the onmicrosoft
-    # relay). For a channel that FILES tickets, that is only allowed on our own
-    # domains: "neil@gmail.com" must never be read as neil@greensglobal.com.
-    if ("@" in addr and _employee(db, addr) is None
-            and addr.rsplit("@", 1)[1] not in auth.INTERNAL_DOMAINS):
-        return "", "sender is not a known Nexus person"
-    author, why = mail_inbound.resolve_person(db, addr)
+    # resolve_person matches on the local part only on our own domains, so
+    # "neil@gmail.com" is never read as neil@greensglobal.com.
+    author, why = mail_inbound.resolve_person(db, (from_email or "").strip().lower())
     if not author:
         return "", why
     emp = _employee(db, author)

@@ -335,21 +335,43 @@ class ReplyTests(_Base):
         self.assertEqual((r.outcome, r.matched_by, r.ticket_id, r.comment_id), ("comment", "address", t.id, c.id))
         self.assertEqual(len(self.tickets()), 1)            # never a second ticket
 
-    def test_a_requester_reply_while_waiting_behaves_as_the_api_does(self):
-        other = self.file_in_app(subject="Second")
-        for tid in (self.t["id"], other["id"]):
-            r = self.as_(ADMIN).patch(f"/task-tickets/{tid}", json={"status": "waiting_user"})
-            self.assertEqual(r.status_code, 200, r.text)
-        api = self.as_(REQ).post(f"/task-tickets/{other['id']}/comments", json={"body": "<p>Here it is</p>"})
-        self.assertEqual(api.status_code, 201, api.text)
-        self.ingest(_msg(to=[parse.reply_address(SUPPORT, self.t["id"])], body="<p>Here it is</p>"))
-        by_mail, by_api = self.ticket(self.t["id"]), self.ticket(other["id"])
-        self.assertEqual(by_mail.status, by_api.status)
-        self.assertEqual(bool(by_mail.sla_paused_at), bool(by_api.sla_paused_at))
-        self.assertEqual(bool(by_mail.first_response_at), bool(by_api.first_response_at))
-        # The API does not move a ticket out of Waiting for User when the
-        # requester replies (the desk does), so neither does an email.
-        self.assertEqual(by_mail.status, "waiting_user")
+    def _waiting(self, tid):
+        r = self.as_(ADMIN).patch(f"/task-tickets/{tid}", json={"status": "waiting_user"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(self.ticket(tid).sla_paused_at)
+
+    def test_a_requester_reply_resumes_a_waiting_ticket_in_the_app(self):
+        self._waiting(self.t["id"])
+        r = self.as_(REQ).post(f"/task-tickets/{self.t['id']}/comments", json={"body": "<p>Here it is</p>"})
+        self.assertEqual(r.status_code, 201, r.text)
+        t = self.ticket(self.t["id"])
+        self.assertEqual(t.status, "open")                  # nobody has it yet
+        self.assertEqual(t.sla_paused_at or "", "")         # the SLA clock runs again
+        self.db.expire_all()
+        lines = [a.detail for a in self.db.query(models.TaskActivity)
+                 .filter_by(entity_id=t.id, type="status_changed").all()]
+        self.assertEqual(lines[-1], "changed status to Open")
+
+    def test_a_requester_reply_by_email_resumes_an_assigned_ticket_to_in_progress(self):
+        self.as_(ADMIN).patch(f"/task-tickets/{self.t['id']}", json={"assignee_email": AGENT})
+        self._waiting(self.t["id"])
+        before = self.bells(AGENT, "ticket_status")
+        self.assertEqual(self.ingest(_msg(to=[parse.reply_address(SUPPORT, self.t["id"])],
+                                          body="<p>Here it is</p>")), "comment")
+        t = self.ticket(self.t["id"])
+        self.assertEqual(t.status, "in_progress")
+        self.assertEqual(t.sla_paused_at or "", "")
+        self.assertEqual(self.bells(AGENT, "ticket_status"), before + 1)   # the assignee hears it moved
+
+    def test_a_desk_agents_reply_never_moves_the_status(self):
+        self.as_(ADMIN).patch(f"/task-tickets/{self.t['id']}", json={"assignee_email": AGENT})
+        self._waiting(self.t["id"])
+        r = self.as_(AGENT).post(f"/task-tickets/{self.t['id']}/comments", json={"body": "<p>Any update?</p>"})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.ingest(_msg(sender=AGENT, to=[parse.reply_address(SUPPORT, self.t["id"])], body="<p>Ping</p>"))
+        t = self.ticket(self.t["id"])
+        self.assertEqual(t.status, "waiting_user")
+        self.assertTrue(t.sla_paused_at)
 
     def test_a_reply_by_subject_tag(self):
         msg = _msg(subject=f"RE: Ticket #{int(self.t['code'])} - Greens (\"Monitor flickers\") - Open",
@@ -592,6 +614,28 @@ class OutboundAndSettingsTests(_Base):
                                 json={"inboundDefaultDepartment": {"co1": "dIT"}, "autoCloseDays": 3})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["inboundDefaultDepartment"], {})
+
+    def test_default_departments_respect_the_company_wall(self):
+        """ADMIN works for co1 only once walls are on: co2's entry is kept
+        exactly as stored, whatever the save says about it."""
+        ticket_notify.save_settings(self.db, {"inboundDefaultDepartment": {"co1": "dIT", "co2": "dIT2"}}, "test")
+        self.db.add(models.NexusSetting(key="company_walls", value="on"))
+        # A populated Global Admins group: from then on an administrator's
+        # level alone no longer reaches across companies (auth.is_global_admin).
+        self.db.add(models.NexusGroup(id="ga", name="Global Admins", is_global_admin=1))
+        self.db.add(models.NexusGroupMember(group_id="ga", email="ga@greensglobal.com"))
+        self.db.commit()
+        cache.settings_config.invalidate()
+        put = lambda d: self.as_(ADMIN).put("/task-tickets/notify/settings",      # noqa: E731
+                                            json={"inboundDefaultDepartment": d})
+        r = put({"co1": ""})                                    # clears their own company's
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["inboundDefaultDepartment"], {"co2": "dIT2"})
+        r = put({"co1": "dIT", "co2": "dBogus"})                # another company's: ignored
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["inboundDefaultDepartment"], {"co1": "dIT", "co2": "dIT2"})
+        r = put({})                                             # dropping it from the payload does not clear it
+        self.assertEqual(r.json()["inboundDefaultDepartment"], {"co2": "dIT2"})
 
     def test_switching_on_needs_a_mailbox(self):
         ticket_notify.save_settings(self.db, {"inboundEnabled": False, "inboundMailbox": ""}, "test")

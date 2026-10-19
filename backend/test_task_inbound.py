@@ -311,6 +311,14 @@ class IngestTests(_MailboxCase):
         self.assertIn("not a known Nexus person", self._row().reason)
         self.assertEqual(self._comments(), [])
 
+    def test_a_colleagues_name_at_an_outside_domain_is_not_that_colleague(self):
+        """The local-part match is for the onmicrosoft relay only: on any other
+        domain it would let sagar.shoundik@gmail.com comment as Sagar."""
+        msg = self._reply_to_task(sender="sagar.shoundik@gmail.example")
+        self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "rejected")
+        self.assertIn("not a known Nexus person", self._row().reason)
+        self.assertEqual(self._comments(), [])
+
     def test_the_onmicrosoft_relay_is_the_same_person(self):
         """Outlook may deliver as the guest relay; matching only the full
         address would refuse a colleague's own reply."""
