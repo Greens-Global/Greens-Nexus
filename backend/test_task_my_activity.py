@@ -228,6 +228,45 @@ class MyActivityTests(unittest.TestCase):
         self.assertTrue(row["forYou"])
         self.assertEqual(row["preview"], "Can you check this, @Neil?")
 
+    def test_a_comment_handed_to_me_reaches_me_when_i_only_follow_or_am_not_on_it(self):
+        # Code review, Oct 19: a comment handed to a follower (or to anyone who
+        # can see the task) was dropped from Updates.
+        followed = self._task("TASK-F", assignee_emails=[OTHER], follower_emails=[ME["email"]])
+        elsewhere = self._task("TASK-X", assignee_emails=[OTHER])
+        self._act(followed, OTHER, type="comment_assigned", at=_ago(5), detail=f"assigned a comment to {ME['email']}")
+        self._act(elsewhere, OTHER, type="comment_assigned", at=_ago(8), detail=f"assigned a comment to {ME['email']}")
+        # Written to me on a task I am not on.
+        at = _ago(30)
+        self.db.add(models.TaskComment(id=gen_id(), task_id=elsewhere.id, author_email=OTHER,
+                                       body="<p>Please call the vendor</p>", assignee_email=ME["email"], created_at=at))
+        self._act(elsewhere, OTHER, type="commented", at=at, detail="added a comment")
+        # ...and its other events stay out.
+        self._act(elsewhere, OTHER, type="status_changed", at=_ago(31), detail="changed status to in_progress")
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        got = [(r["taskId"], r["relation"], [p["kind"] for p in r["parts"]], r["forYou"]) for r in rows]
+        self.assertEqual(got, [
+            (followed.id, "collaborator", ["comment_for_you"], True),
+            # The hand-off and the comment, one person within the hour: one update.
+            (elsewhere.id, "mentioned", ["comment_for_you", "commented"], True),
+        ])
+        self.assertEqual(rows[1]["preview"], "Please call the vendor")
+
+    def test_handed_to_someone_whose_address_ends_like_mine_is_not_me(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        self._act(t, OTHER, type="comment_assigned", at=_ago(5), detail="assigned a comment to oneil@greensglobal.com")
+        self.db.commit()
+        self.assertEqual(T.my_task_activity(user=ME, db=self.db), [])
+
+    def test_updates_with_nothing_to_say_do_not_use_up_the_limit(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"], "dean@greensglobal.com"])
+        for i in range(3):   # made by others, not assigned to me: nothing to tell me
+            self._act(t, f"p{i}@greensglobal.com", type="created", at=_ago(i + 1))
+        self._act(t, OTHER, type="completed", at=_ago(200))
+        self.db.commit()
+        rows = T.my_task_activity(limit=1, user=ME, db=self.db)
+        self.assertEqual([r["parts"][0]["kind"] for r in rows], ["completed"])
+
     def test_being_assigned_is_said_as_assigned_you(self):
         mine = self._task("TASK-A", assignee_emails=[ME["email"]])
         other = self._task("TASK-B", assignee_emails=[ME["email"], "dean@greensglobal.com"])

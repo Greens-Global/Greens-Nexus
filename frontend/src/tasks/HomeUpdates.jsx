@@ -95,9 +95,9 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
               const sentence = phrases.map((p) => p.text);
               return (
                 <div key={u.id} data-update-row data-for-you={u.forYou ? '' : undefined}
-                  role="button" tabIndex={0} className="nx-row-hover"
+                  role={t ? 'button' : undefined} tabIndex={t ? 0 : undefined} className={t ? 'nx-row-hover' : undefined}
                   onClick={() => open(u)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(u); } }}
+                  onKeyDown={(e) => { if (t && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(u); } }}
                   title={`${who} ${sentence.join(', ')} · ${formatDateTime(u.at)}`}
                   style={{
                     display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 8px', margin: '0 -8px', borderRadius: 8,

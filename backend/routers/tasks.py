@@ -3460,26 +3460,43 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
                 mine[t.id] = "assignee"
             elif me in email_list(t.follower_emails):
                 mine[t.id] = "collaborator"
-    # A comment that @mentions me reaches me even on a task I am not on
-    # (Neil, Oct 18 2026) - that comment only, not the task's other events.
-    mention_rows = set()
-    others = list({a.entity_id for a in rows if a.type == "commented" and a.entity_id not in mine})
+    # A comment AIMED at me reaches me even on a task I only follow or am not
+    # on at all (Neil, Oct 18 2026): one that @mentions me, one written to me,
+    # or one handed to me later - that event only, not the task's other
+    # events. Such a task's relation is "mentioned".
+    handed_to_me = f"assigned a comment to {me}"
+    # "commented" rows on tasks I am not on, by (task, author), so each comment
+    # finds its row without a walk over the whole slice.
+    by_author = {}
+    for a in rows:
+        if a.type == "commented" and a.entity_id not in mine:
+            by_author.setdefault((a.entity_id, (a.actor_email or "").lower()), []).append(a)
+    direct_rows = set()
+    for a in rows:
+        if a.type == "comment_assigned" and (a.detail or "").strip().lower() == handed_to_me \
+                and mine.get(a.entity_id) != "assignee":
+            direct_rows.add(a.id)
+            mine.setdefault(a.entity_id, "mentioned")
+    others = list({k[0] for k in by_author})
     for i in range(0, len(others), 500):
+        # SQL keeps only comments that could be aimed at me; extract_mentions
+        # then confirms a mention (the LIKE is a coarse prefilter).
         for c in (db.query(models.TaskComment.task_id, models.TaskComment.author_email,
-                           models.TaskComment.created_at, models.TaskComment.body)
+                           models.TaskComment.created_at, models.TaskComment.body,
+                           models.TaskComment.assignee_email)
                   .filter(models.TaskComment.task_id.in_(others[i:i + 500]),
-                          models.TaskComment.created_at >= since).all()):
-            if me not in extract_mentions(c.body or ""):
+                          models.TaskComment.created_at >= since,
+                          or_(func.lower(func.coalesce(models.TaskComment.assignee_email, "")) == me,
+                              models.TaskComment.body.ilike(f"%{me}%"))).all()):
+            if (c.assignee_email or "").lower() != me and me not in extract_mentions(c.body or ""):
                 continue
             w = _when(c.created_at)
-            for a in rows:
-                if (a.type == "commented" and a.entity_id == c.task_id
-                        and (a.actor_email or "").lower() == (c.author_email or "").lower()):
-                    at = _when(a.at)
-                    if w is not None and at is not None and abs((w - at).total_seconds()) <= 120:
-                        mention_rows.add(a.id)
-                        mine.setdefault(a.entity_id, "mentioned")
-    rows = [a for a in rows if a.id in mention_rows
+            for a in by_author.get((c.task_id, (c.author_email or "").lower()), []):
+                at = _when(a.at)
+                if w is not None and at is not None and abs((w - at).total_seconds()) <= 120:
+                    direct_rows.add(a.id)
+                    mine.setdefault(a.entity_id, "mentioned")
+    rows = [a for a in rows if a.id in direct_rows
             or (mine.get(a.entity_id) in ("assignee", "collaborator")
                 and (mine[a.entity_id] == "assignee" or a.type in _FOLLOWING_TYPES))]
     if not rows:
@@ -3526,8 +3543,6 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
         key = (a.entity_id, (a.actor_email or "").lower())
         g = open_groups.get(key)
         if g is None or at is None or g["_oldest"] is None or g["_oldest"] - at > _UPDATE_BURST:
-            if len(updates) >= limit:
-                continue   # a new update past the limit; later rows may still join open ones
             g = {**activity_to_dict(a), "taskId": a.entity_id, "relation": mine[a.entity_id],
                  "forYou": False, "preview": "", "_events": [], "_oldest": at}
             open_groups[key] = g
@@ -3567,7 +3582,7 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
                         g["preview"] = _plain(c.body or "")
                 add("commented")
             elif t == "comment_assigned":
-                if (a.detail or "").lower().endswith(me):
+                if (a.detail or "").strip().lower() == handed_to_me:
                     add("comment_for_you")
             elif t == "comment_resolved":
                 add("resolved")
@@ -3583,8 +3598,9 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
         g.pop("_oldest", None)
         g["parts"] = [parts[k] for k in _PART_ORDER if k in parts]
         g["forYou"] = any(k in parts for k in ("assigned_you", "mentioned_you", "comment_for_you"))
-    # An assignment of somebody else that left nothing to tell (no parts) drops.
-    return [g for g in updates if g["parts"]]
+    # An assignment of somebody else that left nothing to tell (no parts)
+    # drops - before the limit, so it never takes the place of a real update.
+    return [g for g in updates if g["parts"]][:limit]
 
 
 # What an update says first: what is asked of me, then what happened.

@@ -46,6 +46,7 @@ const duePhrase = (detail) => {
 export function updatePhrases(u, statusMeta) {
   const parts = Array.isArray(u.parts) ? u.parts : null;
   if (!parts || !parts.length) {
+    if (u.relation === 'mentioned') return [{ text: 'mentioned you', forYou: true }];
     const d = u.detail || '';
     if (/^changed status to /.test(d)) return [{ text: statusPhrase(d, statusMeta) }];
     return [{ text: d || VERBS[u.type] || 'updated this task' }];

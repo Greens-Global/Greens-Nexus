@@ -112,9 +112,12 @@ describe('the Updates card', () => {
     await flush();
     const rows = document.querySelectorAll('[data-update-row]');
     expect(rows[0].textContent).toContain('Sagar P added a comment');
-    expect(rows[0].textContent).toContain('“Permit is approved”');
+    expect(rows[0].textContent).toContain('Permit is approved');
     expect(rows[1].textContent).toContain('Sagar P mentioned you');
     expect(rows[1].textContent).toContain('Other task');
+    expect(rows[1].hasAttribute('data-for-you')).toBe(false);   // forYou comes from the server
+    // A task this screen has not loaded is not offered as a button.
+    expect(rows[1].getAttribute('role')).toBe(null);
   });
 
   it('reads once on open, and again only when a task actually changed', async () => {
