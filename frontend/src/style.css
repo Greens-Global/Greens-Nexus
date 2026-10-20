@@ -4547,6 +4547,22 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .dk-toolbar .dk-controls { gap: 6px !important; }
   .dk-toolbar .secondary-btn, .dk-toolbar .primary-btn { padding: 7px 11px; }
   .dk-toolbar select.form-input { padding-right: 26px !important; padding-left: 10px !important; }
+  /* One tidy group at the right edge (Neil, Oct 18): the view picker,
+     Customize, the clock chip and the "..." menu share one 40px height and
+     one bordered look - the picker read as a borderless box beside two
+     taller squares. Pushed right with an auto margin rather than
+     justify-content, so a row that ever overflows still scrolls from its
+     start. Customize and "..." are 40px squares. */
+  .dk-toolbar > :first-child { margin-left: auto; }
+  .dk-toolbar select.form-input, .dk-toolbar .secondary-btn, .dk-toolbar .dk-session-chip {
+    height: 40px; min-height: 40px; box-sizing: border-box;
+  }
+  .dk-toolbar select.form-input {
+    width: auto !important; max-width: 60vw !important; border: 1px solid var(--wk-line); border-radius: 8px;
+    background-color: var(--wk-card, var(--card)); box-shadow: 0 1px 2px rgba(29,33,57,.04); font-size: 13.5px !important;
+  }
+  .dk-toolbar .dk-icon-btn { width: 40px; padding: 0 !important; justify-content: center; }
+  .dk-toolbar .dk-session-chip { border-radius: 8px; }
   .dk-zones { display: none; }
   .dk-sub-local { display: inline; white-space: nowrap; }  /* "California 6:21 PM PDT" never splits */
 }
@@ -6043,6 +6059,10 @@ body:has(.docs-root) { overflow-x: clip; }
    Punch, Approve / Reject) are tiny; inside a card they get a thumb-sized
    target without changing the desktop table. */
 .pr-dcard-times button, .pr-dcard-extra button { min-height: 32px; }
+/* The punch's location dot: a square 32px target on a card (the dot itself
+   is the round span inside), pulled in by its margin so the row keeps its
+   spacing. */
+.pr-dcard-times .pr-geo-dot { width: 32px !important; height: 32px !important; min-height: 32px; margin: -6px -11px !important; }
 .pr-dcard-req button { padding-top: 6px !important; padding-bottom: 6px !important; }
 
 /* The salaried Time Sheet on a phone: the same table, each day row a card. */
@@ -6341,7 +6361,13 @@ body:has(.docs-root) { overflow-x: clip; }
   /* A new version on a phone: the message is the way into What's New, so
      its arrow square goes and Reload keeps its word at a 40px tap height. */
   .feature-banner.is-update .feature-banner-cta.is-quiet { display: none; }
-  .feature-banner-reload { height: 40px; padding: 0 12px 0 10px; }
+  /* Reload is also a .feature-banner-cta, so it inherited the arrow
+     square's fixed 40px width and its word was cut off (Neil, Oct 18):
+     it sizes to its icon and word instead. */
+  .feature-banner-reload { width: auto; height: 40px; padding: 0 12px 0 10px; gap: 5px; }
+  /* Reload carries the refresh icon itself, so the leading one goes and the
+     message keeps its last category on two lines. */
+  .feature-banner.is-update .feature-banner-icon { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .feature-banner, .feature-banner.is-closing, .feature-banner-row, .feature-banner-icon, .feature-banner-spin { animation: none; }

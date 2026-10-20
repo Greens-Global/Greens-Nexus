@@ -84,7 +84,10 @@ export function useDisplayTz() {
 /** h:mm[:ss] am/pm for a stored UTC punch (no 'Z' suffix), in the current zone. */
 export function formatTimeTz(iso, { seconds = false } = {}) {
   if (!iso) return '';
-  return new Date(iso + 'Z').toLocaleTimeString('en-US', {
+  // Stored punch times are naive UTC; one that already carries a zone
+  // ("...+00:00" / "...Z") must not get a second one ("Invalid Date").
+  const zoned = /(Z|[+-]\d{2}:?\d{2})$/.test(iso);
+  return new Date(zoned ? iso : iso + 'Z').toLocaleTimeString('en-US', {
     hour: 'numeric', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}),
     hour12: true, timeZone: _current.tz,
   }).replace(' ', '').toLowerCase();

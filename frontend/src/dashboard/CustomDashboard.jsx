@@ -299,7 +299,7 @@ export default function CustomDashboard() {
             ) : isPhone ? (
               // Icon only on a phone (Neil, Sep 28) - the word crowded the
               // toolbar row; the label stays for screen readers and long-press.
-              <button className="secondary-btn" style={{ ...btn, padding: '7px 10px' }} onClick={() => d.setEditing(true)} title="Customize" aria-label="Customize"><SlidersHorizontal size={16} /></button>
+              <button className="secondary-btn dk-icon-btn" style={{ ...btn, padding: '7px 10px' }} onClick={() => d.setEditing(true)} title="Customize" aria-label="Customize"><SlidersHorizontal size={16} /></button>
             ) : (
               <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
             )}
@@ -314,7 +314,7 @@ export default function CustomDashboard() {
         // with the chip (Pranshu, Sep 15 2nd follow-up).
         const viewMenu = (
           <>
-            <button ref={menuBtn} className="secondary-btn" style={{ ...btn, padding: '6px 9px', flexShrink: 0 }} onClick={() => setMenu(m => !m)} title="View options" aria-label="View options" aria-haspopup="menu" aria-expanded={menu}><MoreHorizontal size={15} /></button>
+            <button ref={menuBtn} className="secondary-btn dk-icon-btn" style={{ ...btn, padding: '6px 9px', flexShrink: 0 }} onClick={() => setMenu(m => !m)} title="View options" aria-label="View options" aria-haspopup="menu" aria-expanded={menu}><MoreHorizontal size={15} /></button>
             {/* Portaled: on a phone the toolbar is a horizontal scroller, which
                 clipped the old in-place menu at its bottom edge. */}
             <AnchoredMenu anchorRef={menuBtn} open={menu} onClose={() => setMenu(false)} align="end" minWidth={220}
