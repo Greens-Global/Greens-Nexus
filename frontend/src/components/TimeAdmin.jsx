@@ -477,18 +477,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   const totalMin = (rows || []).reduce((a, r) => a + r.workedMin, 0);
   const pendingCount = timeoff.filter(r => r.status === 'pending').length;
   const decidableCount = timeoff.filter(r => r.status === 'pending' && r.canDecide !== false).length;
-  // Timesheets submitted to me and not decided yet - reported by the
-  // TimesheetsToReview list itself so the tile and the list never disagree.
-  // (The old "Approved x/y" tile counted per-day sign-offs that no screen
-  // creates any more - approval moved to submit / agree / Nexus Sign - over
-  // EVERY person in scope, salaried and no-punch people included, so it sat
-  // at 0/59 forever.)
-  const [reviewWaiting, setReviewWaiting] = useState(null);
-  const reviewRef = useRef(null);
-  // The header strip collapses to one line; the choice is remembered per browser.
-  const STRIP_KEY = 'nexus.timeadmin.strip';
-  const [stripOpen, setStripOpen] = useState(() => { try { return localStorage.getItem(STRIP_KEY) !== 'collapsed'; } catch { return true; } });
-  const toggleStrip = () => setStripOpen(o => { const next = !o; try { localStorage.setItem(STRIP_KEY, next ? 'open' : 'collapsed'); } catch { /* private window */ } return next; });
   // Time Off status chips (Charmi, Oct 20): opens on Pending - the requests
   // that still need a decision - and remembers each viewer's last chip.
   const timeoffFilterKey = `nexus.timeadmin.timeoffFilter.${(myEmail || '').toLowerCase()}`;
@@ -500,11 +488,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   };
   const [timeoffSort, setTimeoffSort] = useState(null);   // null = server order (newest first)
   const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
-  function openReviewList() {
-    const el = reviewRef.current;
-    if (reviewWaiting && el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    else setView('payroll');
-  }
 
   // Unsaved-changes guards for the edit/on-behalf/add-punch modals: an
   // overlay click, X, or Escape used to silently discard an in-progress
@@ -527,68 +510,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)' }}>
-      {/* Header strip (Charmi, Sep 30): only Team Hours and Timesheets to Review.
-          The Punch Exceptions and Time Off Pending tiles went - the Missing
-          punches / Time off tabs below already carry those counts as badges,
-          and "screen real estate really matters". The strip collapses to one
-          32px line (remembered per browser) so the lists get the screen. */}
-      {(() => {
-        const tiles = [
-          { key: 'hours', label: 'Team Hours', value: rows === null ? '…' : fmtMin(totalMin), sub: rangeText,
-            cls: 'card-blue', active: view === 'hours',
-            title: `Worked hours of everyone on your team, ${rangeText}, after breaks - click to see them by person and by day`,
-            go: () => setView('hours') },
-          { key: 'review', label: 'Time Sheets to Review', value: reviewWaiting == null ? '-' : String(reviewWaiting),
-            sub: 'Waiting on your review', cls: reviewWaiting ? 'card-orange' : '', active: false,
-            title: reviewWaiting ? 'Time sheets waiting on your review and approval (submitted or not) - click to jump to the list'
-              : 'Nothing is waiting on you - click to open the Payroll time sheets',
-            go: openReviewList },
-        ];
-        const chevron = (
-          <button type="button" onClick={toggleStrip} aria-expanded={stripOpen}
-            title={stripOpen ? 'Collapse the summary strip' : 'Expand the summary strip'}
-            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, border: '1px solid var(--wk-line2)', borderRadius: 8, background: 'var(--card)', cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }}>
-            <ChevronDown size={15} style={{ transform: stripOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
-          </button>
-        );
-        if (!stripOpen) {
-          return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, height: 32, marginBottom: 12, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-              {tiles.map(t => (
-                <button key={t.key} type="button" onClick={t.go} title={t.title}
-                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {t.label} <strong style={{ color: t.cls === 'card-orange' ? '#b45309' : 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{t.value}</strong>
-                </button>
-              ))}
-              <div style={{ flex: 1 }} />
-              {chevron}
-            </div>
-          );
-        }
-        return (
-          <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, marginBottom: 16 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, flex: 1, maxWidth: 520 }}>
-              {tiles.map(t => (
-                <button key={t.key} type="button" className={`kpi-card ${t.cls}`} onClick={t.go} title={t.title}
-                  aria-pressed={t.active || undefined}
-                  style={{ padding: '10px 14px', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit', width: '100%',
-                    border: t.active ? '1.5px solid var(--wk-brand)' : 'none' }}>
-                  <div className="kpi-label">{t.label}</div>
-                  <div className="kpi-value" style={{ fontSize: 20, margin: '2px 0 0' }}>{t.value}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.sub}</div>
-                </button>
-              ))}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'flex-start', paddingTop: 2 }}>{chevron}</div>
-          </div>
-        );
-      })()}
-
+      {/* No summary tiles on top (Neil, Oct 20: "unnecessary clutter, the
+          information is already there") - the Team Hours and Time Sheets to
+          Review tiles went; the list below carries its own count. */}
       {/* Timesheets submitted to me and not decided yet (Sep 29). */}
-      <div ref={reviewRef} style={{ scrollMarginTop: 80 }}>
-        <TimesheetsToReview toastOk={toastOk} toastErr={toastErr} onCount={setReviewWaiting}
-          onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
-      </div>
+      <TimesheetsToReview toastOk={toastOk} toastErr={toastErr}
+        onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
 
       {/* Monitoring alerts live on Workforce Analytics now (Charmi, Sep 25: the
           block listing every person took half this screen). One line stays
@@ -621,8 +548,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         })}
       </div>
 
-      {/* Range picker - shared by Team Hours and the Action Log's missing punches (both scan a range) */}
-      {(view === 'insights' || view === 'hours' || view === 'actions') && (
+      {/* Range picker - shared by Insights and the Action Log's missing punches (both scan a range) */}
+      {(view === 'insights' || view === 'actions') && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
           const r = weekRange(off);
@@ -753,8 +680,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           <TimeInsights start={start} end={end} people={(rows || []).map(r => ({ email: r.email, name: r.name }))} />
         </div>
       )}
-      {/* 'hours' = the Team Hours tile's destination (no tab of its own). */}
-      {(view === 'insights' || view === 'hours') && (rows === null
+      {view === 'insights' && (rows === null
         ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         : (() => {
           const sorted = rows.filter(r => r.workedMin > 0).sort((a, b) => b.workedMin - a.workedMin);

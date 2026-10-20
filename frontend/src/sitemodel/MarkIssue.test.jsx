@@ -21,7 +21,7 @@ vi.mock('./siteModelViewer.js', async () => {
 });
 
 import { SiteModelPanel } from './SiteModelPanel.jsx';
-import { finishStroke } from './siteModelMarkup.js';
+import { finishStroke, isClosed } from './siteModelMarkup.js';
 import { placeFor, spotFromMark } from './markSpot.js';
 import { requestMapFocus, shapeWord } from './mapFocus.js';
 
@@ -49,17 +49,18 @@ describe('Mark an Issue on the map', () => {
     const onMarkIssue = vi.fn();
     render(<SiteModelPanel model={model} mode="owner" images={{}} modelId="greens-storage-escondido" onMarkIssue={onMarkIssue} />);
     fireEvent.click(screen.getByRole('button', { name: /Mark an Issue/ }));
-    expect(screen.getByText(/drag to circle it/)).toBeTruthy();
+    expect(screen.getByText(/Draw on the map like a pen/)).toBeTruthy();   // the pen is the default tool
+    expect(last().marking.at(-1)).toBe('pen');
+    fireEvent.change(screen.getByLabelText('Marking Tool'), { target: { value: 'circle' } });
     expect(last().marking.at(-1)).toBe('circle');
-    fireEvent.click(screen.getByRole('button', { name: 'Outline' }));
-    expect(last().marking.at(-1)).toBe('free');
+    expect(screen.getByText(/Drag across the spot to circle it/)).toBeTruthy();
     act(() => { last().opts.onMark({ u: 5, v: 8, y: 0, r: 4, outline: [], unit: '', building: '' }); });
     expect(onMarkIssue).toHaveBeenCalledTimes(1);
     const [spot, snap] = onMarkIssue.mock.calls[0];
     expect(snap).toBe('data:image/jpeg;base64,AA==');
     expect(spot).toMatchObject({ modelId: 'greens-storage-escondido', u: 5, v: 8, r: 4, place: 'Near C001, Building C', ticketUnit: 'Common Area' });
     expect(spot.lat).toBeCloseTo(33.171, 2);
-    expect(screen.queryByText(/drag to circle it/)).toBeNull();   // marking ends with the mark
+    expect(screen.queryByLabelText('Marking Tool')).toBeNull();   // marking ends with the mark
   });
 
   it('Esc cancels marking and clears the drawn shape', () => {
@@ -67,7 +68,7 @@ describe('Mark an Issue on the map', () => {
     fireEvent.click(screen.getByRole('button', { name: /Mark an Issue/ }));
     const before = last().cleared;
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect(screen.queryByText(/drag to circle it/)).toBeNull();
+    expect(screen.queryByLabelText('Marking Tool')).toBeNull();
     expect(last().cleared).toBeGreaterThan(before);
     expect(last().marking.at(-1)).toBe(null);
   });
@@ -104,15 +105,20 @@ describe('mark helpers', () => {
   it('turns a stroke into a point, a circle or an outline', () => {
     const s = { u: 0, v: 0 };
     expect(finishStroke(s, [[0, 0], [0.3, 0.2]], 'circle')).toEqual({ u: 0, v: 0, r: 0, outline: [] });
-    expect(finishStroke(s, [[0, 0], [3, 4]], 'circle').r).toBe(5);
-    const ring = Array.from({ length: 500 }, (_, i) => [10 * Math.cos(i / 80), 10 * Math.sin(i / 80)]);
-    const o = finishStroke(s, ring, 'free');
+    // Circle: the press and the cursor are the ends of the diameter, so its edge stays under the cursor.
+    expect(finishStroke(s, [[0, 0], [6, 8]], 'circle')).toEqual({ u: 3, v: 4, r: 5, outline: [] });
+    // Pen: every point kept (thinned to 200), closed when the ends meet, open otherwise.
+    const ring = Array.from({ length: 500 }, (_, i) => [10 * Math.cos(i / 79.4), 10 * Math.sin(i / 79.4)]);
+    const o = finishStroke(s, ring, 'pen');
     expect(o.outline.length).toBeLessThanOrEqual(200);
     expect(o.r).toBeGreaterThan(9);
+    expect(isClosed(o.outline)).toBe(true);
+    expect(isClosed([[0, 0], [5, 0], [10, 0], [15, 0]])).toBe(false);
+    expect(finishStroke(s, [[0, 0], [0.2, 0], [0.3, 0.1]], 'pen').r).toBe(0);   // a dab is a pin
   });
   it('spotFromMark carries the unit it was marked on', () => {
     expect(spotFromMark(model, 'm', { u: 11, v: 3, unit: 'C214', building: 'C' })).toMatchObject({ unit: 'C214', ticketUnit: 'C214', building: 'C' });
     expect(shapeWord({ r: 0 })).toBe('Pin');
-    expect(shapeWord({ outline: [[0, 0], [1, 0], [1, 1]] })).toBe('Outline');
+    expect(shapeWord({ outline: [[0, 0], [1, 0], [1, 1]] })).toBe('Drawn with the pen');
   });
 });

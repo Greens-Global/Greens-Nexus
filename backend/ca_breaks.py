@@ -45,6 +45,7 @@ from __future__ import annotations
 import io
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -157,6 +158,21 @@ def in_scope(db: Session, email: str, rate_row=None, rule: str | None = None, em
 def is_ca(db: Session, email: str) -> bool:
     em = (email or "").strip().lower()
     return bool(em) and in_scope(db, em)
+
+
+def reminder_scope(db: Session, email: str, rate_row=None, emp=_UNSET) -> bool:
+    """Who gets the 4.5-hour meal reminder (meal_watch.py, Oct 20 2026):
+    in_scope's California rule, salaried (fixed pay) staff included - Neil:
+    "CA employees salary/hourly with time tracking enabled". Only the
+    reminder widens; detection, premiums and pay keep in_scope (hourly).
+    The caller drops people exempt from time tracking."""
+    if rate_row is None:
+        return False
+    if (getattr(rate_row, "pay_type", None) or "hourly") not in ("hourly", "fixed"):
+        return False
+    shim = SimpleNamespace(pay_type="hourly", currency=getattr(rate_row, "currency", None),
+                           overtime_rule=getattr(rate_row, "overtime_rule", None))
+    return in_scope(db, email, rate_row=shim, emp=emp)
 
 
 # ── Meal detection (pure) ─────────────────────────────────────────────────

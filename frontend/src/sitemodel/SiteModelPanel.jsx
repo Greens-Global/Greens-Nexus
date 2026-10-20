@@ -51,7 +51,7 @@
 //
 // Mark an Issue on the Map (Charmi, Oct 20 2026) - staff screens only, all off
 // unless given: `onMarkIssue(spot, snapshot)` puts a Mark an Issue button on
-// the map; a click pins a spot, a drag circles it (or draws an outline), and
+// the map; the pen draws around the spot (or a circle, or a pin - one dropdown), and
 // the screen opens its ticket form with the spot (markSpot.spotFromMark) and a
 // picture of the map. `markResetKey` changing clears the drawn mark (the form
 // closed). `spots` are the open tickets marked on this map (badge + circle;
@@ -178,7 +178,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   const canPhoto = PHOTOREAL_KEY && mode === 'owner' && !photoFailed;
   const look = lookPref === 'photoreal' && !canPhoto ? 'satellite' : lookPref;
   const [touched, setTouched] = useState(false);
-  // Mark an Issue: null, or the shape being drawn ('circle' | 'free'); the spot under the pointer.
+  // Mark an Issue: null, or the tool in hand ('pen' | 'circle' | 'pin'); the spot under the pointer.
   const [marking, setMarking] = useState(null); const [spotHover, setSpotHover] = useState(null);
   const markRef = useRef(null); const openSpotRef = useRef(null);
   const [focusPick, setFocus] = useState(null); const [kpiOpenFor, setKpiOpenFor] = useState(null);
@@ -411,7 +411,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             <div role="status" style={{ position: 'absolute', left: 10, top: fill ? undefined : 10, bottom: fill ? 10 : undefined, fontSize: 12, background: 'rgba(255,255,255,0.9)', padding: '3px 8px', borderRadius: 6, color: '#5f6358' }}>Flat plan - the 3D view is not available on this device.</div>
           </div>}
           {!noGl && <div className="sm-cambar" role="group" aria-label="Map Controls" style={{ position: 'absolute', left: 10, bottom: 10, right: fill ? 10 : undefined, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 3 }}>
-            {owner && onMarkIssue && <MarkIssueButton on={!!marking} onClick={() => { setPlacing(false); if (marking) viewerRef.current?.clearMark?.(); setMarking(marking ? null : 'circle'); }} />}
+            {owner && onMarkIssue && <MarkIssueButton on={!!marking} onClick={() => { setPlacing(false); if (marking) viewerRef.current?.clearMark?.(); setMarking(marking ? null : 'pen'); }} />}
             <button type="button" style={btn} onClick={() => { viewerRef.current?.resetView?.(); setLevel(0); }} title="Back to the whole site">Reset View</button>
             {[['overview', 'Overview'], ['plan', 'Plan'], ['gate', 'From Gate']].map(([k, l]) => <button key={k} type="button" style={btn} onClick={() => viewerRef.current?.view(k)}>{l}</button>)}
             <span style={pill} role="group" aria-label="View">

@@ -159,7 +159,11 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # employee gets one "Still on Break?" bell after this many
              # minutes on an open break, their manager one rollup at twice
              # that; 0 = off.
-             "breakNudgeMin": 60}
+             "breakNudgeMin": 60,
+             # California meal reminder (Charmi + Neil, Oct 20 2026,
+             # meal_watch.py): one bell once the day's work reaches this many
+             # minutes with no 30-minute meal yet; 270 = 4.5 hours, 0 = off.
+             "mealReminderMin": 270}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
@@ -167,7 +171,8 @@ _INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftE
                  "ruleMinRestHours": (0, 24), "ruleMaxDaysInRow": (0, 14), "ruleDailyOtHours": (0, 24),
                  "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100),
                  "otAlertDailyLeadMin": (0, 240), "otAlertWeeklyLeadMin": (0, 480),
-                 "timesheetEscalateDays": (0, 30), "breakNudgeMin": (0, 240)}
+                 "timesheetEscalateDays": (0, 30), "breakNudgeMin": (0, 240),
+                 "mealReminderMin": (0, 295)}
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers", "release": "releaseShifts"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -368,6 +373,7 @@ class SettingsIn(BaseModel):
     timesheetEscalateDays: Optional[int] = None # 0-30; days after a pay period before an unapproved sheet escalates; 0 = off
     locationTrailOn: Optional[bool] = None      # web location trail while clocked in (Oct 20; off by default)
     breakNudgeMin: Optional[int] = None         # 0-240; minutes on an open break before "Still on Break?"; manager at 2x; 0 = off
+    mealReminderMin: Optional[int] = None       # 0-295; minutes of work before the California meal reminder; 0 = off
 
 
 @router.get("/settings")

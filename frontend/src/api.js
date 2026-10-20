@@ -2485,6 +2485,9 @@ export const api = {
   approvalDelegationRevoke:    (id)   => req(`/approval-delegations/${encodeURIComponent(id)}/revoke`, { method: 'POST' }),
   approvalDelegationsAll:      (includePast = false) => req(`/approval-delegations${includePast ? '?include_past=true' : ''}`),
   approvalDelegationCreateFor: (data) => req('/approval-delegations', { method: 'POST', body: JSON.stringify(data) }),
+  // Oct 20: who may cover (up or across only) + the delegator's upcoming
+  // approved time off - the only days a delegation may cover. HR passes whose.
+  approvalDelegationOptions:   (delegatorEmail = '') => req(`/approval-delegations/options${delegatorEmail ? `?delegator_email=${encodeURIComponent(delegatorEmail)}` : ''}`),
   // CA meal and rest breaks (Oct 17): the employee's Yes / No before signing,
   // the manager's premium lines, HR's meal waiver (backend/ca_breaks.py).
   timesheetBreakClaim:   (rid, data) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-claim`, { method: 'POST', body: JSON.stringify(data) }),

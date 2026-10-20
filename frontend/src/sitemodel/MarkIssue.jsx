@@ -19,20 +19,28 @@ export function MarkIssueButton({ on, onClick }) {
   );
 }
 
+// The three tools (Visesh, Oct 20: a dropdown, the pen first - "a chalkout should be just like a pen draw").
+export const MARK_TOOLS = [
+  ['pen', 'Pen', 'Draw on the map like a pen', 'Draw with one finger'],
+  ['circle', 'Circle', 'Drag across the spot to circle it', 'Drag one finger across the spot'],
+  ['pin', 'Pin', 'Click the spot to drop a pin', 'Tap the spot to drop a pin'],
+];
+
 export function MarkIssueBanner({ shape, onShape, onCancel, top = 10 }) {
-  const seg = (k, l) => (
-    <button key={k} type="button" aria-pressed={shape === k} onClick={() => onShape(k)}
-      style={{ ...btn, padding: '4px 10px', border: 0, borderRadius: 0, background: shape === k ? AMBER : '#fff', color: shape === k ? '#fff' : '#1d1f1a' }}>{l}</button>
-  );
+  const t = MARK_TOOLS.find((x) => x[0] === shape) || MARK_TOOLS[0];
   return (
     <div role="status" className="sm-mark-banner" style={{ position: 'absolute', top, left: '50%', transform: 'translateX(-50%)', zIndex: 5, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'center',
-      maxWidth: 'calc(100% - 20px)', boxSizing: 'border-box', padding: '7px 8px 7px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.97)', border: `1px solid ${AMBER}`, boxShadow: '0 6px 18px rgba(0,0,0,.14)', font: `400 13px ${FONT}`, color: '#1d1f1a' }}>
+      maxWidth: 'calc(100% - 20px)', boxSizing: 'border-box', padding: '6px 8px 6px 10px', borderRadius: 12, background: 'rgba(255,255,255,0.97)', border: '1px solid #d9d6cc', boxShadow: '0 6px 18px rgba(0,0,0,.14)', font: `400 13px ${FONT}`, color: '#1d1f1a' }}>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+        Tool
+        <select aria-label="Marking Tool" value={t[0]} onChange={(e) => onShape(e.target.value)}
+          style={{ font: `500 13px ${FONT}`, padding: '4px 8px', borderRadius: 8, border: '1px solid #d9d6cc', background: '#fff', color: '#1d1f1a', cursor: 'pointer' }}>
+          {MARK_TOOLS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+      </label>
       <span>
-        <span className="sm-hint-mouse">{shape === 'free' ? 'Drag to draw around the spot' : 'Click the spot, or drag to circle it'} · Esc to cancel</span>
-        <span className="sm-hint-touch">{shape === 'free' ? 'Draw around the spot with one finger' : 'Tap the spot, or drag one finger to circle it'} · two fingers move the map</span>
-      </span>
-      <span role="group" aria-label="Shape" style={{ display: 'inline-flex', border: '1px solid #d9d6cc', borderRadius: 8, overflow: 'hidden' }}>
-        {seg('circle', 'Circle')}{seg('free', 'Outline')}
+        <span className="sm-hint-mouse">{t[2]} · Esc to cancel</span>
+        <span className="sm-hint-touch">{t[3]} · two fingers move the map</span>
       </span>
       <button type="button" onClick={onCancel} style={{ ...btn, padding: '4px 10px', border: '1px solid #d9d6cc', background: '#fff', color: '#1d1f1a' }}>Cancel</button>
     </div>

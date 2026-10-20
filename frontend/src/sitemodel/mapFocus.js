@@ -24,9 +24,9 @@ export function takeMapFocus(modelId) {
   const s = pending; pending = null; return s;
 }
 
-/** "Circle, about 40 ft across" / "Outline" / "Pin". */
+/** "Circle, about 40 ft across" / "Drawn with the pen" / "Pin". */
 export function shapeWord(spot) {
-  if (spot?.outline?.length > 2) return 'Outline';
+  if (spot?.outline?.length > 2) return 'Drawn with the pen';
   if (spot?.r > 0) return `Circle, about ${Math.max(1, Math.round(spot.r * 2 * 3.281))} ft across`;
   return 'Pin';
 }

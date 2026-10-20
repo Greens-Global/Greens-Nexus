@@ -4,6 +4,7 @@
 import { uvToLatLng } from './siteModelDirections.js';
 
 const NEAR_M = 18;   // a ground mark this close to a unit is "Near <unit>"
+const UNIT_MARK_M = 6;   // a drawn mark this small, centered on a unit, names that unit
 
 const buildingName = (model, id) => {
   const b = (model.buildings || []).find((x) => x.id === id) || (model.zones || []).find((x) => x.id === id);
@@ -35,8 +36,21 @@ export function placeFor(model, mark) {
   return 'On the site';
 }
 
-/** The mark as the ticket's map_spot (what POST /task-tickets checks), plus what the form shows. */
-export function spotFromMark(model, modelId, mark) {
+/** The unit whose footprint holds (u, v), or null. */
+export function unitAt(model, u, v) {
+  return (model.units || []).find((x) => !x.gone && x.wu != null && u >= x.u && u <= x.u + x.wu && v >= x.v && v <= x.v + x.dv) || null;
+}
+
+/** The mark as the ticket's map_spot (what POST /task-tickets checks), plus what the form shows.
+ *  A drawn mark (pen or circle) is named by its CENTER - the unit it sits on when it
+ *  is small, else "Near <unit>" - never by the unit the stroke happened to start on. */
+export function spotFromMark(model, modelId, drawn) {
+  let mark = drawn;
+  if (drawn.r > 0) {
+    // A small mark on one unit is that unit's; a bigger one covers several, so it is "Near" its middle one.
+    const at = drawn.r <= UNIT_MARK_M ? unitAt(model, drawn.u, drawn.v) : null;
+    mark = { ...drawn, unit: at ? at.n : '', building: at ? at.b : '' };
+  }
   const ll = uvToLatLng(model, [mark.u, mark.v]);
   const near = !mark.unit && !mark.building ? nearestUnit(model, mark.u, mark.v) : null;
   return {

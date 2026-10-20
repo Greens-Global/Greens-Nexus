@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ChevronLeft, ChevronRight, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
-import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone } from '../lib/displayTz';
+import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
 import { dialog } from '../ui/dialog';
 import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
@@ -71,8 +71,10 @@ const typeOfCategory = (c) => /\bsick\b/i.test(c || '') ? 'Sick'
   : /\b(vacation|pto|paid time off|annual leave)\b/i.test(c || '') ? 'Vacation'
   : /\bpersonal\b/i.test(c || '') ? 'Personal' : 'Regular';
 
-// California / India toggle for punch-time display. Default California to line up
-// 1:1 with SwipeClock (its site clock is Pacific); flip to India for local time.
+// California / India toggle for punch-time display. A card opens in the
+// employee's zone - California for US staff (1:1 with SwipeClock, whose site
+// clock is Pacific), India for India-based staff (Oct 20) - and the viewer's
+// own flip is remembered (lib/displayTz.js useEmployeeZone).
 function TzSwitch() {
   const cur = useDisplayTz();
   return (
@@ -525,6 +527,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // you mean (Oct 13). After useDisplayTz, so its listener hears the switch.
   // The zone is the EMPLOYEE's (data.zoneKey), not the viewer's browser (Oct 18).
   useOwnZone(self, data?.zoneKey || '');
+  // Someone else's card opens in THEIR zone: India time for India-based staff,
+  // California for US staff - unless this viewer flipped it before (Oct 20).
+  useEmployeeZone(!self, data?.zoneKey || '');
   // A phone gets the day cards instead of the 12-column table (Oct 14) - the
   // table scrolled sideways and hid Hours, OT, Notes and the Work Log.
   const phone = useIsMobile(PHONE_QUERY);

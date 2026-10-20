@@ -46,8 +46,8 @@ const hm = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStar
 const ROLE_WORD = { manager: 'as the manager', hr: 'for HR', employee: 'as the employee' };
 
 // `onCount` (optional) hears how many are waiting (to review plus to sign) -
-// null when the list could not be loaded - so the People > Time "To Review"
-// tile and the Workday Time Sheet tab show the same number.
+// null when the list could not be loaded - for the Workday Time Sheet tab's
+// count.
 export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount }) {
   const [rows, setRows] = useState([]);
   const [toSign, setToSign] = useState([]);

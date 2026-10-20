@@ -10118,6 +10118,7 @@ def payroll_timecard(email: str, start: str, end: str,
         card["review"] = _review_state(db, em, card["periodStart"], user, team=True)
         # The Notes column is on the monthly card too (Sep 29).
         card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
+        card["zoneKey"] = _employee_zone_key(db, em)   # India staff open in India time (Oct 20)
         return _no_pay(db, user, card)
     card = _compute_timecard(db, em, start, end)
     if em == (user.get("email") or "").lower():
@@ -10127,6 +10128,10 @@ def payroll_timecard(email: str, start: str, end: str,
     card.update(_signoff_state(db, em, start, end))
     card["review"] = _review_state(db, em, start, user, team=True)
     card["notes"] = _timecard_notes(db, em, start, end)
+    # The zone the card opens in for this employee (Visesh, Oct 20 2026):
+    # India-based staff read in India time, US staff in California time,
+    # unless the viewer picked the other one (lib/displayTz.js).
+    card["zoneKey"] = _employee_zone_key(db, em)
     return _no_pay(db, user, card)
 
 

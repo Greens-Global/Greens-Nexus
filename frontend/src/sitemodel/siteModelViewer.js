@@ -962,6 +962,13 @@ export function createSiteModelViewer(container, model, options = {}) {
     if (e.pointerType === 'touch') return;
     const now = performance.now(); if (now - lastHoverAt < 40) return; lastHoverAt = now;   // ~25 raycasts/s is plenty
     const r = el.getBoundingClientRect();
+    // Marking: nothing under the pen lights up (Visesh, Oct 20 - a unit looked selected while drawing).
+    if (markup.active()) {
+      el.style.cursor = 'crosshair';
+      if (hovered) { hovered = null; showHover(null); if (opts.onHover) opts.onHover(null); }
+      if (hoveredSpot) { hoveredSpot = null; if (opts.onHoverSpot) opts.onHoverSpot(null); }
+      return;
+    }
     // An open ticket's spot first: its badge draws over everything.
     const sp = spotAt(e);
     if (sp !== hoveredSpot) { hoveredSpot = sp; if (opts.onHoverSpot) opts.onHoverSpot(sp, { x: e.clientX - r.left, y: e.clientY - r.top }); }
@@ -1053,7 +1060,7 @@ export function createSiteModelViewer(container, model, options = {}) {
       if (sky) sky.position.copy(camera.position);
       if (photoreal) { photoreal.update(now); if (photo) { sampleSurface(now); placeMarkers(); } if (now - lastCredit > 1000) { lastCredit = now; const c = photoreal.attribution(); if (c !== credit) { credit = c; if (opts.onAttribution) opts.onAttribution(c); } } }
     }
-    renderer.render(scene, camera); }
+    renderer.render(scene, camera); markup.paint(); }
   let lastCredit = 0; let credit = '';
 
   // The real surface under every marker and label, from Google's mesh: rays
@@ -1104,7 +1111,11 @@ export function createSiteModelViewer(container, model, options = {}) {
     setPlacing(v) { state.placing = !!v; el.style.cursor = v ? 'crosshair' : ''; },
     setBackground(c) { scene.background = new THREE.Color(c); },
     // Mark an Issue: 'circle' | 'free' turns marking on, null off; the open tickets' spots; fly to one.
-    setMarking(shape) { markup.setShape(shape); el.style.cursor = shape ? 'crosshair' : ''; },
+    setMarking(shape) {
+      markup.setShape(shape); el.style.cursor = shape ? 'crosshair' : '';
+      // A chosen unit's raised orange block would read as part of the mark: let it go.
+      if (shape && state.selected) { state.selected = null; restyle(); if (opts.onSelectUnit) opts.onSelectUnit(null); }
+    },
     clearMark() { markup.clearDraft(); },
     setSpots(list) { markup.setSpots(list); },
     focusSpot(s) { if (!s) return; idle = false; flyTo(W(s.u, s.v, s.y || 0), ctrl.theta, 0.95, Math.max(60, (s.r || 0) * 8)); },
@@ -1114,7 +1125,8 @@ export function createSiteModelViewer(container, model, options = {}) {
         renderer.render(scene, camera);
         const k = Math.min(1, maxW / (el.width || 1)); const cv = document.createElement('canvas');
         cv.width = Math.round(el.width * k); cv.height = Math.round(el.height * k);
-        cv.getContext('2d').drawImage(el, 0, 0, cv.width, cv.height);
+        markup.paint(); const x = cv.getContext('2d');
+        x.drawImage(el, 0, 0, cv.width, cv.height); x.drawImage(markup.ink, 0, 0, cv.width, cv.height);   // the ink on top
         return cv.toDataURL('image/jpeg', 0.82);
       } catch { return ''; }
     },
@@ -1132,7 +1144,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     /** Top-down (2D) and back to the usual 3D angle. */
     toggleTilt() { idle = false; const flat = ctrl.phi > 1.3; flyTo(ctrl.target.clone(), ctrl.theta, flat ? (illus ? 0.72 : real ? 0.62 : 0.9) : 1.45, ctrl.radius, 500); return !flat; },
     destroy() {
-      alive = false; cancelAnimationFrame(raf); if (ro) ro.disconnect(); else window.removeEventListener('resize', resize);
+      alive = false; cancelAnimationFrame(raf); markup.dispose(); if (ro) ro.disconnect(); else window.removeEventListener('resize', resize);
       el.removeEventListener('pointerdown', onDown); el.removeEventListener('pointermove', onMove); el.removeEventListener('pointerup', onUp); el.removeEventListener('pointercancel', onUp); el.removeEventListener('wheel', onWheel); el.removeEventListener('contextmenu', onCtx);
       labelCache.forEach((sp) => disposeObject(sp)); labelCache.clear(); if (diorama) diorama.dispose(); if (ground) ground.dispose(); if (photoreal) photoreal.dispose(); edgeGeo.dispose(); if (pinGeo) pinGeo.dispose(); scene.traverse((o) => { if (o !== scene) disposeObject(o); }); scene.clear();
       // dispose() alone keeps the WebGL context: every look switch builds a new renderer, and
