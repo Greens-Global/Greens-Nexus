@@ -1556,7 +1556,7 @@ export const DOCS = [
           'For a flagged one, click Review, fix the hours and decide any open punch fixes - approval waits until none are pending.',
           'Click Review & Approve, or write what needs changing and click Send Back.',
           'The employee is asked to sign. Their signature finalizes the period, and the signed copy files to their Egnyte folder under Timesheets.',
-          'The signed copy reads like the Time Sheet screen: every day and shift with its breaks, the weekly totals, pay rate and wages, and the hours and wage summary - then the employee\'s signature, the approval log and the Nexus Sign certificate. Notes written by a manager or HR are left off, since the employee signs it.',
+          'The signed copy reads like the Time Sheet screen. Page 1 is the whole time sheet - name, company, employee code, department, period and pay rate, then every day and shift with its breaks, the weekly totals, pay rate and wages, and the hours and wage summary - fitted onto one page however many punches there are. Page 2 is the employee\'s attestation (plus the meal and rest break statement for California staff, hourly and salaried), their signature and date, and the Approval History: every step with who and when, ending with the employee\'s signature, which finalizes it. Then the Nexus Sign certificate. Notes written by a manager or HR are left off, since the employee signs it.',
           'HR only: for someone who left, or who has not signed 3 days after approval, open their time sheet and use Employee Not Signing? > Finalize Without Employee Signature, with a reason.',
         ],
       },

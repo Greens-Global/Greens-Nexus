@@ -576,9 +576,23 @@ class ReviewNitTests(CaCase):
         pdf, _ = tsr.build_pdf(self.db, self._r())
         text = " ".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(pdf)).pages)
         text = " ".join(text.split())
-        self.assertIn("By signing, I confirm that in this pay period I was provided every meal", text)
+        self.assertIn("By signing, I confirm I received all of my meal and rest periods in this pay period", text)
         self.assertIn("A missed meal or rest break is reported instead of signing", text)
         self.assertNotIn("Before signing, the employee is asked", text)
+
+
+class SalariedStatementScope(unittest.TestCase):
+    def test_only_the_signing_statement_reaches_salaried_californians(self):
+        """Charmi, Oct 20: California staff who track time sign the meal and rest
+        statement, salaried too. Meal detection, premiums and California Review
+        stay hourly (no `salaried` flag)."""
+        from types import SimpleNamespace as NS
+        fixed = NS(pay_type="fixed", currency="USD", overtime_rule="ca")
+        self.assertFalse(ca_breaks.is_ca_rate(fixed))
+        self.assertTrue(ca_breaks.is_ca_rate(fixed, salaried=True))
+        self.assertFalse(ca_breaks.is_ca_rate(NS(pay_type="fixed", currency="INR", overtime_rule="ca"), salaried=True))
+        self.assertFalse(ca_breaks.is_ca_rate(NS(pay_type="fixed", currency="USD", overtime_rule="federal"), salaried=True))
+        self.assertTrue(ca_breaks.is_ca_rate(NS(pay_type="hourly", currency="USD", overtime_rule="ca"), salaried=True))
 
 
 class ClaimGuards(CaCase):

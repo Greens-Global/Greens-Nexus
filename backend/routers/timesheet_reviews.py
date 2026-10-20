@@ -265,7 +265,8 @@ def employee_sign(rid: str, request: Request, user: dict = Depends(get_current_u
 
 
 # ── CA meal and rest breaks at signing (Neil, Oct 17-18 2026) ────────────────
-# CA-rule hourly staff only (timesheet_review.needs_break_attestation); anyone
+# CA-rule staff who track time, hourly and salaried (Charmi, Oct 20 -
+# timesheet_review.needs_break_attestation); anyone
 # else gets a 409 and their signing is unchanged. Signing itself confirms the
 # meal and rest break statement - there is no separate Yes endpoint.
 
