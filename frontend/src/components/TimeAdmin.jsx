@@ -30,6 +30,8 @@ import PayrollReadiness from './PayrollReadiness';
 import { ForChip } from './DelegateApprovals';
 import CaReview from './CaReview';
 import LiveCrewMap from './LiveCrewMap';
+import LongShiftWarning from './LongShiftWarning';
+import { checkLongShift } from '../lib/longShift';
 
 // Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
 // review and signed in Nexus Sign, so the per-day / per-period Approve
@@ -293,6 +295,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     loadPunchReqs();
     return pollWhileVisible(loadPunchReqs, 60000);
   }, [loadPunchReqs]);
+  // The Type an approver picked for a requested clock-in ({id: 'Sick'}) - sent on approve.
+  const [reqType, setReqType] = useState({});
   // Bulk approve / reject of the selected requests (one note for all rejects).
   async function decideMany(ids, status) {
     if (!ids.length) return;
@@ -324,7 +328,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       const r = byId.get(id);
       if (r && r.status && r.status !== 'pending') { ok += 1; continue; }   // partner already applied by an earlier approval
       try {
-        const res = await api.timeDecidePunchRequest(id, { status, note });
+        const res = await api.timeDecidePunchRequest(id, { status, note, ...(status === 'approved' && reqType[id] ? { category: reqType[id] } : {}) });
         if (res && res.status && res.status !== status) dupes += 1;   // already on the timecard - closed as a duplicate
         else ok += 1;
       } catch (e) {
@@ -351,7 +355,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     // and the refresh run behind it; a failure brings the row back.
     dropPunchReqs([id]);
     try {
-      const res = await api.timeDecidePunchRequest(id, { status, note });
+      const res = await api.timeDecidePunchRequest(id, { status, note, ...(status === 'approved' && reqType[id] ? { category: reqType[id] } : {}) });
       if (res && res.status && res.status !== status) toastOk('That punch is already on the time sheet - closed as a duplicate.');
       // Approving can also set aside a punch the fix replaces - say which (Oct 7).
       else toastOk(status === 'approved' && /Replaced|Also added/.test(res?.decisionNote || '') ? `Approved. ${res.decisionNote}` : `Request ${status}.`);
@@ -444,8 +448,26 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     } catch (e) { toastErr(e?.message || 'Export failed.'); }
   }
 
-  async function saveEdit() {
-    if (busy) return; setBusy(true);
+  // AM / PM guard (Charmi, Oct 21): the person's other punches in this range,
+  // on their clock, to judge a typed time against (lib/longShift.js).
+  const [longWarn, setLongWarn] = useState(null);   // { form: 'edit' | 'add', issue }
+  useEffect(() => { setLongWarn(null); }, [edit?.id, addFor, addP.kind]);
+  const othersOf = (email, skipId) => {
+    const r = (rows || []).find(x => x.email === email);
+    if (!r) return [];
+    return Object.values(r.days || {}).flatMap(d => d.punches || [])
+      .filter(p => !p.voided && p.id !== skipId)
+      .map(p => ({ kind: p.kind, at: utcToInput(p.at, r.timeZone) }));
+  };
+
+  async function saveEdit(opts) {
+    if (busy) return;
+    if (opts?.confirmLong !== true && edit.atInput && !edit.voided) {
+      const issue = checkLongShift(othersOf(edit.email, edit.id), edit.kind, edit.atInput);
+      if (issue) { setLongWarn({ form: 'edit', issue }); return; }
+    }
+    setLongWarn(null);
+    setBusy(true);
     try {
       await api.timeAdjustPunch(edit.id, {
         at: edit.atInput ? zonedInputToUtc(edit.atInput, edit.timeZone) || undefined : undefined,
@@ -457,9 +479,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     setBusy(false);
   }
 
-  async function saveAdd() {
+  async function saveAdd(opts) {
     if (busy) return;
     if (!addP.at) { toastErr('Pick the punch time.'); return; }
+    if (opts?.confirmLong !== true) {
+      const issue = checkLongShift(othersOf(addFor, ''), addP.kind, addP.at);
+      if (issue) { setLongWarn({ form: 'add', issue }); return; }
+    }
+    setLongWarn(null);
     setBusy(true);
     try {
       // Typed on the employee's clock; the offset is their zone's on that
@@ -808,7 +835,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         };
         const verb = (r) => {
           const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
-          return r.action === 'add' ? `Add a ${kindLabel}` : 'Remove a punch';
+          return r.action === 'add' ? `Add a ${kindLabel}${r.category ? ` as ${r.category}` : ''}` : 'Remove a punch';
         };
         const cb = (checked, onChange, label) => (
           <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} aria-label={label}
@@ -905,6 +932,15 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                         <Plus size={12} /> Add Time
                       </button>
                     )}
+                    {ids.length > 1 && (
+                      // Each day is approved on its own now (Charmi, Oct 21) - this
+                      // still takes every request from this person in one click.
+                      <button className="secondary-btn" disabled={bulkBusy} onClick={() => decideMany(ids, 'approved')}
+                        title={`Approve every request from ${g.name}`}
+                        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <CheckCircle size={12} /> Approve All ({g.rows.length})
+                      </button>
+                    )}
                     {g.email && (
                       <button className="secondary-btn" onClick={() => openTimecard(g.email, '', '')}
                         style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -932,6 +968,16 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                         )}
                         {r.reason && <span style={{ fontSize: 12, color: 'var(--muted)' }}>"{r.reason}"</span>}
                       </div>
+                      {r.action === 'add' && r.punchKind === 'in' && (
+                        // The approver sets the Type here (Oct 21: "Please use sick time"
+                        // in a note left a Personal block paid as Personal).
+                        <select className="form-input" aria-label="Type" value={reqType[r.id] ?? (r.category || 'Regular')}
+                          onChange={e => setReqType(m => ({ ...m, [r.id]: e.target.value }))}
+                          style={{ fontSize: 12, width: 'auto', padding: '4px 8px' }}>
+                          {['Regular', 'Sick', 'Vacation', 'Personal'].concat(r.category && !['Sick', 'Vacation', 'Personal'].includes(r.category) ? [r.category] : [])
+                            .map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      )}
                       <button className="secondary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'rejected')}
                         style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject</button>
                       <button className="primary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'approved')}
@@ -1202,7 +1248,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
               )}
               <div><label style={FL}>Time{zoneTag(edit.timeZone) ? ` (${zoneTag(edit.timeZone)}, the employee's clock)` : ''}</label>
                 <input className="form-input" type="datetime-local" value={edit.atInput}
-                  onChange={e => setEdit(x => ({ ...x, atInput: e.target.value }))} style={{ width: '100%' }} /></div>
+                  onChange={e => { setLongWarn(null); setEdit(x => ({ ...x, atInput: e.target.value })); }} style={{ width: '100%' }} /></div>
               <div><label style={FL}>Punch note</label>
                 <input className="form-input" value={edit.note || ''} onChange={e => setEdit(x => ({ ...x, note: e.target.value }))} style={{ width: '100%' }} /></div>
               <div><label style={FL}>Reason for adjustment</label>
@@ -1213,6 +1259,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   style={{ width: 15, height: 15, accentColor: '#b91c1c' }} />
                 <Ban size={13} style={{ color: '#b91c1c' }} /> Void this punch (kept on record, excluded from totals)
               </label>
+              <LongShiftWarning issue={longWarn?.form === 'edit' ? longWarn.issue : null} manager busy={busy}
+                onFix={() => setLongWarn(null)}
+                onUseSuggestion={(w) => { setLongWarn(null); setEdit(x => ({ ...x, atInput: w.suggest })); }}
+                onConfirm={() => saveEdit({ confirmLong: true })} />
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setEdit(null)}>Cancel</button>
@@ -1301,10 +1351,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                 </select></div>
               <div><label style={FL}>{(() => { const t = zoneTag((rows || []).find(x => x.email === addFor)?.timeZone); return t ? `Time (${t}, the employee's clock)` : 'Time'; })()}</label>
-                <input className="form-input" type="datetime-local" value={addP.at} onChange={e => setAddP(p => ({ ...p, at: e.target.value }))} style={{ width: '100%' }} /></div>
+                <input className="form-input" type="datetime-local" value={addP.at} onChange={e => { setLongWarn(null); setAddP(p => ({ ...p, at: e.target.value })); }} style={{ width: '100%' }} /></div>
               <div><label style={FL}>Note</label>
                 <input className="form-input" placeholder="e.g. forgot to punch out" value={addP.note}
                   onChange={e => setAddP(p => ({ ...p, note: e.target.value }))} style={{ width: '100%' }} /></div>
+              <LongShiftWarning issue={longWarn?.form === 'add' ? longWarn.issue : null} manager busy={busy}
+                onFix={() => setLongWarn(null)}
+                onUseSuggestion={(w) => { setLongWarn(null); setAddP(p => ({ ...p, at: w.suggest })); }}
+                onConfirm={() => saveAdd({ confirmLong: true })} />
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setAddFor(null)}>Cancel</button>

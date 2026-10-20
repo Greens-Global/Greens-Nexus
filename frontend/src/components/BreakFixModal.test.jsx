@@ -19,6 +19,7 @@ const confirm = vi.fn();
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirm(...a), prompt: vi.fn() } }));
 
 const { BreakFixModal } = await import('./PayrollTimecard');
+const { utcToInputTz } = await import('../lib/displayTz');
 
 const day = { date: '2026-08-05', breaks: [{ start: '2026-08-05T09:00:00', end: '2026-08-05T19:25:00', min: 625, implicit: true }] };
 
@@ -128,6 +129,41 @@ describe('BreakFixModal', () => {
     fireEvent.click(screen.getByText('Send Request'));
     await waitFor(() => expect(timePunchRequestCreate).toHaveBeenCalledWith(expect.objectContaining({ action: 'add', punch_kind: 'break_end' })));
     expect(timeAddPunch).not.toHaveBeenCalled();
+  });
+});
+
+describe('BreakFixModal - AM / PM guard (Charmi, Oct 21)', () => {
+  // A break typed 12 hours after the shift's clock-in: a PM / AM slip.
+  const shiftDay = { date: '2026-08-05', breaks: [], shift: { in: '2026-08-05T15:00:00' } };
+  const plus = (v, min) => {
+    const d = new Date(`${v}:00Z`); d.setUTCMinutes(d.getUTCMinutes() + min);
+    return d.toISOString().slice(0, 16);
+  };
+  function typeLate() {
+    render(<BreakFixModal day={shiftDay} email="aarav@x.com" self={false} busy={false} setBusy={() => {}}
+      onDone={() => {}} onClose={() => {}} toastOk={() => {}} toastErr={() => {}} />);
+    const input = document.querySelector('input[type="datetime-local"]');
+    const shiftIn = utcToInputTz('2026-08-05T15:00:00');
+    fireEvent.change(input, { target: { value: plus(shiftIn, 12 * 60 + 30) } });
+    fireEvent.click(screen.getByText('Confirmed with the employee'));
+    fireEvent.click(screen.getByText('Save Break'));
+    return { input, shiftIn };
+  }
+
+  it('warns before saving and offers the AM / PM flip', async () => {
+    const { input, shiftIn } = typeLate();
+    expect(screen.getByTestId('long-shift-warning').textContent).toMatch(/12 hr 30 min long.*Did you mean .*Check AM \/ PM/);
+    expect(timeAddPunch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText(/^Use /));
+    expect(input.value).toBe(plus(shiftIn, 30));
+    fireEvent.click(screen.getByText('Save Break'));
+    await waitFor(() => expect(timeAddPunch).toHaveBeenCalledTimes(1));
+  });
+
+  it('lets a manager save a long one anyway', async () => {
+    typeLate();
+    fireEvent.click(screen.getByText('Save Anyway'));
+    await waitFor(() => expect(timeAddPunch).toHaveBeenCalledTimes(1));
   });
 });
 

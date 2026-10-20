@@ -27,6 +27,8 @@ import { usePhotoMap } from '../lib/peoplePhotos';
 import { moneyPrefix } from '../asset/lib/currency';
 import { registerTour } from '../lib/tours';
 import { confirmExportReadiness } from '../lib/payrollReadiness';
+import { checkLongShift, checkTypedPunches } from '../lib/longShift';
+import LongShiftWarning from './LongShiftWarning';
 
 // Launch (Neil, 10/16): the only sign-off is review + Nexus Sign, so the HR
 // "Finalize Without Signatures" override is hidden. Flip to true to show it.
@@ -943,14 +945,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       : `Break ${breakLen(b.min)} (${t12(b.start)} - ${t12(b.end)})${b.paidMin > 0 ? ` - ${breakLen(b.paidMin)} paid` : ''}`;
     if (noEdit) return txt;
     return (
-      <button type="button" onClick={() => setBreakFix({ date: r.ds, breaks: r.base?.breaks || [] })}
+      <button type="button" onClick={() => setBreakFix({ date: r.ds, breaks: r.base?.breaks || [], shift: r.base })}
         title={self ? 'Ask your approver to fix or remove this break' : 'Fix the start or end of this break, or delete it'}
         style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
         {txt}
       </button>
     );
   };
-  const editRow = (r) => isBreakRow(r) ? setBreakFix({ date: r.ds, breaks: r.base?.breaks || [] }) : setEditDay({ date: r.ds, seg: r.base || r.seg });
+  const editRow = (r) => isBreakRow(r) ? setBreakFix({ date: r.ds, breaks: r.base?.breaks || [], shift: r.base }) : setEditDay({ date: r.ds, seg: r.base || r.seg });
 
   // ── A day's pieces, drawn by BOTH the desktop table and the phone day cards
   //    (Oct 14) - one copy of each, so the two can never disagree about what a
@@ -2278,6 +2280,8 @@ const punchHistory = (meta, rounded) => !meta ? '' : [
 function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, locateEmail, onLocate }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState('');
+  const [warn, setWarn] = useState(null);   // the AM / PM warning for the typed time
+  const inputRef = useRef(null);
   const punchId = k === 'in' ? seg?.inId : seg?.outId;   // always available (for approve/reject)
   const id = (locked ? '' : punchId);                    // editable id (blank when locked)
   const raw = k === 'in' ? seg?.in : seg?.out;
@@ -2288,32 +2292,47 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
   const adjustNote = k === 'in' ? seg?.inAdjustNote : seg?.outAdjustNote;   // why this punch was changed
   if (!raw) return <span style={{ color: 'var(--muted)' }}>-</span>;
 
-  async function commit(atUtc) {
+  async function commit(atUtc, confirmLong = false) {
     if (self) {
       // Employee edit: goes to the approver, and does NOT change pay until approved.
+      // A confirmed long shift needs the reason (the server refuses it without one).
       const reason = await dialog.prompt('', {
-        title: `Change your ${k === 'in' ? 'clock-in' : 'clock-out'} time`,
-        message: 'This is sent to your approver. Your pay is unchanged until they approve it.',
-        placeholder: 'Reason (optional)', confirmText: 'Send for approval',
+        title: `Change Your ${k === 'in' ? 'Clock-In' : 'Clock-Out'} Time`,
+        message: confirmLong ? 'Say why the shift is this long - your approver reads it. Your pay is unchanged until they approve it.'
+          : 'This is sent to your approver. Your pay is unchanged until they approve it.',
+        placeholder: confirmLong ? 'Reason (required)' : 'Reason (optional)', confirmText: 'Send for Approval', required: confirmLong,
       });
       if (reason === null) return;   // cancelled
-      try { await api.timePunchEditCreate({ punch_id: id, at: atUtc, reason: reason || '' }); onSaved?.(); }
+      try { await api.timePunchEditCreate({ punch_id: id, at: atUtc, reason: reason || '', ...(confirmLong ? { confirm_long: true } : {}) }); onSaved?.(); }
       catch (err) { toastErr?.(err?.message || 'Could not send the edit.'); }
     } else {
       try { await api.timeAdjustPunch(id, { at: atUtc }); onSaved?.(); }
       catch (err) { toastErr?.(err?.message || 'Could not save the time.'); }
     }
   }
+  // AM / PM guard (Charmi, Oct 21): the other end of this shift, to judge the typed time against.
+  const otherEnd = k === 'in' ? (seg?.out && { kind: 'out', at: utcToInput(seg.out) }) : (seg?.in && { kind: 'in', at: utcToInput(seg.in) });
+  const finish = (v, confirmLong = false) => { setWarn(null); setEditing(false); return commit(inputToUtc(v), confirmLong); };
 
   if (editing) return (
-    <input autoFocus type="datetime-local" className="form-input" value={val}
-      onChange={e => setVal(e.target.value)}
-      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(''); setEditing(false); } }}
-      onBlur={async () => {
-        const orig = utcToInput(raw); setEditing(false);
-        if (val && val !== orig) await commit(inputToUtc(val));
-      }}
-      style={{ fontSize: 12, padding: '2px 4px', width: 172 }} />
+    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+      <input ref={inputRef} autoFocus type="datetime-local" className="form-input" value={val}
+        onChange={e => { setVal(e.target.value); setWarn(null); }}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(''); setWarn(null); setEditing(false); } }}
+        onBlur={async () => {
+          const orig = utcToInput(raw);
+          if (!val || val === orig) { setWarn(null); setEditing(false); return; }
+          if (warn) return;   // the warning's buttons decide
+          const issue = checkLongShift(otherEnd ? [otherEnd] : [], k, val);
+          if (issue) { setWarn(issue); return; }
+          await finish(val);
+        }}
+        style={{ fontSize: 12, padding: '2px 4px', width: 172 }} />
+      <LongShiftWarning issue={warn} manager={!self} compact
+        onFix={() => { setWarn(null); inputRef.current?.focus(); }}
+        onUseSuggestion={(w) => { setVal(w.suggest); finish(w.suggest); }}
+        onConfirm={() => finish(val, true)} />
+    </span>
   );
   // Each punch is judged on its own: the In dot is the in punch, the Out dot the out punch.
   const geo = (k === 'out' ? seg.geoOut : seg.geo) || '';
@@ -2450,9 +2469,23 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
     setBusy(false);
   }
 
-  async function save() {
+  // AM / PM guard (Charmi, Oct 21): a break time more than 11 hours from the
+  // shift's clock-in (12:30 AM for 12:30 PM) is shown before it saves.
+  const [longWarn, setLongWarn] = useState(null);
+  useEffect(() => { setLongWarn(null); }, [at, endAt, kind]);
+  const shiftPunches = [day.shift?.in && { kind: 'in', at: utcToInput(day.shift.in) },
+    day.shift?.out && { kind: 'out', at: utcToInput(day.shift.out) }].filter(Boolean);
+
+  async function save(opts) {
     if (!reason.trim()) { toastErr?.(self ? 'Add a reason so your approver can confirm it.' : 'Add a reason - it is kept on record.'); return; }
     if (isDelete) { await removeBreak(); return; }
+    const confirmLong = opts?.confirmLong === true;
+    if (!confirmLong) {
+      const issue = checkTypedPunches(shiftPunches, kind === 'both'
+        ? [{ kind: 'break_start', at }, { kind: 'break_end', at: endAt }] : [{ kind, at }]);
+      if (issue) { setLongWarn(issue); return; }
+    }
+    setLongWarn(null);
     if (kind === 'both') {
       if (new Date(endAt) <= new Date(at)) { toastErr?.('The break end has to be after the break started.'); return; }
       setBusy(true);
@@ -2474,7 +2507,8 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
     setBusy(true);
     try {
       if (self) {
-        await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim() });
+        await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim(),
+          ...(confirmLong ? { confirm_long: true } : {}) });
         toastOk?.('Request sent to your approver - it shows on your time sheet as Not Yet Approved until they decide.');
       } else {
         await api.timeAddPunch({ employee_email: email, kind, at: inputToUtc(at), tz_offset_min: tzFor(at), note: reason.trim() });
@@ -2560,6 +2594,10 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
             )}
           </label>
         </div>
+        <LongShiftWarning issue={longWarn} manager={!self} busy={busy}
+          onFix={() => setLongWarn(null)}
+          onUseSuggestion={(w) => { if (kind === 'both' && w.index === 1) setEndAt(w.suggest); else setAt(w.suggest); }}
+          onConfirm={() => save({ confirmLong: true })} />
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={busy}
@@ -2602,9 +2640,20 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   // employee on a day they ask to add time to (Pranshu, Oct 13).
   const canAddBreak = !seg;
   const showType = self ? !seg : !!(seg?.inId || needIn);
+  // AM / PM guard (Charmi, Oct 21): a pair longer than 11 hours is shown
+  // in the form before anything saves. Any time change clears it.
+  const [longWarn, setLongWarn] = useState(null);
+  useEffect(() => { setLongWarn(null); }, [inAt, outAt, type]);
 
-  async function save() {
+  async function save(opts) {
     setErr('');
+    const confirmLong = opts?.confirmLong === true;
+    if (!isBreak && !confirmLong) {
+      const issue = checkTypedPunches([], [{ kind: 'in', at: inAt }, { kind: 'out', at: outAt }]);
+      if (issue) { setLongWarn(issue); return; }
+    }
+    if (confirmLong && self && !reason.trim()) { fail('Say why the shift is this long in the reason - your approver reads it.'); return; }
+    setLongWarn(null);
     // A clock-out must be after the clock-in it pairs with. With the out now
     // defaulting to the in-time, leaving it unchanged trips this - forcing the real
     // time in - and it also catches a time accidentally typed into the reason field.
@@ -2673,7 +2722,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
         if (needIn) adds.push(['in', inAt]);
         if (needOut) adds.push(['out', outAt]);
         await sendRequests(adds.map(([kind, at]) => ({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim(),
-          category: kind === 'in' && LEAVE_TYPES.includes(type) ? type : '' })));
+          category: kind === 'in' && LEAVE_TYPES.includes(type) ? type : '', ...(confirmLong ? { confirm_long: true } : {}) })));
         toastOk?.('Request sent to your approver - it shows on your time sheet as Not Yet Approved until they decide.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));   // refresh the request stack
         onDone();
@@ -2803,6 +2852,10 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
             {err}
           </div>
         )}
+        <LongShiftWarning issue={longWarn} manager={!self} busy={busy}
+          onFix={() => setLongWarn(null)}
+          onUseSuggestion={(w) => { if (w.index === 0) setInAt(w.suggest); else setOutAt(w.suggest); }}
+          onConfirm={() => save({ confirmLong: true })} />
         <div style={{ display: 'flex', gap: 12, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           {!self && seg?.inId && <button onClick={removeIn} disabled={busy} style={{ background: 'none', border: 'none', padding: 0, color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Delete In-Punch</button>}
           {!self && seg?.outId && <button onClick={removeOut} disabled={busy} style={{ background: 'none', border: 'none', padding: 0, color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Delete Out-Punch</button>}

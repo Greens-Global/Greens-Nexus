@@ -231,7 +231,9 @@ def fingerprint(db: Session, email: str, start: str, end: str) -> str:
 # signature vouches for.
 _SIGNED_KEYS = {
     "hourly": (("regMin", "Regular"), ("otMin", "Overtime"), ("dtMin", "Double Time"), ("sickMin", "Sick"),
-               ("vacationMin", "Vacation"), ("workedMin", "Total Worked"),
+               # Personal time (Charmi, Oct 21: Amy's 8 h of Personal was in no
+               # frozen total) - its own pay class like Sick / Vacation.
+               ("vacationMin", "Vacation"), ("personalMin", "Personal"), ("workedMin", "Total Worked"),
                ("mealPremiumMin", "Meal Premium"), ("restPremiumMin", "Rest Premium")),
     "fixed": (("workedMin", "Worked"), ("missedFullDays", "Missed Full Days"),
               ("missedHalfDays", "Missed Half Days"), ("weekendDaysWorked", "Weekend Days Worked")),
@@ -260,6 +262,10 @@ def totals_drift(sent: dict, now: dict) -> list:
         return out
     labels = dict(_SIGNED_KEYS["fixed" if now.get("payType") == "fixed" else "hourly"])
     for k, label in labels.items():
+        # A key added after this round was frozen (personalMin, Oct 21) is not
+        # a change - its hours were already inside the frozen Total Worked.
+        if k not in (sent.get("totals") or {}):
+            continue
         a, b = int((sent.get("totals") or {}).get(k, 0)), int((now.get("totals") or {}).get(k, 0))
         if a != b:
             fmt = _hm if k.endswith("Min") else str
