@@ -71,7 +71,8 @@ describe("What's New publishing", () => {
   it('Manage is a button with the waiting count; Back returns to the tabs', async () => {
     render(<Changelog />);
     const manage = await screen.findByRole('button', { name: 'Manage' });
-    expect(manage.textContent).toBe('Manage2');
+    // The waiting count arrives after the button (its own request) - wait for it.
+    await waitFor(() => expect(manage.textContent).toBe('Manage2'));
     fireEvent.click(manage);
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
     expect(await screen.findByText('People Reached')).toBeTruthy();
