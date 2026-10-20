@@ -5,7 +5,8 @@ every ~5 minutes while the person is clocked in, only when their company has
 `locationTrailOn` (Shifts settings, OFF by default). Pings are ignored when the
 switch is off, on a break, off the clock, after a phone-app consent
 revocation, or too soon after the last one. Managers read their team's live
-positions and day trails; employees read their own.
+positions and day trails; employees read none, their own included (Neil,
+Oct 21 2026: Workforce Analytics only).
 
 Run with: python -m pytest test_location_trail.py -q
 """
@@ -219,17 +220,14 @@ class LocationTrail(unittest.TestCase):
                                      lat="33.5", lng="-117.1", source="web"))
         self.db.commit()
 
-    def test_employee_reads_own_trail_not_anothers(self):
+    def test_employee_reads_no_trail_not_even_their_own(self):
         self._seed_trail(EMP)
         self._seed_trail(OTHER)
-        r = self.client.get(f"/timeclock/location-trail/day?date={self._today()}")
-        self.assertEqual(r.status_code, 200, r.text)
-        d = r.json()
-        self.assertEqual(d["email"], EMP)
-        self.assertEqual(len(d["points"]), 1)
-        self.assertEqual([p["kind"] for p in d["punches"]], ["in"])
-        r = self.client.get(f"/timeclock/location-trail/day?email={OTHER}&date={self._today()}")
-        self.assertEqual(r.status_code, 403)
+        for url in (f"/timeclock/location-trail/day?date={self._today()}",
+                    f"/timeclock/location-trail/day?email={EMP}&date={self._today()}",
+                    f"/timeclock/location-trail/day?email={OTHER}&date={self._today()}",
+                    "/timeclock/location-trail/live"):
+            self.assertEqual(self.client.get(url).status_code, 401, url)      # require_tracking_read
 
     def test_manager_reads_own_team_only(self):
         self._seed_trail(EMP)
@@ -237,7 +235,9 @@ class LocationTrail(unittest.TestCase):
         self._as(MGR)
         r = self.client.get(f"/timeclock/location-trail/day?email={EMP}&date={self._today()}")
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(len(r.json()["points"]), 1)
+        d = r.json()
+        self.assertEqual((d["email"], len(d["points"])), (EMP, 1))
+        self.assertEqual([p["kind"] for p in d["punches"]], ["in"])
         r = self.client.get(f"/timeclock/location-trail/day?email={OTHER}&date={self._today()}")
         self.assertEqual(r.status_code, 403, r.text)
         live = self.client.get("/timeclock/location-trail/live").json()["crew"]
@@ -264,6 +264,7 @@ class LocationTrail(unittest.TestCase):
         self.assertEqual(self.client.get("/timeclock/location-trail/live").json()["crew"], [])
 
     def test_day_needs_a_date(self):
+        self._as(MGR)
         self.assertEqual(self.client.get("/timeclock/location-trail/day?date=10/20/2026").status_code, 400)
 
 

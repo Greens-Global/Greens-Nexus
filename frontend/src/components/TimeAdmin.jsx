@@ -29,7 +29,6 @@ import { useRole } from '../contexts/RoleContext';
 import PayrollReadiness from './PayrollReadiness';
 import { ForChip } from './DelegateApprovals';
 import CaReview from './CaReview';
-import LiveCrewMap from './LiveCrewMap';
 import LongShiftWarning from './LongShiftWarning';
 import { checkLongShift } from '../lib/longShift';
 
@@ -555,9 +554,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
         {[['payroll', 'Payroll', Banknote],
           ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking, true],
-          ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0],
-          // Location Trail While Clocked In (Oct 20): live team positions and a day's trail.
-          ['trail', 'Location Trail', MapPin]].map(([key, label, Icon, badge, waiting]) => {
+          ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0]].map(([key, label, Icon, badge, waiting]) => {
           const on = view === key;
           return (
             <button key={key} onClick={() => setView(key)}
@@ -1017,10 +1014,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       })()}
 
       {/* Time-off register - requests table, pending rows carry the decisions */}
-      {view === 'trail' && (
-        <LiveCrewMap toastErr={toastErr} people={(rows || []).map(r => ({ email: r.email, name: r.name }))} />
-      )}
-
       {view === 'timeoff' && (
         <>
         {(() => {

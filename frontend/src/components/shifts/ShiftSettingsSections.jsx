@@ -284,7 +284,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
               </div>
               {/* Location Trail While Clocked In (Oct 20 2026, routers/location_trail.py). */}
               <label style={{ ...CHECK, marginTop: 10 }}><input type="checkbox" checked={cfg.locationTrailOn === true} onChange={(e) => save({ locationTrailOn: e.target.checked })} /> Location Trail While Clocked In</label>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. When on, Nexus shares each person's location about every 5 minutes while they are clocked in, paused on breaks and stopped at clock out, and only when their browser already allows location. The Time Clock page tells them it is on. Managers see live positions and each day's trail in People - Time - Location Trail. A browser cannot share while the phone screen is locked or Nexus is closed, so the trail has gaps then. Points are kept for 90 days.</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. When on, Nexus shares each person's location about every 5 minutes while they are clocked in, paused on breaks and stopped at clock out, and only when their browser already allows location. Only managers see live positions and each day's trail, in Workforce Analytics - Location Trail; employees never see a trail, their own included. Tell staff about it in your own policy. A browser cannot share while the phone screen is locked or Nexus is closed, so the trail has gaps then. Points are kept for 90 days.</div>
             </div>
             <div>
               <div style={LBL}>Rules</div>
