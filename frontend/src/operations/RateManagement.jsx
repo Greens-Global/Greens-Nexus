@@ -2,16 +2,18 @@
 //
 // Every unit type we rent (a Cubby pricing group), what it is Set at and Sells
 // for, what the competitors charge, the rule's suggestion and a Proposed rate
-// a person types. Proposals are saved as drafts (who and when) until a manager
-// opens Review & Push and sends them to Cubby, one unit type at a time with a
-// result per row. Nothing is ever pushed automatically.
+// a person types. Proposals are saved as drafts (who and when) until someone
+// opens Review Changes, enters the new rates in Cubby BY HAND (from the screen
+// or the printable checklist) and marks them Entered in Cubby here, which
+// records who and when and clears the draft. Nexus never writes to Cubby
+// (Visesh, Oct 20 2026) - do not add a push.
 //
 // The numbers come from GET /facility-ops/rates, which runs the same
 // ops_market.compare the old Market Rates table used, against the Sell rate.
 // The competitor set and manual entry are the existing Market screen, opened
 // from "Comp Set & Manual Entry".
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, History, RefreshCw, Send, Users } from 'lucide-react';
+import { Check, Download, History, RefreshCw, Users } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { Modal } from '../tasks/components';
@@ -32,6 +34,13 @@ const toCents = (s) => {
 const toInput = (c) => (c == null ? '' : String(c / 100));
 
 const GREEN = '#14532d';
+const NO_PUSH_NOTE = "Nexus doesn't change rates in Cubby. Enter them in Cubby, then mark them entered here.";
+// Rate history results. "ok" / "failed" are rows from before Oct 20 2026, when Nexus still sent rates itself.
+const RESULT = {
+  entered: ['status-approved', 'Entered in Cubby'], ok: ['status-approved', 'In Cubby'],
+  failed: ['status-rejected', 'Failed'], skipped: ['pill-muted', 'Skipped'],
+};
+const resultOf = (p) => RESULT[p.status] || ['pill-muted', p.status];
 const th = { textAlign: 'right', whiteSpace: 'nowrap' };
 
 function Kpi({ label, value, sub, tone }) {
@@ -132,86 +141,88 @@ function Subtotal({ label, rows }) {
   );
 }
 
-// Review & Push: old -> new for every change, ticked by default; the result
-// of each row once pushed. "Export Checklist" is the same list as a PDF for
-// anyone applying it in Cubby by hand.
-export function ReviewModal({ view, onClose, onPushed, onChecklist }) {
-  // What was reviewed stays on screen with its results after the push refreshes the table.
+// Review Changes: old -> new for every change, ticked by default. Staff enter
+// the rates in Cubby by hand (Export Checklist is the same list as a PDF), then
+// Mark Entered in Cubby per row or for every ticked row.
+export function ReviewModal({ view, onClose, onMarked, onChecklist }) {
+  // What was reviewed stays on screen after marking refreshes the table.
   const [ready] = useState(() => view.rows.filter((r) => r.ready));
   const [picked, setPicked] = useState(() => new Set(ready.map((r) => r.name)));
-  const [busy, setBusy] = useState(false);
-  const [results, setResults] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [done, setDone] = useState({});
   const [error, setError] = useState('');
-  const chosen = ready.filter((r) => picked.has(r.name));
+  const left = ready.filter((r) => !done[r.name]);
+  const chosen = left.filter((r) => picked.has(r.name));
   const total = chosen.reduce((a, r) => a + r.revDelta, 0);
+  const canMark = view.canMark !== false;
   const toggle = (name) => setPicked((s) => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; });
-  const push = async () => {
-    setBusy(true);
+  const mark = async (rows, key) => {
+    setBusy(key);
     setError('');
     try {
-      const out = await api.pushOpsRates(view.facilityId, chosen.map((r) => r.name));
-      setResults(out.results);
-      onPushed(out.view);
+      const seen = Object.fromEntries(rows.map((r) => [r.name, { set: r.set, sell: r.sell }]));
+      const out = await api.markOpsRatesEntered(view.facilityId, rows.map((r) => r.name), seen);
+      setDone((d) => ({ ...d, ...Object.fromEntries(out.results.map((x) => [x.unitType, x])) }));
+      onMarked(out.view);
     } catch (err) {
-      console.error('Operations: rate push failed', err);
-      setError(err?.status === 503 ? 'Cubby is not connected on this server, so rates cannot be pushed.'
-        : err?.status === 424 ? "Cubby's pricing groups could not be read just now, so nothing was pushed. Try again in a minute."
-          : 'The push could not be started. Nothing was changed. Try again.');
-    } finally { setBusy(false); }
+      console.error('Operations: could not mark rates entered', err);
+      setError('That could not be recorded. Nothing was changed. Try again.');
+    } finally { setBusy(''); }
   };
-  const byName = Object.fromEntries((results || []).map((x) => [x.unitType, x]));
-  const footer = results ? (
-    <button type="button" className="primary-btn" onClick={onClose}>Done</button>
-  ) : (
+  const footer = (
     <>
-      <button type="button" className="secondary-btn" onClick={() => onChecklist(chosen)} disabled={!chosen.length}
+      <button type="button" className="secondary-btn" onClick={() => onChecklist(chosen.length ? chosen : left)} disabled={!left.length}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Download size={14} aria-hidden="true" /> Export Checklist</button>
-      <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-      {view.canPush && view.pushConnected !== false && (
-        <button type="button" className="primary-btn" onClick={push} disabled={busy || !chosen.length}
+      <button type="button" className={left.length ? 'secondary-btn' : 'primary-btn'} onClick={onClose}>{left.length ? 'Close' : 'Done'}</button>
+      {canMark && left.length > 0 && (
+        <button type="button" className="primary-btn" onClick={() => mark(chosen, 'all')} disabled={!!busy || !chosen.length}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Send size={14} aria-hidden="true" /> {busy ? 'Pushing' : `Push ${chosen.length} to Cubby`}
+          <Check size={14} aria-hidden="true" /> {busy === 'all' ? 'Saving' : `Mark ${chosen.length} Entered in Cubby`}
         </button>
       )}
     </>
   );
   return (
-    <Modal title={`Review & Push to Cubby - ${view.facility}`} onClose={onClose} width="60vw" minHeight="60vh" footer={footer}>
+    <Modal title={`Review Changes - ${view.facility}`} onClose={onClose} width="60vw" minHeight="60vh" footer={footer}>
       <p className="ops-note" style={{ marginTop: 0 }}>
-        Each unit type is sent to Cubby on its own, so every row gets its own result. The Sell rate is Cubby&apos;s web rate;
-        the Set rate (standard) moves by the same amount unless one was typed.
-        {!view.canPush ? ' Only managers and above can push. Export the checklist to hand it on.'
-          : view.pushConnected === false ? ' Pushing needs a Manager-role Cubby key on this server. Until then, export the checklist and enter the rates in Cubby.' : ''}
+        {NO_PUSH_NOTE} In Cubby the Sell rate is the web rate and the Set rate is the standard rate; the Set rate moves
+        by the same amount unless one was typed.
+        {!canMark ? ' Only people who can propose rates can mark them entered. Export the checklist to hand it on.' : ''}
       </p>
       {ready.length === 0 ? <div className="ops-empty">No changes are ready. Enter a Proposed rate in the table first.</div> : (
         <div className="req-table-wrapper">
           <table className="req-table stack-table" data-testid="review-table">
             <thead><tr>
-              {!results && <th aria-label="Include" />}
+              <th aria-label="Include" />
               <th>Unit Type</th><th style={th}>Sell</th><th style={th}>Set</th><th style={th}>Vacant</th><th style={th}>Rev. Change / Mo</th>
-              {results && <th>Result</th>}
+              <th>Cubby</th>
             </tr></thead>
             <tbody>
               {ready.map((r) => {
-                const res = byName[r.name];
+                const res = done[r.name];
                 return (
                   <tr key={r.name}>
-                    {!results && (
-                      <td><input type="checkbox" checked={picked.has(r.name)} onChange={() => toggle(r.name)} aria-label={`Include ${r.name}`} /></td>
-                    )}
+                    <td>{!res && <input type="checkbox" checked={picked.has(r.name)} onChange={() => toggle(r.name)} aria-label={`Include ${r.name}`} />}</td>
                     <td style={{ fontWeight: 600 }}>{r.name}</td>
                     <td data-th="Sell" className="num">{$(r.sell)} &rarr; <strong>{$(r.proposed)}</strong></td>
                     <td data-th="Set" className="num">{$(r.set)} &rarr; {$(r.proposedSet)}</td>
                     <td data-th="Vacant" className="num">{count(r.vacant)}</td>
                     <td data-th="Rev. Change / Mo" className="num">{signed(r.revDelta)}</td>
-                    {results && (
-                      <td data-th="Result">
-                        {res ? <span className={`status-badge ${res.status === 'ok' ? 'status-approved' : res.status === 'failed' ? 'status-rejected' : 'pill-muted'}`}>
-                          {res.status === 'ok' ? 'Pushed' : res.status === 'failed' ? 'Failed' : 'Skipped'}
-                        </span> : <span className="pill-muted status-badge">Not Sent</span>}
-                        {res && res.status !== 'ok' && <div className="ops-why">{res.detail}</div>}
-                      </td>
-                    )}
+                    <td data-th="Cubby" style={{ whiteSpace: 'nowrap' }}>
+                      {res ? (
+                        <>
+                          <span className={`status-badge ${resultOf(res)[0]}`}>{resultOf(res)[1]}</span>
+                          {res.status === 'entered'
+                            ? <div className="ops-why">{res.pushedBy} - {formatDateTime(res.pushedAt)}</div>
+                            : <div className="ops-why">{res.detail}</div>}
+                        </>
+                      ) : canMark ? (
+                        <button type="button" className="secondary-btn" onClick={() => mark([r], r.name)} disabled={!!busy}
+                          aria-label={`Mark ${r.name} Entered in Cubby`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Check size={13} aria-hidden="true" /> {busy === r.name ? 'Saving' : 'Mark Entered'}
+                        </button>
+                      ) : <span className="pill-muted status-badge">Not Yet in Cubby</span>}
+                    </td>
                   </tr>
                 );
               })}
@@ -219,7 +230,7 @@ export function ReviewModal({ view, onClose, onPushed, onChecklist }) {
           </table>
         </div>
       )}
-      {!results && chosen.length > 0 && (
+      {chosen.length > 0 && (
         <p style={{ fontWeight: 600, marginTop: 12 }}>{chosen.length} {chosen.length === 1 ? 'change' : 'changes'}, {signed(total)} per month on vacant units at the new rate.</p>
       )}
       {error && <p className="ops-form-error" role="alert">{error}</p>}
@@ -263,11 +274,11 @@ function HistoryModal({ view, initial, onClose }) {
                   <td data-th="Sell" className="num">{$(p.oldSell)} &rarr; {$(p.newSell)}</td>
                   <td data-th="Set" className="num">{$(p.oldSet)} &rarr; {$(p.newSet)}</td>
                   <td data-th="By">{p.pushedBy}</td>
-                  <td data-th="Result">{p.status === 'ok' ? 'Pushed' : p.status === 'failed' ? `Failed: ${p.detail}` : `Skipped: ${p.detail}`}</td>
+                  <td data-th="Result">{resultOf(p)[1]}{p.status === 'failed' || p.status === 'skipped' ? `: ${p.detail}` : ''}</td>
                 </tr>
               ))}
             </tbody></table>
-          ) : <div className="ops-empty">No rate changes pushed from Nexus yet.</div>}
+          ) : <div className="ops-empty">No rate changes marked entered in Cubby yet.</div>}
           <h4 style={{ margin: '16px 0 8px' }}>Competitor Rates for This Size</h4>
           {d.competitors.length ? (
             <table className="req-table stack-table"><thead><tr>
@@ -372,7 +383,7 @@ export default function RateManagement({ facility }) {
     await pdf({
       title: checklist ? `Cubby Rate Checklist - ${v.name}` : `Rate Management - ${v.name}`,
       subtitle: checklist
-        ? `Apply in Cubby > Pricing Groups. Prepared ${formatDate(v.asOf)}.`
+        ? `Enter each rate in Cubby > Pricing Groups, then mark it entered in Nexus. Prepared ${formatDate(v.asOf)}.`
         : `Competitive market analysis as of ${formatDate(v.asOf)}${v.lastSurvey ? `, last survey ${formatDate(v.lastSurvey)}` : ''}. Sell = Cubby web rate; market = competitors' newest rates.`,
       columns: checklist ? CHECKLIST_COLUMNS : PDF_COLUMNS,
       rows,
@@ -430,19 +441,20 @@ export default function RateManagement({ facility }) {
 
       <div style={{ background: GREEN, color: '#fff', borderRadius: 12, padding: '14px 18px', margin: '0 0 16px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }} data-testid="ready-bar">
         <div>
-          <div style={{ fontWeight: 700 }}>{ready.length} {ready.length === 1 ? 'change' : 'changes'} ready for Cubby</div>
+          <div style={{ fontWeight: 700 }}>{ready.length} {ready.length === 1 ? 'change' : 'changes'} ready</div>
           <div style={{ fontSize: 13, opacity: 0.85 }}>
             {ready.length ? `${ready.map((r) => `${r.name} ${signed(r.proposed - r.sell)}`).slice(0, 3).join(' - ')}${ready.length > 3 ? ' ...' : ''} - ${signed(k.readyDelta)} per month` : 'Edit Proposed below to add one.'}
           </div>
         </div>
         <button type="button" onClick={() => setPanel('review')} disabled={!ready.length}
           style={{ background: '#bbf7d0', color: GREEN, border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 700, cursor: ready.length ? 'pointer' : 'default', opacity: ready.length ? 1 : 0.6 }}>
-          Review &amp; Push to Cubby
+          Review Changes
         </button>
       </div>
+      <p className="ops-note" style={{ marginTop: -8 }}>{NO_PUSH_NOTE}</p>
 
       {!v.cubbyGroups.ok && (
-        <p className="ops-note" role="status">Cubby&apos;s pricing groups could not be read, so Sell and Set show the rent roll&apos;s standard rate and nothing can be pushed right now.</p>
+        <p className="ops-note" role="status">Cubby&apos;s pricing groups could not be read, so Sell and Set show the rent roll&apos;s standard rate.</p>
       )}
       {error && <p className="ops-form-error" role="alert">{error}</p>}
 
@@ -486,19 +498,17 @@ export default function RateManagement({ facility }) {
       {v.pushes?.length > 0 && (
         <div className="dash-card">
           <div className="dash-card-head"><div>
-            <div className="dash-card-title">Recent Pushes to Cubby</div>
-            <div className="dash-card-sub">Every rate change sent from Nexus, failed tries included.</div>
+            <div className="dash-card-title">Recent Rate Changes</div>
+            <div className="dash-card-sub">Rates staff entered in Cubby and marked entered here.</div>
           </div></div>
           <ul className="ops-reports">
             {v.pushes.slice(0, 8).map((p) => (
               <li className="ops-report" key={p.id}>
                 <div>
                   <div className="ops-report-title">{p.unitType}: {$(p.oldSell)} &rarr; {$(p.newSell)}</div>
-                  <div className="ops-report-about">{formatDateTime(p.pushedAt)} by {p.pushedBy}{p.status !== 'ok' ? ` - ${p.detail}` : ''}</div>
+                  <div className="ops-report-about">{formatDateTime(p.pushedAt)} by {p.pushedBy}{p.status === 'failed' || p.status === 'skipped' ? ` - ${p.detail}` : ''}</div>
                 </div>
-                <span className={`status-badge ${p.status === 'ok' ? 'status-approved' : p.status === 'failed' ? 'status-rejected' : 'pill-muted'}`}>
-                  {p.status === 'ok' ? 'Pushed' : p.status === 'failed' ? 'Failed' : 'Skipped'}
-                </span>
+                <span className={`status-badge ${resultOf(p)[0]}`}>{resultOf(p)[1]}</span>
               </li>
             ))}
           </ul>
@@ -508,7 +518,7 @@ export default function RateManagement({ facility }) {
       {showComps && <Market facility={facility} />}
 
       {panel === 'review' && (
-        <ReviewModal view={v} onClose={() => setPanel(null)} onPushed={setView} onChecklist={(rows) => exportPdf(rows, true)} />
+        <ReviewModal view={v} onClose={() => setPanel(null)} onMarked={setView} onChecklist={(rows) => exportPdf(rows, true)} />
       )}
       {panel?.history !== undefined && <HistoryModal view={v} initial={panel.history} onClose={() => setPanel(null)} />}
     </>

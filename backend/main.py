@@ -27,7 +27,7 @@ from routers import github_webhook  # PR/push merged to dev/main -> admin notifi
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
 from routers import facility_ops  # Operations: storage facility figures read from Cubby (Oct 2026)
-from routers import ops_rates  # Operations -> Rate Management: proposed street rates, push to Cubby (Oct 20 2026)
+from routers import ops_rates  # Operations -> Rate Management: proposed street rates, marked entered in Cubby (Oct 20 2026)
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import hr_life_events as hr_life_events_router  # hiring packet / promotion / separation via Nexus Sign (Oct 2026)
@@ -2551,6 +2551,9 @@ def _run_migrations():
         # new tables, explicit RLS. models.OpsReportCache, models.OpsSavedReport.
         "ALTER TABLE ops_report_cache ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_saved_reports ENABLE ROW LEVEL SECURITY",
+        # Scheduled catalog reports (Oct 20 2026, ops_report_schedules.py): new
+        # table, explicit RLS. models.OpsReportSchedule.
+        "ALTER TABLE ops_report_schedules ENABLE ROW LEVEL SECURITY",
         # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived
         # (models.TaskTicket.source), and the inbound log - a new table:
         # explicit RLS on top of the sweep. models.TicketInboundEmail.
@@ -3876,7 +3879,7 @@ app.include_router(pfs.router)                # Personal Financial Statements (o
 app.include_router(leasing.router)            # Leasing: tenants, rent over time, expected vs received
 app.include_router(operations.router)
 app.include_router(facility_ops.router)       # Operations: occupancy, collections, pricing, worklist
-app.include_router(ops_rates.router)          # Operations -> Rate Management (drafts, push to Cubby, rate history)
+app.include_router(ops_rates.router)          # Operations -> Rate Management (drafts, mark entered in Cubby, rate history)
 app.include_router(unifi.router)
 app.include_router(dashboard.router)
 app.include_router(dashboards_router.router)

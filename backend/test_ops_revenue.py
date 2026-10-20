@@ -1,8 +1,9 @@
 """Operations > Revenue Management (ops_revenue.py + routers/ops_revenue.py):
 eligibility, cap math, preview totals, the batch lifecycle, permissions and
-the Cubby push - with Cubby faked (no HTTP leaves the test). Runs on the
-throwaway SQLite conftest gives the run. Run alone:
-python -m pytest test_ops_revenue.py"""
+Entered in Cubby - the only way a row reaches Cubby. Nexus never writes to
+Cubby (Oct 20 2026): httpx.post fails the test on any Cubby call that is not
+a read, and no HTTP leaves the test. Runs on the throwaway SQLite conftest
+gives the run. Run alone: python -m pytest test_ops_revenue.py"""
 from datetime import date
 
 import httpx
@@ -128,22 +129,23 @@ def test_notice_dates():
 TABLES = (models.OpsRevenueStrategy, models.OpsRevenueBatch, models.OpsRevenueChange, models.OpsRevenueAudit)
 
 
-class FakeWrite:
+def _is_read(url: str) -> bool:
+    """A Cubby call Nexus may make: a `*/search` or one of Cubby's `reports/*`."""
+    path = str(url).rsplit("/v1/", 1)[-1]
+    return path.endswith("/search") or path.startswith("reports/")
+
+
+class Guard:
+    """httpx.post for the whole test: a Cubby write fails the test; nothing
+    real is ever sent."""
+
     def __init__(self):
         self.calls = []
-        self.when = "2026-12-01"
-        self.refuse = False
 
-    def __call__(self, path, body):
-        self.calls.append((path, body))
-        if path == "leases/get-rent-change-schedules":
-            return {"rentChangeSchedules": [{"leaseId": body["leaseIds"][0], "rentChangeDate": self.when,
-                                             "noticeDate": "2026-11-01"}]}
-        if path == "leases/change-rents":
-            if self.refuse:
-                raise cubby.CubbyError(400, "leases/change-rents: Lease is closed")
-            return {}
-        raise AssertionError(path)
+    def __call__(self, url, *a, **k):
+        assert _is_read(url), f"Nexus must never write to Cubby, but it called {url}"
+        self.calls.append(url)
+        raise AssertionError("no real HTTP in tests")
 
 
 @pytest.fixture
@@ -158,19 +160,14 @@ def client(monkeypatch):
     from routers import ops_revenue as router_mod
     monkeypatch.setattr(router_mod, "_facility_rows", lambda fid: (FAC, _raw()) if fid == "fac_t" else (None, None))
     monkeypatch.setattr(cubby, "_facility_today", lambda fac: TODAY)
-    monkeypatch.delenv(rev.WRITE_KEY_ENV, raising=False)
-    fake = FakeWrite()
-    monkeypatch.setattr(rev, "_write", fake)
-
-    def no_http(*a, **k):
-        raise AssertionError("no real HTTP in tests")
-    monkeypatch.setattr(httpx, "post", no_http)
+    guard = Guard()
+    monkeypatch.setattr(httpx, "post", guard)
     app = FastAPI()
     app.include_router(router_mod.router)
     user = {"email": "ops.manager@greensglobal.com", "role": "manager", "level": 3}
     app.dependency_overrides[get_current_user] = lambda: user
     c = TestClient(app)
-    c.user, c.fake = user, fake
+    c.user, c.guard = user, guard
     return c
 
 
@@ -195,7 +192,7 @@ def test_supervisors_and_employees_are_refused(client):
 
 def test_tenants_endpoint(client):
     r = client.get("/facility-ops/revenue/tenants?facility_id=fac_t").json()
-    assert len(r["tenants"]) == 8 and r["unitTypes"] == ["10x10", "10x20"] and r["writeEnabled"] is False
+    assert len(r["tenants"]) == 8 and r["unitTypes"] == ["10x10", "10x20"] and "writeEnabled" not in r
     assert client.get("/facility-ops/revenue/tenants?facility_id=nope").status_code == 404
 
 
@@ -228,7 +225,7 @@ def test_preview_saves_nothing_and_enforces_notice(client):
     assert inline.json()["totals"]["monthlyIncrease"] == 1000 + 500
 
 
-def test_batch_lifecycle_and_push(client, monkeypatch):
+def test_batch_lifecycle_and_entered_in_cubby(client):
     b = client.post("/facility-ops/revenue/batches", json=_plan(client)).json()
     assert b["status"] == "draft" and b["count"] == 2 and b["monthlyIncrease"] == 1300
     # The same tenants cannot go into a second open batch.
@@ -241,37 +238,58 @@ def test_batch_lifecycle_and_push(client, monkeypatch):
     assert client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "applied"}).status_code == 409
     assert client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "notified"}).status_code == 409
     a1 = next(c for c in b["changes"] if c["unit"] == "A1")
-    push = f"/facility-ops/revenue/batches/{bid}/changes/{a1['id']}/push"
-    assert client.post(push, json={}).status_code == 503                          # no Manager-role key
-    monkeypatch.setenv(rev.WRITE_KEY_ENV, "test-key-not-real")
-    assert client.post(push, json={}).status_code == 409                          # not approved yet
+    entered = f"/facility-ops/revenue/batches/{bid}/changes/{a1['id']}/entered"
+    assert client.post(entered).status_code == 409                              # not approved yet
     assert client.get(f"/facility-ops/revenue/batches/{bid}/letters.pdf").status_code == 409
     assert client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "approved"}).json()["status"] == "approved"
     pdf = client.get(f"/facility-ops/revenue/batches/{bid}/letters.pdf")
     assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
-    # Cubby's next date differs: stop and say so, nothing written.
-    client.fake.when = "2026-12-05"
-    r = client.post(push, json={})
-    assert r.status_code == 409 and r.json()["detail"]["cubbyDate"] == "2026-12-05"
-    assert [p for p, _ in client.fake.calls] == ["leases/get-rent-change-schedules"]
-    client.fake.when = "2026-12-01"
-    client.fake.refuse = True
-    assert client.post(push, json={}).status_code == 424
-    client.fake.refuse = False
-    out = client.post(push, json={}).json()
-    row = next(c for c in out["changes"] if c["id"] == a1["id"])
-    assert row["status"] == "pushed" and row["pushedBy"] == "ops.manager@greensglobal.com"
-    assert client.fake.calls[-1] == ("leases/change-rents", {"leases": [
-        {"leaseId": "lease_a1", "newRentAmount": 10800, "rentChangeDate": "2026-12-01", "noticeDate": "2026-11-01"}]})
-    assert client.post(push, json={}).status_code == 409                          # never twice
-    actions = [a["action"] for a in out["audit"]]
-    assert actions.count("push_failed") == 1 and "pushed" in actions and "approved" in actions
-    # Applied needs the letters out first, then everything in Cubby.
     assert client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "notified"}).status_code == 200
+    # Applied needs every row marked Entered in Cubby.
+    blocked = client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "applied"})
+    assert blocked.status_code == 409 and "Entered in Cubby" in blocked.json()["detail"]
+    assert "push" not in blocked.json()["detail"].lower()
+    out = client.post(entered).json()
+    row = next(c for c in out["changes"] if c["id"] == a1["id"])
+    assert row["status"] == "entered" and row["pushedBy"] == "ops.manager@greensglobal.com" and row["pushedAt"]
+    assert client.post(entered).status_code == 409                              # never twice
+    assert "entered" in [a["action"] for a in out["audit"]]
     done = client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "applied"})
     assert done.status_code == 200 and done.json()["inCubby"] == 1
     exp = client.get(f"/facility-ops/revenue/batches/{bid}/export").json()
     assert exp["rows"][0][1] == "Tenant a1" and exp["rows"][0][9] == "12/01/2026" and exp["rows"][0][11] == "Yes"
+    assert exp["rows"][0][10] == "Entered in Cubby"
+    assert client.guard.calls == []
+
+
+def test_the_push_route_is_gone(client):
+    b = client.post("/facility-ops/revenue/batches", json=_plan(client)).json()
+    bid, cid = b["id"], b["changes"][0]["id"]
+    client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "approved"})
+    r = client.post(f"/facility-ops/revenue/batches/{bid}/changes/{cid}/push", json={})
+    assert r.status_code in (404, 405)
+    for name in ("WRITE_KEY_ENV", "write_configured", "_write", "change_rent", "rent_change_schedule"):
+        assert not hasattr(rev, name), name
+    assert client.guard.calls == []
+
+
+def test_no_endpoint_writes_to_cubby(client):
+    """Every route of the tab, end to end, with httpx.post failing on any Cubby
+    URL that is not a `*/search` or `reports/*` read."""
+    assert client.get("/facility-ops/revenue/tenants?facility_id=fac_t").status_code == 200
+    body = _plan(client)
+    assert client.post("/facility-ops/revenue/preview", json=body).status_code == 200
+    b = client.post("/facility-ops/revenue/batches", json=body).json()
+    bid = b["id"]
+    assert client.get("/facility-ops/revenue/batches?facility_id=fac_t").status_code == 200
+    for s in ("approved", "notified"):
+        assert client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": s}).status_code == 200
+    assert client.get(f"/facility-ops/revenue/batches/{bid}/letters.pdf").status_code == 200
+    for c in b["changes"]:
+        assert client.post(f"/facility-ops/revenue/batches/{bid}/changes/{c['id']}/entered").status_code == 200
+    assert client.get(f"/facility-ops/revenue/batches/{bid}/export").status_code == 200
+    assert client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "applied"}).status_code == 200
+    assert client.guard.calls == []
 
 
 def test_checklist_path_without_the_api(client):
@@ -283,7 +301,7 @@ def test_checklist_path_without_the_api(client):
     for c in b["changes"]:
         assert client.post(f"/facility-ops/revenue/batches/{bid}/changes/{c['id']}/entered").status_code == 200
     assert client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "applied"}).json()["status"] == "applied"
-    assert client.fake.calls == []
+    assert client.guard.calls == []
     # Applied rows count as the last increase from now on (the effective date is still ahead: pending).
     t = {x["unit"]: x for x in client.get("/facility-ops/revenue/tenants?facility_id=fac_t").json()["tenants"]}
     assert t["A1"]["pending"]["status"] == "applied"

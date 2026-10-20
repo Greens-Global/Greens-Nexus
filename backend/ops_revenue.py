@@ -15,12 +15,10 @@ What is here:
   - propose / preview: a strategy (+X% or +$Y, capped at street or street +
     Z%, eligibility rules) applied to those rows. Pure, so the tests feed it
     fixed rows.
-  - the Cubby write client: leases/get-rent-change-schedules and
-    leases/change-rents. These need a Cubby key with the MANAGER role; the
-    sync's key is Search-only, so the write key is its own setting
-    (CUBBY_MANAGER_API_KEY). Unset = no push; staff use the export and
-    checklist instead. Nothing here runs on a timer - every push is one
-    person clicking one row.
+  - NO Cubby writes (Visesh, Oct 20 2026: "we don't want anything to push
+    to cubby"). Staff enter each new rent in Cubby by hand from the
+    checklist export and mark the row Entered in Cubby here. Never add a
+    call to leases/change-rents or any other Cubby write.
   - notice letters (PDF) and a mail-merge export. Nexus never emails a
     tenant (CLAUDE.md); staff print or merge them.
 
@@ -32,20 +30,20 @@ from __future__ import annotations
 
 import io
 import math
-import os
 from datetime import date, datetime, timedelta, timezone
-
-import httpx
 
 import cubby
 
-WRITE_KEY_ENV = "CUBBY_MANAGER_API_KEY"
 DEFAULT_NOTICE_DAYS = 30
 MAX_NOTICE_DAYS = 365
 OPEN_BATCH = ("draft", "approved", "notified")
 STATUSES = ("draft", "approved", "notified", "applied", "canceled")
 # What a batch may move to, and from where. Notice comes before Applied: the
 # tenant must have had the letter before the new rent can be live.
+# A change row is in Cubby once it is "entered" (staff typed it there by hand).
+# "pushed" is a status only rows from before Oct 20 2026 can carry; it still
+# counts as in Cubby so old batches read right. Nothing sets it any more.
+IN_CUBBY = ("entered", "pushed")
 NEXT = {
     "approved": ("draft",),
     "notified": ("approved",),
@@ -284,52 +282,12 @@ def preview(s: dict, rows: list[dict], asof: date) -> dict:
     }
 
 
-# ── Cubby writes (Manager-role key; never on a timer) ─────────────────────────
-
-def write_configured() -> bool:
-    return bool(os.environ.get(WRITE_KEY_ENV, "").strip())
-
-
-def _write(path: str, body: dict) -> dict:
-    """POST one Cubby write. Writes are flat bodies (no {"where"}), unlike
-    searches. Blocking - call it in a thread."""
-    key = os.environ.get(WRITE_KEY_ENV, "").strip()
-    if not key:
-        raise cubby.CubbyError(503, f"{WRITE_KEY_ENV} is not set")
-    try:
-        r = httpx.post(f"{cubby.BASE}/{path}", json=body, headers={"Authorization": f"Bearer {key}"}, timeout=30)
-    except httpx.HTTPError as e:
-        raise cubby.CubbyError(0, f"Cubby could not be reached ({type(e).__name__})") from e
-    try:
-        data = r.json()
-    except Exception:  # noqa: BLE001 - upstream body may not be JSON
-        data = {}
-    if r.status_code != 200:
-        errors = data.get("errors") or [f"Cubby returned {r.status_code}"]
-        raise cubby.CubbyError(r.status_code, f"{path}: {'; '.join(str(e) for e in errors)}")
-    return data.get("data") or {}
-
-
-def rent_change_schedule(lease_id: str) -> dict | None:
-    """Cubby's next possible rent change date and notice date for a lease."""
-    got = _write("leases/get-rent-change-schedules", {"leaseIds": [lease_id]})
-    for s in got.get("rentChangeSchedules") or []:
-        if s.get("leaseId") == lease_id:
-            return s
-    return None
-
-
-def change_rent(lease_id: str, new_cents: int, change_date: str, notice: str) -> dict:
-    return _write("leases/change-rents", {"leases": [
-        {"leaseId": lease_id, "newRentAmount": int(new_cents), "rentChangeDate": change_date, "noticeDate": notice}]})
-
-
 # ── Notices for staff (never emailed by Nexus) ───────────────────────────────
 
 MERGE_COLUMNS = ["Facility", "Tenant", "Unit", "Unit Type", "Current Rent", "New Rent", "Increase", "Increase %",
                  "Notice Date", "Effective Date", "Status in Nexus", "Entered in Cubby", "Cubby Link"]
-CHANGE_STATUS = {"pending": "Not Yet in Cubby", "pushed": "Pushed to Cubby", "entered": "Entered in Cubby",
-                 "failed": "Push Failed", "removed": "Removed"}
+CHANGE_STATUS = {"pending": "Not Yet in Cubby", "pushed": "In Cubby", "entered": "Entered in Cubby",
+                 "failed": "Not Yet in Cubby", "removed": "Removed"}
 
 
 def merge_rows(batch, changes) -> list[list]:
@@ -343,7 +301,7 @@ def merge_rows(batch, changes) -> list[list]:
             f"{(c.current_cents or 0) / 100:.2f}", f"{(c.new_cents or 0) / 100:.2f}", f"{inc / 100:.2f}",
             f"{inc / c.current_cents * 100:.1f}%" if c.current_cents else "",
             us_date(batch.notice_date), us_date(c.cubby_change_date or batch.effective_date),
-            CHANGE_STATUS.get(c.status, c.status), "Yes" if c.status in ("pushed", "entered") else "",
+            CHANGE_STATUS.get(c.status, c.status), "Yes" if c.status in IN_CUBBY else "",
             cubby._tenant_url(c.customer_id),
         ])
     return out

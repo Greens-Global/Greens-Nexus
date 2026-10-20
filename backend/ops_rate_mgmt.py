@@ -2,31 +2,30 @@
 
 Every unit type we rent (a Cubby pricing group), what it sells for, what the
 competitors charge, the rule's suggestion, and a PROPOSED rate a person types.
-Proposals are drafts (`ops_rate_drafts`) until a manager reviews them and
-pushes them to Cubby; every push, failed tries included, is a row in
-`ops_rate_pushes` - the history of OUR rates.
+Proposals are drafts (`ops_rate_drafts`) until someone enters them in Cubby BY
+HAND and marks them entered here; each mark is a row in `ops_rate_pushes`
+(status "entered") - the history of OUR rates. (Rows from before Oct 20 2026
+carry the old ok / failed / skipped statuses; they stay as history.)
 
-This is the ONE place Nexus writes to Cubby (cubby.py stays read-only): Cubby's
-`POST /v1/pricing-groups/change-rates` (https://cubbystorage.github.io/docs/api/
-#pricing-groups-change-rates) sets a pricing group's standardRate and webRate.
-It needs an API key with Cubby's Manager role; a Search-role key answers 403.
-Never called automatically - only from the Review & Push button, one unit type
-per call, so each row gets its own result.
+Nexus NEVER writes to Cubby (Visesh, Oct 20 2026: "we don't want anything to
+push to cubby"). This module only READS Cubby's pricing groups
+(`pricing-groups/search`). Do not add a call to `pricing-groups/change-rates`
+or any other Cubby write: staff change rates in Cubby, using the review and
+the printable checklist.
 
 Words on the screen, in Cubby's terms:
   Set     the pricing group's standardRate (the in-store rate)
   Sell    its webRate - what a new customer pays online; Cubby falls back to
           the standard rate when no web rate is set
-  Walk-In its walkInRate (shown, not changed: change-rates does not take it)
+  Walk-In its walkInRate (shown for reference)
 
 The market math is ops_market.compare, unchanged: the Sell rate is passed in as
 the street rate, so the suggestion and the variance are both against what we
 actually sell at. No second calculation path.
 
-Pure functions up top (the tests feed them fixed rows); the Cubby calls at the
-bottom are the only I/O, and they are blocking - call them in a thread.
+Pure functions up top (the tests feed them fixed rows); the Cubby read at the
+bottom is the only I/O, and it is blocking - call it in a thread.
 """
-import os
 import re
 import threading
 import time
@@ -54,7 +53,7 @@ def category(unit_type: dict, group: dict | None = None) -> str:
 
 def group_index(groups: list[dict]) -> dict[str, dict | None]:
     """{pricing group name: group}. Two groups with one name map to None: a
-    unit type the rent roll names that way cannot be pushed safely."""
+    unit type the rent roll names that way cannot be matched safely."""
     out: dict[str, dict | None] = {}
     for g in groups or []:
         name = (g.get("name") or "").strip()
@@ -81,7 +80,7 @@ def priced_types(unit_types: list[dict], idx: dict) -> list[dict]:
 
 
 def plan(old_set: int | None, old_sell: int, proposed: int, proposed_set: int | None) -> dict:
-    """What a push sends. The Set rate keeps its gap to the Sell rate unless
+    """The new rates to enter in Cubby. The Set rate keeps its gap to the Sell rate unless
     someone typed a Set rate of its own."""
     if proposed_set is not None:
         new_set = proposed_set
@@ -160,7 +159,7 @@ def attention(rows: list[dict], groups_error: str = "") -> list[str]:
     """Short sentences for the Needs Attention card, most useful first."""
     out = []
     if groups_error:
-        out.append(f"Cubby's pricing groups could not be read ({groups_error}), so nothing can be pushed right now.")
+        out.append(f"Cubby's pricing groups could not be read ({groups_error}), so Sell and Set show the rent roll's standard rate.")
     single = [r["name"] for r in rows if r["competitors"] == 1]
     if single:
         out.append(f"{len(single)} unit {'type relies' if len(single) == 1 else 'types rely'} on a single comp: {', '.join(single[:4])}")
@@ -172,32 +171,20 @@ def attention(rows: list[dict], groups_error: str = "") -> list[str]:
         out.append(f"No competitor rate for {len(bare)} unit {'type' if len(bare) == 1 else 'types'} with vacancy: {', '.join(bare[:4])}")
     dup = [r["name"] for r in rows if r["ambiguous"]]
     if dup:
-        out.append(f"Two Cubby pricing groups share the name {', '.join(dup[:3])}; rename one in Cubby to push it")
+        out.append(f"Two Cubby pricing groups share the name {', '.join(dup[:3])}; rename one in Cubby to price it here")
     return out
 
 
 # ── Cubby (blocking I/O) ──────────────────────────────────────────────────────
 
-def write_configured() -> bool:
-    """A Manager-role Cubby key is set. Writes use it - the same one Revenue
-    Management uses (ops_revenue.WRITE_KEY_ENV); the read-only sync key never writes."""
-    import ops_revenue
-    return bool(os.environ.get(ops_revenue.WRITE_KEY_ENV, "").strip())
-
-
-def _call(path: str, body: dict, write: bool = False) -> dict:
-    """POST to Cubby with the body as given (change-rates takes no `where`).
-    `write` calls use the Manager-role key (CUBBY_MANAGER_API_KEY)."""
-    if write:
-        import ops_revenue
-        key = os.environ.get(ops_revenue.WRITE_KEY_ENV, "").strip()
-        if not key:
-            raise cubby.CubbyError(503, f"{ops_revenue.WRITE_KEY_ENV} is not set - pushing rates needs a Manager-role Cubby key")
-    else:
-        key = cubby._key()
+def _call(path: str, body: dict) -> dict:
+    """One Cubby READ (a `*/search`), with the body as given. Nexus never
+    writes to Cubby - do not route a write through here."""
+    if not path.endswith("/search"):
+        raise ValueError(f"Nexus only reads from Cubby; {path} is not a search")
     try:
         r = httpx.post(f"{cubby.BASE}/{path}", json=body,
-                       headers={"Authorization": f"Bearer {key}"}, timeout=60)
+                       headers={"Authorization": f"Bearer {cubby._key()}"}, timeout=60)
     except httpx.HTTPError as e:
         raise cubby.CubbyError(0, f"Cubby could not be reached ({type(e).__name__})") from e
     try:
@@ -206,10 +193,7 @@ def _call(path: str, body: dict, write: bool = False) -> dict:
         data = {}
     if r.status_code != 200:
         errors = (data.get("errors") if isinstance(data, dict) else None) or [f"Cubby returned {r.status_code}"]
-        msg = "; ".join(str(e) for e in errors)
-        if r.status_code in (401, 403):
-            msg += " - the API key may be a read-only (Search) key; changing rates needs a Manager-role key from Cubby"
-        raise cubby.CubbyError(r.status_code, msg)
+        raise cubby.CubbyError(r.status_code, "; ".join(str(e) for e in errors))
     return (data.get("data") if isinstance(data, dict) else None) or {}
 
 
@@ -239,12 +223,6 @@ def forget(facility_id: str = "") -> None:
             _cache.pop(facility_id, None)
         else:
             _cache.clear()
-
-
-def change_rate(pricing_group_id: str, standard_rate: int, web_rate: int) -> dict:
-    """One pricing group's new Set (standard) and Sell (web) rates, in cents."""
-    return _call("pricing-groups/change-rates", {"pricingGroups": [
-        {"pricingGroupId": pricing_group_id, "standardRate": int(standard_rate), "webRate": int(web_rate)}]}, write=True)
 
 
 def address_of(fac: dict) -> str:

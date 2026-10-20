@@ -43,7 +43,7 @@ def _seed():
         db.add(models.CubbyFacility(facility_id="fac_b", name="Greens Storage Murrieta", time_zone="America/Los_Angeles",
                                     enabled=True, data={"name": "Greens Storage Murrieta"}, synced_at="2026-10-15T15:00:00+00:00"))
         units = [
-            ("fac_a", _rr("a1", "A1", "RENTED", "cust_1", "Aiden Robb", 15000, paidThroughDate="2026-09-30", autoPayEnabled=True,
+            ("fac_a", _rr("a1", "A1", "RENTED", "cust_1", "Ada Sample", 15000, paidThroughDate="2026-09-30", autoPayEnabled=True,
                           moveInDate="2025-03-01")),
             ("fac_a", _rr("a2", "A2", "RENTED", "cust_2", "Bea Lowe", 20000, w=10, d=20, group="10x20 Drive-Up", street=30000,
                           moveInDate="2026-10-02")),
@@ -77,7 +77,7 @@ def _seed():
         db.add(models.CubbyLead(id="fac_a:l2", facility_id="fac_a", lead_id="l2", customer_id="cust_x", status="NEW",
                                 created_at="2026-10-09T10:00:00Z", data={"source": "PHONE"}))
         db.add(models.CubbyReceivable(id="fac_a:a1:cust_1", facility_id="fac_a", unit_id="a1", customer_id="cust_1", total_cents=95108,
-                                      data={"unitName": "A1", "customerName": "Aiden Robb", "pricingGroupName": "10x10 Standard",
+                                      data={"unitName": "A1", "customerName": "Ada Sample", "pricingGroupName": "10x10 Standard",
                                             "ranges": [{"range": "RANGE_0_30", "amount": 15000}, {"range": "RANGE_30_60", "amount": 80108}],
                                             "phoneNumber": "+15555550100"}))
         db.add(models.CubbyTask(id="fac_a:t1", facility_id="fac_a", task_id="t1", unit_id="a4", due_date="2026-10-20",
@@ -93,11 +93,11 @@ def _seed():
 GL_CASH = {"entries": [
     {"id": "1", "journalEntryId": "je1", "paymentTime": "2026-10-03T10:00:00", "amount": 15000, "direction": "DEBIT",
      "account": "CREDIT_CARD_PAYMENTS", "details": {"cardType": "visa", "cardLastFour": "4242", "customerId": "cust_1",
-                                                   "customerName": "Aiden Robb", "unitName": "A1", "email": "tenant@example.com"}},
+                                                   "customerName": "Ada Sample", "unitName": "A1", "email": "tenant@example.com"}},
     {"id": "2", "journalEntryId": "je1", "paymentTime": "2026-10-03T10:00:00", "amount": 14000, "direction": "CREDIT",
-     "account": "RENT", "details": {"customerId": "cust_1", "customerName": "Aiden Robb", "unitName": "A1"}},
+     "account": "RENT", "details": {"customerId": "cust_1", "customerName": "Ada Sample", "unitName": "A1"}},
     {"id": "3", "journalEntryId": "je1", "paymentTime": "2026-10-03T10:00:00", "amount": 1000, "direction": "CREDIT",
-     "account": "TAX_STATE", "details": {"description": "7.25%", "customerId": "cust_1", "customerName": "Aiden Robb", "unitName": "A1"}},
+     "account": "TAX_STATE", "details": {"description": "7.25%", "customerId": "cust_1", "customerName": "Ada Sample", "unitName": "A1"}},
     {"id": "4", "journalEntryId": "je2", "paymentTime": "2026-10-04T10:00:00", "amount": 2500, "direction": "CREDIT",
      "account": "FEES", "details": {"description": "Admin Fee", "customerId": "cust_2", "customerName": "Bea Lowe", "unitName": "A2"}},
     {"id": "5", "journalEntryId": "je2", "paymentTime": "2026-10-04T10:00:00", "amount": 2500, "direction": "DEBIT",
@@ -106,13 +106,13 @@ GL_CASH = {"entries": [
      "account": "RENT", "details": {"customerId": "cust_2"}},   # outside the period
 ]}
 GL_ACCRUAL = {"entries": [
-    {"id": "a1", "journalEntryId": "je9", "entryTime": "2026-10-01T00:00:00", "customerId": "cust_1", "customerName": "Aiden Robb",
+    {"id": "a1", "journalEntryId": "je9", "entryTime": "2026-10-01T00:00:00", "customerId": "cust_1", "customerName": "Ada Sample",
      "unitId": "a1", "unitName": "A1", "account": "RENT", "mappedGlAccount": "Rental Income", "mappedGlAccountNumber": "4000",
      "taxCategory": "RENT_ENCLOSED_STORAGE", "explanation": "Rent", "debit": 0, "credit": 15000}]}
 DISB = {"batches": [{"facilityId": "fac_a", "batchDate": "2026-10-05", "batchNumber": "po_1", "batchStatus": "paid",
                      "paymentProvider": "STRIPE", "methodType": "card", "amount": 15000, "merchantId": "acct_1"}],
         "transactions": [{"batchNumber": "po_1", "date": "2026-10-03", "amount": 15000, "status": "APPROVED", "type": "SALE",
-                          "customerId": "cust_1", "customerName": "Aiden Robb", "methodType": "CREDIT_CARD", "cardBrand": "VISA",
+                          "customerId": "cust_1", "customerName": "Ada Sample", "methodType": "CREDIT_CARD", "cardBrand": "VISA",
                           "lastFour": "4242"}]}
 LEDGER = {"ledgers": [{"leaseId": "lease_1", "bookEntries": [
     {"type": "CHARGE", "entryTime": "2026-10-01T00:00:00", "amount": 15000, "amountPaid": 0,
@@ -189,7 +189,7 @@ def test_catalog_covers_every_cubby_report_endpoint_and_names_what_is_missing(cl
     keys = {r["key"]: r for r in out["reports"]}
     # Cubby's reports/* endpoints: rent-roll, aged-receivables, general-ledger/cash, general-ledger/accrual,
     # merchant-services-disbursements.
-    for k in ("rent-roll", "accounts-receivable", "general-ledger-cash", "general-ledger-accrual", "merchant-disbursements"):
+    for k in ("rent-roll", "aged-receivables", "general-ledger-cash", "general-ledger-accrual", "merchant-disbursements"):
         assert keys[k]["source"] == "cubby"
     assert keys["inventory-activity"]["source"] == "unavailable"
     assert {r["category"] for r in out["reports"]} == set(out["categories"])
@@ -218,7 +218,7 @@ def test_unknown_report_and_bad_period(client):
 def test_rent_roll_rows_link_to_tenant_and_unit(client):
     out = client.get("/ops-reports/run/rent-roll", params={"facility_id": "fac_a"}).json()
     a1 = next(r for r in out["rows"] if r["unit"] == "A1")
-    assert (a1["tenant"], a1["rent"], a1["street"], a1["variance"], a1["balance"]) == ("Aiden Robb", 15000, 20000, -5000, 95108)
+    assert (a1["tenant"], a1["rent"], a1["street"], a1["variance"], a1["balance"]) == ("Ada Sample", 15000, 20000, -5000, 95108)
     assert (a1["_f"], a1["_c"], a1["_u"]) == ("fac_a", "cust_1", "a1")
     assert out["facility"] == "Temecula" and len(out["rows"]) == 4
     assert out["totals"]["balance"] == 95108
@@ -227,7 +227,7 @@ def test_rent_roll_rows_link_to_tenant_and_unit(client):
 def test_accounts_receivable_buckets(client):
     out = client.get("/ops-reports/run/accounts-receivable").json()
     row = out["rows"][0]
-    assert (row["tenant"], row["total"], row["range_0_30"], row["range_30_60"]) == ("Aiden Robb", 95108, 15000, 80108)
+    assert (row["tenant"], row["total"], row["range_0_30"], row["range_30_60"]) == ("Ada Sample", 95108, 15000, 80108)
 
 
 def test_occupancy_and_vacant_units(client):
@@ -275,7 +275,7 @@ def test_receipts_by_charge_type_from_the_cash_ledger_with_drill_lines(client):
     assert set(by) == {"Rent", "State Tax", "Fees"}               # payment accounts are not charges
     assert (by["Rent"]["amount"], by["Fees"]["amount"], by["State Tax"]["amount"]) == (14000, 2500, 1000)
     sub = out["groups"][by["Rent"]["_sub"]]
-    assert sub["rows"][0]["tenant"] == "Aiden Robb" and sub["rows"][0]["_u"] == "a1"
+    assert sub["rows"][0]["tenant"] == "Ada Sample" and sub["rows"][0]["_u"] == "a1"
     tax = client.get("/ops-reports/run/receipts-by-tax-category", params={"facility_id": "fac_a", "start": "2026-10-01", "end": "2026-10-15"}).json()
     by = {(r["tax"], r["rate"]): r for r in tax["rows"]}
     assert by[("State Tax", "7.25%")]["collected"] == 1000 and by[("State Tax", "7.25%")]["taxable"] == 14000
@@ -331,7 +331,7 @@ def test_ledger_period_is_capped(client):
 def test_disbursements_and_compliance(client):
     out = client.get("/ops-reports/run/merchant-disbursements", params={"start": "2026-10-01", "end": "2026-10-15"}).json()
     assert len(out["rows"]) == 1 and out["rows"][0]["batch"] == "po_1" and out["rows"][0]["count"] == 1
-    assert out["groups"][out["rows"][0]["_sub"]]["rows"][0]["tenant"] == "Aiden Robb"
+    assert out["groups"][out["rows"][0]["_sub"]]["rows"][0]["tenant"] == "Ada Sample"
     comp = client.get("/ops-reports/run/lease-compliance").json()
     assert [(r["unit"], r["leaseAgreement"]) for r in comp["rows"]] == [("A1", "Signature Needed")]
     calls = [b for p, b in client.fake.calls if p == "leases/get-compliances"]
@@ -348,7 +348,7 @@ def test_accrual_ledger_carries_gl_mapping_and_tax_category(client):
 
 def test_tenant_drill_down(client):
     out = client.get("/ops-reports/tenant", params={"facility_id": "fac_a", "customer_id": "cust_1"}).json()
-    assert out["name"] == "Aiden Robb" and [u["unit"] for u in out["units"]] == ["A1"]
+    assert out["name"] == "Ada Sample" and [u["unit"] for u in out["units"]] == ["A1"]
     assert out["balance"]["total"] == 95108 and len(out["payments"]) == 2 and out["rentals"][0]["stayDays"] == 593
     assert out["cubbyUrl"].endswith("/tenants/cust_1")
     _no_secrets(out)

@@ -9,10 +9,12 @@
 // Notified -> Applied). Every number in a preview comes from the server
 // (backend/ops_revenue.py); saving a batch recomputes it there. Nexus never
 // emails a tenant: staff print the notice letters or use the mail-merge
-// export. Pushing to Cubby is one row at a time, by a person.
+// export. Nexus never writes to Cubby (Visesh, Oct 20 2026): staff enter each
+// new rent in Cubby by hand and mark the row Entered in Cubby - the only way a
+// row reaches Cubby. Do not add a push.
 // Street rates for new renters are Market Rates' job, not this tab's.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, FileText, Download, Send, Check, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileText, Download, Check, X } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { Modal } from '../tasks/components';
@@ -32,8 +34,9 @@ const STATUS = {
   applied: ['status-approved', 'Applied'], canceled: ['pill-muted', 'Canceled'],
 };
 const ROW_STATUS = {
-  pending: ['pill-muted', 'Not Yet in Cubby'], pushed: ['status-approved', 'Pushed to Cubby'],
-  entered: ['status-approved', 'Entered in Cubby'], failed: ['status-rejected', 'Push Failed'], removed: ['pill-muted', 'Removed'],
+  // "pushed" / "failed" only exist on rows from before Oct 20 2026.
+  pending: ['pill-muted', 'Not Yet in Cubby'], pushed: ['status-approved', 'In Cubby'],
+  entered: ['status-approved', 'Entered in Cubby'], failed: ['pill-muted', 'Not Yet in Cubby'], removed: ['pill-muted', 'Removed'],
 };
 const CAP_LABEL = { street: 'Capped at street rate', street_plus: 'Capped at street +', none: 'No cap' };
 
@@ -345,9 +348,9 @@ function ApplyModal({ facilityId, data, strategies, selected, onClose, onSaved }
   );
 }
 
-// ── A batch: approve, notices, push / enter in Cubby, applied ────────────────
+// ── A batch: approve, notices, mark entered in Cubby, applied ────────────────
 
-function BatchModal({ batchId, writeEnabled, onClose, onChanged }) {
+function BatchModal({ batchId, onClose, onChanged }) {
   const [b, setB] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');
@@ -363,17 +366,6 @@ function BatchModal({ batchId, writeEnabled, onClose, onChanged }) {
   const status = (s, ask) => act(s, async () => {
     if (ask && !window.confirm(ask)) return null;
     return api.opsRevenueSetStatus(batchId, s);
-  });
-  const push = (c) => act(c.id, async () => {
-    if (!window.confirm(`Schedule ${c.tenant}'s new rent in Cubby: ${cash(c.rent)} -> ${cash(c.newRent)}?`)) return null;
-    try {
-      return await api.opsRevenuePush(batchId, c.id);
-    } catch (e) {
-      if (e?.status === 409 && e?.detail?.cubbyDate && window.confirm(`${e.message}\n\nUse Cubby's date?`)) {
-        return api.opsRevenuePush(batchId, c.id, true);
-      }
-      throw e;
-    }
   });
   const letters = () => act('letters', async () => {
     const { blob, filename } = await api.opsRevenueLetters(batchId);
@@ -421,9 +413,7 @@ function BatchModal({ batchId, writeEnabled, onClose, onChanged }) {
         )}
         <p className="ops-note" style={{ margin: 0 }}>
           Nexus never emails tenants. Print the notices (address them from Cubby) or use the mail-merge file.
-          {open && (writeEnabled
-            ? ' Push each change to Cubby, or mark it Entered in Cubby if staff typed it there.'
-            : " Pushing to Cubby is not connected yet (it needs a Cubby key with the Manager role), so enter each change in Cubby and mark it Entered.")}
+          {open && " Nexus doesn't change rents in Cubby. Enter each change in Cubby, then mark it entered here. The batch is Applied once every row is marked."}
         </p>
         <div className="req-table-wrapper">
           <table className="req-table stack-table">
@@ -442,7 +432,6 @@ function BatchModal({ batchId, writeEnabled, onClose, onChanged }) {
                   <td data-th="Cubby">
                     <Badge map={ROW_STATUS} value={c.status} />
                     {c.cubbyChangeDate && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Takes effect {formatDate(c.cubbyChangeDate)}</div>}
-                    {c.pushDetail && <div style={{ fontSize: 12, color: 'var(--bad-fg)' }}>{c.pushDetail}</div>}
                   </td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     {b.status === 'draft' && c.status !== 'removed' && (
@@ -450,15 +439,9 @@ function BatchModal({ batchId, writeEnabled, onClose, onChanged }) {
                         onClick={() => act(c.id, () => api.opsRevenueRemoveChange(batchId, c.id))}><X size={14} /></button>
                     )}
                     {open && ['pending', 'failed'].includes(c.status) && (
-                      <>
-                        {writeEnabled && c.leaseId && (
-                          <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => push(c)}
-                            style={{ display: 'inline-flex', gap: 4, alignItems: 'center', marginRight: 6 }}><Send size={13} aria-hidden="true" /> Push to Cubby</button>
-                        )}
-                        <button type="button" className="secondary-btn" disabled={!!busy}
-                          onClick={() => act(c.id, () => api.opsRevenueEntered(batchId, c.id))}
-                          style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}><Check size={13} aria-hidden="true" /> Entered in Cubby</button>
-                      </>
+                      <button type="button" className="secondary-btn" disabled={!!busy}
+                        onClick={() => act(c.id, () => api.opsRevenueEntered(batchId, c.id))} aria-label={`Mark ${c.tenant} Entered in Cubby`}
+                        style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}><Check size={13} aria-hidden="true" /> Entered in Cubby</button>
                     )}
                   </td>
                 </tr>
@@ -693,7 +676,7 @@ export default function Revenue({ facility }) {
           }} />
       )}
       {modal?.kind === 'batch' && (
-        <BatchModal batchId={modal.id} writeEnabled={!!data?.writeEnabled} onClose={() => setModal(null)}
+        <BatchModal batchId={modal.id} onClose={() => setModal(null)}
           onChanged={() => { loadBatches(); load(); }} />
       )}
     </div>

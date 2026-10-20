@@ -1255,10 +1255,10 @@ export const api = {
   opsMarketAnalysis: (facilityId) => req(`/facility-ops/market/analysis?facility_id=${encodeURIComponent(facilityId)}`, { method: "POST" }),
   // StorTrack (Oct 2026): import the newest rates from Cubby's warehouse now (managers and above).
   syncOpsStorTrack: (facilityId) => req(`/facility-ops/market/stortrack/sync?facility_id=${encodeURIComponent(facilityId || "")}`, { method: "POST", timeoutMs: 180_000 }),
-  // Rate Management (Oct 20 2026): the CMA table, proposed-rate drafts, Review & Push to Cubby, rate history.
+  // Rate Management (Oct 20 2026): the CMA table, proposed-rate drafts, Mark Entered in Cubby, rate history. Nexus never writes to Cubby.
   getOpsRates: (facilityId) => req(`/facility-ops/rates?facility_id=${encodeURIComponent(facilityId)}`),
   saveOpsRateDraft: (data) => req("/facility-ops/rates/draft", { method: "PUT", body: JSON.stringify(data) }),
-  pushOpsRates: (facilityId, unitTypes) => req("/facility-ops/rates/push", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, confirm: true }), timeoutMs: 180_000 }),
+  markOpsRatesEntered: (facilityId, unitTypes, seen = {}) => req("/facility-ops/rates/entered", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, seen }) }),
   getOpsRateHistory: (facilityId, unitType) => req(`/facility-ops/rates/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
   // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
   getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
@@ -2533,7 +2533,6 @@ export const api = {
   opsRevenueBatch:      (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}`),
   opsRevenueSetStatus:  (id, status, note = '') => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/status`, { method: 'POST', body: JSON.stringify({ status, note }) }),
   opsRevenueRemoveChange: (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}`, { method: 'DELETE' }),
-  opsRevenuePush:       (id, cid, useCubbyDate = false) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/push`, { method: 'POST', body: JSON.stringify({ use_cubby_date: useCubbyDate }), timeoutMs: 60_000 }),
   opsRevenueEntered:    (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/entered`, { method: 'POST' }),
   opsRevenueExport:     (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/export`),
   opsRevenueLetters:    (id) => reqBlob(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/letters.pdf`),
@@ -2557,8 +2556,8 @@ export const api = {
   // Operations > Reports (Neil, Oct 20): Cubby's reports as interactive tables,
   // tenant / unit drill-down, and the Report Builder (saved, shared, scheduled).
   opsReportCatalog: () => req('/ops-reports/catalog'),
-  opsReport: (kind, { facilityId = '', start = '', end = '' } = {}) =>
-    req(`/ops-reports/run/${encodeURIComponent(kind)}?${new URLSearchParams({ facility_id: facilityId, start, end })}`),
+  // Old callers pass { facilityId }; the library passes { facilityIds, options } (_opsReportQuery, end of file).
+  opsReport: (kind, opts = {}) => req(`/ops-reports/run/${encodeURIComponent(kind)}?${_opsReportQuery(opts)}`),
   opsTenant: (facilityId, customerId) => req(`/ops-reports/tenant?${new URLSearchParams({ facility_id: facilityId, customer_id: customerId })}`),
   opsTenantLedger: (facilityId, customerId) => req(`/ops-reports/tenant/ledger?${new URLSearchParams({ facility_id: facilityId, customer_id: customerId })}`),
   opsUnit: (facilityId, unitId) => req(`/ops-reports/unit?${new URLSearchParams({ facility_id: facilityId, unit_id: unitId })}`),
@@ -2608,6 +2607,18 @@ export const api = {
   getTicketSuggestedTopic: (id) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/suggested-topic`),
   getTicketAiSummary: (id) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/summary`),
   makeTicketAiSummary: (id, refresh = false) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/summary`, { method: "POST", body: JSON.stringify({ refresh }), timeoutMs: 60_000 }),
+  // Operations > Reports library (Oct 20): a report as a formatted file
+  // (xlsx | pdf | csv -> {blob, filename}; saveBlob() below saves it), the
+  // Report Builder's table as one, and scheduled report emails.
+  opsReportExport: (kind, { format = 'xlsx', ...opts } = {}) =>
+    reqBlob(`/ops-reports/export/${encodeURIComponent(kind)}?${_opsReportQuery(opts, { format })}`, { timeoutMs: 180_000 }),
+  opsBuilderExport: (spec, name, format = 'xlsx') => reqBlob(`/ops-reports/builder/export?format=${encodeURIComponent(format)}`,
+    { method: 'POST', body: JSON.stringify({ spec, name }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 180_000 }),
+  opsReportSchedules: () => req('/ops-reports/schedules'),
+  createOpsReportSchedule: (data) => req('/ops-reports/schedules', { method: 'POST', body: JSON.stringify(data) }),
+  updateOpsReportSchedule: (id, data) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteOpsReportSchedule: (id) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  sendOpsReportSchedule: (id, toMe = false) => req(`/ops-reports/schedules/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify({ to_me: toMe }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
@@ -2650,4 +2661,31 @@ export async function fetchPublicUnitMapTemplate(params) {
   const res = await fetch(`${BASE}/unit-map/u?${q}`);
   if (!res.ok) { let d = ''; try { d = (await res.json()).detail; } catch { /* not JSON */ } throw new Error(typeof d === 'string' && d ? d : `Could not load the map (${res.status})`); }
   return res.json();
+}
+
+// Operations reports: the query string for /ops-reports/run and /export.
+// { facilityId } (one, or '' for all) is the old form; { facilityIds } is a
+// list ([] = all) and also sends facility_id when it holds one, so a server
+// without facility_ids still gets it right. Options go as their own params.
+function _opsReportQuery({ facilityId = '', facilityIds, start = '', end = '', options } = {}, extra = {}) {
+  const ids = Array.isArray(facilityIds) ? facilityIds.filter(Boolean) : null;
+  const q = new URLSearchParams({ ...extra, facility_id: ids ? (ids.length === 1 ? ids[0] : '') : facilityId, start, end });
+  if (ids?.length) q.set('facility_ids', ids.join(','));
+  const opts = Object.fromEntries(Object.entries(options || {}).filter(([, v]) => v !== undefined && v !== null));
+  Object.entries(opts).forEach(([k, v]) => q.set(k, typeof v === 'boolean' ? String(v) : v));
+  // The export endpoint reads them as one JSON object.
+  if (Object.keys(opts).length) q.set('options', JSON.stringify(opts));
+  return q;
+}
+
+// Save a {blob, filename} from reqBlob as a download.
+export function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'download';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

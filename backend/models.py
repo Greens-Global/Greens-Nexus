@@ -6956,8 +6956,8 @@ class LeaveLedgerEntry(Base):
 class OpsRateDraft(Base):
     """Operations -> Rate Management (Neil / Miranda, Oct 20 2026): a street
     rate someone proposed for one of our unit types (a Cubby pricing group)
-    and has not pushed yet. One row per facility and unit type, replaced in
-    place; pushing it (ops_rate_mgmt.py) deletes it and writes OpsRatePush.
+    and nobody has entered in Cubby yet. One row per facility and unit type,
+    replaced in place; Mark Entered in Cubby deletes it and writes OpsRatePush.
     New table - create_all builds it; RLS line in main.py."""
     __tablename__ = "ops_rate_drafts"
     id                 = Column(String, primary_key=True)
@@ -6973,12 +6973,14 @@ class OpsRateDraft(Base):
 
 
 class OpsRatePush(Base):
-    """Audit log of every street rate change Nexus sent to Cubby (one row per
-    unit type per push, failed tries included) - Rate Management's history of
-    OUR rates. Rows are only ever added. New table - RLS line in main.py."""
+    """Audit log of our street rate changes - Rate Management's history of OUR
+    rates. Since Oct 20 2026 Nexus never writes to Cubby: each row is a rate
+    staff entered in Cubby by hand and marked entered (status "entered").
+    Older rows (ok | failed | skipped) were API pushes; they stay as history.
+    Rows are only ever added. Table name kept. RLS line in main.py."""
     __tablename__ = "ops_rate_pushes"
     id                  = Column(String, primary_key=True)
-    batch_id            = Column(String, index=True, default="")    # one Review & Push click
+    batch_id            = Column(String, index=True, default="")    # one Mark Entered click
     facility_id         = Column(String, index=True, nullable=False)
     unit_type           = Column(String, default="")
     pricing_group_id    = Column(String, default="")
@@ -6988,7 +6990,7 @@ class OpsRatePush(Base):
     new_sell_cents      = Column(Integer)
     vacant              = Column(Integer, default=0)
     monthly_delta_cents = Column(Integer, default=0)                # (new sell - old sell) x vacant units
-    status              = Column(String, default="")                # ok | failed | skipped
+    status              = Column(String, default="")                # entered | skipped (legacy: ok | failed)
     detail              = Column(String, default="")
     pushed_by           = Column(String, default="")
     pushed_at           = Column(String, default="", index=True)
@@ -7050,8 +7052,8 @@ class OpsRevenueBatch(Base):
 
 
 class OpsRevenueChange(Base):
-    """One tenant's proposed rent change inside a batch, and how it reached
-    Cubby (pushed through the API, or entered there by staff)."""
+    """One tenant's proposed rent change inside a batch, and whether staff
+    have entered it in Cubby by hand ("entered"; "pushed" = legacy API rows)."""
     __tablename__ = "ops_revenue_changes"
     id                 = Column(String, primary_key=True)
     batch_id           = Column(String, index=True, nullable=False)
@@ -7076,7 +7078,7 @@ class OpsRevenueChange(Base):
 
 
 class OpsRevenueAudit(Base):
-    """Every step of a batch and every Cubby push attempt, success or not."""
+    """Every step of a batch (legacy rows also log old Cubby push attempts)."""
     __tablename__ = "ops_revenue_audit"
     id         = Column(String, primary_key=True)
     batch_id   = Column(String, index=True, nullable=False)
@@ -7228,3 +7230,30 @@ class TicketAiSummary(Base):
     # The comment ids it was built from: one of them gone = not shown (a
     # backstop to delete_ticket_comment dropping the ticket's rows).
     source_comment_ids = Column(JSON, default=list)
+
+
+class OpsReportSchedule(Base):
+    """A catalog report (ops_reports.CATALOG) emailed on a schedule as an
+    XLSX / PDF / CSV attachment - Operations > Reports > Scheduled (Oct 20
+    2026, ops_report_schedules.py). New table - explicit RLS line in main.py."""
+    __tablename__ = "ops_report_schedules"
+    id               = Column(String, primary_key=True)
+    owner_email      = Column(String, default="", index=True)
+    name             = Column(String, default="")
+    kind             = Column(String, default="")           # an ops_reports.CATALOG key
+    facility_ids     = Column(JSON, default=list)           # [] = every facility
+    period           = Column(JSON, default=dict)           # {"mode": current|previous, "unit": day|week|month|quarter|year}
+    options          = Column(JSON, default=dict)           # the report's own switches
+    format           = Column(String, default="xlsx")       # xlsx | pdf | csv
+    frequency        = Column(String, default="weekly")     # daily | weekly | monthly
+    day              = Column(Integer, default=0)           # weekly: 0 = Monday .. 6; monthly: 1-28
+    hour             = Column(Integer, default=7)           # 0-23, Pacific
+    include_weekends = Column(Boolean, default=False)       # daily only
+    active           = Column(Boolean, default=True)
+    recipients       = Column(JSON, default=list)           # Nexus People work emails - staff, never tenants
+    last_sent_period = Column(String, default="")           # the claim: a period is sent once
+    last_sent_at     = Column(String, default="")
+    last_attempt_at  = Column(String, default="")
+    last_error       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
