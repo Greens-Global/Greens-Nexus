@@ -1536,7 +1536,7 @@ export const DOCS = [
         steps: [
           'Marking a candidate Hired starts their onboarding checklist, and a signed promotion letter starts their promotion checklist. For anyone else, open their profile, click the Checklist tab, then Start Checklist.',
           'Pick Onboarding, Promotion, Offboarding or Leave or Suspension. Promotion asks for the date the new role takes effect. Offboarding asks for the exit date and the exit type; start it the day notice is received.',
-          'Each person who owns steps gets ONE task for the checklist in Tasks (for example Onboarding: Jane Doe - 4 Steps) listing their steps; it completes itself when their last step is done.',
+          'Each person who owns steps gets ONE task for the checklist in Tasks (for example Onboarding: Jane Doe - 4 Steps) with a subtask for each of their steps. It works both ways: completing a subtask marks that step done on the checklist, and ticking a step on the checklist completes its subtask. Completing the whole task marks all their remaining steps done; when their last step is done the task completes by itself. A step given to someone else moves its subtask to them.',
           'Each step shows its owner and due date. Click the circle to mark a step done, the block icon to mark it N/A with a reason, or the people icon to change the owner or date.',
           'Steps marked Auto-Ticks are marked done by Nexus itself when it sees it happen, for example a finished provisioning run or the status changing to Left.',
         ],

@@ -1909,6 +1909,10 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # Keeps `completed`, its timestamp and `status` in step regardless of which
     # one the caller actually sent.
     _apply_completion(t, new_completed, prev_completed)
+    if bool(new_completed) != bool(prev_completed):
+        # An HR checklist task closes (or reopens) its checklist steps (Oct 20).
+        import hr_checklists
+        hr_checklists.task_completed(db, t, bool(new_completed), user["email"])
 
     _sync_reciprocal_dependencies(db, t, data)
 
@@ -2491,6 +2495,9 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             auto_results.append(auto)
         _apply_completion(t, new_completed, prev_completed)
         t.modified_at = now_iso()
+        if bool(new_completed) != bool(prev_completed):
+            import hr_checklists
+            hr_checklists.task_completed(db, t, bool(new_completed), user["email"])
 
     # Activity + notifications. Bulk previously did NEITHER: reassigning fifty
     # tasks told nobody and left no audit trail, while the same edit made one at

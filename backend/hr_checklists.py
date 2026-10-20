@@ -17,9 +17,9 @@ The pieces:
   - run_daily() the reminder pass, called from reminders_loop: one bell
                 notification per checklist per owner, updated in place - never
                 one per row
-  - sync_tasks() ONE task per checklist per owner (Pranshu, Oct 19: "it will
-                directly create a task to that particular individual"), listing
-                their steps; it completes itself when their last step closes
+  - sync_tasks() ONE task per checklist per owner with a subtask per step,
+                closing both ways with the steps (task_completed is the Tasks
+                side) - Pranshu, Oct 19-20
 
 Routers live in routers/hr_checklists.py. Nothing here talks to Microsoft
 Graph; every query is local, so the daily pass runs inside asyncio.to_thread.
@@ -565,70 +565,167 @@ def sync(db, cl: HrChecklist, emp: NexusEmployee = None) -> bool:
 
 
 # --- Tasks -----------------------------------------------------------------
+# Each owner gets ONE task per checklist with one SUBTASK per step they own
+# (Pranshu, Oct 20: "whatever has been assigned to them should auto create a
+# task for them, and when they close the task it should close the checklist
+# step, or if they close the checklist step it closes the task"):
+#   step done / N/A        -> its subtask completes (sync_tasks)
+#   subtask completed      -> its step is done (task_completed)
+#   subtask reopened       -> its step reopens
+#   parent completed       -> every step still open under it is done
+#   no step left open      -> the parent completes; one coming back reopens it
+# HrChecklistItem.task_id is the step's subtask; the parent is its parent_task_id.
 
-def _task_text(cl: HrChecklist, emp: NexusEmployee, rows: list) -> tuple:
+def _new_task(db, cl: HrChecklist, owner: str, title: str, desc: str, due: str, by: str, parent_id: str = ""):
+    import models
+    from routers.task_util import set_task_assignees
+    from routers.tasks import _next_code
+    now = _now()
+    t = models.Task(
+        id=str(uuid.uuid4()), code=_next_code(db), company_id=cl.company or "", title=title,
+        description=desc, type="task", status="not_started", priority="medium",
+        position=datetime.now().timestamp(), assignee_email="", assignee_emails=[],
+        owner_email=(by or "nexus").lower(), follower_emails=[], liked_by_emails=[],
+        access_level="restricted", project_id="", project_ids=[], section_id="", team_id="",
+        parent_task_id=parent_id, subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={},
+        tags=[], custom_field_values={}, start_on="", due_on=due, approval_status="none",
+        completed=False, completed_at="", comment_ids=[], attachment_ids=[], activity_ids=[],
+        created_at=now, modified_at=now, created_by=(by or "nexus").lower())
+    set_task_assignees(t, [owner])
+    db.add(t)
+    return t
+
+
+def _set_done(t, done: bool) -> bool:
+    if t is None or bool(t.completed) == done:
+        return False
+    now = _now()
+    t.completed, t.completed_at, t.modified_at = done, (now if done else ""), now
+    t.status = "completed" if done else "not_started"
+    return True
+
+
+def _parent_text(cl: HrChecklist, emp: NexusEmployee, open_rows: list) -> tuple:
     label = KIND_LABELS.get(cl.kind, cl.kind)
-    n = len(rows)
-    title = f"{label}: {full_name(emp)} - {n} Step{'s' if n != 1 else ''}"
-    lines = [f"- {r.title}" + (f" (due {us_date(r.due_date)})" if r.due_date else "") for r in rows]
-    desc = (f"Your steps on {full_name(emp)}'s {label.lower()} checklist:\n" + "\n".join(lines)
-            + "\n\nTick each one in My HR > My Checklist Tasks. This task completes itself when your last step is done.")
+    n = len(open_rows)
+    title = f"{label}: {full_name(emp)} - {n} Step{'s' if n != 1 else ''}" if n else f"{label}: {full_name(emp)}"
+    desc = (f"Your steps on {full_name(emp)}'s {label.lower()} checklist are the subtasks below. Completing one "
+            f"marks that step done on the checklist (and ticking the step on the checklist completes it here). "
+            f"Completing this task marks every step still open done.")
     return title, desc
 
 
 def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus", first: bool = False) -> list:
-    """ONE task per checklist per owner, listing their open steps, due with the
-    earliest of them; completed when none is left open. Returns the ids of
-    tasks it created (the caller commits, then may send the task email).
-    Only checklists started with tasks (`first`, from start()) get them - the
-    ones open before Oct 19 are left as they were, never a burst of tasks."""
+    """Bring the owners' tasks in line with the checklist: a parent per owner, a
+    subtask per step (moved when a step is reassigned), each completed exactly
+    when its step / all their steps are closed. Returns the ids of new parent
+    tasks (the caller commits, then may send the task email). Only checklists
+    started with tasks (`first`, from start()) get them - the ones open before
+    Oct 19 are left as they were, never a burst of tasks."""
     import models
+    from routers.task_util import set_task_assignees
     emp = emp or db.query(NexusEmployee).filter(NexusEmployee.id == cl.employee_id).first()
     items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
     if emp is None or not items or not (first or any(i.task_id for i in items)):
         return []
-    tids = {i.task_id for i in items if i.task_id}
-    tasks = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(tids))).all()} if tids else {}
-    open_by_owner = {}
-    if cl.status == "open":
-        for it in sorted(items, key=lambda x: (x.due_date or "9999-12-31", x.sort_order or 0)):
-            if it.status == "open" and it.owner_email:
-                open_by_owner.setdefault(it.owner_email.lower(), []).append(it)
-    now, created, kept = _now(), [], set()
-    for owner, rows in open_by_owner.items():
-        t = next((tasks[r.task_id] for r in items if r.task_id in tasks
-                  and (tasks[r.task_id].assignee_email or "").lower() == owner
-                  and not getattr(tasks[r.task_id], "deleted_at", "")), None)
-        title, desc = _task_text(cl, emp, rows)
-        due = next((r.due_date for r in rows if r.due_date), "")
-        if t is None:
-            from routers.task_util import set_task_assignees
-            from routers.tasks import _next_code
-            t = models.Task(
-                id=str(uuid.uuid4()), code=_next_code(db), company_id=cl.company or "", title=title,
-                description=desc, type="task", status="not_started", priority="medium",
-                position=datetime.now().timestamp(), assignee_email="", assignee_emails=[],
-                owner_email=(by or "nexus").lower(), follower_emails=[], liked_by_emails=[],
-                access_level="restricted", project_id="", project_ids=[], section_id="", team_id="",
-                parent_task_id="", subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={},
-                tags=[], custom_field_values={}, start_on="", due_on=due, approval_status="none",
-                completed=False, completed_at="", comment_ids=[], attachment_ids=[], activity_ids=[],
-                created_at=now, modified_at=now, created_by=(by or "nexus").lower())
-            set_task_assignees(t, [owner])
-            db.add(t)
-            tasks[t.id] = t
-            created.append(t.id)
-        elif (t.title, t.description, t.due_on or "", bool(t.completed)) != (title, desc, due, False):
-            t.title, t.description, t.due_on, t.modified_at = title, desc, due, now
-            if t.completed:          # a step came back to them
-                t.completed, t.completed_at, t.status = False, "", "not_started"
-        kept.add(t.id)
-        for r in rows:
-            r.task_id = t.id
-    for t in tasks.values():
-        if t.id not in kept and not t.completed:
-            t.completed, t.completed_at, t.status, t.modified_at = True, now, "completed", now
+    ids = {i.task_id for i in items if i.task_id}
+    subs = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(ids)))} if ids else {}
+    pids = {t.parent_task_id for t in subs.values() if t.parent_task_id}
+    parents = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(pids)))} if pids else {}
+    by_owner = {}
+    for p in parents.values():
+        if not getattr(p, "deleted_at", ""):
+            by_owner.setdefault((p.assignee_email or "").lower(), p)
+    live = cl.status == "open"
+    created, now = [], _now()
+    rows = sorted(items, key=lambda x: (x.sort_order or 0))
+    for owner in dict.fromkeys((i.owner_email or "").lower() for i in rows if i.owner_email):
+        mine = [i for i in rows if (i.owner_email or "").lower() == owner]
+        open_rows = sorted([i for i in mine if i.status == "open"], key=lambda x: (x.due_date or "9999-12-31", x.sort_order or 0))
+        parent = by_owner.get(owner)
+        if parent is None:
+            if not (live and open_rows):
+                continue                      # nothing for them to do - no task
+            title, desc = _parent_text(cl, emp, open_rows)
+            parent = _new_task(db, cl, owner, title, desc, open_rows[0].due_date or "", by)
+            by_owner[owner] = parent
+            created.append(parent.id)
+        kids = list(parent.subtask_ids or [])
+        for it in mine:
+            sub = subs.get(it.task_id)
+            if sub is None or getattr(sub, "deleted_at", ""):
+                if it.status != "open" and sub is None and not it.task_id:
+                    continue                  # closed before it ever had a subtask
+                sub = _new_task(db, cl, owner, it.title, it.hint or "", it.due_date or "", by, parent_id=parent.id)
+                subs[sub.id] = sub
+                it.task_id = sub.id
+            elif (sub.assignee_email or "").lower() != owner or sub.parent_task_id != parent.id:
+                old = parents.get(sub.parent_task_id)
+                if old is not None:           # reassigned: the subtask moves to the new owner's task
+                    old.subtask_ids = [x for x in (old.subtask_ids or []) if x != sub.id]
+                set_task_assignees(sub, [owner])
+                sub.parent_task_id, sub.modified_at = parent.id, now
+            if (sub.due_on or "") != (it.due_date or ""):
+                sub.due_on, sub.modified_at = it.due_date or "", now
+            _set_done(sub, it.status != "open" or not live)
+            if sub.id not in kids:
+                kids.append(sub.id)
+        parent.subtask_ids = kids
+        title, desc = _parent_text(cl, emp, open_rows)
+        due = next((r.due_date for r in open_rows if r.due_date), "")
+        if (parent.title, parent.description, parent.due_on or "") != (title, desc, due):
+            parent.title, parent.description, parent.due_on, parent.modified_at = title, desc, due, now
+        _set_done(parent, not (live and open_rows))
+    # An owner who no longer has any step here (all reassigned away).
+    owners = {(i.owner_email or "").lower() for i in rows}
+    for owner, p in by_owner.items():
+        if owner not in owners:
+            _set_done(p, True)
     return created
+
+
+def _close_if_done(cl: HrChecklist, items: list) -> None:
+    closed = bool(items) and all(i.status in ("done", "na") for i in items)
+    if closed and cl.status == "open":
+        cl.status, cl.closed_at = "done", _now()
+    elif not closed and cl.status == "done":
+        cl.status, cl.closed_at = "open", ""
+
+
+def task_completed(db, task, done: bool, by: str) -> bool:
+    """Tasks told us a checklist task was completed or reopened (update_task /
+    bulk_update, after the change landed). Mirrors it onto the steps. Returns
+    True when it was a checklist task. The caller commits."""
+    import models
+    if task is None:
+        return False
+    if task.parent_task_id:
+        step = db.query(HrChecklistItem).filter(HrChecklistItem.task_id == task.id).first()
+        steps = [step] if step is not None else []
+    else:
+        kid_ids = [k for k in (task.subtask_ids or []) if k]
+        steps = (db.query(HrChecklistItem).filter(HrChecklistItem.task_id.in_(kid_ids)).all() if kid_ids else [])
+        if not done:
+            return bool(steps)                # reopening the parent changes no step
+    if not steps:
+        return False
+    cl = db.query(HrChecklist).filter(HrChecklist.id == steps[0].checklist_id).first()
+    if cl is None or cl.status == "cancelled":
+        return True
+    who, now = (by or "").lower(), _now()
+    for it in steps:
+        if done and it.status == "open":
+            it.status, it.done_by, it.done_at = "done", who, now
+        elif not done and it.status == "done":
+            it.status, it.done_by, it.done_at = "open", "", ""
+    if not task.parent_task_id and done:
+        for sub in db.query(models.Task).filter(models.Task.id.in_([s.task_id for s in steps])).all():
+            _set_done(sub, True)
+    db.flush()
+    items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
+    _close_if_done(cl, items)
+    sync_tasks(db, cl, by=who)
+    return True
 
 
 # --- Serializers -----------------------------------------------------------
