@@ -2328,6 +2328,8 @@ def delete_ticket_comment(comment_id: str, user: dict = Depends(get_current_user
                                     "author": (c.author_email or "").lower(),
                                     "createdAt": c.created_at or ""}))
     db.delete(c)
+    # A cached AI Summary may quote the deleted words (routers/ticket_ai.py).
+    db.query(models.TicketAiSummary).filter(models.TicketAiSummary.ticket_id == t.id).delete()
     db.commit()
 
 

@@ -243,7 +243,10 @@ def _call(*, model: str, system: str, user_text: str, schema: dict, timeout: flo
     # A safety decline arrives as HTTP 200 - check before reading content.
     if data.get("stop_reason") in ("refusal", "max_tokens"):
         raise AiUnavailable(f"stop_reason {data.get('stop_reason')}")
-    text = next((b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"), "")
+    # The LAST text block: with a server-side fallback the answer that counts
+    # follows the {"type": "fallback"} marker, after any declined attempt.
+    texts = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
+    text = texts[-1] if texts else ""
     try:
         out = json.loads(text)
     except (TypeError, ValueError) as e:
@@ -291,8 +294,9 @@ def visible_comments(db: Session, ticket_id: str, internal_ok: bool) -> list:
 def fingerprint(t: models.TaskTicket, comments: list, audience: str) -> str:
     """What the cached summary was built from. Any new, edited or deleted
     comment the viewer can see, or a change of subject / description /
-    status, moves it."""
+    status / priority / requester / assignee, moves it."""
     parts = [audience, t.subject or "", t.description or "", t.status or "", t.priority or "",
+             (t.requester_email or "").lower(), (t.assignee_email or "").lower(),
              [(c.id, c.edited_at or c.created_at or "", len(c.body or "")) for c in comments]]
     return hashlib.sha256(json.dumps(parts, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -325,8 +329,10 @@ def summary_prompt(t: models.TaskTicket, comments: list, name_of, internal_ok: b
     return tag, intro + block
 
 
-def generate_summary(t: models.TaskTicket, comments: list, name_of, internal_ok: bool) -> dict:
-    _tag, user_text = summary_prompt(t, comments, name_of, internal_ok)
+def generate_summary(user_text: str) -> dict:
+    """The summary for a prompt built by summary_prompt. Takes no session on
+    purpose: the caller releases its DB connection before this (the call can
+    take SUMMARY_TIMEOUT seconds, and the pool is a handful per worker)."""
     out = _call(model=SUMMARY_MODEL, system=SUMMARY_SYSTEM, user_text=user_text, schema=SUMMARY_SCHEMA,
                 timeout=SUMMARY_TIMEOUT, max_tokens=3000, fallback=True)
     fields = {k: clean_output(out.get(k)) for k in ("issue", "tried", "state", "next_step")}
@@ -516,8 +522,13 @@ def suggest(db: Session, *, subject: str, description: str, dept_name: str, use_
     clear = len(hits) == 1 or (len(hits) > 1 and hits[0]["score"] >= 2 * hits[1]["score"] and hits[0]["score"] >= 3)
     if not use_llm or clear:
         return {"suggestions": keyword, "ranked": "keyword" if keyword else "none"}
+    user_text = topic_prompt(names, subject, description, hits)
+    # All DB work is done: give the pooled connection back for the model call
+    # (rollback ends the read-only transaction; the session reconnects on its
+    # next query). Callers must not rely on ORM objects loaded before this.
+    db.rollback()
     try:
-        out = _call(model=TOPIC_MODEL, system=TOPIC_SYSTEM, user_text=topic_prompt(names, subject, description, hits),
+        out = _call(model=TOPIC_MODEL, system=TOPIC_SYSTEM, user_text=user_text,
                     schema=TOPIC_SCHEMA, timeout=TOPIC_TIMEOUT, max_tokens=1500)
     except AiUnavailable:
         return {"suggestions": keyword, "ranked": "keyword" if keyword else "none"}

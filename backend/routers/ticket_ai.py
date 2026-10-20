@@ -141,10 +141,14 @@ def _audience(db: Session, t: models.TaskTicket, user: dict) -> tuple:
     return ("internal" if internal_ok else "public"), internal_ok
 
 
-def _row_out(db: Session, row, current_fp: str, audience: str) -> dict:
+def _row_out(db: Session, row, current_fp: str, audience: str, current_ids: set) -> dict:
+    """`current_ids`: the ids of the comments this viewer can see now. A row
+    built from a comment that is gone is not shown at all (it may quote it)."""
     out = {"available": True, "audience": audience, "includesInternal": audience == "internal",
            "summary": None, "stale": False, "generatedAt": "", "generatedBy": ""}
     if row is None:
+        return out
+    if any(cid not in current_ids for cid in (row.source_comment_ids or [])):
         return out
     try:
         content = json.loads(row.content or "{}")
@@ -171,8 +175,9 @@ def get_ticket_summary(ticket_id: str, user: dict = Depends(get_current_user), d
     if not ticket_ai.status(db)["summaries"]:
         return {"available": False}
     audience, internal_ok = _audience(db, t, user)
-    fp = ticket_ai.fingerprint(t, ticket_ai.visible_comments(db, t.id, internal_ok), audience)
-    return _row_out(db, _cached(db, t.id, audience), fp, audience)
+    comments = ticket_ai.visible_comments(db, t.id, internal_ok)
+    fp = ticket_ai.fingerprint(t, comments, audience)
+    return _row_out(db, _cached(db, t.id, audience), fp, audience, {c.id for c in comments})
 
 
 @router.post("/ticket-ai/tickets/{ticket_id}/summary")
@@ -180,29 +185,45 @@ def make_ticket_summary(ticket_id: str, body: SummaryBody = SummaryBody(),
                         user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Summarize (or Refresh). A summary still current for this audience is
     returned as is - nothing is regenerated until something changed - unless
-    `refresh` asks for a new one anyway."""
+    `refresh` asks for a new one anyway.
+
+    The model call can take SUMMARY_TIMEOUT seconds and the DB pool is a
+    handful of connections per worker, so the prompt is built and every
+    scalar copied out FIRST, the session's transaction is rolled back (the
+    connection goes back to the pool) for the call, and the row is re-read
+    afterwards."""
     t = _desk_ticket(db, user, ticket_id)
     if not ticket_ai.status(db)["summaries"]:
         raise HTTPException(409, "AI features are turned off for the service desk.")
     audience, internal_ok = _audience(db, t, user)
     comments = ticket_ai.visible_comments(db, t.id, internal_ok)
     fp = ticket_ai.fingerprint(t, comments, audience)
+    ids = [c.id for c in comments]
     row = _cached(db, t.id, audience)
     if row is not None and row.fingerprint == fp and not body.refresh:
-        return {**_row_out(db, row, fp, audience), "cached": True}
+        return {**_row_out(db, row, fp, audience, set(ids)), "cached": True}
     if not ticket_ai.allow("summary", user.get("email"), ticket_ai.SUMMARY_PER_MIN):
         raise HTTPException(429, TOO_MANY)
+    _tag, user_text = ticket_ai.summary_prompt(t, comments, lambda e: _name(db, e), internal_ok)
+    tid, company_id = t.id, t.company_id or ""
+    db.rollback()   # release the connection - nothing below may use `t` / `comments`
     try:
-        content = ticket_ai.generate_summary(t, comments, lambda e: _name(db, e), internal_ok)
+        content = ticket_ai.generate_summary(user_text)
     except ticket_ai.AiUnavailable as e:
-        print(f"[ticket_ai] summary failed for {t.id}: {e}")
+        print(f"[ticket_ai] summary failed for {tid}: {e}")
         raise HTTPException(424, FRIENDLY_FAIL)
-    values = {"ticket_id": t.id, "audience": audience, "company_id": t.company_id or "", "fingerprint": fp,
+    values = {"ticket_id": tid, "audience": audience, "company_id": company_id, "fingerprint": fp,
               "content": json.dumps(content), "model": ticket_ai.SUMMARY_MODEL,
-              "generated_by": (user.get("email") or "").lower(), "generated_at": now_iso()}
-    row = _cached(db, t.id, audience)
+              "generated_by": (user.get("email") or "").lower(), "generated_at": now_iso(),
+              "source_comment_ids": ids}
+    # Re-read: a comment deleted while the model was answering would make
+    # this summary quote words that are gone - store nothing then.
+    now_ids = {c.id for c in ticket_ai.visible_comments(db, tid, internal_ok)}
+    if any(i not in now_ids for i in ids):
+        raise HTTPException(409, "The conversation changed while the summary was being made - try again.")
+    row = _cached(db, tid, audience)
     if row is None:
-        row = models.TicketAiSummary(id=f"{t.id}:{audience}", **values)
+        row = models.TicketAiSummary(id=f"{tid}:{audience}", **values)
         db.add(row)
     else:
         for k, v in values.items():
@@ -212,8 +233,8 @@ def make_ticket_summary(ticket_id: str, body: SummaryBody = SummaryBody(),
     except IntegrityError:
         # Two agents summarized at once - the other insert won; take ours over it.
         db.rollback()
-        row = _cached(db, t.id, audience)
+        row = _cached(db, tid, audience)
         for k, v in values.items():
             setattr(row, k, v)
         db.commit()
-    return {**_row_out(db, row, fp, audience), "cached": False}
+    return {**_row_out(db, row, fp, audience, now_ids), "cached": False}

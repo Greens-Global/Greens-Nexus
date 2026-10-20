@@ -3608,8 +3608,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{helpWithLabel(v) || '-'}</div>
           )}
-          {/* Suggested Help Topic for a ticket filed without one (TicketAi.jsx); held for Done like any edit. */}
-          {fullAccess && (
+          {/* Suggested Help Topic for a ticket filed without one (TicketAi.jsx); held for Done like any edit. Hidden while a department change is held - its topics are another list. */}
+          {fullAccess && !('hrDepartmentId' in pending) && (
             <DrawerSuggestedTopic ticketId={t.id} hasTopic={!!(v.application || '').trim()} canWorkQueue={deskAccess.canWorkQueue}
               onApply={(name) => stage({ application: name })} />
           )}

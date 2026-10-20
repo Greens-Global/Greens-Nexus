@@ -172,7 +172,7 @@ export function SuggestedTopicChips({ subject, description, departmentId, value,
   const text = `${subject || ''} ${plainText(description)}`.trim();
 
   useEffect(() => {
-    if (!on || !departmentId || text.length < SUGGEST_MIN_CHARS) { setSuggestions([]); return undefined; }
+    if (!on || !departmentId || text.length < SUGGEST_MIN_CHARS) { seq.current += 1; setSuggestions([]); return undefined; }
     const mine = ++seq.current;
     const timer = setTimeout(() => {
       api.suggestTicketTopics({ subject: (subject || '').slice(0, 1200), description: plainText(description).slice(0, 20000), department_id: departmentId })

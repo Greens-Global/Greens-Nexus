@@ -7186,3 +7186,6 @@ class TicketAiSummary(Base):
     model        = Column(String, default="")
     generated_by = Column(String, default="")
     generated_at = Column(String, default="")
+    # The comment ids it was built from: one of them gone = not shown (a
+    # backstop to delete_ticket_comment dropping the ticket's rows).
+    source_comment_ids = Column(JSON, default=list)
