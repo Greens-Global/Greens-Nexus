@@ -90,6 +90,12 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   const byName = useMemo(() => Object.fromEntries((model.units || []).map((u) => [u.n, u])), [model]);
   const ticketsByUnit = useMemo(() => { const m = {}; tickets.forEach((t) => { const k = normalizeQuery(t.location || ''); if (k && byName[k]) (m[k] = m[k] || []).push(t); }); return m; }, [tickets, byName]);
   const maxLevel = useMemo(() => Math.max(1, ...(model.buildings || []).map((b) => b.floors || 1)), [model]);
+  // See Inside only means something where units sit inside a real building
+  // (not open stalls tagged with a section letter, e.g. Temecula).
+  const hasInterior = useMemo(() => {
+    const ids = new Set((model.buildings || []).filter((b) => b.kind !== 'office').map((b) => b.id));
+    return (model.units || []).some((u) => ids.has(u.b));
+  }, [model]);
   const statusFn = statusOf || defaultStatus;
   // fill: the map + panel take the rest of the screen below where they start (min 520px).
   const rootRef = useRef(null); const [fillH, setFillH] = useState(600);
@@ -189,7 +195,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             <span style={{ display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' }} role="group" aria-label="Look">
               {[['satellite', 'Satellite'], ['illustrated', 'Illustrated']].map(([k, l]) => <button key={k} type="button" aria-pressed={look === k} onClick={() => { if (look !== k) { setLook(k); saveLook(k); setPlacing(false); setLevel(0); } }} style={{ ...btn, border: 0, borderRadius: 0, ...(look === k ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{l}</button>)}
             </span>
-            <button type="button" style={xray ? btnOn : btn} aria-pressed={xray} onClick={() => { setXray(!xray); viewerRef.current?.setXray(!xray); }}>See Inside</button>
+            {hasInterior && <button type="button" style={xray ? btnOn : btn} aria-pressed={xray} title="Open the buildings to see the units inside" onClick={() => { setXray(!xray); viewerRef.current?.setXray(!xray); }}>See Inside</button>}
             {maxLevel > 1 && <span style={{ display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' }} role="group" aria-label="Level">
               {[0, ...Array.from({ length: maxLevel }, (_, i) => i + 1)].map((n) => <button key={n} type="button" aria-pressed={level === n} onClick={() => setLvl(n)} style={{ ...btn, border: 0, borderRadius: 0, ...(level === n ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{n ? `L${n}` : 'All Levels'}</button>)}
             </span>}
