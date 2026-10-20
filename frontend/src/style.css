@@ -6565,30 +6565,37 @@ body:has(.docs-root) { overflow-x: clip; }
 .nx-md th, .nx-md td { border: 1px solid var(--line, #d1d5db); padding: 4px 8px; text-align: left; }
 .nx-md h1, .nx-md h2, .nx-md h3 { font-size: 1em; margin: 10px 0 6px; }
 
-/* Waiting on you (Pranshu, Oct 20 2026): inside a module, each item the red
-   dot / tab count counts (routers/action_counts.py) is marked so it is clear
-   WHICH one wants you - a soft red box with a red edge (.nx-needs-you), or for
-   a grid / table row that must keep its columns, the tint and edge only
-   (--row). !important: the rows set their own inline background, border and
-   padding. The tint mixes into whatever is under it, so it reads in both themes. */
-.nx-needs-you {
-  --nx-need: color-mix(in srgb, var(--wk-red) 7%, transparent);
-  background: var(--nx-need) !important;
-  border: 1px solid color-mix(in srgb, var(--wk-red) 22%, transparent) !important;
-  border-left: 3px solid var(--wk-red) !important;
-  border-radius: 10px !important;
-  padding-left: 14px !important;
-  padding-right: 14px !important;
-  margin: 6px 0;
+/* Waiting on you (Pranshu, Oct 20 2026; flat, Neil Oct 20): inside a module,
+   each item the red dot / tab count counts (routers/action_counts.py) is marked
+   so it is clear WHICH one wants you - by a small red dot at its left, nothing
+   more. No tinted box, border, rounded corners or red edge (Neil: "remove the
+   Claude styling with the rounded rectangle color"); the row keeps its own
+   look and its words say what it needs.
+   .nx-needs-you - a row or card inside a padded container: the dot sits in the
+     margin to its left, level with the first line.
+   .nx-needs-you--row - a grid / list / table row that fills its container: the
+     dot sits inside its own left padding, centered.
+   .nx-needs-you--card - a box with its own border / padding, or a row flush
+     to its card's edge: the dot sits inside its own left padding, level
+     with the first line (outside it would land on the border or be clipped).
+   .nx-needs-you--inline - a word in a line: the dot before it. */
+.nx-needs-you, .nx-needs-you--row, .nx-needs-you--card { position: relative; }
+.nx-needs-you::before, .nx-needs-you--row::before, .nx-needs-you--card::before,
+tr.nx-needs-you > td:first-child::before, tr.nx-needs-you--row > td:first-child::before {
+  content: ''; position: absolute; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--wk-red); pointer-events: none;
 }
-.nx-needs-you--row {
-  background: color-mix(in srgb, var(--wk-red) 7%, transparent) !important;
-  box-shadow: inset 3px 0 0 var(--wk-red) !important;
+.nx-needs-you::before { left: -11px; top: calc(1.2rem - 3px); }
+.nx-needs-you--row::before { left: 3px; top: calc(50% - 3px); }
+.nx-needs-you--card::before { left: 4px; top: calc(1.2rem - 3px); }
+tr.nx-needs-you, tr.nx-needs-you--row { position: static; }
+tr.nx-needs-you::before, tr.nx-needs-you--row::before { content: none; }
+tr.nx-needs-you > td:first-child, tr.nx-needs-you--row > td:first-child { position: relative; }
+tr.nx-needs-you > td:first-child::before, tr.nx-needs-you--row > td:first-child::before { left: 2px; top: calc(50% - 3px); }
+.nx-needs-you--inline::before {
+  content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--wk-red); flex-shrink: 0; vertical-align: middle;
 }
-tr.nx-needs-you--row, tr.nx-needs-you { box-shadow: none !important; }
-tr.nx-needs-you > td, tr.nx-needs-you--row > td { background: color-mix(in srgb, var(--wk-red) 7%, transparent) !important; }
-tr.nx-needs-you > td:first-child, tr.nx-needs-you--row > td:first-child { box-shadow: inset 3px 0 0 var(--wk-red); }
-.nx-needs-you--inline { background: color-mix(in srgb, var(--wk-red) 10%, transparent); border-radius: 4px; padding: 0 4px; }
 
 /* People > Time > Payroll: In / Out color banding (Pranshu, Oct 19 - SwipeClock's
    green / blue). Green = the punch exactly as the clock took it, blue = entered
