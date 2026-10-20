@@ -357,7 +357,8 @@ class SigningTests(ReviewCase):
         y_of = {t: y for t, y in found}
         height = float(page.mediabox.height)
         sign_top = height - tsr._sig_fields(spot)[0]["y"] * height   # top edge of the employee's signature field
-        att_y = min(y for t, y in found if "accurate and correct" in t)
+        # The attestation's first line (pypdf misplaces a wrapped paragraph's later lines).
+        att_y = min(y for t, y in found if t.startswith("By execution and signature"))
         self.assertGreater(att_y, sign_top)                       # above the field: never under the signature
         self.assertGreater(att_y, y_of["Employee"])               # and above the Employee row
         self.assertNotIn("TOTALS", text)                          # the card is page 1; this is page 2
@@ -402,6 +403,7 @@ class SigningTests(ReviewCase):
 
     def test_a_salaried_time_sheet_has_the_monthly_columns(self):
         self.db.add(models.PayrollRate(employee_email=EMP, pay_type="fixed", currency="USD", monthly_salary=6000))
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).one().country = "US"
         self.db.commit()
         s, e, pt = tsr.period_for(self.db, EMP, ANCHOR)
         r = models.TimesheetReview(id="fixed-r", employee_email=EMP, period_start=s, period_end=e, pay_type=pt,
@@ -417,8 +419,34 @@ class SigningTests(ReviewCase):
                    "NET PAY THIS MONTH", "Signed by employee - finalizes the time sheet"):
             self.assertIn(s_, text)
         self.assertNotIn("Hrs/Day", text)
-        # A salaried Californian who tracks time signs the meal and rest statement too (Charmi, Oct 20).
+        # Country or Region US: the meal and rest statement prints for salaried
+        # staff too (Pranshu, Oct 20) - without Report a Missed Break, whose
+        # premium pay only an hourly card pays.
         self.assertIn(tsr.BREAK_STATEMENT, text)
+        self.assertNotIn("reported instead of signing", text)
+        self.assertTrue(tsr.needs_break_attestation(self.db, r))
+        self.assertFalse(tsr.can_report_breaks(self.db, r))
+        self.assertFalse(tsr.break_attestation_state(self.db, r)["canReport"])
+
+    def test_the_meal_and_rest_statement_follows_country_or_region(self):
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        emp = self.db.query(models.NexusEmployee).filter_by(work_email=EMP).one()
+        from pypdf import PdfReader
+        import io
+
+        def text():
+            return " ".join(" ".join((p.extract_text() or "").split())
+                            for p in PdfReader(io.BytesIO(tsr.build_pdf(self.db, r)[0])).pages)
+        emp.country = "IN"
+        self.db.commit()
+        self.assertFalse(tsr.needs_break_attestation(self.db, r))
+        self.assertNotIn(tsr.BREAK_STATEMENT, text())
+        self.assertIn("By execution and signature of this time sheet", text())      # the attestation always
+        emp.country = ""                         # not set: the company's country decides
+        self.db.query(models.HrEntity).filter_by(id=ENTITY).one().country = "US"
+        self.db.commit()
+        self.assertTrue(tsr.needs_break_attestation(self.db, r))
+        self.assertIn(tsr.BREAK_STATEMENT, text())
 
 
 class StateTests(ReviewCase):

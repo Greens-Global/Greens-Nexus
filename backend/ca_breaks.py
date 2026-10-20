@@ -91,19 +91,16 @@ def _tc():
 _US = ("", "US", "USA")
 
 
-def is_ca_rate(rate_row, rule: str | None = None, salaried: bool = False) -> bool:
+def is_ca_rate(rate_row, rule: str | None = None) -> bool:
     """The pay-rate half of the scope (no database): a pay rate on file,
     hourly, paid in USD, OT rule 'ca' (blank reads 'ca', as the engine does -
     PayrollRate.overtime_rule DEFAULTS to 'ca', so the rule alone would pull
     in India hourly staff). No rate row = not classified yet = out of scope.
     `rule` overrides the row's rule (a finalized period's snapshot rule).
-    `salaried` also lets a fixed (salaried) rate in - ONLY the signed Time
-    Sheet's meal and rest statement asks for it (Charmi, Oct 20); meal
-    detection, premiums and California Review stay hourly.
     Callers use in_scope(), which adds the country check."""
     if rate_row is None:
         return False
-    if (getattr(rate_row, "pay_type", None) or "hourly") not in (("hourly", "fixed") if salaried else ("hourly",)):
+    if (getattr(rate_row, "pay_type", None) or "hourly") != "hourly":
         return False
     if (getattr(rate_row, "currency", None) or "USD").strip().upper() != "USD":
         return False
@@ -133,7 +130,7 @@ def country_of(db: Session, email: str, emp=_UNSET) -> str:
 
 
 def in_scope(db: Session, email: str, rate_row=None, rule: str | None = None, emp=_UNSET,
-             _load_rate: bool = True, salaried: bool = False) -> bool:
+             _load_rate: bool = True) -> bool:
     """THE one rule for who the CA meal / rest features apply to (meal
     detection, the signing question, premium lines, the waiver, California
     Review and its minimum-wage check): is_ca_rate (hourly, USD, rule 'ca')
@@ -143,7 +140,7 @@ def in_scope(db: Session, email: str, rate_row=None, rule: str | None = None, em
     em = (email or "").strip().lower()
     if rate_row is None and _load_rate and em:
         rate_row = db.query(models.PayrollRate).filter(models.PayrollRate.employee_email == em).first()
-    if not is_ca_rate(rate_row, rule, salaried):
+    if not is_ca_rate(rate_row, rule):
         return False
     return country_of(db, em, emp) in _US
 

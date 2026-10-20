@@ -967,9 +967,10 @@ def finalize_unsigned(db: Session, email: str, start: str, actor: str, reason: s
 # ── The document and the envelope ────────────────────────────────────────────
 
 # What the employee attests to by signing, printed just above their signature
-# line (Charmi, Oct 1 - the wording from the paper time sheet).
+# line (Charmi, Oct 1 - the paper time sheet; Pranshu, Oct 20 - "in this pay
+# period"). US staff read BREAK_STATEMENT right after it, as one paragraph.
 EMPLOYEE_ATTESTATION = ("By execution and signature of this time sheet, I agree I have reviewed this "
-                        "time sheet, and agree the hours stated are accurate and correct.")
+                        "time sheet, and agree in this pay period that the hours stated are accurate and correct.")
 
 
 def _sig_fields(spot: dict) -> list:
@@ -1044,9 +1045,9 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tupl
         # rest break statement is boxed with the attestation just above the
         # signature, so signing confirms it (on_progress records it). A missed
         # break is reported instead of signing (claim_breaks).
-        "attestation": [EMPLOYEE_ATTESTATION] + ([BREAK_STATEMENT] if ca else []),
+        "attestation": [f"{EMPLOYEE_ATTESTATION} {BREAK_STATEMENT}" if ca else EMPLOYEE_ATTESTATION],
         "sign_note": ["A missed meal or rest break is reported instead of signing: the time sheet goes back "
-                      "to the manager, who adds the premium pay."] if ca else [],
+                      "to the manager, who adds the premium pay."] if ca and can_report_breaks(db, r) else [],
         # Every step with who and when (Oct 16, Neil: "manager Sahil approved
         # Jackson's time card on this time at this date"; Oct 20, Charmi: the
         # whole history - employee, manager, HR - in one place).
@@ -1418,8 +1419,8 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
 
 # ── CA meal and rest breaks at signing (Neil, Oct 17-18 2026, ca_breaks.py) ──
 #
-# CA-rule staff (hourly, and salaried who track time - Charmi, Oct 20) are
-# NOT asked a separate question (Neil, Oct 18: one
+# Staff in the US (Country or Region - Pranshu, Oct 20; hourly and salaried)
+# are NOT asked a separate question (Neil, Oct 18: one
 # step fewer). The statement below is shown on the signing screen and printed
 # in the box just above their signature line, so signing the time sheet
 # confirms it - no tick box. on_progress records the confirmation as a round
@@ -1430,16 +1431,27 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
 # reopen() - the same path a punch-fix request takes after approval.
 # Nobody else sees any of this (needs_break_attestation is False).
 
-BREAK_STATEMENT = ("By signing, I confirm I received all of my meal and rest periods in this pay "
-                   "period, as California law requires.")
+BREAK_STATEMENT = "I was provided every meal and rest break California law requires."     # Pranshu, Oct 20
 
 
 def needs_break_attestation(db: Session, r: TimesheetReview) -> bool:
-    """California staff who track time, hourly AND salaried (Charmi, Oct 20:
-    "hourly and with their time track and also salary"). A time sheet only
-    exists for someone who tracks time."""
+    """The meal and rest break statement prints and is confirmed by signing
+    for everyone whose Country or Region is the US - hourly and salaried
+    alike (Pranshu, Oct 20). The person's own country, else their company's;
+    neither set = not the US. Everyone else signs the attestation alone."""
     import ca_breaks
-    return ca_breaks.in_scope(db, r.employee_email, salaried=(r.pay_type or "hourly") == "fixed")
+    return ca_breaks.country_of(db, r.employee_email) in ("US", "USA")
+
+
+def can_report_breaks(db: Session, r: TimesheetReview) -> bool:
+    """Report a Missed Break adds premium pay, which only an hourly card on
+    the California rule pays - so only those staff get it (ca_breaks.in_scope,
+    THE rule for every CA premium feature). A salaried US employee sees the
+    statement without it."""
+    if (r.pay_type or "hourly") != "hourly":
+        return False
+    import ca_breaks
+    return ca_breaks.is_ca(db, r.employee_email)
 
 
 def break_attested(r: TimesheetReview) -> bool:
@@ -1474,6 +1486,7 @@ def break_attestation_state(db: Session, r: TimesheetReview) -> dict:
     import ca_breaks
     worked = ca_breaks.worked_days(card.get("days") or [])
     return {"required": True, "statement": BREAK_STATEMENT, "answered": break_attested(r),
+            "canReport": can_report_breaks(db, r),
             "flaggedDays": [{"date": d["date"], "label": d["meal"]["label"], "chip": d["meal"]["chip"]}
                             for d in (card.get("days") or []) if d.get("meal")],
             "workedDays": worked}
@@ -1488,8 +1501,8 @@ def claim_breaks(db: Session, r: TimesheetReview, actor: str, claims: list, note
     actor = (actor or "").lower()
     if actor != r.employee_email:
         raise HTTPException(403, "Only the employee answers this for their own time sheet.")
-    if not needs_break_attestation(db, r):
-        raise HTTPException(409, "Missed break reports are only for staff on the California overtime rule.")
+    if not can_report_breaks(db, r):
+        raise HTTPException(409, "Missed break reports are only for hourly staff on the California overtime rule.")
     if r.status not in ("signing", "approved"):
         raise HTTPException(409, "This time sheet is not waiting for your signature.")
     if tc._finalized_row(db, r.employee_email, r.period_start, r.period_end):
