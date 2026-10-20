@@ -384,7 +384,7 @@ def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_
 @router.get("/packets/role-holders")
 def packet_role_holders(entity_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """Who each signing role is today for a company - the editor shows it
-    beside each step. The same people People > Checklists > Checklist Owners
+    beside each step. The same people Company Settings > Checklists > Who Owns Each Role
     shows, plus the company's Authorized Signatory."""
     _setting_in_scope(entity_id, hr_scope(user, db), write=False)
     entity = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None

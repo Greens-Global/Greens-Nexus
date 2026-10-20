@@ -59,7 +59,7 @@ import {
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
   Globe, Package, Search, Wrench, CalendarClock, ShieldCheck, Palette, FileCheck,
   Tags,
-  Clock, Users, CloudRain, UserPlus, FileText, ClipboardList,
+  Clock, Users, CloudRain, UserPlus, FileText, ClipboardList, ListChecks,
   MessageSquareText,
   Sparkles,
 } from 'lucide-react';
@@ -90,6 +90,7 @@ const CompanySetupPage = lazy(() => import('./HR').then(m => ({ default: m.Compa
 // editing anything here" - moved off the Hiring board into Settings.
 const PacketsModal = lazy(() => import('../components/HiringPacket').then(m => ({ default: m.PacketsModal })));
 const QuestionnairesModal = lazy(() => import('../components/Interviews').then(m => ({ default: m.QuestionnairesModal })));
+const ChecklistLibrary = lazy(() => import('../components/HrChecklists').then(m => ({ default: m.ChecklistLibrary })));
 const WorkSiteLibrary = lazy(() => import('./HR').then(m => ({ default: m.WorkSiteLibrary })));
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
@@ -154,7 +155,7 @@ const GLOBAL_CATEGORIES = [
   { key: 'timeclock',      label: 'Time Clock',     Icon: CalendarClock, adminOnly: true,
     desc: 'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every time sheet is computed with.' },
   { key: 'hiring',         label: 'Hiring',         Icon: UserPlus,
-    desc: 'What goes out when someone is hired, promoted or leaves - built from Documents - and the interview questionnaires for each role. The Hiring board itself is only for moving candidates along.' },
+    desc: 'What goes out when someone is hired, promoted or leaves - built from Documents - the interview questionnaires for each role, and the Checklist Library each company starts its onboarding, promotion, offboarding and leave steps from. The Hiring board itself is only for moving candidates along.' },
   { key: 'shifts',         label: 'Shifts',         Icon: CalendarClock,
     desc: 'What staff may request and see on the schedule, the team time zone and week start, time-off reasons, the shift types managers place, the groups people are scheduled in, and the weather alerts for their work sites.' },
 ];
@@ -218,6 +219,10 @@ const GLOBAL_SECTIONS = [
   { id: 'interview-questionnaires', category: 'hiring', icon: ClipboardList, title: 'Interview Questionnaires',
     sub: 'The questions asked in each role\'s interview - the Interview Room shows them to the interviewer.',
     keywords: 'questions interview questionnaire role character competence availability' },
+  // Neil, Oct 19: "copy from company or have a common library".
+  { id: 'checklist-library', category: 'hiring', icon: ListChecks, title: 'Checklist Library',
+    sub: 'The standard onboarding, promotion, offboarding and leave steps and who owns them. Each company uses them as they are or makes its own copy (Company Settings > Checklists); Copy To Other Companies keeps them all the same.',
+    keywords: 'checklist onboarding promotion offboarding leave steps template library owners copy standardize' },
   { id: 'timeclock-policy', category: 'timeclock', icon: CalendarClock, title: 'Pay Rules',
     sub: 'Punch rounding (off by default), the auto-lunch deduction, California paid rest breaks, each company\'s payroll export codes, and shift differentials and call-back pay (off by default). Applies to every time sheet.',
     keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california time sheet payroll export codes earnings codes payroll items quickbooks iif intacct shift differential night weekend premium call-back callback minimum' },
@@ -1089,6 +1094,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'timeclock-policy':     return <TimeClockPolicyPanel key={key} toastOk={toastOk} toastErr={toastErr} />;
       case 'hiring-documents':     return <HiringSetupSection key={key} id={id} Modal={PacketsModal} label="Open Hiring Documents" defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'interview-questionnaires': return <HiringSetupSection key={key} id={id} Modal={QuestionnairesModal} label="Open Questionnaires" defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'checklist-library':    return <LazyPanelSection key={key} id={id} Panel={ChecklistLibrary} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-settings':       return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;

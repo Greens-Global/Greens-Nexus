@@ -27,7 +27,7 @@ const BOARD = [
     next: { title: 'Knowledge Handover Plan', dueDate: '2099-01-01', overdue: false, ownerEmail: '', ownerName: '', ownerRoleLabel: 'Manager' } },
 ];
 const META = {
-  kinds: [{ value: 'onboarding', label: 'Onboarding' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }],
+  kinds: [{ value: 'onboarding', label: 'Onboarding' }, { value: 'promotion', label: 'Promotion' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }],
   roles: [{ value: 'hr', label: 'HR' }, { value: 'it', label: 'IT' }, { value: 'manager', label: 'Manager' }],
   exitTypes: [{ value: 'resignation', label: 'Resignation' }],
   signals: [{ value: 'provisioned', label: 'A provisioning run finished' }],
@@ -44,15 +44,24 @@ vi.mock('../api', () => ({
     getMyChecklistSteps: vi.fn(() => Promise.resolve({ steps: [] })),
     getChecklistBoard: vi.fn(() => Promise.resolve({ rows: BOARD })),
     getChecklistOwners: vi.fn(() => Promise.resolve({ owners: { it: 'it@greensglobal.com' }, effective: { it: 'it@greensglobal.com' }, hrContact: '' })),
-    getChecklistTemplates: vi.fn(() => Promise.resolve({ templates: [
-      { id: 't1', kind: 'onboarding', kindLabel: 'Onboarding', name: 'Onboarding', entityId: '', inherited: false, updatedAt: '',
+    copyChecklistTemplates: vi.fn(() => Promise.resolve({ copied: 1, kinds: ['onboarding'], companies: ['co-a'] })),
+    getRoleChecklistRoles: vi.fn(() => Promise.resolve({ isHr: false, roles: [
+      { roleId: 'r-acct', roleName: 'Accounting Associate', department: 'Accounting', companyId: 'co-a', companyName: 'Greens',
+        counts: { onboarding: 1, promotion: 0, offboarding: 0, inactive: 0 } }] })),
+    getRoleChecklist: vi.fn(() => Promise.resolve({ roleId: 'r-acct', roleName: 'Accounting Associate', department: 'Accounting', templates: [
+      { kind: 'onboarding', kindLabel: 'Onboarding', entityId: '', inherited: false, updatedAt: 'x',
+        items: [{ key: 'ACC-1', phase: 'Accounting Associate Steps', title: 'Intacct Training', owner: 'manager', anchor: 'S', offset: 5, bd: false, applies: {}, signal: '', hint: '' }] },
+      { kind: 'promotion', kindLabel: 'Promotion', entityId: '', inherited: false, updatedAt: '', items: [] },
+    ] })),
+    getChecklistTemplates: vi.fn((entityId) => Promise.resolve({ templates: [
+      { id: 't1', kind: 'onboarding', kindLabel: 'Onboarding', name: 'Onboarding', entityId: '', inherited: !!entityId, updatedAt: '',
         items: [{ key: 'ON-01', phase: 'Offer Accepted', title: 'Profile Complete', owner: 'hr', anchor: 'created', offset: 0, bd: false, applies: {}, signal: '', hint: '' }] },
     ] })),
   },
 }));
-vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [{ email: 'it@greensglobal.com', name: 'Ivy Tech' }] }) }));
+vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [{ email: 'it@greensglobal.com', name: 'Ivy Tech' }] }), useEntities: () => ({ data: [] }) }));
 
-const { ChecklistSection, MyChecklistSteps, ChecklistSettings, ChecklistBoard, ChecklistChip } = await import('./HrChecklists');
+const { ChecklistSection, MyChecklistSteps, ChecklistSettings, ChecklistBoard, ChecklistChip, RoleChecklists } = await import('./HrChecklists');
 const { api } = await import('../api');
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -107,6 +116,29 @@ describe('ChecklistSettings', () => {
     expect(await screen.findByText('Template changes not saved yet')).toBeInTheDocument();
     expect(screen.queryByText('1 step selected')).not.toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Phase 1: Offer Accepted' })).getByText('IT')).toBeInTheDocument();
+  });
+});
+
+// Neil, Oct 19: a company uses the library or its own copy, and copies to
+// other companies; a department head keeps a role's own steps.
+describe('Checklists by company and role', () => {
+  it('a company on the library offers its own copy, and copies to other companies', async () => {
+    const entities = [{ id: 'co-a', name: 'Greens' }, { id: 'co-b', name: 'MCD' }];
+    render(<ChecklistSettings entityId="co-a" entities={entities} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Checklists For Greens')).toBeInTheDocument();
+    fireEvent.click(await screen.findByText('Make A Copy For This Company'));
+    await waitFor(() => expect(api.copyChecklistTemplates).toHaveBeenCalledWith({ kinds: ['onboarding'], from_entity_id: '', to_entity_ids: ['co-a'] }));
+    fireEvent.click(screen.getByText('Copy To Other Companies…'));
+    expect(await screen.findByText("Copy Greens's Steps To Other Companies")).toBeInTheDocument();
+    expect(screen.getByLabelText('MCD')).toBeInTheDocument();
+  });
+
+  it("the role editor lists the head's roles and the role's steps", async () => {
+    render(<RoleChecklists toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Intacct Training')).toBeInTheDocument();
+    expect(screen.getAllByText('Accounting Associate Steps').length).toBeGreaterThan(1);   // the heading and the phase
+    fireEvent.click(screen.getByRole('tab', { name: /Promotion/ }));
+    expect(await screen.findByText(/No extra steps/)).toBeInTheDocument();
   });
 });
 

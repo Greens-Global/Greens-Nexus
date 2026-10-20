@@ -444,12 +444,18 @@ export const IMPL_PHASES = [
   // ── 8 ────────────────────────────────────────────────────────────────────
   {
     id: 'checklists', n: 8, title: 'Onboarding and Offboarding Checklists', icon: 'ListChecks', owner: 'Client HR', time: '1 to 2 hours',
-    summary: 'The steps HR, IT and managers take for every new starter, leaver and leave of absence.',
+    summary: 'The steps HR, IT, Accounting and managers take for every new starter, promotion, leaver and leave of absence.',
     why: 'Checklists make joining and leaving repeatable: each step has an owner and a due date counted from the start date, exit date or leave start, with reminders. Templates vary by worker type and country (an I-9 for US employees, PF for India, a W-9 for contractors).',
     steps: [
-      { title: 'Owners and templates', where: 'People > Checklists > Owners & Templates', view: 'hr', sub: 'hr-checklists', items: [
-        'Set the default owner for each kind of step (HR, IT, the manager).',
-        'Review the onboarding, offboarding and leave templates and adjust the steps and due days to the client’s process.',
+      { title: 'The Checklist Library', where: 'Settings > Global Settings > Hiring > Checklist Library', view: 'admin-console', sub: 'global-hiring', items: [
+        'Review the standard onboarding, promotion, offboarding and leave steps and adjust them to the client’s process.',
+        'Set the default owner for each kind of step (HR, IT, Accounting).',
+      ]},
+      { title: 'Each company', where: 'Settings > Company Settings > the company > Checklists', items: [
+        'Use the library as it is, or Make A Copy For This Company and change it. Copy To Other Companies keeps several companies the same.',
+      ]},
+      { title: 'Each role', where: 'Team > Role Checklists', view: 'shifts', sub: 'role-checklists', items: [
+        'The head of each department adds the extra steps its roles need - their training and tools. Set department heads in Company Settings > Departments first.',
       ]},
     ],
     checks: [

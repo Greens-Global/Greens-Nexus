@@ -86,8 +86,8 @@ def default_role(key: str, prints_signatory: bool = False) -> str:
         return "signatory" if prints_signatory else "hr"
     if k in ("manager", "supervisor"):
         return "manager"
-    if k in hc.ROLES:
-        return k
+    if hc.norm_role(k) in hc.ROLES:
+        return hc.norm_role(k)
     return "hr"
 
 
@@ -101,7 +101,8 @@ def clean_flow(flow) -> list:
         if not key or key in seen:
             continue
         seen.add(key)
-        row = {"key": key, "role": str(step.get("role") or "").strip().lower(),
+        # Payroll / Finance / Equipment became Accounting / IT (Neil, Oct 19).
+        row = {"key": key, "role": hc.norm_role(str(step.get("role") or "")),
                "action": str(step.get("action") or "sign").strip().lower()}
         if step.get("once"):
             row["once"] = True
@@ -371,15 +372,15 @@ def _nobody(role: str, ctx: dict) -> str:
         return f"{ctx.get('subject_name') or 'The person'} has no email to send it to."
     if role == "hr":
         return (f"{company} has no HR contact - set one in People > Companies, or HR in "
-                f"People > Checklists > Checklist Owners.")
+                f"Company Settings > Checklists > Who Owns Each Role.")
     if role == "manager":
         return "No manager - pick the supervisor (or set their manager in People) first."
     if role == "signatory":
         return f"{company} has no Authorized Signatory person - pick one in People > Companies."
     if role == "sender":
         return "Nobody started this packet."
-    return (f"No {role_label(role)} owner for {company} - set one in People > Checklists > "
-            f"Checklist Owners.")
+    return (f"No {role_label(role)} owner for {company} - set one in Company Settings > Checklists > "
+            f"Who Owns Each Role.")
 
 
 def signer_values(parties: list, remap: dict) -> dict:

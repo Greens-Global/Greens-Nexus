@@ -2252,6 +2252,14 @@ def _apply_promotion(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
             + (" The new pay is on Pay & Benefits from that date." if ev.pay else ""))
     for to in {ev.created_by, (emp.manager_email or "").lower(), hr_contact} - {"", emp.work_email.lower()}:
         _notify(db, to, f"{title} Signed - {ev.subject_name}", body, ev)
+    # The Promotion checklist (Neil, Oct 19), with the new role's own steps.
+    import hr_checklists
+    try:
+        if not hr_checklists.open_checklist(db, emp.id, "promotion"):
+            hr_checklists.start(db, emp, "promotion", anchor_date=eff, by=ev.created_by,
+                                role_id=jr.id if jr else "")
+    except ValueError as e:
+        print(f"[life-events] promotion checklist not started for {emp.id}: {e}")
     _notify(db, emp.work_email.lower(), f"Your {title} Is Official",
             f"Your new role, {d.get('job_title')}, takes effect {us_date(eff)}. The signed letter is in "
             f"My HR > My Documents.", ev)

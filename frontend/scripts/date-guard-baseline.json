@@ -76,7 +76,7 @@
     "toLocaleDateString(": 1
   },
   "components/HrChecklists.jsx": {
-    "type=\"date\"": 2
+    "type=\"date\"": 1
   },
   "components/HrPersonActions.jsx": {
     "type=\"date\"": 1

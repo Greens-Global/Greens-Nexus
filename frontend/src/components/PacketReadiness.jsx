@@ -6,7 +6,7 @@
 //   template        - open the template in Documents
 //   signOnce        - the company signs once (the editor opens Sign Once)
 //   addToForm       - add the variables nothing fills to the Details Form
-//   checklistOwners - People > Checklists > Checklist Owners
+//   checklistOwners - Company Settings > Checklists > Who Owns Each Role
 import { useEffect, useState } from 'react';
 import { CheckCircle, AlertTriangle, AlertCircle, ExternalLink, PenTool, Plus } from 'lucide-react';
 import { api } from '../api';

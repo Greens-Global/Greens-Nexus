@@ -1,9 +1,12 @@
-"""Per-person onboarding / offboarding / leave checklists (HR roadmap Section C:
+"""Per-person onboarding / promotion / offboarding / leave checklists (HR roadmap Section C:
 "Onboarding checklist per hire: docs -> sign -> provision -> assign equipment
 -> day-1 tasks, each with owner + due date").
 
 The pieces:
-  - templates   per kind and company, seeded from hr_checklist_seed.py
+  - templates   per kind: the Checklist Library ('' company, seeded from
+                hr_checklist_seed.py), a company's own copy, and each job ROLE's
+                extra steps (Neil, Oct 19: "it has to be company and then role"
+                - kept by the role's department head, added after the company's)
   - start()     builds one person's checklist from a template: filters the rows
                 that apply to them, resolves each owner ROLE to a person and each
                 offset to a date
@@ -14,6 +17,9 @@ The pieces:
   - run_daily() the reminder pass, called from reminders_loop: one bell
                 notification per checklist per owner, updated in place - never
                 one per row
+  - sync_tasks() ONE task per checklist per owner (Pranshu, Oct 19: "it will
+                directly create a task to that particular individual"), listing
+                their steps; it completes itself when their last step closes
 
 Routers live in routers/hr_checklists.py. Nothing here talks to Microsoft
 Graph; every query is local, so the daily pass runs inside asyncio.to_thread.
@@ -28,6 +34,7 @@ from sqlalchemy import func, or_
 import hr_checklist_seed
 from models import (
     HrCandidate,
+    NexusGroup,
     HrChecklist,
     HrChecklistItem,
     HrChecklistTemplate,
@@ -42,18 +49,30 @@ from models import (
     NexusSetting,
 )
 
-KINDS = ("onboarding", "offboarding", "inactive")
-ROLES = ("hr", "manager", "employee", "it", "payroll", "equipment", "finance")
-ROLE_LABELS = {
-    "hr": "HR", "manager": "Manager", "employee": "Employee", "it": "IT",
-    "payroll": "Payroll", "equipment": "Equipment", "finance": "Finance",
-}
-KIND_LABELS = {"onboarding": "Onboarding", "offboarding": "Offboarding", "inactive": "Leave or Suspension"}
+KINDS = ("onboarding", "promotion", "offboarding", "inactive")
+# Neil, Oct 19: "payroll isn't anything, that should be accounting ...
+# equipment, that should also be IT ... finance isn't a thing in our company".
+ROLES = ("hr", "manager", "employee", "it", "accounting")
+ROLE_LABELS = {"hr": "HR", "manager": "Manager", "employee": "Employee", "it": "IT", "accounting": "Accounting"}
+# Owners saved before Oct 19 (templates, started steps, packet signing flows).
+LEGACY_ROLES = {"payroll": "accounting", "finance": "accounting", "equipment": "it"}
+KIND_LABELS = {"onboarding": "Onboarding", "promotion": "Promotion", "offboarding": "Offboarding",
+               "inactive": "Leave or Suspension"}
 OWNERS_KEY = "hr_checklist_owners:"   # + entity id ('' = default) -> {"it": email, ...}
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def norm_role(role: str) -> str:
+    r = (role or "").strip().lower()
+    return LEGACY_ROLES.get(r, r)
+
+
+def norm_items(items: list) -> list:
+    """Template rows with pre-Oct 19 owners read as today's."""
+    return [{**r, "owner": norm_role(r.get("owner", "hr"))} for r in (items or []) if isinstance(r, dict)]
 
 
 def _today() -> date:
@@ -79,18 +98,25 @@ def full_name(emp: NexusEmployee) -> str:
 
 # --- Templates -------------------------------------------------------------
 
+def _base(db):
+    """Company / library templates - never a role's steps."""
+    return db.query(HrChecklistTemplate).filter(
+        or_(HrChecklistTemplate.role_id == "", HrChecklistTemplate.role_id.is_(None)))
+
+
+def own_template(db, kind: str, entity_id: str):
+    """The company's (or, for '', the library's) own row - None if it has none."""
+    return _base(db).filter(HrChecklistTemplate.kind == kind, HrChecklistTemplate.entity_id == entity_id).first()
+
+
 def get_template(db, kind: str, entity_id: str = "") -> HrChecklistTemplate:
-    """The company's own template for `kind`, else the default one, seeding the
-    default the first time it is asked for."""
+    """The company's own template for `kind`, else the library's, seeding the
+    library the first time it is asked for."""
     if entity_id:
-        own = (db.query(HrChecklistTemplate)
-               .filter(HrChecklistTemplate.kind == kind, HrChecklistTemplate.entity_id == entity_id)
-               .first())
+        own = own_template(db, kind, entity_id)
         if own:
             return own
-    row = (db.query(HrChecklistTemplate)
-           .filter(HrChecklistTemplate.kind == kind, HrChecklistTemplate.entity_id == "")
-           .first())
+    row = own_template(db, kind, "")
     if row:
         return row
     name, items = hr_checklist_seed.DEFAULTS[kind]
@@ -100,6 +126,29 @@ def get_template(db, kind: str, entity_id: str = "") -> HrChecklistTemplate:
     db.add(row)
     db.flush()
     return row
+
+
+def role_template(db, kind: str, role_id: str):
+    """A job role's extra steps for `kind` - None when it has none."""
+    if not role_id:
+        return None
+    return (db.query(HrChecklistTemplate)
+            .filter(HrChecklistTemplate.kind == kind, HrChecklistTemplate.role_id == role_id).first())
+
+
+def role_for(db, emp: NexusEmployee) -> str:
+    """The job role a person's checklist follows: their current role, else the
+    one they were hired into (no work email - so no role membership - yet)."""
+    if emp.work_email:
+        from models import NexusGroupMember
+        g = (db.query(NexusGroup.id).join(NexusGroupMember, NexusGroupMember.group_id == NexusGroup.id)
+             .filter(func.lower(NexusGroupMember.email) == emp.work_email.lower(), NexusGroup.is_job_role == 1)
+             .first())
+        if g:
+            return g.id
+    c = (db.query(HrCandidate.role_id).filter(HrCandidate.employee_id == emp.id, HrCandidate.role_id != "")
+         .order_by(HrCandidate.updated_at.desc()).first())
+    return c.role_id if c else ""
 
 
 def clean_template_items(items: list) -> list:
@@ -115,7 +164,7 @@ def clean_template_items(items: list) -> list:
         if key in seen:
             raise ValueError(f"Two rows share the key {key}")
         seen.add(key)
-        owner = str(raw.get("owner") or "hr").strip()
+        owner = norm_role(str(raw.get("owner") or "hr"))
         if owner not in ROLES:
             raise ValueError(f"{title}: owner must be one of {', '.join(ROLES)}")
         anchor = str(raw.get("anchor") or "S").strip()
@@ -214,6 +263,16 @@ def due_for(anchor_date: str, created: str, anchor: str, offset: int, bd: bool, 
 
 # --- Owners ----------------------------------------------------------------
 
+def owners_setting(raw: dict) -> dict:
+    """A saved owners setting in today's roles: a pre-Oct 19 Payroll / Finance
+    person owns Accounting, an Equipment person IT - unless that is set."""
+    out = {k: v for k, v in (raw or {}).items() if v and k not in LEGACY_ROLES}
+    for old, new in LEGACY_ROLES.items():
+        if (raw or {}).get(old) and not out.get(new):
+            out[new] = raw[old]
+    return out
+
+
 def role_owners(db, entity_id: str) -> dict:
     """{role: email} set in Checklist Owners for this company, falling back to
     the default ('' entity) for roles the company left blank."""
@@ -222,7 +281,7 @@ def role_owners(db, entity_id: str) -> dict:
         row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
         if row and row.value:
             try:
-                out.update({k: v for k, v in json.loads(row.value).items() if v})
+                out.update(owners_setting(json.loads(row.value)))
             except (ValueError, AttributeError):
                 pass
         if not entity_id:
@@ -231,6 +290,7 @@ def role_owners(db, entity_id: str) -> dict:
 
 
 def resolve_owner(db, role: str, emp: NexusEmployee, owners: dict, entity: HrEntity) -> str:
+    role = norm_role(role)
     if role == "employee":
         return (emp.work_email or "").lower()
     if role == "manager":
@@ -250,9 +310,11 @@ def open_checklist(db, employee_id: str, kind: str):
 
 
 def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type: str = "",
-          by: str = "") -> HrChecklist:
-    """Create `emp`'s checklist of `kind`. Caller commits. Raises ValueError if
-    one of that kind is already open (one at a time per person)."""
+          by: str = "", role_id: str = None) -> HrChecklist:
+    """Create `emp`'s checklist of `kind`: the company's steps, then the job
+    role's (`role_id`, else the role they hold or were hired into). Caller
+    commits. Raises ValueError if one of that kind is already open (one at a
+    time per person)."""
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {', '.join(KINDS)}")
     if open_checklist(db, emp.id, kind):
@@ -270,6 +332,12 @@ def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type
         raise ValueError("Pick the date the checklist counts from")
 
     tpl = get_template(db, kind, emp.company or "")
+    role_id = role_for(db, emp) if role_id is None else role_id
+    role_tpl = role_template(db, kind, role_id)
+    role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first() if role_tpl else None
+    rows = norm_items(tpl.items) + [
+        {**r, "phase": r.get("phase") or f"{role.name if role else 'Role'} Steps"}
+        for r in norm_items(role_tpl.items if role_tpl else [])]
     created = _today().isoformat()
     cl = HrChecklist(id=str(uuid.uuid4()), employee_id=emp.id, kind=kind, template_id=tpl.id,
                      company=emp.company or "", anchor_date=anchor_date[:10], exit_type=exit_type,
@@ -280,7 +348,7 @@ def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type
     entity = db.query(HrEntity).filter(HrEntity.id == emp.company).first() if emp.company else None
     country = person_country(db, emp)
     n = 0
-    for row in tpl.items or []:
+    for row in rows:
         if not _applies(row, emp, country, exit_type):
             continue
         n += 1
@@ -295,6 +363,9 @@ def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type
                              int(row.get("offset") or 0), bool(row.get("bd")), hol),
             signal=row.get("signal", ""), status="open", sort_order=n,
         ))
+    db.flush()
+    # The owners' tasks; the API sends their emails (cl.new_task_ids).
+    cl.new_task_ids = sync_tasks(db, cl, emp, by=by or "nexus", first=True)
     return cl
 
 
@@ -351,7 +422,7 @@ def _sig_envelope(db, emp, arg):
     # a signed offer letter ticks "Offer Letter Signed", a signed hiring
     # packet (the NDA, the onboarding forms) ticks the pre-boarding packet.
     events = [ev for k, ev in (("offer", "offer"), ("contractor_agreement", "offer"),
-                               ("nda", "hire"), ("handbook_ack", "hire")) if k in kinds]
+                               ("nda", "hire"), ("handbook_ack", "hire"), ("promotion", "promotion")) if k in kinds]
     if not events:
         return False
     from models import HrLifeEvent
@@ -492,6 +563,73 @@ def sync(db, cl: HrChecklist, emp: NexusEmployee = None) -> bool:
     return changed
 
 
+# --- Tasks -----------------------------------------------------------------
+
+def _task_text(cl: HrChecklist, emp: NexusEmployee, rows: list) -> tuple:
+    label = KIND_LABELS.get(cl.kind, cl.kind)
+    n = len(rows)
+    title = f"{label}: {full_name(emp)} - {n} Step{'s' if n != 1 else ''}"
+    lines = [f"- {r.title}" + (f" (due {us_date(r.due_date)})" if r.due_date else "") for r in rows]
+    desc = (f"Your steps on {full_name(emp)}'s {label.lower()} checklist:\n" + "\n".join(lines)
+            + "\n\nTick each one in My HR > My Checklist Tasks. This task completes itself when your last step is done.")
+    return title, desc
+
+
+def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus", first: bool = False) -> list:
+    """ONE task per checklist per owner, listing their open steps, due with the
+    earliest of them; completed when none is left open. Returns the ids of
+    tasks it created (the caller commits, then may send the task email).
+    Only checklists started with tasks (`first`, from start()) get them - the
+    ones open before Oct 19 are left as they were, never a burst of tasks."""
+    import models
+    emp = emp or db.query(NexusEmployee).filter(NexusEmployee.id == cl.employee_id).first()
+    items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
+    if emp is None or not items or not (first or any(i.task_id for i in items)):
+        return []
+    tids = {i.task_id for i in items if i.task_id}
+    tasks = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(tids))).all()} if tids else {}
+    open_by_owner = {}
+    if cl.status == "open":
+        for it in sorted(items, key=lambda x: (x.due_date or "9999-12-31", x.sort_order or 0)):
+            if it.status == "open" and it.owner_email:
+                open_by_owner.setdefault(it.owner_email.lower(), []).append(it)
+    now, created, kept = _now(), [], set()
+    for owner, rows in open_by_owner.items():
+        t = next((tasks[r.task_id] for r in items if r.task_id in tasks
+                  and (tasks[r.task_id].assignee_email or "").lower() == owner
+                  and not getattr(tasks[r.task_id], "deleted_at", "")), None)
+        title, desc = _task_text(cl, emp, rows)
+        due = next((r.due_date for r in rows if r.due_date), "")
+        if t is None:
+            from routers.task_util import set_task_assignees
+            from routers.tasks import _next_code
+            t = models.Task(
+                id=str(uuid.uuid4()), code=_next_code(db), company_id=cl.company or "", title=title,
+                description=desc, type="task", status="not_started", priority="medium",
+                position=datetime.now().timestamp(), assignee_email="", assignee_emails=[],
+                owner_email=(by or "nexus").lower(), follower_emails=[], liked_by_emails=[],
+                access_level="restricted", project_id="", project_ids=[], section_id="", team_id="",
+                parent_task_id="", subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={},
+                tags=[], custom_field_values={}, start_on="", due_on=due, approval_status="none",
+                completed=False, completed_at="", comment_ids=[], attachment_ids=[], activity_ids=[],
+                created_at=now, modified_at=now, created_by=(by or "nexus").lower())
+            set_task_assignees(t, [owner])
+            db.add(t)
+            tasks[t.id] = t
+            created.append(t.id)
+        elif (t.title, t.description, t.due_on or "", bool(t.completed)) != (title, desc, due, False):
+            t.title, t.description, t.due_on, t.modified_at = title, desc, due, now
+            if t.completed:          # a step came back to them
+                t.completed, t.completed_at, t.status = False, "", "not_started"
+        kept.add(t.id)
+        for r in rows:
+            r.task_id = t.id
+    for t in tasks.values():
+        if t.id not in kept and not t.completed:
+            t.completed, t.completed_at, t.status, t.modified_at = True, now, "completed", now
+    return created
+
+
 # --- Serializers -----------------------------------------------------------
 
 def ser_item(it: HrChecklistItem, names: dict = None) -> dict:
@@ -607,7 +745,7 @@ def run_daily() -> int:
     from database import SessionLocal
     from reminders import _hr_team_emails
     db = SessionLocal()
-    sent = 0
+    sent, new_tasks = 0, []
     try:
         hr_team = _hr_team_emails(db)
         for cl in db.query(HrChecklist).filter(HrChecklist.status == "open").all():
@@ -617,11 +755,15 @@ def run_daily() -> int:
             try:
                 sync(db, cl, emp)
                 db.flush()
+                new_tasks += sync_tasks(db, cl, emp)
                 if cl.status == "open":
                     sent += remind(db, cl, emp, hr_team)
             except Exception as e:   # noqa: BLE001 - one checklist never stops the pass
                 print(f"[checklists] {cl.id} skipped: {e}")
         db.commit()
+        from task_notify import notify_task_event
+        for tid in new_tasks:          # already off the event loop (run in a thread)
+            notify_task_event(tid, "assigned", "nexus")
         print(f"[checklists] daily pass complete - {sent} reminder(s)")
         return sent
     except Exception as e:   # noqa: BLE001

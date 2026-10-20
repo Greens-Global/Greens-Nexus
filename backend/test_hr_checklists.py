@@ -49,7 +49,8 @@ def _wipe(db):
     for m in (models.HrChecklistItem, models.HrChecklist, models.HrChecklistTemplate,
               models.NexusNotification, models.HrProvisionRun, models.HrCandidate,
               models.HrCompanyHoliday, models.NexusAccessScope, models.NexusGroupMember,
-              models.NexusGroup, models.HrEntity, models.NexusSetting, models.HrStageEvent):
+              models.NexusGroup, models.HrEntity, models.NexusSetting, models.HrStageEvent,
+              models.HrDepartment, models.Task):
         db.query(m).delete(synchronize_session=False)
     db.query(models.NexusEmployee).execution_options(include_deleted=True).delete(synchronize_session=False)
     db.commit()
@@ -306,6 +307,142 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual([i["key"] for i in cl["items"]], ["MCD-1"])
         r = self.client.delete("/hr/checklists/templates/onboarding?entity_id=" + CO_B)
         self.assertTrue(r.json()["inherited"])
+
+    # --- Neil, Oct 19 ----------------------------------------------------------
+
+    def _role(self, rid="role-acct", dept="Accounting", company=CO_A, lead=MANAGER):
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroup(id=rid, name="Accounting Associate", department=dept, is_job_role=1,
+                                     company_id=company))
+            if lead:
+                db.add(models.HrDepartment(id=f"d-{rid}", company_id=company, name=dept, lead_email=lead))
+            db.commit()
+        finally:
+            db.close()
+        return rid
+
+    def test_promotion_checklist_adds_the_roles_own_steps(self):
+        rid = self._role()
+        self._role("role-ops", dept="Operations", lead="")
+        _as(MANAGER)                      # the department head - no People grant
+        roles = self.client.get("/hr/checklists/role-templates").json()["roles"]
+        self.assertEqual([r["roleId"] for r in roles], [rid])
+        r = self.client.put(f"/hr/checklists/role-templates/{rid}/promotion",
+                            json={"items": [{"key": "ACC-1", "title": "Intacct Training", "owner": "manager",
+                                             "anchor": "S", "offset": 5}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.client.put("/hr/checklists/role-templates/role-ops/promotion",
+                                         json={"items": []}).status_code, 404)     # not their department
+        _as(HR)
+        eid = self._person(work_email=NEWBIE)
+        eff = (date.today() + timedelta(days=10)).isoformat()
+        cl = self._start(eid, "promotion", anchor_date=eff, role_id=rid)
+        self.assertEqual(cl["kindLabel"], "Promotion")
+        keys = [i["key"] for i in cl["items"]]
+        self.assertIn("PR-01", keys)
+        self.assertEqual(keys[-1], "ACC-1")                     # the role's steps come after the company's
+        self.assertEqual(self._row(cl, "ACC-1")["phase"], "Accounting Associate Steps")
+        # onboarding follows the role the person holds
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroupMember(group_id=rid, email=NEWBIE))
+            db.commit()
+        finally:
+            db.close()
+        r = self.client.put(f"/hr/checklists/role-templates/{rid}/onboarding",
+                            json={"items": [{"key": "ACC-ON", "title": "Intacct Login", "owner": "it"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        on = self._start(eid)
+        self.assertIn("ACC-ON", [i["key"] for i in on["items"]])
+
+    def test_old_owners_read_as_accounting_and_it(self):
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrChecklistTemplate(id="t-old", kind="onboarding", entity_id=CO_B, role_id="", name="Old",
+                                              items=[{"key": "O-1", "title": "Tax Forms", "owner": "payroll", "anchor": "S"},
+                                                     {"key": "O-2", "title": "Laptop", "owner": "equipment", "anchor": "S"}]))
+            db.add(models.NexusSetting(key=hc.OWNERS_KEY + CO_B, value='{"payroll": "%s"}' % HRC))
+            db.commit()
+        finally:
+            db.close()
+        tpl = next(t for t in self.client.get(f"/hr/checklists/templates?entity_id={CO_B}").json()["templates"]
+                   if t["kind"] == "onboarding")
+        self.assertEqual([i["owner"] for i in tpl["items"]], ["accounting", "it"])
+        self.assertEqual(self.client.get(f"/hr/checklists/owners?entity_id={CO_B}").json()["effective"]["accounting"], HRC)
+        cl = self._start(self._person("emp-b", company=CO_B))
+        self.assertEqual((self._row(cl, "O-1")["ownerRole"], self._row(cl, "O-1")["ownerEmail"]), ("accounting", HRC))
+        self.assertEqual(self._row(cl, "O-2")["ownerRoleLabel"], "IT")
+        meta = self.client.get("/hr/checklists/meta").json()
+        self.assertEqual([r["value"] for r in meta["roles"]], ["hr", "manager", "employee", "it", "accounting"])
+        self.assertEqual([k["value"] for k in meta["kinds"]], ["onboarding", "promotion", "offboarding", "inactive"])
+
+    def test_copy_one_companys_steps_to_several(self):
+        items = [{"key": "A-1", "title": "Site Induction", "owner": "manager", "anchor": "S"}]
+        self.assertEqual(self.client.put(f"/hr/checklists/templates/onboarding?entity_id={CO_A}",
+                                         json={"items": items}).status_code, 200)
+        r = self.client.post("/hr/checklists/templates/copy",
+                             json={"kinds": ["onboarding"], "from_entity_id": CO_A, "to_entity_ids": [CO_B, CO_IN]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["copied"], 2)
+        for co in (CO_B, CO_IN):
+            t = next(t for t in self.client.get(f"/hr/checklists/templates?entity_id={co}").json()["templates"]
+                     if t["kind"] == "onboarding")
+            self.assertFalse(t["inherited"])
+            self.assertEqual([i["key"] for i in t["items"]], ["A-1"])
+        # the library onto a company = "use the standard steps, then customize"
+        r = self.client.post("/hr/checklists/templates/copy",
+                             json={"kinds": [], "from_entity_id": "", "to_entity_ids": [CO_B]})
+        self.assertEqual(r.json()["copied"], 4)
+        _as(SCOPED)                       # company B only: cannot write company India
+        r = self.client.post("/hr/checklists/templates/copy",
+                             json={"kinds": ["onboarding"], "from_entity_id": CO_B, "to_entity_ids": [CO_IN]})
+        self.assertEqual(r.status_code, 404)
+
+    def test_one_task_per_owner_that_closes_with_their_last_step(self):
+        cl = self._start(self._person())
+        db = database.SessionLocal()
+        try:
+            rows = db.query(models.HrChecklistItem).filter_by(checklist_id=cl["id"]).all()
+            mine = [r for r in rows if r.owner_email == MANAGER and r.status == "open"]
+            self.assertTrue(mine)
+            tids = {r.task_id for r in mine}
+            self.assertEqual(len(tids), 1)                        # one task, not one per step
+            task = db.query(models.Task).filter_by(id=tids.pop()).one()
+            self.assertEqual(task.assignee_email, MANAGER)
+            self.assertIn(f"{len(mine)} Step", task.title)
+            ids = [r.id for r in mine]
+        finally:
+            db.close()
+        _as(MANAGER)
+        for iid in ids:
+            self.assertEqual(self.client.patch(f"/hr/checklists/items/{iid}", json={"status": "done"}).status_code, 200)
+        db = database.SessionLocal()
+        try:
+            self.assertTrue(db.query(models.Task).filter_by(id=task.id).one().completed)
+        finally:
+            db.close()
+        _as(HR)
+        self.client.post(f"/hr/checklists/{cl['id']}/cancel")
+        db = database.SessionLocal()
+        try:
+            open_tasks = (db.query(models.Task).join(models.HrChecklistItem, models.HrChecklistItem.task_id == models.Task.id)
+                          .filter(models.HrChecklistItem.checklist_id == cl["id"], models.Task.completed.is_(False)).count())
+            self.assertEqual(open_tasks, 0)
+        finally:
+            db.close()
+    def test_checklists_open_before_tasks_get_none(self):
+        cl = self._start(self._person())
+        db = database.SessionLocal()
+        try:
+            db.query(models.Task).delete()
+            db.query(models.HrChecklistItem).filter_by(checklist_id=cl["id"]).update({"task_id": ""})
+            db.commit()
+            row = db.query(models.HrChecklist).filter_by(id=cl["id"]).one()
+            self.assertEqual(hc.sync_tasks(db, row), [])      # the nightly pass leaves them as they were
+            self.assertEqual(db.query(models.Task).count(), 0)
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

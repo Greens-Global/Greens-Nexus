@@ -3560,6 +3560,9 @@ const COMPANY_TABS = [
   { key: 'departments', label: 'Departments' },
   { key: 'sites', label: 'Locations' },
   { key: 'holidays', label: 'Holiday Calendar' },
+  // Checklist set-up lives with the company (Neil, Oct 19: "it should
+  // absolutely be under company because every company operates very differently").
+  { key: 'checklists', label: 'Checklists' },
 ];
 const COMPANY_ROLES_TAB = { key: 'roles', label: 'Roles' };
 
@@ -3856,6 +3859,11 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         {mode !== 'new' && tab === 'holidays' && (
           editingEntity
             ? <CompanyHolidaysTab entity={editingEntity} entities={entities} toastOk={toastOk} toastErr={toastErr} />
+            : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
+        )}
+        {mode !== 'new' && tab === 'checklists' && (
+          editingEntity
+            ? <ChecklistSettings entityId={editingEntity.id} entities={entities} toastOk={toastOk} toastErr={toastErr} />
             : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
         )}
         {mode !== 'new' && tab === 'roles' && can('administrator') && (
@@ -5981,7 +5989,6 @@ export default function HR({ activeSub, onSubChange }) {
   // Open checklists per person ({employeeId: [progress]}) for the directory
   // and profile chips; refreshed when People or Checklists is opened.
   const [clProgress, setClProgress] = useState({});
-  const [clView, setClView] = useState('overview');   // People > Checklists: overview | settings
   const [openTab, setOpenTab] = useState('overview'); // the profile tab a jump should land on
   // Bell / email "Review Request" on a role change (Pranshu, Oct 13) lands on
   // hr-role-change-<id>: open the decision right away, then People.
@@ -6273,20 +6280,14 @@ export default function HR({ activeSub, onSubChange }) {
       {/* Approval Delegations (Oct 17): HR sees and sets everyone's stand-ins. */}
       {sub === 'hr-leave' && <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
+      {/* Operations only (Neil, Oct 19: "once it's set up, we should be just
+          operating it") - the steps are set up in Settings. */}
       {sub === 'hr-checklists' && (
         <>
-          <div role="tablist" aria-label="Checklists" style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)', marginBottom: 16 }}>
-            {[['overview', 'Overview'], ['settings', 'Owners & Templates']].map(([k, l]) => (
-              <button key={k} role="tab" aria-selected={clView === k} onClick={() => setClView(k)}
-                style={{ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 600,
-                  background: clView === k ? 'var(--wk-card)' : 'transparent', color: clView === k ? 'var(--wk-ink)' : 'var(--wk-dim)', boxShadow: clView === k ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
-                {l}
-              </button>
-            ))}
+          <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', marginBottom: 14 }}>
+            Steps are set up in Settings: Company Settings &gt; Checklists for each company, Global Settings &gt; Hiring &gt; Checklist Library for the standard ones, and Team &gt; Role Checklists for a role&apos;s own steps.
           </div>
-          {clView === 'overview'
-            ? <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
-            : <ChecklistSettings entities={entities} toastOk={toastOk} toastErr={toastErr} />}
+          <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
         </>
       )}
 

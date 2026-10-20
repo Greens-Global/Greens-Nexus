@@ -5257,8 +5257,10 @@ class HrChecklistTemplate(Base):
     create_all builds it; RLS must be enabled on dev and prod at release."""
     __tablename__ = "hr_checklist_templates"
     id         = Column(String, primary_key=True)                 # uuid
-    kind       = Column(String, default="onboarding", index=True)  # onboarding | offboarding | inactive
+    kind       = Column(String, default="onboarding", index=True)  # onboarding | promotion | offboarding | inactive
     entity_id  = Column(String, default="", index=True)            # HrEntity.id ('' = every company)
+    # A job role's extra steps (Neil, Oct 19: company, then role) - entity_id ''.
+    role_id    = Column(String, default="", index=True)            # NexusGroup.id ('' = company / library)
     name       = Column(String, default="")
     items      = Column(JSON, default=list)
     updated_by = Column(String, default="")
@@ -5312,6 +5314,7 @@ class HrChecklistItem(Base):
     done_at      = Column(String, default="")
     note         = Column(String, default="")
     sort_order   = Column(Integer, default=0)
+    task_id      = Column(String, default="")   # the owner's task for this checklist (hr_checklists.sync_tasks)
 
 
 class AccountingLoanSchedule(Base):

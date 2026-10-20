@@ -1139,6 +1139,12 @@ def _run_migrations():
             "ALTER TABLE hr_candidates ADD COLUMN decision_by VARCHAR DEFAULT ''",
             "ALTER TABLE hr_candidates ADD COLUMN decision_at VARCHAR DEFAULT ''",
             "ALTER TABLE hr_candidates ADD COLUMN decision_note VARCHAR DEFAULT ''",
+            # Checklists by role, and a task per owner (Neil, Oct 19). models.HrChecklistTemplate / HrChecklistItem.
+            "ALTER TABLE hr_checklist_templates ADD COLUMN role_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_checklist_items ADD COLUMN task_id VARCHAR DEFAULT ''",
+            # Payroll / Finance -> Accounting, Equipment -> IT (Neil, Oct 19).
+            "UPDATE hr_checklist_items SET owner_role = 'accounting' WHERE owner_role IN ('payroll', 'finance')",
+            "UPDATE hr_checklist_items SET owner_role = 'it' WHERE owner_role = 'equipment'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2571,6 +2577,12 @@ def _run_migrations():
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_by VARCHAR DEFAULT ''",
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_at VARCHAR DEFAULT ''",
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_note VARCHAR DEFAULT ''",
+        # Checklists by role, and a task per owner (Neil, Oct 19). models.HrChecklistTemplate / HrChecklistItem.
+        "ALTER TABLE hr_checklist_templates ADD COLUMN IF NOT EXISTS role_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS task_id VARCHAR DEFAULT ''",
+        # Payroll / Finance -> Accounting, Equipment -> IT (Neil, Oct 19).
+        "UPDATE hr_checklist_items SET owner_role = 'accounting' WHERE owner_role IN ('payroll', 'finance')",
+        "UPDATE hr_checklist_items SET owner_role = 'it' WHERE owner_role = 'equipment'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
