@@ -56,7 +56,6 @@ required and is logged on the review and on the approval row.
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -967,34 +966,26 @@ def finalize_unsigned(db: Session, email: str, start: str, actor: str, reason: s
 
 # ── The document and the envelope ────────────────────────────────────────────
 
-# Signature block geometry on the LAST page, normalized from the top-left (the
-# convention Nexus Sign stamps with). Three rows: employee, manager, HR.
-_SIG_TOP, _SIG_ROW = 0.66, 0.095
 # What the employee attests to by signing, printed just above their signature
 # line (Charmi, Oct 1 - the wording from the paper time sheet).
 EMPLOYEE_ATTESTATION = ("By execution and signature of this time sheet, I agree I have reviewed this "
                         "time sheet, and agree the hours stated are accurate and correct.")
 
 
-def _sig_fields(last_page: int) -> list:
-    fields = []
-    for i, (role, _label_) in enumerate(ROLES):
-        y = _SIG_TOP + i * _SIG_ROW
-        fields.append({"id": f"{role}_sign", "role": role, "type": "sign", "page": last_page,
-                       "x": 0.20, "y": y, "w": 0.42, "h": 0.05, "required": True})
-        fields.append({"id": f"{role}_date", "role": role, "type": "date", "page": last_page,
-                       "x": 0.70, "y": y + 0.012, "w": 0.18, "h": 0.03, "required": True})
-    return fields
+def _sig_fields(spot: dict) -> list:
+    """The employee's signature and date fields, where build_pdf drew their
+    lines (`spot`: page + normalized boxes from timesheet_pdf)."""
+    role = ROLES[0][0]      # only the employee signs
+    return [{"id": f"{role}_{kind}", "role": role, "type": kind, "page": spot["page"],
+             **dict(zip(("x", "y", "w", "h"), spot[kind])), "required": True} for kind in ("sign", "date")]
 
 
-def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tuple[bytes, int]:
-    """The agreed timesheet as a PDF: the Time Sheet screen's grid, totals and
-    review history (timesheet_pdf, landscape), then a portrait signature page
-    last. Returns (bytes, last page index).
+def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tuple[bytes, dict]:
+    """The agreed timesheet as a PDF (timesheet_pdf, landscape): the Time
+    Sheet screen's grid and totals, then the employee's signature and the
+    approval log on the same page, then the review history. Returns (bytes,
+    spot) - where the signature landed, for _sig_fields.
     `card`: the computed card to print (_send_envelope freezes its totals)."""
-    from reportlab.lib.pagesizes import letter
-    from reportlab.pdfgen import canvas
-
     if card is None:
         card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
     emp = _employee(db, r.employee_email)
@@ -1040,9 +1031,10 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tupl
     for e in (r.rounds or []):
         line = f"{us_date(e.get('at'))}  {_who(db, e)} {labels.get(e.get('action'), e.get('action'))}"
         history.append(line + (f': "{e["note"]}"' if e.get("note") else ""))
-    # The time sheet pages: the Time Sheet screen's grid, SwipeClock's layout
-    # (Charmi, Oct 20 2026) - timesheet_pdf.
-    sheet = timesheet_pdf.render(card, {
+    # The Time Sheet screen's grid in SwipeClock's layout (Charmi, Oct 20 2026),
+    # with the signature right under the summary - timesheet_pdf.
+    ca = needs_break_attestation(db, r)
+    return timesheet_pdf.render(card, {
         "start": r.period_start, "end": r.period_end, "pay_type": r.pay_type,
         "entity": (ent.name if ent else "") or "", "name": display_name(db, r.employee_email),
         "email": r.employee_email, "code": (getattr(emp, "employee_code", "") or "") if emp else "",
@@ -1057,89 +1049,17 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tupl
         "notes": _tc()._timecard_notes(db, r.employee_email, r.period_start, r.period_end, own=True),
         "punch_meta": card.get("punchMeta") or {}, "time": local_time, "us_date": us_date,
         "names_in": lambda s: _re.sub(r"[\w.+-]+@[\w-]+(\.[\w-]+)+", lambda m: display_name(db, m.group(0)), s),
-    })
-
-    # Signature block (always on its own final page, at fixed positions).
-    buf = io.BytesIO()
-    W, H = letter
-    c = canvas.Canvas(buf, pagesize=letter)
-    margin = 48
-    y = H - margin
-
-    def text(x, s, size=9, bold=False, color=(0.1, 0.1, 0.12)):
-        c.setFillColorRGB(*color)
-        c.setFont("Helvetica-Bold" if bold else "Helvetica", size)
-        c.drawString(x, y, s)
-
-    text(margin, "Signatures", 12, True)
-    y -= 16
-    text(margin, "By signing, the employee attests that the hours on this time sheet are accurate "
-                 "for the pay period shown.", 9)
-    y -= 14
-    text(margin, "The approver does not sign - the approval, and any change HR made, are logged below.", 9)
-    ca = needs_break_attestation(db, r)
-    if ca:
-        # CA-rule staff (Neil, Oct 18 2026): no separate question - the meal
-        # and rest break statement is printed in the box just above the
+        # CA-rule staff (Neil, Oct 18 2026): no separate question - the meal and
+        # rest break statement is boxed with the attestation just above the
         # signature, so signing confirms it (on_progress records it). A missed
         # break is reported instead of signing (claim_breaks).
-        from reportlab.lib.utils import simpleSplit as _split
-        y -= 22
-        for ln in _split("A missed meal or rest break is reported instead of signing: the time sheet goes "
-                         "back to the manager, who adds the premium pay.", "Helvetica", 8.5, W - 2 * margin):
-            y -= 11
-            text(margin, ln, 8.5, color=(0.4, 0.4, 0.45))
-    # The employee's attestation, boxed just above their signature line. Drawn
-    # in the free space above the first row, so no signature / date field moves
-    # (_sig_fields places them at the same fixed positions).
-    from reportlab.lib.utils import simpleSplit
-    att_lines = simpleSplit(EMPLOYEE_ATTESTATION, "Helvetica-Bold", 9, W - 2 * margin - 16)
-    if ca:
-        att_lines += simpleSplit(BREAK_STATEMENT, "Helvetica-Bold", 9, W - 2 * margin - 16)
-    box_bottom = H - _SIG_TOP * H + 10
-    box_h = 12 * len(att_lines) + 10
-    c.setStrokeColorRGB(0.6, 0.6, 0.65)
-    c.rect(margin, box_bottom, W - 2 * margin, box_h, stroke=1, fill=0)
-    c.setFillColorRGB(0.1, 0.1, 0.12)
-    c.setFont("Helvetica-Bold", 9)
-    for k, ln in enumerate(att_lines):
-        c.drawString(margin + 8, box_bottom + box_h - 14 - 12 * k, ln)
-    for i, (role, label) in enumerate(ROLES):
-        top = (_SIG_TOP + i * _SIG_ROW) * H
-        base = H - top - 0.05 * H
-        c.setFillColorRGB(0.1, 0.1, 0.12)
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(margin, base + 12, label)
-        c.setStrokeColorRGB(0.6, 0.6, 0.65)
-        c.line(0.20 * W, base, 0.62 * W, base)
-        c.line(0.70 * W, base, 0.88 * W, base)
-        c.setFont("Helvetica", 7)
-        c.drawString(0.20 * W, base - 9, "Signature")
-        c.drawString(0.70 * W, base - 9, "Date")
-    # Approval log (Oct 16, Neil): "manager Sahil approved Jackson's time card
-    # on this time at this date" - who approved, who changed it as HR, when.
-    # Below the employee's row, clear of every signature field.
-    log = approval_log(db, r, offset)
-    ly = H - (_SIG_TOP + 1.3 * _SIG_ROW) * H
-    c.setFillColorRGB(0.1, 0.1, 0.12)
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(margin, ly, "Approval log")
-    c.setFont("Helvetica", 8.5)
-    for line in (log or ["No approvals recorded."]):
-        ly -= 13
-        if ly < margin:
-            break
-        c.drawString(margin, ly, line[:130])
-    c.save()
-    # The time sheet pages, then the signature page: last page index = their count.
-    from pypdf import PdfReader, PdfWriter
-    out = PdfWriter()
-    for part in (sheet, buf.getvalue()):
-        for page in PdfReader(io.BytesIO(part)).pages:
-            out.add_page(page)
-    merged = io.BytesIO()
-    out.write(merged)
-    return merged.getvalue(), len(out.pages) - 1
+        "attestation": [EMPLOYEE_ATTESTATION] + ([BREAK_STATEMENT] if ca else []),
+        "sign_note": ["A missed meal or rest break is reported instead of signing: the time sheet goes back "
+                      "to the manager, who adds the premium pay."] if ca else [],
+        # Approval log (Oct 16, Neil): "manager Sahil approved Jackson's time card
+        # on this time at this date" - who approved, who changed it as HR, when.
+        "approval_log": approval_log(db, r, offset),
+    })
 
 
 def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
@@ -1171,7 +1091,7 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
 def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user_agent: str) -> str:
     from routers import esign
     card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
-    pdf, last_page = build_pdf(db, r, card)
+    pdf, spot = build_pdf(db, r, card)
     emp = _employee(db, r.employee_email)
     safe = esign._safe_filename(f"Time Sheet {display_name(db, r.employee_email)} {us_date(r.period_start).replace('/', '-')}")
     path = f"esign/{uuid.uuid4()}/{safe}.pdf"
@@ -1187,7 +1107,7 @@ def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user
         db, {"email": (r.agreed_by or r.manager_email or actor).lower()}, title=f"Time Sheet - {display_name(db, r.employee_email)} - {_label(r)}",
         source="pdf", template_id="", employee_id=(emp.id if emp else ""), candidate_id="",
         entity_id=(emp.company if emp else ""), body_snapshot=[], pdf_storage_path=path,
-        fields=esign._clean_fields(_sig_fields(last_page)),
+        fields=esign._clean_fields(_sig_fields(spot)),
         message=f"Please review and sign the time sheet for {_label(r)}.", expires_on="",
         parties=parties, ip=ip, user_agent=user_agent, routing="sequential",
         excluded_ack=True, document_class="employment")

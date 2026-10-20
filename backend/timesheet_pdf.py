@@ -6,8 +6,10 @@ the week's total in a yellow band, the note line under a day, then the
 totals and the HOURS / WAGE summary. Hourly and salaried cards each get
 their own columns, as on screen.
 
-Landscape, built with platypus; timesheet_review.build_pdf adds the portrait
-signature page after these, so no signature field moves.
+Landscape, built with platypus. The signature block and approval log follow
+the summary on the same page (Pranshu, Oct 20 2026: one document, not a
+separate signature page); the signature line records where it landed so
+Nexus Sign puts its fields exactly there (render's `spot`).
 
 Only what the employee may read is printed - they are the signer: the
 manager / HR day note never travels (Neil, Oct 12: supervisor notes are not
@@ -22,7 +24,8 @@ from xml.sax.saxutils import escape
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import LongTable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import (Flowable, KeepTogether, LongTable, Paragraph, SimpleDocTemplate, Spacer, Table,
+                                TableStyle)
 
 PAGE = landscape(letter)
 MARGIN = 30
@@ -134,7 +137,9 @@ class _Grid:
         t = LongTable(self.rows, colWidths=widths, repeatRows=1)
         t.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, LINE),
                                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                               ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                               # Tight rows (SwipeClock's): a two-week card, its summary and the
+                               # signature fit on one landscape page.
+                               ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
                                ("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3),
                                *self.cmds]))
         return t
@@ -390,17 +395,75 @@ def _summary_table(rows: list, fixed: bool) -> Table:
     t = Table(data, colWidths=[300, 90, 90], hAlign="RIGHT")
     cmds = [("GRID", (0, 0), (-1, -1), 0.4, LINE), ("BACKGROUND", (0, 0), (-1, 0), HEAD),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]
+            ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5)]
     cmds += [("BACKGROUND", (0, i + 1), (-1, i + 1), BAND) for i, (a, _b, _c) in enumerate(rows) if a.isupper()]
     t.setStyle(TableStyle(cmds))
     return t
 
 
-def render(card: dict, ctx: dict) -> bytes:
-    """The time sheet pages. `ctx`: start, end, pay_type, entity, name, email,
-    code, dept, period, kind, rule, approvals (lines), version, history
-    (lines), generated, notes, punch_meta, time(iso, punch_id) -> '8:45 AM',
-    names_in(text) -> text with emails as names."""
+class _SignatureLine(Flowable):
+    """The employee's signature and date lines. It records, as it is drawn,
+    the page and the boxes (normalized, top-left - Nexus Sign's convention)
+    where the signature and the date belong, into `spot`."""
+    SIGN_X, SIGN_W, SIGN_H = 110, 330, 28
+    DATE_X, DATE_W, DATE_H = 500, 140, 22
+    BASE = 12      # the lines' height inside the flowable
+
+    def __init__(self, label: str, spot: dict):
+        super().__init__()
+        self.label, self.spot = label, spot
+
+    def wrap(self, _aw, _ah):
+        return WIDTH, self.BASE + self.SIGN_H + 6
+
+    def draw(self):
+        c, b = self.canv, self.BASE
+        c.setFillColor(INK)
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(0, b + 12, self.label)
+        c.setStrokeColor(DIM)
+        c.setLineWidth(0.6)
+        c.line(self.SIGN_X, b, self.SIGN_X + self.SIGN_W, b)
+        c.line(self.DATE_X, b, self.DATE_X + self.DATE_W, b)
+        c.setFillColor(DIM)
+        c.setFont("Helvetica", 7)
+        c.drawString(self.SIGN_X, b - 9, "Signature")
+        c.drawString(self.DATE_X, b - 9, "Date")
+        x0, y0 = c.absolutePosition(0, b)
+        pw, ph = PAGE
+
+        def box(x, w, h, lift):
+            return [round((x0 + x) / pw, 4), round((ph - (y0 + lift + h)) / ph, 4), round(w / pw, 4), round(h / ph, 4)]
+
+        self.spot.update(page=c.getPageNumber() - 1, sign=box(self.SIGN_X, self.SIGN_W, self.SIGN_H, 0),
+                         date=box(self.DATE_X, self.DATE_W, self.DATE_H, 5))
+
+
+def _signature_block(ctx: dict, spot: dict) -> list:
+    """What the employee attests, their signature and date, then the approval
+    log (render keeps it together with the summary above it)."""
+    muted = ParagraphStyle("muted", parent=_TEXT, fontSize=8.5, leading=11, textColor=DIM)
+    box = Table([[Paragraph("<br/>".join(f"<b>{escape(s)}</b>" for s in ctx["attestation"]), _TEXT)]],
+                colWidths=[WIDTH])
+    box.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.6, DIM), ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                             ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
+    parts = [Paragraph("Only the employee signs. The approver does not sign - the approval, and any change HR "
+                       "made, are logged below.", muted)]
+    parts += [Paragraph(escape(s), muted) for s in ctx.get("sign_note") or []]
+    parts += [Spacer(1, 3), box, Spacer(1, 10), _SignatureLine("Employee", spot), Spacer(1, 4),
+              Paragraph("<b>Approval log</b>", _TEXT)]
+    parts += [Paragraph(escape(s), ParagraphStyle("log", parent=_TEXT, fontSize=8.5, leading=11))
+              for s in ctx.get("approval_log") or ["No approvals recorded."]]
+    return parts
+
+
+def render(card: dict, ctx: dict) -> tuple[bytes, dict]:
+    """The Time Sheet PDF and where its signature goes: (bytes, spot), spot =
+    {page, sign: [x, y, w, h], date: [x, y, w, h]}. `ctx`: start, end,
+    pay_type, entity, name, email, code, dept, period, kind, rule, approvals
+    (lines), version, history (lines), generated, notes, punch_meta,
+    time(iso, punch_id) -> '8:45 AM', names_in(text) -> text with emails as
+    names, attestation (lines), sign_note (lines), approval_log (lines)."""
     fixed = ctx["pay_type"] == "fixed"
     cur = card.get("currency") or "USD"
     head = ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=13, leading=16, alignment=1, textColor=INK)
@@ -432,8 +495,12 @@ def render(card: dict, ctx: dict) -> bytes:
     top.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                              ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
     story = [Paragraph(f"Time Sheet Report for {escape(ctx['entity'] or 'Greens Global')}", head), Spacer(1, 6), top,
-             Spacer(1, 6), fixed_rows(card, ctx) if fixed else hourly_rows(card, ctx), Spacer(1, 6),
-             _summary_table(fixed_summary(card) if fixed else hourly_summary(card), fixed)]
+             Spacer(1, 6), fixed_rows(card, ctx) if fixed else hourly_rows(card, ctx), Spacer(1, 6)]
+    # The summary and the signature travel as one: when they do not fit under
+    # the grid they start the next page together, never a signature alone.
+    spot = {}
+    story.append(KeepTogether([_summary_table(fixed_summary(card) if fixed else hourly_summary(card), fixed),
+                               Spacer(1, 6), *_signature_block(ctx, spot)]))
     if ctx.get("history"):
         story += [Spacer(1, 10), Paragraph("<b>Review history</b>", _TEXT)]
         story += [Paragraph(escape(line), ParagraphStyle("h", parent=_TEXT, fontSize=8, leading=10))
@@ -452,4 +519,4 @@ def render(card: dict, ctx: dict) -> bytes:
     doc = SimpleDocTemplate(buf, pagesize=PAGE, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=28,
                             bottomMargin=34, title=f"Time Sheet - {ctx['name']} - {ctx['period']}")
     doc.build(story, onLaterPages=later)
-    return buf.getvalue()
+    return buf.getvalue(), spot

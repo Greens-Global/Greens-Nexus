@@ -55,9 +55,15 @@ def ctx(**kw):
             "history": ["10/19/2026  Charmi Desai agreed"], "generated": "10/19/2026 at 2:19 PM",
             "notes": {"2026-10-12": {"employeeNote": "Doctor visit at noon", "note": "HR ONLY"}},
             "punch_meta": {}, "time": lambda iso, _pid: iso[11:16] if iso else "-", "us_date": lambda s: s,
-            "names_in": lambda s: s}
+            "names_in": lambda s: s,
+            "attestation": ["By execution and signature of this time sheet, I agree the hours are correct."],
+            "approval_log": ["Approved by Charmi Desai (manager) on 10/19/2026 at 2:19 PM"]}
     base.update(kw)
     return base
+
+
+def page_with(pdf: bytes, needle: str) -> int:
+    return next(i for i, p in enumerate(PdfReader(io.BytesIO(pdf)).pages) if needle in (p.extract_text() or ""))
 
 
 def text_of(pdf: bytes) -> str:
@@ -76,7 +82,7 @@ class Helpers(unittest.TestCase):
 
 class Hourly(unittest.TestCase):
     def setUp(self):
-        self.pdf = tp.render(HOURLY, ctx(punch_meta=HOURLY["punchMeta"]))
+        self.pdf, self.spot = tp.render(HOURLY, ctx(punch_meta=HOURLY["punchMeta"]))
         self.text = text_of(self.pdf)
 
     def test_landscape_pages(self):
@@ -105,6 +111,15 @@ class Hourly(unittest.TestCase):
         self.assertNotIn("payroll edit", self.text)
         self.assertNotIn("HR ONLY", self.text)      # the manager / HR note never travels
 
+    def test_signature_and_approval_log_under_the_summary(self):
+        self.assertEqual(self.spot["page"], page_with(self.pdf, "TOTALS"))     # on the summary's page
+        x, y, w, h = self.spot["sign"]
+        self.assertTrue(0 < x < x + w < 1 and 0 < y < y + h < 1)
+        self.assertLess(x + w, self.spot["date"][0])          # the date sits right of the signature
+        self.assertLess(self.text.index("TOTALS"), self.text.index("Signature"))
+        self.assertLess(self.text.index("Signature"), self.text.index("Approval log"))
+        self.assertIn("Approved by Charmi Desai (manager)", self.text)
+
     def test_header(self):
         for s in ("Time Sheet Report for Oversite Management, Inc", "Code: GG-014", "Dept: Operations - SCMC",
                   "Approved by Charmi Desai on 10/19/2026 at 2:19 PM", "OT rule: California",
@@ -115,15 +130,23 @@ class Hourly(unittest.TestCase):
         day = HOURLY["days"][0]
         many = dict(HOURLY, days=[dict(day, date=f"2026-10-{n:02d}",
                                        segments=day["segments"] * 6) for n in range(4, 18)])
-        pdf = tp.render(many, ctx())
+        pdf, spot = tp.render(many, ctx())
         self.assertGreater(len(PdfReader(io.BytesIO(pdf)).pages), 1)
         self.assertIn("(continued)", text_of(pdf))
+        # The summary and the signature moved on together, never a signature alone.
+        self.assertEqual(spot["page"], page_with(pdf, "TOTALS"))
+        self.assertGreater(spot["page"], 0)
+
+    def test_a_light_two_weeks_fit_one_page_with_the_signature(self):
+        light = dict(HOURLY, days=HOURLY["days"][:1])
+        pdf, spot = tp.render(light, ctx(notes={}))
+        self.assertEqual(spot["page"], 0)
 
 
 class Fixed(unittest.TestCase):
     def test_salaried_columns_and_summary(self):
         text = text_of(tp.render(FIXED, ctx(pay_type="fixed", start="2026-10-01", end="2026-10-31",
-                                            kind="Salaried (monthly)")))
+                                            kind="Salaried (monthly)"))[0])
         for s in ("Day", "Effect on Pay", "Present", "Personal", "Weekend", "-INR 2,000.00", "no change",
                   "Monthly salary", "Missed days (1 full): Personal x1", "NET PAY THIS MONTH", "INR 58,000.00",
                   "TOTAL HOURS WORKED 9:00 (9.00)"):
@@ -135,5 +158,5 @@ if __name__ == "__main__":
     out = os.environ.get("TIMESHEET_PDF_OUT")
     if out:
         with open(out, "wb") as f:
-            f.write(tp.render(HOURLY, ctx(punch_meta=HOURLY["punchMeta"])))
+            f.write(tp.render(HOURLY, ctx(punch_meta=HOURLY["punchMeta"]))[0])
     unittest.main()
