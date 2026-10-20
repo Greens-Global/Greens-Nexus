@@ -13,13 +13,14 @@
 // The competitor set and manual entry are the existing Market screen, opened
 // from "Comp Set & Manual Entry".
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Download, History, RefreshCw, Users } from 'lucide-react';
+import { Boxes, Check, Download, History, RefreshCw, Users } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { Modal } from '../tasks/components';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { count, money } from './model';
 import Market from './Market';
+import SectionPicker from './SectionPicker';
 
 const CATS = ['Self-Storage', 'Vehicle Storage'];
 const TABS = [['all', 'All Unit Types'], ['Self-Storage', 'Self-Storage'], ['Vehicle Storage', 'Vehicle Storage']];
@@ -460,11 +461,8 @@ export default function RateManagement({ facility }) {
 
       <div className="dash-card">
         <div className="dash-card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
-          <div className="scroll-tabs ops-pills" role="tablist" aria-label="Unit Category">
-            {TABS.map(([key, label]) => (
-              <button type="button" role="tab" key={key} className="ops-pill" aria-selected={tab === key} aria-pressed={tab === key} onClick={() => setTab(key)}>{label}</button>
-            ))}
-          </div>
+          <SectionPicker label="Unit Category" icon={Boxes} value={tab} onChange={setTab}
+            options={TABS.map(([key, label]) => ({ value: key, label }))} />
           <div className="dash-card-sub">Variance = our Sell rate vs the market median. Click a unit type to see its rate history.</div>
         </div>
         <div className="req-table-wrapper">

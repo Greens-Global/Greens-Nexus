@@ -67,7 +67,7 @@ describe('Rate Management', () => {
     expect(screen.getByText(/Nexus doesn't change rates in Cubby/)).toBeTruthy();
     expect(screen.queryByText(/push/i)).toBeNull();
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Vehicle Storage' }));
+    fireEvent.change(screen.getByLabelText('Unit Category'), { target: { value: 'Vehicle Storage' } });
     expect(screen.queryByText('Subtotal Self-Storage')).toBeNull();
     expect(screen.getByText('Subtotal Vehicle Storage')).toBeTruthy();
   });

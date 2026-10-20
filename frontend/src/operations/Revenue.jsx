@@ -20,6 +20,7 @@ import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { Modal } from '../tasks/components';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { money } from './model';
+import SectionPicker from './SectionPicker';
 import { csvName, downloadCsv } from './csv';
 
 const cash = (c) => money(c, { exact: true });
@@ -514,11 +515,8 @@ export default function Revenue({ facility }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div className="ops-pills" role="group" aria-label="Revenue Management section">
-          {SECTIONS.map((s) => (
-            <button type="button" key={s.key} className="ops-pill" aria-pressed={section === s.key} onClick={() => setSection(s.key)}>{s.label}</button>
-          ))}
-        </div>
+        <SectionPicker label="View" value={section} onChange={setSection}
+          options={SECTIONS.map((s) => ({ value: s.key, label: s.label }))} />
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button type="button" className="primary-btn" disabled={!data} onClick={() => setModal({ kind: 'apply' })}
             style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>

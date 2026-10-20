@@ -105,7 +105,7 @@ describe('Revenue Management', () => {
     api.opsRevenueEntered.mockResolvedValue(batch(['entered', 'pending']));
     render(<Revenue facility={FAC} />);
     await screen.findByText('Tenant a1');
-    fireEvent.click(screen.getByRole('button', { name: 'Rent Changes' }));
+    fireEvent.change(screen.getByLabelText('View'), { target: { value: 'batches' } });
     fireEvent.click(await screen.findByRole('button', { name: '10/20/2026' }));
     const dialog = await screen.findByRole('dialog', { name: 'Unit type 10x10 - Annual 8%' });
     expect(await within(dialog).findByText(/Nexus doesn't change rents in Cubby/)).toBeTruthy();
