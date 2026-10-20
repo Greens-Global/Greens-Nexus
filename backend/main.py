@@ -2549,6 +2549,9 @@ def _run_migrations():
         # models.NexusPersonPref / TicketReportEmailLog.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ticket_weekly_report INTEGER",
         "ALTER TABLE ticket_report_email_log ENABLE ROW LEVEL SECURITY",
+        # Ticket AI (Oct 2026, ticket_ai.py): cached AI Summaries - a new
+        # table, explicit RLS. models.TicketAiSummary.
+        "ALTER TABLE ticket_ai_summaries ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4010,3 +4013,5 @@ app.include_router(unit_map_router.ops_router)     # Operations > Site Map: site
 app.include_router(unit_map_router.public_router)  # Customer unit map /find/<token>: one unit, the route, no login (Neil, 10/20)
 from routers import ticket_reports as ticket_reports_router  # noqa: E402
 app.include_router(ticket_reports_router.router)   # Tickets > Reports: the server-side report, its CSV and the weekly email opt-out (Oct 2026)
+from routers import ticket_ai as ticket_ai_router  # noqa: E402
+app.include_router(ticket_ai_router.router)        # Tickets: AI Summary + Suggested Help Topic, and the desk's AI switch (Oct 2026)
