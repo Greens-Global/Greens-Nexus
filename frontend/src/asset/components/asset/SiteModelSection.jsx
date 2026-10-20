@@ -15,6 +15,25 @@ import { PropertyTicketComposer } from '../maintenance/ticketMounts';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 
+/** Every parcel number in an APN field, as digits. Understands lists and the
+ *  shorthand people type: "0166-080-030 & 040" = 0166-080-030 and 0166-080-040,
+ *  "918-200-025, 027" = 918-200-025 and 918-200-027 (Oct 20: Fairfield's
+ *  property wrote its two parcels that way and never matched its site model). */
+export function apnSet(s) {
+  const out = new Set(); let prev = null;
+  for (const raw of String(s || '').split(/[,&;/]|\band\b/i)) {
+    const t = raw.trim(); if (!t) continue;
+    const parts = t.split(/[^0-9A-Za-z]+/).filter(Boolean);
+    let full = parts;
+    if (prev && parts.length < prev.length) full = [...prev.slice(0, prev.length - parts.length), ...parts];
+    const d = digits(full.join(''));
+    if (d) out.add(d);
+    prev = full;
+  }
+  return out;
+}
+const sameParcel = (a, b) => { const A = apnSet(a); if (!A.size) return false; for (const x of apnSet(b)) if (A.has(x)) return true; return false; };
+
 /** The model whose id, APN or name matches this property, if any. */
 export function matchSiteModel(list, p) {
   if (!list?.length || !p) return null;
@@ -24,7 +43,7 @@ export function matchSiteModel(list, p) {
   const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const byName = (m) => !!norm(m.name) && norm(m.name) === norm(name);
   return list.find((m) => m.id === id)
-    || (apn && list.find((m) => digits(m.apn) === apn))
+    || (apn && list.find((m) => digits(m.apn) === apn || sameParcel(p.apn, m.apn)))
     || (name && list.find(byName))
     || null;
 }
