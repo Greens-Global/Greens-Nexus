@@ -75,10 +75,15 @@ describe('Rate Management', () => {
       draft: { proposed: 11500, proposedSet: null, note: '', updatedBy: 'miranda@greensglobal.com', updatedAt: '2026-10-20T18:00:00Z' } }), ROWS[1]]);
     apiMock.saveOpsRateDraft.mockResolvedValue(saved);
     render(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={() => {}} />);
-    const input = await screen.findByLabelText("Proposed rate for 8' x 10'");
-    fireEvent.change(input, { target: { value: '115' } });
-    fireEvent.blur(input);
-    await waitFor(() => expect(apiMock.saveOpsRateDraft).toHaveBeenCalledWith({ facility_id: 'fac_f', unit_type: "8' x 10'", proposed: 115 }));
+    // Wait for the rates to load before typing: on a slow CI runner the input can
+    // render, then re-render from the loaded view and drop a value typed too early.
+    await waitFor(() => expect(apiMock.getOpsRates).toHaveBeenCalled());
+    await waitFor(() => {
+      const input = screen.getByLabelText("Proposed rate for 8' x 10'");
+      fireEvent.change(input, { target: { value: '115' } });
+      fireEvent.blur(input);
+      expect(apiMock.saveOpsRateDraft).toHaveBeenCalledWith({ facility_id: 'fac_f', unit_type: "8' x 10'", proposed: 115 });
+    }, { timeout: 4000 });
     expect(await screen.findByText('1 change ready for Cubby')).toBeTruthy();
     expect(screen.getAllByText('+$3').length).toBeGreaterThan(0);
   });
