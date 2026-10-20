@@ -1,9 +1,10 @@
 """People > Sync Employee Codes From Intacct (Charmi, Oct 21 2026).
 
 Matching (work email first, exact name, name + company, conflicts), the
-preview, apply, HR-only access, a clear 424 with nothing changed when the
-accounting app cannot be reached, the ledger fallback, and the nightly job
-honoring its per-company switch. The accounting app is replaced by fakes -
+preview, apply, HR-only access, a clear 424 with nothing changed when
+Intacct or the accounting app cannot be reached, Intacct read directly when
+configured else the ledger fallback, and the nightly job honoring its
+per-company switch. Intacct and the accounting app are replaced by fakes -
 nothing leaves the machine.
 
 Binds its own throwaway SQLite. Run ONE file per process:
@@ -25,6 +26,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 import auth  # noqa: E402
 import cache  # noqa: E402
 import database  # noqa: E402
+import intacct_client  # noqa: E402
 import main  # noqa: E402
 import models  # noqa: E402
 from routers import accounting as acct  # noqa: E402
@@ -298,7 +300,13 @@ class UnreachableTests(Base):
         self.assertEqual(r.status_code, 424)
         self.assertEqual(self.code_of("e-amy"), "GG-001")
 
+    def _no_direct(self):
+        """Intacct's own settings off, so the ledger is the source."""
+        saved = {k: os.environ.pop(k, None) for k in intacct_client.REQUIRED_ENV}
+        self.addCleanup(lambda: [os.environ.__setitem__(k, v) for k, v in saved.items() if v is not None])
+
     def test_real_fetch_errors(self):
+        self._no_direct()
         fetch = self._fetch
         base, key, get = acct._ACCT_BASE, acct._ACCT_KEY, httpx.get
         try:
@@ -317,7 +325,8 @@ class UnreachableTests(Base):
         finally:
             acct._ACCT_BASE, acct._ACCT_KEY, httpx.get = base, key, get
 
-    def test_ledger_fallback_when_the_route_is_missing(self):
+    def test_ledger_fallback_when_intacct_is_not_configured(self):
+        self._no_direct()
         fetch = self._fetch
         base, key, get = acct._ACCT_BASE, acct._ACCT_KEY, httpx.get
         seen = []
@@ -325,22 +334,86 @@ class UnreachableTests(Base):
         def fake_get(url, params=None, headers=None, timeout=None):
             seen.append((url, params))
             req = httpx.Request("GET", url)
-            if url.endswith(codes.EMPLOYEES_PATH):
-                return httpx.Response(404, json={"ok": False, "error": "not found"}, request=req)
             return httpx.Response(200, json={"ok": True, "kind": "employee", "values": [{"code": "E101", "name": "Patel, Raj", "lines": 4}]}, request=req)
+        direct, intacct_client.fetch_employees = intacct_client.fetch_employees, lambda: self.fail("Intacct read without settings")
         try:
             acct._ACCT_BASE, acct._ACCT_KEY, httpx.get = "https://acct.invalid", "k", fake_get
             data = fetch()
         finally:
             acct._ACCT_BASE, acct._ACCT_KEY, httpx.get = base, key, get
+            intacct_client.fetch_employees = direct
         self.assertEqual(data["source"], "ledger")
-        self.assertEqual(seen[1][1], {"kind": "employee"})
+        # Only the ledger is asked - never the old accounting employees route.
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(seen[0][0].endswith(codes.LEDGER_PATH))
+        self.assertEqual(seen[0][1], {"kind": "employee"})
         db = database.SessionLocal()
         try:
-            rows = {r["employeeId"]: r for r in codes.build_preview(db, None, data)["rows"]}
+            out = codes.build_preview(db, None, data)
         finally:
             db.close()
+        self.assertEqual(out["sourceLabel"], "Ledger codes, names only")
+        rows = {r["employeeId"]: r for r in out["rows"]}
         self.assertEqual((rows["e-raj"]["matchBy"], rows["e-raj"]["autoEligible"]), ("name", False))
+
+    def _direct_on(self):
+        saved = {k: os.environ.get(k) for k in intacct_client.REQUIRED_ENV}
+        for k in intacct_client.REQUIRED_ENV:
+            os.environ[k] = f"test-{k.lower()}"
+
+        def restore():
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        self.addCleanup(restore)
+
+    def test_direct_intacct_first_when_configured(self):
+        self._direct_on()
+        fetch = self._fetch
+        rows = [{"employeeId": "E100", "printAs": "Bolanos, Amy", "firstName": "Amy", "lastName": "Bolanos",
+                 "email": "Amy@greensglobal.com", "status": "active", "locationId": "15000",
+                 "locationName": "Greens Escondido", "whenModified": "10/01/2026 10:00:00"}]
+        get = httpx.get
+
+        def no_ledger(*a, **k):
+            raise AssertionError("ledger read while Intacct is configured")
+        direct, intacct_client.fetch_employees = intacct_client.fetch_employees, lambda: rows
+        try:
+            httpx.get = no_ledger
+            data = fetch()
+        finally:
+            httpx.get = get
+            intacct_client.fetch_employees = direct
+        self.assertEqual(data["source"], "intacct")
+        rec = data["employees"][0]
+        self.assertEqual((rec["employeeId"], rec["name"], rec["email"], rec["location"], rec["locationName"]),
+                         ("E100", "Bolanos, Amy", "amy@greensglobal.com", "15000", "Greens Escondido"))
+        db = database.SessionLocal()
+        try:
+            out = codes.build_preview(db, None, data)
+        finally:
+            db.close()
+        self.assertEqual(out["sourceLabel"], "Intacct (direct)")
+        amy = next(r for r in out["rows"] if r["employeeId"] == "e-amy")
+        self.assertEqual((amy["action"], amy["matchBy"], amy["intacctCode"]), ("update", "email", "E100"))
+
+    def test_direct_intacct_error_is_a_clear_424(self):
+        self._direct_on()
+        codes.fetch_intacct_employees = self._fetch
+
+        def bad():
+            raise intacct_client.IntacctError("Intacct sign-in failed: Invalid Web Services Authorization.")
+        direct, intacct_client.fetch_employees = intacct_client.fetch_employees, bad
+        try:
+            _as(HR)
+            r = self.client.get("/hr/intacct-codes/preview")
+        finally:
+            intacct_client.fetch_employees = direct
+        self.assertEqual(r.status_code, 424)
+        self.assertIn("Intacct sign-in failed", r.json()["detail"])
+        self.assertIn("Nothing was changed", r.json()["detail"])
 
 
 class NightlyTests(Base):

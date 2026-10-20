@@ -47,6 +47,17 @@ describe('IntacctEmployeeCodes', () => {
     await waitFor(() => expect(onApplied).toHaveBeenCalled());
   });
 
+  it('says which source the codes came from', async () => {
+    preview.mockResolvedValue({ source: 'intacct', sourceLabel: 'Intacct (direct)', rows: ROWS, counts: { update: 2, keep: 0, no_match: 0, conflict: 1 }, notInNexus: [] });
+    const { unmount } = render(<IntacctEmployeeCodes onClose={() => {}} />);
+    expect(await screen.findByText(/Source: Intacct \(direct\)/)).toBeTruthy();
+    unmount();
+    preview.mockResolvedValue({ source: 'ledger', sourceLabel: 'Ledger codes, names only', rows: ROWS, counts: { update: 2, keep: 0, no_match: 0, conflict: 1 }, notInNexus: [] });
+    render(<IntacctEmployeeCodes onClose={() => {}} />);
+    expect(await screen.findByText(/Source: Ledger codes, names only/)).toBeTruthy();
+    expect(screen.getByText(/matched by name/)).toBeTruthy();
+  });
+
   it('shows the reason when Intacct cannot be read', async () => {
     preview.mockRejectedValue(new Error('Could not reach the accounting service (ConnectError). Nothing was changed.'));
     render(<IntacctEmployeeCodes onClose={() => {}} />);

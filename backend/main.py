@@ -3788,6 +3788,7 @@ def health():
     explicit NEXUS_APP_URL is visible from outside without Azure access - both
     sat on the security-debt list as "may still be unset on prod" because nobody
     could tell. No values are exposed, only whether each is configured."""
+    import intacct_client
     import secret_box
     return {"status": "ok",
             "secrets": {"vault_key": secret_box.KEY_CONFIGURED,
@@ -3799,7 +3800,10 @@ def health():
                                                     and os.getenv("NEXUS_AM_AUDIENCE", "").strip()),
                         # Cubby -> database sync (Operations, Oct 15). Only the
                         # sync needs it; the screens read the synced tables.
-                        "cubby_api_key": bool(os.getenv("CUBBY_API_KEY", "").strip())}}
+                        "cubby_api_key": bool(os.getenv("CUBBY_API_KEY", "").strip()),
+                        # People > Sync Employee Codes reads Intacct directly
+                        # (intacct_client.py, the five INTACCT_* settings).
+                        "intacct_direct": intacct_client.configured()}}
 
 
 @app.get("/health/ready")

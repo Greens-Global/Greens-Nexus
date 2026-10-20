@@ -7,13 +7,13 @@ Nexus hands out GG-001 style codes when a person is added (hr._next_code);
 payroll and the ledger know people by their Intacct EMPLOYEEID. This screen
 lines the two up:
 
-  - The Intacct employees come from the accounting app's internal API, never
-    from its database and never from Intacct directly (same proxy rules as
-    routers/accounting.py). The full employee list is
-    GET /api/internal/intacct/employees (EMPLOYEEID, name, email, status,
-    location). Until the accounting app serves it (404) the screen falls back
-    to the employee codes on the ledger (/reports/dimensions?kind=employee,
-    code and name only), which can only ever match by name.
+  - The Intacct employees are read straight from Intacct by Nexus's own
+    read-only Web Services client (intacct_client.py, INTACCT_* settings) -
+    EMPLOYEEID, name, email, status, location. When those settings are not
+    on this server the screen falls back to the employee codes on the
+    accounting app's ledger (/reports/dimensions?kind=employee, code and name
+    only, same proxy rules as routers/accounting.py), which can only ever
+    match by name.
   - Matching: work email first; else the exact name (a "Last, First" print
     name is turned around), narrowed by company when several people share a
     name. Never fuzzy. Two people claiming one Intacct ID, one Intacct
@@ -46,6 +46,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import intacct_client
 import models
 from auth import hr_scope, is_team_scope, require_module_grant
 from database import get_db
@@ -58,7 +59,6 @@ router = APIRouter(prefix="/hr/intacct-codes", tags=["hr"])
 require_hr_write = require_module_grant("hr", "editor")
 
 SETTINGS_KEY = "intacct_employee_codes"
-EMPLOYEES_PATH = "/api/internal/intacct/employees"
 LEDGER_PATH = "/api/internal/reports/dimensions"
 SYNC_ACTOR = "intacct-employee-sync"
 # The nightly pass runs once a day after this UTC hour (9 UTC = 1-2 AM Pacific).
@@ -68,8 +68,11 @@ TICK_SEC = 30 * 60
 ACTIONS = ("update", "keep", "no_match", "conflict")
 
 
+SOURCE_LABELS = {"intacct": "Intacct (direct)", "ledger": "Ledger codes, names only"}
+
+
 class IntacctUnavailable(Exception):
-    """The accounting app could not give us the employee list. The message is
+    """Neither Intacct nor the ledger could give us the employee list. The message is
     shown to HR as is; nothing is changed when this is raised."""
 
 
@@ -105,12 +108,13 @@ def save_state(db: Session, state: dict, by: str) -> None:
     row.updated_at = _now()
 
 
-# ── The Intacct employees, from the accounting app ───────────────────────────
+# ── The Intacct employees: Intacct direct, else the ledger ───────────────────
 
 def _http_get(path: str, params: dict):
     if not acct._ACCT_BASE or not acct._ACCT_KEY:
-        raise IntacctUnavailable("The accounting service is not configured on this server (ACCOUNTING_BASE_URL / "
-                                 "ACCOUNTING_INTERNAL_KEY), so Intacct cannot be read. Nothing was changed.")
+        raise IntacctUnavailable("Intacct is not configured on this server (the INTACCT_* settings), and neither is "
+                                 "the accounting service (ACCOUNTING_BASE_URL / ACCOUNTING_INTERNAL_KEY), so no "
+                                 "employee codes can be read. Nothing was changed.")
     try:
         return httpx.get(f"{acct._ACCT_BASE}{path}", params=params,
                          headers={"x-internal-api-key": acct._ACCT_KEY}, timeout=30)
@@ -149,25 +153,37 @@ def _norm_record(p: dict) -> dict:
     }
 
 
-def fetch_intacct_employees() -> dict:
-    """{source, employees} - blocking HTTP, call it from a thread or a sync
-    endpoint. source 'intacct' = the full employee list; 'ledger' = only the
-    employee codes on the ledger (no email, no location). Tests replace this."""
-    r = _http_get(EMPLOYEES_PATH, {})
-    if r.status_code == 404:
-        r2 = _http_get(LEDGER_PATH, {"kind": "employee"})
-        if r2.status_code != 200:
-            raise IntacctUnavailable(f"{acct._upstream_detail(r2)}. Nothing was changed.")
-        data = _json_body(r2)
-        values = data.get("values") or data.get("rows") or []
-        return {"source": "ledger", "employees": [_norm_record({"employeeId": v.get("code"), "name": v.get("name"),
-                                                                "status": v.get("status")})
-                                                  for v in values if isinstance(v, dict)]}
+def _fetch_direct() -> dict:
+    try:
+        rows = intacct_client.fetch_employees()
+    except intacct_client.IntacctError as e:
+        raise IntacctUnavailable(f"{e} Nothing was changed.") from e
+    return {"source": "intacct", "employees": [_norm_record({
+        "employeeId": p["employeeId"], "printAs": p["printAs"], "firstName": p["firstName"],
+        "lastName": p["lastName"], "email": p["email"], "status": p["status"],
+        "locationId": p["locationId"], "locationName": p["locationName"]}) for p in rows]}
+
+
+def _fetch_ledger() -> dict:
+    r = _http_get(LEDGER_PATH, {"kind": "employee"})
     if r.status_code != 200:
         raise IntacctUnavailable(f"{acct._upstream_detail(r)}. Nothing was changed.")
     data = _json_body(r)
-    rows = data.get("employees") or data.get("rows") or []
-    return {"source": "intacct", "employees": [_norm_record(p) for p in rows if isinstance(p, dict)]}
+    values = data.get("values") or data.get("rows") or []
+    return {"source": "ledger", "employees": [_norm_record({"employeeId": v.get("code"), "name": v.get("name"),
+                                                            "status": v.get("status")})
+                                              for v in values if isinstance(v, dict)]}
+
+
+def fetch_intacct_employees() -> dict:
+    """{source, employees} - blocking HTTP, call it from a thread or a sync
+    endpoint. source 'intacct' = the full employee list read from Intacct by
+    Nexus (when the INTACCT_* settings are on this server); 'ledger' = only
+    the employee codes on the accounting ledger (no email, no location).
+    Tests replace this."""
+    if intacct_client.configured():
+        return _fetch_direct()
+    return _fetch_ledger()
 
 
 # ── Matching ─────────────────────────────────────────────────────────────────
@@ -338,7 +354,9 @@ def build_preview(db: Session, scope, data: dict, state: Optional[dict] = None) 
         {"employeeId": r["employeeId"], "name": r["name"], "email": r["email"], "status": r["status"],
          "location": r["locationName"] or r["location"]}
         for r in records if r["employeeId"] not in claimed_records]
-    return {"source": data.get("source") or "intacct", "rows": rows, "counts": counts, "notInNexus": not_in_nexus}
+    source = data.get("source") or "intacct"
+    return {"source": source, "sourceLabel": SOURCE_LABELS.get(source, source), "rows": rows, "counts": counts,
+            "notInNexus": not_in_nexus}
 
 
 # ── Applying ─────────────────────────────────────────────────────────────────

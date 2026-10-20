@@ -120,7 +120,12 @@ export default function IntacctEmployeeCodes({ onClose, onApplied, toastOk, toas
 
       {data?.source === 'ledger' && (
         <div style={{ background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 12 }}>
-          The accounting app does not share Intacct&apos;s full employee list yet, so only the employee codes on the ledger are shown and people are matched by name. Check each row before applying.
+          <strong>Source: {data.sourceLabel || 'Ledger codes, names only'}.</strong> Nexus is not connected to Intacct on this server, so only the employee codes on the ledger are shown and people are matched by name. Check each row before applying.
+        </div>
+      )}
+      {data && data.source !== 'ledger' && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+          Source: {data.sourceLabel || 'Intacct (direct)'} - work email, name, status and location read from Intacct.
         </div>
       )}
 
