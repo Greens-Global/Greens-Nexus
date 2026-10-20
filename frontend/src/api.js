@@ -1353,6 +1353,7 @@ export const api = {
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
   candidateResumeUrl:  (id)       => req(`/hr/candidates/${id}/resume-url`),
+  candidateDecision:   (id)       => req(`/hr/candidates/${id}/decision`),   // Decision step votes (Oct 19)
   hiringOptions:       (companyId = '') => req(`/hr/hiring/options?company_id=${encodeURIComponent(companyId || '')}`),
   hiringAllRoles:      ()         => req('/hr/hiring/options?all_roles=true'),
 

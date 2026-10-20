@@ -2654,9 +2654,12 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
                        body=body.body or "", notify=notify, defer=background_tasks.add_task,
                        parent_id=body.parent_id or "",
                        assignee_email=assert_person_on_task(db, t, body.assignee_email or ""))
-    # A comment on a candidate's screening task is a screening note (Oct 15).
+    # A comment on a candidate's screening task is a screening note (Oct 15);
+    # on their "Decide on" task it is a vote and maybe the final call (Oct 19).
     import hiring_screening
-    if hiring_screening.note_from_comment(db, t.id, user["email"], c.body or ""):
+    import hiring_decision
+    if (hiring_screening.note_from_comment(db, t.id, user["email"], c.body or "")
+            or hiring_decision.vote_from_comment(db, t.id, user["email"], c.body or "")):
         db.commit()
     return comment_to_dict(c)
 

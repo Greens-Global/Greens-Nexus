@@ -75,9 +75,6 @@
   "components/GeofencePunchModal.jsx": {
     "toLocaleDateString(": 1
   },
-  "components/HiringSchedule.jsx": {
-    "type=\"date\"": 1
-  },
   "components/HrChecklists.jsx": {
     "type=\"date\"": 2
   },
@@ -95,9 +92,6 @@
   },
   "components/MyAvailability.jsx": {
     "type=\"date\"": 1
-  },
-  "components/OfferModal.jsx": {
-    "type=\"date\"": 2
   },
   "components/PayrollTimecard.jsx": {
     "toLocaleDateString(": 6

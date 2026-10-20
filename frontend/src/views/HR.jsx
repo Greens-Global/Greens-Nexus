@@ -2232,7 +2232,13 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       setScheduling({ candidate: c, replace: null });     // Interview means a scheduled interview
       return;
     }
-    if (stage === 'offer' && c.stage !== 'interview') { toastErr('Interview them before the offer - schedule the interview first.'); return; }
+    // Decision sits between Interview and Offer (Neil, Oct 19).
+    if (stage === 'decision' && from < to && c.stage !== 'interview') { toastErr('Interview them first - schedule the interview.'); return; }
+    if (stage === 'offer' && c.stage !== 'decision') {
+      toastErr(c.stage === 'interview' ? 'Move them to Decision first - the interviewers and the department head decide before the offer.'
+        : 'Interview them before the offer - schedule the interview first.');
+      return;
+    }
     // Into Offer means making the offer: the offer questions come up (Oct 14).
     if (stage === 'offer' && from < to) { setOfferFor(c); return; }
     if (to < from && !await dialog.confirm(`Move ${candName(c)} back to ${STAGE_META[stage].label}?`, { title: 'Move Back', confirmText: 'Move Back' })) return;
@@ -2465,9 +2471,8 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       {lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); refreshBoard(); }} toastOk={toastOk} toastErr={toastErr}
         onDecision={(kind, cand) => {
+          // The offer and the rejection wait for the Decision step (Oct 19).
           if (kind === 'another') setScheduling({ candidate: cand, replace: null });
-          else if (kind === 'offer') setOfferFor(cand);       // the offer questions come up here (Oct 14)
-          else moveStage(cand, 'rejected', 'Not a fit after the interview');
         }} />}
     </div>
   );

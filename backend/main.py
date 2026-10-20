@@ -1133,6 +1133,12 @@ def _run_migrations():
             "ALTER TABLE ticket_inbound_email ADD COLUMN auth_summary VARCHAR DEFAULT ''",
             # Weekly Ticket Report opt-out (Oct 2026, ticket_reports.py). models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN ticket_weekly_report INTEGER",
+            # Hiring Decision step (Neil, Oct 19, hiring_decision.py). models.HrCandidate.
+            "ALTER TABLE hr_candidates ADD COLUMN decision_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision_by VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision_note VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2559,6 +2565,12 @@ def _run_migrations():
         # Ticket AI (Oct 2026, ticket_ai.py): cached AI Summaries - a new
         # table, explicit RLS. models.TicketAiSummary.
         "ALTER TABLE ticket_ai_summaries ENABLE ROW LEVEL SECURITY",
+        # Hiring Decision step (Neil, Oct 19, hiring_decision.py). models.HrCandidate.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_by VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_note VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

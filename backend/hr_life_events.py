@@ -1003,7 +1003,7 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
 # company, then the candidate - from their email, no Nexus login -> signed
 # by both = hired, and the hiring packet starts by itself.
 
-OFFER_STAGES = ("applied", "screening", "interview", "offer")
+OFFER_STAGES = ("applied", "screening", "interview", "decision", "offer")
 # What an offer letter can print from the offer form beyond the role, start
 # and pay - the form asks for one only when the letter prints it.
 OFFER_PRINTS = ("address", "permanent_address", "preferred_name", "phone", "work_location", "work_schedule",
@@ -1210,6 +1210,8 @@ def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[d
                             note=f"Offer started - {setting.name or 'offer letter'}", by_email=user["email"],
                             created_at=now))
         cand.stage = "offer"
+        import hiring_decision
+        hiring_decision.close(db, cand)      # the decision is made - the offer is out
     card_from_intake(db, ev)
     db.flush()
     p = hpd.event_plan(db, ev, setting, sender=user["email"], can_see_pay=True)
