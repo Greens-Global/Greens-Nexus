@@ -4,7 +4,8 @@
 // ticketPropertyLink.js; backend/ticket_property_link.py is the server half):
 //   * TicketPropertyIntake - Property + Unit on Create a Ticket, with "Looks
 //     like ..." from the title and description;
-//   * TicketPropertyDetail - Unit + View Property on the ticket drawer;
+//   * TicketPropertyDetail - Unit + View Property on the ticket drawer; at a
+//     Cubby store, "Tenant: <name>" for staff with Operations read (Oct 20 2026);
 //   * SuggestPropertyLinks - the manager's backfill: proposals, one approval each.
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
@@ -14,6 +15,7 @@ import { label, field, requiredHint } from './ticketMeta';
 import { TicketSelect } from './TicketAtoms';
 import { PropertySelect } from './PropertySelect';
 import { formatDate } from '../lib/datetime';
+import { useRole } from '../contexts/RoleContext';
 import { COMMON_AREA, NO_UNITS, usePropertySuggestion, usePropertyUnits, openProperty } from './ticketPropertyLink';
 
 const hint = (text) => <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{text}</div>;
@@ -83,8 +85,27 @@ export function TicketPropertyIntake({ value, unit, onChange, onUnitChange, fixe
 
 
 /** The ticket drawer: Unit (editable with the property) and View Property. */
+/** The tenant renting this unit at a Cubby store - name only, and only asked for
+ *  by someone with Operations read (the same door as Collections; the endpoint
+ *  refuses everyone else). Blank for a vacant unit, Common Area or a non-store. */
+function useUnitTenant(propertyId, unit) {
+  const role = useRole();
+  const staff = !!role?.canAccessModule?.('operations', 'supervisor', 'viewer');
+  const [tenant, setTenant] = useState({ key: '', name: '' });
+  const u = String(unit || '').trim();
+  const key = staff && propertyId && u && u !== COMMON_AREA ? `${propertyId}|${u}` : '';
+  useEffect(() => {
+    if (!key) return undefined;
+    let live = true;
+    Promise.resolve(api.getOpsTicketTenant?.(propertyId, u)).then((r) => { if (live) setTenant({ key, name: r?.tenant || '' }); }).catch(() => {});
+    return () => { live = false; };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return key && tenant.key === key ? tenant.name : '';
+}
+
 export function TicketPropertyDetail({ v, canEdit = false, stage, style }) {
   const units = usePropertyUnits(v?.propertyAssetId || null);
+  const tenant = useUnitTenant(v?.propertyAssetId, v?.propertyUnit);
   if (!v?.propertyAssetId) return null;
   const closed = ['resolved', 'closed'].includes(v.status);
   return (
@@ -96,6 +117,7 @@ export function TicketPropertyDetail({ v, canEdit = false, stage, style }) {
       ) : (
         <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.propertyUnit || '-'}</div>
       )}
+      {tenant && <div style={{ fontSize: 12.5, color: NX.ink, marginTop: 6 }}><span style={{ color: NX.faint }}>Tenant:</span> {tenant}</div>}
       <button type="button" onClick={() => openProperty(v.propertyAssetId)}
         style={{ border: 'none', background: 'none', padding: 0, marginTop: 6, cursor: 'pointer', color: NX.blue, fontSize: 12.5, fontWeight: 600 }}>
         View Property{v.propertyName ? ` - ${v.propertyName}` : ''} {'↗'}
