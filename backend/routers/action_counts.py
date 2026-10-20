@@ -71,10 +71,11 @@ def _weather(db: Session, user: dict) -> int:
 def _checklist_steps(db: Session, me: str) -> int:
     """My open steps that are due - today or before, or with no date. A step
     due in three weeks is on the card, but not waiting on me yet."""
+    import hr_checklists
     I = models.HrChecklistItem
     return (db.query(func.count(I.id))
             .join(models.HrChecklist, models.HrChecklist.id == I.checklist_id)
-            .filter(I.owner_email == me, I.status == "open", models.HrChecklist.status == "open",
+            .filter(hr_checklists.owned_by(me), I.status == "open", models.HrChecklist.status == "open",
                     or_(I.due_date.is_(None), I.due_date == "", func.substr(I.due_date, 1, 10) <= date.today().isoformat()))
             .scalar())
 

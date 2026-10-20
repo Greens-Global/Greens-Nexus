@@ -369,7 +369,7 @@ class ChecklistTests(unittest.TestCase):
         tpl = next(t for t in self.client.get(f"/hr/checklists/templates?entity_id={CO_B}").json()["templates"]
                    if t["kind"] == "onboarding")
         self.assertEqual([i["owner"] for i in tpl["items"]], ["accounting", "it"])
-        self.assertEqual(self.client.get(f"/hr/checklists/owners?entity_id={CO_B}").json()["effective"]["accounting"], HRC)
+        self.assertEqual(self.client.get(f"/hr/checklists/owners?entity_id={CO_B}").json()["effective"]["accounting"], [HRC])
         cl = self._start(self._person("emp-b", company=CO_B))
         self.assertEqual((self._row(cl, "O-1")["ownerRole"], self._row(cl, "O-1")["ownerEmail"]), ("accounting", HRC))
         self.assertEqual(self._row(cl, "O-2")["ownerRoleLabel"], "IT")
@@ -511,6 +511,89 @@ class ChecklistTests(unittest.TestCase):
             self.assertTrue(any(s.status == "open" for s in others))      # nobody else's steps were touched
         finally:
             db.close()
+
+    def _grant_tasks(self, *emails):
+        db = database.SessionLocal()
+        try:
+            if not db.query(models.NexusGroup).filter_by(id="grp-tasks-test").first():
+                db.add(models.NexusGroup(id="grp-tasks-test", name="Tasks", allowed_modules="tasks:editor"))
+            for em in emails:
+                db.add(models.NexusGroupMember(group_id="grp-tasks-test", email=em))
+            db.commit()
+        finally:
+            db.close()
+        cache.module_grants.invalidate()
+
+    def _step(self, iid):
+        db = database.SessionLocal()
+        try:
+            return db.query(models.HrChecklistItem).filter_by(id=iid).one()
+        finally:
+            db.close()
+
+    def test_several_owners_share_one_task_and_any_of_them_closes_the_step(self):
+        r = self.client.put(f"/hr/checklists/owners?entity_id={CO_A}", json={"owners": {"it": [IT, HRC]}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["owners"]["it"], [IT, HRC])
+        cl = self._start(self._person())
+        it_rows = [i for i in cl["items"] if i["ownerRole"] == "it"]
+        self.assertTrue(it_rows)
+        self.assertTrue(all(i["ownerEmails"] == [IT, HRC] for i in it_rows))
+        subs = [self._task(self._step(i["id"]).task_id) for i in it_rows]
+        self.assertTrue(all(sorted(s.assignee_emails) == sorted([IT, HRC]) for s in subs))
+        self.assertEqual(len({s.parent_task_id for s in subs}), 1)              # ONE shared task
+        self.assertEqual(sorted(self._task(subs[0].parent_task_id).assignee_emails), sorted([IT, HRC]))
+        # either owner closing their subtask closes the step
+        self._grant_tasks(HRC)
+        _as(HRC)
+        self.assertEqual(self.client.patch(f"/tasks/{subs[0].id}", json={"completed": True}).status_code, 200)
+        self.assertEqual(self._step(it_rows[0]["id"]).status, "done")
+        # and both see the step under My Steps
+        self.assertIn(it_rows[1]["id"], [x["id"] for x in self.client.get("/hr/checklists/mine").json()["steps"]])
+        _as(IT)
+        self.assertIn(it_rows[1]["id"], [x["id"] for x in self.client.get("/hr/checklists/mine").json()["steps"]])
+
+    def test_step_comments_and_task_comments_are_one_thread(self):
+        eid = self._person()
+        cl = self._start(eid)
+        row = next(i for i in cl["items"] if i["ownerEmail"] == MANAGER)
+        sub_id = self._step(row["id"]).task_id
+        r = self.client.post(f"/hr/checklists/items/{row['id']}/comments", json={"body": "Laptop ordered"})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual([(c["author"], c["body"]) for c in r.json()["item"]["comments"]], [(HR, "Laptop ordered")])
+        db = database.SessionLocal()
+        try:                                   # it is a task comment on the step's subtask
+            self.assertEqual([c.body for c in db.query(models.TaskComment).filter_by(task_id=sub_id).all()], ["Laptop ordered"])
+        finally:
+            db.close()
+        self._grant_tasks(MANAGER)
+        _as(MANAGER)                           # a comment made in Tasks shows on the step
+        self.assertEqual(self.client.post(f"/tasks/{sub_id}/comments", json={"body": "Set up on my side"}).status_code, 201)
+        _as(HR)
+        step = next(i for c in self.client.get(f"/hr/checklists/employee/{eid}").json()["checklists"]
+                    for i in c["items"] if i["id"] == row["id"])
+        self.assertEqual([c["body"] for c in step["comments"]], ["Laptop ordered", "Set up on my side"])
+        self.assertEqual(step["comments"][1]["authorName"], "Staff 2")
+        # a step nobody owns yet keeps its comment on the row
+        blank = next(i for i in cl["items"] if not i["ownerEmail"])
+        r = self.client.post(f"/hr/checklists/items/{blank['id']}/comments", json={"body": "Waiting on the work email"})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual([c["body"] for c in r.json()["item"]["comments"]], ["Waiting on the work email"])
+        self.assertEqual(self.client.post(f"/hr/checklists/items/{blank['id']}/comments", json={"body": " "}).status_code, 400)
+
+    def test_due_dates_sync_both_ways(self):
+        cl = self._start(self._person())
+        row = next(i for i in cl["items"] if i["ownerEmail"] == MANAGER)
+        sub_id = self._step(row["id"]).task_id
+        self._grant_tasks(MANAGER)
+        _as(MANAGER)                           # moved in Tasks -> the step moves, pinned
+        r = self.client.patch(f"/tasks/{sub_id}", json={"due_on": "2027-01-15"})
+        self.assertEqual(r.status_code, 200, r.text)
+        step = self._step(row["id"])
+        self.assertEqual((step.due_date, step.due_manual), ("2027-01-15", True))
+        _as(HR)                                # moved on the step -> the subtask moves
+        self.assertEqual(self.client.patch(f"/hr/checklists/items/{row['id']}", json={"due_date": "2027-02-01"}).status_code, 200)
+        self.assertEqual(self._task(sub_id).due_on, "2027-02-01")
 
     def test_a_reassigned_step_moves_its_subtask(self):
         cl = self._start(self._person())

@@ -1145,6 +1145,9 @@ def _run_migrations():
             # Payroll / Finance -> Accounting, Equipment -> IT (Neil, Oct 19).
             "UPDATE hr_checklist_items SET owner_role = 'accounting' WHERE owner_role IN ('payroll', 'finance')",
             "UPDATE hr_checklist_items SET owner_role = 'it' WHERE owner_role = 'equipment'",
+            # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
+            "ALTER TABLE hr_checklist_items ADD COLUMN owner_emails VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_checklist_items ADD COLUMN comments JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2583,6 +2586,9 @@ def _run_migrations():
         # Payroll / Finance -> Accounting, Equipment -> IT (Neil, Oct 19).
         "UPDATE hr_checklist_items SET owner_role = 'accounting' WHERE owner_role IN ('payroll', 'finance')",
         "UPDATE hr_checklist_items SET owner_role = 'it' WHERE owner_role = 'equipment'",
+        # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS owner_emails VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

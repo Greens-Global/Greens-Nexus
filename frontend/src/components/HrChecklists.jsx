@@ -23,7 +23,7 @@ import {
   Check, UserCog, Users, Laptop, Banknote, TrendingUp, Copy,
 } from 'lucide-react';
 import { api } from '../api';
-import { formatDate, toDateInputValue } from '../lib/datetime';
+import { formatDate, formatDateTime, toDateInputValue } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory, useEntities } from '../lib/queries';
 import { SkeletonBlocks, Spinner } from './AsyncState';
@@ -124,11 +124,14 @@ function Avatar({ name, empty }) {
 
 // --- One step --------------------------------------------------------------
 
-function StepRow({ step, canEdit, canAct, people, onChanged, toastErr }) {
+function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, toastErr }) {
+  const comments = step.comments || [];
   const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState(false);
+  // A step with comments stays open so the thread is in view (Pranshu, Oct 20).
+  const [open, setOpen] = useState(comments.length > 0);
   const [mode, setMode] = useState('');      // '' | 'owner' | 'date'
   const [due, setDue] = useState(step.dueDate || '');
+  const [comment, setComment] = useState('');
   const closed = isClosed(step);
   const days = daysFromToday(step.dueDate);
   const late = step.overdue;
@@ -147,10 +150,25 @@ function StepRow({ step, canEdit, canAct, people, onChanged, toastErr }) {
     const why = await dialog.prompt(`Why does "${step.title}" not apply?`, { title: 'Mark As N/A', required: true, placeholder: 'e.g. No background check for this role' });
     if (why) patch({ status: 'na', note: why });
   }
-  async function editNote() {
-    const note = await dialog.prompt('Note on this step', { title: 'Add A Note', defaultValue: step.note || '', multiline: true });
-    if (note !== null) patch({ note });
+  // One thread with the step's subtask in Tasks: a comment here posts there,
+  // and one made there shows here.
+  async function addComment() {
+    const text = comment.trim();
+    if (!text) return;
+    setBusy(true);
+    try {
+      const r = await api.addChecklistComment(step.id, text);
+      setComment('');
+      onChanged(r.item, r.checklistStatus, 'Comment added.');
+    } catch (e) { toastErr(e?.message || 'Could not add the comment.'); }
+    setBusy(false);
   }
+  // Change Owner: whoever holds this step's role first, then everyone else.
+  const roleSet = new Set(roleOwners);
+  const ownerGroups = [
+    { label: `${step.ownerRoleLabel} Owners`, people: people.filter(p => roleSet.has(p.email)) },
+    { label: 'Nexus People', people: people.filter(p => !roleSet.has(p.email)) },
+  ];
 
   const dueColor = late ? 'var(--wk-red)' : soon ? 'var(--wk-orange)' : 'var(--wk-dim)';
   return (
@@ -202,7 +220,35 @@ function StepRow({ step, canEdit, canAct, people, onChanged, toastErr }) {
         <div style={{ padding: '0 12px 12px 42px', display: 'grid', gap: 10 }}>
           {step.hint && <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.55, maxWidth: '70ch' }}>{step.hint}</div>}
           {step.signal && <div style={{ fontSize: 12, color: 'var(--wk-brand)', display: 'flex', gap: 6, alignItems: 'center' }}><Sparkles size={12} /> Nexus marks this done by itself when: {step.signalLabel.charAt(0).toLowerCase() + step.signalLabel.slice(1)}</div>}
-          {step.note && <div style={{ fontSize: 12.5, color: 'var(--wk-ink)', padding: '8px 10px', background: 'var(--wk-card)', border: '1px solid var(--wk-line2)', borderRadius: 6, whiteSpace: 'pre-wrap', maxWidth: '70ch' }}>{step.note}</div>}
+          {step.note && (
+            <div style={{ fontSize: 12.5, color: 'var(--wk-ink)', padding: '8px 10px', background: 'var(--wk-card)', border: '1px solid var(--wk-line2)', borderRadius: 6, whiteSpace: 'pre-wrap', maxWidth: '70ch' }}>
+              <b style={{ fontWeight: 600 }}>{step.status === 'na' ? 'N/A Reason: ' : 'Note: '}</b>{step.note}
+            </div>
+          )}
+          {comments.length > 0 && (
+            <div style={{ display: 'grid', gap: 8, maxWidth: '70ch' }} aria-label="Comments">
+              {comments.map(c => (
+                <div key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <Avatar name={c.authorName || c.author} />
+                  <div style={{ flex: 1, minWidth: 0, padding: '7px 10px', background: 'var(--wk-card)', border: '1px solid var(--wk-line2)', borderRadius: 8 }}>
+                    <div style={{ fontSize: 12, color: 'var(--wk-dim)', marginBottom: 3 }}>
+                      <b style={{ fontWeight: 600, color: 'var(--wk-ink)' }}>{c.authorName || c.author}</b> · {formatDateTime(c.at)}{c.editedAt ? ' · Edited' : ''}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--wk-ink)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{c.body}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {canAct && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', maxWidth: '70ch' }}>
+              <textarea value={comment} onChange={e => setComment(e.target.value)} rows={1} placeholder="Add a comment - it shows on the task too"
+                aria-label="Add a comment" disabled={busy}
+                onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addComment(); } }}
+                style={{ ...inputStyle, flex: 1, minHeight: 36, resize: 'vertical', fontFamily: FONT }} />
+              <button className="primary-btn" onClick={addComment} disabled={busy || !comment.trim()} style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>Add Comment</button>
+            </div>
+          )}
           {closed && step.doneAt && (
             <div style={{ fontSize: 12, color: 'var(--wk-dim)' }}>
               {step.status === 'na' ? 'Marked N/A' : 'Done'} {step.doneBy === 'Nexus' ? 'by Nexus' : step.doneBy ? `by ${step.doneBy}` : ''} on {formatDate(step.doneAt)}
@@ -211,7 +257,6 @@ function StepRow({ step, canEdit, canAct, people, onChanged, toastErr }) {
           {canAct && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {!closed && <button onClick={markNa} disabled={busy} style={ghostBtn}><Ban size={13} /> Mark N/A</button>}
-              <button onClick={editNote} disabled={busy} style={ghostBtn}><Pencil size={13} /> {step.note ? 'Edit Note' : 'Add Note'}</button>
               {canEdit && !closed && <button onClick={() => setMode(m => m === 'owner' ? '' : 'owner')} style={{ ...ghostBtn, borderColor: mode === 'owner' ? 'var(--wk-brand)' : 'var(--wk-line)' }}><UserCog size={13} /> Change Owner</button>}
               {canEdit && !closed && <button onClick={() => { setDue(step.dueDate || ''); setMode(m => m === 'date' ? '' : 'date'); }} style={{ ...ghostBtn, borderColor: mode === 'date' ? 'var(--wk-brand)' : 'var(--wk-line)' }}><CalendarDays size={13} /> Change Date</button>}
             </div>
@@ -219,13 +264,13 @@ function StepRow({ step, canEdit, canAct, people, onChanged, toastErr }) {
           {mode === 'owner' && canEdit && (
             <div style={{ maxWidth: 360 }}>
               <PersonSearchSelect placeholder={ownerText(step) ? `${ownerText(step)} - type to change` : 'Pick who owns this step'}
-                groups={[{ label: 'Nexus People', people }]}
+                groups={ownerGroups}
                 onPick={email => { setMode(''); patch({ owner_email: email }, 'Owner changed.'); }} />
             </div>
           )}
           {mode === 'date' && canEdit && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input type="date" value={due} onChange={e => setDue(e.target.value)} aria-label="New due date" style={inputStyle} />
+              <DateField value={due} onChange={v => setDue(v || '')} placeholder="MM/DD/YYYY" title="New due date" style={{ minWidth: 150 }} />
               <button className="primary-btn" disabled={busy} onClick={() => { setMode(''); patch({ due_date: due }, 'Due date changed.'); }} style={{ fontSize: 12.5 }}>Save Date</button>
             </div>
           )}
@@ -393,10 +438,11 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             const state = phasesAll[idx].steps.every(isClosed) ? 'done' : idx === currentIdx ? 'current' : 'upcoming';
             return (
               <PhaseBlock key={`${filter}:${p.name}`} phase={p} isLast={i === phases.length - 1} state={state}
-                defaultOpen={filter !== 'all' || state === 'current' || (state === 'upcoming' && idx === currentIdx + 1) || p.steps.some(s => s.overdue)}
+                defaultOpen={filter !== 'all' || state === 'current' || (state === 'upcoming' && idx === currentIdx + 1) || p.steps.some(s => s.overdue || s.comments?.length)}
                 renderStep={s => (
                   <StepRow key={s.id} step={s} canEdit={canEdit && cl.status !== 'cancelled'} people={people}
-                    canAct={cl.status !== 'cancelled' && (canEdit || (!!me && s.ownerEmail === me))}
+                    roleOwners={cl.roleOwners?.[s.ownerRole] || []}
+                    canAct={cl.status !== 'cancelled' && (canEdit || (!!me && (s.ownerEmails || [s.ownerEmail]).includes(me)))}
                     onChanged={onStepChanged} toastErr={toastErr} />
                 )} />
             );
@@ -830,7 +876,10 @@ function OwnersCard({ entityId, people, toastOk, toastErr }) {
     api.getChecklistOwners(entityId).then(r => { setData(r); setDraft(r.owners || {}); }).catch(() => setData(false));
   }, [entityId]);
   const nameOf = em => people.find(p => p.email === em)?.name || em;
-  const dirty = data && JSON.stringify(Object.fromEntries(Object.entries(draft).filter(([, v]) => v))) !== JSON.stringify(Object.fromEntries(Object.entries(data.owners || {}).filter(([, v]) => v)));
+  // Several people per role (Pranshu, Oct 20) - each role is a list.
+  const listOf = v => (Array.isArray(v) ? v : v ? [v] : []);
+  const norm = o => JSON.stringify(Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k, listOf(v)]).filter(([, v]) => v.length)));
+  const dirty = data && norm(draft) !== norm(data.owners);
   async function save() {
     setBusy(true);
     try { const r = await api.saveChecklistOwners(entityId, draft); setData(d => ({ ...d, ...r })); setDraft(r.owners || {}); toastOk('Checklist owners saved.'); }
@@ -844,15 +893,16 @@ function OwnersCard({ entityId, people, toastOk, toastErr }) {
       <div style={{ marginBottom: 14 }}>
         <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: FONT, color: 'var(--wk-ink)' }}>Role Owners</h3>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
-          Manager and Employee steps go to each person&apos;s reports-to and to the person. HR steps go to the company&apos;s HR contact{data.hrContact ? ` (${nameOf(data.hrContact)})` : ''} first.
+          Pick one or more people per role. Several owners share one task per checklist - any of them closing it closes the step.
+          Manager and Employee steps go to each person&apos;s reports-to and to the person. HR steps go to the HR owners here, or the company&apos;s HR contact{data.hrContact ? ` (${nameOf(data.hrContact)})` : ''} when none is set.
           {entityId ? ' A role left blank here uses the default.' : ''}
         </p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
         {OWNER_ROLES.map(role => {
           const look = ROLE_LOOK[role];
-          const own = draft[role];
-          const inherited = !own && data.effective?.[role];
+          const own = listOf(draft[role]);
+          const inherited = own.length ? [] : listOf(data.effective?.[role]);
           const isEditing = editing === role;
           return (
             <div key={role} style={{ border: `1px solid ${isEditing ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 'var(--wk-r)', padding: 14, display: 'grid', gap: 10, alignContent: 'start', background: 'var(--wk-card)' }}>
@@ -863,19 +913,30 @@ function OwnersCard({ entityId, people, toastOk, toastErr }) {
                   <div style={{ fontSize: 12, color: 'var(--wk-dim)', lineHeight: 1.45 }}>{look.hint}</div>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 30 }}>
-                <Avatar name={nameOf(own || inherited || '')} empty={!own && !inherited} />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {own ? <b style={{ fontWeight: 600, color: 'var(--wk-ink)' }}>{nameOf(own)}</b>
-                    : inherited ? <span style={{ color: 'var(--wk-dim)' }}>{nameOf(inherited)} <span style={{ color: 'var(--wk-faint)' }}>(default)</span></span>
-                      : <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>Not set</span>}
-                </span>
-                {own && <button onClick={() => setDraft(d => ({ ...d, [role]: '' }))} aria-label={`Clear ${look.label} owner`} style={{ ...ghostBtn, padding: 5 }}><X size={12} /></button>}
-                <button onClick={() => setEditing(isEditing ? '' : role)} style={ghostBtn}>{isEditing ? 'Close' : own ? 'Change' : 'Set'}</button>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {own.map(em => (
+                  <div key={em} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 28 }}>
+                    <Avatar name={nameOf(em)} />
+                    <b style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</b>
+                    <button onClick={() => setDraft(d => ({ ...d, [role]: own.filter(x => x !== em) }))} aria-label={`Remove ${nameOf(em)} as ${look.label} owner`} style={{ ...ghostBtn, padding: 5 }}><X size={12} /></button>
+                  </div>
+                ))}
+                {!own.length && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 28 }}>
+                    <Avatar name={nameOf(inherited[0] || '')} empty={!inherited.length} />
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {inherited.length ? <span style={{ color: 'var(--wk-dim)' }}>{inherited.map(nameOf).join(', ')} <span style={{ color: 'var(--wk-faint)' }}>(default)</span></span>
+                        : <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>Not set</span>}
+                    </span>
+                  </div>
+                )}
+                <div>
+                  <button onClick={() => setEditing(isEditing ? '' : role)} style={ghostBtn}>{isEditing ? 'Close' : own.length ? 'Add Another' : 'Add Owner'}</button>
+                </div>
               </div>
               {isEditing && (
-                <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people }]}
-                  onPick={em => { setDraft(d => ({ ...d, [role]: em })); setEditing(''); }} />
+                <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people: people.filter(p => !own.includes(p.email)) }]}
+                  onPick={em => { setDraft(d => ({ ...d, [role]: [...own, em] })); setEditing(''); }} />
               )}
             </div>
           );

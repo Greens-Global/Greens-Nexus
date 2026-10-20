@@ -2107,6 +2107,7 @@ export const api = {
   cancelChecklist:        (id)        => req(`/hr/checklists/${id}/cancel`, { method: 'POST' }),
   reopenChecklist:        (id)        => req(`/hr/checklists/${id}/reopen`, { method: 'POST' }),
   updateChecklistItem:    (id, d)     => req(`/hr/checklists/items/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  addChecklistComment:    (id, body)  => req(`/hr/checklists/items/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
   getMyChecklistSteps:    ()          => req('/hr/checklists/mine'),
   getChecklistProgress:   ()          => req('/hr/checklists/progress'),
   getChecklistBoard:      ()          => req('/hr/checklists/board'),

@@ -5315,6 +5315,12 @@ class HrChecklistItem(Base):
     note         = Column(String, default="")
     sort_order   = Column(Integer, default=0)
     task_id      = Column(String, default="")   # the owner's task for this checklist (hr_checklists.sync_tasks)
+    # Every owner, comma-separated (owner_email is the first): a role can have
+    # several owners, each on the step's task (Pranshu, Oct 20).
+    owner_emails = Column(String, default="")
+    # Comments made while the step had no subtask; the rest live on the subtask
+    # as task comments, so both sides show the same thread (hr_checklists.comments_for).
+    comments     = Column(JSON, default=list)
 
 
 class AccountingLoanSchedule(Base):

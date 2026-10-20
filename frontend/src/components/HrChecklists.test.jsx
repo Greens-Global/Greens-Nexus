@@ -12,7 +12,8 @@ const CHECKLIST = {
   items: [
     { id: 'it-1', checklistId: 'cl-1', key: 'ON-12', phase: 'Account And Access', title: 'Microsoft 365 Account Provisioned',
       hint: 'Check the domain first.', ownerRole: 'it', ownerRoleLabel: 'IT', ownerEmail: 'it@greensglobal.com', ownerName: 'Ivy Tech',
-      dueDate: '2026-10-30', overdue: true, signal: 'provisioned', signalLabel: 'A provisioning run finished', status: 'open', sortOrder: 1 },
+      dueDate: '2026-10-30', overdue: true, signal: 'provisioned', signalLabel: 'A provisioning run finished', status: 'open', sortOrder: 1,
+      comments: [{ id: 'c-1', author: 'it@greensglobal.com', authorName: 'Ivy Tech', body: 'Laptop ordered', at: '2026-10-29T16:00:00Z' }] },
     { id: 'it-2', checklistId: 'cl-1', key: 'ON-21', phase: 'Day 1', title: 'Team Intro, Buddy And First-Week Goals',
       hint: '', ownerRole: 'manager', ownerRoleLabel: 'Manager', ownerEmail: '', ownerName: '',
       dueDate: '2026-11-02', overdue: false, signal: '', signalLabel: '', status: 'open', sortOrder: 2 },
@@ -39,6 +40,12 @@ vi.mock('../api', () => ({
     getChecklistMeta: vi.fn(() => Promise.resolve(META)),
     updateChecklistItem: vi.fn((id) => Promise.resolve({
       item: { ...CHECKLIST.items.find(i => i.id === id), status: 'done', overdue: false, doneBy: 'hr@greensglobal.com', doneAt: '2026-10-31T10:00:00Z' },
+      checklistStatus: 'open',
+    })),
+    addChecklistComment: vi.fn((id, body) => Promise.resolve({
+      item: { ...CHECKLIST.items.find(i => i.id === id), comments: [
+        { id: 'c-1', author: 'it@greensglobal.com', authorName: 'Ivy Tech', body: 'Laptop ordered', at: '2026-10-29T16:00:00Z' },
+        { id: 'c-2', author: 'hr@greensglobal.com', authorName: 'Hana Ross', body, at: '2026-10-30T17:30:00Z' }] },
       checklistStatus: 'open',
     })),
     getMyChecklistSteps: vi.fn(() => Promise.resolve({ steps: [] })),
@@ -71,7 +78,7 @@ describe('ChecklistSection', () => {
     render(<ChecklistSection employee={{ id: 'emp-1', firstName: 'Jane', startDate: '2026-11-02' }} canEdit toastOk={() => {}} toastErr={() => {}} />);
     expect(await screen.findByText('Microsoft 365 Account Provisioned')).toBeInTheDocument();
     expect(screen.getByText('Account And Access')).toBeInTheDocument();
-    expect(screen.getByText('Ivy Tech')).toBeInTheDocument();
+    expect(screen.getAllByText('Ivy Tech').length).toBeGreaterThan(0);
     expect(screen.getByText('Unassigned')).toBeInTheDocument();
     expect(screen.getByText('Due 10/30/2026')).toBeInTheDocument();
     expect(screen.getByText('0 of 2 Done')).toBeInTheDocument();
@@ -83,6 +90,20 @@ describe('ChecklistSection', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Mark as done' })[0]);
     await waitFor(() => expect(api.updateChecklistItem).toHaveBeenCalledWith('it-1', { status: 'done' }));
     expect(await screen.findByText('1 of 2 Done')).toBeInTheDocument();
+  });
+});
+
+describe('Step comments', () => {
+  it('a step with comments opens on its thread, and a new comment posts through the API', async () => {
+    render(<ChecklistSection employee={{ id: 'emp-1', firstName: 'Jane', startDate: '2026-11-02' }} canEdit toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Laptop ordered')).toBeInTheDocument();          // open without a click
+    expect(screen.getAllByText('Ivy Tech').length).toBeGreaterThan(1);              // owner and comment author
+    const boxes = screen.getAllByLabelText('Add a comment');
+    fireEvent.change(boxes[0], { target: { value: 'Received, thanks' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add Comment' })[0]);
+    await waitFor(() => expect(api.addChecklistComment).toHaveBeenCalledWith('it-1', 'Received, thanks'));
+    expect(await screen.findByText('Received, thanks')).toBeInTheDocument();
+    expect(screen.queryByText(/Add Note|Edit Note/)).not.toBeInTheDocument();
   });
 });
 

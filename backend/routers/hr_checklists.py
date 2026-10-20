@@ -98,8 +98,12 @@ def _send_task_emails(background: Optional[BackgroundTasks], task_ids: list, by:
 
 def _full(db: Session, cl: HrChecklist) -> dict:
     items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
-    names = hc.name_map(db, [i.owner_email for i in items])
-    return hc.ser_checklist(cl, items, names)
+    names = hc.name_map(db, [e for i in items for e in hc.owners_of(i)])
+    return hc.ser_checklist(cl, items, names, hc.comments_for(db, items), hc.role_people(db, cl))
+
+
+def _step_out(db: Session, it: HrChecklistItem) -> dict:
+    return hc.ser_item(it, hc.name_map(db, hc.owners_of(it)), hc.comments_for(db, [it])[it.id])
 
 
 # --- Meta ------------------------------------------------------------------
@@ -201,16 +205,14 @@ class ItemPatch(BaseModel):
     due_date: Optional[str] = None
 
 
-@router.patch("/items/{iid}")
-def update_item(iid: str, body: ItemPatch, background: BackgroundTasks = None,
-                user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def _step_for(db: Session, iid: str, user: dict) -> tuple:
+    """(step, checklist, is HR) for HR in scope or one of the step's owners."""
     it = db.query(HrChecklistItem).filter(HrChecklistItem.id == iid).first()
     if it is None:
         raise HTTPException(404, "Step not found")
     cl = db.query(HrChecklist).filter(HrChecklist.id == it.checklist_id).first()
     if cl is None:
         raise HTTPException(404, "Step not found")
-    me = user["email"].lower()
     hr = False
     if _is_hr_editor(user, db):
         try:
@@ -218,8 +220,16 @@ def update_item(iid: str, body: ItemPatch, background: BackgroundTasks = None,
             hr = True
         except HTTPException:
             hr = False
-    if not hr and it.owner_email != me:
+    if not hr and user["email"].lower() not in hc.owners_of(it):
         raise HTTPException(404, "Step not found")
+    return it, cl, hr
+
+
+@router.patch("/items/{iid}")
+def update_item(iid: str, body: ItemPatch, background: BackgroundTasks = None,
+                user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    it, cl, hr = _step_for(db, iid, user)
+    me = user["email"].lower()
     if not hr and (body.owner_email is not None or body.due_date is not None):
         raise HTTPException(403, "Only HR can reassign a step or move its date")
     if cl.status == "cancelled":
@@ -238,7 +248,7 @@ def update_item(iid: str, body: ItemPatch, background: BackgroundTasks = None,
     if body.note is not None:
         it.note = body.note.strip()[:1000]
     if body.owner_email is not None:
-        it.owner_email = _directory_email(db, body.owner_email)
+        hc.set_owners(it, [_directory_email(db, body.owner_email)])
         it.owner_manual = True
     if body.due_date is not None:
         d = body.due_date.strip()
@@ -260,8 +270,34 @@ def update_item(iid: str, body: ItemPatch, background: BackgroundTasks = None,
     created = hc.sync_tasks(db, cl, by=me)     # reassigned, or someone's last step closed
     db.commit()
     _send_task_emails(background, created, me)
-    names = hc.name_map(db, [it.owner_email])
-    return {"item": hc.ser_item(it, names), "checklistStatus": cl.status}
+    return {"item": _step_out(db, it), "checklistStatus": cl.status}
+
+
+class CommentIn(BaseModel):
+    body: str
+
+
+@router.post("/items/{iid}/comments", status_code=201)
+def add_step_comment(iid: str, body: CommentIn, background: BackgroundTasks = None,
+                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A comment on a step (Pranshu, Oct 20 - was a single editable note). It
+    goes on the step's subtask through the one task-comment path, so the
+    owners see it in Tasks (and get the usual comment email); a step with no
+    subtask keeps it on the row until it has one."""
+    it, cl, _ = _step_for(db, iid, user)
+    text = (body.body or "").strip()
+    if not text:
+        raise HTTPException(400, "Write a comment first")
+    me = user["email"].lower()
+    import models
+    sub = db.query(models.Task).filter(models.Task.id == it.task_id).first() if it.task_id else None
+    if sub is not None and not (sub.deleted_at or ""):
+        from routers.task_util import create_comment
+        create_comment(db, sub, actor_email=me, body=text[:5000], defer=background.add_task if background else None)
+    else:
+        it.comments = list(it.comments or []) + [{"id": str(uuid.uuid4()), "author": me, "body": text[:5000], "at": hc._now()}]
+        db.commit()
+    return {"item": _step_out(db, it), "checklistStatus": cl.status}
 
 
 # --- My steps (any signed-in owner) ----------------------------------------
@@ -271,7 +307,7 @@ def my_steps(user: dict = Depends(get_current_user), db: Session = Depends(get_d
     me = user["email"].lower()
     rows = (db.query(HrChecklistItem, HrChecklist)
             .join(HrChecklist, HrChecklist.id == HrChecklistItem.checklist_id)
-            .filter(HrChecklistItem.owner_email == me, HrChecklistItem.status == "open",
+            .filter(hc.owned_by(me), HrChecklistItem.status == "open",
                     HrChecklist.status == "open")
             .all())
     emp_ids = {cl.employee_id for _, cl in rows}
@@ -336,7 +372,7 @@ def board(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     by_cl = {}
     for i in items:
         by_cl.setdefault(i.checklist_id, []).append(i)
-    names = hc.name_map(db, [i.owner_email for i in items])
+    names = hc.name_map(db, [i.owner_email for i in items])   # the board shows the first owner
     today = hc._today()
     t_iso, week_iso = today.isoformat(), (today + timedelta(days=7)).isoformat()
     me = user["email"].lower()
@@ -359,7 +395,7 @@ def board(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
             "overdue": sum(1 for r in open_rows if r.due_date and r.due_date < t_iso),
             "dueThisWeek": sum(1 for r in open_rows if r.due_date and t_iso <= r.due_date <= week_iso),
             "unassigned": sum(1 for r in open_rows if not r.owner_email),
-            "mine": sum(1 for r in open_rows if r.owner_email == me),
+            "mine": sum(1 for r in open_rows if me in hc.owners_of(r)),
             "next": None if nxt is None else {
                 "title": nxt.title, "dueDate": nxt.due_date,
                 "overdue": bool(nxt.due_date and nxt.due_date < t_iso),
@@ -522,12 +558,12 @@ def save_owners(body: OwnersIn, entity_id: str = "", background: BackgroundTasks
                 user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     entity_id = _entity_for_settings(db, entity_id, user)
     clean = {}
-    for role, email in (body.owners or {}).items():
+    for role, emails in (body.owners or {}).items():
         if role not in ("hr", "it", "accounting"):
             raise HTTPException(400, f"{role} is set per person, not per company")
-        em = _directory_email(db, str(email or ""))
-        if em:
-            clean[role] = em
+        found = [_directory_email(db, em) for em in hc.email_list(emails)]   # several per role (Oct 20)
+        if found:
+            clean[role] = list(dict.fromkeys(found))
     key = hc.OWNERS_KEY + entity_id
     row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
     if row is None:

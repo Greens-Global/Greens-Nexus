@@ -1913,6 +1913,10 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         # An HR checklist task closes (or reopens) its checklist steps (Oct 20).
         import hr_checklists
         hr_checklists.task_completed(db, t, bool(new_completed), user["email"])
+    if (t.due_on or "")[:10] != (auto_before.get("due_on") or ""):
+        # ...and a checklist subtask's new due date moves its step (Oct 20).
+        import hr_checklists
+        hr_checklists.task_due_changed(db, t, user["email"])
 
     _sync_reciprocal_dependencies(db, t, data)
 
@@ -2498,6 +2502,9 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         if bool(new_completed) != bool(prev_completed):
             import hr_checklists
             hr_checklists.task_completed(db, t, bool(new_completed), user["email"])
+        if (t.due_on or "")[:10] != (auto_before[t.id].get("due_on") or ""):
+            import hr_checklists
+            hr_checklists.task_due_changed(db, t, user["email"])
 
     # Activity + notifications. Bulk previously did NEITHER: reassigning fifty
     # tasks told nobody and left no audit trail, while the same edit made one at
