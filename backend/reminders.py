@@ -189,7 +189,7 @@ def run_esign_chase(db) -> int:
     max_chases = chase_cfg["maxNudges"]
     if not chase_cfg["enabled"] or max_chases <= 0:
         return 0
-    from routers.esign import _its_their_turn, _notify_party, _log
+    from routers.esign import _its_their_turn, _notify_party, _log, SYSTEM_SENDER
 
     _today_d = datetime.now(timezone.utc).date()
     pending_reqs = (
@@ -255,7 +255,7 @@ def run_esign_chase(db) -> int:
             chased += 1
             # Last automatic nudge: hand it back to the sender, who can
             # still Remind, extend or void by hand.
-            if auto_sent + 1 >= max_chases:
+            if auto_sent + 1 >= max_chases and req.created_by != SYSTEM_SENDER:
                 sent += _notify(
                     db,
                     "esign_stalled",

@@ -3366,6 +3366,14 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(period_close_loop()))
         except Exception as e:
             print(f"[startup] period close alerts loop skipped: {e}")
+        try:
+            # Employee codes from Intacct (Charmi, Oct 21 2026): once a night,
+            # only for companies that switched it on, work-email matches only.
+            # Deployed-worker gated inside. See routers/hr_intacct_codes.py.
+            from routers.hr_intacct_codes import employee_code_sync_loop
+            _tasks.append(_a.create_task(employee_code_sync_loop()))
+        except Exception as e:
+            print(f"[startup] intacct employee code sync skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;
@@ -3780,6 +3788,7 @@ def health():
     explicit NEXUS_APP_URL is visible from outside without Azure access - both
     sat on the security-debt list as "may still be unset on prod" because nobody
     could tell. No values are exposed, only whether each is configured."""
+    import intacct_client
     import secret_box
     return {"status": "ok",
             "secrets": {"vault_key": secret_box.KEY_CONFIGURED,
@@ -3791,7 +3800,10 @@ def health():
                                                     and os.getenv("NEXUS_AM_AUDIENCE", "").strip()),
                         # Cubby -> database sync (Operations, Oct 15). Only the
                         # sync needs it; the screens read the synced tables.
-                        "cubby_api_key": bool(os.getenv("CUBBY_API_KEY", "").strip())}}
+                        "cubby_api_key": bool(os.getenv("CUBBY_API_KEY", "").strip()),
+                        # People > Sync Employee Codes reads Intacct directly
+                        # (intacct_client.py, the five INTACCT_* settings).
+                        "intacct_direct": intacct_client.configured()}}
 
 
 @app.get("/health/ready")
@@ -4082,3 +4094,5 @@ from routers import ops_insights as ops_insights_router  # noqa: E402
 app.include_router(ops_insights_router.router)     # Operations > Pricing Insights: ranked insights from Cubby's pricing + the market (Visesh, 10/20)
 from routers import audit_events as audit_events_router  # noqa: E402
 app.include_router(audit_events_router.router)     # Unified Audit Log: one feed, modules, before/after, record history (Oct 20 2026)
+from routers import hr_intacct_codes as hr_intacct_codes_router  # noqa: E402
+app.include_router(hr_intacct_codes_router.router)  # People > Sync Employee Codes From Intacct (Charmi, Oct 21 2026)

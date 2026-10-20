@@ -3,7 +3,10 @@
   - a failed filing is retried after the backoff, not before, and stops once filed;
   - a filing that keeps failing stops after len(RETRY_AFTER_MIN) retries and
     tells the company's HR contact once;
-  - nothing is retried while Egnyte is not connected, nor when it never failed.
+  - nothing is retried while Egnyte is not connected, nor when it never failed;
+  - (Oct 20) it is filed in <person>/Timesheets & Attendance (an existing
+    Timesheets folder keeps being used) as
+    'YYYY-MM-DD - <Name> Time Sheet - MM-DD-YYYY to MM-DD-YYYY (signed) - <id8>.pdf'.
 
 On test_timesheet_review's real Nexus Sign fixture (its own throwaway database).
 
@@ -14,10 +17,16 @@ from datetime import datetime, timedelta, timezone
 
 from test_timesheet_review import ReviewCase, HR, _tmp_db  # noqa: F401  (sets DATABASE_URL first)
 
+import egnyte_wiring  # noqa: E402
 import models  # noqa: E402
+import timesheet_review as tsr  # noqa: E402
 import timesheet_filing as tf  # noqa: E402
 from routers import esign  # noqa: E402
 from services import egnyte as svc  # noqa: E402
+
+_REAL_PUSH = esign._egnyte_push      # FilingRetryTests stubs it per test
+HR_ROOT = "/Shared/#Entities/Greens Test Co/Human Resources"
+ERIN = f"{HR_ROOT}/Employees/Erin Test"
 
 
 def _later(minutes):
@@ -101,6 +110,85 @@ class FilingRetryTests(ReviewCase):
         tf.process_due(_later(60), self.db)
         self.assertEqual(len(self.pushes), n)
         self.assertEqual(self._events(rid)[0][0], "archived")
+
+
+class FolderAndNameTests(ReviewCase):
+    """Neil, Oct 20: <Company>/Human Resources/Employees/<Name>/Timesheets &
+    Attendance, named for the day the employee signed and the period."""
+
+    def setUp(self):
+        super().setUp()
+        self.tree = {"/": ["Shared"], "/Shared": ["#Entities"], "/Shared/#Entities": ["Greens Test Co"],
+                     "/Shared/#Entities/Greens Test Co": ["Human Resources"],
+                     HR_ROOT: ["Contractors", "Employees"], f"{HR_ROOT}/Employees": ["Erin Test"],
+                     ERIN: ["Confidential", "Contractor Documents"]}
+        self.uploads = []
+        self._real = [(svc, "configured", svc.configured), (svc, "create_folder", svc.create_folder),
+                      (svc, "upload_file", svc.upload_file),
+                      (egnyte_wiring, "_list_children", egnyte_wiring._list_children)]
+        svc.configured = lambda: True
+        svc.create_folder = lambda path, token=None: {}
+        svc.upload_file = lambda path, content, token=None: self.uploads.append(path) or {}
+        egnyte_wiring._list_children = lambda parent: self.tree.get(svc.norm(parent or "/"))
+
+    def tearDown(self):
+        for obj, name, real in self._real:
+            setattr(obj, name, real)
+        super().tearDown()
+
+    def _req(self):
+        r = self._to_signing()
+        req = self.db.get(models.HrSignRequest, r.sign_request_id)
+        req.completed_at = "2026-10-20T05:30:00+00:00"
+        return req
+
+    def _name(self, req, day="2026-10-20"):
+        span = f"{tsr.us_date(self.start)} to {tsr.us_date(self.end)}".replace("/", "-")
+        return f"{day} - Erin Test Time Sheet - {span} (signed) - {req.id[:8]}.pdf"
+
+    def test_a_new_person_folder_gets_timesheets_and_attendance(self):
+        self.assertEqual(tsr.egnyte_folder(self.db, self._req()), f"{ERIN}/Timesheets & Attendance")
+
+    def test_an_existing_timesheets_folder_keeps_being_used(self):
+        self.tree[ERIN].append("Timesheets")
+        self.assertEqual(tsr.egnyte_folder(self.db, self._req()), f"{ERIN}/Timesheets")
+
+    def test_timesheets_and_attendance_wins_when_both_exist(self):
+        self.tree[ERIN] += ["Timesheets", "timesheets & attendance"]
+        self.assertEqual(tsr.egnyte_folder(self.db, self._req()), f"{ERIN}/timesheets & attendance")
+
+    def test_the_file_name(self):
+        req = self._req()
+        name = tsr.egnyte_filename(self.db, req)
+        self.assertEqual(name, self._name(req))
+        self.assertNotIn("/", name)
+
+    def test_the_signing_day_is_the_employees_own(self):
+        for p in self.db.query(models.TimePunch).all():
+            p.tz_offset_min = 420                  # Pacific: 05:30 UTC is still the 19th
+        req = self._req()
+        self.assertEqual(tsr.egnyte_filename(self.db, req), self._name(req, "2026-10-19"))
+
+    def test_filed_there_under_that_name_with_the_path_encoded(self):
+        req = self._req()
+        ok, note = _REAL_PUSH(self.db, req, b"%PDF-1.4")
+        target = f"{ERIN}/Timesheets & Attendance/{self._name(req)}"
+        self.assertEqual((ok, self.uploads), (True, [target]))
+        self.assertEqual(note, f"filed in Egnyte {target}")
+        self.assertIn("/%23Entities/", svc._url_path(target))
+        self.assertIn("/Timesheets%20%26%20Attendance/", svc._url_path(target))
+
+    def test_other_envelopes_keep_the_generic_name(self):
+        req = self._req()
+        req.link_kind, req.egnyte_folder = "", "/Shared/Signed"
+        _REAL_PUSH(self.db, req, b"%PDF-1.4")
+        (path,) = self.uploads
+        self.assertTrue(path.startswith("/Shared/Signed/Time Sheet - Erin Test - "), path)
+        self.assertTrue(path.endswith(f" - {req.id[:8]} (signed).pdf"), path)
+
+    def test_my_documents_shows_the_folder_to_the_employee(self):
+        self.assertFalse(egnyte_wiring.is_excluded_child("Timesheets & Attendance"))
+        self.assertTrue(egnyte_wiring.is_excluded_child("Confidential"))
 
 
 if __name__ == "__main__":

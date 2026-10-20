@@ -28,7 +28,7 @@ import { dialog } from '../ui/dialog';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
-import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState } from '../components/AsyncState';
+import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
@@ -67,6 +67,8 @@ import { PersonReimbursements } from '../components/Reimbursements';
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
 // A company's Roles tab (Company Settings) - lazy for the same reason.
 const CompanyRoles = lazy(() => import('./CompanyRoles'));
+// Sync Employee Codes From Intacct (Charmi, Oct 21 2026) - HR only, lazy.
+const IntacctEmployeeCodes = lazy(() => import('../components/IntacctEmployeeCodes'));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -6010,6 +6012,10 @@ export default function HR({ activeSub, onSubChange }) {
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay
   const isAdmin = can('administrator');   // Roles & Access tab is admin-only
+  // People editors (HR grant at editor, or an administrator) - the server
+  // checks the same thing on /hr/intacct-codes.
+  const canSyncCodes = !hrTeam && canAccessModule('hr', 'administrator', 'editor');
+  const [codesOpen, setCodesOpen] = useState(false);
   // Company-scoped People admin (Neil, Aug 25): hrScope = list of HrEntity ids
   // this admin is limited to (server-enforced; the lists that arrive are
   // already filtered). Non-null hides company-wide actions and shows a chip.
@@ -6262,6 +6268,12 @@ export default function HR({ activeSub, onSubChange }) {
             )}
             {/* Sync M365 / Company setup / Work sites moved to the Admin
                 module in full (Pranshu, Sep 9) - no longer buttons here. */}
+            {canSyncCodes && (
+              <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+                onClick={() => setCodesOpen(true)} title="Match People to Intacct employees and update their employee codes">
+                <RefreshCw size={14} /> Sync Employee Codes From Intacct
+              </button>
+            )}
             {/* One Add control (Neil, Aug 24): employee, independent contractor
                 or external partner - all into the same master list. */}
             {!hrTeam && <div>
@@ -6293,6 +6305,12 @@ export default function HR({ activeSub, onSubChange }) {
       {/* Tabs - desktop renders them centered in the top header; phones keep
           the in-page strip (ModuleTabs handles both) */}
       <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} />
+
+      {codesOpen && (
+        <Suspense fallback={<ModalLoading />}>
+          <IntacctEmployeeCodes onClose={() => setCodesOpen(false)} onApplied={refreshPeople} toastOk={toastOk} toastErr={toastErr} />
+        </Suspense>
+      )}
 
       {sub === 'hr-hiring' && (
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}

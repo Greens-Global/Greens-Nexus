@@ -2630,6 +2630,12 @@ export const api = {
   auditRecordHistory: (type, id) => req(`/audit/records/${encodeURIComponent(type)}/${encodeURIComponent(id)}/history`),
   auditFacets: (params = {}) => req(`/audit/facets?${new URLSearchParams(params).toString()}`),
   auditExport: (params = {}) => reqBlob(`/audit/export.csv?${new URLSearchParams(params).toString()}`, { timeoutMs: 120_000 }),
+  // People > Sync Employee Codes From Intacct (Charmi, Oct 21 2026): preview,
+  // apply the ticked rows, and the per-company nightly switch.
+  intacctCodesPreview: () => req('/hr/intacct-codes/preview', { timeoutMs: 60_000 }),
+  intacctCodesApply: (items) => req('/hr/intacct-codes/apply', { method: 'POST', body: JSON.stringify({ items }), timeoutMs: 60_000 }),
+  intacctCodesSettings: () => req('/hr/intacct-codes/settings'),
+  setIntacctCodesNightly: (companyId, nightly) => req('/hr/intacct-codes/settings', { method: 'PUT', body: JSON.stringify({ companyId, nightly }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
