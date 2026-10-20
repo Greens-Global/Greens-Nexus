@@ -112,9 +112,10 @@ const ShiftGroupsPanel = lazy(() => import('../components/shifts/ShiftSettingsSe
 // Weather Alerts (Weather Call, Oct 2026): the per-company switch and the rain thresholds.
 const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSettings'));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
-// header AdminPanel drawer that used to render this is gone; AuditLogs is
-// named-exported from that file and embedded directly here now.
-const AuditLogs = lazy(() => import('../components/AdminPanel').then(m => ({ default: m.AuditLogs })));
+// header AdminPanel drawer that used to render this is gone. Since Oct 20 the
+// tab is the unified Audit Log (components/audit/AuditLog.jsx): every module,
+// Act As, and each change's before -> after; the tab key stays 'audit'.
+const AuditLogs = lazy(() => import('../components/audit/AuditLog'));
 // TaskNotifySettings needs TasksContext (task lookups for its delivery log's
 // "open task" link) - wrapped in its own TasksProvider here, same trick
 // Support.jsx uses for its Tasks-borrowed composers, since Admin has no
