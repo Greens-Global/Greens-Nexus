@@ -779,6 +779,12 @@ async def noshow_loop():
         s = await asyncio.to_thread(_tick)
         if s and (s.get("alerts") or s.get("resolved")):
             print(f"[shift-attendance] {s}")
+        # The California meal reminder at 4.5 hours (Oct 20 2026) rides the
+        # same minute - see meal_watch.py; its tick() never raises.
+        import meal_watch
+        m = await asyncio.to_thread(meal_watch.tick)
+        if m and m.get("reminded"):
+            print(f"[meal-watch] {m}")
         await asyncio.sleep(SCAN_SEC)
 
 

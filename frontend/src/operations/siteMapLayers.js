@@ -106,3 +106,30 @@ export function hoverFact(layer, u, facts = {}, maint = null) {
   if (layer === 'maintenance') { const items = (maint && maint.units && maint.units[u.n]) || []; return items.length ? `${items.length} open item${items.length === 1 ? '' : 's'}: ${items[0].title || ''}` : 'No open items'; }
   return '';
 }
+
+/** The KPI bar for a layer that is not occupancy (Visesh, Oct 20 2026): the
+ *  legend's buckets with their counts and the units in each, so a click on a
+ *  segment shows only those units on the map. Counts the same units as
+ *  layerCounts. null for occupancy (the panel draws its own bar). */
+export function layerBuckets(layer, units, facts = {}, maint = null) {
+  if (layer === 'occupancy') return null;
+  const defs = {
+    days: [['0-59', '0-59 Days', daysColor(30)], ['60-119', '60-119 Days', daysColor(90)], ['120-179', '120-179 Days', daysColor(150)], ['180+', '180+ Days', daysColor(180)], ['unknown', 'Not Known', UNKNOWN]],
+    market: [['under', 'Under Market', MARKET.under], ['at', 'At Market', MARKET.at], ['over', 'Over Market', MARKET.over], ['none', 'No Market Data', QUIET]],
+    maintenance: [['urgent', 'Urgent / High', MAINT.urgent], ['open', 'Open Items', MAINT.open], ['none', 'Nothing Open', QUIET]],
+  }[layer];
+  if (!defs) return null;
+  const by = Object.fromEntries(defs.map(([k]) => [k, []]));
+  (units || []).forEach((u) => {
+    if (u.n[0] === 'M' || u.gone) return;
+    const f = facts[u.n]; let k;
+    if (layer === 'days') { if (occupancyOf(u, f) !== 'vacant') return; const d = daysVacantOf(u, f); k = d == null ? 'unknown' : d >= 180 ? '180+' : d >= 120 ? '120-179' : d >= 60 ? '60-119' : '0-59'; }
+    else if (layer === 'market') k = f && f.market ? f.market : 'none';
+    else {
+      const items = (maint && maint.units && maint.units[u.n]) || [];
+      k = !items.length ? 'none' : items.some((x) => PRIORITY_URGENT.has(String(x.priority || '').toLowerCase())) ? 'urgent' : 'open';
+    }
+    if (by[k]) by[k].push(u.n);
+  });
+  return defs.map(([key, label, color]) => ({ key, label, color, count: by[key].length, units: by[key] }));
+}

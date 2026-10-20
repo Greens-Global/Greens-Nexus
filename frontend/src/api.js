@@ -1260,8 +1260,11 @@ export const api = {
   saveOpsRateDraft: (data) => req("/facility-ops/rates/draft", { method: "PUT", body: JSON.stringify(data) }),
   markOpsRatesEntered: (facilityId, unitTypes, seen = {}) => req("/facility-ops/rates/entered", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, seen }) }),
   getOpsRateHistory: (facilityId, unitType) => req(`/facility-ops/rates/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  getOpsRateComps: (facilityId, unitType) => req(`/facility-ops/rates/comps?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
   // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
   getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
+  // Operations > Pricing Insights (Oct 20): ranked insights + sections from Cubby's pricing and the market. '' = every facility.
+  getOpsInsights: (facilityId) => req(`/facility-ops/insights?facility_id=${encodeURIComponent(facilityId || "")}`),
 
   // Dev
   getDevProjects: () => req("/dev-projects"),
@@ -1559,7 +1562,7 @@ export const api = {
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   // BOD/EOD location tag (Remote / site / Off-Site Punch) for a position.
-  timeWhere:         (pos)       => req(`/timeclock/where?lat=${encodeURIComponent(pos?.lat || '')}&lng=${encodeURIComponent(pos?.lng || '')}&accuracy_m=${pos?.accuracy_m || 0}`),
+  timeWhere:         (pos, off)  => req(`/timeclock/where?lat=${encodeURIComponent(pos?.lat || '')}&lng=${encodeURIComponent(pos?.lng || '')}&accuracy_m=${pos?.accuracy_m || 0}${off ? '&location_off=true' : ''}`),
   // My Teams chats, listed server-side via the session's Graph token (no MSAL popup).
   timeMyChats:       ()          => req('/timeclock/my-chats', { timeoutMs: 30000 }),
   // Channels of every team the caller is in - binding BOD/EOD to a channel (Oct 6).
@@ -2202,6 +2205,9 @@ export const api = {
   addSiteModelMarkup:     (id, body) => req(`/site-models/${encodeURIComponent(id)}/markups`, { method: 'POST', body: JSON.stringify(body) }),
   updateSiteModelMarkup:  (id, mid, body) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteSiteModelMarkup:  (id, mid) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'DELETE' }),
+  // Mark an Issue on the Map (Oct 20 2026): open tickets marked on a site map (staff), one ticket's spot.
+  getTicketMapSpots:      (modelId) => req(`/ticket-map-spots?model_id=${encodeURIComponent(modelId)}`),
+  getTicketMapSpot:       (ticketId) => req(`/ticket-map-spots/ticket/${encodeURIComponent(ticketId)}`),
   followPropertyTicket:   (id, ticketId) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/follow`, { method: 'POST' }),
   // Maintenance record + recurring services (Pranshu, 10/06).
   addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),
@@ -2479,6 +2485,9 @@ export const api = {
   approvalDelegationRevoke:    (id)   => req(`/approval-delegations/${encodeURIComponent(id)}/revoke`, { method: 'POST' }),
   approvalDelegationsAll:      (includePast = false) => req(`/approval-delegations${includePast ? '?include_past=true' : ''}`),
   approvalDelegationCreateFor: (data) => req('/approval-delegations', { method: 'POST', body: JSON.stringify(data) }),
+  // Oct 20: who may cover (up or across only) + the delegator's upcoming
+  // approved time off - the only days a delegation may cover. HR passes whose.
+  approvalDelegationOptions:   (delegatorEmail = '') => req(`/approval-delegations/options${delegatorEmail ? `?delegator_email=${encodeURIComponent(delegatorEmail)}` : ''}`),
   // CA meal and rest breaks (Oct 17): the employee's Yes / No before signing,
   // the manager's premium lines, HR's meal waiver (backend/ca_breaks.py).
   timesheetBreakClaim:   (rid, data) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-claim`, { method: 'POST', body: JSON.stringify(data) }),
@@ -2612,6 +2621,15 @@ export const api = {
   updateOpsReportSchedule: (id, data) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteOpsReportSchedule: (id) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   sendOpsReportSchedule: (id, toMe = false) => req(`/ops-reports/schedules/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify({ to_me: toMe }) }),
+  // Unified Audit Log (Oct 20, Settings > Logs): every change across Nexus
+  // with who, Act As, and the field-by-field before/after. `params` are the
+  // screen's filters (module, actor, acting_as, action, q, from, to,
+  // include_system, cursor, limit); empty values are left out.
+  auditEvents: (params = {}) => req(`/audit/events?${new URLSearchParams(params).toString()}`),
+  auditEvent: (id) => req(`/audit/events/${encodeURIComponent(id)}`),
+  auditRecordHistory: (type, id) => req(`/audit/records/${encodeURIComponent(type)}/${encodeURIComponent(id)}/history`),
+  auditFacets: (params = {}) => req(`/audit/facets?${new URLSearchParams(params).toString()}`),
+  auditExport: (params = {}) => reqBlob(`/audit/export.csv?${new URLSearchParams(params).toString()}`, { timeoutMs: 120_000 }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

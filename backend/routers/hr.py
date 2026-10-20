@@ -4044,7 +4044,19 @@ def default_overtime_rule(db: Session, emp: NexusEmployee) -> str:
     ent = (db.query(HrEntity).filter(HrEntity.id == emp.company).first()
            if emp is not None and (emp.company or "").strip() else None)
     country = ((ent.country if ent else "") or "US").strip().upper()
-    return {"US": "ca", "IN": "none"}.get(country, "federal")
+    # Oct 20 2026 (Charmi): a US person is on the California rule only when
+    # they work in California - work_state.py (CA_SCOPE_BY_WORK_STATE).
+    import work_state
+    state = work_state.resolve(db, emp)["state"] if (country in ("US", "USA") and emp is not None
+                                                     and work_state.CA_SCOPE_BY_WORK_STATE) else ""
+    return work_state.default_rule(country, state)
+
+
+def _work_state_out(db: Session, emp: NexusEmployee) -> dict:
+    import work_state
+    ws = work_state.resolve(db, emp) if emp is not None else {"state": "", "label": "", "source": ""}
+    return {**ws, "stateName": work_state.STATE_NAME.get(ws["state"], ""),
+            "byWorkState": work_state.CA_SCOPE_BY_WORK_STATE}
 
 
 def payroll_fields(db: Session, emp: NexusEmployee) -> dict:
@@ -4061,6 +4073,8 @@ def payroll_fields(db: Session, emp: NexusEmployee) -> dict:
         "overtimeRule": (getattr(row, "overtime_rule", None) or default_overtime_rule(db, emp)) if row
                         else default_overtime_rule(db, emp),
         "defaultOvertimeRule": default_overtime_rule(db, emp),
+        # Where they work and how we know (Oct 20 2026) - shown beside the rule.
+        "workState": _work_state_out(db, emp),
         "fullDayHours": float(getattr(row, "full_day_hours", 8) or 8) if row else 8.0,
         "timeTrackingExempt": bool(_via),
         "timeTrackingExemptVia": _via,

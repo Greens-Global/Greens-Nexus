@@ -28,7 +28,10 @@ describe('PublicFindUnit', () => {
     const { container } = render(<PublicFindUnit token="tok123" />);
     expect(await screen.findByText('Getting Here')).toBeTruthy();
     expect(fetchMock.mock.calls[0][0]).toMatch(/\/unit-map\/t\/tok123$/);
-    expect(screen.getByRole('link', { name: 'Open in Google Maps' }).getAttribute('href')).toBe(view.entrance.mapsUrl);
+    // Google Maps goes via the office-set entrance (and on to the unit when the plan is geo-placed).
+    const href = screen.getByRole('link', { name: 'Open in Google Maps' }).getAttribute('href');
+    expect(href).toMatch(/^https:\/\/www\.google\.com\/maps\/dir\/\?api=1/);
+    expect(href).toContain('33.170000,-117.100000');
     expect(screen.getByText('Turn in at the green sign.')).toBeTruthy();
     expect(screen.queryByLabelText('Unit number')).toBeNull();          // no search box
     expect(screen.getByRole('list', { name: 'Route steps' })).toBeTruthy();

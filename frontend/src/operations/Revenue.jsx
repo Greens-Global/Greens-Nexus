@@ -14,12 +14,14 @@
 // row reaches Cubby. Do not add a push.
 // Street rates for new renters are Market Rates' job, not this tab's.
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import PushToCubbyDisabled from './PushToCubbyDisabled';
 import { Plus, Pencil, Trash2, FileText, Download, Check, X } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { Modal } from '../tasks/components';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { money } from './model';
+import SectionPicker from './SectionPicker';
 import { csvName, downloadCsv } from './csv';
 
 const cash = (c) => money(c, { exact: true });
@@ -408,6 +410,7 @@ function BatchModal({ batchId, onClose, onChanged }) {
         {b.status !== 'draft' && b.status !== 'canceled' && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" disabled={!!busy} onClick={letters} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><FileText size={14} aria-hidden="true" /> Print Notices</button>
+            <PushToCubbyDisabled label="Push Rent Changes to Cubby" />
             <button type="button" className="secondary-btn" disabled={!!busy} onClick={exportCsv} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Download size={14} aria-hidden="true" /> Mail Merge and Checklist</button>
           </div>
         )}
@@ -514,11 +517,8 @@ export default function Revenue({ facility }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div className="ops-pills" role="group" aria-label="Revenue Management section">
-          {SECTIONS.map((s) => (
-            <button type="button" key={s.key} className="ops-pill" aria-pressed={section === s.key} onClick={() => setSection(s.key)}>{s.label}</button>
-          ))}
-        </div>
+        <SectionPicker label="View" value={section} onChange={setSection}
+          options={SECTIONS.map((s) => ({ value: s.key, label: s.label }))} />
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button type="button" className="primary-btn" disabled={!data} onClick={() => setModal({ kind: 'apply' })}
             style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>

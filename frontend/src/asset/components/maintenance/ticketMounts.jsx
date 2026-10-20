@@ -10,8 +10,9 @@ import { ModalLoading } from '../../../components/AsyncState';
 const Composer = lazy(async () => {
   const [{ TasksProvider }, { CreateTicketModal }] = await Promise.all([
     import('../../../tasks/TasksContext'), import('../../../tickets/TicketsView')]);
-  return { default: ({ property, onClose }) => (
-    <TasksProvider><CreateTicketModal forProperty={property} onClose={onClose} /></TasksProvider>) };
+  // mapSpot: Mark an Issue on the Map (Oct 20 2026) - the spot and the map's picture.
+  return { default: ({ property, onClose, mapSpot = null, onCreated = null }) => (
+    <TasksProvider><CreateTicketModal forProperty={property} onClose={onClose} mapSpot={mapSpot} onCreated={onCreated} /></TasksProvider>) };
 });
 const Drawer = lazy(async () => {
   const [{ TasksProvider }, { TicketDrawer }] = await Promise.all([

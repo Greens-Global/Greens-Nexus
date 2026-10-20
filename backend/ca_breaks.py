@@ -45,6 +45,7 @@ from __future__ import annotations
 import io
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -130,24 +131,48 @@ def country_of(db: Session, email: str, emp=_UNSET) -> str:
 
 
 def in_scope(db: Session, email: str, rate_row=None, rule: str | None = None, emp=_UNSET,
-             _load_rate: bool = True) -> bool:
+             _load_rate: bool = True, ws_ctx: dict | None = None) -> bool:
     """THE one rule for who the CA meal / rest features apply to (meal
     detection, the signing question, premium lines, the waiver, California
     Review and its minimum-wage check): is_ca_rate (hourly, USD, rule 'ca')
     AND working in the US - the person's People country, else their
-    company's; unknown counts as US only because the pay is USD. The
+    company's; unknown counts as US only because the pay is USD - AND not
+    known to work outside California (work_state.engine_scope, Oct 20). The
     overtime engine's own rule is untouched."""
     em = (email or "").strip().lower()
     if rate_row is None and _load_rate and em:
         rate_row = db.query(models.PayrollRate).filter(models.PayrollRate.employee_email == em).first()
     if not is_ca_rate(rate_row, rule):
         return False
-    return country_of(db, em, emp) in _US
+    if emp is _UNSET:
+        emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == em).first()
+    if country_of(db, em, emp) not in _US:
+        return False
+    # Oct 20 2026 (Charmi): off for someone known to work OUTSIDE California
+    # (work_state.py) unless HR put them on the California rule by hand.
+    import work_state
+    pre = db.info.get(_PRELOAD) if hasattr(db, "info") else None
+    return work_state.engine_scope(db, emp, ws_ctx if ws_ctx is not None else (pre or {}).get("workState"))
 
 
 def is_ca(db: Session, email: str) -> bool:
     em = (email or "").strip().lower()
     return bool(em) and in_scope(db, em)
+
+
+def reminder_scope(db: Session, email: str, rate_row=None, emp=_UNSET) -> bool:
+    """Who gets the 4.5-hour meal reminder (meal_watch.py, Oct 20 2026):
+    in_scope's California rule, salaried (fixed pay) staff included - Neil:
+    "CA employees salary/hourly with time tracking enabled". Only the
+    reminder widens; detection, premiums and pay keep in_scope (hourly).
+    The caller drops people exempt from time tracking."""
+    if rate_row is None:
+        return False
+    if (getattr(rate_row, "pay_type", None) or "hourly") not in ("hourly", "fixed"):
+        return False
+    shim = SimpleNamespace(pay_type="hourly", currency=getattr(rate_row, "currency", None),
+                           overtime_rule=getattr(rate_row, "overtime_rule", None))
+    return in_scope(db, email, rate_row=shim, emp=emp)
 
 
 # ── Meal detection (pure) ─────────────────────────────────────────────────
@@ -287,6 +312,8 @@ def preload(db: Session, emails, start: str, end: str) -> None:
                   .order_by(models.TimeBreakPremium.local_date, models.TimeBreakPremium.kind,
                             models.TimeBreakPremium.created_at).all()):
             pre["premiums"].setdefault(p.employee_email, []).append(p)
+    import work_state
+    pre["workState"] = work_state.preload(db, ems)
     db.info[_PRELOAD] = pre
 
 

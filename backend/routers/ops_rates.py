@@ -4,6 +4,7 @@
   PUT  /facility-ops/rates/draft      propose (or clear) a unit type's new rate
   POST /facility-ops/rates/entered    Mark Entered in Cubby: record rates staff typed into Cubby by hand
   GET  /facility-ops/rates/history    our recorded rate changes + competitors' rates for one unit type
+  GET  /facility-ops/rates/comps      one unit type, competitor by competitor (the rates the market figures use)
 
 Nexus NEVER writes to Cubby (Visesh, Oct 20 2026). Staff enter the new rates
 in Cubby themselves, from the review or the printable checklist, then mark
@@ -17,7 +18,7 @@ routers.facility_ops._market -> ops_market.
 """
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -78,6 +79,22 @@ async def _groups(facility_id: str, fresh: bool = False) -> tuple[list, dict, st
         return [], {}, e.message
 
 
+def _observations(db: Session, fid: str, origin: tuple | None = None) -> tuple[list[dict], dict[str, dict]]:
+    """(every competitor rate observation for the facility with the detail the
+    comparison list shows, {active competitor id: {name, distanceMiles}}).
+    `origin` is our facility's (lat, lng): a competitor with no recorded
+    distance gets the straight-line one; None = not known."""
+    comps = {c.id: {"name": c.name, "distanceMiles": ops_rate_mgmt.distance_miles(c.distance_miles, origin, c.lat, c.lng)}
+             for c in db.query(models.OpsCompetitor)
+             .filter(models.OpsCompetitor.facility_id == fid, models.OpsCompetitor.active == True).all()}  # noqa: E712
+    obs = [{"competitor_id": r.competitor_id, "width": r.width, "depth": r.depth, "parking": bool(r.parking),
+            "rate_cents": r.rate_cents, "observed_on": r.observed_on, "created_at": r.created_at,
+            "climate": r.climate, "source": r.source or "manual", "online_cents": r.online_cents,
+            "promo_cents": r.promo_cents, "promo": r.promo or "", "space_type": r.space_type or ""}
+           for r in db.query(models.OpsCompetitorRate).filter(models.OpsCompetitorRate.facility_id == fid).all()]
+    return obs, comps
+
+
 def _view(db: Session, facility: dict, groups: list, fac: dict, groups_error: str, user: dict) -> dict:
     fid = facility["id"]
     idx = ops_rate_mgmt.group_index(groups)
@@ -100,6 +117,21 @@ def _view(db: Session, facility: dict, groups: list, fac: dict, groups_error: st
     pushes = (db.query(models.OpsRatePush).filter(models.OpsRatePush.facility_id == fid)
               .order_by(models.OpsRatePush.pushed_at.desc()).limit(25).all())
     survey = max((r["newestObservation"] for r in rows if r["newestObservation"]), default="")
+    obs, active = _observations(db, fid, (facility.get("lat"), facility.get("lng")))
+    today = date.fromisoformat(facility["asOf"])
+    by_type = {t["name"]: t for t in types}
+    comps_by_name = {r["name"]: ops_rate_mgmt.size_comps(by_type.get(r["name"]) or {}, obs, active, today) for r in rows}
+    for r in rows:
+        r["staleComps"] = sum(1 for c in comps_by_name[r["name"]] if c["stale"])
+
+    def last_seen(c):
+        return max((x.get("observedOn") or "" for x in c["rates"]), default="")
+    competitors = [{"id": c["id"], "name": c["name"], "ratesUrl": c["ratesUrl"], "watch": c["watch"],
+                    "address": c["address"], "distanceMiles": (active.get(c["id"]) or {}).get("distanceMiles"),
+                    "source": k, "lastUpdated": last_seen(c),
+                    "sizes": sum(1 for lst in comps_by_name.values() if any(x["competitorId"] == c["id"] for x in lst))}
+                   for c, k in zip(comps, kinds)]
+    competitors.sort(key=lambda c: (c["distanceMiles"] is None, c["distanceMiles"] or 0, c["name"]))
     return {
         "facilityId": fid, "facility": facility["shortName"], "name": facility["name"], "asOf": facility["asOf"],
         "address": ops_rate_mgmt.address_of(fac), "billingCycle": (fac or {}).get("billingCycle") or "",
@@ -109,8 +141,11 @@ def _view(db: Session, facility: dict, groups: list, fac: dict, groups_error: st
                     "manual": kinds.count("manual"), "closed": closed},
         "kpis": ops_rate_mgmt.kpis(rows),
         "attention": ops_rate_mgmt.attention(rows, groups_error),
+        "headline": ops_rate_mgmt.headline(rows),
+        "gaps": ops_rate_mgmt.gaps(rows, comps_by_name, not groups_error, competitors),
+        "staleDays": ops_rate_mgmt.STALE_DAYS,
         "rows": rows,
-        "competitors": [{"id": c["id"], "name": c["name"], "ratesUrl": c["ratesUrl"], "watch": c["watch"]} for c in comps],
+        "competitors": competitors,
         "freshDays": market["freshDays"], "minCompetitors": market["minCompetitors"],
         "pushes": [_push_dict(p) for p in pushes],
         "canEdit": _can_edit(user, db), "canMark": _can_edit(user, db),
@@ -252,4 +287,27 @@ async def history(facility_id: str, unit_type: str, db: Session = Depends(get_db
                                    "rate": r.rate_cents, "observedOn": r.observed_on, "source": r.source or "manual",
                                    "promo": r.promo or ""})
         return {"unitType": unit_type, "ours": [_push_dict(p) for p in ours], "competitors": theirs[:300]}
+    return await asyncio.to_thread(_read)
+
+
+@router.get("/comps")
+async def comps(facility_id: str, unit_type: str, db: Session = Depends(get_db)):
+    """One unit type, competitor by competitor: each active competitor's newest
+    rate for the size inside the market window (the same rates the low /
+    median / high come from), cheapest first, with distance, online price,
+    promotion, date and source."""
+    facility = await facility_ops._facility(facility_id)
+    t = next((x for x in facility["unitTypes"] if x["name"] == unit_type), None)
+    if not t:
+        raise HTTPException(status_code=404, detail="That unit type is not at this facility")
+
+    def _read():
+        obs, active = _observations(db, facility_id, (facility.get("lat"), facility.get("lng")))
+        today = date.fromisoformat(facility["asOf"])
+        rows = ops_rate_mgmt.size_comps(t, obs, active, today)
+        return {"unitType": unit_type, "asOf": facility["asOf"], "freshDays": ops_market.FRESH_DAYS,
+                "staleDays": ops_rate_mgmt.STALE_DAYS,
+                "sizeKey": ops_market.size_key(t.get("width"), t.get("depth"), bool(t.get("parking")))
+                if t.get("width") and t.get("depth") else "",
+                "competitors": rows}
     return await asyncio.to_thread(_read)

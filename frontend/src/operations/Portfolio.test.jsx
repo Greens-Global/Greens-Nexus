@@ -89,7 +89,7 @@ describe('Portfolio', () => {
     fireEvent.click(within(panel).getAllByRole('checkbox')[1]);           // untick Fairfield
     await waitFor(() => expect(getOpsPortfolio).toHaveBeenLastCalledWith(['fa'], ''));
     expect(loadSelection('pat@example.com')).toEqual(['fa']);
-    fireEvent.click(within(panel).getByRole('button', { name: 'Market: Northern California' }));
+    fireEvent.change(within(panel).getByLabelText('Quick Pick'), { target: { value: 'Market: Northern California' } });
     await waitFor(() => expect(getOpsPortfolio).toHaveBeenLastCalledWith(['fb'], ''));
   });
 

@@ -797,6 +797,14 @@ class AuditLog(Base):
     ip_address    = Column(String, default="")
     undone_at     = Column(String, default="")    # set when this change was reverted via the audit-log Undo
     undone_by     = Column(String, default="")    # email of whoever undid it
+    # Unified audit log (Oct 20 2026, audit_capture.py / routers/audit_events.py).
+    # request_id joins the field-level rows in audit_changes; module / kind /
+    # acting_as are filled for new rows so the feed can filter on them with an
+    # index instead of re-deriving them per row ('' on rows from before).
+    request_id    = Column(String, default=lambda: _audit_request_id())
+    module        = Column(String, default="")
+    kind          = Column(String, default="")    # create|update|delete|comment|login|denied|view|other
+    acting_as     = Column(String, default="")    # the Act As target, '' when not acting
 
 
 class NexusEmployee(Base):
@@ -6132,6 +6140,16 @@ class SiteModelMarkup(Base):
     ticket_id   = Column(String, default="")
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
+    # Mark an Issue on the Map (Charmi, Oct 20 2026 - ticket_map_spot.py): a
+    # ticket's spot is one of these rows (ticket_id set) - the circle's radius
+    # in meters (0 = a point), the free-hand outline as JSON [[u, v], ...], the
+    # spot on the globe from the model's geo frame, and "Near C214, Building C".
+    radius      = Column(Float, default=0.0)
+    outline     = Column(Text, default="")
+    lat         = Column(Float, nullable=True)
+    lng         = Column(Float, nullable=True)
+    place       = Column(String, default="")
+    updated_at  = Column(String, default="")   # site_models.py has always written it
 
 
 class WeatherOutlook(Base):
@@ -7241,3 +7259,132 @@ class OpsReportSchedule(Base):
     last_error       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+
+
+
+# ── Operations > Pricing Insights (Visesh, Oct 20 2026, cubby_pricing.py / ops_insights.py) ──
+# Cubby's pricing side, copied READ-ONLY on the 15-minute sync. Cubby has no
+# webhooks, so "every time it changes" = each sync compares and keeps a row
+# only when a value moved. New tables - create_all builds them; explicit RLS
+# lines in main.py on top of _enable_rls_everywhere.
+
+class CubbyPricingGroup(Base):
+    """One Cubby pricing group (a unit type) as of the last sync. `active`
+    false = Cubby no longer lists it (its history stays)."""
+    __tablename__ = "cubby_pricing_groups"
+    id                    = Column(String, primary_key=True)          # "<facility_id>:<pricingGroupId>"
+    facility_id           = Column(String, index=True, nullable=False)
+    pricing_group_id      = Column(String, default="")
+    name                  = Column(String, default="")
+    width                 = Column(Float, default=0)
+    depth                 = Column(Float, default=0)
+    area                  = Column(Float, default=0)                  # square feet
+    parking               = Column(Boolean, default=False)
+    vehicle_storage       = Column(Boolean, default=False)
+    climate               = Column(Boolean)                           # from Cubby's features; None = not said
+    standard_cents        = Column(Integer)                           # standardRate (Set / street)
+    web_cents             = Column(Integer)                           # webRate (Sell)
+    walk_in_cents         = Column(Integer)                           # walkInRate
+    strike_cents          = Column(Integer)                           # strikethroughRate
+    value_pricing_id      = Column(String, default="")
+    value_pricing_status  = Column(String, default="")
+    available_units       = Column(Integer, default=0)
+    rentable_units        = Column(Integer, default=0)
+    discount_ids          = Column(JSON, default=list)                # discounts assigned to the group
+    features              = Column(JSON, default=list)
+    active                = Column(Boolean, default=True)
+    first_seen_at         = Column(String, default="")                # UTC iso
+    last_changed_at       = Column(String, default="")                # UTC iso of the last rate change Nexus saw; '' = none since tracking began
+    synced_at             = Column(String, default="")
+
+
+class CubbyDiscount(Base):
+    """A Cubby discount (Pricing > Discount strategies): its terms and the
+    pricing groups it is offered on. Organization-wide in Cubby."""
+    __tablename__ = "cubby_discounts"
+    discount_id          = Column(String, primary_key=True)
+    name                 = Column(String, default="")
+    type                 = Column(String, default="")                 # ONE_TIME | PERIODIC | PERPETUAL
+    status               = Column(String, default="")                 # PUBLISHED | ...
+    active               = Column(Boolean, default=True)
+    application_method   = Column(String, default="")                 # AMOUNT_DEDUCTED | PERCENT_DEDUCTED | ...
+    amount_cents         = Column(Integer)
+    percentage           = Column(Float)
+    start_after_months   = Column(Integer)
+    discounted_months    = Column(Integer)
+    pricing_groups       = Column(JSON, default=list)                 # [{pricingGroupId, name, visibility}]
+    facility_ids         = Column(JSON, default=list)
+    synced_at            = Column(String, default="")
+
+
+class CubbyValuePricingStrategy(Base):
+    """A Cubby value pricing strategy (tiered unit pricing) and its tiers."""
+    __tablename__ = "cubby_value_pricing_strategies"
+    strategy_id = Column(String, primary_key=True)
+    name        = Column(String, default="")
+    tiers       = Column(JSON, default=list)
+    synced_at   = Column(String, default="")
+
+
+class CubbyRateHistory(Base):
+    """One change to one of OUR pricing group rates, seen by the sync. Rows
+    are only ever added - written only when a value moved, so the newest row
+    per group and field is "Last Changed" and the rest is the trend."""
+    __tablename__ = "cubby_rate_history"
+    id               = Column(String, primary_key=True)               # uuid
+    facility_id      = Column(String, index=True, nullable=False)
+    pricing_group_id = Column(String, index=True, default="")
+    group_name       = Column(String, default="")
+    field            = Column(String, default="")                     # standardRate | webRate | walkInRate | strikethroughRate | active
+    old_value        = Column(Integer)                                # cents (active: 1 / 0); None = not set
+    new_value        = Column(Integer)
+    changed_at       = Column(String, default="", index=True)         # UTC iso of the sync that saw it
+    changed_on       = Column(String, default="")                     # facility-local YYYY-MM-DD
+
+
+class CubbyRentChange(Base):
+    """An existing-customer rate increase (ECRI) Cubby has scheduled on a
+    lease, tracked from the first sync that saw it: scheduled -> applied (the
+    date passed) or canceled (it disappeared before the date). Lease, unit and
+    money only - the tenant's name is read from the rent roll when shown."""
+    __tablename__ = "cubby_rent_changes"
+    id               = Column(String, primary_key=True)               # "<facility_id>:<leaseId>:<YYYY-MM-DD>"
+    facility_id      = Column(String, index=True, nullable=False)
+    lease_id         = Column(String, index=True, default="")
+    unit_id          = Column(String, default="")
+    pricing_group_id = Column(String, default="")
+    old_cents        = Column(Integer, default=0)                     # rent when the change was first seen
+    new_cents        = Column(Integer, default=0)
+    effective_date   = Column(String, default="", index=True)         # YYYY-MM-DD
+    status           = Column(String, default="scheduled")            # scheduled | applied | canceled
+    first_seen_at    = Column(String, default="")
+    updated_at       = Column(String, default="")
+# ── Unified audit log (Oct 20 2026) ───────────────────────────────────────────
+def _audit_request_id() -> str:
+    import audit_capture
+    return audit_capture.current_request_id()
+
+
+class AuditChange(Base):
+    """One row per database row a change touched: the table, its primary key
+    and {field: {b: before, a: after}} (inserts carry after only, deletes
+    before only; "bu" marks a before value the ORM never loaded, "r" a value
+    redacted at write time). Written by audit_capture.py's flush listener in
+    the same transaction as the change. request_id joins audit_logs. New
+    table - create_all builds it; RLS line in main.py + the startup sweep, run
+    get_advisors at release."""
+    __tablename__ = "audit_changes"
+    __table_args__ = (Index("ix_audit_changes_record", "table_name", "record_id"),)
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    request_id = Column(String, default="", index=True)
+    at         = Column(String, default="", index=True)      # UTC ISO, ...Z
+    actor      = Column(String, default="", index=True)      # real person, or "system"
+    acting_as  = Column(String, default="")
+    module     = Column(String, default="", index=True)
+    table_name = Column(String, default="")
+    record_id  = Column(String, default="")
+    op         = Column(String, default="")                  # insert|update|delete|bulk_update|bulk_delete|bulk
+    changes    = Column(Text, default="")                    # JSON
+    summary    = Column(String, default="")                  # the record's label at the time
+    source     = Column(String, default="")                  # "PATCH /tasks/1" or the background job
+

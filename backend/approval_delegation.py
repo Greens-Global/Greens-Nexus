@@ -30,6 +30,19 @@ How it widens - and why it is never wider than the delegator:
     timecards, payroll, pay figures, People or monitoring.
   * The delegator keeps all their own access; nothing is moved, only added.
 
+Two limits on making one (Neil, Oct 20 2026):
+
+  * only while the delegator is OFF - every working day of the range sits
+    inside their approved full-day time off or a company holiday
+    (off_problem; weekends between are fine, a range of weekends alone is
+    not);
+  * only UP or ACROSS, never down - the stand-in is someone up the
+    delegator's reporting line, a peer under the same manager, or someone at
+    the delegator's role level or above, and never anyone in the delegator's
+    own reporting tree (direct or indirect reports, the people they back up)
+    - delegate_relation / eligible_delegates. A delegation made before the
+    rule keeps working until it ends; serialize() flags it with a warning.
+
 Every decision taken through a delegation records "by X for Y": the time
 sheet review round carries `for`, a punch fix / time off decision note says
 who it was decided for, and an audit_logs row is written (`acting_for`).
@@ -232,6 +245,152 @@ def stand_ins(db: Session, employee: str, approvers) -> list:
     return out
 
 
+# -- Up or across only, and only while off (Neil, Oct 20 2026) ---------------
+
+RELATION_LABEL = {"above": "Up Your Reporting Line", "peer": "Same Manager", "level": "Same Level or Above"}
+
+
+def _org(db: Session) -> dict:
+    """{email: (manager, backup manager)} for everyone in People - one read."""
+    from models import NexusEmployee
+    out = {}
+    for em, mgr, bk in db.query(NexusEmployee.work_email, NexusEmployee.manager_email,
+                                NexusEmployee.backup_manager_email).all():
+        em = _norm(em)
+        if em:
+            out[em] = (_norm(mgr), _norm(bk))
+    return out
+
+
+def _chain_up(org: dict, me: str) -> list:
+    """The delegator's manager, their manager, and so on (loops stop)."""
+    out, seen, cur = [], {me}, org.get(me, ("", ""))[0]
+    while cur and cur not in seen:
+        out.append(cur)
+        seen.add(cur)
+        cur = org.get(cur, ("", ""))[0]
+    return out
+
+
+def _below(org: dict, me: str) -> set:
+    """Everyone under `me`: direct and indirect reports, and the people `me`
+    is set as Backup Manager for (and theirs)."""
+    kids: dict = {}
+    for em, (mgr, bk) in org.items():
+        for boss in {mgr, bk} - {"", em}:
+            kids.setdefault(boss, set()).add(em)
+    out, todo = set(), [me]
+    while todo:
+        for k in kids.get(todo.pop(), ()):
+            if k not in out and k != me:
+                out.add(k)
+                todo.append(k)
+    return out
+
+
+def delegate_relation(db: Session, delegator: str, delegate: str, org: dict | None = None) -> str:
+    """How `delegate` sits against `delegator`: 'above' (up the reporting
+    line), 'peer' (same manager), 'level' (same role level or higher, outside
+    the delegator's own tree) - or '' when they are below the delegator, which
+    a delegation may never go to."""
+    from auth import level_for
+    dg, dl = _norm(delegator), _norm(delegate)
+    if not dg or not dl or dg == dl:
+        return ""
+    org = org if org is not None else _org(db)
+    if dl in _below(org, dg):
+        return ""
+    if dl in _chain_up(org, dg):
+        return "above"
+    mgr = org.get(dg, ("", ""))[0]
+    if mgr and org.get(dl, ("", ""))[0] == mgr:
+        return "peer"
+    if level_for(dl, db) >= level_for(dg, db):
+        return "level"
+    return ""
+
+
+def eligible_delegates(db: Session, delegator: str) -> list:
+    """[{email, name, relation, relationLabel}] - who may cover `delegator`'s
+    approvals: an active Nexus People row, up or across (delegate_relation),
+    able to approve and inside the delegator's company walls. The picker's
+    list and the server's rule are this one function."""
+    from models import NexusEmployee
+    dg = _norm(delegator)
+    if not dg:
+        return []
+    org = _org(db)
+    company = _company(db, dg)
+    out = []
+    for e in (db.query(NexusEmployee.work_email)
+              .filter(NexusEmployee.status.in_(["active", "onboarding"])).all()):
+        em = _norm(e.work_email)
+        if not em or em == dg:
+            continue
+        rel = delegate_relation(db, dg, em, org)
+        if not rel or not can_approve(db, em) or not _inside(_walls(db, em), company):
+            continue
+        out.append({"email": em, "name": display_name(db, em), "relation": rel,
+                    "relationLabel": RELATION_LABEL[rel]})
+    order = {"above": 0, "peer": 1, "level": 2}
+    return sorted(out, key=lambda p: (order[p["relation"]], p["name"].lower()))
+
+
+def _days(s: str, e: str) -> list:
+    try:
+        a, b = date.fromisoformat(s), date.fromisoformat(e)
+    except ValueError:
+        return []
+    return [(a + timedelta(days=i)) for i in range((b - a).days + 1)] if b >= a else []
+
+
+def off_ranges(db: Session, email: str, today: str | None = None) -> list:
+    """[{start, end, label, kind}] - the person's approved full-day time off
+    and company holidays from `today` on (a year ahead): the days a
+    delegation may cover. A part-day request (a doctor's appointment) is not
+    being off."""
+    from models import NexusEmployee, TimeOffRequest
+    em = _norm(email)
+    if not em:
+        return []
+    t = today or _today_for(db, em)
+    out = []
+    for r in (db.query(TimeOffRequest)
+              .filter(func.lower(TimeOffRequest.employee_email) == em, TimeOffRequest.status == "approved",
+                      TimeOffRequest.end_date >= t).all()):
+        if (r.start_time or "") or (r.end_time or "") or not r.start_date or not r.end_date:
+            continue
+        out.append({"start": max(r.start_date, t), "end": r.end_date, "kind": "timeoff",
+                    "label": "Approved Time Off"})
+    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == em).first()
+    if emp is not None:
+        from routers.timeclock import _company_holidays_for_many
+        horizon = (date.fromisoformat(t) + timedelta(days=MAX_DAYS)).isoformat()
+        for d, h in sorted(_company_holidays_for_many(db, {em: emp}, t, horizon).get(em, {}).items()):
+            if (h.get("type") or "mandatory") == "mandatory":
+                out.append({"start": d, "end": d, "kind": "holiday", "label": h.get("name") or "Company Holiday"})
+    return sorted(out, key=lambda r: (r["start"], r["end"]))
+
+
+def off_problem(db: Session, email: str, start: str, end: str) -> str:
+    """'' when every working day of start..end is inside the person's approved
+    full-day time off or a company holiday (and at least one day is), else
+    why not."""
+    from routers.timeclock import _us_day
+    days = _days(start, end)
+    covered = set()
+    if days:
+        for r in off_ranges(db, email, today=days[0].isoformat()):
+            covered |= {d.isoformat() for d in _days(r["start"], r["end"])}
+    if not any(d.isoformat() in covered for d in days):
+        return "You can delegate your approvals only for days you are off - pick dates inside your approved time off."
+    for d in days:
+        if d.isoformat() not in covered and d.weekday() < 5:
+            return (f"{_us_day(d.isoformat())} is not inside your approved time off. Delegate only the days "
+                    "you are off.")
+    return ""
+
+
 def display_name(db: Session, email: str) -> str:
     from routers.timeclock import _display_name
     return _display_name(db, email)
@@ -290,11 +449,20 @@ def check_new(db: Session, delegator: str, delegate: str, start: str, end: str) 
                                  "Pick a manager, or someone with an HR editor grant.")
     if not _inside(_walls(db, dl), _company(db, dg)):
         raise HTTPException(422, f"{display_name(db, dl)} works in another company and can't cover these approvals.")
+    # Up or across, never down (Neil, Oct 20): never someone in your own team.
+    if not delegate_relation(db, dg, dl):
+        raise HTTPException(422, f"{display_name(db, dl)} is below {display_name(db, dg)} in the reporting line. "
+                                 "Approvals go up or across while you are off - pick your manager, someone above "
+                                 "them, or a peer.")
     s, e = _day(start, "first day"), _day(end, "last day")
     if e < s:
         raise HTTPException(422, "The last day is before the first day.")
     if e < _today_for(db, dg):
         raise HTTPException(422, "That range is already over.")
+    # Only while off (Neil, Oct 20): the range sits inside approved time off.
+    why = off_problem(db, dg, s, e)
+    if why:
+        raise HTTPException(422, why)
     if (date.fromisoformat(e) - date.fromisoformat(s)).days >= MAX_DAYS:
         raise HTTPException(422, "A delegation can run for up to a year. For a longer change, update the "
                                  "manager in People.")
@@ -308,13 +476,27 @@ def check_new(db: Session, delegator: str, delegate: str, start: str, end: str) 
     return s, e
 
 
-def serialize(db: Session, d, today: str | None = None) -> dict:
+def warnings_for(db: Session, d, org: dict | None = None) -> list:
+    """Why a current delegation would not be allowed today (made before the
+    Oct 20 rules, or the time off under it changed). It keeps working until
+    it ends - the list just says so."""
+    out = []
+    if not delegate_relation(db, d.delegator_email, d.delegate_email, org):
+        out.append(f"{display_name(db, d.delegate_email)} is below {display_name(db, d.delegator_email)} in the "
+                   "reporting line - new delegations go only up or across. This one keeps working until it ends.")
+    if off_problem(db, d.delegator_email, d.start_date or "", d.end_date or ""):
+        out.append("These days are not all inside approved time off. This one keeps working until it ends.")
+    return out
+
+
+def serialize(db: Session, d, today: str | None = None, org: dict | None = None) -> dict:
     t = today or _today_for(db, d.delegator_email)
     state = ("revoked" if d.revoked_at else "ended" if (d.end_date or "") < t
              else "active" if (d.start_date or "") <= t else "upcoming")
+    warnings = warnings_for(db, d, org) if state in ("active", "upcoming") else []
     return {"id": d.id, "delegatorEmail": d.delegator_email, "delegatorName": display_name(db, d.delegator_email),
             "delegateEmail": d.delegate_email, "delegateName": display_name(db, d.delegate_email),
             "startDate": d.start_date, "endDate": d.end_date, "note": d.note or "",
             "createdBy": d.created_by or "", "createdByName": display_name(db, d.created_by) if d.created_by else "",
             "createdAt": d.created_at or "", "revokedAt": d.revoked_at or "", "revokedBy": d.revoked_by or "",
-            "state": state}
+            "state": state, "warnings": warnings}
