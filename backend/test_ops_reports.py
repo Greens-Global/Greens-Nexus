@@ -189,7 +189,7 @@ def test_catalog_covers_every_cubby_report_endpoint_and_names_what_is_missing(cl
     keys = {r["key"]: r for r in out["reports"]}
     # Cubby's reports/* endpoints: rent-roll, aged-receivables, general-ledger/cash, general-ledger/accrual,
     # merchant-services-disbursements.
-    for k in ("rent-roll", "accounts-receivable", "general-ledger-cash", "general-ledger-accrual", "merchant-disbursements"):
+    for k in ("rent-roll", "aged-receivables", "general-ledger-cash", "general-ledger-accrual", "merchant-disbursements"):
         assert keys[k]["source"] == "cubby"
     assert keys["inventory-activity"]["source"] == "unavailable"
     assert {r["category"] for r in out["reports"]} == set(out["categories"])
