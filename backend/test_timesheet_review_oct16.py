@@ -214,7 +214,7 @@ class PopUpTests(Oct16Case):
 
 class EgnyteFilingTests(Oct16Case):
     """The signed PDF is filed in the EMPLOYEE's Egnyte person folder, in
-    Timesheets - never the approving manager's work folder (Neil, Oct 16)."""
+    Timesheets & Attendance (Oct 20) - never the approving manager's work folder (Neil, Oct 16)."""
 
     def setUp(self):
         super().setUp()
@@ -223,8 +223,10 @@ class EgnyteFilingTests(Oct16Case):
         self.made = []
         self._real = [(svc, "configured", svc.configured),
                       (egnyte_wiring, "provision_person_folder", egnyte_wiring.provision_person_folder),
-                      (egnyte_wiring, "resolve_person_folder", egnyte_wiring.resolve_person_folder)]
+                      (egnyte_wiring, "resolve_person_folder", egnyte_wiring.resolve_person_folder),
+                      (egnyte_wiring, "_list_children", egnyte_wiring._list_children)]
         svc.configured = lambda: True
+        egnyte_wiring._list_children = lambda parent: []
         egnyte_wiring.provision_person_folder = (
             lambda emp, db: self.made.append(emp.work_email) or f"/Shared/HR/{emp.first_name} {emp.last_name}")
         egnyte_wiring.resolve_person_folder = (
@@ -243,8 +245,8 @@ class EgnyteFilingTests(Oct16Case):
     def test_it_files_in_the_employees_timesheets_folder(self):
         from routers import esign
         req = self._signing_request()
-        self.assertEqual(req.created_by, MGR)                  # sent in the manager's name...
-        self.assertEqual(esign._signed_folder(self.db, req), "/Shared/HR/Erin Test/Timesheets")
+        self.assertEqual(req.created_by, esign.SYSTEM_SENDER)  # sent by Nexus (Oct 20)...
+        self.assertEqual(esign._signed_folder(self.db, req), "/Shared/HR/Erin Test/Timesheets & Attendance")
         self.assertEqual(self.made, [EMP])                     # ...filed under the employee
 
     def test_no_folder_means_not_filed_never_someone_elses(self):

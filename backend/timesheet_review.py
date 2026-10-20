@@ -1186,9 +1186,11 @@ def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user
     parties = [esign.PartyIn(role_key=role, name=display_name(db, who[role]), email=who[role],
                              kind="internal", ordinal=i + 1, party_role="signer")
                for i, (role, _l) in enumerate(ROLES)]
-    # Sent in the approving manager's name; the employee is the only signer.
+    # Sent by Nexus, not the approving manager (Neil, Oct 20: "it should be
+    # created by Nexus"); the approval stays in r.agreed_by and the PDF's
+    # Approval History. The employee is the only signer.
     out = esign._create_request(
-        db, {"email": (r.agreed_by or r.manager_email or actor).lower()}, title=f"Time Sheet - {display_name(db, r.employee_email)} - {_label(r)}",
+        db, {"email": esign.SYSTEM_SENDER}, title=f"Time Sheet - {display_name(db, r.employee_email)} - {_label(r)}",
         source="pdf", template_id="", employee_id=(emp.id if emp else ""), candidate_id="",
         entity_id=(emp.company if emp else ""), body_snapshot=[], pdf_storage_path=path,
         fields=esign._clean_fields(_sig_fields(spot)),
@@ -1217,7 +1219,9 @@ def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user
 def egnyte_folder(db: Session, req) -> str:
     """Where the signed timesheet is filed in Egnyte (esign._signed_folder):
     the employee's person folder - created if missing, as a hire's is - plus
-    the timesheet.signed-subfolder wiring ('Timesheets'). Neil, Oct 16: the
+    the timesheet.signed-subfolder wiring: the first listed name that already
+    exists there, else the first one (Oct 20: 'Timesheets & Attendance', an
+    older 'Timesheets' folder keeps being used). Neil, Oct 16: the
     PDF goes in the employee's file. '' when there is no folder to file into
     (Egnyte off, no company or name in People): the sealed copy still lands
     in their Nexus Documents, and it is never filed under someone else."""
@@ -1234,9 +1238,13 @@ def egnyte_folder(db: Session, req) -> str:
         if emp is None:
             return ""
         base = egnyte_wiring.provision_person_folder(emp, db)
-        sub, _src = egnyte_wiring.effective("timesheet.signed-subfolder")
-        sub = (sub or "").strip().strip("/")
-        return f"{base.rstrip('/')}/{sub}" if sub else base
+        raw, _src = egnyte_wiring.effective("timesheet.signed-subfolder")
+        subs = [s.strip().strip("/") for s in (raw or "").split(",") if s.strip().strip("/")]
+        if not subs:
+            return base
+        have = {n.lower(): n for n in (egnyte_wiring._list_children(base) or [])}
+        sub = next((have[s.lower()] for s in subs if s.lower() in have), subs[0])
+        return f"{base.rstrip('/')}/{sub}"
     except Exception as e:      # filing must never block sealing
         print(f"[timesheet-review] no Egnyte folder for {getattr(req, 'id', '')}: {type(e).__name__}: {e}")
         # Egnyte trouble making the folder is a failed filing, not "nothing to
@@ -1247,6 +1255,27 @@ def egnyte_folder(db: Session, req) -> str:
         except Exception:
             pass
         return ""
+
+
+def egnyte_filename(db: Session, req) -> str:
+    """The signed time sheet's file name in Egnyte (Neil, Oct 20), on the
+    filing convention 'YYYY-MM-DD - Originator - Title': the date the employee
+    signed (their local day), then
+    'Erin Test Time Sheet - 10-04-2026 to 10-17-2026 (signed) - 1a2b3c4d.pdf'
+    (Egnyte allows no '/'; the envelope id stays at the end). '' when the
+    review is gone - the generic name is used then."""
+    import re
+    r = _for(db, req)
+    if r is None:
+        return ""
+    try:
+        signed = datetime.fromisoformat((req.completed_at or "").replace("Z", "+00:00"))
+    except ValueError:
+        signed = datetime.now(timezone.utc)
+    day = (signed - timedelta(minutes=_offset(db, r.employee_email))).date().isoformat()
+    who = re.sub(r'[\\/:*?"<>|]+', " ", display_name(db, r.employee_email)).strip()
+    span = f"{us_date(r.period_start)} to {us_date(r.period_end)}".replace("/", "-")
+    return f"{day} - {who} Time Sheet - {span} (signed) - {req.id[:8]}.pdf"
 
 
 # ── Nexus Sign callbacks ─────────────────────────────────────────────────────

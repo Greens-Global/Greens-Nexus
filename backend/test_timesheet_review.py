@@ -803,5 +803,72 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertTrue(rows[0]["url"].endswith("/timeclock/timesheet"))
 
 
+class SentByNexusTests(ReviewCase):
+    """Neil, Oct 20: the envelope is created by Nexus, not the approving
+    manager - the manager gets no completion bell, sealed copy or decline bell
+    from Nexus Sign (the review's own bells tell them); the employee still
+    gets their invite and copy. Other envelopes keep their human sender."""
+
+    def setUp(self):
+        super().setUp()
+        self.invites, self.copies = [], []
+        esign._send_sign_email = lambda party, req, sender, custom=None: (
+            self.invites.append((party.email, sender)) or (True, ""))
+        esign._send_sealed_email = lambda name, to, req, *a, **k: self.copies.append(to) or (True, "")
+        self.db.query(models.NexusNotification).delete()
+        self.db.commit()
+
+    def _bells(self, title_start):
+        self.db.expire_all()
+        return [n.recipient for n in self.db.query(models.NexusNotification)
+                if n.title.startswith(title_start)]
+
+    def test_nexus_is_the_sender_and_the_approval_stays_recorded(self):
+        r = self._to_signing()
+        req = self.db.get(models.HrSignRequest, r.sign_request_id)
+        self.assertEqual(req.created_by, esign.SYSTEM_SENDER)
+        self.assertEqual(r.agreed_by, MGR)
+        ((to, sender),) = self.invites
+        self.assertEqual((to, sender["name"], sender["email"]), (EMP, "Greens Nexus", esign._SUPPORT_CONTACT))
+        self.assertEqual(esign._from_display(sender["name"]), "Greens Nexus via Nexus Sign")
+        html = esign._sign_email_html(self._parties(req.id)["employee"], req, sender, "https://x")
+        self.assertIn("<strong>Greens Nexus</strong> has asked you to review and sign", html)
+        self.assertNotIn("Max Test", html)
+
+    def test_on_completion_only_the_employee_hears_from_nexus_sign(self):
+        r = self._to_signing()
+        self._sign(self._parties(r.sign_request_id)["employee"])
+        self.assertEqual(self._r().status, "completed")
+        self.assertEqual(self.copies, [EMP])
+        self.assertEqual(self._bells("Fully Executed"), [EMP])
+
+    def test_a_decline_rings_no_nexus_sign_bell(self):
+        r = self._to_signing()
+        self._decline(self._parties(r.sign_request_id)["employee"], "Friday is wrong")
+        self.assertEqual(self._bells("Signature Declined"), [])
+        self.assertEqual(self._r().status, "with_manager")
+
+    def test_other_envelopes_keep_their_sender(self):
+        import uuid
+        r = self._to_signing()
+        pdf, spot = tsr.build_pdf(self.db, r)
+        path = f"esign/{uuid.uuid4()}/plain.pdf"
+        esign._storage_put(esign._DOC_BUCKET, path, pdf, "application/pdf")
+        out = esign._create_request(
+            self.db, {"email": MGR}, title="Plain Letter", source="pdf", template_id="",
+            employee_id="id-Erin", candidate_id="", entity_id=ENTITY, body_snapshot=[],
+            pdf_storage_path=path, fields=esign._clean_fields(tsr._sig_fields(spot)), message="",
+            expires_on="", parties=[esign.PartyIn(role_key="employee", name="Erin Test", email=EMP,
+                                                  kind="internal", ordinal=1, party_role="signer")],
+            ip="", user_agent="", routing="sequential", excluded_ack=True, document_class="employment")
+        req = self.db.get(models.HrSignRequest, out["id"])
+        self.assertEqual(req.created_by, MGR)
+        self.assertEqual(self.invites[-1][1]["name"], "Max Test")
+        self.copies.clear()
+        self._sign(self._parties(req.id)["employee"])
+        self.assertEqual(sorted(self.copies), sorted([MGR, EMP]))
+        self.assertIn(MGR, self._bells("Fully Executed: Plain Letter"))
+
+
 if __name__ == "__main__":
     unittest.main()
