@@ -5,10 +5,17 @@ the operator's org. The one table Nexus reads today is `analytics.stor_track`:
 the StorTrack competitor rate feed (Cubby includes it in our plan), which
 `ops_stortrack.py` imports into Operations -> Market Rates.
 
-Credentials: a Google service account that Cubby has granted access to
-`cubby-partner-data` (docs/Cubby-StorTrack-Setup.md).
+Credentials (docs/Cubby-StorTrack-Setup.md), either:
+  * a Google service account that Cubby has granted access to
+    `cubby-partner-data`, or
+  * a signed-in Google account Cubby already granted (Cubby provisions
+    people's Google accounts, Sep 2026): an "authorized_user" JSON - OAuth
+    client id + secret + refresh token - made once with
+    `backend/scripts/cubby_bq_login.py`. It acts as that person, so it stops
+    working if their access or account goes away.
 
-  CUBBY_BQ_CREDENTIALS_JSON  the service account's whole JSON key, as text
+  CUBBY_BQ_CREDENTIALS_JSON  the whole JSON (service account key or
+                             authorized_user), as text
   CUBBY_BQ_PROJECT           optional: the project query jobs are billed to.
                              Usually the service account's own project, which
                              is the default (the `project_id` in the key).
@@ -55,28 +62,38 @@ def _key_info() -> dict:
     except ValueError:
         # Never include the text: it is the private key.
         raise WarehouseError("CUBBY_BQ_CREDENTIALS_JSON is not valid JSON") from None
-    if not isinstance(info, dict) or info.get("type") != "service_account":
-        raise WarehouseError("CUBBY_BQ_CREDENTIALS_JSON is not a Google service account key")
+    if not isinstance(info, dict) or info.get("type") not in KEY_TYPES:
+        raise WarehouseError("CUBBY_BQ_CREDENTIALS_JSON is not a Google service account key or signed-in account")
+    if info["type"] == "authorized_user" and not all(info.get(k) for k in ("client_id", "client_secret", "refresh_token")):
+        raise WarehouseError("CUBBY_BQ_CREDENTIALS_JSON is missing the client id, client secret or refresh token")
     return info
+
+
+KEY_TYPES = ("service_account", "authorized_user")
 
 
 def billing_project() -> str:
     explicit = os.environ.get("CUBBY_BQ_PROJECT", "").strip()
-    return explicit or str(_key_info().get("project_id") or "")
+    info = _key_info()
+    return explicit or str(info.get("project_id") or info.get("quota_project_id") or "")
 
 
 def _client():
-    """A BigQuery client on the service account. Imported here, not at module
+    """A BigQuery client on the service account or signed-in account. Imported here, not at module
     load, so a server without the package (or the key) still starts. The tests
     replace this function."""
     try:
         from google.cloud import bigquery
+        from google.oauth2 import credentials as user_credentials
         from google.oauth2 import service_account
     except ImportError as e:
         raise WarehouseError("The google-cloud-bigquery package is not installed on this server") from e
     info = _key_info()
-    creds = service_account.Credentials.from_service_account_info(
-        info, scopes=["https://www.googleapis.com/auth/bigquery"])   # running a query job needs the full scope
+    scopes = ["https://www.googleapis.com/auth/bigquery"]   # running a query job needs the full scope
+    if info["type"] == "authorized_user":
+        creds = user_credentials.Credentials.from_authorized_user_info(info, scopes=scopes)
+    else:
+        creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
     project = billing_project()
     if not project:
         raise WarehouseError("No billing project: set CUBBY_BQ_PROJECT")

@@ -7,7 +7,7 @@
 // is instant. Nexus only reads - payments, leases and tenant edits stay in
 // Cubby, and each tenant row links there.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge, Map as MapIcon } from 'lucide-react';
+import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge, Map as MapIcon, Lightbulb } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
@@ -28,6 +28,8 @@ import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
 // Site Map (Oct 20): the 3D site model with layers. Lazy, so three.js loads only on that tab.
 const SiteMap = lazy(() => import('../operations/SiteMap'));
+// Pricing Insights (Visesh, Oct 20): insights from Cubby's pricing + the market. Lazy, its own chunk.
+const PricingInsights = lazy(() => import('../operations/PricingInsights'));
 
 const SYNC_POLL_MS = 3000;
 const NOT_CONNECTED = "Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.";
@@ -44,13 +46,15 @@ const TABS = [
   // The Daily Flash for any set of properties, with its own picker and month (Neil, Oct 20).
   { key: 'portfolio',   label: 'Portfolio',       Icon: Gauge },
   { key: 'site-map',    label: 'Site Map',        Icon: MapIcon },
+  // Ranked insights from Cubby's pricing, the rent roll and the market (Visesh, Oct 20) - same door as Rate Management.
+  { key: 'pricing',     label: 'Pricing Insights', Icon: Lightbulb },
 ];
 // Tabs that work on one facility at a time and are not about a period. With
 // All Facilities picked they open on the first facility (the first one with a
 // site model, for the Site Map) and the dropdown shows which; the page's
 // choice itself stays All, so the other tabs still see every facility.
 const ONE_FACILITY = new Set(['market', 'revenue', 'site-map']);
-const NO_PERIOD = ONE_FACILITY;
+const NO_PERIOD = new Set([...ONE_FACILITY, 'pricing']);
 const TAB_KEYS = new Set(TABS.map((t) => t.key));
 
 // The facility choice is remembered per viewer on this device and kept across tabs.
@@ -273,6 +277,11 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {sub === 'site-map' && (current === 'all' && modelIds === null
             ? <LoadingState size="section" label="Loading the site map" minHeight={420} />
             : <Suspense fallback={<LoadingState size="section" label="Loading the site map" minHeight={420} />}><SiteMap facility={single} facilities={facilities} onPick={setPicked} modelIds={modelIds} onMapSearch={setMapSearch} /></Suspense>)}
+          {sub === 'pricing' && (
+            <Suspense fallback={<LoadingState size="section" label="Loading pricing insights" minHeight={320} />}>
+              <PricingInsights facility={single && !isThirdParty(single) ? single : null} onPick={setPicked} onGo={onSubChange} />
+            </Suspense>
+          )}
         </div>
       )}
     </div>

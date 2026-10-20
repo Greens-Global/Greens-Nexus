@@ -1262,6 +1262,8 @@ export const api = {
   getOpsRateHistory: (facilityId, unitType) => req(`/facility-ops/rates/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
   // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
   getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
+  // Operations > Pricing Insights (Oct 20): ranked insights + sections from Cubby's pricing and the market. '' = every facility.
+  getOpsInsights: (facilityId) => req(`/facility-ops/insights?facility_id=${encodeURIComponent(facilityId || "")}`),
 
   // Dev
   getDevProjects: () => req("/dev-projects"),

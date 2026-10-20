@@ -7241,3 +7241,103 @@ class OpsReportSchedule(Base):
     last_error       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+
+
+
+# ── Operations > Pricing Insights (Visesh, Oct 20 2026, cubby_pricing.py / ops_insights.py) ──
+# Cubby's pricing side, copied READ-ONLY on the 15-minute sync. Cubby has no
+# webhooks, so "every time it changes" = each sync compares and keeps a row
+# only when a value moved. New tables - create_all builds them; explicit RLS
+# lines in main.py on top of _enable_rls_everywhere.
+
+class CubbyPricingGroup(Base):
+    """One Cubby pricing group (a unit type) as of the last sync. `active`
+    false = Cubby no longer lists it (its history stays)."""
+    __tablename__ = "cubby_pricing_groups"
+    id                    = Column(String, primary_key=True)          # "<facility_id>:<pricingGroupId>"
+    facility_id           = Column(String, index=True, nullable=False)
+    pricing_group_id      = Column(String, default="")
+    name                  = Column(String, default="")
+    width                 = Column(Float, default=0)
+    depth                 = Column(Float, default=0)
+    area                  = Column(Float, default=0)                  # square feet
+    parking               = Column(Boolean, default=False)
+    vehicle_storage       = Column(Boolean, default=False)
+    climate               = Column(Boolean)                           # from Cubby's features; None = not said
+    standard_cents        = Column(Integer)                           # standardRate (Set / street)
+    web_cents             = Column(Integer)                           # webRate (Sell)
+    walk_in_cents         = Column(Integer)                           # walkInRate
+    strike_cents          = Column(Integer)                           # strikethroughRate
+    value_pricing_id      = Column(String, default="")
+    value_pricing_status  = Column(String, default="")
+    available_units       = Column(Integer, default=0)
+    rentable_units        = Column(Integer, default=0)
+    discount_ids          = Column(JSON, default=list)                # discounts assigned to the group
+    features              = Column(JSON, default=list)
+    active                = Column(Boolean, default=True)
+    first_seen_at         = Column(String, default="")                # UTC iso
+    last_changed_at       = Column(String, default="")                # UTC iso of the last rate change Nexus saw; '' = none since tracking began
+    synced_at             = Column(String, default="")
+
+
+class CubbyDiscount(Base):
+    """A Cubby discount (Pricing > Discount strategies): its terms and the
+    pricing groups it is offered on. Organization-wide in Cubby."""
+    __tablename__ = "cubby_discounts"
+    discount_id          = Column(String, primary_key=True)
+    name                 = Column(String, default="")
+    type                 = Column(String, default="")                 # ONE_TIME | PERIODIC | PERPETUAL
+    status               = Column(String, default="")                 # PUBLISHED | ...
+    active               = Column(Boolean, default=True)
+    application_method   = Column(String, default="")                 # AMOUNT_DEDUCTED | PERCENT_DEDUCTED | ...
+    amount_cents         = Column(Integer)
+    percentage           = Column(Float)
+    start_after_months   = Column(Integer)
+    discounted_months    = Column(Integer)
+    pricing_groups       = Column(JSON, default=list)                 # [{pricingGroupId, name, visibility}]
+    facility_ids         = Column(JSON, default=list)
+    synced_at            = Column(String, default="")
+
+
+class CubbyValuePricingStrategy(Base):
+    """A Cubby value pricing strategy (tiered unit pricing) and its tiers."""
+    __tablename__ = "cubby_value_pricing_strategies"
+    strategy_id = Column(String, primary_key=True)
+    name        = Column(String, default="")
+    tiers       = Column(JSON, default=list)
+    synced_at   = Column(String, default="")
+
+
+class CubbyRateHistory(Base):
+    """One change to one of OUR pricing group rates, seen by the sync. Rows
+    are only ever added - written only when a value moved, so the newest row
+    per group and field is "Last Changed" and the rest is the trend."""
+    __tablename__ = "cubby_rate_history"
+    id               = Column(String, primary_key=True)               # uuid
+    facility_id      = Column(String, index=True, nullable=False)
+    pricing_group_id = Column(String, index=True, default="")
+    group_name       = Column(String, default="")
+    field            = Column(String, default="")                     # standardRate | webRate | walkInRate | strikethroughRate | active
+    old_value        = Column(Integer)                                # cents (active: 1 / 0); None = not set
+    new_value        = Column(Integer)
+    changed_at       = Column(String, default="", index=True)         # UTC iso of the sync that saw it
+    changed_on       = Column(String, default="")                     # facility-local YYYY-MM-DD
+
+
+class CubbyRentChange(Base):
+    """An existing-customer rate increase (ECRI) Cubby has scheduled on a
+    lease, tracked from the first sync that saw it: scheduled -> applied (the
+    date passed) or canceled (it disappeared before the date). Lease, unit and
+    money only - the tenant's name is read from the rent roll when shown."""
+    __tablename__ = "cubby_rent_changes"
+    id               = Column(String, primary_key=True)               # "<facility_id>:<leaseId>:<YYYY-MM-DD>"
+    facility_id      = Column(String, index=True, nullable=False)
+    lease_id         = Column(String, index=True, default="")
+    unit_id          = Column(String, default="")
+    pricing_group_id = Column(String, default="")
+    old_cents        = Column(Integer, default=0)                     # rent when the change was first seen
+    new_cents        = Column(Integer, default=0)
+    effective_date   = Column(String, default="", index=True)         # YYYY-MM-DD
+    status           = Column(String, default="scheduled")            # scheduled | applied | canceled
+    first_seen_at    = Column(String, default="")
+    updated_at       = Column(String, default="")
