@@ -142,13 +142,14 @@ KNOWN_SLOTS = [
         "slot": "timesheet.signed-subfolder",
         "group": "E-Sign",
         "label": "Signed time sheets subfolder",
-        "description": "Subfolder of the EMPLOYEE's person folder where their signed time sheet is "
-                       "filed when they sign it (Neil, Oct 16) - never the approving manager's "
-                       "folder. Created on first use. Blank files into the person folder itself.",
-        "kind": "path",
+        "description": "Subfolder names (in order) of the EMPLOYEE's person folder where their signed "
+                       "time sheet is filed when they sign it (Neil, Oct 16) - never the approving "
+                       "manager's folder. The first name that already exists wins; when none does, "
+                       "the first name is created (Neil, Oct 20: Timesheets & Attendance).",
+        "kind": "csv",
         "placeholders": [],
         "env": [],
-        "default": "Timesheets",
+        "default": "Timesheets & Attendance,Timesheets",
         "overrides": None,
     },
     {

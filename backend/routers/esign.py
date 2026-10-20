@@ -327,6 +327,10 @@ _EXCLUDED_RECORD_CATEGORIES = [
 _SOR_NAME = os.getenv("NEXUS_ESIGN_SOR_NAME", "Nexus Sign")
 _SOR_OPERATOR = os.getenv("NEXUS_ESIGN_OPERATOR", "Greens Global")
 _SUPPORT_CONTACT = os.getenv("NEXUS_ESIGN_SUPPORT", "it@greensglobal.com")
+# created_by of an envelope Nexus sends itself (a signed Time Sheet - Neil,
+# Oct 20: "it should be created by Nexus"). Not a mailbox: no bell or email
+# goes to it, and the certificate prints it as the initiator.
+SYSTEM_SENDER = "Greens Nexus"
 _GOVERNING_LAW = os.getenv("NEXUS_ESIGN_GOVERNING_LAW", "California")
 # No jurisdiction by default. It used to be "CA", which quietly made every
 # envelope a California envelope and put "the State of California" on the
@@ -770,6 +774,9 @@ def _sender_identity(db: Session, req: HrSignRequest) -> dict:
     (never a GAL-derived list, per the module's people-picker rule); falls back
     to a readable form of the login when the sender is not in the directory."""
     email = (req.created_by or "").strip()
+    if email == SYSTEM_SENDER:
+        # Nexus sent it: questions go to support, there is no person to call.
+        email = _SUPPORT_CONTACT
     emp = (db.query(NexusEmployee)
            .filter(NexusEmployee.work_email == email.lower()).first()) if email else None
     if emp is not None:
@@ -782,6 +789,8 @@ def _sender_identity(db: Session, req: HrSignRequest) -> dict:
         name, title, phone = "", "", ""
     if not name:
         name = email.split("@")[0].replace(".", " ").title() if email else "A Nexus user"
+    if (req.created_by or "").strip() == SYSTEM_SENDER:
+        name = SYSTEM_SENDER
     entity, entity_address = "", ""
     if req.entity_id:
         ent = db.query(HrEntity).filter(HrEntity.id == req.entity_id).first()
@@ -3250,10 +3259,11 @@ def _apply_decline(db: Session, req: HrSignRequest, party: HrSignParty, reason: 
     _log(db, req.id, "declined", f"{party.name}: {party.decline_reason or 'no reason given'}",
          party_id=party.id, ip=ip, user_agent=ua)
     _link_hook("declined", db, req, party, party.decline_reason)
-    _hr_notify(db, req.created_by, f"Signature Declined: {req.title}",
-               f"{party.name} declined to sign. {party.decline_reason}".strip(),
-               ref_id=req.id, requested_by=party.name,
-               action={"view": "documents", "sub": "documents-esign-requests"})
+    if req.created_by != SYSTEM_SENDER:     # a Time Sheet tells its manager itself
+        _hr_notify(db, req.created_by, f"Signature Declined: {req.title}",
+                   f"{party.name} declined to sign. {party.decline_reason}".strip(),
+                   ref_id=req.id, requested_by=party.name,
+                   action={"view": "documents", "sub": "documents-esign-requests"})
     db.commit()
     return {"ok": True, "status": "declined"}
 
@@ -4980,9 +4990,8 @@ def _signed_folder(db: Session, req: HrSignRequest) -> str:
         # the HR sender's own work folder.
         return ""
     if (getattr(req, "link_kind", "") or "") == "timesheet":
-        # The EMPLOYEE's person folder (Neil, Oct 16) - the requester is the
-        # approving manager, and a timesheet in their work folder is filed
-        # under the wrong person. '' (not filed) when it cannot be resolved.
+        # The EMPLOYEE's person folder (Neil, Oct 16) - never a requester's
+        # work folder (Nexus sends it, Oct 20; it once was the manager). '' (not filed) when it cannot be resolved.
         import timesheet_review
         return timesheet_review.egnyte_folder(db, req)
     try:
@@ -5020,8 +5029,13 @@ def _egnyte_push(db: Session, req: HrSignRequest, blob: bytes) -> tuple:
                       if seg.strip() and seg.strip() not in (".", ".."))[:400]
     if not folder:
         return True, ""
-    safe_title = re.sub(r'[\\/:*?"<>|]+', " ", req.title or "Document").strip()[:80] or "Document"
-    name = f"{safe_title} - {req.id[:8]} (signed).pdf"
+    name = ""
+    if (getattr(req, "link_kind", "") or "") == "timesheet":
+        import timesheet_review
+        name = timesheet_review.egnyte_filename(db, req)
+    if not name:
+        safe_title = re.sub(r'[\\/:*?"<>|]+', " ", req.title or "Document").strip()[:80] or "Document"
+        name = f"{safe_title} - {req.id[:8]} (signed).pdf"
     path = f"/{folder}/{name}"
 
     try:
@@ -5285,11 +5299,14 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     # area and having to work out which document the email meant. ESign reads
     # ?request= on mount and opens that envelope.
     deep_link = f"{_app_url_fn()}/documents/documents-esign-requests?request={req.id}"
-    _hr_notify(db, req.created_by, f"Fully Executed: {req.title}",
-               f"All {n_signers} signer{'s' if n_signers != 1 else ''} have signed \"{req.title}\". "
-               f"The sealed document is in Documents → Nexus Sign and in your email.{filed_note}",
-               ref_id=req.id,
-               action={"view": "documents", "sub": "documents-esign-requests"})
+    # Nexus as the sender (a Time Sheet) has no inbox: no bell, no copy.
+    by_nexus = req.created_by == SYSTEM_SENDER
+    if not by_nexus:
+        _hr_notify(db, req.created_by, f"Fully Executed: {req.title}",
+                   f"All {n_signers} signer{'s' if n_signers != 1 else ''} have signed \"{req.title}\". "
+                   f"The sealed document is in Documents → Nexus Sign and in your email.{filed_note}",
+                   ref_id=req.id,
+                   action={"view": "documents", "sub": "documents-esign-requests"})
     emailed = set()
 
     sender = _sender_identity(db, req)
@@ -5317,7 +5334,8 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
         _log(db, req.id, "sent", f"sealed copy emailed to {name or email}"
              + ("" if ok else f" - email failed: {detail}"), party_id=party_id)
 
-    _mail_copy(sender["name"], req.created_by, deep_link)
+    if not by_nexus:
+        _mail_copy(sender["name"], req.created_by, deep_link)
     for p in parties:
         if p.kind == "internal":
             if p.email != req.created_by:
