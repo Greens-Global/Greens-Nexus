@@ -59,7 +59,7 @@ import { useTicketPropertyRules, propertyRequiredFor, usePropertyUnits } from '.
 import { uploadTicketEvidence } from './evidenceUpload';
 import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
-import { LatestCommentPreview, latestCommentText } from './LatestComment';
+import { LatestCommentPreview } from './LatestComment';
 import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
 import { useTicketAccess } from './ticketAccess';
 import CreateModeTabs from './CreateModeTabs';
@@ -78,6 +78,7 @@ import {
   returnToTicketAfterRecording,
 } from './ticketViewShared';
 import { HelpTopicField } from './HelpTopicField';
+import { downloadTicketsCsv } from './ticketExport';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -89,37 +90,6 @@ const TICKET_VIEW_TABS = [
   { key: 'board', label: 'Board', icon: Columns3 },
   { key: 'reports', label: 'Reports', icon: BarChart3 },
 ];
-
-// Export - same client-side CSV pattern as the task module's own report export
-// (tasks/ManageView.jsx downloadCSV): a BOM'd CSV blob opens cleanly in Excel,
-// no server round-trip or xlsx binary needed.
-function csvEscape(v) {
-  const s = String(v ?? '');
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
-  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assignee', 'Created', 'Resolved At', 'Resolution', 'Description', 'Latest Comment'];
-  const body = rows.map((t) => [
-    ticketNoShort(t.code) || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
-    helpWithLabel(t), serviceAreaLabel(t.serviceArea) || '',
-    companyName(t.companyId) || '', hrDeptName(t.hrDepartmentId) || '',
-    TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
-    (t.slaDueAt || t.slaDueOn) ? fmtDueAt(t) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
-    t.assigneeId ? (nameOf(t.assigneeId) || t.assigneeId) : '', t.createdAt ? fmtDate(t.createdAt) : '',
-    t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', richToPlain(t.description),
-    latestCommentText(t.latestComment, nameOf),
-  ]);
-  const lines = [headers, ...body].map((r) => r.map(csvEscape).join(','));
-  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `tickets-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 // The phone's Sort By choices - the keys the desktop column headers sort on
 // (TICKET_COLUMNS[].sort), each in the direction someone usually wants it.
