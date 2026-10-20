@@ -67,6 +67,8 @@ import CreateModeTabs from './CreateModeTabs';
 import { registerTour } from '../lib/tours';
 import SavedReplyPicker from './SavedReplyPicker';
 import TicketReports from './TicketReports';
+import { TicketEquipmentIntake, TicketEquipment } from './TicketEquipment';
+import { equipmentError } from './ticketEquipmentError';
 import { TicketAiSummary, SuggestedTopicChips, DrawerSuggestedTopic } from './TicketAi';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
@@ -2111,6 +2113,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     watcherIds: [...new Set((fromTask?.collaboratorIds || []).map((e) => (e || '').toLowerCase()).filter(Boolean))]
       .filter((e) => e !== (fromTask?.ownerId || myEmail || '').toLowerCase()),
     propertyAssetId: forProperty?.id || '',
+    // Report an Issue on the Ops Site Map's unit card names the unit too (Oct 20 2026)
+    propertyUnit: forProperty?.unit || '',
   });
   // Close the task once the ticket exists, so the work is not tracked twice.
   const [closeSource, setCloseSource] = useState(true);
@@ -2123,6 +2127,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // this is missing").
   const [showErrors, setShowErrors] = useState(!!fromTask);
   const [busy, setBusy] = useState(false);
+  const [equipErr, setEquipErr] = useState('');   // TicketEquipmentIntake's server refusal
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setTfVal = (k, v) => setTf((p) => ({ ...p, [k]: v }));
   // The admin's saved type order arrives after mount (useTicketConfig). If it
@@ -2345,6 +2350,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         ...(form.propertyAssetId && deptTakesProperty ? { propertyAssetId: form.propertyAssetId, propertyUnit: String(form.propertyUnit || '').trim() } : {}),
         // Raised from the property itself: it stays that property's ticket.
         ...(forProperty && form.propertyAssetId === forProperty.id ? { propertyLocked: true } : {}),
+        // Equipment (TicketEquipment.jsx) - checked server-side (ticket_items.py).
+        ...(form.items?.length ? { item_ids: form.items.map((i) => i.id) } : {}),
       });
       // Attachments can only be posted once the ticket has an id. A storage
       // failure here must not lose the ticket that was just created - the
@@ -2366,7 +2373,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         window.dispatchEvent(new CustomEvent('nexus:tickets-changed', { detail: { propertyId: created.propertyAssetId } }));
       }
       onClose();
-    } catch (e) { appDialog.alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
+    } catch (e) { if (equipmentError(e)) setEquipErr(equipmentError(e)); else appDialog.alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
   };
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
@@ -2629,6 +2636,9 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           invalidProperty={err('propertyAssetId')} invalidUnit={err('propertyUnit')}
           text={`${form.subject} ${form.description || ''}`} units={propUnits} style={sel} />
       )}
+
+      <TicketEquipmentIntake value={form.items || []} onChange={(v) => { setEquipErr(''); set('items', v); }}
+        requester={requester || ''} companyId={form.companyId || ''} error={equipErr} />
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
@@ -3734,6 +3744,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         <label style={label}>Linked Tickets</label>
         <TicketLinks ticket={t} tickets={tickets} onAdd={(target, type) => addTicketLink(t.id, target, type).catch((e) => appDialog.alert(`Could not link the ticket: ${e.message || e}`))}
           onRemove={(target) => removeTicketLink(t.id, target).catch((e) => appDialog.alert(`Could not remove the link: ${e.message || e}`))} readOnly={!fullAccess} />
+      </div>
+
+      <div style={field}>
+        <label style={label}>Equipment</label>
+        <TicketEquipment ticketId={t.id} />
       </div>
 
       {CLOSED_STATES.includes(t.status) && !(t.csatRating > 0) && (

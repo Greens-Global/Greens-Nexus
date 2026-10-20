@@ -43,17 +43,16 @@ beforeEach(() => {
 });
 
 describe('Rate Management', () => {
-  it('asks for a facility from a dropdown, then renders the table grouped by category', async () => {
-    const onPick = vi.fn();
-    const { rerender } = render(<RateManagement facility={null} facilities={FACILITIES} onPick={onPick} />);
-    const select = screen.getByLabelText('Facility');
-    expect(select.tagName).toBe('SELECT');
+  it('points at the page Facility dropdown, then renders the table grouped by category', async () => {
+    // The facility is the Operations page's one dropdown (Oct 20): no picker of its own.
+    const { rerender } = render(<RateManagement facility={null} />);
+    expect(screen.getByText(/Pick a facility above to see Rate Management/)).toBeTruthy();
+    expect(screen.queryByLabelText('Facility')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Fairfield' })).toBeNull();          // no chips
-    fireEvent.change(select, { target: { value: 'fac_f' } });
-    expect(onPick).toHaveBeenCalledWith('fac_f');
 
     apiMock.getOpsRates.mockResolvedValue(view(ROWS));
-    rerender(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={onPick} />);
+    rerender(<RateManagement facility={FACILITIES[0]} />);
+    expect(screen.queryByLabelText('Facility')).toBeNull();
     expect(await screen.findByText('Greens Storage Fairfield')).toBeTruthy();
     expect(apiMock.getOpsRates).toHaveBeenCalledWith('fac_f');
     expect(screen.getByText('5044 Peabody Road, Fairfield, CA 94533')).toBeTruthy();
@@ -76,10 +75,15 @@ describe('Rate Management', () => {
       draft: { proposed: 11500, proposedSet: null, note: '', updatedBy: 'miranda@greensglobal.com', updatedAt: '2026-10-20T18:00:00Z' } }), ROWS[1]]);
     apiMock.saveOpsRateDraft.mockResolvedValue(saved);
     render(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={() => {}} />);
-    const input = await screen.findByLabelText("Proposed rate for 8' x 10'");
-    fireEvent.change(input, { target: { value: '115' } });
-    fireEvent.blur(input);
-    await waitFor(() => expect(apiMock.saveOpsRateDraft).toHaveBeenCalledWith({ facility_id: 'fac_f', unit_type: "8' x 10'", proposed: 115 }));
+    // Wait for the rates to load before typing: on a slow CI runner the input can
+    // render, then re-render from the loaded view and drop a value typed too early.
+    await waitFor(() => expect(apiMock.getOpsRates).toHaveBeenCalled());
+    await waitFor(() => {
+      const input = screen.getByLabelText("Proposed rate for 8' x 10'");
+      fireEvent.change(input, { target: { value: '115' } });
+      fireEvent.blur(input);
+      expect(apiMock.saveOpsRateDraft).toHaveBeenCalledWith({ facility_id: 'fac_f', unit_type: "8' x 10'", proposed: 115 });
+    }, { timeout: 4000 });
     expect(await screen.findByText('1 change ready for Cubby')).toBeTruthy();
     expect(screen.getAllByText('+$3').length).toBeGreaterThan(0);
   });

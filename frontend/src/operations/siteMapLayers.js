@@ -74,11 +74,13 @@ export function layerColors(layer, units, facts = {}, maint = null) {
   return out;
 }
 
-/** Counts per layer value, for the legend. */
+/** Counts per layer value, for the legend. The same units the Inventory tiles
+ *  count (storage, still in Cubby - mailboxes have their own occupancy), so the
+ *  legend and the tiles always agree (Oct 20 2026). */
 export function layerCounts(layer, units, facts = {}, maint = null) {
   const c = {};
   (units || []).forEach((u) => {
-    if (u.n[0] === 'M' && !facts[u.n]) return;
+    if (u.n[0] === 'M' || u.gone) return;
     const f = facts[u.n]; let k;
     if (layer === 'occupancy') k = occupancyOf(u, f);
     else if (layer === 'days') { if (occupancyOf(u, f) !== 'vacant') return; const d = daysVacantOf(u, f); k = d == null ? 'unknown' : d >= 180 ? '180+' : d >= 120 ? '120-179' : d >= 60 ? '60-119' : '0-59'; }

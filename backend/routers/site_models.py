@@ -120,9 +120,19 @@ def _days_since_build(model: Dict[str, Any]) -> int:
     return max(0, (date.today() - built).days)
 
 
+def _lease_wins(model: Dict[str, Any]) -> Dict[str, Any]:
+    """A built snapshot can carry a leased unit flagged unrentable (Cubby's
+    ACTIVE_LEASE): that unit is leased, not out of service (Oct 20 2026)."""
+    if not any(u.get("l") and u.get("r") == 0 for u in model.get("units", [])):
+        return model
+    return {**model, "units": [{**u, "r": 1, "why": "", "note": ""} if u.get("l") and u.get("r") == 0 else u
+                               for u in model.get("units", [])]}
+
+
 def with_live(model: Dict[str, Any]) -> Dict[str, Any]:
     """The model with Cubby's current inventory merged on (see the module doc).
     Pure given the Cubby answer; the Cubby call itself is cached per facility."""
+    model = _lease_wins(model)
     fac = (model.get("property") or {}).get("cubbyFacilityId") or ""
     if not fac and (model.get("property") or {}).get("unitSource"):
         # Another operator's store (CubeSmart): the newest uploaded rent roll, else the built snapshot

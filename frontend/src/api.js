@@ -2571,6 +2571,9 @@ export const api = {
   saveOpsEntrance:         (body)        => req('/facility-ops/site-map/entrance', { method: 'PUT', body: JSON.stringify(body) }),
   // Maintenance layer: built by the maintenance work (another branch); a 404 means not connected yet.
   getOpsMaintenanceMap:    (facilityId)  => req(`/facility-ops/maintenance-map?facility_id=${encodeURIComponent(facilityId)}`),
+  // Oct 20 2026: one unit's tenant / lease facts and tickets (staff, Operations read)
+  getOpsSiteMapUnit:       (facilityId, unit) => req(`/facility-ops/site-map/unit?facility_id=${encodeURIComponent(facilityId)}&unit=${encodeURIComponent(unit)}`),
+  getOpsTicketTenant:      (propertyId, unit) => req(`/facility-ops/site-map/tenant?property_id=${encodeURIComponent(propertyId)}&unit=${encodeURIComponent(unit)}`),
   // Email to ticket (Oct 2026, ticket_inbound.py): the support mailbox's log
   // (supervisors, last 100) and a pass now instead of waiting for the loop.
   getTicketInboundLog: (params = {}) => req(`/task-tickets/inbound/log?${new URLSearchParams(params).toString()}`),
@@ -2581,6 +2584,14 @@ export const api = {
   ticketReportCsv: (params = {}) => reqBlob(`/task-tickets/reports.csv?${new URLSearchParams(params).toString()}`),
   getTicketReportMeta: () => req("/task-tickets/reports/meta"),
   setTicketWeeklyEmail: (on) => req("/task-tickets/reports/weekly-email", { method: "PUT", body: JSON.stringify({ on }) }),
+  // Tickets <-> equipment (Oct 2026, backend/routers/ticket_items.py). The
+  // picker's choices (ticketId on a ticket; companyId + requester on the
+  // create form), a ticket's linked items, link/unlink, and an item's tickets.
+  getTicketItemOptions: (params = {}) => req(`/task-tickets/item-options?${new URLSearchParams(params).toString()}`),
+  getTicketItems: (id) => req(`/task-tickets/${id}/items`),
+  linkTicketItems: (id, itemIds) => req(`/task-tickets/${id}/items`, { method: "POST", body: JSON.stringify({ item_ids: itemIds }) }),
+  unlinkTicketItem: (id, itemId) => req(`/task-tickets/${id}/items/${encodeURIComponent(itemId)}`, { method: "DELETE" }),
+  getTicketsForItem: (itemId) => req(`/task-tickets/by-item/${encodeURIComponent(itemId)}`),
   // Ticket AI (Oct 2026, backend/routers/ticket_ai.py): what may show, the
   // desk's switch, Suggested Help Topic and the drawer's AI Summary.
   getTicketAiStatus: () => cachedGet("/ticket-ai/status", 60_000),

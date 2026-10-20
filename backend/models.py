@@ -7165,6 +7165,24 @@ class TicketReportEmailLog(Base):
     created_at    = Column(String, default="")
 
 
+class TicketItemLink(Base):
+    """A ticket is about this piece of equipment (Oct 2026, routers/
+    ticket_items.py). Items and Assets are ONE concept (Neil), so this points
+    at `items`, never the legacy hardware_assets table. A SOFT link (no FK):
+    items soft-delete and can later be purged, tickets soft-delete - neither
+    may 500 on a link left behind. item_name is the item's name when linked,
+    shown if the item row is gone. One row per (ticket, item). New table -
+    create_all builds it; RLS: the explicit ALTER in main.py plus the sweep."""
+    __tablename__ = "ticket_item_links"
+    __table_args__ = (UniqueConstraint("ticket_id", "item_id", name="uq_ticket_item_link"),)
+    id         = Column(String, primary_key=True)
+    ticket_id  = Column(String, nullable=False, index=True)
+    item_id    = Column(String, nullable=False, index=True)
+    item_name  = Column(String, default="")
+    linked_by  = Column(String, default="")   # email of whoever linked it
+    linked_at  = Column(String, default="")   # UTC iso
+
+
 class TicketAiSummary(Base):
     """A ticket's cached AI Summary (Oct 2026, ticket_ai.py /
     routers/ticket_ai.py). One row per ticket per AUDIENCE: "internal" was

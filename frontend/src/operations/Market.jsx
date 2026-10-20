@@ -421,7 +421,7 @@ function Analysis({ facilityId, ready }) {
   );
 }
 
-export default function Market({ facility, facilities, onPick }) {
+export default function Market({ facility }) {
   const [state, setState] = useState({ status: 'loading', data: null });
   const role = useRole();
   const canSync = role?.can?.('manager') ?? false;
@@ -442,11 +442,8 @@ export default function Market({ facility, facilities, onPick }) {
   if (!facility) {
     return (
       <div className="dash-card">
-        <div className="dash-card-title">Choose a Facility</div>
-        <div className="dash-card-sub" style={{ marginBottom: 14 }}>Rates are compared against the competitors around one facility at a time.</div>
-        <div className="ops-pills">
-          {facilities.map((f) => <button type="button" key={f.id} className="ops-pill" aria-pressed="false" onClick={() => onPick(f.id)}>{f.shortName}</button>)}
-        </div>
+        <div className="dash-card-title">Pick a Facility</div>
+        <div className="dash-card-sub">Pick a facility above to compare its rates. Rates are compared against the competitors around one facility at a time.</div>
       </div>
     );
   }

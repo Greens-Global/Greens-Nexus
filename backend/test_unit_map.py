@@ -153,5 +153,135 @@ class LayerFactTests(unittest.TestCase):
         self.assertIsNone(f["A001"]["market"])
 
 
+# â”€â”€ The unit card: tenant, lease and tickets (Oct 20 2026) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+FAC = "fac_ESC"
+ADMIN = {"email": "neil@greensglobal.com", "role": "administrator", "level": 4}
+PLAIN = {"email": "darshana@greensglobal.com", "role": "employee", "level": 1}
+OPS = {"email": "ops@greensglobal.com", "role": "employee", "level": 1}
+PII = ("555-0100", "pat@example.com", "12 Elm St", "phone", "email", "address", "Elm")
+TODAY = date(2026, 10, 20)
+
+
+def _raw():
+    rr = [
+        {"unitId": "u1", "unitName": "E347", "status": "RENTED", "customerId": "cust_9", "customerName": "Pat Example",
+         "customerPhone": "555-0100", "customerEmail": "pat@example.com", "customerAddress": "12 Elm St",
+         "monthlyRentalAmount": 18000, "standardRate": 19400, "moveInDate": "2024-07-01", "paidThroughDate": "2026-09-15",
+         "autoPayEnabled": False, "overlockApplied": False, "pricingGroupName": "11x35 Parking"},
+        {"unitId": "u2", "unitName": "E465", "status": "VACANT", "standardRate": 19400, "pricingGroupName": "11x40 Parking"},
+    ]
+    recs = [{"unitId": "u1", "customerId": "cust_9", "customerName": "Pat Example", "totalAmount": 14450,
+             "ranges": [{"range": "RANGE_30_60", "amount": 14450}]}]
+    leases = [{"unitId": "u1", "customerId": "cust_9", "moveInDate": "2024-07-01", "rentChangeScheduledDate": "2026-12-01",
+               "rentChangeNewRentAmount": 19000},
+              {"unitId": "u2", "moveInDate": "2025-01-01", "moveOutDate": "2026-09-15"}]
+    return {"rent_roll": rr, "receivables": recs, "leases": leases, "today": TODAY}
+
+
+class UnitDetailTests(unittest.TestCase):
+    def test_a_leased_unit_carries_the_name_and_the_lease_facts_only(self):
+        raw = _raw()
+        d = unit_map.unit_detail(raw["rent_roll"][0], raw["receivables"][0], raw["leases"], TODAY)
+        t = d["tenant"]
+        self.assertEqual(d["status"], "rented")
+        self.assertEqual(t["name"], "Pat Example")
+        self.assertEqual((t["moveIn"], t["daysInUnit"]), ("2024-07-01", 841))
+        self.assertEqual((t["rent"], d["street"]), (18000, 19400))
+        self.assertEqual((t["balance"], t["daysPastDue"], t["leaseStatus"]), (14450, 35, "past-due"))
+        self.assertFalse(t["autoPay"])
+        self.assertEqual(t["rentChange"], {"date": "2026-12-01", "rent": 19000})
+        self.assertEqual(t["cubbyUrl"], "https://app.cubbystorage.com/tenants/cust_9")
+        text = json.dumps(d)
+        for secret in PII:
+            self.assertNotIn(secret, text, secret)
+
+    def test_a_vacant_unit_says_how_long(self):
+        raw = _raw()
+        d = unit_map.unit_detail(raw["rent_roll"][1], None, raw["leases"], TODAY)
+        self.assertEqual((d["status"], d["tenant"], d["daysVacant"], d["vacantSince"]), ("vacant", None, 35, "2026-09-15"))
+
+
+class UnitCardEndpointTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        import cache
+        import ticket_property_link as L
+        self.db = database.SessionLocal()
+        for m in (models.TaskTicket, models.PropertyAsset, models.NexusEmployee, models.NexusRole, models.NexusGroup,
+                  models.NexusGroupMember, models.CubbyFacility, models.NexusSetting):
+            self.db.query(m).execution_options(include_deleted=True).delete()
+        for u in (ADMIN, PLAIN, OPS):
+            self.db.add(models.NexusEmployee(id=u["email"], first_name=u["email"].split("@")[0], work_email=u["email"],
+                                             status="active", identity_type="internal"))
+        self.db.add(models.NexusRole(email=ADMIN["email"], role="administrator"))
+        self.db.add(models.NexusGroup(id="g-ops", name="Ops", allowed_modules="operations:viewer"))
+        self.db.add(models.NexusGroupMember(group_id="g-ops", email=OPS["email"]))
+        self.db.add(models.PropertyAsset(id="esc", name="Greens Storage Escondido", asset_type="Self-Storage", payload={"kind": "property"}))
+        self.db.add(models.CubbyFacility(facility_id=FAC, name="Greens Storage Escondido", data={}))
+        now = "2026-10-01T10:00:00+00:00"
+        self.db.add(models.TaskTicket(id="t-open", code="TKT-1", subject="Gate code not working", status="open", priority="high",
+                                      property_asset_id="esc", property_unit="e347", created_at=now))
+        self.db.add(models.TaskTicket(id="t-done", code="TKT-2", subject="Light out", status="resolved", priority="low",
+                                      property_asset_id="esc", property_unit="E347", created_at="2026-09-01T10:00:00+00:00",
+                                      resolved_at="2026-09-02T10:00:00+00:00"))
+        self.db.add(models.TaskTicket(id="t-other", code="TKT-3", subject="Other unit", status="open",
+                                      property_asset_id="esc", property_unit="E465", created_at=now))
+        self.db.commit()
+        cache.module_grants.invalidate()
+        self._rows, self._models = unit_map._cubby_rows, L._site_models
+        unit_map._cubby_rows = lambda fid: ({"facilityId": FAC}, _raw()) if fid == FAC else (None, None)
+        L._site_models = lambda: []
+
+    def tearDown(self):
+        import ticket_property_link as L
+        unit_map._cubby_rows, L._site_models = self._rows, self._models
+        self.db.close()
+
+    def _client(self, user):
+        from auth import get_current_user
+        app = FastAPI()
+        app.include_router(unit_map.ops_router)
+        app.include_router(unit_map.public_router)
+        app.dependency_overrides[get_current_user] = lambda: dict(user)
+        return TestClient(app)
+
+    def test_the_unit_card_has_the_tenant_and_the_units_tickets(self):
+        r = self._client(ADMIN).get("/facility-ops/site-map/unit", params={"facility_id": FAC, "unit": "e347"})
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual((body["unit"], body["status"], body["tenant"]["name"]), ("E347", "rented", "Pat Example"))
+        self.assertEqual([t["id"] for t in body["tickets"]["open"]], ["t-open"])
+        self.assertEqual([t["id"] for t in body["tickets"]["recent"]], ["t-done"])
+        self.assertEqual(body["tickets"]["property"], {"id": "esc", "name": "Greens Storage Escondido"})
+        text = json.dumps(body)
+        for secret in PII:
+            self.assertNotIn(secret, text, secret)
+        self.assertNotIn("t-other", text)
+
+    def test_the_unit_card_is_operations_read(self):
+        q = {"facility_id": FAC, "unit": "E347"}
+        self.assertEqual(self._client(OPS).get("/facility-ops/site-map/unit", params=q).status_code, 200)
+        self.assertEqual(self._client(PLAIN).get("/facility-ops/site-map/unit", params=q).status_code, 401)
+        self.assertEqual(self._client(PLAIN).get("/facility-ops/site-map/tenant", params={"property_id": "esc", "unit": "E347"}).status_code, 401)
+
+    def test_the_ticket_drawer_gets_the_tenant_name_only(self):
+        c = self._client(ADMIN)
+        self.assertEqual(c.get("/facility-ops/site-map/tenant", params={"property_id": "esc", "unit": "e347"}).json(), {"tenant": "Pat Example"})
+        self.assertEqual(c.get("/facility-ops/site-map/tenant", params={"property_id": "esc", "unit": "E465"}).json(), {"tenant": ""})
+        self.assertEqual(c.get("/facility-ops/site-map/tenant", params={"property_id": "esc", "unit": "Common Area"}).json(), {"tenant": ""})
+        self.assertEqual(c.get("/facility-ops/site-map/tenant", params={"property_id": "nope", "unit": "E347"}).json(), {"tenant": ""})
+
+    def test_the_public_customer_map_never_carries_tenant_or_tickets(self):
+        r = self._client(PLAIN).get(f"/unit-map/t/{unit_map.make_token(PID, 'C214')}")
+        self.assertEqual(r.status_code, 200, r.text)
+        text = json.dumps(r.json())
+        for secret in ("Pat Example", '"tenant', '"ticket', '"balance"', "autoPay", "cubbystorage", '"customer', '"rent"', "555-0100", "pat@example.com", "12 Elm St"):
+            self.assertNotIn(secret, text, secret)
+
+
 if __name__ == "__main__":
     unittest.main()
