@@ -289,6 +289,7 @@ describe('Operations module', () => {
     render(<FacilityOperations activeSub="reports" onSubChange={() => {}} />);
     fireEvent.change(await screen.findByLabelText('View'), { target: { value: 'exports' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
+    await waitFor(() => expect(downloadCsv).toHaveBeenCalledTimes(1));   // the lazy Quick Exports chunk can land a tick late in CI
     expect(downloadCsv.mock.calls[0][0]).toBe('Tenants Past Due - All Facilities - 10-13-2026.csv');
     expect(downloadCsv.mock.calls[0][2]).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'Download Rent Roll as a spreadsheet' }));
