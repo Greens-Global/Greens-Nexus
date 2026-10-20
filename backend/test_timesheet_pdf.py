@@ -1,0 +1,162 @@
+"""The time sheet pages of the signed Time Sheet PDF (timesheet_pdf.py)."""
+import io
+import os
+import unittest
+
+from pypdf import PdfReader
+
+import timesheet_pdf as tp
+
+
+def seg(i, o, mins, *, ot=0, dt=0, cat="", breaks=(), note="", in_id="", amount=0.0):
+    return {"in": i, "out": o, "inR": i, "outR": o, "inId": in_id or f"p-{i}", "outId": f"p-{o}",
+            "workedMin": mins, "regMin": 0 if cat else mins - ot - dt, "otMin": ot, "dtMin": dt,
+            "category": cat, "payClass": "sick" if cat == "Sick Day" else "", "breaks": list(breaks),
+            "note": note, "workSite": "SCMC", "amount": amount, "flags": [], "deductedMin": 0}
+
+
+HOURLY = {
+    "currency": "USD", "rate": 22.0, "dept": "Operations - SCMC", "overtimeRule": "ca",
+    "days": [
+        {"date": "2026-10-05", "weekStart": "2026-10-04", "workedMin": 465, "rate": 22.0,
+         "segments": [seg("2026-10-05T15:45:00", "2026-10-05T20:10:00", 265, amount=97.17),
+                      seg("2026-10-05T20:25:00", "2026-10-05T23:45:00", 200, amount=73.33,
+                          breaks=[{"start": "2026-10-05T21:00:00", "end": "2026-10-05T21:10:00", "min": 10,
+                                   "startId": "b1", "endId": "b2"}])]},
+        {"date": "2026-10-12", "weekStart": "2026-10-11", "workedMin": 490, "rate": 22.0,
+         "segments": [seg("2026-10-12T15:50:00", "2026-10-12T19:50:00", 240, amount=88.0),
+                      seg("2026-10-12T20:00:00", "2026-10-13T00:10:00", 250, ot=10, amount=93.5, in_id="edited",
+                          note="Forgot to clock back in; Clock in time should be around 1 PM · payroll edit")]},
+        {"date": "2026-10-14", "weekStart": "2026-10-11", "workedMin": 480, "rate": 22.0,
+         "segments": [seg("2026-10-14T15:00:00", "2026-10-14T23:00:00", 480, cat="Sick Day", amount=176.0)]},
+    ],
+    "punchMeta": {"edited": {"manual": True}},
+    "totals": {"regMin": 695, "otMin": 10, "dtMin": 0, "sickMin": 480, "regPay": 254.83, "otPay": 5.5,
+               "sickPay": 176.0, "totalPay": 436.33, "workedMin": 1185, "editedPunches": 1, "missingPunches": 0},
+}
+
+FIXED = {
+    "currency": "INR", "monthlySalary": 60000, "weekendMultiplier": 1.35,
+    "days": [{"date": "2026-10-01", "segments": [seg("2026-10-01T03:30:00", "2026-10-01T12:30:00", 540)]}],
+    "fixedDays": [{"date": "2026-10-01", "status": "present", "deduct": 0, "bonus": 0},
+                  {"date": "2026-10-02", "status": "absent", "timeOff": "Personal", "deduct": 2000, "bonus": 0},
+                  {"date": "2026-10-03", "status": "weekend", "deduct": 0, "bonus": 0}],
+    "totals": {"salaryForPeriod": 60000, "missedFullDays": 1, "missedHalfDays": 0, "deduction": 2000,
+               "missedReasons": [{"label": "Personal", "full": 1, "half": 0}], "weekendDaysWorked": 0,
+               "weekendBonus": 0, "totalPay": 58000, "workedMin": 540, "missingPunches": 0},
+}
+
+
+def ctx(**kw):
+    base = {"start": "2026-10-04", "end": "2026-10-17", "pay_type": "hourly", "entity": "Oversite Management, Inc",
+            "name": "Nimi Patel", "email": "nimi@x.com", "code": "GG-014", "dept": "Operations - SCMC",
+            "period": "10/04/2026 - 10/17/2026", "kind": "Hourly (bi-weekly)", "rule": "California",
+            "approvals": ["Approved by Charmi Desai on 10/19/2026 at 2:19 PM."], "version": "f5664b34cff8",
+            "history": ["10/19/2026  Charmi Desai agreed"], "generated": "10/19/2026 at 2:19 PM",
+            "notes": {"2026-10-12": {"employeeNote": "Doctor visit at noon", "note": "HR ONLY"}},
+            "punch_meta": {}, "time": lambda iso, _pid: iso[11:16] if iso else "-", "us_date": lambda s: s,
+            "names_in": lambda s: s,
+            "attestation": ["By execution and signature of this time sheet, I agree the hours are correct."],
+            "approval_log": ["Approved by Charmi Desai (manager) on 10/19/2026 at 2:19 PM"]}
+    base.update(kw)
+    return base
+
+
+def page_with(pdf: bytes, needle: str) -> int:
+    return next(i for i, p in enumerate(PdfReader(io.BytesIO(pdf)).pages) if needle in (p.extract_text() or ""))
+
+
+def text_of(pdf: bytes) -> str:
+    return " ".join(" ".join((p.extract_text() or "").split()) for p in PdfReader(io.BytesIO(pdf)).pages)
+
+
+class Helpers(unittest.TestCase):
+    def test_formats(self):
+        self.assertEqual((tp.hm(0), tp.hm(65), tp.hd(2645)), ("0:00", "1:05", "44:05 (44.08)"))
+        self.assertEqual((tp.money(1000.08), tp.money(5, "INR")), ("$1,000.08", "INR 5.00"))
+        self.assertEqual(tp.day_label("2026-10-04"), "Sun 10/04")
+
+    def test_punch_reasons_read_once_without_internal_markers(self):
+        self.assertEqual(tp._reasons({"note": "payroll edit · Forgot · Forgot", "inAdjustNote": "Forgot"}), ["Forgot"])
+
+
+class Hourly(unittest.TestCase):
+    def setUp(self):
+        self.pdf, self.spot = tp.render(HOURLY, ctx(punch_meta=HOURLY["punchMeta"]))
+        self.text = text_of(self.pdf)
+
+    def test_landscape_pages(self):
+        page = PdfReader(io.BytesIO(self.pdf)).pages[0]
+        self.assertGreater(float(page.mediabox.width), float(page.mediabox.height))
+
+    def test_the_screen_columns_and_pay(self):
+        for h in ("Date", "In", "Out", "Deducted Time", "Category", "Hours", "Hrs/Day", "OT", "Loc",
+                  "Pay Rate", "Wage", "$22.00/hr", "$97.17", "Total Regular hours at $22.00/hr",
+                  "Total Overtime hours at $33.00/hr", "Total Sick hours at $22.00/hr", "TOTAL EDITED PUNCHES"):
+            self.assertIn(h, self.text)
+        self.assertNotIn("Non-OT", self.text)      # Pranshu, Oct 20: not on the PDF
+
+    def test_every_day_and_week_totals(self):
+        self.assertIn("Sun 10/04", self.text)
+        self.assertIn("Sat 10/17", self.text)
+        self.assertIn("Total hours clocked for week of 10/4 to 10/10: 7:45", self.text)
+        self.assertIn("Total hours clocked for week of 10/11 to 10/17: 16:10", self.text)
+
+    def test_break_row_under_its_shift(self):
+        self.assertIn("Break 21:00 21:10", self.text)
+
+    def test_notes_the_employee_may_read_only(self):
+        self.assertIn("Note by employee: Doctor visit at noon", self.text)
+        self.assertIn("Forgot to clock back in", self.text)
+        self.assertNotIn("payroll edit", self.text)
+        self.assertNotIn("HR ONLY", self.text)      # the manager / HR note never travels
+
+    def test_signature_and_approval_log_under_the_summary(self):
+        self.assertEqual(self.spot["page"], page_with(self.pdf, "TOTALS"))     # on the summary's page
+        x, y, w, h = self.spot["sign"]
+        self.assertTrue(0 < x < x + w < 1 and 0 < y < y + h < 1)
+        self.assertLess(x + w, self.spot["date"][0])          # the date sits right of the signature
+        self.assertLess(self.text.index("TOTALS"), self.text.index("Signature"))
+        self.assertLess(self.text.index("Signature"), self.text.index("Approval log"))
+        self.assertIn("Approved by Charmi Desai (manager)", self.text)
+
+    def test_header(self):
+        for s in ("Time Sheet Report for Oversite Management, Inc", "Code: GG-014", "Dept: Operations - SCMC",
+                  "Approved by Charmi Desai on 10/19/2026 at 2:19 PM", "OT rule: California",
+                  "Charmi Desai agreed"):
+            self.assertIn(s, self.text)
+
+    def test_long_period_runs_onto_more_pages(self):
+        day = HOURLY["days"][0]
+        many = dict(HOURLY, days=[dict(day, date=f"2026-10-{n:02d}",
+                                       segments=day["segments"] * 6) for n in range(4, 18)])
+        pdf, spot = tp.render(many, ctx())
+        self.assertGreater(len(PdfReader(io.BytesIO(pdf)).pages), 1)
+        self.assertIn("(continued)", text_of(pdf))
+        # The summary and the signature moved on together, never a signature alone.
+        self.assertEqual(spot["page"], page_with(pdf, "TOTALS"))
+        self.assertGreater(spot["page"], 0)
+
+    def test_a_light_two_weeks_fit_one_page_with_the_signature(self):
+        light = dict(HOURLY, days=HOURLY["days"][:1])
+        pdf, spot = tp.render(light, ctx(notes={}))
+        self.assertEqual(spot["page"], 0)
+
+
+class Fixed(unittest.TestCase):
+    def test_salaried_columns_and_summary(self):
+        text = text_of(tp.render(FIXED, ctx(pay_type="fixed", start="2026-10-01", end="2026-10-31",
+                                            kind="Salaried (monthly)"))[0])
+        for s in ("Day", "Effect on Pay", "Present", "Personal", "Weekend", "-INR 2,000.00", "no change",
+                  "Monthly salary", "Missed days (1 full): Personal x1", "NET PAY THIS MONTH", "INR 58,000.00",
+                  "TOTAL HOURS WORKED 9:00 (9.00)"):
+            self.assertIn(s, text)
+        self.assertNotIn("OT rule", text)
+
+
+if __name__ == "__main__":
+    out = os.environ.get("TIMESHEET_PDF_OUT")
+    if out:
+        with open(out, "wb") as f:
+            f.write(tp.render(HOURLY, ctx(punch_meta=HOURLY["punchMeta"]))[0])
+    unittest.main()
