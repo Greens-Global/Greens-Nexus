@@ -2581,6 +2581,15 @@ export const api = {
   ticketReportCsv: (params = {}) => reqBlob(`/task-tickets/reports.csv?${new URLSearchParams(params).toString()}`),
   getTicketReportMeta: () => req("/task-tickets/reports/meta"),
   setTicketWeeklyEmail: (on) => req("/task-tickets/reports/weekly-email", { method: "PUT", body: JSON.stringify({ on }) }),
+  // Ticket AI (Oct 2026, backend/routers/ticket_ai.py): what may show, the
+  // desk's switch, Suggested Help Topic and the drawer's AI Summary.
+  getTicketAiStatus: () => cachedGet("/ticket-ai/status", 60_000),
+  getTicketAiSettings: () => req("/ticket-ai/settings"),
+  setTicketAiSettings: (enabled) => req("/ticket-ai/settings", { method: "PUT", body: JSON.stringify({ enabled }) }),
+  suggestTicketTopics: (data) => req("/ticket-ai/suggest-topics", { method: "POST", body: JSON.stringify(data) }),
+  getTicketSuggestedTopic: (id) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/suggested-topic`),
+  getTicketAiSummary: (id) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/summary`),
+  makeTicketAiSummary: (id, refresh = false) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/summary`, { method: "POST", body: JSON.stringify({ refresh }), timeoutMs: 60_000 }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
