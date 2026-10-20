@@ -3396,6 +3396,53 @@ class PunchRequestIn(BaseModel):
     reason:         str = ""
     tz_offset_min:  Optional[int] = 0
     category:       Optional[str] = ""   # add, clock-in only: the Type - '' Regular, Sick / Vacation / Personal
+    # The AM / PM guard (long_shift.py): the employee saw the "more than 11
+    # hours" warning and says the times are right - their reason explains it.
+    confirm_long:   Optional[bool] = False
+
+
+def _long_shift_issue(db: Session, email: str, *, kind: str, at: str, tz_offset_min: int,
+                      punch_id: str = "", extra: list = None):
+    """long_shift.check for a punch `kind` at `at` (UTC ISO) among the
+    person's live punches within a day of it - `punch_id` is the punch being
+    moved (left out), `extra` (kind, at) pairs not real yet (pending requests)."""
+    import long_shift
+    t = _parse_iso(at or "")
+    if t is None or kind not in KINDS:
+        return None
+    lo = (t - timedelta(hours=26)).strftime("%Y-%m-%dT%H:%M:%S")
+    hi = (t + timedelta(hours=26)).strftime("%Y-%m-%dT%H:%M:%S")
+    rows = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == email, TimePunch.voided == 0,
+                    TimePunch.at >= lo, TimePunch.at <= hi).all())
+    others = [(p.kind, _parse_iso(p.at or "")) for p in rows if p.id != punch_id]
+    others += [(k, _parse_iso(a or "")) for k, a in (extra or [])]
+    return long_shift.check([(k, x) for k, x in others if x is not None], kind, t, tz_offset_min or 0)
+
+
+def _guard_long_shift(issue, confirm: bool, reason: str) -> None:
+    """An employee's long shift goes through only when they confirmed it AND
+    gave a reason (the approver reads why); otherwise 422 with the AM / PM
+    message and the suggested time for the form."""
+    if issue and not (confirm and (reason or "").strip()):
+        raise HTTPException(422, issue)
+
+
+def _long_note(issue) -> str:
+    """' (Long shift confirmed: 13 hr 10 min)' - added to a confirmed request's
+    reason so the approver sees it was flagged."""
+    if not issue:
+        return ""
+    h, m = divmod(int(issue["minutes"]), 60)
+    return f" (Long shift confirmed: {h} hr {m} min)"
+
+
+def _pending_add_pairs(db: Session, email: str) -> list:
+    """(kind, at) of the employee's pending add requests - punches they asked
+    for count as real when judging a new one (a missing in, then its out)."""
+    return [(r.punch_kind, r.at) for r in db.query(PunchRequest)
+            .filter(PunchRequest.employee_email == email, PunchRequest.status == "pending",
+                    PunchRequest.action == "add").all() if r.at]
 
 
 @router.post("/punch-requests")
@@ -3454,6 +3501,12 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
                                                           PunchRequest.action == "add").all()]
         _guard_punch_order(db, email, kind=body.punch_kind or "in", at=at_utc, local_date=local_date,
                            extra=pending)
+        # AM / PM guard (Charmi, Oct 21): more than 11 hours from the shift's
+        # first punch is refused unless the employee confirms and explains.
+        _long = _long_shift_issue(db, email, kind=body.punch_kind or "in", at=at_utc,
+                                  tz_offset_min=body.tz_offset_min or 0, extra=[(p.kind, p.at) for p in pending])
+        _guard_long_shift(_long, bool(body.confirm_long), reason)
+        reason += _long_note(_long)
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
     category = ((body.category or "").strip()[:80]
@@ -3598,6 +3651,11 @@ def list_punch_requests(status: str = "pending", user: dict = Depends(require_ap
 class PunchRequestDecision(BaseModel):
     status: str            # approved | rejected
     note:   Optional[str] = ""
+    # The approver's Type for an added clock-in (Oct 21: Valinda approved
+    # Amy's Personal block with the note "Please use sick time", and it still
+    # paid as Personal - a note changes nothing). None = keep the employee's;
+    # '' or "Regular" = worked time; else Sick / Vacation / Personal.
+    category: Optional[str] = None
 
 
 _KIND_RANK = {"in": 0, "break_start": 1, "break_end": 2, "out": 3}
@@ -3886,7 +3944,35 @@ def _pending_partners(db: Session, r) -> list:
         if key not in seen:
             seen.add(key)
             out.append(p)
-    return out
+    return _same_shift(out, r)
+
+
+def _same_shift(partners: list, r) -> list:
+    """Only the partners in the SAME shift as `r`: from its clock-in to its
+    clock-out. Two missed days in a row with no real punch between them
+    (Charmi, Oct 21: "both days get approved at the same time, rather than
+    doing one at a time") used to chain as one run, so approving Monday's
+    clock-in also approved Tuesday's whole day. Each day is decided on its
+    own now; Approve All / Approve Selected still takes them together."""
+    run = sorted(partners + [r], key=lambda p: (p.at, _KIND_RANK.get(p.punch_kind, 9), p.created_at or ""))
+    i = next(k for k, p in enumerate(run) if p.id == r.id)
+
+    def gap(a, b):
+        ta, tb = _parse_iso(a.at or ""), _parse_iso(b.at or "")
+        return (tb - ta).total_seconds() / 60 if ta and tb else 0
+
+    lo = hi = i
+    if r.punch_kind != "in":
+        while lo > 0 and run[lo - 1].punch_kind != "out" and gap(run[lo - 1], run[lo]) <= _MAX_SHIFT_MIN:
+            lo -= 1
+            if run[lo].punch_kind == "in":
+                break
+    if r.punch_kind != "out":
+        while hi < len(run) - 1 and run[hi + 1].punch_kind != "in" and gap(run[hi], run[hi + 1]) <= _MAX_SHIFT_MIN:
+            hi += 1
+            if run[hi].punch_kind == "out":
+                break
+    return [p for p in run[lo:hi + 1] if p.id != r.id]
 
 
 _REQUEST_MATE = {"in": "out", "break_start": "break_end", "out": "in", "break_end": "break_start"}
@@ -3970,6 +4056,13 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
             db.commit()
             return _pr_dict(r)
     partners = []
+    if decision == "approved" and r.action == "add" and r.punch_kind == "in" and body.category is not None:
+        _cat = body.category.strip()[:80]
+        _cat = "" if _cat.lower() == "regular" else _cat
+        if _cat != (r.category or ""):
+            was = r.category or "Regular"
+            r.category = _cat
+            note = (note + " " if note else "") + f"Type changed from {was} to {_cat or 'Regular'}."
     if decision == "approved":
         if r.action == "add":
             # Re-validate the sequence at approval time: inserting this punch must
@@ -4106,6 +4199,7 @@ class PunchEditIn(BaseModel):
     punch_id: str
     at: str                       # proposed new time (UTC ISO)
     reason: Optional[str] = ""    # optional justification
+    confirm_long: Optional[bool] = False   # AM / PM guard: confirmed, with a reason (long_shift.py)
 
 
 @router.post("/punch-edits")
@@ -4134,8 +4228,11 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
         _guard_not_finalized(db, row.employee_email, _new_day)
         _guard_review(db, row.employee_email, _new_day, email)
     _guard_punch_order(db, email, kind=row.kind, at=at, punch_id=row.id, local_date=_new_day)
+    _long = _long_shift_issue(db, email, kind=row.kind, at=at, tz_offset_min=row.tz_offset_min or 0,
+                              punch_id=row.id, extra=_pending_add_pairs(db, email))
+    _guard_long_shift(_long, bool(body.confirm_long), body.reason or "")
     row.pending_at = at[:19]
-    row.edit_reason = (body.reason or "").strip()[:300]
+    row.edit_reason = ((body.reason or "").strip() + _long_note(_long))[:300]
     row.edited_by, row.edited_at, row.edit_status = email, _now_iso(), "pending"
     row.edit_reviewed_by, row.edit_reviewed_at = "", ""
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
