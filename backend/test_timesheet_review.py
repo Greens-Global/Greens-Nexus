@@ -347,6 +347,61 @@ class SigningTests(ReviewCase):
         self.assertGreater(att_y, sign_top)                       # above the field: never under the signature
         self.assertGreater(att_y, y_of["Employee"])               # and above the Employee row
 
+    def test_the_pdf_is_the_time_sheet_grid_then_the_signature_page(self):
+        """Charmi, Oct 20 2026: the signed copy reads like the Time Sheet screen
+        (SwipeClock's layout, pay included) - landscape grid pages, then the
+        portrait signature page the fields are placed on."""
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="hourly", currency="USD", hourly_rate=22,
+                                       overtime_rule="federal"))
+        day2 = (datetime.fromisoformat(self.start) + timedelta(days=1)).strftime("%Y-%m-%d")
+        self._punch(day2, "in", "15:00:00")
+        self._punch(day2, "break_start", "19:00:00")
+        self._punch(day2, "break_end", "19:30:00")
+        self._punch(day2, "out", "23:30:00")
+        self.db.flush()
+        p = self.db.get(models.TimePunch, f"p-{day2}-in-15:00:00")
+        p.adjusted_at, p.adjusted_by, p.adjust_note = tsr._now(), HR, "Forgot to clock in"
+        self.db.add(models.TimecardNote(id=f"{EMP}|{day2}", employee_email=EMP, date=day2,
+                                        note="Supervisor only", employee_note="Car trouble"))
+        self.db.commit()
+        r = self._to_signing()
+        pdf, last = tsr.build_pdf(self.db, r)
+        from pypdf import PdfReader
+        import io
+        pages = PdfReader(io.BytesIO(pdf)).pages
+        first, sig = pages[0], pages[last]
+        self.assertGreater(float(first.mediabox.width), float(first.mediabox.height))
+        self.assertLess(float(sig.mediabox.width), float(sig.mediabox.height))
+        text = " ".join(" ".join((pg.extract_text() or "").split()) for pg in pages[:last])
+        for s in ("Time Sheet Report for Greens Test Co", "Approved by Max Test on", "Pay Rate", "Wage",
+                  "$22.00/hr", "Break", "Total hours clocked for week of", "Total Regular hours at $22.00/hr",
+                  "Note by employee: Car trouble", "Forgot to clock in", "TOTAL EDITED PUNCHES",
+                  "4:00 PM", "11:00 PM", "7:00 PM"):
+            self.assertIn(s, text)
+        self.assertNotIn("Supervisor only", text)        # the manager / HR note never reaches the employee
+        self.assertIn("Approval log", sig.extract_text())
+        if os.environ.get("TIMESHEET_PDF_OUT"):
+            with open(os.environ["TIMESHEET_PDF_OUT"], "wb") as f:
+                f.write(pdf)
+
+    def test_a_salaried_time_sheet_has_the_monthly_columns(self):
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="fixed", currency="USD", monthly_salary=6000))
+        self.db.commit()
+        s, e, pt = tsr.period_for(self.db, EMP, ANCHOR)
+        r = models.TimesheetReview(id="fixed-r", employee_email=EMP, period_start=s, period_end=e, pay_type=pt,
+                                   status="with_manager", manager_email=MGR, rounds=[])
+        self.db.add(r)
+        self.db.commit()
+        pdf, last = tsr.build_pdf(self.db, r)
+        from pypdf import PdfReader
+        import io
+        pages = PdfReader(io.BytesIO(pdf)).pages
+        text = " ".join(" ".join((pg.extract_text() or "").split()) for pg in pages[:last])
+        for s_ in ("Salaried (monthly)", "Monthly salary: $6,000.00", "Effect on Pay", "Day",
+                   "NET PAY THIS MONTH", "Not approved yet."):
+            self.assertIn(s_, text)
+        self.assertNotIn("Hrs/Day", text)
+
 
 class StateTests(ReviewCase):
     def test_what_each_viewer_may_do(self):

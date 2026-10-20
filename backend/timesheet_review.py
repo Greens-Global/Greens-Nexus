@@ -988,8 +988,9 @@ def _sig_fields(last_page: int) -> list:
 
 
 def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tuple[bytes, int]:
-    """The agreed timesheet as a PDF: every day, the totals, the review history
-    and a signature block on the last page. Returns (bytes, last page index).
+    """The agreed timesheet as a PDF: the Time Sheet screen's grid, totals and
+    review history (timesheet_pdf, landscape), then a portrait signature page
+    last. Returns (bytes, last page index).
     `card`: the computed card to print (_send_envelope freezes its totals)."""
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
@@ -1024,6 +1025,41 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tupl
         t = t - timedelta(minutes=offsets.get(punch_id, default_offset))
         return t.strftime("%I:%M %p").lstrip("0")
 
+    import timesheet_pdf
+    import re as _re
+    _agreed = next((e for e in reversed(r.rounds or []) if e.get("action") in ("agreed", "approved")), {})
+    _by = _who(db, _agreed) if _agreed.get("by") == (r.agreed_by or "").lower() else display_name(db, r.agreed_by)
+    labels = {"submitted": "submitted", "resubmitted": "resubmitted", "sent_back": "sent back",
+              "agreed": "agreed", "declined": "declined", "returned": "returned", "cancelled": "cancelled",
+              "approved": "reviewed and approved", "reopened": "reopened it", "hr_edited": "edited it (HR)",
+              "employee_approved": "approved it to sign", "unlocked": "unlocked it", "recalled": "recalled it",
+              "break_attested": "confirmed the meal and rest break statement by signing",
+              "break_not_collected": "signed on paper without the meal and rest break statement",
+              "totals_changed": "Totals changed after approval - sent back to the manager"}
+    history = []
+    for e in (r.rounds or []):
+        line = f"{us_date(e.get('at'))}  {_who(db, e)} {labels.get(e.get('action'), e.get('action'))}"
+        history.append(line + (f': "{e["note"]}"' if e.get("note") else ""))
+    # The time sheet pages: the Time Sheet screen's grid, SwipeClock's layout
+    # (Charmi, Oct 20 2026) - timesheet_pdf.
+    sheet = timesheet_pdf.render(card, {
+        "start": r.period_start, "end": r.period_end, "pay_type": r.pay_type,
+        "entity": (ent.name if ent else "") or "", "name": display_name(db, r.employee_email),
+        "email": r.employee_email, "code": (getattr(emp, "employee_code", "") or "") if emp else "",
+        "dept": card.get("dept") or ((emp.department or "") if emp else ""), "period": _label(r),
+        "kind": "Salaried (monthly)" if r.pay_type == "fixed" else "Hourly (bi-weekly)",
+        "rule": {"ca": "California", "federal": "Federal", "none": "None"}.get(card.get("overtimeRule") or "", "None"),
+        "approvals": [f"Approved by {_by} on {us_datetime(r.agreed_at, offset) or us_date(r.agreed_at)}."]
+        if r.agreed_at else ["Not approved yet."],
+        "version": (r.agreed_fingerprint or "")[:12], "history": history,
+        "generated": us_datetime(_now(), offset),
+        # The employee is the signer: their own note only, never the manager / HR one.
+        "notes": _tc()._timecard_notes(db, r.employee_email, r.period_start, r.period_end, own=True),
+        "punch_meta": card.get("punchMeta") or {}, "time": local_time, "us_date": us_date,
+        "names_in": lambda s: _re.sub(r"[\w.+-]+@[\w-]+(\.[\w-]+)+", lambda m: display_name(db, m.group(0)), s),
+    })
+
+    # Signature block (always on its own final page, at fixed positions).
     buf = io.BytesIO()
     W, H = letter
     c = canvas.Canvas(buf, pagesize=letter)
@@ -1035,115 +1071,6 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tupl
         c.setFont("Helvetica-Bold" if bold else "Helvetica", size)
         c.drawString(x, y, s)
 
-    def new_page():
-        nonlocal y
-        c.showPage()
-        y = H - margin
-
-    text(margin, "TIME SHEET", 16, True)
-    y -= 18
-    text(margin, f"{display_name(db, r.employee_email)}  ({r.employee_email})", 10.5, True)
-    y -= 14
-    text(margin, f"{(ent.name if ent else '') or ''}   Pay period {_label(r)}   "
-                 f"{'Salaried (monthly)' if r.pay_type == 'fixed' else 'Hourly (bi-weekly)'}", 9)
-    y -= 14
-    _agreed = next((e for e in reversed(r.rounds or []) if e.get("action") in ("agreed", "approved")), {})
-    _by = _who(db, _agreed) if _agreed.get("by") == (r.agreed_by or "").lower() else display_name(db, r.agreed_by)
-    text(margin, f"Approved by {_by} on "
-                 f"{us_datetime(r.agreed_at, offset) or us_date(r.agreed_at)}. "
-                 f"Version {(r.agreed_fingerprint or '')[:12]}", 8, color=(0.4, 0.4, 0.45))
-    y -= 22
-
-    # Days
-    cols = (margin, margin + 90, margin + 330, margin + 400)
-    text(cols[0], "Date", 9, True)
-    text(cols[1], "Clock in - out", 9, True)
-    text(cols[2], "Break", 9, True)
-    text(cols[3], "Hours" if r.pay_type == "hourly" else "Worked / Status", 9, True)
-    y -= 4
-    c.line(margin, y, W - margin, y)
-    y -= 12
-    rows = card.get("days") or []
-    by_date = {d["date"]: d for d in rows}
-    fixed = {d["date"]: d for d in (card.get("fixedDays") or [])}
-    for ds in sorted(set(by_date) | set(fixed)):
-        if y < margin + 40:
-            new_page()
-        d = by_date.get(ds) or {}
-        segs = d.get("segments") or []
-        spans = ", ".join(f"{local_time(s.get('in'), s.get('inId') or '')} - "
-                          f"{local_time(s.get('out'), s.get('outId') or '')}" for s in segs) or "-"
-        if d.get("isHoliday"):
-            spans = f"Holiday: {d.get('holidayName') or ''}".strip()
-        text(cols[0], date.fromisoformat(ds).strftime("%a %m/%d/%Y"), 8.5)
-        text(cols[1], spans[:52], 8.5)
-        text(cols[2], _hm(d.get("breakMin")) if d.get("breakMin") else "-", 8.5)
-        if r.pay_type == "fixed":
-            f = fixed.get(ds) or {}
-            text(cols[3], f"{_hm(f.get('workedMin', d.get('workedMin')))}  {f.get('status') or ''}"[:40], 8.5)
-        else:
-            text(cols[3], _hm(d.get("workedMin")), 8.5)
-        y -= 12
-
-    # Totals
-    t = card.get("totals") or {}
-    y -= 8
-    if y < margin + 120:
-        new_page()
-    c.line(margin, y, W - margin, y)
-    y -= 14
-    text(margin, "Totals", 10, True)
-    y -= 13
-    if r.pay_type == "fixed":
-        lines = [("Worked", _hm(t.get("workedMin"))),
-                 ("Missed full days", str(t.get("missedFullDays", 0))),
-                 ("Missed half days", str(t.get("missedHalfDays", 0))),
-                 ("Weekend days worked", str(t.get("weekendDaysWorked", 0)))]
-    else:
-        lines = [("Regular", _hm(t.get("regMin"))), ("Overtime", _hm(t.get("otMin"))),
-                 ("Double time", _hm(t.get("dtMin"))), ("Sick", _hm(t.get("sickMin"))),
-                 ("Vacation", _hm(t.get("vacationMin"))), ("Total worked", _hm(t.get("workedMin")))]
-        # CA meal / rest premiums (ca_breaks.py): 1 hour of pay each, not hours worked.
-        if t.get("mealPremiumMin"):
-            lines.append(("Meal Premium", f"{int(t['mealPremiumMin']) // 60} x 1 hour of pay"))
-        if t.get("restPremiumMin"):
-            lines.append(("Rest Premium", f"{int(t['restPremiumMin']) // 60} x 1 hour of pay"))
-    for k, v in lines:
-        text(margin, k, 9)
-        text(margin + 160, v, 9, True)
-        y -= 12
-
-    # Review history
-    y -= 8
-    if y < margin + 90:
-        new_page()
-    text(margin, "Review history", 10, True)
-    y -= 13
-    labels = {"submitted": "submitted", "resubmitted": "resubmitted", "sent_back": "sent back",
-              "agreed": "agreed", "declined": "declined", "returned": "returned", "cancelled": "cancelled",
-              "approved": "reviewed and approved", "reopened": "reopened it", "hr_edited": "edited it (HR)",
-              "employee_approved": "approved it to sign", "unlocked": "unlocked it", "recalled": "recalled it",
-              "break_attested": "confirmed the meal and rest break statement by signing",
-              "break_not_collected": "signed on paper without the meal and rest break statement",
-              "totals_changed": "Totals changed after approval - sent back to the manager"}
-    for e in (r.rounds or []):
-        if y < margin + 30:
-            new_page()
-        who = _who(db, e)
-        line = f"{us_date(e.get('at'))}  {who} {labels.get(e.get('action'), e.get('action'))}"
-        if e.get("note"):
-            line += f': "{e["note"]}"'
-        # Wrap whole words to the page width - a note cut mid-word loses its point.
-        import textwrap
-        for part in textwrap.wrap(line, width=115, subsequent_indent="      ") or [""]:
-            if y < margin + 20:
-                new_page()
-            text(margin, part, 8)
-            y -= 11
-
-    # Signature block (always on its own final page, at fixed positions).
-    new_page()
-    y = H - margin
     text(margin, "Signatures", 12, True)
     y -= 16
     text(margin, "By signing, the employee attests that the hours on this time sheet are accurate "
@@ -1203,9 +1130,16 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tupl
         if ly < margin:
             break
         c.drawString(margin, ly, line[:130])
-    page_count = c.getPageNumber()
     c.save()
-    return buf.getvalue(), page_count - 1
+    # The time sheet pages, then the signature page: last page index = their count.
+    from pypdf import PdfReader, PdfWriter
+    out = PdfWriter()
+    for part in (sheet, buf.getvalue()):
+        for page in PdfReader(io.BytesIO(part)).pages:
+            out.add_page(page)
+    merged = io.BytesIO()
+    out.write(merged)
+    return merged.getvalue(), len(out.pages) - 1
 
 
 def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
