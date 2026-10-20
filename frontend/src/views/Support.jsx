@@ -244,8 +244,7 @@ function lastUpdated(t) {
 // Changed by someone else since the requester last opened it.
 const isUnread = (t) => !!t.requesterUpdateAt && t.requesterUpdateAt > (t.requesterSeenAt || '');
 // The left gutter: the unread dot and the edit pencil sit in it, OUTSIDE the
-// table, so the table's left edge lines up with the "Open Tickets" tab above
-// it and the pencil sits just to the left of that edge (Neil, 10/08).
+// table, so they never push a column around (Neil, 10/08).
 const GUTTER_W = 46;
 // Two lines of content per row (Neil, 10/08).
 const ROW_MIN_H = 54;
@@ -317,7 +316,6 @@ export default function Support({ activeSub, onSubChange }) {
   const colKeys = useMemo(() => new Set(cols.map((c) => c.key)), [cols]);
   // Narrow and phone stack the comment and actions under the title.
   const stacked = tier === 'narrow' || tier === 'phone';
-  const gutterW = tier === 'phone' ? 24 : tier === 'narrow' ? 34 : GUTTER_W;
 
   // Deep-link support - a ticket-update email or notification points here
   // (not the gated Tickets module, which a plain requester can't open) via
@@ -470,6 +468,11 @@ export default function Support({ activeSub, onSubChange }) {
   const pageCount = Math.max(1, Math.ceil(sorted.length / SUPPORT_PAGE_SIZE));
   const pageSafe = Math.min(page, pageCount);
   const paged = sorted.slice((pageSafe - 1) * SUPPORT_PAGE_SIZE, pageSafe * SUPPORT_PAGE_SIZE);
+  // The left gutter only exists while a row on this page has an unread dot or
+  // an edit pencil to put in it, so the table otherwise starts flush left
+  // under the tabs (Neil, Oct 19: "Open Tickets is not left justified").
+  const needsGutter = paged.some((t) => mineToAct(t) && (t.status === 'open' || isUnread(t)));
+  const gutterW = !needsGutter ? 0 : tier === 'phone' ? 24 : tier === 'narrow' ? 34 : GUTTER_W;
   // From what is SHOWN: clicking the header that reads as sorted flips it,
   // even when that sort was the fallback above rather than the saved one.
   const onSort = (key) => {
@@ -522,13 +525,9 @@ export default function Support({ activeSub, onSubChange }) {
       </div>
 
       <div className="dash-card" data-tour="support-open-tickets" data-tier={tier} ref={cardRef}>
-        {/* Indented by the gutter so the tabs' left edge is the table's left
-            edge - the pencil and unread dot live to the left of both. On EVERY
-            tab, empty or loading too: indenting only when the list had rows
-            made the tabs jump sideways on switching to an empty Following or
-            Closed tab (Neil, Oct 14 2026: "Open looks proper, the others
-            become goofy"). */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap', paddingLeft: gutterW }}>
+        {/* Flush left on every tab, empty or loading too, so the tabs never
+            jump sideways (Neil, Oct 14) and sit left-justified (Neil, Oct 19). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
           {/* Open and Closed (Neil, Sep 30: "now I don't have any history of
               the ticket that I had... I should be able to go through and
               reopen if the same issue happened again"). */}

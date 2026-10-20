@@ -703,7 +703,7 @@ export const DOCS = [
     tips: [
       'Inside an open ticket, changes wait for Done. Close it without clicking Done and you are asked before they are thrown away.',
       'State and Priority can be changed straight from the list without opening the ticket.',
-      'The check at the end of a row resolves the ticket without opening it. Hover a row to follow it across a wide screen.',
+      'A green check at the end of a row means the ticket is resolved. To resolve one, open it and write what was done. Hover a row to follow it across a wide screen.',
       'Resolved and Closed tickets sit in a Completed section at the bottom that starts collapsed on every visit, so open work stays on top.',
       'If someone else changed a field while you were editing, Done asks first (Ticket Changed). Pick Keep Editing to look, or Save Anyway.',
     ],
