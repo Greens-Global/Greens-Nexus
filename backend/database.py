@@ -81,6 +81,11 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 import cache as _cache  # noqa: E402 - needs SessionLocal to exist first
 _cache.wire(SessionLocal)
 
+# Field-level audit (Oct 20 2026): every ORM insert/update/delete records its
+# before/after into audit_changes in the same transaction (audit_capture.py).
+import audit_capture as _audit_capture  # noqa: E402
+_audit_capture.wire(SessionLocal)
+
 
 class Base(DeclarativeBase):
     pass

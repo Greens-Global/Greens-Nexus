@@ -797,6 +797,14 @@ class AuditLog(Base):
     ip_address    = Column(String, default="")
     undone_at     = Column(String, default="")    # set when this change was reverted via the audit-log Undo
     undone_by     = Column(String, default="")    # email of whoever undid it
+    # Unified audit log (Oct 20 2026, audit_capture.py / routers/audit_events.py).
+    # request_id joins the field-level rows in audit_changes; module / kind /
+    # acting_as are filled for new rows so the feed can filter on them with an
+    # index instead of re-deriving them per row ('' on rows from before).
+    request_id    = Column(String, default=lambda: _audit_request_id())
+    module        = Column(String, default="")
+    kind          = Column(String, default="")    # create|update|delete|comment|login|denied|view|other
+    acting_as     = Column(String, default="")    # the Act As target, '' when not acting
 
 
 class NexusEmployee(Base):
@@ -7341,3 +7349,32 @@ class CubbyRentChange(Base):
     status           = Column(String, default="scheduled")            # scheduled | applied | canceled
     first_seen_at    = Column(String, default="")
     updated_at       = Column(String, default="")
+# ── Unified audit log (Oct 20 2026) ───────────────────────────────────────────
+def _audit_request_id() -> str:
+    import audit_capture
+    return audit_capture.current_request_id()
+
+
+class AuditChange(Base):
+    """One row per database row a change touched: the table, its primary key
+    and {field: {b: before, a: after}} (inserts carry after only, deletes
+    before only; "bu" marks a before value the ORM never loaded, "r" a value
+    redacted at write time). Written by audit_capture.py's flush listener in
+    the same transaction as the change. request_id joins audit_logs. New
+    table - create_all builds it; RLS line in main.py + the startup sweep, run
+    get_advisors at release."""
+    __tablename__ = "audit_changes"
+    __table_args__ = (Index("ix_audit_changes_record", "table_name", "record_id"),)
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    request_id = Column(String, default="", index=True)
+    at         = Column(String, default="", index=True)      # UTC ISO, ...Z
+    actor      = Column(String, default="", index=True)      # real person, or "system"
+    acting_as  = Column(String, default="")
+    module     = Column(String, default="", index=True)
+    table_name = Column(String, default="")
+    record_id  = Column(String, default="")
+    op         = Column(String, default="")                  # insert|update|delete|bulk_update|bulk_delete|bulk
+    changes    = Column(Text, default="")                    # JSON
+    summary    = Column(String, default="")                  # the record's label at the time
+    source     = Column(String, default="")                  # "PATCH /tasks/1" or the background job
+

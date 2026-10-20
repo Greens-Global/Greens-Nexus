@@ -2614,6 +2614,15 @@ export const api = {
   updateOpsReportSchedule: (id, data) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteOpsReportSchedule: (id) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   sendOpsReportSchedule: (id, toMe = false) => req(`/ops-reports/schedules/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify({ to_me: toMe }) }),
+  // Unified Audit Log (Oct 20, Settings > Logs): every change across Nexus
+  // with who, Act As, and the field-by-field before/after. `params` are the
+  // screen's filters (module, actor, acting_as, action, q, from, to,
+  // include_system, cursor, limit); empty values are left out.
+  auditEvents: (params = {}) => req(`/audit/events?${new URLSearchParams(params).toString()}`),
+  auditEvent: (id) => req(`/audit/events/${encodeURIComponent(id)}`),
+  auditRecordHistory: (type, id) => req(`/audit/records/${encodeURIComponent(type)}/${encodeURIComponent(id)}/history`),
+  auditFacets: (params = {}) => req(`/audit/facets?${new URLSearchParams(params).toString()}`),
+  auditExport: (params = {}) => reqBlob(`/audit/export.csv?${new URLSearchParams(params).toString()}`, { timeoutMs: 120_000 }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
