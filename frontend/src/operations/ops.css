@@ -448,7 +448,7 @@
 .rm-us-row > td { background: rgba(20, 83, 45, 0.08); }
 .rm-median-row > td { padding: 3px 12px !important; font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; border-top: 2px dashed var(--line); background: transparent; }
 .rm-history > li { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
-.rm-comps-anchor { scroll-margin-top: 84px; }
+.rm-comps-anchor { scroll-margin-top: 84px; display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }   /* Manage Competitors embeds Market: same spacing as its own tab, so its note never slides under the KPI cards (Oct 20) */
 @media (max-width: 640px) {
   .rm-name, .rm-units, .rm-market, .rm-pos, .rm-suggest { min-width: 0; }
   .rm-median-row > td::before { content: none; }
@@ -463,3 +463,10 @@
 .rm-pos { min-width: 0; }
 .rm-suggest { min-width: 120px; }
 .rm-table th, .rm-table td { padding-left: 10px; padding-right: 10px; }
+
+/* Rate Management: competitors and data gaps behind two buttons (Oct 20). */
+.rm-detail-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.rm-detail-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;border:1px solid var(--border-color,#d9d6cc);background:var(--bg-primary,#fff);color:var(--text-primary,#1d1f1a);font:500 13px 'Inter',system-ui,sans-serif;cursor:pointer}
+.rm-detail-btn:hover{background:var(--bg-secondary,#f4f3ee)}
+.rm-detail-btn-warn{border-color:#f0c58a;background:#fff8ec;color:#8a4b00}
+.rm-detail-btn-warn:hover{background:#fdeed4}

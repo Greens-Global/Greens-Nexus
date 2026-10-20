@@ -71,14 +71,19 @@ describe('Rate Management', () => {
     expect(screen.getByText('5044 Peabody Road, Fairfield, CA 94533')).toBeTruthy();
     // The summary: who we compare with and what is missing.
     const summary = screen.getByTestId('market-summary');
-    expect(within(summary).getByText('Compared With 2 Competitors')).toBeTruthy();
-    expect(within(summary).getByText('1.2 mi')).toBeTruthy();
-    expect(within(summary).getByText('Distance not recorded')).toBeTruthy();
-    expect(within(summary).getByText('Updated 10/15/2026')).toBeTruthy();
-    expect(within(summary).getByText('Website')).toBeTruthy();
-    expect(within(summary).getByText("No Competitor Rate")).toBeTruthy();
-    expect(within(summary).getByText("10' x 11'")).toBeTruthy();
-    expect(within(summary).getByText(/nothing to price/)).toBeTruthy();
+    // Competitors and gaps sit behind two buttons (Oct 20) and open in a popup.
+    expect(screen.queryByText('1.2 mi')).toBeNull();
+    fireEvent.click(within(summary).getByRole('button', { name: /Compared With 2 Competitors/ }));
+    expect(screen.getByText('1.2 mi')).toBeTruthy();
+    expect(screen.getByText('Distance not recorded')).toBeTruthy();
+    expect(screen.getByText('Updated 10/15/2026')).toBeTruthy();
+    expect(screen.getByText('Website')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    fireEvent.click(within(summary).getByRole('button', { name: /What We're Missing/ }));
+    expect(screen.getByText("No Competitor Rate")).toBeTruthy();
+    expect(screen.getByText("10' x 11'")).toBeTruthy();
+    expect(screen.getByText(/nothing to price/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
     expect(within(summary).getByText('-15.7%')).toBeTruthy();
     expect(within(summary).getByText('+$75.50 / Mo')).toBeTruthy();
     expect(screen.getByText('Subtotal Self-Storage')).toBeTruthy();

@@ -21,7 +21,7 @@
 // from "Comp Set & Manual Entry" (or Manage Competitors in the summary).
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PushToCubbyDisabled from './PushToCubbyDisabled';
-import { Boxes, Check, ChevronDown, ChevronRight, Download, HelpCircle, History, RefreshCw, Users } from 'lucide-react';
+import { AlertTriangle, Boxes, Check, ChevronDown, ChevronRight, Download, HelpCircle, History, Info, RefreshCw, Users } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { Modal } from '../tasks/components';
@@ -172,6 +172,10 @@ function MarketSummary({ v, onManage }) {
   const k = v.kpis;
   const priced = (h.below || 0) + (h.at || 0) + (h.above || 0);
   const types = (n) => `${n} unit ${n === 1 ? 'type' : 'types'}`;
+  const [open, setOpen] = useState(null);   // 'comps' | 'gaps'
+  const comps = (v.competitors || []).length;
+  const gaps = v.gaps || [];
+  const gapTotal = gaps.reduce((t, g) => t + (g.count || 0), 0);
   return (
     <div className="dash-card" data-testid="market-summary">
       <div className="rm-stats">
@@ -184,10 +188,26 @@ function MarketSummary({ v, onManage }) {
           sub={`${signed(h.raises)} from raises, ${signed(h.cuts)} from cuts, on vacant units (${count(h.suggestions)} changes)`}
           tone={h.upside > 0 ? 'up' : h.upside < 0 ? 'down' : undefined} />
       </div>
-      <div className="ops-grid-2 rm-summary-cols">
-        <CompetitorList v={v} onManage={onManage} />
-        <GapList gaps={v.gaps || []} />
+      {/* Competitors and data gaps behind two small buttons (Visesh, Oct 20: the
+          two panels filled the screen) - the page goes KPIs, then the table. */}
+      <div className="rm-detail-btns">
+        <button type="button" className="rm-detail-btn" onClick={() => setOpen('comps')}>
+          <Info size={14} aria-hidden="true" /> Compared With {count(comps)} {comps === 1 ? 'Competitor' : 'Competitors'}
+        </button>
+        <button type="button" className={`rm-detail-btn${gapTotal ? ' rm-detail-btn-warn' : ''}`} onClick={() => setOpen('gaps')}>
+          <AlertTriangle size={14} aria-hidden="true" /> What We&apos;re Missing{gapTotal ? ` · ${count(gaps.length)} ${gaps.length === 1 ? 'Gap' : 'Gaps'}` : ''}
+        </button>
       </div>
+      {open === 'comps' && (
+        <Modal title="Compared With These Competitors" onClose={() => setOpen(null)} minHeight="60vh">
+          <CompetitorList v={v} onManage={() => { setOpen(null); onManage(); }} />
+        </Modal>
+      )}
+      {open === 'gaps' && (
+        <Modal title="What We're Missing" onClose={() => setOpen(null)} minHeight="60vh">
+          <GapList gaps={gaps} />
+        </Modal>
+      )}
     </div>
   );
 }
