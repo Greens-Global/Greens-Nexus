@@ -6935,8 +6935,8 @@ class LeaveLedgerEntry(Base):
 class OpsRateDraft(Base):
     """Operations -> Rate Management (Neil / Miranda, Oct 20 2026): a street
     rate someone proposed for one of our unit types (a Cubby pricing group)
-    and has not pushed yet. One row per facility and unit type, replaced in
-    place; pushing it (ops_rate_mgmt.py) deletes it and writes OpsRatePush.
+    and nobody has entered in Cubby yet. One row per facility and unit type,
+    replaced in place; Mark Entered in Cubby deletes it and writes OpsRatePush.
     New table - create_all builds it; RLS line in main.py."""
     __tablename__ = "ops_rate_drafts"
     id                 = Column(String, primary_key=True)
@@ -6952,12 +6952,14 @@ class OpsRateDraft(Base):
 
 
 class OpsRatePush(Base):
-    """Audit log of every street rate change Nexus sent to Cubby (one row per
-    unit type per push, failed tries included) - Rate Management's history of
-    OUR rates. Rows are only ever added. New table - RLS line in main.py."""
+    """Audit log of our street rate changes - Rate Management's history of OUR
+    rates. Since Oct 20 2026 Nexus never writes to Cubby: each row is a rate
+    staff entered in Cubby by hand and marked entered (status "entered").
+    Older rows (ok | failed | skipped) were API pushes; they stay as history.
+    Rows are only ever added. Table name kept. RLS line in main.py."""
     __tablename__ = "ops_rate_pushes"
     id                  = Column(String, primary_key=True)
-    batch_id            = Column(String, index=True, default="")    # one Review & Push click
+    batch_id            = Column(String, index=True, default="")    # one Mark Entered click
     facility_id         = Column(String, index=True, nullable=False)
     unit_type           = Column(String, default="")
     pricing_group_id    = Column(String, default="")
@@ -6967,7 +6969,7 @@ class OpsRatePush(Base):
     new_sell_cents      = Column(Integer)
     vacant              = Column(Integer, default=0)
     monthly_delta_cents = Column(Integer, default=0)                # (new sell - old sell) x vacant units
-    status              = Column(String, default="")                # ok | failed | skipped
+    status              = Column(String, default="")                # entered | skipped (legacy: ok | failed)
     detail              = Column(String, default="")
     pushed_by           = Column(String, default="")
     pushed_at           = Column(String, default="", index=True)
@@ -7029,8 +7031,8 @@ class OpsRevenueBatch(Base):
 
 
 class OpsRevenueChange(Base):
-    """One tenant's proposed rent change inside a batch, and how it reached
-    Cubby (pushed through the API, or entered there by staff)."""
+    """One tenant's proposed rent change inside a batch, and whether staff
+    have entered it in Cubby by hand ("entered"; "pushed" = legacy API rows)."""
     __tablename__ = "ops_revenue_changes"
     id                 = Column(String, primary_key=True)
     batch_id           = Column(String, index=True, nullable=False)
@@ -7055,7 +7057,7 @@ class OpsRevenueChange(Base):
 
 
 class OpsRevenueAudit(Base):
-    """Every step of a batch and every Cubby push attempt, success or not."""
+    """Every step of a batch (legacy rows also log old Cubby push attempts)."""
     __tablename__ = "ops_revenue_audit"
     id         = Column(String, primary_key=True)
     batch_id   = Column(String, index=True, nullable=False)
