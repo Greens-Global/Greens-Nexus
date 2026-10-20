@@ -2549,8 +2549,8 @@ export const api = {
   // Operations > Reports (Neil, Oct 20): Cubby's reports as interactive tables,
   // tenant / unit drill-down, and the Report Builder (saved, shared, scheduled).
   opsReportCatalog: () => req('/ops-reports/catalog'),
-  opsReport: (kind, { facilityId = '', start = '', end = '' } = {}) =>
-    req(`/ops-reports/run/${encodeURIComponent(kind)}?${new URLSearchParams({ facility_id: facilityId, start, end })}`),
+  // Old callers pass { facilityId }; the library passes { facilityIds, options } (_opsReportQuery, end of file).
+  opsReport: (kind, opts = {}) => req(`/ops-reports/run/${encodeURIComponent(kind)}?${_opsReportQuery(opts)}`),
   opsTenant: (facilityId, customerId) => req(`/ops-reports/tenant?${new URLSearchParams({ facility_id: facilityId, customer_id: customerId })}`),
   opsTenantLedger: (facilityId, customerId) => req(`/ops-reports/tenant/ledger?${new URLSearchParams({ facility_id: facilityId, customer_id: customerId })}`),
   opsUnit: (facilityId, unitId) => req(`/ops-reports/unit?${new URLSearchParams({ facility_id: facilityId, unit_id: unitId })}`),
@@ -2600,6 +2600,18 @@ export const api = {
   getTicketSuggestedTopic: (id) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/suggested-topic`),
   getTicketAiSummary: (id) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/summary`),
   makeTicketAiSummary: (id, refresh = false) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/summary`, { method: "POST", body: JSON.stringify({ refresh }), timeoutMs: 60_000 }),
+  // Operations > Reports library (Oct 20): a report as a formatted file
+  // (xlsx | pdf | csv -> {blob, filename}; saveBlob() below saves it), the
+  // Report Builder's table as one, and scheduled report emails.
+  opsReportExport: (kind, { format = 'xlsx', ...opts } = {}) =>
+    reqBlob(`/ops-reports/export/${encodeURIComponent(kind)}?${_opsReportQuery(opts, { format })}`, { timeoutMs: 180_000 }),
+  opsBuilderExport: (spec, name, format = 'xlsx') => reqBlob(`/ops-reports/builder/export?format=${encodeURIComponent(format)}`,
+    { method: 'POST', body: JSON.stringify({ spec, name }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 180_000 }),
+  opsReportSchedules: () => req('/ops-reports/schedules'),
+  createOpsReportSchedule: (data) => req('/ops-reports/schedules', { method: 'POST', body: JSON.stringify(data) }),
+  updateOpsReportSchedule: (id, data) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteOpsReportSchedule: (id) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  sendOpsReportSchedule: (id, toMe = false) => req(`/ops-reports/schedules/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify({ to_me: toMe }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
@@ -2642,4 +2654,31 @@ export async function fetchPublicUnitMapTemplate(params) {
   const res = await fetch(`${BASE}/unit-map/u?${q}`);
   if (!res.ok) { let d = ''; try { d = (await res.json()).detail; } catch { /* not JSON */ } throw new Error(typeof d === 'string' && d ? d : `Could not load the map (${res.status})`); }
   return res.json();
+}
+
+// Operations reports: the query string for /ops-reports/run and /export.
+// { facilityId } (one, or '' for all) is the old form; { facilityIds } is a
+// list ([] = all) and also sends facility_id when it holds one, so a server
+// without facility_ids still gets it right. Options go as their own params.
+function _opsReportQuery({ facilityId = '', facilityIds, start = '', end = '', options } = {}, extra = {}) {
+  const ids = Array.isArray(facilityIds) ? facilityIds.filter(Boolean) : null;
+  const q = new URLSearchParams({ ...extra, facility_id: ids ? (ids.length === 1 ? ids[0] : '') : facilityId, start, end });
+  if (ids?.length) q.set('facility_ids', ids.join(','));
+  const opts = Object.fromEntries(Object.entries(options || {}).filter(([, v]) => v !== undefined && v !== null));
+  Object.entries(opts).forEach(([k, v]) => q.set(k, typeof v === 'boolean' ? String(v) : v));
+  // The export endpoint reads them as one JSON object.
+  if (Object.keys(opts).length) q.set('options', JSON.stringify(opts));
+  return q;
+}
+
+// Save a {blob, filename} from reqBlob as a download.
+export function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'download';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

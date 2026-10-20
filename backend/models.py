@@ -7214,3 +7214,30 @@ class TicketAiSummary(Base):
     # The comment ids it was built from: one of them gone = not shown (a
     # backstop to delete_ticket_comment dropping the ticket's rows).
     source_comment_ids = Column(JSON, default=list)
+
+
+class OpsReportSchedule(Base):
+    """A catalog report (ops_reports.CATALOG) emailed on a schedule as an
+    XLSX / PDF / CSV attachment - Operations > Reports > Scheduled (Oct 20
+    2026, ops_report_schedules.py). New table - explicit RLS line in main.py."""
+    __tablename__ = "ops_report_schedules"
+    id               = Column(String, primary_key=True)
+    owner_email      = Column(String, default="", index=True)
+    name             = Column(String, default="")
+    kind             = Column(String, default="")           # an ops_reports.CATALOG key
+    facility_ids     = Column(JSON, default=list)           # [] = every facility
+    period           = Column(JSON, default=dict)           # {"mode": current|previous, "unit": day|week|month|quarter|year}
+    options          = Column(JSON, default=dict)           # the report's own switches
+    format           = Column(String, default="xlsx")       # xlsx | pdf | csv
+    frequency        = Column(String, default="weekly")     # daily | weekly | monthly
+    day              = Column(Integer, default=0)           # weekly: 0 = Monday .. 6; monthly: 1-28
+    hour             = Column(Integer, default=7)           # 0-23, Pacific
+    include_weekends = Column(Boolean, default=False)       # daily only
+    active           = Column(Boolean, default=True)
+    recipients       = Column(JSON, default=list)           # Nexus People work emails - staff, never tenants
+    last_sent_period = Column(String, default="")           # the claim: a period is sent once
+    last_sent_at     = Column(String, default="")
+    last_attempt_at  = Column(String, default="")
+    last_error       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
