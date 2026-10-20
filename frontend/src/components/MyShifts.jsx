@@ -297,7 +297,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       </div>
 
       {mine && toConfirm && (
-        <div role="note" aria-label="Confirm your schedule" data-confirm-banner={toConfirm.publishId} className="nx-needs-you"
+        <div role="note" aria-label="Confirm your schedule" data-confirm-banner={toConfirm.publishId} className="nx-needs-you--card"
           style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 12, marginBottom: 12,
             background: 'var(--wk-brand-tint)', border: '1px solid var(--wk-brand)' }}>
           <CalendarCheck size={16} style={{ color: 'var(--wk-brand)', flexShrink: 0 }} />
@@ -316,7 +316,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       {mine && openCalls.length > 0 && (
         <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
           {openCalls.map((c) => (
-            <div key={c.id} role="alert" data-weather-call={c.id} className="nx-needs-you" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 12,
+            <div key={c.id} role="alert" data-weather-call={c.id} className="nx-needs-you--card" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 12,
               background: c.status === 'reinstated' ? 'hsl(var(--color-green) / 0.1)' : 'hsl(var(--color-orange) / 0.1)', border: `1px solid ${c.status === 'reinstated' ? 'hsl(var(--color-green) / 0.4)' : 'hsl(var(--color-orange) / 0.4)'}` }}>
               <CloudRain size={16} style={{ color: c.status === 'reinstated' ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 200 }}>

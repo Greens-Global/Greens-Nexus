@@ -1316,7 +1316,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {open.map(r => (
-          <div key={r.id} className="nx-needs-you" style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px' }}>
+          <div key={r.id} className="nx-needs-you--card" style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>

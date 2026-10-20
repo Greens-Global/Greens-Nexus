@@ -6575,15 +6575,19 @@ body:has(.docs-root) { overflow-x: clip; }
      margin to its left, level with the first line.
    .nx-needs-you--row - a grid / list / table row that fills its container: the
      dot sits inside its own left padding, centered.
+   .nx-needs-you--card - a box with its own border / padding, or a row flush
+     to its card's edge: the dot sits inside its own left padding, level
+     with the first line (outside it would land on the border or be clipped).
    .nx-needs-you--inline - a word in a line: the dot before it. */
-.nx-needs-you, .nx-needs-you--row { position: relative; }
-.nx-needs-you::before, .nx-needs-you--row::before,
+.nx-needs-you, .nx-needs-you--row, .nx-needs-you--card { position: relative; }
+.nx-needs-you::before, .nx-needs-you--row::before, .nx-needs-you--card::before,
 tr.nx-needs-you > td:first-child::before, tr.nx-needs-you--row > td:first-child::before {
   content: ''; position: absolute; width: 6px; height: 6px; border-radius: 50%;
   background: var(--wk-red); pointer-events: none;
 }
 .nx-needs-you::before { left: -11px; top: calc(1.2rem - 3px); }
 .nx-needs-you--row::before { left: 3px; top: calc(50% - 3px); }
+.nx-needs-you--card::before { left: 4px; top: calc(1.2rem - 3px); }
 tr.nx-needs-you, tr.nx-needs-you--row { position: static; }
 tr.nx-needs-you::before, tr.nx-needs-you--row::before { content: none; }
 tr.nx-needs-you > td:first-child, tr.nx-needs-you--row > td:first-child { position: relative; }
