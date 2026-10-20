@@ -8,6 +8,8 @@
 import * as THREE from 'three';
 import { buildDiorama, DIORAMA } from './siteModelDiorama.js';
 import { planRoute } from './siteModelRoute.js';
+import { createRealGround, createSky, ATMOSPHERE } from './siteModelGround.js';
+import { sunDirection, mutedTint, unitForm, nameBucket } from './siteModelGeo.js';
 
 const KIND_COLORS = {
   neutral: 0xd9d0bb, neutralPark: 0xc7c1b2, ok: 0x5fae7d, warn: 0xe0b45a, bad: 0xd65a4c, sel: 0xff7a00,
@@ -27,7 +29,7 @@ function textSprite(text, opts = {}) {
   if (opts.bg) { ctx.fillStyle = opts.bg; roundRect(ctx, 0, 0, cv.width, cv.height, 14); ctx.fill(); }
   ctx.fillStyle = opts.color || '#1d1f1a'; ctx.fillText(text, pad, cv.height / 2);
   const tex = new THREE.CanvasTexture(cv); tex.minFilter = THREE.LinearFilter; tex.colorSpace = THREE.SRGBColorSpace;
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: opts.depthTest !== false }));
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: opts.depthTest !== false, toneMapped: false }));
   const h = opts.worldHeight || 6; sp.scale.set(h * cv.width / cv.height, h, 1); return sp;
 }
 
@@ -61,6 +63,37 @@ function routeTexture() {
   x.fillStyle = '#2f7de1'; x.fillRect(0, 0, 64, 32); x.fillStyle = 'rgba(255,255,255,0.7)';
   x.beginPath(); x.moveTo(24, 10); x.lineTo(34, 16); x.lineTo(24, 22); x.lineTo(28, 16); x.closePath(); x.fill();
   const t = new THREE.CanvasTexture(cv); t.wrapS = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+}
+
+/** Corrugated steel for containers: pale ribs with soft dark grooves; the
+ *  instance color paints it (rust red, blue, green, beige...). */
+function corrugatedTexture() {
+  const cv = document.createElement('canvas'); cv.width = 64; cv.height = 8; const x = cv.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 8, 0); g.addColorStop(0, '#9a9a9a'); g.addColorStop(0.25, '#f2f2f2'); g.addColorStop(0.55, '#d4d4d4'); g.addColorStop(0.8, '#8c8c8c'); g.addColorStop(1, '#9a9a9a');
+  x.fillStyle = g; for (let i = 0; i < 64; i += 8) { x.save(); x.translate(i, 0); x.fillRect(0, 0, 8, 8); x.restore(); }
+  const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 1); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+}
+
+/** Standing-seam metal roof (canopies, building roofs): light galvanized steel, one seam per texel row of 16. */
+function seamTexture(base = '#d5d8da', seam = '#aeb3b6', hi = '#eef0f1') {
+  const cv = document.createElement('canvas'); cv.width = 16; cv.height = 4; const x = cv.getContext('2d');
+  x.fillStyle = base; x.fillRect(0, 0, 16, 4); x.fillStyle = seam; x.fillRect(0, 0, 1, 4); x.fillStyle = hi; x.fillRect(1, 0, 1, 4);
+  const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+
+/** A soft round shadow (pin) or a white dot (pin head): radial gradients on a small canvas. */
+function radialTexture(inner, outer) {
+  const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64; const x = cv.getContext('2d');
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, inner); g.addColorStop(0.55, inner.replace(/[\d.]+\)$/, (a) => `${parseFloat(a) * 0.6})`)); g.addColorStop(1, outer);
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
+/** The map pin's outline (radius, height) for a lathe: a round head on a tapered stem, tip at 0, top at 1. */
+function pinProfile() {
+  const pts = [new THREE.Vector2(0, 0)]; const cy = 0.68, r = 0.32;
+  const a0 = Math.atan2(0.529 - cy, 0.282);   // where the stem's straight side meets the head
+  for (let i = 0; i <= 18; i++) { const a = a0 + ((Math.PI / 2 - a0) * i) / 18; pts.push(new THREE.Vector2(Math.max(0.0001, r * Math.cos(a)), cy + r * Math.sin(a))); }
+  return pts;
 }
 
 /** Mix a 0xRRGGBB color toward `to` by k (0 = unchanged). */
@@ -107,21 +140,32 @@ export function createSiteModelViewer(container, model, options = {}) {
   const buildings = {}; (model.buildings || []).forEach((b) => { buildings[b.id] = b; });
   const W = (u, v, y) => new THREE.Vector3(u, y || 0, -v);
   const illus = opts.style === 'illustrated';
+  // The realistic looks (Oct 20 2026): 'satellite' = real terrain + imagery
+  // (siteModelGround.js); 'photoreal' = Google's 3D mesh (siteModelPhotoreal.js),
+  // falling back to the satellite ground when it cannot load at this site.
+  const real = !illus; let photo = real && opts.style === 'photoreal';
   const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, real ? 1.75 : 2));
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  if (real) { renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05; }
   const el = renderer.domElement; el.style.display = 'block'; el.style.width = '100%'; el.style.height = '100%'; el.style.touchAction = 'none';
   container.appendChild(el);
-  const scene = new THREE.Scene(); scene.background = new THREE.Color(illus ? DIORAMA.sky : opts.background || '#dfe6e9');
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(illus ? DIORAMA.sky : real ? ATMOSPHERE.haze : opts.background || '#dfe6e9');
   // The illustrated look uses a long lens (flatter, toy-like) and cool, even light.
-  const camera = new THREE.PerspectiveCamera(illus ? 30 : 45, 1, 1, 6000);
-  scene.add(new THREE.HemisphereLight(0xffffff, illus ? 0xcfd6e0 : 0x777766, illus ? 1.35 : 1.1));
-  const sun = new THREE.DirectionalLight(0xffffff, illus ? 1.75 : 1.6); sun.position.set(-160, 260, 120); sun.castShadow = true;
+  const camera = new THREE.PerspectiveCamera(illus ? 30 : 45, 1, 1, real ? 40000 : 6000);
+  // Realistic light: a late-morning Southern California sun (south-southeast,
+  // ~44 degrees up), a sky-blue fill from above and warm bounce from the ground.
+  const sunDir = real ? sunDirection(model.frame, 152, 44) : null;
+  scene.add(real ? new THREE.HemisphereLight(0xdfe9f6, 0x8f8470, 1.15) : new THREE.HemisphereLight(0xffffff, illus ? 0xcfd6e0 : 0x777766, illus ? 1.35 : 1.1));
+  const sun = new THREE.DirectionalLight(real ? 0xfff1df : 0xffffff, illus ? 1.75 : real ? 2.1 : 1.6); sun.position.set(-160, 260, 120); sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -260, right: 260, top: 260, bottom: -260, near: 50, far: 700 }); sun.shadow.bias = -0.0008;
+  if (real) { sun.shadow.normalBias = 0.04; sun.shadow.radius = 3; }
   scene.add(sun); scene.add(sun.target);
+  let sky = null;
+  if (real) { sky = createSky(sunDir); scene.add(sky); scene.fog = new THREE.FogExp2(ATMOSPHERE.haze, 0.00021); }
 
   const mat = {
     wall: new THREE.MeshLambertMaterial({ color: illus ? DIORAMA.wall : 0xe9e6dd }),
@@ -141,6 +185,19 @@ export function createSiteModelViewer(container, model, options = {}) {
   Object.keys(KIND_COLORS).forEach((k) => { mat[k] = new THREE.MeshLambertMaterial({ color: KIND_COLORS[k] }); });
   if (illus) { mat.neutral.color.set(DIORAMA.neutral); mat.neutralPark.color.set(DIORAMA.neutralPark); }
   mat.sel.emissive = new THREE.Color(0x663300);
+  if (real) {
+    // Painted stucco / metal instead of flat clay: matte walls, seamed metal roofs, quiet edges.
+    mat.wall = new THREE.MeshStandardMaterial({ color: 0xe2ddd2, roughness: 0.92, metalness: 0 });
+    const roofTex = seamTexture(); roofTex.repeat.set(1, 1);
+    mat.roofWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, map: roofTex, roughness: 0.55, metalness: 0.25 });
+    mat.roofRed = new THREE.MeshStandardMaterial({ color: 0xa4513b, roughness: 0.8 });
+    mat.roofSolar = new THREE.MeshStandardMaterial({ map: solarTexture(false), roughness: 0.35, metalness: 0.3 });
+    mat.edge = new THREE.LineBasicMaterial({ color: 0x3f423c, transparent: true, opacity: 0.35 });
+    mat.parcel = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.38, toneMapped: false });
+    mat.door = new THREE.MeshStandardMaterial({ color: 0x8b9096, roughness: 0.6, metalness: 0.5 });
+    mat.sel = new THREE.MeshLambertMaterial({ color: 0xff7a00, emissive: 0x663300, transparent: true, opacity: 0.72 });
+  }
+  const tmpM0 = new THREE.Matrix4();
   // Gate, building and lot names keep one on-screen size at every zoom and never
   // pile on top of each other: each frame the most important label wins a spot.
   const screenLabels = [];
@@ -153,8 +210,32 @@ export function createSiteModelViewer(container, model, options = {}) {
   const base = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1800), new THREE.MeshLambertMaterial({ color: 0x9aa18f }));
   base.rotation.x = -Math.PI / 2; base.position.y = -0.3; base.receiveShadow = true;
   const diorama = illus ? buildDiorama(scene, model, W) : null;
-  if (!illus) scene.add(base);
+  if (!illus && !real) scene.add(base);
   const groundHits = diorama ? diorama.ground : [base];
+  // Real terrain + imagery (or, under the Google mesh, an invisible plane at the
+  // lot's grade so a pin can still be dropped on open ground).
+  let ground = null; let photoreal = null; const lotCenter = (() => { const h = []; units.forEach((x) => h.push([x.u + x.wu / 2, x.v + x.dv / 2])); if (!h.length) return [0, 0]; let su = 0, sv = 0; h.forEach((q) => { su += q[0]; sv += q[1]; }); return [su / h.length, sv / h.length]; })();
+  function startGround() {
+    if (ground) return;
+    ground = createRealGround(scene, model, { renderer, images: opts.images || {}, center: lotCenter, onChange: () => drapeParcels() });
+    groundHits.length = 0; groundHits.push(ground.mesh);
+  }
+  if (real) {
+    base.visible = false; base.position.y = 0; base.material.colorWrite = false; base.material.depthWrite = false; scene.add(base);
+    if (photo) {
+      import('./siteModelPhotoreal.js').then((m) => m.attachPhotoreal({ scene, camera, renderer, model, center: lotCenter,
+        probes: units.filter((x, i) => x.k === 'park' && i % 37 === 0).slice(0, 8).map((x) => [x.u + x.wu / 2, x.v + x.dv / 2]),
+        onFail: (e) => fallBack(e) }))
+        .then((h) => { if (!alive) { h.dispose(); return; } photoreal = h; })
+        .catch((e) => fallBack(e));
+    } else startGround();
+  }
+  /** Google's mesh is unavailable here (no key, no coverage, offline): the satellite ground. */
+  function fallBack(e) {
+    if (!alive || !photo) return; console.warn('[site-model] photorealistic tiles unavailable, using satellite terrain', e);
+    if (photoreal) { photoreal.dispose(); photoreal = null; }
+    photo = false; startGround(); applyPhotoMode(); if (opts.onPhotorealFallback) opts.onPhotorealFallback();
+  }
   const loader = new THREE.TextureLoader();
   function quad(corners, src, y, fallback) {
     const g = new THREE.BufferGeometry(); const pos = []; corners.forEach((p) => pos.push(p[0], y, -p[1]));
@@ -165,20 +246,47 @@ export function createSiteModelViewer(container, model, options = {}) {
     else m.color.set(fallback);
     const mesh = new THREE.Mesh(g, m); mesh.receiveShadow = true; scene.add(mesh);
   }
-  if (!illus && model.imageWide && model.imageWide.uv) quad(model.imageWide.uv, opts.images.wide, -0.12, 0xa3a898);
-  if (!illus && model.image && model.image.uv) quad(model.image.uv, opts.images.detail, -0.05, 0xb8b4a8);
+  // The flat photo planes are the old satellite look; the realistic ground drapes the same photos.
+  if (!illus && !real && model.imageWide && model.imageWide.uv) quad(model.imageWide.uv, opts.images.wide, -0.12, 0xa3a898);
+  if (!illus && !real && model.image && model.image.uv) quad(model.image.uv, opts.images.detail, -0.05, 0xb8b4a8);
 
   function flatPoly(pts, material, y) { const s = new THREE.Shape(); pts.forEach((p, i) => (i ? s.lineTo(p[0], p[1]) : s.moveTo(p[0], p[1]))); const m = new THREE.Mesh(new THREE.ShapeGeometry(s), material); m.rotation.x = -Math.PI / 2; m.position.y = y; return m; }
   function lineLoop(pts, material, y) { const g = new THREE.BufferGeometry().setFromPoints(pts.concat([pts[0]]).map((p) => W(p[0], p[1], y))); return new THREE.Line(g, material); }
   const pads = model.pads || (model.pad ? [model.pad] : []);
   const parcels = model.parcels ? model.parcels.map((p) => p.uv) : model.parcel ? [model.parcel] : [];
   // The illustrated board paints its own paving and parcel edge.
-  if (!illus) pads.forEach((p) => { if (p && p.length > 2) scene.add(flatPoly(p, mat.pad, 0.02)); });
-  if (!illus) parcels.forEach((p) => { if (p && p.length > 2) scene.add(lineLoop(p, mat.parcel, 0.4)); });
+  if (!illus && !real) pads.forEach((p) => { if (p && p.length > 2) scene.add(flatPoly(p, mat.pad, 0.02)); });
+  if (!illus && !real) parcels.forEach((p) => { if (p && p.length > 2) scene.add(lineLoop(p, mat.parcel, 0.4)); });
+  // Realistic: the property line follows the ground (a thin white line), redrawn once the hills arrive.
+  const parcelLines = new THREE.Group(); if (real) scene.add(parcelLines);
+  function drapeParcels() {
+    if (!real) return; clearGroup(parcelLines);
+    parcels.forEach((p) => {
+      if (!p || p.length < 3) return; const pts = [];
+      p.concat([p[0]]).forEach((q, i, arr) => {
+        if (!i) return; const a = arr[i - 1]; const n = Math.max(1, Math.ceil(Math.hypot(q[0] - a[0], q[1] - a[1]) / 6));
+        for (let k = 0; k <= n; k++) { const u = a[0] + ((q[0] - a[0]) * k) / n, v = a[1] + ((q[1] - a[1]) * k) / n; pts.push(W(u, v, (ground ? ground.heightAt(u, v) : 0) + 0.35)); }
+      });
+      parcelLines.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat.parcel));
+    });
+  }
+  drapeParcels();
   (model.zones || []).forEach((z) => {
     const polys = (z.polys && z.polys.length ? z.polys : [z.uv]).filter((p) => p && p.length > 2);
     if (!polys.length) return;
-    if (z.kind === 'canopy') {
+    if (z.kind === 'canopy' && real) {
+      // A covered RV shelter: a seamed steel roof on posts (the stalls under it
+      // still show through a little), casting a real shadow on the lot.
+      const H = 5.2; const tex = seamTexture('#e4e7e9', '#aab0b4', '#f7f8f9'); tex.repeat.set(1 / 0.9, 1);
+      const roof = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5, metalness: 0.35, transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: true });
+      const postGeo = new THREE.CylinderGeometry(0.11, 0.11, H, 8); const posts = [];
+      polys.forEach((p) => {
+        const slab = flatPoly(p, roof, H); slab.castShadow = true; slab.userData.canopy = true; scene.add(slab); scene.add(lineLoop(p, mat.edge, H));
+        p.forEach((c, i) => { const d = p[(i + 1) % p.length]; const n = Math.max(1, Math.round(Math.hypot(d[0] - c[0], d[1] - c[1]) / 7)); for (let k = 0; k < n; k++) posts.push([c[0] + ((d[0] - c[0]) * k) / n, c[1] + ((d[1] - c[1]) * k) / n]); });
+      });
+      const inst = new THREE.InstancedMesh(postGeo, mat.door, posts.length); inst.castShadow = true;
+      posts.forEach((q, i) => { tmpM0.makeTranslation(q[0], H / 2, -q[1]); inst.setMatrixAt(i, tmpM0); }); inst.userData.canopyPosts = true; scene.add(inst);
+    } else if (z.kind === 'canopy') {
       // A roof over open stalls: a translucent slab on posts, so the stalls under it stay visible.
       polys.forEach((p) => { const slab = flatPoly(p, mat.canopy, 4.2); scene.add(slab); scene.add(lineLoop(p, mat.edge, 4.2)); p.forEach((c) => { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 4.2, 6), mat.door); post.position.copy(W(c[0], c[1], 2.1)); scene.add(post); }); });
     } else {
@@ -204,13 +312,20 @@ export function createSiteModelViewer(container, model, options = {}) {
       else { const t = ribTexture(office ? '#2f855a' : '#3d9c6b', office ? '#25704a' : '#2f855a', office ? '#3d9c6b' : '#52b07f'); t.repeat.set(Math.max(1, L / 1.4), 1); roof = new THREE.MeshLambertMaterial({ map: t }); }
       mats = [wall(Wd), wall(Wd), roof, mat.wall.clone(), wall(L), wall(L)];
     }
+    if (real) {
+      // Walls: pale ribbed metal panels. Roof: the building's own roof from the
+      // satellite photo (solar arrays, vents and all), lit like a real surface.
+      const wall = (w) => { const t = ribTexture('#dcd6c9', '#c3bdb0', '#e9e5db'); t.repeat.set(Math.max(1, w / 0.9), 1); t.anisotropy = 8; return new THREE.MeshStandardMaterial({ map: t, roughness: 0.85, metalness: 0.08 }); };
+      const top = ground ? ground.drape(new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.1 }), 'roof') : mats[2];
+      mats = [wall(Wd), wall(Wd), top, mat.wall.clone(), wall(L), wall(L)];
+    }
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(L, b.height, Wd), mats); mesh.userData.index = bi;
     mesh.position.copy(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, b.height / 2));
     mesh.userData.building = b; mesh.castShadow = true; scene.add(mesh); shells.push(mesh);
     if (illus) {   // a roof cap with a small overhang reads as a toy building from far away
       const cap = new THREE.Mesh(new THREE.BoxGeometry(L + 0.8, 0.45, Wd + 0.8), roof); cap.position.copy(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, b.height + 0.22)); cap.castShadow = true; scene.add(cap); mesh.userData.cap = cap;
     }
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), mat.edge); edges.position.copy(mesh.position); scene.add(edges);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), mat.edge); edges.position.copy(mesh.position); scene.add(edges); mesh.userData.edges = edges;
     for (let f = 2; f <= b.floors; f++) { const y = b.height * (f - 1) / b.floors; scene.add(lineLoop([[b.u[0], b.v[0]], [b.u[1], b.v[0]], [b.u[1], b.v[1]], [b.u[0], b.v[1]]], mat.edge, y)); }
     const short = b.letters && b.letters.length && b.letters.length <= 2 && b.letters.every((l) => l.length <= 2);
     const label = textSprite(short ? b.letters.join(' / ') : b.name, { size: 72, bg: 'rgba(255,255,255,0.85)', worldHeight: short ? 7 : 4 });
@@ -229,18 +344,20 @@ export function createSiteModelViewer(container, model, options = {}) {
   const doorInst = new THREE.InstancedMesh(cellGeo, illus ? mat.door : new THREE.MeshLambertMaterial({ map: doorTexture() }), N);
   doorInst.frustumCulled = false; doorInst.count = 0;
   const recs = []; const recOf = {}; const ZERO = new THREE.Vector3(0, 0, 0); const UP = new THREE.Vector3(0, 1, 0);
-  const tmpM = new THREE.Matrix4(); const tmpQ = new THREE.Quaternion(); const tmpV = new THREE.Vector3(); const tmpC = new THREE.Color();
+  const tmpM = new THREE.Matrix4(); const tmpQ = new THREE.Quaternion(); const tmpV = new THREE.Vector3(); const tmpC = new THREE.Color(); const tmpS = new THREE.Vector3();
   let doorCount = 0;
   units.forEach((u, i) => {
     const b = buildings[u.b]; const fh = b ? b.height / b.floors : 0; const baseY = (u.f - 1) * fh;
     // Parking stalls are painted slabs lying on the ground; storage units are boxes.
-    const h = u.k === 'park' ? (illus ? 0.12 : 0.08) : Math.min(2.2, Math.max(0.6, fh ? fh * 0.6 : 0.6));
-    const pos = W(u.u + u.wu / 2, u.v + u.dv / 2, baseY + h / 2 + (u.k === 'park' ? 0.01 : 0.03));
+    // Realistic: an open stall is paint on the ground, a container is a real 8.5 ft box.
+    const form = real ? unitForm(u, buildings) : null;
+    const h = form === 'stall' ? 0.08 : form === 'container' ? 2.59 : u.k === 'park' ? (illus ? 0.12 : 0.08) : Math.min(2.2, Math.max(0.6, fh ? fh * 0.6 : 0.6));
+    const pos = W(u.u + u.wu / 2, u.v + u.dv / 2, baseY + h / 2 + (u.k === 'park' || form === 'stall' ? 0.01 : 0.03));
     const scale = new THREE.Vector3(Math.max(0.3, u.wu - 0.12), h, Math.max(0.3, u.dv - 0.12));
     // An angled stall from the as-built plans turns about its center (rot:
     // degrees counter-clockwise in u,v; W maps u,v to x,-z, so that is rotation.y).
     const rot = u.rot ? (u.rot * Math.PI) / 180 : 0;
-    const r = { u, i, pos, scale, rot, h, door: null, visible: true, lift: 0 };
+    const r = { u, i, pos, scale, rot, h, door: null, visible: true, lift: 0, form, vis: null };
     if (u.k !== 'park' && b) {
       let dpos, dscale;
       if (u.door === 'w' || u.door === 'e') {   // rows that run across the frame: the door is on a u face
@@ -249,6 +366,14 @@ export function createSiteModelViewer(container, model, options = {}) {
       } else {
         dscale = new THREE.Vector3(Math.max(0.3, u.wu - 0.3), h + 0.02, 0.25);
         const vz = u.door === 'ne' ? u.v + u.dv - 0.12 : u.v + 0.12; dpos = W(u.u + u.wu / 2, vz, baseY + h / 2 + 0.03);
+      }
+      if (real && (u.k === 'du' || u.k === 'ccdu') && u.f === 1) {
+        // A drive-up door is a roll-up door on the outside wall: just proud of the
+        // unit's face and door-height, so the building rows read as real doors.
+        const dh = Math.min(2.6, fh * 0.75 || 2.4); const across = u.door === 'w' || u.door === 'e';
+        dscale = across ? new THREE.Vector3(0.06, dh, Math.max(0.3, u.dv - 0.5)) : new THREE.Vector3(Math.max(0.3, u.wu - 0.5), dh, 0.06);
+        const out = 0.07;
+        dpos = across ? W(u.door === 'e' ? u.u + u.wu + out : u.u - out, u.v + u.dv / 2, dh / 2) : W(u.u + u.wu / 2, u.door === 'ne' ? u.v + u.dv + out : u.v - out, dh / 2);
       }
       if (rot) {   // keep the door on its face of the turned unit
         const c = W(u.u + u.wu / 2, u.v + u.dv / 2, 0);
@@ -259,6 +384,46 @@ export function createSiteModelViewer(container, model, options = {}) {
     recs.push(r); recOf[u.n] = r;
   });
   doorInst.count = doorCount;
+  // Realistic looks draw each unit by what it is; unitInst stays as the (hidden)
+  // picking proxy so hover, click and selection work exactly as before.
+  //   stall     - a translucent, muted status tint over the photo + crisp white lines
+  //   container - corrugated steel in a real paint color, a status-tinted roof
+  //   interior  - a unit inside a building: a muted status box (seen with See Inside)
+  const vis = {};
+  if (real) {
+    unitInst.visible = false;
+    const groups = { stall: [], container: [], interior: [] }; recs.forEach((r) => groups[r.form].push(r));
+    const flat = new THREE.PlaneGeometry(1, 1); flat.rotateX(-Math.PI / 2); flat.translate(0, 0.5, 0);
+    const mk = (geo, material, list, key) => { const m = new THREE.InstancedMesh(geo, material, Math.max(1, list.length)); m.count = list.length; m.frustumCulled = false; list.forEach((r, k) => { r.vis = r.vis || {}; r.vis[key] = k; }); scene.add(m); return m; };
+    vis.tint = mk(flat, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }), groups.stall, 'tint');
+    vis.tint.renderOrder = 2;
+    vis.box = mk(cellGeo, new THREE.MeshStandardMaterial({ map: corrugatedTexture(), roughness: 0.62, metalness: 0.35 }), groups.container, 'box');
+    vis.box.castShadow = true; vis.box.receiveShadow = true;
+    vis.roof = mk(cellGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), groups.container, 'roof');
+    vis.inner = mk(cellGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), groups.interior, 'inner');
+    vis.inner.castShadow = true;
+    // Shipping-container paints, weathered: rust red, ocean blue, olive, sand, gray, white.
+    const PAINT = [0x8a3f2e, 0x2f4d6b, 0x55684a, 0xb3a17f, 0x7d8285, 0xc8c4b8, 0x9b5a2e];
+    groups.container.forEach((r) => vis.box.setColorAt(r.vis.box, tmpC.setHex(PAINT[nameBucket(r.u.n, PAINT.length)])));
+    if (vis.box.instanceColor) vis.box.instanceColor.needsUpdate = true;
+    // Painted stall lines: one merged mesh of thin strips along every stall's edges.
+    const lp = []; const li = []; const half = 0.06;
+    groups.stall.forEach((r) => {
+      const c = Math.cos(r.rot), sn = Math.sin(r.rot); const hx = r.scale.x / 2 + 0.06, hz = r.scale.z / 2 + 0.06;
+      const corner = (a, b) => [r.pos.x + a * c + b * sn, -a * sn + b * c + r.pos.z];
+      const cs = [corner(-hx, -hz), corner(hx, -hz), corner(hx, hz), corner(-hx, hz)];
+      for (let e = 0; e < 4; e++) {
+        const a = cs[e], b = cs[(e + 1) % 4]; const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; const nx = (-(b[1] - a[1]) / len) * half, nz = ((b[0] - a[0]) / len) * half;
+        const o = lp.length / 3; [[a[0] + nx, a[1] + nz], [a[0] - nx, a[1] - nz], [b[0] + nx, b[1] + nz], [b[0] - nx, b[1] - nz]].forEach((q) => lp.push(q[0], 0.06, q[1]));
+        li.push(o, o + 2, o + 1, o + 1, o + 2, o + 3);
+      }
+    });
+    if (lp.length) {
+      const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(lp, 3)); lg.setIndex(li);
+      const lines = new THREE.Mesh(lg, new THREE.MeshBasicMaterial({ color: 0xf4f3ee, transparent: true, opacity: 0.78, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 }));
+      lines.renderOrder = 3; scene.add(lines); vis.lines = lines;
+    }
+  }
   // Floors lift apart under See Inside with All Levels (an exploded view), so
   // the upper floor no longer hides the one below.
   const EXPLODE = 2.6;
@@ -266,16 +431,35 @@ export function createSiteModelViewer(container, model, options = {}) {
   function placeInstance(r) {
     tmpQ.setFromAxisAngle(UP, r.rot); tmpV.copy(r.pos); tmpV.y += yOff(r);
     tmpM.compose(tmpV, tmpQ, r.visible ? r.scale : ZERO); unitInst.setMatrixAt(r.i, tmpM);
+    if (r.vis) {
+      if (r.vis.tint != null) vis.tint.setMatrixAt(r.vis.tint, tmpM);
+      if (r.vis.box != null) vis.box.setMatrixAt(r.vis.box, tmpM);
+      if (r.vis.inner != null) vis.inner.setMatrixAt(r.vis.inner, tmpM);
+      if (r.vis.roof != null) { tmpV.y += r.h / 2 + 0.025; tmpS.set(r.scale.x * 0.985, 0.04, r.scale.z * 0.97); tmpM.compose(tmpV, tmpQ, r.visible ? tmpS : ZERO); vis.roof.setMatrixAt(r.vis.roof, tmpM); }
+    }
     if (r.door) { tmpV.copy(r.door.pos); tmpV.y += yOff(r); tmpM.compose(tmpV, tmpQ, r.visible ? r.door.scale : ZERO); doorInst.setMatrixAt(r.door.at, tmpM); }
   }
+  const matricesChanged = () => { unitInst.instanceMatrix.needsUpdate = true; doorInst.instanceMatrix.needsUpdate = true; ['tint', 'box', 'roof', 'inner'].forEach((k) => { if (vis[k]) vis[k].instanceMatrix.needsUpdate = true; }); };
   recs.forEach(placeInstance);
-  unitInst.instanceMatrix.needsUpdate = true; doorInst.instanceMatrix.needsUpdate = true;
+  matricesChanged();
   unitInst.computeBoundingSphere(); unitInst.computeBoundingBox();
   scene.add(unitInst); scene.add(doorInst);
   const colCur = new Float32Array(N * 3); const colTo = new Float32Array(N * 3); let colorsMoving = false;
   recs.forEach((r) => unitInst.setColorAt(r.i, tmpC.setHex(KIND_COLORS.neutral)));
   /** Where a unit's box sits now (exploded floors included). */
   const unitTop = (r) => new THREE.Vector3(r.pos.x, r.pos.y + yOff(r) + r.h / 2, r.pos.z);
+
+  /** Under Google's mesh: no container boxes or shelter roofs of our own (the
+   *  real ones are in the mesh); status tints and roof plates draw on top of it. */
+  function applyPhotoMode() {
+    if (!real) return;
+    if (vis.box) vis.box.visible = !photo;
+    [vis.tint, vis.roof, vis.lines].forEach((m) => { if (m) { m.material.depthTest = !photo; m.material.needsUpdate = true; } });
+    if (vis.lines) vis.lines.visible = !photo;
+    scene.children.forEach((c) => { if (c.userData.canopy || c.userData.canopyPosts) c.visible = !photo; });
+    scene.fog.density = photo ? 0.00012 : 0.00021;
+    restyle(true);
+  }
 
   // ---- north arrow + 50 ft bar ----
   if (model.gates && model.gates.length && model.frame && model.frame.north) {
@@ -296,6 +480,18 @@ export function createSiteModelViewer(container, model, options = {}) {
   // The chosen unit is drawn on its own, raised a little above its row and glowing.
   const selMesh = new THREE.Mesh(cellGeo, mat.sel); selMesh.visible = false; selMesh.castShadow = !illus; scene.add(selMesh);
   const selDoor = new THREE.Mesh(cellGeo, doorInst.material); selDoor.visible = false; scene.add(selDoor);
+  // Realistic: the chosen unit gets a crisp white outline, the hovered one a lighter one.
+  const edgeGeo = new THREE.EdgesGeometry(cellGeo); let hoverBox = null;
+  if (real) {
+    const o = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, toneMapped: false })); o.scale.setScalar(1.01); o.renderOrder = 6; selMesh.add(o);
+    hoverBox = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false, toneMapped: false })); hoverBox.visible = false; hoverBox.renderOrder = 7; scene.add(hoverBox);
+  }
+  function showHover(unit) {
+    if (!hoverBox) return; const r = unit && recOf[unit.n];
+    if (!r || unit.n === state.selected || !r.visible) { hoverBox.visible = false; return; }
+    hoverBox.visible = true; hoverBox.position.copy(r.pos); hoverBox.position.y += yOff(r); hoverBox.quaternion.setFromAxisAngle(UP, r.rot);
+    hoverBox.scale.set(r.scale.x + 0.15, Math.max(0.12, r.h + 0.06), r.scale.z + 0.15);
+  }
   let selLift = 0;
 
   // Unit numbers (Oct 20 review): the chosen unit's nearest neighbors on its
@@ -320,10 +516,26 @@ export function createSiteModelViewer(container, model, options = {}) {
       unitLabels.add(sp); unitLabelList.push(sp);
     });
   }
-  let pinLabel = null;
+  let pinLabel = null; let pinGeo = null; let dotTex = null; let shadowTex = null;
   function updateBeacon() {
     clearGroup(beacon); pinLabel = null;
     if (!state.selected) return; const u = byName[state.selected]; const p = unitTop(recOf[u.n]); p.y -= recOf[u.n].h / 2;
+    if (real) {
+      // A slim map pin that keeps one size on screen (~40 px, scaled in the loop):
+      // a lathe-turned head and stem, a white eye, the unit chip above and a soft
+      // shadow on the ground under it. It stands on the unit (a container's roof).
+      const r = recOf[u.n]; const pin = new THREE.Group(); pin.position.set(p.x, p.y + r.h + Math.min(0.6, r.h * 0.3) + 0.05, p.z); pin.userData.pin = true; pin.userData.real = true; beacon.add(pin);
+      const body = new THREE.Mesh(pinGeo || (pinGeo = new THREE.LatheGeometry(pinProfile(), 36)), new THREE.MeshStandardMaterial({ color: 0xec5f17, roughness: 0.42, metalness: 0.05, emissive: 0x401400 }));
+      body.castShadow = false; pin.add(body);
+      const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex || (dotTex = radialTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0)')), depthTest: false, toneMapped: false }));
+      eye.scale.setScalar(0.3); eye.position.set(0, 0.68, 0); eye.renderOrder = 13; pin.add(eye);
+      const lab = textSprite(u.n, { size: 64, mono: true, bg: 'rgba(255,255,255,0.96)', color: '#1d1f1a', worldHeight: 0.42, depthTest: false }); lab.position.set(0, 1.36, 0); lab.renderOrder = 12; pin.add(lab); pinLabel = lab;
+      const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shadowTex || (shadowTex = radialTexture('rgba(0,0,0,0.5)', 'rgba(0,0,0,0)')), transparent: true, depthWrite: false, toneMapped: false }));
+      shadow.rotation.x = -Math.PI / 2; shadow.position.set(p.x, p.y + r.h + 0.08, p.z); shadow.userData.shadow = true; shadow.renderOrder = 4; beacon.add(shadow);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.5, 48), new THREE.MeshBasicMaterial({ color: 0xff7a00, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
+      ring.rotation.x = -Math.PI / 2; ring.position.set(p.x, p.y + r.h + 0.1, p.z); ring.userData.pulse = true; beacon.add(ring);
+      return;
+    }
     {   // a map pin over the unit, like a pin on a delivery map; sized to the zoom in the loop (both looks)
       const pin = new THREE.Group(); pin.position.set(p.x, p.y + 0.12, p.z); pin.userData.pin = true; beacon.add(pin);
       const pinMat = new THREE.MeshLambertMaterial({ color: 0xff7a00 }); const top = illus ? 9 : 5;
@@ -378,6 +590,8 @@ export function createSiteModelViewer(container, model, options = {}) {
     plan.stops.forEach((s, i) => {
       // The unit itself already carries the orange pin: only the stops before it get a marker.
       if (s.end) return;
+      // Realistic: the slim pin is short - a stop right beside the unit would cover it.
+      if (real && i > 0 && Math.hypot(s.uv[0] - (u.u + u.wu / 2), s.uv[1] - (u.v + u.dv / 2)) < 12) return;
       const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.2, 24), new THREE.MeshLambertMaterial({ color: 0x2f7de1 }));
       disc.position.copy(W(s.uv[0], s.uv[1], y + 0.1)); routeGroup.add(disc);
       const l = textSprite(String(i + 1), { size: 48, bg: 'rgba(47,125,225,0.95)', color: '#fff', worldHeight: 1.8, depthTest: false });
@@ -392,7 +606,12 @@ export function createSiteModelViewer(container, model, options = {}) {
     const selB = state.selected ? byName[state.selected].b : null;
     const explode = !!state.xray && !state.level;
     const moved = explode !== state.explode; state.explode = explode;
-    shells.forEach((m) => { const b = m.userData.building; const open = xray || selB === b.id || (state.level && b.floors > 1); m.material.forEach((mm) => { mm.transparent = open; mm.opacity = open ? 0.16 : 1; mm.depthWrite = !open; }); if (m.userData.cap) m.userData.cap.visible = !open; });
+    shells.forEach((m) => {
+      const b = m.userData.building; const open = xray || selB === b.id || (state.level && b.floors > 1);
+      m.material.forEach((mm) => { mm.transparent = open; mm.opacity = open ? 0.16 : 1; mm.depthWrite = !open; }); if (m.userData.cap) m.userData.cap.visible = !open;
+      // Under Google's mesh the real building is already there: our shell shows only when opened.
+      m.visible = !photo || !!open; if (m.userData.edges) m.userData.edges.visible = m.visible;
+    });
     // The before look kept every color crisp with the chosen unit in orange (Oct 20 review): dimming is opt-in.
     const focus = state.selected && state.focusDim === true;
     const neutral = mat.neutral.color.getHex(), neutralPark = mat.neutralPark.color.getHex();
@@ -403,11 +622,13 @@ export function createSiteModelViewer(container, model, options = {}) {
       const show = lvlOk && (!b || u.f === 1 || xray || selB === u.b || (multi && !!state.level)) && state.selected !== u.n;
       if (show !== r.visible || moved) { r.visible = show; placeInstance(r); }
       let c = baseUnitColor(u, state.mode, state.colors, neutral, neutralPark);
+      if (real) c = mutedTint(c, 0.28);   // same hue as the legend, calmer over the photo
       if (multi && state.level && u.f < state.level) c = mixHex(c, 0xcfccc4, 0.6);
       if (focus && state.selected !== u.n) c = mixHex(c, u.b === selB ? 0xd8d5cc : 0xbdbab2, u.b === selB ? 0.35 : 0.55);
       tmpC.setHex(c); colTo[r.i * 3] = tmpC.r; colTo[r.i * 3 + 1] = tmpC.g; colTo[r.i * 3 + 2] = tmpC.b;
     });
-    unitInst.instanceMatrix.needsUpdate = true; doorInst.instanceMatrix.needsUpdate = true;
+    matricesChanged();
+    if (vis.tint) vis.tint.material.opacity = state.mode === 'customer' ? 0.22 : photo ? 0.5 : 0.4;
     if (snap || reduceMotion) { colCur.set(colTo); pushColors(); } else colorsMoving = true;
     const sel = state.selected ? recOf[state.selected] : null;
     if (sel) {
@@ -420,7 +641,14 @@ export function createSiteModelViewer(container, model, options = {}) {
     showUnitLabels(selB, state.level || (state.selected ? byName[state.selected].f : 0)); updateBeacon(); renderMarkers();
     if (state.routeFor !== state.selected) { state.routeFor = state.selected; renderRoute(); }
   }
-  function pushColors() { for (let i = 0; i < recs.length; i++) { tmpC.setRGB(colCur[i * 3], colCur[i * 3 + 1], colCur[i * 3 + 2]); unitInst.setColorAt(i, tmpC); } if (unitInst.instanceColor) unitInst.instanceColor.needsUpdate = true; }
+  function pushColors() {
+    for (let i = 0; i < recs.length; i++) {
+      tmpC.setRGB(colCur[i * 3], colCur[i * 3 + 1], colCur[i * 3 + 2]); const v = recs[i].vis;
+      if (!v) unitInst.setColorAt(i, tmpC);
+      else if (v.tint != null) vis.tint.setColorAt(v.tint, tmpC); else if (v.roof != null) vis.roof.setColorAt(v.roof, tmpC); else if (v.inner != null) vis.inner.setColorAt(v.inner, tmpC);
+    }
+    [unitInst, vis.tint, vis.roof, vis.inner].forEach((m) => { if (m && m.instanceColor) m.instanceColor.needsUpdate = true; });
+  }
   function placeSelected() {
     const sel = state.selected ? recOf[state.selected] : null; if (!sel) return;
     const lift = Math.min(0.6, sel.h * 0.3) * selLift;
@@ -470,12 +698,16 @@ export function createSiteModelViewer(container, model, options = {}) {
     pts.forEach(([u, v]) => { u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); });
     return { cu: (u0 + u1) / 2, cv: (v0 + v1) / 2, r: Math.max(120, Math.hypot(u1 - u0, v1 - v0) * 0.95) };
   })();
-  const ctrl = { target: W(bounds.cu, bounds.cv, 0), theta: illus ? -0.6 : 0, phi: illus ? 0.72 : 0.9, radius: bounds.r, min: 10, max: Math.max(1200, bounds.r * 3) };
+  const ctrl = { target: W(bounds.cu, bounds.cv, 0), theta: illus ? -0.6 : 0, phi: illus ? 0.72 : real ? 0.62 : 0.9, radius: real ? bounds.r * 0.92 : bounds.r, min: 10, max: Math.max(1200, bounds.r * 3) };
   if (illus) scene.fog = new THREE.Fog(DIORAMA.fog, bounds.r * 1.8, bounds.r * 6);   // the far floor fades into the sky
   // A big board needs the sun pulled back, or the far corners fall outside the shadow box.
   const sunK = illus ? Math.max(1, bounds.r / 220) : 1;
   sun.target.position.copy(ctrl.target); sun.position.copy(ctrl.target.clone().add(new THREE.Vector3(-160, 260, 120).multiplyScalar(sunK)));
   Object.assign(sun.shadow.camera, { left: -bounds.r, right: bounds.r, top: bounds.r, bottom: -bounds.r, far: illus ? 330 * sunK + bounds.r * 1.6 : 700 }); sun.shadow.camera.updateProjectionMatrix();
+  if (real) {   // the real sun angle; one shadow box sized to the lot
+    const half = Math.max(80, bounds.r * 0.62); sun.position.copy(ctrl.target).addScaledVector(new THREE.Vector3(...sunDir), 500);
+    Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 100, far: 1000 }); sun.shadow.camera.updateProjectionMatrix();
+  }
   function applyCamera() {
     ctrl.phi = Math.max(0.08, Math.min(1.45, ctrl.phi)); ctrl.radius = Math.max(ctrl.min, Math.min(ctrl.max, ctrl.radius));
     camera.position.set(Math.sin(ctrl.theta) * Math.cos(ctrl.phi), Math.sin(ctrl.phi), Math.cos(ctrl.theta) * Math.cos(ctrl.phi)).multiplyScalar(ctrl.radius).add(ctrl.target); camera.lookAt(ctrl.target);
@@ -490,7 +722,7 @@ export function createSiteModelViewer(container, model, options = {}) {
   }
   const gate0 = model.gates && model.gates.length ? model.gates[0].uv : null;
   const VIEWS = {
-    overview: () => flyTo(W(bounds.cu, bounds.cv, 0), illus ? -0.6 : 0, illus ? 0.72 : 0.9, bounds.r),
+    overview: () => flyTo(W(bounds.cu, bounds.cv, 0), illus ? -0.6 : 0, illus ? 0.72 : real ? 0.62 : 0.9, real ? bounds.r * 0.92 : bounds.r),
     plan: () => flyTo(W(bounds.cu, bounds.cv, 0), 0, 1.45, bounds.r * 0.95),
     // Stand just outside the gate and look across the site.
     gate: () => { const g = gate0 || [bounds.cu, bounds.cv]; const theta = Math.atan2(g[0] - bounds.cu, -(g[1] - bounds.cv)); flyTo(W(g[0], g[1], 0), theta, 0.22, Math.max(90, bounds.r * 0.4)); },
@@ -529,7 +761,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     el.style.cursor = hit ? 'pointer' : state.placing ? 'crosshair' : '';
     const unit = hit ? hit.u : null;
     if (unit === hovered) return;            // the React side re-renders only when the hovered unit changes
-    hovered = unit;
+    hovered = unit; showHover(unit);
     if (opts.onHover) opts.onHover(unit, { x: e.clientX - r.left, y: e.clientY - r.top });
   }
   function click(e) {
@@ -573,7 +805,16 @@ export function createSiteModelViewer(container, model, options = {}) {
     if (diorama && !reduceMotion) diorama.update(dt);
     {   // the pin bobs and keeps a readable size from any distance; the ring under it pulses
       const sz = Math.max(illus ? 1 : 0.6, Math.min(illus ? 6 : 4, ctrl.radius / (illus ? 110 : 140)));
-      beacon.children.forEach((c) => {
+      const pin = real && beacon.children.find((c) => c.userData.real);
+      if (pin) {
+        const px = camera.position.distanceTo(pin.position) * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / (el.clientHeight || 1);
+        const s = Math.max(0.9, px * 46);
+        beacon.children.forEach((c) => {
+          if (c.userData.pin) c.scale.setScalar(s);
+          if (c.userData.shadow) c.scale.setScalar(s * 0.5);
+          if (c.userData.pulse) { const k = reduceMotion ? 0.3 : (now / 1600) % 1; c.scale.setScalar(s * (0.6 + k * 1.4)); c.material.opacity = 0.45 * (1 - k); }
+        });
+      } else beacon.children.forEach((c) => {
         if (c.userData.pin) { c.scale.setScalar(sz); c.position.y = (c.userData.y0 ??= c.position.y) + (reduceMotion ? 0 : Math.sin(now / 380) * 0.6 * sz); }
         if (c.userData.pulse) { const k = reduceMotion ? 0.3 : (now / 1400) % 1; c.scale.setScalar(sz * (1 + k * 2.2)); c.material.opacity = 0.5 * (1 - k); }
       });
@@ -590,9 +831,16 @@ export function createSiteModelViewer(container, model, options = {}) {
     if (routeTex && !reduceMotion) routeTex.offset.x -= dt * 0.5;
     if (routeReveal) { const k = Math.min(1, (now - routeReveal.t0) / 1400); const n = Math.floor(routeReveal.total * k / 6) * 6; routeReveal.mesh.geometry.setDrawRange(0, k >= 1 ? Infinity : n); if (k >= 1) routeReveal = null; }
     declutter(now);
+    if (real) {
+      // Clip planes follow the zoom: close to the ground for detail, far enough for the horizon.
+      const near = Math.max(0.3, Math.min(8, ctrl.radius * 0.006)); if (Math.abs(near - camera.near) > 0.05) { camera.near = near; camera.updateProjectionMatrix(); }
+      if (sky) sky.position.copy(camera.position);
+      if (photoreal) { photoreal.update(now); if (now - lastCredit > 1000) { lastCredit = now; const c = photoreal.attribution(); if (c !== credit) { credit = c; if (opts.onAttribution) opts.onAttribution(c); } } }
+    }
     renderer.render(scene, camera); }
+  let lastCredit = 0; let credit = '';
   if (diorama) diorama.setParked(units, state.mode === 'owner');
-  resize(); applyCamera(); restyle(true); raf = requestAnimationFrame(loop);
+  resize(); applyCamera(); restyle(true); if (photo) applyPhotoMode(); raf = requestAnimationFrame(loop);
 
   return {
     selectUnit,
@@ -617,7 +865,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     destroy() {
       alive = false; cancelAnimationFrame(raf); if (ro) ro.disconnect(); else window.removeEventListener('resize', resize);
       el.removeEventListener('pointerdown', onDown); el.removeEventListener('pointermove', onMove); el.removeEventListener('pointerup', onUp); el.removeEventListener('pointercancel', onUp); el.removeEventListener('wheel', onWheel); el.removeEventListener('contextmenu', onCtx);
-      if (diorama) diorama.dispose(); scene.traverse((o) => { if (o !== scene) disposeObject(o); }); scene.clear();
+      if (diorama) diorama.dispose(); if (ground) ground.dispose(); if (photoreal) photoreal.dispose(); edgeGeo.dispose(); if (pinGeo) pinGeo.dispose(); scene.traverse((o) => { if (o !== scene) disposeObject(o); }); scene.clear();
       // dispose() alone keeps the WebGL context: every look switch builds a new renderer, and
       // browsers drop the oldest context past ~16 - release it now.
       renderer.dispose(); renderer.forceContextLoss(); if (el.parentNode) el.parentNode.removeChild(el);

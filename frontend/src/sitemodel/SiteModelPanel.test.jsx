@@ -88,11 +88,23 @@ describe('SiteModelPanel', () => {
     const { unmount } = render(<SiteModelPanel model={model} mode="customer" images={{}} />);
     expect(styles.at(-1)).toBe('illustrated');   // the clean illustrated look is the default again (Oct 20 review)
     expect(screen.getByText(/Illustrated, drawn to scale/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Satellite' }));
+    // a View dropdown, not pills (Visesh's rule); no Realistic 3D without a Google key
+    const view = screen.getByRole('combobox', { name: 'View' });
+    expect([...view.options].map((o) => o.textContent)).toEqual(['Satellite', 'Illustrated']);
+    fireEvent.change(view, { target: { value: 'satellite' } });
     expect(styles.at(-1)).toBe('satellite');
+    // the satellite look credits the imagery and the elevation source
+    expect(screen.getByText(/Imagery: Esri · Elevation: AWS Terrain Tiles \(USGS, others\)/)).toBeTruthy();
     unmount();
     render(<SiteModelPanel model={model} mode="customer" images={{}} />);
     expect(styles.at(-1)).toBe('satellite');
+    localStorage.removeItem('nexus.siteModel.look');
+  });
+  it('never opens Realistic 3D without a key: a remembered choice falls back to Satellite', () => {
+    localStorage.setItem('nexus.siteModel.look', 'photoreal'); styles.length = 0;
+    render(<SiteModelPanel model={model} mode="owner" images={{}} />);
+    expect(styles.at(-1)).toBe('satellite');
+    expect(screen.getByRole('combobox', { name: 'View' }).value).toBe('satellite');
     localStorage.removeItem('nexus.siteModel.look');
   });
   it('one status per unit: a lease beats the ACTIVE_LEASE unrentable flag everywhere', () => {

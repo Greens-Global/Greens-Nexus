@@ -19,6 +19,13 @@
 //
 // Oct 20 2026 (Visesh's review of the rebuild - "this looks worse than the normal one"):
 //   Illustrated is the default look again; Satellite stays a button.
+//
+// Oct 20 2026 (Visesh: the satellite view "looks so flat and I want reality"):
+//   Satellite is real terrain draped with the photo (siteModelGround.js), and
+//   the look is a View dropdown (dropdowns, not pills). "Realistic 3D" (Google
+//   Photorealistic 3D Tiles) is offered to owners only, and only when the build
+//   carries VITE_GOOGLE_MAPS_KEY; the customer page stays on Satellite (Google
+//   bills per session). Where Google has no 3D coverage it falls back to Satellite.
 //   statusOf(u)   'leased' | 'vacant' | 'bad' - ONE answer for the badge, the
 //                 inventory tiles, the legend counts and Needs Attention (Ops
 //                 passes the rent roll's word). Default: a lease wins over
@@ -46,7 +53,10 @@ const card = { border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 1
 // Satellite = the property photo under the model; Illustrated = the same model
 // drawn as a miniature with trees and traffic. Remembered per browser.
 const LOOK_KEY = 'nexus.siteModel.look';
-function readLook() { try { return localStorage.getItem(LOOK_KEY) === 'satellite' ? 'satellite' : 'illustrated'; } catch { return 'illustrated'; } }
+function readLook() { try { const v = localStorage.getItem(LOOK_KEY); return v === 'satellite' || v === 'photoreal' ? v : 'illustrated'; } catch { return 'illustrated'; } }
+// The Google key is a browser key restricted to the Nexus domains (siteModelPhotoreal.js).
+const PHOTOREAL_KEY = !!(import.meta.env && import.meta.env.VITE_GOOGLE_MAPS_KEY);
+const ELEVATION_CREDIT = 'Elevation: AWS Terrain Tiles (USGS, others)';
 function saveLook(v) { try { localStorage.setItem(LOOK_KEY, v); } catch { /* private window: the choice just is not remembered */ } }
 
 /** A unit's occupancy from the model's live flags: a lease wins over the
@@ -82,7 +92,11 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   const [placing, setPlacing] = useState(false); const [pending, setPending] = useState(null);
   const [pinTitle, setPinTitle] = useState(''); const [pinCat, setPinCat] = useState('maintenance');
   const [hover, setHover] = useState(null); const [noGl, setNoGl] = useState(false);
-  const [look, setLook] = useState(readLook);
+  const [lookPref, setLook] = useState(readLook);
+  const [photoFailed, setPhotoFailed] = useState(false); const [googleCredit, setGoogleCredit] = useState('');
+  // Realistic 3D only for owners with a key, and not where it already failed to load.
+  const canPhoto = PHOTOREAL_KEY && mode === 'owner' && !photoFailed;
+  const look = lookPref === 'photoreal' && !canPhoto ? 'satellite' : lookPref;
   const [touched, setTouched] = useState(false);
   const colorsRef = useRef(unitColors); colorsRef.current = unitColors;
   const selectedRef = useRef(null); const xrayRef = useRef(false);
@@ -116,6 +130,8 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
         onSelectBuilding: (b) => setBuilding(b),
         onPlacePin: (at) => { setPending(at); setPlacing(false); },
         onHover: (u, pos) => setHover(u ? { n: u.n, f: u.f, ...pos } : null),
+        onAttribution: (c) => setGoogleCredit(c),
+        onPhotorealFallback: () => setPhotoFailed(true),
       });
     } catch (e) {
       // No WebGL (old GPU, headless) - the panel still works as a unit list. A throw
@@ -192,9 +208,15 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
           {!noGl && <div style={{ position: 'absolute', left: 10, bottom: 10, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 2 }}>
             <button type="button" style={btn} onClick={() => { viewerRef.current?.resetView?.(); setLevel(0); }} title="Back to the whole site">Reset View</button>
             {[['overview', 'Overview'], ['plan', 'Plan'], ['gate', 'From Gate']].map(([k, l]) => <button key={k} type="button" style={btn} onClick={() => viewerRef.current?.view(k)}>{l}</button>)}
-            <span style={{ display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' }} role="group" aria-label="Look">
-              {[['satellite', 'Satellite'], ['illustrated', 'Illustrated']].map(([k, l]) => <button key={k} type="button" aria-pressed={look === k} onClick={() => { if (look !== k) { setLook(k); saveLook(k); setPlacing(false); setLevel(0); } }} style={{ ...btn, border: 0, borderRadius: 0, ...(look === k ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{l}</button>)}
-            </span>
+            <label style={{ ...btn, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0 4px 0 10px', cursor: 'default' }}>
+              <span>View</span>
+              <select aria-label="View" value={look} onChange={(e) => { const k = e.target.value; if (look !== k) { setLook(k); saveLook(k); setPlacing(false); setLevel(0); } }}
+                style={{ font: `500 13px ${FONT}`, border: 0, background: 'transparent', color: 'inherit', padding: '6px 2px', cursor: 'pointer' }}>
+                {canPhoto && <option value="photoreal">Realistic 3D</option>}
+                <option value="satellite">Satellite</option>
+                <option value="illustrated">Illustrated</option>
+              </select>
+            </label>
             {hasInterior && <button type="button" style={xray ? btnOn : btn} aria-pressed={xray} title="Open the buildings to see the units inside" onClick={() => { setXray(!xray); viewerRef.current?.setXray(!xray); }}>See Inside</button>}
             {maxLevel > 1 && <span style={{ display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' }} role="group" aria-label="Level">
               {[0, ...Array.from({ length: maxLevel }, (_, i) => i + 1)].map((n) => <button key={n} type="button" aria-pressed={level === n} onClick={() => setLvl(n)} style={{ ...btn, border: 0, borderRadius: 0, ...(level === n ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{n ? `L${n}` : 'All Levels'}</button>)}
@@ -204,7 +226,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             <span className="sm-hint-mouse">Drag to orbit · Scroll to zoom · Right-drag to pan</span><span className="sm-hint-touch">Drag to orbit · Pinch to zoom · Two fingers to pan</span>
           </div>}
           <style>{`.sm-hint-touch{display:none} @media (pointer: coarse){ .sm-hint-touch{display:inline} .sm-hint-mouse{display:none} }`}</style>
-          <div style={{ position: 'absolute', right: 10, top: 10, fontSize: 10, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{look === 'illustrated' ? 'Illustrated, drawn to scale' : model.image?.attribution || ''} · 1 unit = 1 m</div>
+          <div style={{ position: 'absolute', right: 10, top: 10, fontSize: 10, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{look === 'illustrated' ? 'Illustrated, drawn to scale' : look === 'photoreal' ? `Map data: ${googleCredit || 'Google'}` : `${model.image?.attribution || 'Imagery: Esri'} · ${ELEVATION_CREDIT}`} · 1 unit = 1 m</div>
           {look === 'illustrated' && <SiteModelHud model={model} owner={owner} live={live} unit={u}
             stats={{ active: active.length, leased, vacant, bad: bad.length, leasedPct: active.length ? Math.round(100 * leased / active.length) : 0 }}
             attention={bad} pins={pins} ticketsByUnit={ticketsByUnit} pinsEnabled={pinsEnabled}
