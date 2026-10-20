@@ -1554,7 +1554,7 @@ function FolderModal({
       onClick={() => { if (!drag.recentlyDropped()) requestClose(); }}
     >
       <div
-        ref={contentRef} className="modal-content folder-panel" style={{ width: 'fit-content', minWidth: 'min(380px, 100%)', maxWidth: 'min(60vw, 100%)' }}
+        ref={contentRef} className="modal-content folder-panel nx-popup"
         onClick={e => e.stopPropagation()}
       >
         <div className="modal-header">
@@ -2042,7 +2042,7 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
   return (
     <div onClick={e => { if (e.target === e.currentTarget) guard.requestClose(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1450, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
+      <div className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
         <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center' }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{title}</h3>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
@@ -2193,7 +2193,7 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
 
   return (
     <div className="modal-overlay" onClick={() => !saving && guard.requestClose()}>
-      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content nx-popup" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{mode === 'add' ? 'Add Link' : 'Edit Link'}</h3>
           <button className="close-btn" onClick={guard.requestClose}><X size={16} /></button>
@@ -2411,7 +2411,7 @@ function ManageModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content nx-popup" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Manage Links</h3>
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
@@ -2839,7 +2839,7 @@ function ManageMobileSheet({ m }) {
 function TaxonomyModal({ taxonomy, onAdd, onRename, onDelete, onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content nx-popup" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Departments &amp; Categories</h3>
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
@@ -3071,7 +3071,7 @@ function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
 
   return (
     <div className="modal-overlay" onClick={() => guard.requestClose()}>
-      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content nx-popup" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Batch Import Links</h3>
           <button className="close-btn" onClick={guard.requestClose}><X size={16} /></button>

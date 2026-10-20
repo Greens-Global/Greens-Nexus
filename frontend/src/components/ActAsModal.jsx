@@ -131,7 +131,7 @@ export function ActAsPicker({ onStart, onDone, autoFocus = true, pageSize = 0 })
 export default function ActAsModal({ onClose, onStart }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, width: 380, maxWidth: '90vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+      <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 14, display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <UserCog size={16} style={{ color: 'var(--muted)' }} />

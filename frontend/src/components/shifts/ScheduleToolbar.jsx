@@ -19,7 +19,8 @@ import { addDaysIso } from './shiftLib';
 
 const VIEWS = [['day', 'Day'], ['week', 'Week'], ['month', 'Month']];
 export const MODAL_BACK = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' };
-export const MODAL_CARD = { background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 460, padding: 20, maxHeight: '92dvh', overflowY: 'auto' };
+// Size comes from className="nx-popup" (CLAUDE.md popup rule), which also keeps the phone sheet.
+export const MODAL_CARD = { background: 'var(--card)', borderRadius: 14, padding: 20 };
 export const LBL = { fontSize: 11, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 };
 export const CHECK = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' };
 
@@ -342,7 +343,7 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
   const step2 = !!review;
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && cancel()}>
-      <div role="dialog" aria-label="Share Schedule" style={{ ...MODAL_CARD, maxWidth: step2 ? 520 : 440 }}>
+      <div role="dialog" aria-label="Share Schedule" className="nx-popup" style={MODAL_CARD}>
         <DialogHead title={step2 ? 'Review And Share' : 'Share Schedule'} onClose={cancel} />
         {step2 ? (
           <ReviewStep review={review} from={from} to={to} reason={reason} onReason={setReason} showChanges={showChanges} onShowChanges={setShowChanges}
@@ -506,7 +507,7 @@ export function DayNoteDialog({ date, groups = [], notes = [], busy, onSave, onC
   useEffect(() => { setText(existing?.note || ''); }, [existing?.note, groupId, date]);
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Day Note" style={{ ...MODAL_CARD, maxWidth: 420 }}>
+      <div role="dialog" aria-label="Day Note" className="nx-popup" style={MODAL_CARD}>
         <DialogHead title="Day Note" onClose={onClose} />
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Everyone on the schedule sees this on the day, here and in My Shifts.</div>
         <div style={{ display: 'grid', gap: 12 }}>
@@ -544,7 +545,7 @@ export function ViewOptionsDialog({ prefs, onPrefs, query, onQuery, groupBy, onG
   const set = (k, v) => onPrefs({ ...prefs, [k]: v });
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="View Options" style={{ ...MODAL_CARD, maxWidth: 420 }}>
+      <div role="dialog" aria-label="View Options" className="nx-popup" style={MODAL_CARD}>
         <DialogHead title="View Options" onClose={onClose} />
         <div style={{ display: 'grid', gap: 14, marginTop: 8 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 8, padding: '5px 10px' }}>

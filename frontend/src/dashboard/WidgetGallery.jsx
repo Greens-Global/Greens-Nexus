@@ -24,7 +24,7 @@ const Shell = ({ title, sub, onClose, children }) => (
   // min(85vh, 100%): on a phone 85vh counts the height hidden behind the
   // browser's toolbars, so the sheet's bottom rows could sit off-screen;
   // 100% of the fixed overlay is the space actually visible.
-  <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 560, maxHeight: 'min(85vh, 100%)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+  <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
     <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ flex: 1 }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{title}</h3>

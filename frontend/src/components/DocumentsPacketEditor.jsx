@@ -84,7 +84,7 @@ function PreviewModal({ templateId, name, companyId, flow, letterheadId, onClose
   return (
     <div onClick={e => e.target === e.currentTarget && onClose()}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 60vw, 1000px)', height: 'min(92dvh, 900px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', height: 'min(92dvh, 900px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 14 }}>{name} - Preview With Sample Person</div>

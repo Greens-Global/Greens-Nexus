@@ -1206,6 +1206,25 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .nx-overlay.is-closing > .nx-panel { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
 .nx-overlay.is-closing > .nx-modal-sheet { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
 
+/* Popups cover 60% of the screen (Pranshu, Oct 15 2026): put .nx-popup on any
+   centered modal / dialog panel. Comes after .modal-content so it wins over
+   that class's max-width; an inline width/maxWidth/minHeight/maxHeight on the
+   panel still beats it, so drop those when adding the class. Phones keep
+   their sheet. The doubled class outranks a panel's own later class rule
+   (.bi-modal and the like) without !important. */
+.nx-popup.nx-popup {
+  width: 60vw;
+  min-width: min(420px, 100%);
+  max-width: 100%;
+  min-height: 60vh;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+@media (max-width: 640px) {
+  .nx-popup.nx-popup { width: 100%; min-width: 0; min-height: 0; max-height: 92vh; }
+}
+
 /* AnchoredMenu: grows out of its trigger corner and shrinks back into it. */
 .nx-anchored { animation: nx-menu-in var(--dur-sm) var(--ease-out); transform-origin: top left; }
 .nx-anchored[data-align="end"] { transform-origin: top right; }

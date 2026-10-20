@@ -319,7 +319,7 @@ function LinksFolderTile({ link, color, onOpen, style }) {
 function LinksFolderAllModal({ title, links, itemType, colorFor, onOpen, onClose }) {
   return createPortal((
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ width: 'max(60vw, min(100%, 560px))', maxWidth: '100%' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content nx-popup" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
@@ -761,7 +761,7 @@ function QuickActionRows({ actions, onRun, onNote }) {
 function QuickActionsSheet({ actions, onRun, onNote, onClose }) {
   return createPortal((
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ width: 360, maxWidth: '92vw' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content nx-popup" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Quick Actions</h3>
           <button className="close-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>

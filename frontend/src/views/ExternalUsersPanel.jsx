@@ -86,7 +86,7 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1400, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }} onClick={onClose}>
-      <div style={{ width: 440, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', background: 'var(--card)', borderRadius: 16, border: '1px solid var(--line)', padding: 24, fontFamily: 'Inter,sans-serif' }} onClick={e => e.stopPropagation()}>
+      <div className="nx-popup" style={{ overflowY: 'auto', background: 'var(--card)', borderRadius: 16, border: '1px solid var(--line)', padding: 24, fontFamily: 'Inter,sans-serif' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{editing ? 'Edit External User' : 'Invite External User'}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}><X size={17} /></button>
@@ -267,7 +267,7 @@ export function TestCodeDialog({ ext, result, onClose }) {
   };
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1450, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }} onClick={onClose}>
-      <div style={{ width: 420, maxWidth: '100%', background: 'var(--card)', borderRadius: 16, border: '1px solid var(--line)', padding: 24, fontFamily: 'Inter,sans-serif' }} onClick={e => e.stopPropagation()}>
+      <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, border: '1px solid var(--line)', padding: 24, fontFamily: 'Inter,sans-serif' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>Test Sign-In Code</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}><X size={17} /></button>
