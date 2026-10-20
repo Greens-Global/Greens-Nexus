@@ -69,6 +69,7 @@ import SavedReplyPicker from './SavedReplyPicker';
 import TicketReports from './TicketReports';
 import { TicketEquipmentIntake, TicketEquipment } from './TicketEquipment';
 import { equipmentError } from './ticketEquipmentError';
+import { TicketAiSummary, SuggestedTopicChips, DrawerSuggestedTopic } from './TicketAi';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -2614,6 +2615,13 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
                 Object.entries(prev).filter(([k]) => !k.startsWith('svc_') || asks.has(k))));
             }} />
           {err('application') && <div style={requiredHint}>Required</div>}
+          {/* Suggested Help Topic chips (TicketAi.jsx) - a click fills it, never automatic. */}
+          <SuggestedTopicChips subject={form.subject} description={form.description} departmentId={form.hrDepartmentId}
+            value={form.application} onPick={(name) => {
+              set('application', name);
+              const asks = new Set(topicQuestionDefs(name, areaForTopic(name)).map((f) => f.key));
+              setTf((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !k.startsWith('svc_') || asks.has(k))));
+            }} />
           {sub(helpGroupFor(deptName) ? 'Pick the closest match, or Other to type it.' : 'Name it in a few words.')}
         </div>
       </div>
@@ -3452,6 +3460,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           always visible regardless of which tab is open. */}
       <ApprovalPanel ticket={t} myEmail={myEmail} nameOf={nameOf} onDecided={onDecided} />
 
+      {/* AI Summary - desk agents only, hidden when AI is off (TicketAi.jsx). */}
+      <TicketAiSummary ticketId={t.id} canWorkQueue={deskAccess.canWorkQueue} />
+
       {/* Overview · Conversation · Attachments · Activity - a real tab strip up
           top so Conversation/Attachments/Activity are one click away instead of
           buried under the whole field list (people kept missing them). */}
@@ -3606,6 +3617,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
               }} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{helpWithLabel(v) || '-'}</div>
+          )}
+          {/* Suggested Help Topic for a ticket filed without one (TicketAi.jsx); held for Done like any edit. Hidden while a department change is held - its topics are another list. */}
+          {fullAccess && !('hrDepartmentId' in pending) && (
+            <DrawerSuggestedTopic ticketId={t.id} hasTopic={!!(v.application || '').trim()} canWorkQueue={deskAccess.canWorkQueue}
+              onApply={(name) => stage({ application: name })} />
           )}
         </div>
         {/* Property Tickets (Neil, 10/05). Same edit rule as Help With: the

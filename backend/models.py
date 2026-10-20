@@ -7181,3 +7181,29 @@ class TicketItemLink(Base):
     item_name  = Column(String, default="")
     linked_by  = Column(String, default="")   # email of whoever linked it
     linked_at  = Column(String, default="")   # UTC iso
+
+
+class TicketAiSummary(Base):
+    """A ticket's cached AI Summary (Oct 2026, ticket_ai.py /
+    routers/ticket_ai.py). One row per ticket per AUDIENCE: "internal" was
+    built with the ticket's internal notes and is only ever served to a viewer
+    who may read them (routers/tickets._sees_internal); "public" from the
+    description and public replies only. `fingerprint` is what it was built
+    from (ticket_ai.fingerprint) - a new, edited or deleted visible comment, or
+    a subject / description / status change, makes it stale. `content` is the
+    JSON {issue, tried, state, next_step} of plain-text strings. New table -
+    create_all builds it; RLS: the explicit ALTER in main.py plus the startup
+    sweep."""
+    __tablename__ = "ticket_ai_summaries"
+    id           = Column(String, primary_key=True)   # "<ticket id>:<audience>"
+    ticket_id    = Column(String, default="", index=True)
+    audience     = Column(String, default="")         # internal | public
+    company_id   = Column(String, default="")
+    fingerprint  = Column(String, default="")
+    content      = Column(Text, default="")
+    model        = Column(String, default="")
+    generated_by = Column(String, default="")
+    generated_at = Column(String, default="")
+    # The comment ids it was built from: one of them gone = not shown (a
+    # backstop to delete_ticket_comment dropping the ticket's rows).
+    source_comment_ids = Column(JSON, default=list)
