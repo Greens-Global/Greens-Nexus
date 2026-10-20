@@ -5,6 +5,9 @@
 // and, for owners, an Attention / Pins / Tickets card.
 //
 // Customers see the site chip and the route only - never occupancy.
+// `compact` (the Ops Site Map, Oct 20 2026): the route tracker only - the site
+// chip, KPI tiles and Attention card repeat the page's Facility menu and the
+// side panel there. Asset Management keeps the full set.
 // Everything here is read from props; the panel owns state and the viewer.
 import { useState } from 'react';
 import { formatTime } from '../lib/datetime.js';
@@ -27,7 +30,7 @@ function StepIcon({ i, end }) {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
 }
 
-export function SiteModelHud({ model, owner, live, stats, unit, attention = [], pins = [], ticketsByUnit = {}, onPickUnit, onPickPin, pinsEnabled = true }) {
+export function SiteModelHud({ model, owner, live, stats, unit, attention = [], pins = [], ticketsByUnit = {}, onPickUnit, onPickPin, pinsEnabled = true, compact = false }) {
   const [tab, setTab] = useState('attention');
   const name = model.property?.name || 'Site';
   const isLive = live.source === 'cubby' && !live.error;
@@ -42,7 +45,7 @@ export function SiteModelHud({ model, owner, live, stats, unit, attention = [], 
     <div className="sm-hud" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2, fontFamily: FONT }}>
       <style>{`.sm-hud .sm-wide{display:flex} @media (max-width: 760px){ .sm-hud .sm-wide{display:none !important} .sm-hud .sm-route-owner{display:none !important} }`}</style>
       {/* site chip + live pill */}
-      <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', maxWidth: 'calc(100% - 24px)' }}>
+      {!compact && <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', maxWidth: 'calc(100% - 24px)' }}>
         <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px 7px 7px' }}>
           <span style={{ width: 32, height: 32, borderRadius: 9, background: GREEN, color: '#fff', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700, letterSpacing: '.02em' }}>{initials(name)}</span>
           <span style={{ lineHeight: 1.2 }}>
@@ -54,10 +57,10 @@ export function SiteModelHud({ model, owner, live, stats, unit, attention = [], 
           <i style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 999, background: isLive ? '#22a35a' : '#9aa0a6', marginRight: 6, verticalAlign: 1 }} />
           {isLive ? `Live${live.asOf ? ` ${formatTime(live.asOf)}` : ''}` : live.source === 'file' ? 'Rent Roll' : 'Snapshot'}
         </span>}
-      </div>
+      </div>}
 
       {/* KPI tiles (owners) */}
-      {owner && <div className="sm-wide" style={{ position: 'absolute', top: 66, left: 12, gap: 8 }}>
+      {owner && !compact && <div className="sm-wide" style={{ position: 'absolute', top: 66, left: 12, gap: 8 }}>
         {[[stats.active, 'Units', null], [`${stats.leasedPct}%`, 'Leased', `${stats.leased} leased`], [stats.vacant, 'Vacant', 'Rentable now'], [stats.bad, 'Out of Service', stats.bad ? 'Needs attention' : 'All clear']].map(([v, l, s]) => (
           <div key={l} style={{ ...card, padding: '8px 12px', minWidth: 96 }}>
             <div style={{ fontSize: 11, ...muted }}>{l}</div>
@@ -69,7 +72,7 @@ export function SiteModelHud({ model, owner, live, stats, unit, attention = [], 
 
       {/* route tracker: gate -> building -> level -> unit */}
       {/* on a phone the owner's panel carries the route steps; the card would cover the map buttons */}
-      {steps && <div className={owner ? 'sm-route-owner' : undefined} style={{ ...card, position: 'absolute', left: 12, bottom: 58, padding: '10px 14px 12px', maxWidth: 'min(520px, calc(100% - 24px))' }} aria-label={`Route to ${unit.n}`}>
+      {steps && <div className={owner ? 'sm-route-owner' : undefined} style={{ ...card, position: 'absolute', left: compact ? 10 : 12, bottom: compact ? 54 : 58, padding: '10px 14px 12px', maxWidth: compact ? 'min(460px, calc(100% - 20px))' : 'min(520px, calc(100% - 24px))' }} aria-label={`Route to ${unit.n}`}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, marginBottom: 8 }}><b>Route to {unit.n}</b><span style={muted}>{model.property?.name?.replace(/^Greens Storage\s*/i, '')}</span></div>
         <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', alignItems: 'flex-start' }}>
           {steps.map((s, i) => (
@@ -86,7 +89,7 @@ export function SiteModelHud({ model, owner, live, stats, unit, attention = [], 
       </div>}
 
       {/* attention / pins / tickets (owners) */}
-      {owner && <div className="sm-wide" style={{ ...card, position: 'absolute', right: 12, bottom: 58, width: 300, flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
+      {owner && !compact && <div className="sm-wide" style={{ ...card, position: 'absolute', right: 12, bottom: 58, width: 300, flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
         <div role="tablist" aria-label="Site activity" style={{ display: 'flex', borderBottom: '1px solid #eef0f2' }}>
           {[['attention', `Attention ${attention.length}`], ...(pinsEnabled ? [['pins', `Pins ${openPins.length}`]] : []), ['tickets', `Tickets ${tickets.length}`]].map(([k, l]) => (
             <button key={k} role="tab" type="button" aria-selected={tab === k} onClick={() => setTab(k)} style={{ flex: 1, border: 0, background: 'transparent', padding: '9px 6px', font: `600 12px ${FONT}`, color: tab === k ? '#1d1f1a' : '#8a8f87', borderBottom: tab === k ? `2px solid ${GREEN}` : '2px solid transparent', cursor: 'pointer' }}>{l}</button>

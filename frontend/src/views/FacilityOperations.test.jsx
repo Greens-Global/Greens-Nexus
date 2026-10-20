@@ -35,8 +35,18 @@ vi.mock('../api', () => ({ api: {
   opsReportCatalog: () => Promise.resolve({ categories: [], reports: [] }),
   getOpsSiteMapFacilities: () => Promise.resolve([{ facilityId: 'fac_b', modelId: 'm', name: 'Murrieta' }]),
 } }));
-// The Site Map tab loads three.js; a stand-in says which facility it was handed.
-vi.mock('../operations/SiteMap', () => ({ default: ({ facility }) => <div>Site Map for {facility?.shortName || 'none'}</div> }));
+// The Site Map tab loads three.js; a stand-in says which facility it was handed,
+// and reports its own search box on screen unless `siteMapReady` is false (still
+// loading, failed, or no site model).
+let siteMapReady = true;
+vi.mock('../operations/SiteMap', async () => {
+  const { useEffect } = await import('react');
+  return { default: function SiteMapStub({ facility, onMapSearch }) {
+    const ready = !!facility && siteMapReady;
+    useEffect(() => { onMapSearch?.(ready); }, [ready, onMapSearch]);
+    return <div>Site Map for {facility?.shortName || 'none'}</div>;
+  } };
+});
 let isManager = false;
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: (r) => (r === 'manager' ? isManager : true) }) }));
 const downloadCsv = vi.fn();
@@ -189,6 +199,19 @@ describe('Operations module', () => {
     render(<FacilityOperations activeSub="site-map" onSubChange={() => {}} />);
     expect(await screen.findByText('Site Map for Murrieta')).toBeTruthy();   // Temecula has no model
     expect(screen.getByLabelText('Facility').value).toBe('fac_b');
+    // one search on this tab: the map's own (it finds tenants too), not a second box above it
+    await waitFor(() => expect(screen.queryByLabelText('Find a unit or tenant across every facility')).toBeNull());
+  });
+
+  it('keeps the page search on the Site Map tab while the map is not on screen', async () => {
+    siteMapReady = false;
+    try {
+      render(<FacilityOperations activeSub="site-map" onSubChange={() => {}} />);
+      expect(await screen.findByText('Site Map for Murrieta')).toBeTruthy();
+      expect(screen.getByLabelText('Find a unit or tenant across every facility')).toBeTruthy();
+    } finally {
+      siteMapReady = true;
+    }
   });
 
   it('jumps from a flagged item to its tab and facility', async () => {
@@ -264,7 +287,7 @@ describe('Operations module', () => {
   it('exports a list from the screen and a report from Cubby', async () => {
     facilityOpsReport.mockResolvedValue({ title: 'Rent Roll', asOf: '2026-10-13', columns: ['Unit'], rows: [['A12']] });
     render(<FacilityOperations activeSub="reports" onSubChange={() => {}} />);
-    fireEvent.click(await screen.findByRole('tab', { name: 'Quick Exports' }));
+    fireEvent.change(await screen.findByLabelText('View'), { target: { value: 'exports' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
     expect(downloadCsv.mock.calls[0][0]).toBe('Tenants Past Due - All Facilities - 10-13-2026.csv');
     expect(downloadCsv.mock.calls[0][2]).toHaveLength(2);

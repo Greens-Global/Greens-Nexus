@@ -5,7 +5,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 // table, a strategy can be built, and the preview shows the revenue impact.
 // The numbers come from the server; these tests check the screen draws them.
 // Nexus never writes to Cubby (Oct 20 2026): a row reaches Cubby only when
-// staff mark it Entered in Cubby, and there is no Push button anywhere.
+// staff mark it Entered in Cubby; the Push button is shown but disabled.
 
 const api = {
   opsRevenueTenants: vi.fn(), opsRevenueStrategies: vi.fn(), opsRevenueBatches: vi.fn(),
@@ -91,7 +91,7 @@ describe('Revenue Management', () => {
     expect(within(dialog).getByRole('button', { name: 'Save as Draft' }).disabled).toBe(false);
   });
 
-  it('marks each row Entered in Cubby and has no Push button', async () => {
+  it('marks each row Entered in Cubby and its Push button is disabled', async () => {
     const change = (id, status) => ({ id, leaseId: `lease_${id}`, tenant: `Tenant ${id}`, unit: id.toUpperCase(), unitType: '10x10',
       rent: 10000, newRent: 10800, increase: 800, status, cubbyChangeDate: '', url: '', pushedBy: '', pushedAt: '' });
     const batch = (statuses) => ({
@@ -105,12 +105,12 @@ describe('Revenue Management', () => {
     api.opsRevenueEntered.mockResolvedValue(batch(['entered', 'pending']));
     render(<Revenue facility={FAC} />);
     await screen.findByText('Tenant a1');
-    fireEvent.click(screen.getByRole('button', { name: 'Rent Changes' }));
+    fireEvent.change(screen.getByLabelText('View'), { target: { value: 'batches' } });
     fireEvent.click(await screen.findByRole('button', { name: '10/20/2026' }));
     const dialog = await screen.findByRole('dialog', { name: 'Unit type 10x10 - Annual 8%' });
     expect(await within(dialog).findByText(/Nexus doesn't change rents in Cubby/)).toBeTruthy();
-    expect(within(dialog).queryByRole('button', { name: /push/i })).toBeNull();
-    expect(within(dialog).queryByText(/push|Manager role/i)).toBeNull();
+    expect(within(dialog).getByRole('button', { name: /push/i })).toBeDisabled();
+    expect(within(dialog).queryByText(/Manager role/i)).toBeNull();
     expect(within(dialog).getByRole('button', { name: 'Mark Applied' }).disabled).toBe(true);
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Mark Tenant a1 Entered in Cubby' }));

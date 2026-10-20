@@ -47,6 +47,7 @@ import {
 } from './ticketViewShared';
 import { HelpTopicField } from './HelpTopicField';
 import { RecordUploadButtons, EvidenceCard, PendingFileChip } from './TicketEvidence';
+import { MapSpotIntake, dataUrlToFile } from './TicketMapSpot';
 
 // ── Create ───────────────────────────────────────────────────────────────────
 // `fromTask` (Convert to Ticket, Neil 10/05): { id, title, description,
@@ -61,7 +62,10 @@ import { RecordUploadButtons, EvidenceCard, PendingFileChip } from './TicketEvid
 // `onBatch` (Neil, Oct 13 2026): given by a caller that can also open Batch
 // Create - the title becomes the Create a Ticket | Batch Create switch. What
 // was typed is stashed (recordingDraft) so switching back brings it back.
-export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null, onBatch = null }) {
+// `mapSpot` (Mark an Issue on the Map, Charmi Oct 20 2026): { spot, snapshot }
+// from the site map - the spot goes with the ticket as map_spot, the map's
+// picture is attached once the ticket exists, and a photo is asked for.
+export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null, onBatch = null, mapSpot = null }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
   // (its own ticket composer) - needs its own call so intake-field/SLA
   // overrides are loaded before the type-dependent form renders there too.
@@ -296,9 +300,13 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     finally { setOcrBusy(false); }
   };
 
+  const hasPhoto = attachments.some((f) => (f.type || '').startsWith('image/'));
   const submit = async () => {
     if (busy) return;
     if (missing.size) { setShowErrors(true); return; }
+    // A marked spot asks for a photo - strongly, never a wall.
+    if (mapSpot && !hasPhoto && !(await appDialog.confirm('A photo of the spot shows the maintenance team exactly what to fix. Create the ticket without one?',
+      { title: 'Add a Photo?', confirmText: 'Create Without a Photo', cancelText: 'Add a Photo' }))) return;
     setBusy(true);
     try {
       // Persist the current type's fields AND the current service area's,
@@ -352,6 +360,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         ...(forProperty && form.propertyAssetId === forProperty.id ? { propertyLocked: true } : {}),
         // Equipment (TicketEquipment.jsx) - checked server-side (ticket_items.py).
         ...(form.items?.length ? { item_ids: form.items.map((i) => i.id) } : {}),
+        // Mark an Issue on the Map - checked and stored by the server (ticket_map_spot.py).
+        ...(mapSpot?.spot ? { map_spot: (({ modelId, u, v, y, r, outline, unit, building, place }) => ({ modelId, u, v, y, r, outline, unit, building, place }))(mapSpot.spot) } : {}),
       });
       // Attachments can only be posted once the ticket has an id. A storage
       // failure here must not lose the ticket that was just created - the
@@ -360,9 +370,12 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
       if (created?.id && inlineImages.length) {
         await Promise.all(inlineImages.map((a) => api.addTicketAttachment(created.id, a).catch(attachFailed(a.name))));
       }
-      if (created?.id && attachments.length) {
-        const results = await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
-        const failed = attachments.filter((_, i) => !results[i]);
+      // The marked map goes up like any other photo ("Map Location ..." - the drawer's card finds it by name).
+      const mapFile = created?.id && mapSpot?.snapshot ? dataUrlToFile(mapSpot.snapshot, `Map Location - ${(mapSpot.spot?.place || 'Spot').replace(/[^\w .,-]+/g, ' ').trim()}.jpg`) : null;
+      if (created?.id && (attachments.length || mapFile)) {
+        const files = mapFile ? [mapFile, ...attachments] : attachments;
+        const results = await Promise.all(files.map((f) => uploadTicketFile(created.id, f)));
+        const failed = files.filter((_, i) => !results[i]);
         if (failed.length) {
           appDialog.alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) - they won't be playable/downloadable.`);
         }
@@ -490,6 +503,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
       </>
     ),
     children: (<div onPaste={onFormPaste} style={{ display: 'contents' }}>
+      {mapSpot?.spot && <MapSpotIntake spot={mapSpot.spot} propertyName={forProperty?.name} snapshot={mapSpot.snapshot} hasPhoto={hasPhoto} />}
       {fromTask && (
         <div role="status" style={{ border: `1px solid ${NX.border}`, background: NX.surface2, borderRadius: 10,
           padding: '10px 12px', marginBottom: 14, fontSize: 12.5, lineHeight: 1.5, color: NX.dim }}>

@@ -389,6 +389,17 @@ def apply_external_policy(request: Request, user: dict) -> dict:
     return user
 
 
+def _note_audit_identity(real_email: str, acting_as: str = "") -> None:
+    """Tell the change capture (audit_capture.py) who is really calling and,
+    during Act As, who they act as - the overlay below hides the real person
+    from every router, but never from the audit trail."""
+    try:
+        import audit_capture
+        audit_capture.note_identity(real_email, acting_as)
+    except Exception:   # noqa: BLE001 - auditing never fails a request
+        pass
+
+
 def get_current_user(
     request: Request,
     authorization: str = Header(default=None),
@@ -439,8 +450,10 @@ def get_current_user(
         finally:
             db2.close()
         if target:
+            _note_audit_identity(email, target.get("email", ""))
             return team_people_gate(request, apply_external_policy(request, target))
 
+    _note_audit_identity(email)
     # External-user gate (Aug 17): default-deny for non-employee identities.
     # Employees resolve to a pass-through here (cached), so this adds no DB
     # round trip to the hot path within the cache TTL.

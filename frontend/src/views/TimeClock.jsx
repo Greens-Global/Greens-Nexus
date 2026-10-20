@@ -33,6 +33,7 @@ import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
 import { useActionCounts, withBadges, tabCount } from '../lib/useActionCounts';
 import DocumentsToSign from '../components/DocumentsToSign';
+import DelegateApprovalsCard from '../components/DelegateApprovals';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -1622,6 +1623,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           );
         })}
       </div>
+      {/* Delegate My Approvals (Neil, Oct 20): here on Time Off, collapsed -
+          it opens up for the days you are off. Renders nothing for someone
+          with nothing to approve. */}
+      <DelegateApprovalsCard toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />
       </>)}
 
       {bodMode && (() => {

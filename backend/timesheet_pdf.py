@@ -241,33 +241,48 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
                           _LEFT, color=BLUE, bold=True), BAND if band else None)
             continue
         first_row = len(g.rows)
+        # Punch pairs (Charmi / Visesh, Oct 20): one row per stretch of work -
+        # In = the clock-in or a break end, Out = a break start or the
+        # clock-out - with its own hours, like SwipeClock and the Time Sheet screen.
+        from timesheet_review import punch_pairs   # lazy: timesheet_review imports this module
         for si, seg in enumerate(segs):
             leave = bool(seg.get("payClass"))
             ot = " · ".join(x for x in [hm(seg["otMin"]) if seg.get("otMin") else "",
                                         f"{hm(seg['dtMin'])} 2x" if seg.get("dtMin") else ""] if x) or "-"
-            top = g.add([
-                _p(day_label(ds), _LEFT, color=RED if leave else None, bold=True, italic=True) if si == 0 else "",
-                _time_cell(seg.get("inR") or seg.get("in"), seg.get("inId") or "", ctx),
-                _p(ctx["time"](seg.get("outR") or seg.get("out"), seg.get("outId") or "") + " (auto)",
-                   color=RED, bold=True) if "auto_clock_out" in (seg.get("flags") or [])
-                else _time_cell(seg.get("outR") or seg.get("out"), seg.get("outId") or "", ctx),
-                _p(f"-{seg['deductedMin']}m", color=AMBER) if seg.get("deductedMin") else _p("-"),
-                _p(seg.get("category") or "-", color=RED if leave else None),
-                _p(hm(seg.get("workedMin")), bold=True),
-                "",   # Hrs/Day, filled below
-                _p(ot, color=RED if seg.get("dtMin") else AMBER if seg.get("otMin") else None,
-                   bold=bool(seg.get("otMin") or seg.get("dtMin"))),
-                _p(seg.get("workSite") or seg.get("workSiteOut") or "-"),
-                _p(rate),
-                _p(money(seg.get("amount"), cur), bold=True),
-            ], band)
-            for b in seg.get("breaks") or []:
-                g.add([_p("Break", _LEFT, color=DIM, italic=True),
-                       _time_cell(b.get("start"), b.get("startId") or "", ctx),
-                       _time_cell("" if b.get("implicit") else b.get("end"), b.get("endId") or "", ctx),
-                       "", "", "", "", "", "", "", ""], band)
-            # Merged down over the shift's Break rows, as on screen.
-            g.span_down((3, 4, 5, 7, 8, 9, 10), top, len(g.rows) - 1)
+            items = punch_pairs(seg)
+            works = [x for x in items if x["kind"] == "work"]
+            last_work = works[-1] if works else None
+            top = None
+            for x in items:
+                if x["kind"] == "work":
+                    first = top is None
+                    is_last = x is last_work
+                    out_auto = is_last and "auto_clock_out" in (seg.get("flags") or [])
+                    in_iso = (seg.get("inR") or seg.get("in")) if first else x["in"]
+                    out_iso = (seg.get("outR") or seg.get("out")) if is_last else x["out"]
+                    i = g.add([
+                        _p(day_label(ds), _LEFT, color=RED if leave else None, bold=True, italic=True) if (si == 0 and first) else "",
+                        _time_cell(in_iso, x.get("inId") or "", ctx),
+                        _p(ctx["time"](out_iso, x.get("outId") or "") + " (auto)", color=RED, bold=True) if out_auto
+                        else _time_cell(out_iso, x.get("outId") or "", ctx),
+                        _p(f"-{seg['deductedMin']}m", color=AMBER) if (first and seg.get("deductedMin")) else (_p("-") if first else ""),
+                        _p(seg.get("category") or "-", color=RED if leave else None) if first else "",
+                        _p(hm(x.get("min")), bold=True),
+                        "",   # Hrs/Day, filled below
+                        _p(ot, color=RED if seg.get("dtMin") else AMBER if seg.get("otMin") else None,
+                           bold=bool(seg.get("otMin") or seg.get("dtMin"))) if first else "",
+                        _p(seg.get("workSite") or seg.get("workSiteOut") or "-") if first else "",
+                        _p(rate) if first else "",
+                        _p(money(seg.get("amount"), cur), bold=True) if first else "",
+                    ], band)
+                    if first:
+                        top = i
+                # No break line on paper (SwipeClock prints none): the gap between a
+                # row's Out and the next row's In is the break, which keeps a light
+                # two weeks on one page with the signature.
+            # Deducted Time, Category, OT, Loc, Pay Rate and Wage merge down the shift, as on screen.
+            if top is not None:
+                g.span_down((3, 4, 7, 8, 9, 10), top, len(g.rows) - 1)
         # Hrs/Day: the day's total on its last row, an arrow down to it above.
         for i in range(first_row, len(g.rows)):
             g.rows[i][6] = (_p(hm(d.get("workedMin")), bold=True) if i == len(g.rows) - 1

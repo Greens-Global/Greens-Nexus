@@ -29,6 +29,14 @@ EXIT_TYPES = (
     "resignation", "resignation_no_notice", "termination",
     "end_of_contract", "retirement", "death",
 )
+# What each reason reads as (Charmi, Oct 20 2026): every resignation is
+# voluntary, and quitting without showing up again is Job Abandonment. The
+# stored keys never change, so older rows read with the new words.
+EXIT_TYPE_LABELS = {
+    "resignation": "Voluntary Resignation", "resignation_no_notice": "Job Abandonment",
+    "termination": "Termination", "end_of_contract": "End Of Contract",
+    "retirement": "Retirement", "death": "Death",
+}
 
 EMP = {"types": ["employee"]}
 US_EMP = {"types": ["employee"], "countries": ["US"]}

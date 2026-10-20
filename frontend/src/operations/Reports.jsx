@@ -12,6 +12,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { Download } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import CubbyReports from './CubbyReports';
+import SectionPicker from './SectionPicker';
 import ReportSchedules, { ScheduleDialog, blankSchedule, useSchedules } from './ReportSchedules';
 import { todayIso } from './reportPeriod';
 import { api } from '../api';
@@ -126,11 +127,9 @@ export default function Reports({ data, facilities, scope, range }) {
 
   return (
     <>
-      <div className="ops-pills scroll-tabs" role="tablist" aria-label="Reports">
-        {sections.map(([key, label]) => (
-          <button key={key} type="button" role="tab" className="ops-pill" aria-selected={section === key} aria-pressed={section === key}
-            onClick={() => setSection(key)}>{label}</button>
-        ))}
+      <div className="ops-rep-bar">
+        <SectionPicker label="View" value={section} onChange={setSection}
+          options={sections.map(([key, label]) => ({ value: key, label }))} />
       </div>
       {flash && <div className="ops-rep-flash" role="status">{flash}</div>}
       {section === 'reports' && catalogBody(() => (

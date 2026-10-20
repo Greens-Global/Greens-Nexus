@@ -12,7 +12,7 @@
 // The server (backend/hr_life_events.py) does the work: it hires the person
 // when the packet is fully signed and files it in their Egnyte folder - the
 // folder My HR > My Documents already shows them.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock, AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import { api } from '../api';
@@ -710,13 +710,21 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
 }
 
 // ── The packet on a candidate ────────────────────────────────────────────────
+// An offboarding sent with no separation package (unticked, or the company
+// has none set up) is born "completed" with nothing signed and nothing to
+// file. It read "Fully Signed" with "Filing in Egnyte..." forever and a Retry
+// Filing that could only fail (Charmi, Oct 20 2026) - it is No Paperwork.
+export const noPaperwork = ev => ev.status === 'completed' && !ev.signRequestId && !(ev.documents || []).length;
+
 // One life event (hiring packet, promotion letter, separation package): who
 // has signed, Sign Now for HR's own turn, Void, and where it was filed.
 export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hideSign = false }) {
   const [busy, setBusy] = useState('');
   const [reviewOpen, setReviewOpen] = useState(false);
   const docs = ev.engine === 'documents';
-  const [label, tone] = ev.status === 'sent' && ev.kind === 'offer' ? ['Waiting On The Candidate', 'blue']
+  const bare = noPaperwork(ev);
+  const [label, tone] = bare ? ['No Paperwork', 'gray']
+    : ev.status === 'sent' && ev.kind === 'offer' ? ['Waiting On The Candidate', 'blue']
     : ev.status === 'sent' && ev.kind !== 'hire' ? ['Out For Signature', 'blue']
       : docs && ev.status === 'awaiting_sender' ? ['Awaiting Company Sign-Off', 'orange']
         : ev.kind === 'offer' && ev.status === 'completed' ? ['Signed - Hired', 'green']
@@ -805,13 +813,19 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
       {flagged && (ev.status === 'completed'
         ? <Problem>Signed time sheets from {usDay(ev.effectiveDate)} were not repriced: {flagged.periods.map(x => x.label).join(', ')}. Review them in Time.</Problem>
         : <Problem>The new pay starts {usDay(ev.effectiveDate)}, inside time sheets already signed ({flagged.periods.map(x => x.label).join(', ')}). They will not be repriced - review them once this is signed.</Problem>)}
-      {ev.status === 'completed' && (
+      {bare && (
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          <FolderOpen size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>No separation package was sent, so there is nothing to sign or file in Egnyte.</span>
+        </div>
+      )}
+      {ev.status === 'completed' && !bare && (
         <div style={{ marginTop: 8, fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start',
           color: ev.filingStatus === 'filed' ? 'hsl(var(--color-green))' : ev.filingStatus === 'failed' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
           <FolderOpen size={13} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>{ev.filingStatus === 'filed' ? `Filed in Egnyte: ${ev.filingPath}`
             : ev.filingStatus === 'failed' ? `Not filed in Egnyte: ${ev.filingError}`
-              : `Filing in Egnyte${ev.filingError ? ` - last try: ${ev.filingError}` : '...'}`}</span>
+              : `Filing in Egnyte${ev.filingError ? ` - try ${ev.filingAttempts || 1} did not work: ${ev.filingError}. Nexus tries again by itself` : '...'}`}</span>
         </div>
       )}
       {['intake', 'review'].includes(ev.status) && (
@@ -852,12 +866,12 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
             {busy === 'apply' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry
           </button>
         )}
-        {ev.status === 'completed' && ev.filingStatus !== 'filed' && (
+        {ev.status === 'completed' && !bare && ev.filingStatus !== 'filed' && (
           <button className="secondary-btn" onClick={() => act('retry')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {busy === 'retry' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry Filing
           </button>
         )}
-        {ev.status === 'completed' && ev.filingStatus !== 'filed' && ev.filingError && (
+        {ev.status === 'completed' && !bare && ev.filingStatus !== 'filed' && ev.filingError && (
           <button className="secondary-btn" onClick={() => act('manual')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {busy === 'manual' ? <Spinner size={12} /> : <FolderOpen size={12} />} File Manually
           </button>
@@ -918,7 +932,7 @@ export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChang
 
 // The letters on a person (People > profile): anything still out for
 // signature, plus the latest finished one while it is recent or not filed.
-export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, toastOk, toastErr }) {
+export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, onChanged, toastOk, toastErr }) {
   const [events, setEvents] = useState([]);
   const load = () => api.getLifeEvents({ employeeId }).then(setEvents).catch(() => setEvents([]));
   useEffect(() => { load(); }, [employeeId, refreshKey]);
@@ -926,12 +940,25 @@ export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, toastOk, t
   const shown = events.filter(e => ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status) || e.applyStatus === 'scheduled'
     || (e.kind === 'offer' && (e.flags || []).some(f => f.code === 'packet_not_started'))
     // Filed by hand (Oct 15 2026): HR has dealt with it - off the profile at once.
-    || (e.status === 'completed' && (e.filingStatus !== 'filed'
+    || (e.status === 'completed' && ((e.filingStatus !== 'filed' && !noPaperwork(e))
       || (new Date(e.completedAt).getTime() > recent && !(e.flags || []).some(f => f.code === 'filed_by_hand'))))
     || (e.flags || []).some(f => f.code === 'apply_failed')
     || (['declined', 'expired'].includes(e.status) && new Date(e.createdAt).getTime() > recent));
+  // A signed packet waiting for its Egnyte filing: the server files it within
+  // a minute or two (then retries with backoff), so re-read this card while
+  // one is pending - it used to sit on "Filing in Egnyte..." until a reload.
+  // Bounded: every 30 seconds for up to 10 minutes per profile open.
+  const filingPending = shown.some(e => e.status === 'completed' && e.filingStatus === 'pending');
+  const polls = useRef(0);
+  useEffect(() => { polls.current = 0; }, [employeeId]);
+  useEffect(() => {
+    if (!filingPending || polls.current >= 20) return undefined;
+    const t = setTimeout(() => { polls.current += 1; load(); }, 30000);
+    return () => clearTimeout(t);
+  }, [filingPending, events]);   // eslint-disable-line react-hooks/exhaustive-deps
   if (!shown.length) return null;
-  return <div>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} onChanged={load} toastOk={toastOk} toastErr={toastErr} />)}</div>;
+  // A cancel or void changes the person too (People re-reads - Oct 20 2026).
+  return <div>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} onChanged={() => { load(); onChanged?.(); }} toastOk={toastOk} toastErr={toastErr} />)}</div>;
 }
 
 // Right to work compliance (Neil, Oct 14): "they can't receive their first

@@ -41,3 +41,17 @@ describe('layers', () => {
     expect(hoverFact('days', units[1], facts)).toBe('Vacant 160 days');
   });
 });
+
+describe('layerBuckets (Oct 20 2026: the KPI bar for a layer)', () => {
+  it('counts each layer bucket and lists its units; occupancy draws its own bar', async () => {
+    const { layerBuckets } = await import('./siteMapLayers');
+    const us = [{ n: 'A1' }, { n: 'A2' }, { n: 'M1' }];
+    const facts = { A1: { status: 'vacant', daysVacant: 200, market: 'under' }, A2: { status: 'rented', market: 'at' } };
+    expect(layerBuckets('occupancy', us, facts)).toBeNull();
+    const days = layerBuckets('days', us, facts);
+    expect(days.find((b) => b.key === '180+')).toMatchObject({ count: 1, units: ['A1'] });
+    expect(layerBuckets('market', us, facts).filter((b) => b.count).map((b) => b.key)).toEqual(['under', 'at']);
+    const maint = layerBuckets('maintenance', us, facts, { units: { A2: [{ priority: 'urgent' }] } });
+    expect(maint.find((b) => b.key === 'urgent').units).toEqual(['A2']);
+  });
+});

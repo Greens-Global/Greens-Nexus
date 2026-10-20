@@ -32,6 +32,7 @@ import {
 import TicketOpening, { TicketNotFound } from './TicketOpening';
 import { PropertySelect } from './PropertySelect';
 import { TicketPropertyDetail } from './TicketPropertyFields';
+import { TicketMapSpotCard } from './TicketMapSpot';
 import { uploadTicketEvidence } from './evidenceUpload';
 import { groupTakesProperty } from './propertyMeta';
 import { MobileAssignField } from './TicketAssignSheet';
@@ -626,6 +627,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           <b>Resolution:</b> {t.resolutionNote}
         </div>
       )}
+
+      {/* Mark an Issue on the Map (Oct 20 2026): where it is, with the photo and Open on Map. */}
+      <TicketMapSpotCard ticketId={t.id} propertyId={t.propertyAssetId} onOpenMap={onClose} />
 
       {/* Approval gate - the decision blocks triage, so it leads the drawer,
           always visible regardless of which tab is open. */}

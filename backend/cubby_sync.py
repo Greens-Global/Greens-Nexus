@@ -444,6 +444,17 @@ def run_claimed(run_id: str) -> dict:
         finally:
             db.close()
 
+    # Pricing Insights (Oct 20 2026, cubby_pricing.py): pricing groups,
+    # discounts and scheduled rent changes, change-tracked. READ ONLY, and its
+    # own try - it can never fail the facility rows above.
+    try:
+        import cubby_pricing
+        saved = [f for f in facilities if results.get(f["facilityId"], {}).get("status") == "ok"]
+        for fid, st in cubby_pricing.sync(saved).items():
+            results[fid]["pricing"] = st
+    except Exception as e:  # noqa: BLE001
+        print(f"[cubby] pricing sync skipped: {type(e).__name__}")
+
     ok = [r for r in results.values() if r["status"] == "ok"]
     state = "ok" if len(ok) == len(results) else "partial" if ok else "failed"
     if not results:
@@ -455,6 +466,11 @@ def run_claimed(run_id: str) -> dict:
             cubby.after_sync()
         except Exception as e:  # noqa: BLE001 - the history row is a bonus
             print(f"[cubby] snapshot after sync skipped: {type(e).__name__}")
+        try:
+            import ops_insights
+            ops_insights.forget()   # recomputed on the next read from the new rows
+        except Exception as e:  # noqa: BLE001
+            print(f"[cubby] insights refresh skipped: {type(e).__name__}")
     print(f"[cubby] sync {state}: {len(ok)} of {len(results)} facilities")
     return {"status": state, "facilities": results}
 

@@ -263,7 +263,9 @@ class SigningTests(CaCase):
         ba = st["breakAttestation"]
         self.assertEqual((ba["required"], ba["answered"]), (True, False))
         self.assertEqual(ba["statement"], tsr.BREAK_STATEMENT)
-        self.assertEqual([d["date"] for d in ba["flaggedDays"]], [self.d1])
+        # The meal check's flags are HR's only (Charmi, Oct 20): never on the employee's screen.
+        self.assertEqual(ba["flaggedDays"], [])
+        self.assertIn(self.d1, ba["workedDays"])
         self.assertIn("breakAttestation", tsr.to_sign(self.db, EMP)[0])
         self.assertTrue(tsr.statement_printed(self.db, r.sign_request_id))
         # No separate question: the signature goes straight through.

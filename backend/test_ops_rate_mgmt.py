@@ -304,3 +304,86 @@ def test_cubby_errors_never_leak_the_key(cubby_api):
     with pytest.raises(cubby.CubbyError) as e:
         ops_rate_mgmt.pricing_groups(FAC, fresh=True)
     assert "test-key" not in e.value.message
+
+
+# ── Plain-language summary and the competitor list (Visesh, Oct 20 2026) ─────
+
+def test_comps_lists_each_competitor_for_the_size_cheapest_first(db, cubby_api):
+    _comps(db)
+    db.query(models.OpsCompetitor).filter_by(id="c1").update({"distance_miles": 1.4})
+    # An older observation of the same competitor and size is history, not the market.
+    db.add(models.OpsCompetitorRate(id="old", competitor_id="c0", facility_id=FAC, width=10, depth=8,
+                                    rate_cents=9000, observed_on="2026-09-01", source="manual", created_at="0"))
+    # A closed competitor's rate never counts.
+    db.add(models.OpsCompetitorRate(id="closed", competitor_id="gone", facility_id=FAC, width=8, depth=10,
+                                    rate_cents=5000, observed_on="2026-10-15", source="manual", created_at="1"))
+    db.add(models.OpsCompetitorRate(id="st", competitor_id="c2", facility_id=FAC, width=8, depth=10, rate_cents=15000,
+                                    online_cents=13900, promo_cents=7500, promo="First month half off",
+                                    observed_on="2026-10-16", source="stortrack", created_at="2"))
+    db.commit()
+    c = _client(2, "supervisor")                      # same door as the rate view
+    out = c.get(f"/facility-ops/rates/comps?facility_id={FAC}&unit_type=8' x 10'").json()
+    rows = out["competitors"]
+    assert [(r["competitor"], r["rate"]) for r in rows] == [("StorQuest", 10500), ("Extra Space", 12000), ("Public Storage", 15000)]
+    assert rows[1]["distanceMiles"] == 1.4
+    st = rows[2]
+    assert (st["online"], st["promoRate"], st["promo"], st["source"], st["observedOn"]) == (
+        13900, 7500, "First month half off", "stortrack", "2026-10-16")
+    # The same rates the row's low / median / high come from.
+    v = c.get(f"/facility-ops/rates?facility_id={FAC}").json()
+    r = next(x for x in v["rows"] if x["name"] == "8' x 10'")
+    assert (r["marketLow"], r["marketHigh"], r["competitors"]) == (rows[0]["rate"], rows[-1]["rate"], len(rows))
+    assert c.get(f"/facility-ops/rates/comps?facility_id={FAC}&unit_type=nope").status_code == 404
+    assert _client(1, "employee").get(f"/facility-ops/rates/comps?facility_id={FAC}&unit_type=8' x 10'").status_code == 401
+
+
+def test_old_competitor_rates_are_flagged_but_still_count(db, cubby_api):
+    _comps(db)
+    db.query(models.OpsCompetitorRate).filter_by(id="a0").update({"observed_on": "2026-08-01"})
+    db.commit()
+    out = _client().get(f"/facility-ops/rates/comps?facility_id={FAC}&unit_type=8' x 10'").json()
+    old = [r for r in out["competitors"] if r["stale"]]
+    assert len(old) == 1 and old[0]["competitor"] == "StorQuest" and old[0]["ageDays"] == 80
+    v = _client().get(f"/facility-ops/rates?facility_id={FAC}").json()
+    assert next(r for r in v["rows"] if r["name"] == "8' x 10'")["staleComps"] == 1
+    stale = next(g for g in v["gaps"] if g["key"] == "stale")
+    assert stale["items"] == ["8' x 10' (1 of 3)"]
+
+
+def test_summary_headline_gaps_and_competitors(db, cubby_api):
+    _comps(db)
+    v = _client().get(f"/facility-ops/rates?facility_id={FAC}").json()
+    rows = {r["name"]: r for r in v["rows"]}
+    # 8x10 sells at 113.50 vs a 120 median (5% under), 10x20 at 195 vs 195 (at market).
+    assert rows["8' x 10'"]["position"] == "below" and rows["10' x 20'"]["position"] == "at"
+    assert rows["12' x 30' Parking"]["position"] == "offline" and rows["12' x 30' Parking"]["suggested"] is None
+    assert rows["8' x 10'"]["reason"] in ("Vacancy: Raise", "Vacancy: Lower", "Vacancy: Hold")
+    h = v["headline"]
+    assert (h["below"], h["at"], h["above"], h["offline"]) == (1, 1, 0, 1)
+    assert h["upside"] == sum(r["suggestedDelta"] for r in v["rows"])
+    gaps = {g["key"]: g for g in v["gaps"]}
+    assert gaps["thin"]["items"] == ["10' x 20' (2)"]
+    assert gaps["offline"]["items"] == ["12' x 30' Parking (11)"]
+    assert "nothing to price" in gaps["offline"]["action"]
+    assert gaps["no_web_walkin"]["items"] == ["10' x 20' (Walk-In)"]   # the parking group is offline only
+    names = {c["name"]: c for c in v["competitors"]}
+    assert names["StorQuest"]["lastUpdated"] == "2026-10-15" and names["StorQuest"]["source"] == "stortrack"
+    assert names["Public Storage"]["source"] == "manual" and names["Public Storage"]["sizes"] == 1
+    assert names["StorQuest"]["distanceMiles"] is None                 # none recorded, no map point
+    assert "StorQuest" in gaps["no_distance"]["items"]
+
+
+def test_distance_is_the_recorded_one_else_straight_line():
+    assert ops_rate_mgmt.distance_miles(2.44, (33.1, -117.1), None, None) == 2.4
+    assert ops_rate_mgmt.distance_miles(0, None, 33.1, -117.1) is None
+    assert 6.5 < ops_rate_mgmt.distance_miles(0, (33.12, -117.08), 33.2, -117.0) < 7.5
+
+
+def test_a_placeholder_rate_is_flagged_and_not_suggested():
+    rows = ops_rate_mgmt.build_rows(
+        [{"name": "5x5 Air Duct", "width": 5, "depth": 5, "total": 2, "rented": 2, "vacant": 0, "unavailable": 0, "street": 1}],
+        [{"name": "5x5 Air Duct", "competitors": 3, "marketLow": 5200, "marketHigh": 9900, "marketMedian": 8200,
+          "suggested": 0, "why": "100% occupied"}], {}, {})
+    assert rows[0]["suggested"] is None and "placeholder" in rows[0]["why"]
+    gaps = {g["key"]: g for g in ops_rate_mgmt.gaps(rows, {})}
+    assert gaps["odd"]["items"] == ["5x5 Air Duct (Sell $0.01)"]

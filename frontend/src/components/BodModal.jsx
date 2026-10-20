@@ -5,7 +5,8 @@ import { api } from '../api';
 import { bodDurable, newBodId } from '../lib/bodQueue';
 import { msalInstance } from '../msalInstance';
 import { formatTime } from '../lib/datetime';
-import { punchPosition } from '../lib/geoPosition';
+import { getPosition, PUNCH_GEO_MS } from '../lib/geoPosition';
+import { locationPermission } from '../lib/punchLocation';
 import { useRole } from '../contexts/RoleContext';
 import { cleanName, emailToName } from '../lib/utils';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -186,8 +187,13 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const whereRef = useRef(null);
   useEffect(() => {
     if (mode !== 'bod' && mode !== 'eod') return;
-    whereRef.current = punchPosition(mode === 'eod' ? 'out' : 'in')
-      .then((pos) => api.timeWhere(pos)).then((r) => r?.label || '').catch(() => '');
+    // Oct 20 (some posts had no tag): BOD and EOD both get the full wait and
+    // reuse the punch's own fix from the last 15 minutes when a fresh one is
+    // slow (desktop Wi-Fi), and no fix at all now reads "Location Off" /
+    // "No Location" like the Time Sheet instead of a blank.
+    whereRef.current = getPosition(PUNCH_GEO_MS.in, { fallbackMaxAgeMs: 15 * 60 * 1000 })
+      .then(async (pos) => api.timeWhere(pos, !pos && (await locationPermission()) === 'denied'))
+      .then((r) => r?.label || '').catch(() => '');
   }, [mode]);
 
   useEffect(() => {

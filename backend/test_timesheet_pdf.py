@@ -104,7 +104,7 @@ class Hourly(unittest.TestCase):
         self.assertIn("Total hours clocked for week of 10/11 to 10/17: 16:10", self.text)
 
     def test_break_row_under_its_shift(self):
-        self.assertIn("Break 21:00 21:10", self.text)
+        self.assertIn("20:25 21:00", self.text); self.assertIn("21:10 23:45", self.text)   # punch pairs: the break is the gap (Oct 20)
 
     def test_notes_the_employee_may_read_only(self):
         self.assertIn("Note by employee: Doctor visit at noon", self.text)

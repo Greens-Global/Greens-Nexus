@@ -988,6 +988,69 @@ def _sig_fields(spot: dict) -> list:
     return out
 
 
+def _minutes_between(a: str, b: str) -> int:
+    try:
+        ta = datetime.fromisoformat(a.replace("Z", "+00:00")[:19])
+        tb = datetime.fromisoformat(b.replace("Z", "+00:00")[:19])
+    except (AttributeError, ValueError):
+        return 0
+    return max(0, round((tb - ta).total_seconds() / 60))
+
+
+def punch_pairs(seg: dict) -> list:
+    """A shift as SwipeClock punch pairs (Charmi / Visesh, Oct 20) - the same
+    rows the Time Sheet screen draws (PayrollTimecard workStretches): one row
+    per stretch of work, In = the clock-in or a break end, Out = a break start
+    or the clock-out, with the break between. DISPLAY ONLY: the rows' minutes
+    add up to the shift's paid seg["workedMin"] exactly (rounding and a paid
+    rest break land on the last complete row). Items:
+      {"kind": "work", "in", "inId", "out", "outId", "min"}
+      {"kind": "break", "start", "startId", "end", "endId", "min", "implicit", "paidMin"}
+      {"kind": "auto", "min"}     an auto-deducted lunch (no break punched)"""
+    brks = (seg.get("breaks") or []) if seg.get("in") else []
+    if not brks:
+        out = [{"kind": "work", "in": seg.get("in") or "", "inId": seg.get("inId") or "",
+                "out": seg.get("out") or "", "outId": seg.get("outId") or "", "min": int(seg.get("workedMin") or 0)}]
+        if int(seg.get("deductedMin") or 0) > 0:
+            out.append({"kind": "auto", "min": int(seg["deductedMin"])})
+        return out
+    pts = [(seg.get("in") or "", seg.get("inR") or seg.get("in") or "", seg.get("inId") or "", None)]
+    for b in brks:
+        pts.append((b.get("start") or "", b.get("start") or "", b.get("startId") or "", b))
+        end = "" if b.get("implicit") else (b.get("end") or "")
+        pts.append((end, end, "" if b.get("implicit") else (b.get("endId") or ""), None))
+    pts.append((seg.get("out") or "", seg.get("outR") or seg.get("out") or "", seg.get("outId") or "", None))
+    work = []
+    for i in range(0, len(pts), 2):
+        a, b = pts[i], pts[i + 1]
+        work.append({"kind": "work", "in": a[0], "inId": a[2], "out": b[0], "outId": b[2],
+                     "min": _minutes_between(a[1], b[1]) if (a[0] and b[0]) else 0, "_brk": b[3]})
+    paid = max(0, int(seg.get("workedMin") or 0))
+    if not paid:
+        for w in work:
+            w["min"] = 0
+    else:
+        diff = paid - sum(w["min"] for w in work)
+        for w in reversed(work):
+            if diff == 0:
+                break
+            if not (w["in"] and w["out"]):
+                continue
+            nv = max(0, w["min"] + diff)
+            diff -= nv - w["min"]
+            w["min"] = nv
+    items = []
+    for w in work:
+        brk = w.pop("_brk")
+        items.append(w)
+        if brk:
+            items.append({"kind": "break", "start": brk.get("start") or "", "startId": brk.get("startId") or "",
+                          "end": brk.get("end") or "", "endId": brk.get("endId") or "",
+                          "min": int(brk.get("min") or 0), "implicit": bool(brk.get("implicit")),
+                          "paidMin": int(brk.get("paidMin") or 0)})
+    return items
+
+
 def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tuple[bytes, dict]:
     """The agreed timesheet as a PDF (timesheet_pdf, landscape): page 1 the
     Time Sheet screen's grid and totals, page 2 the attestation, the
@@ -1485,11 +1548,13 @@ def break_attestation_state(db: Session, r: TimesheetReview) -> dict:
     card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
     import ca_breaks
     worked = ca_breaks.worked_days(card.get("days") or [])
+    # Every caller is the EMPLOYEE's own signing screen, and the CA meal
+    # check's flags are for HR only (Charmi, Oct 20 2026: "I don't want the
+    # employee to ever see") - so no flagged days here; the employee picks
+    # any worked day they missed a break on.
     return {"required": True, "statement": BREAK_STATEMENT, "answered": break_attested(r),
             "canReport": can_report_breaks(db, r),
-            "flaggedDays": [{"date": d["date"], "label": d["meal"]["label"], "chip": d["meal"]["chip"]}
-                            for d in (card.get("days") or []) if d.get("meal")],
-            "workedDays": worked}
+            "flaggedDays": [], "workedDays": worked}
 
 
 def claim_breaks(db: Session, r: TimesheetReview, actor: str, claims: list, note: str = "") -> TimesheetReview:

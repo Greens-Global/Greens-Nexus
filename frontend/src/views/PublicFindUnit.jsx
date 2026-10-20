@@ -13,6 +13,7 @@ import { fetchPublicUnitMap, fetchPublicUnitMapTemplate } from '../api.js';
 import WidgetBoundary from '../components/WidgetBoundary';
 import { SiteModelPanel, siteModelImages } from '../sitemodel/SiteModelPanel.jsx';
 import { routeSteps, unitDirections, unitKindLabel } from '../sitemodel/siteModelViewer.js';
+import { googleMapsDirectionsUrl } from '../sitemodel/siteModelDirections.js';
 
 const FONT = "'Inter', system-ui, sans-serif";
 const muted = { color: 'var(--text-muted, #5f6358)' };
@@ -36,6 +37,10 @@ export default function PublicFindUnit({ token, search = '' }) {
   useEffect(() => { document.title = unit ? `${name} - Unit ${unit.n}` : `${name} - Your Unit`; }, [name, unit]);
   const steps = unit ? routeSteps(data, unit) : [];
   const ent = data?.entrance;
+  // Through the gate and on to the unit itself (Oct 20), not just to the facility.
+  let unitMaps = null;
+  try { unitMaps = unit ? googleMapsDirectionsUrl(data, { unit, gateLatLng: ent?.lat != null ? [ent.lat, ent.lng] : null }) : null; } catch { unitMaps = null; }
+  const mapsHref = unitMaps || ent?.mapsUrl;
   return (
     <div style={{ minHeight: '100dvh', background: 'var(--bg-secondary, #f3f1ec)', color: 'var(--text-primary, #1d1f1a)', fontFamily: FONT, padding: '0 16px calc(24px + env(safe-area-inset-bottom, 0px))' }}>
       <header style={{ display: 'flex', alignItems: 'baseline', gap: 12, padding: '14px 0 10px', flexWrap: 'wrap' }}>
@@ -53,7 +58,7 @@ export default function PublicFindUnit({ token, search = '' }) {
                 <p style={{ fontSize: 13, margin: 0 }}>{data.property?.address}</p>
                 <p style={{ fontSize: 13, margin: '4px 0 0', ...muted }}>Use the {ent?.name || 'entrance'} pin, not the street address - map apps can drop the address pin on a neighbor.</p>
                 {ent?.note && <p style={{ fontSize: 13, margin: '6px 0 0', fontWeight: 600 }}>{ent.note}</p>}
-                {ent?.mapsUrl && <a href={ent.mapsUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: 10, background: '#1f6f4a', color: '#fff', padding: '8px 14px', borderRadius: 8, fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>Open in Google Maps</a>}
+                {mapsHref && <a href={mapsHref} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: 10, background: '#1f6f4a', color: '#fff', padding: '8px 14px', borderRadius: 8, fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>Open in Google Maps</a>}
               </div>
               <div>
                 <h2 style={{ fontSize: 14, margin: '0 0 4px' }}>Your Unit</h2>

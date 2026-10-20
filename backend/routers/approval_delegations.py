@@ -2,6 +2,8 @@
 rules live in approval_delegation.py; this file decides who may set what.
 
   GET  /approval-delegations/mine        my delegations + the ones naming me
+  GET  /approval-delegations/options     who may cover me (up or across) and
+                                         the days I am off (?delegator_email= HR)
   POST /approval-delegations/mine        name a stand-in for a date range
   POST /approval-delegations/{id}/revoke the delegator, whoever set it, or HR
   GET  /approval-delegations             HR / admin: everyone's (company-scoped)
@@ -113,9 +115,29 @@ def mine(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = (user.get("email") or "").lower()
     given = _current(db, db.query(ApprovalDelegation).filter(ApprovalDelegation.delegator_email == me))
     covering = _current(db, db.query(ApprovalDelegation).filter(ApprovalDelegation.delegate_email == me))
+    org = ad._org(db)
     return {"canDelegate": ad.can_delegate(db, me),
-            "delegations": [ad.serialize(db, d) for d in given],
-            "covering": [ad.serialize(db, d) for d in covering]}
+            "delegations": [ad.serialize(db, d, org=org) for d in given],
+            "covering": [ad.serialize(db, d, org=org) for d in covering]}
+
+
+@router.get("/options")
+def options(delegator_email: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The form's choices (Neil, Oct 20): the people who may cover - up the
+    reporting line or across, never down - and the delegator's upcoming
+    approved time off and holidays, the only days a delegation may cover.
+    A delegator other than me is HR / admin only."""
+    me = (user.get("email") or "").lower()
+    who = (delegator_email or "").strip().lower() or me
+    if who != me:
+        admin, scope = _hr_admin_scope(user, db)
+        if not admin:
+            raise HTTPException(403, "Only HR can see someone else's delegation options.")
+        if not _in_admin_scope(db, scope, who):
+            raise HTTPException(403, "That person is outside the companies you manage.")
+    elif not ad.can_delegate(db, me):
+        return {"delegates": [], "offRanges": []}
+    return {"delegates": ad.eligible_delegates(db, who), "offRanges": ad.off_ranges(db, who)}
 
 
 @router.post("/mine")
@@ -159,7 +181,8 @@ def list_all(include_past: bool = False, user: dict = Depends(get_current_user),
         rows = _current(db, q)
     # Company scope first, THEN the cap - another company's rows must not use it up.
     rows = [d for d in rows if _in_admin_scope(db, scope, d.delegator_email)][:500]
-    return [ad.serialize(db, d) for d in rows]
+    org = ad._org(db)
+    return [ad.serialize(db, d, org=org) for d in rows]
 
 
 @router.post("")

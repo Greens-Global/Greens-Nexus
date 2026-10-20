@@ -15,7 +15,8 @@ On top of test_timesheet_review's real-engine fixture (same throwaway db):
   * no chains - the stand-in's own delegation does not pass the items on;
   * the stand-in gets the new item's notice; the timecard / payroll routes
     are NOT widened; validation refuses self, non-People, non-approvers,
-    bad and overlapping ranges.
+    bad and overlapping ranges;
+  * (Oct 20) only while the delegator is off, and only up or across.
 
     python -m pytest -q test_approval_delegation.py
 """
@@ -57,9 +58,20 @@ class DelegationCase(ReviewCase):
             self.db.add(models.NexusEmployee(id=f"id-{first}", work_email=em, first_name=first,
                                              last_name="Test", company=ENTITY, manager_email=mgr,
                                              status="active"))
+        # Delegating needs the delegator to be off (Neil, Oct 20): approved
+        # time off over every range these tests use.
+        for em in (MGR, DEE):
+            self._off(em, _day(-10), _day(30), commit=False)
         self.db.commit()
         auth._role_cache.clear()
         self._prev = os.environ.get("NEXUS_DEV_EMAIL")
+
+    def _off(self, email, start, end, commit=True, **kw):
+        self.db.add(models.TimeOffRequest(id=str(uuid.uuid4()), employee_email=email, type="vacation",
+                                          start_date=start, end_date=end, status=kw.pop("status", "approved"),
+                                          approver="boss", created_at=_day(-20), **kw))
+        if commit:
+            self.db.commit()
 
     def tearDown(self):
         if self._prev is None:
@@ -500,6 +512,117 @@ class ReviewFixTests(DelegationCase):
         n = self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == DEE).all()
         self.assertEqual(len(n), 1)
         self.assertEqual(n[0].title, "You Are Covering Approvals")
+
+
+BOSS = "boss.dg@greensglobal.com"        # Max's manager
+PEER = "peer.dg@greensglobal.com"        # another manager under Boss
+SUB = "sub.dg@greensglobal.com"          # a manager under Erin (Max's indirect report)
+
+
+class UpOrAcrossWhileOffTests(DelegationCase):
+    """Neil, Oct 20 2026: delegate only while off, and only up or across."""
+
+    def setUp(self):
+        super().setUp()
+        self.db.query(models.HrCompanyHoliday).delete()
+        self.db.query(models.NexusRole).filter(models.NexusRole.email.in_([BOSS, PEER, SUB, EMP, HR])).delete(
+            synchronize_session=False)
+        for em in (BOSS, PEER, SUB, EMP):
+            self.db.add(models.NexusRole(email=em, role="manager", assigned_by="test"))
+        for em, first, mgr in ((BOSS, "Bo", ""), (PEER, "Pete", BOSS), (SUB, "Sue", EMP)):
+            self.db.add(models.NexusEmployee(id=f"id-{first}", work_email=em, first_name=first, last_name="Test",
+                                             company=ENTITY, manager_email=mgr, status="active"))
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == MGR).update(
+            {"manager_email": BOSS})
+        self.db.commit()
+        auth._role_cache.clear()
+
+    def _options(self, who=MGR, delegator=""):
+        self._as(who)
+        return self.client.get("/approval-delegations/options" + (f"?delegator_email={delegator}" if delegator else ""))
+
+    def test_the_picker_lists_only_up_and_across(self):
+        res = self._options()
+        self.assertEqual(res.status_code, 200, res.text)
+        got = {p["email"]: p["relation"] for p in res.json()["delegates"]}
+        self.assertEqual(got.get(BOSS), "above")
+        self.assertEqual(got.get(PEER), "peer")
+        self.assertEqual(got.get(DEE), "level")
+        for below in (EMP, SUB, PLAIN, MGR):              # direct, indirect, employee tier, self
+            self.assertNotIn(below, got)
+        self.assertEqual(list(got)[:2], [BOSS, PEER])     # up the line first
+
+    def test_a_downward_pick_is_refused(self):
+        for below in (EMP, SUB):
+            res = self._delegate(to=below, status=422)
+            self.assertIn("below", res["detail"])
+        self._delegate(to=BOSS)
+        self.assertEqual(self.db.query(models.ApprovalDelegation).count(), 1)
+
+    def test_a_backup_managed_person_counts_as_below(self):
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == DEE).update(
+            {"backup_manager_email": MGR})
+        self.db.commit()
+        self._delegate(to=DEE, status=422)
+
+    def test_not_off_is_refused(self):
+        self.db.query(models.TimeOffRequest).filter(models.TimeOffRequest.employee_email == MGR).delete()
+        self.db.commit()
+        res = self._delegate(to=BOSS, status=422)
+        self.assertIn("only for days you are off", res["detail"])
+        self.assertEqual(self._options().json()["offRanges"], [])
+
+    def test_the_range_must_sit_inside_the_time_off(self):
+        res = self._delegate(to=BOSS, start=_day(25), end=_day(40), status=422)
+        self.assertIn("is not inside your approved time off", res["detail"])
+
+    def test_pending_or_part_day_time_off_does_not_count(self):
+        self.db.query(models.TimeOffRequest).filter(models.TimeOffRequest.employee_email == MGR).delete()
+        self._off(MGR, _day(2), _day(4), status="pending")
+        self._off(MGR, _day(6), _day(6), start_time="09:00", end_time="11:00")
+        self._delegate(to=BOSS, start=_day(2), end=_day(4), status=422)
+        self._delegate(to=BOSS, start=_day(6), end=_day(6), status=422)
+
+    def test_a_company_holiday_counts_as_off(self):
+        self.db.query(models.TimeOffRequest).filter(models.TimeOffRequest.employee_email == MGR).delete()
+        d = next(_day(i) for i in range(3, 12) if datetime.fromisoformat(_day(i)).weekday() < 5)
+        self.db.add(models.HrCompanyHoliday(id="h-1", company_id=ENTITY, date=d, name="Founders Day"))
+        self.db.commit()
+        ranges = self._options().json()["offRanges"]
+        self.assertEqual([(r["start"], r["kind"]) for r in ranges], [(d, "holiday")])
+        self._delegate(to=BOSS, start=d, end=d)
+
+    def test_an_old_downward_delegation_keeps_working_with_a_warning(self):
+        self.db.add(models.ApprovalDelegation(id="old-down", delegator_email=MGR, delegate_email=EMP,
+                                              start_date=_day(-1), end_date=_day(3), created_by=MGR,
+                                              created_at=_day(-2), revoked_at=""))
+        self.db.commit()
+        import approval_delegation
+        self.assertTrue(approval_delegation.live_from(self.db, [MGR]))      # still live
+        self._as(MGR)
+        mine = self.client.get("/approval-delegations/mine").json()["delegations"]
+        self.assertEqual(len(mine), 1)
+        self.assertTrue(any("below" in w for w in mine[0]["warnings"]), mine[0]["warnings"])
+        ok = self._delegate(to=BOSS, start=_day(5), end=_day(6))
+        self.assertEqual(ok["warnings"], [])
+
+    def test_someone_elses_options_are_hr_only(self):
+        self.assertEqual(self._options(who=DEE, delegator=MGR).status_code, 403)
+        self.db.add(models.NexusRole(email=HR, role="administrator", assigned_by="test"))
+        self.db.commit()
+        auth._role_cache.clear()
+        res = self._options(who=HR, delegator=MGR)
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertNotIn(EMP, {p["email"] for p in res.json()["delegates"]})
+
+    def test_hr_setting_one_follows_the_same_rules(self):
+        self.db.add(models.NexusRole(email=HR, role="administrator", assigned_by="test"))
+        self.db.commit()
+        auth._role_cache.clear()
+        self._as(HR)
+        res = self.client.post("/approval-delegations", json={
+            "delegator_email": MGR, "delegate_email": EMP, "start_date": _day(0), "end_date": _day(2)})
+        self.assertEqual(res.status_code, 422, res.text)
 
 
 if __name__ == "__main__":

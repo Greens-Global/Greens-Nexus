@@ -388,7 +388,7 @@ class SigningTests(ReviewCase):
         self.assertGreater(float(first.mediabox.width), float(first.mediabox.height))
         text = " ".join(" ".join((pg.extract_text() or "").split()) for pg in pages)
         for s in ("Time Sheet", "Company: Greens Test Co", "Approved by manager Max Test", "Pay Rate", "Wage",
-                  "$22.00/hr", "Break", "Total hours clocked for week of", "Total Regular hours at $22.00/hr",
+                  "$22.00/hr", "7:30 PM", "Total hours clocked for week of", "Total Regular hours at $22.00/hr",
                   "Note by employee: Car trouble", "Forgot to clock in", "TOTAL EDITED PUNCHES",
                   "4:00 PM", "11:00 PM", "7:00 PM"):
             self.assertIn(s, text)
