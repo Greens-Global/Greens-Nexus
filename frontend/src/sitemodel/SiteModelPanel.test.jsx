@@ -29,6 +29,18 @@ const model = {
 };
 
 describe('SiteModelPanel', () => {
+  // See Inside opens real buildings; a site of open stalls (units tagged with a
+  // section letter, no building of that id) has nothing to open (Oct 20).
+  it('shows See Inside only where units sit inside a building', () => {
+    const { unmount } = render(<SiteModelPanel model={model} mode="owner" images={{}} />);
+    expect(screen.queryByRole('button', { name: 'See Inside' })).toBeTruthy();
+    unmount();
+    const stalls = { ...model, buildings: [{ id: 'OFFICE', kind: 'office', letters: ['O'], name: 'Office', u: [0, 5], v: [0, 5], height: 3, floors: 1 }],
+      units: model.units.map((u) => ({ ...u, b: 'E', f: 1, k: 'park' })) };
+    render(<SiteModelPanel model={stalls} mode="owner" images={{}} />);
+    expect(screen.queryByRole('button', { name: 'See Inside' })).toBeNull();
+  });
+
   it('renders the customer finder and a unit card after a search', () => {
     render(<SiteModelPanel model={model} mode="customer" images={{}} />);
     expect(screen.getByText('Find Your Unit')).toBeTruthy();

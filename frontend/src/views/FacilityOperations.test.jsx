@@ -55,7 +55,7 @@ const FacilityOperations = (await import('./FacilityOperations')).default;
 const RATES_VIEW = { facilityId: 'fac_a', facility: 'Temecula', name: 'Greens Storage Temecula', asOf: '2026-10-13', address: '', billingCycle: 'MONTHLY',
   lastSurvey: '', cubbyGroups: { ok: true, count: 0, error: '' }, compSet: { active: 0, web: 0, stortrack: 0, manual: 0, closed: 0 },
   kpis: { vsMarket: null, rateable: 0, belowMarket: 0, occupancy: 0, units: 0, rented: 0, offline: 0, ready: 0, readyDelta: 0 },
-  attention: [], rows: [], competitors: [], freshDays: 120, minCompetitors: 2, pushes: [], canEdit: true, canPush: true };
+  attention: [], rows: [], competitors: [], freshDays: 120, minCompetitors: 2, pushes: [], canEdit: true, canMark: true };
 async function openCompSet(id = 'fac_a') {
   getOpsRates.mockResolvedValue({ ...RATES_VIEW, facilityId: id });
   fireEvent.change(await screen.findByLabelText('Facility'), { target: { value: id } });
@@ -103,7 +103,7 @@ beforeEach(() => {
   getFacilityOps.mockReset().mockResolvedValue(PAYLOAD);
   getOpsNearby.mockReset().mockResolvedValue(NO_NEARBY);
   getOpsRates.mockReset().mockResolvedValue(RATES_VIEW);
-  opsRevenueTenants.mockReset().mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', writeEnabled: false, unitTypes: [], defaults: {}, tenants: [] });
+  opsRevenueTenants.mockReset().mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', unitTypes: [], defaults: {}, tenants: [] });
   localStorage.removeItem('nexus.ops.facility');   // the remembered facility
 });
 

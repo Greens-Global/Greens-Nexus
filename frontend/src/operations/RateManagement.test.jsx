@@ -3,11 +3,12 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 
 // Rate Management (Neil / Miranda, Oct 20 2026): the CMA table renders grouped
 // by category with subtotals, the facility is a dropdown (not chips), a typed
-// Proposed rate is saved as a draft, and Review & Push lists old -> new and
-// shows a result per row.
+// Proposed rate is saved as a draft, and Review Changes lists old -> new and
+// marks rows Entered in Cubby (per row or all ticked). Nexus never writes to
+// Cubby (Oct 20 2026): there is no Push button anywhere.
 
 const apiMock = vi.hoisted(() => ({
-  getOpsRates: vi.fn(), saveOpsRateDraft: vi.fn(), pushOpsRates: vi.fn(), getOpsRateHistory: vi.fn(),
+  getOpsRates: vi.fn(), saveOpsRateDraft: vi.fn(), markOpsRatesEntered: vi.fn(), getOpsRateHistory: vi.fn(),
   checkOpsCompetitor: vi.fn(), getOpsMarket: vi.fn(), getOpsNearby: vi.fn(),
 }));
 vi.mock('../api', () => ({ api: apiMock }));
@@ -30,7 +31,7 @@ const view = (rows, over) => ({
   kpis: { vsMarket: -0.157, rateable: 6, belowMarket: 5, occupancy: 0.697, units: 307, rented: 214, offline: 13,
     ready: rows.filter((r) => r.ready).length, readyDelta: rows.reduce((a, r) => a + (r.ready ? r.revDelta : 0), 0) },
   attention: ["12' x 20' Parking is fully offline (11 units)"], rows,
-  competitors: [], freshDays: 120, minCompetitors: 2, pushes: [], canEdit: true, canPush: true, ...over,
+  competitors: [], freshDays: 120, minCompetitors: 2, pushes: [], canEdit: true, canMark: true, ...over,
 });
 const ROWS = [
   row(),
@@ -61,8 +62,10 @@ describe('Rate Management', () => {
     expect(screen.getByText('Subtotal Self-Storage')).toBeTruthy();
     expect(screen.getByText('Subtotal Vehicle Storage')).toBeTruthy();
     expect(screen.getByText('-$20.03 - -15.0%')).toBeTruthy();
-    expect(screen.getByText('0 changes ready for Cubby')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Review & Push to Cubby' }).disabled).toBe(true);
+    expect(screen.getByText('0 changes ready')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Review Changes' }).disabled).toBe(true);
+    expect(screen.getByText(/Nexus doesn't change rates in Cubby/)).toBeTruthy();
+    expect(screen.queryByText(/push/i)).toBeNull();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Vehicle Storage' }));
     expect(screen.queryByText('Subtotal Self-Storage')).toBeNull();
@@ -84,22 +87,26 @@ describe('Rate Management', () => {
       fireEvent.blur(input);
       expect(apiMock.saveOpsRateDraft).toHaveBeenCalledWith({ facility_id: 'fac_f', unit_type: "8' x 10'", proposed: 115 });
     }, { timeout: 4000 });
-    expect(await screen.findByText('1 change ready for Cubby')).toBeTruthy();
+    expect(await screen.findByText('1 change ready')).toBeTruthy();
     expect(screen.getAllByText('+$3').length).toBeGreaterThan(0);
   });
 
-  it('reviews old to new and shows a result per row after the push', async () => {
+  it('reviews old to new and marks rows Entered in Cubby, one or all ticked', async () => {
     const ready = [row({ proposed: 11500, proposedSet: 12050, revDelta: 300, ready: true,
       draft: { proposed: 11500, proposedSet: null, note: '', updatedBy: 'miranda@greensglobal.com', updatedAt: '2026-10-20T18:00:00Z' } }),
     { ...ROWS[1], proposed: 13500, proposedSet: 12250, revDelta: 350, ready: true, draft: { proposed: 13500 } }];
     apiMock.getOpsRates.mockResolvedValue(view(ready));
-    apiMock.pushOpsRates.mockResolvedValue({ batchId: 'b1', view: view(ROWS), results: [
-      { unitType: "8' x 10'", status: 'ok', detail: 'Updated in Cubby' },
-      { unitType: "12' x 30' Parking", status: 'failed', detail: 'Access Denied' },
-    ] });
+    const entered = (unitType) => ({ unitType, status: 'entered', detail: 'Entered in Cubby by hand',
+      pushedBy: 'miranda@greensglobal.com', pushedAt: '2026-10-20T19:00:00Z' });
+    apiMock.markOpsRatesEntered
+      .mockResolvedValueOnce({ batchId: 'b1', view: view([ROWS[0], ready[1]]), results: [entered("8' x 10'")] })
+      .mockResolvedValueOnce({ batchId: 'b2', view: view(ROWS), results: [entered("12' x 30' Parking")] });
     render(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Review & Push to Cubby' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Review Changes' }));
     const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByRole('button', { name: /push/i })).toBeNull();
+    expect(within(dialog).getByText(/Nexus doesn't change rates in Cubby/)).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: /Export Checklist/ })).toBeTruthy();
     const table = within(dialog).getByTestId('review-table');
     expect(table.textContent).toContain('$113.50 → $115');
     expect(table.textContent).toContain('$119 → $120.50');
@@ -108,23 +115,34 @@ describe('Rate Management', () => {
     fireEvent.click(within(dialog).getByLabelText("Include 12' x 30' Parking"));
     expect(within(dialog).getByText(/1 change, \+\$3 per month/)).toBeTruthy();
     fireEvent.click(within(dialog).getByLabelText("Include 12' x 30' Parking"));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Push 2 to Cubby' }));
-    await waitFor(() => expect(apiMock.pushOpsRates).toHaveBeenCalledWith('fac_f', ["8' x 10'", "12' x 30' Parking"]));
-    expect(await within(dialog).findByText('Pushed')).toBeTruthy();
-    expect(within(dialog).getByText('Failed')).toBeTruthy();
-    expect(within(dialog).getByText('Access Denied')).toBeTruthy();
+
+    // One row on its own: it records the rates the review showed.
+    fireEvent.click(within(dialog).getByRole('button', { name: "Mark 8' x 10' Entered in Cubby" }));
+    await waitFor(() => expect(apiMock.markOpsRatesEntered).toHaveBeenCalledWith('fac_f', ["8' x 10'"],
+      { "8' x 10'": { set: 11900, sell: 11350 } }));
+    expect(await within(dialog).findByText('Entered in Cubby')).toBeTruthy();
+    expect(within(dialog).getByText(/miranda@greensglobal\.com/)).toBeTruthy();
+
+    // Then everything still ticked.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Mark 1 Entered in Cubby' }));
+    await waitFor(() => expect(apiMock.markOpsRatesEntered).toHaveBeenLastCalledWith('fac_f', ["12' x 30' Parking"],
+      { "12' x 30' Parking": { set: 11900, sell: 13150 } }));
+    await waitFor(() => expect(within(dialog).getAllByText('Entered in Cubby')).toHaveLength(2));
+    expect(within(dialog).getByRole('button', { name: 'Done' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /push/i })).toBeNull();
   });
 
   it('opens the rate history for a unit type', async () => {
     apiMock.getOpsRates.mockResolvedValue(view(ROWS));
     apiMock.getOpsRateHistory.mockResolvedValue({ unitType: "8' x 10'", ours: [
-      { id: 'p1', oldSell: 11000, newSell: 11350, oldSet: 11500, newSet: 11900, pushedBy: 'neil@greensglobal.com', pushedAt: '2026-10-01T17:00:00Z', status: 'ok', detail: '' }],
+      { id: 'p1', oldSell: 11000, newSell: 11350, oldSet: 11500, newSet: 11900, pushedBy: 'neil@greensglobal.com', pushedAt: '2026-10-01T17:00:00Z', status: 'entered', detail: 'Entered in Cubby by hand' }],
     competitors: [{ competitorId: 'c1', competitor: 'StorQuest', rate: 10300, observedOn: '2026-10-15', source: 'web', promo: '' }] });
     render(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: "8' x 10'" }));
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByText('StorQuest')).toBeTruthy();
     expect(within(dialog).getByText('$110 → $113.50')).toBeTruthy();
+    expect(within(dialog).getByText('Entered in Cubby')).toBeTruthy();
     expect(apiMock.getOpsRateHistory).toHaveBeenCalledWith('fac_f', "8' x 10'");
   });
 });

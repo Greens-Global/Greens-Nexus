@@ -386,7 +386,9 @@ export function createSiteModelViewer(container, model, options = {}) {
   }
 
   function restyle(snap = false) {
-    const xray = state.xray || state.mode === 'owner';
+    // See Inside is the only switch that opens every building (Oct 20: staff
+    // views used to start see-through, so the button looked dead).
+    const xray = state.xray;
     const selB = state.selected ? byName[state.selected].b : null;
     const explode = !!state.xray && !state.level;
     const moved = explode !== state.explode; state.explode = explode;
