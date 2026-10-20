@@ -18,6 +18,7 @@ import { Avatar, PriorityChip } from '../components';
 import { fmtDate } from '../lib';
 import DueBadge from '../DueBadge';
 import AnchoredMenu from '../../components/AnchoredMenu';
+import { projectLook } from '../projectLook';
 
 const SECTION_PALETTE = ['#4573fa', '#8b6bf0', '#14a76c', '#e8a33d', '#e0844e', '#e8384f', '#29a8ab', '#db2777'];
 const SWIMLANE_OPTIONS = [
@@ -223,7 +224,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     // Kit card signature: a colored project tag pill leads the card (hidden
     // when the whole board is already locked to one project).
     const proj = !lockedProjectId && t.projectId ? store.projects.find((p) => p.id === t.projectId) : null;
-    const projColor = proj?.color || NX.purple;
+    const projColor = projectLook(proj, NX.purple).color;
     return (
       <div key={t.id} draggable data-task-row data-flip={t.id}
         onDragStart={() => { setDragId(t.id); setDragFrom(laneKey); }}

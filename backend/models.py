@@ -3018,6 +3018,11 @@ class TaskProject(Base):
     # ([chart configs], same shape as a person's own charts in their
     # task_table_prefs "charts" document). Editors curate.
     shared_charts = Column(JSON, default=list)
+    # The project's icon (Neil, Oct 15 2026): a key from the Tasks module's
+    # icon set (frontend/src/tasks/projectLook.js), e.g. "hard-hat". "" = the
+    # default folder, which is what every project showed before. Set with
+    # `color` from the Edit Project form; routers/task_projects.clean_project_icon.
+    icon          = Column(String, default="")
 
 
 class TaskPortfolio(Base):
