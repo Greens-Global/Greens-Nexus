@@ -14,12 +14,12 @@ import { useRole } from '../contexts/RoleContext';
 import LiveView from '../components/LiveView';
 import { filesFromPaste, richBodyHtml, externalizeInlineImages } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
-import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
+import { takePendingOpen } from '../lib/pendingOpen';
 import { formatDateTime } from '../lib/datetime';
 import { startScreenRecording, primeReturnCue } from '../lib/screenRecorder';
 import {
   stashDraft, appendDraftFile, takeDraft, peekDraft, setDraftUiMounted, finishRecording,
-  setOpenTicketId, clearOpenTicketId, isTicketDrawerOpen,
+  setOpenTicketId, clearOpenTicketId,
 } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
@@ -28,15 +28,15 @@ import { dialog as appDialog } from '../ui/dialog';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { useTableColumns, ColResizer } from '../tasks/tableCols';
 import {
-  fmtDate, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, NO_RECORDING_TYPES,
+  fmtDate, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
-  SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, slaSortKey, fmtDueAt, isBlankFieldValue, toEmailList,
+  SLA_META, slaState, slaDueFromPriority, fmtDueAt, isBlankFieldValue,
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
-  label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
+  label, field, resolutionLabel, linkTypeLabel, APPROVAL_META,
   ticketNo, ticketNoShort, normalizeCode,
-  SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, withDynamicOptions,
+  SERVICE_FIELDS, serviceAreaLabel, withDynamicOptions,
   topicQuestionDefs, allTopicQuestionDefs, labelFromKey,
-  OTHER_TOPIC, TOPIC_MAX_LEN, helpGroupFor, topicArea,
+  OTHER_TOPIC, TOPIC_MAX_LEN, helpGroupFor,
   intakeFieldsFor, intakeDefaults, defaultIntakeType, richToPlain,
 } from './ticketMeta';
 // The help topic's optional "Which one?" level (Neil, Oct 1 2026).
@@ -61,7 +61,6 @@ import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 import { LatestCommentPreview, latestCommentText } from './LatestComment';
 import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
-import { useFrequentCollaborators } from '../tasks/frequentPeople';
 import { useTicketAccess } from './ticketAccess';
 import CreateModeTabs from './CreateModeTabs';
 import { registerTour } from '../lib/tours';
@@ -70,6 +69,14 @@ import TicketReports from './TicketReports';
 import { TicketEquipmentIntake, TicketEquipment } from './TicketEquipment';
 import { equipmentError } from './ticketEquipmentError';
 import { TicketAiSummary, SuggestedTopicChips, DrawerSuggestedTopic } from './TicketAi';
+import {
+  TICKET_COLUMNS, useTicketSites, areaForTopic, offeredAtIntake, withHelpSubtopic, listedTopic,
+  statusOptions, priorityOptions, typeOptions, typeIntakeOptions, slaFilterOptions,
+  statusFilterOptions, serviceAreaOptions, groupByOptions, ticketRights, attachmentKindOf,
+  uploadTicketFile, attachFailed, hasRichText, useCollaboratorExtras, collaboratorOptions,
+  escapeHtml, textToHtml, needsResolution, readOnlyFieldValue, CSAT_LABELS,
+  returnToTicketAfterRecording,
+} from './ticketViewShared';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -81,93 +88,6 @@ const TICKET_VIEW_TABS = [
   { key: 'board', label: 'Board', icon: Columns3 },
   { key: 'reports', label: 'Reports', icon: BarChart3 },
 ];
-
-// Desktop list-view column layout - the single source of truth for widths,
-// labels and sort keys, shared by the header (labels + drag handles + sort
-// arrows) and every row. `sort` pulls the comparable value off a ticket; `ctx`
-// ({ nameOf, companyName }) is threaded in from TicketsView for the
-// lookup-backed columns. Order/widths themselves are no longer state on this
-// component - useTableColumns (tasks/tableCols.jsx, the same drag-to-reorder/
-// resize kit the Task List uses) owns them, persisted to the user's profile
-// under table:"tickets" so an arrangement follows them between devices.
-// checkbox/type/resolved are `fixed`: structure, not data - they never move.
-// `shrink` (Oct 6): how narrow a column may get. Until someone drags a width,
-// every data column is elastic - minmax(shrink, width as a share) - so the
-// table fills the screen it is on and only scrolls sideways once every column
-// is at its floor (Pranshu: "no horizontal scroll bar at the bottom").
-const TICKET_COLUMNS = [
-  { key: 'checkbox', label: '', width: 34, fixed: true },
-  { key: 'type', label: '', width: 34, fixed: true },
-  // minWidth: a floor even under a width someone dragged - the title is what
-  // the row IS, and it must never be squeezed to nothing to make room for
-  // another column (Neil, Oct 1).
-  { key: 'title', label: 'Title', width: 260, minWidth: 200, shrink: 200, sort: (t) => (t.subject || '').toLowerCase() },
-  { key: 'company', label: 'Company', width: 130, shrink: 80, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
-  // State and Priority each carry a second chip when a ticket needs it
-  // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
-  // the pair ran past the column and painted over the one after it.
-  { key: 'state', label: 'Status', width: 180, shrink: 170, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
-  { key: 'priority', label: 'Priority', width: 180, shrink: 160, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
-  // Wide enough for the deadline's date AND time ("10/19/2026 3:00 PM").
-  { key: 'due', label: 'Due Date', width: 150, shrink: 120, sort: slaSortKey },
-  { key: 'requester', label: 'Requester', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
-  { key: 'assignee', label: 'Assignee', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
-  { key: 'created', label: 'Created', width: 110, shrink: 92, sort: (t) => t.createdAt || '' },
-  // The newest reply, last (Neil, Oct 1 2026) - see LatestComment.jsx. Wide
-  // enough by default for a name and a line of the preview; sorts by when.
-  { key: 'latestComment', label: 'Latest Comment', width: 300, minWidth: 160, shrink: 140, sort: (t) => t.latestComment?.createdAt || '' },
-  { key: 'resolved', label: '', width: 24, fixed: true },
-];
-// ── What do you need help with? ──────────────────────────────────────────────
-// Replaced the Application picker (every External Links app, grouped by the
-// department that used it) on Neil's walkthrough, Sep 30: "these are not core
-// applications within the company... if I have a physical maintenance issue,
-// why am I scrolling through a big list of random items". The options now come
-// from the department picked above it (HELP_TOPICS, see ticketMeta.js), and the
-// answer is still stored on the ticket's `application` - so reports, CSV and
-// every ticket raised before this keep their value.
-
-// Work-site names for the Facility / Site service questions.
-function useTicketSites() {
-  const [sites, setSites] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    api.getTicketSites()
-      .then((rows) => { if (alive) setSites(Array.isArray(rows) ? rows : []); })
-      .catch(() => { if (alive) setSites([]); });
-    return () => { alive = false; };
-  }, []);
-  return sites;
-}
-
-// The service area a ticket about this topic files under, for the client-side
-// preview of what the server derives on save (service_area_for in
-// backend/routers/tickets.py): a curated topic's own area, and General for
-// anything typed.
-function areaForTopic(topic) {
-  const name = (topic || '').trim();
-  if (!name) return '';
-  return topicArea(name) || 'general';
-}
-
-// Is this department offered on Submit a Ticket? Off in Settings > Ticket
-// Manager (Neil, Oct 1: "I don't want a construction ticket"), or deleted from
-// the company's global list - both still name the tickets already filed.
-const offeredAtIntake = (d) => d.enabled !== false && !d.removed;
-
-// typeFields with the help topic's "Which one?" answer set ('' removes it).
-function withHelpSubtopic(typeFields, sub) {
-  const next = { ...(typeFields || {}) };
-  if (sub) next[HELP_SUBTOPIC_KEY] = sub;
-  else delete next[HELP_SUBTOPIC_KEY];
-  return next;
-}
-
-// Is `value` one of this department's listed topics? (case-insensitive)
-function listedTopic(group, value) {
-  const v = (value || '').trim().toLowerCase();
-  return v ? (group?.topics || []).find((tp) => (tp.name || '').trim().toLowerCase() === v) : null;
-}
 
 // The picker plus, for "Other" (or a department with no list), the short typed
 // answer it requires - max TOPIC_MAX_LEN characters, a name for the thing
@@ -232,40 +152,6 @@ function HelpTopicField({ deptName, value, onChange, invalid = false, disabled =
     </div>
   );
 }
-
-// List-view grouping. Carries its own labels rather than title-casing the key,
-// which only worked while every dimension happened to be one word.
-const GROUP_BY_OPTIONS = [
-  { key: 'none', label: 'None' },
-  { key: 'status', label: 'Status' },
-  { key: 'priority', label: 'Priority' },
-  { key: 'type', label: 'Type' },
-  { key: 'serviceArea', label: 'Service Area' },
-  { key: 'assignee', label: 'Assignee' },
-];
-
-// -v2: saved widths win over the defaults, so widening State/Priority above
-// would have left everyone who had ever loaded the list on the old, too-narrow
-// numbers. Bumping the key retires them once.
-// Option lists for the kit dropdowns, in one place - the filter sheet, the
-// filter menu, the create wizard and the drawer each used to carry their own
-// hand-written <option> list of the same choices.
-const statusOptions = () => TICKET_STATUS_ORDER.map((s) => [s, TICKET_STATUS_META[s].label]);
-const priorityOptions = () => PRIORITY_ORDER.map((p) => [p, PRIORITY_META[p].label]);
-// The list's Type filter: all five, on or off - a type switched off at intake
-// still has its tickets to find.
-const typeOptions = () => TICKET_TYPE_KEYS.map((ty) => [ty, TICKET_TYPE_META[ty].label]);
-// Same list, each with its plain-English definition under it in the open
-// dropdown (Neil, Sep 30) - where a requester (or the desk re-typing a
-// ticket) actually picks one.
-const typeIntakeOptions = () => TICKET_TYPE_ORDER.map((ty) => ({ id: ty, label: TICKET_TYPE_META[ty].label, desc: TICKET_TYPE_META[ty].hint || '' }));
-const slaFilterOptions = [['all', 'Any SLA'], ['breached', 'SLA Breached'], ['at_risk', 'Due Soon'], ['ok', 'On Track'], ['paused', 'Paused']];
-// Open/Unassigned are buckets, not statuses - they must be listed or the
-// control renders blank when a summary tile selects one.
-const statusFilterOptions = () => [['all', 'All Statuses'], ['open', 'Open (Not Resolved)'],
-  ['unassigned', 'Unassigned'], ...statusOptions()];
-const serviceAreaOptions = () => SERVICE_AREAS.map((a) => [a.key, a.label]);
-const groupByOptions = () => GROUP_BY_OPTIONS.map((g) => [g.key, g.label]);
 
 // Export - same client-side CSV pattern as the task module's own report export
 // (tasks/ManageView.jsx downloadCSV): a BOM'd CSV blob opens cleanly in Excel,
@@ -1573,23 +1459,6 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
   );
 }
 
-// The drawer's edit gates for one ticket, in one place for the list row, the
-// board and the phone's Move To (Oct 2026 review: the board let anyone drag
-// any card, and the row's status cell skipped the requester carve-out the
-// drawer applies). UI convenience only - _ticket_edit_scope in
-// backend/routers/tickets.py is the real boundary.
-export function ticketRights(t, myEmail, privileged) {
-  const me = (myEmail || '').toLowerCase();
-  const isRequester = (t.requesterId || '').toLowerCase() === me;
-  const isAssignee = (t.assigneeId || '').toLowerCase() === me;
-  const priv = !!privileged;
-  const requesterLocked = isRequester && !isAssignee && !priv && t.status !== 'open';
-  const locked = t.status === 'in_progress' && !!t.assigneeId;
-  const canWorking = priv || (!requesterLocked && (locked ? isAssignee : true));
-  const requesterOnly = isRequester && !priv && !isAssignee;
-  return { isRequester, isAssignee, requesterOnly, canWorking, canEditStatus: canWorking && !requesterOnly };
-}
-
 // `mobile` comes from TicketsView, never from a useIsMobile() of the row's own:
 // two hooks listening to the same media query flip on separate renders, so on a
 // rotate across 640px a row could switch to the desktop grid while its parent
@@ -1857,37 +1726,6 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
   );
 });
 
-// Real Supabase Storage upload for ticket evidence (screenshots, documents,
-// screen recordings) - works for any file size, unlike the old inline-data-URL
-// scheme it replaced (which silently dropped anything over 2MB; recordings
-// always would have). Bucket must exist on the Supabase project - public,
-// same as Testing's qa-evidence - create `ticket-evidence` there.
-function attachmentKindOf(f) {
-  if (f.type.startsWith('image/')) return 'image';
-  if (f.type.startsWith('video/')) return 'video';
-  return 'doc';
-}
-
-// Posts one file to a ticket - the ticket must already exist (attachments are
-// keyed by ticket id). A failed storage upload still records the attachment
-// by name (returns false) so the attempt isn't silently lost - the caller
-// decides whether/how to surface that.
-async function uploadTicketFile(ticketId, f) {
-  const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
-  const kind = attachmentKindOf(f);
-  let url = '';
-  let ok = true;
-  try { url = await uploadTicketEvidence(f, kind); } catch { ok = false; }
-  // The server refuses a URL outside our storage (400) - that file is not on
-  // the ticket either, so it counts as failed too.
-  try { await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }); } catch { ok = false; }
-  return ok;
-}
-
-// "Could not attach <name>: <server's reason>" - a refused attachment (e.g.
-// a URL outside our storage, 400) used to vanish without a word.
-const attachFailed = (name) => (e) => appDialog.alert(`Could not attach "${name}": ${e?.message || e}`, { title: 'Attachment Not Saved' });
-
 // Shared Record + Upload control - a screen recording (optionally with mic
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
 // time (recordings become File objects too); the caller decides whether to
@@ -2016,36 +1854,6 @@ function PendingFileChip({ file, onRemove }) {
       <button type="button" onClick={onRemove} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
     </span>
   );
-}
-
-// Does a (possibly rich) description say anything? An editor that was opened
-// and left empty saves "<p></p>"; a screenshot on its own still counts.
-const hasRichText = (html) => !!html && (!isEmptyDoc(html) || /<img\b/i.test(html));
-
-/** The task module's Collaborators extras for a ticket's picker: the
- *  module's teams (approved, plus your own personal ones), "Save as a Team"
- *  (a personal team, as in the task module), and the people you share the
- *  most tasks with. */
-function useCollaboratorExtras() {
-  const { teams = [], createTeam } = useTasks();
-  const frequent = useFrequentCollaborators();
-  return {
-    teams, frequent,
-    onSaveTeam: createTeam ? ({ name, memberIds }) => createTeam({ name, memberIds, personal: true }) : null,
-  };
-}
-
-// Who can be a ticket's collaborator: the People list (staff, A-Z) as the
-// Requester dropdown shows it, plus anyone already on it who is not in the
-// list, less the requester (already on the ticket).
-function collaboratorOptions(people, keep, requester) {
-  const req = (requester || '').toLowerCase();
-  const rows = people.filter((p) => !p.external)
-    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'en', { sensitivity: 'base' }))
-    .map((p) => ({ id: p.email, label: p.name, desc: p.email }));
-  const known = new Set(rows.map((r) => r.id));
-  for (const e of keep || []) if (e && !known.has(e)) { rows.push({ id: e, label: e, desc: e }); known.add(e); }
-  return rows.filter((r) => r.id !== req);
 }
 
 // ── Create ───────────────────────────────────────────────────────────────────
@@ -2853,16 +2661,6 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
   );
 }
 
-// Plain text from a dialog going out as a reply - escaped, one <p> per line,
-// the same shape the rich editor writes.
-const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
-const textToHtml = (s) => String(s || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-  .map((l) => `<p>${escapeHtml(l)}</p>`).join('');
-
-// Does moving this ticket to `status` need the Resolve dialog? Any move INTO
-// Resolved/Closed from a status that is still being worked.
-export const needsResolution = (t, status) => CLOSED_STATES.includes(status) && !CLOSED_STATES.includes(t?.status);
-
 // The drawer's Help With field: a pick saves at once, a typed "Other" answer
 // saves when the field loses focus - never one save per keystroke (each save
 // is an audit row and a requester notification).
@@ -2884,25 +2682,6 @@ function DrawerHelpTopic({ value, deptName, onCommit, subValue = '', onCommitSub
         }} />
     </div>
   );
-}
-
-// ── Edit drawer (modal) ───────────────────────────────────────────────────────
-// Plain-text rendering of a type-field or custom-field value, for actors who
-// can see it but (per the drawer's field gating below) can't edit it.
-function readOnlyFieldValue(f, value, nameOf) {
-  if (f.type === 'person') return value ? (nameOf(value) || value) : '-';
-  if (f.type === 'multiperson') {
-    const ids = toEmailList(value);
-    return ids.length ? ids.map((e) => nameOf(e) || e).join(', ') : '-';
-  }
-  if (f.type === 'checklist') {
-    const items = Array.isArray(value) ? value : [];
-    return items.length ? items.map((it) => `${it.done ? '✓' : '○'} ${it.label}`).join('  ·  ') : '-';
-  }
-  if (Array.isArray(value)) return value.length ? value.join(', ') : '-';
-  if (value === '' || value == null) return '-';
-  if (f.type === 'date') return fmtDate(value);
-  return String(value);
 }
 
 // Exported so the Support page (requester-facing, no module grant needed -
@@ -4021,10 +3800,6 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
   );
 }
 
-// What each star means, in the requester's words - shown while they pick and
-// on the Overview card afterwards.
-const CSAT_LABELS = { 1: 'Very Dissatisfied', 2: 'Dissatisfied', 3: 'Neutral', 4: 'Satisfied', 5: 'Very Satisfied' };
-
 // The requester's satisfaction survey, at the top of the Overview tab once it
 // is in (Oct 1) - the first thing anyone opening a closed ticket sees.
 function SatisfactionCard({ ticket, nameOf }) {
@@ -4260,16 +4035,6 @@ function AttachmentViewer({ att, onClose }) {
     </div>
   );
 }
-
-// After a recording made from an EXISTING ticket stops, bring the person back
-// to that ticket if they wandered off mid-recording (shared by the Attachments
-// tab and the Conversation, Oct 6). Links in a reply use escapeHtml (above).
-const returnToTicketAfterRecording = (ticketId) => (v) => {
-  if (v || isTicketDrawerOpen(ticketId)) return;
-  setPendingOpen('ticket', ticketId);
-  window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } }));
-  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tickets' } }));
-};
 
 // ── Attachments ──────────────────────────────────────────────────────────────
 // Card size for the attachment gallery - wide/tall enough for a video thumbnail
