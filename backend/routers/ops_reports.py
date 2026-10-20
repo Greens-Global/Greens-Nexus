@@ -1,7 +1,8 @@
 """Operations > Reports and the Report Builder (Neil, Ops review, Oct 20 2026).
 
   GET  /ops-reports/catalog                  Cubby's report list, grouped, with where each comes from
-  GET  /ops-reports/run/{kind}               one report: facility_id, start, end (YYYY-MM-DD)
+  GET  /ops-reports/run/{kind}               one report: facility_id or facility_ids (comma-separated),
+                                             start, end (YYYY-MM-DD), the report's options (catalog)
   GET  /ops-reports/tenant                   drill-down: a tenant's units, tenancies, balance, payments
   GET  /ops-reports/tenant/ledger            ...and their Cubby ledger, read live
   GET  /ops-reports/unit                     drill-down: a unit and every tenancy it has had
@@ -20,7 +21,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -61,8 +62,11 @@ def get_catalog():
 
 
 @router.get("/run/{kind}")
-async def run_report(kind: str, facility_id: str = "", start: str = "", end: str = ""):
-    return await _call(ops_reports.run, kind, facility_id, start, end)
+async def run_report(kind: str, request: Request, facility_id: str = "", start: str = "", end: str = "",
+                     facility_ids: str = ""):
+    ids = [i for i in facility_ids.split(",") if i.strip()] or None
+    opts = {k: v for k, v in request.query_params.items() if k in ops_reports.OPTION_DEFS}
+    return await _call(ops_reports.run, kind, facility_id, start, end, ids, opts)
 
 
 @router.get("/tenant")
