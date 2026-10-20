@@ -172,7 +172,7 @@ class PunchLocationTest(unittest.TestCase):
         self.assertEqual(self.judge(FAR, work_remote=1)["geo_status"], "remote")
         self.assertEqual(self.judge(B)["work_site_id"], self.b)
 
-    def where(self, pt, acc=10, **emp):
+    def where(self, pt, acc=10, off=False, **emp):
         db = database.SessionLocal()
         try:
             if emp:
@@ -181,7 +181,7 @@ class PunchLocationTest(unittest.TestCase):
                     setattr(row, k, v)
                 db.commit()
             lat, lng = near(pt) if pt else ("", "")
-            return where_label(lat, lng, acc, user={"email": self.email}, db=db)["label"]
+            return where_label(lat, lng, acc, off, user={"email": self.email}, db=db)["label"]
         finally:
             db.close()
 
@@ -192,7 +192,9 @@ class PunchLocationTest(unittest.TestCase):
         self.assertEqual(self.where(B), "Temecula")
         self.assertEqual(self.where(C), "Off-Site Punch")
         self.assertEqual(self.where(FAR), "Off-Site Punch")
-        self.assertEqual(self.where(None), "")
+        # No position (Oct 20): the Time Sheet's words, never a blank tag.
+        self.assertEqual(self.where(None), "No Location")
+        self.assertEqual(self.where(None, off=True), "Location Off")
         self.assertEqual(self.where(A, acc=5000), "")
         self.assertEqual(self.where(C, work_site_ids="[]", work_site_id=""), "Other")
         self.assertEqual(self.where(A, work_remote=1), "Remote")

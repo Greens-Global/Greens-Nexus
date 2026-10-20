@@ -10609,10 +10609,14 @@ def _where_label(geo: dict, ctx: dict) -> str:
 
 
 @router.get("/where")
-def where_label(lat: str = "", lng: str = "", accuracy_m: int = 0,
+def where_label(lat: str = "", lng: str = "", accuracy_m: int = 0, location_off: bool = False,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """The BOD/EOD composer's location tag for the caller's current position."""
+    """The BOD/EOD composer's location tag for the caller's current position.
+    No position (Oct 20): "Location Off" when the browser blocks location,
+    else "No Location" - the same words as the Time Sheet, never a blank."""
     ctx = _geo_context(db, user["email"])
+    if not ctx.get("remote") and not _has_coords(lat, lng):
+        return {"label": _OFF_SITE_LABEL["location_off" if location_off else "no_location"]}
     return {"label": _where_label(_geofence(db, lat, lng, accuracy_m, ctx=ctx), ctx)}
 
 

@@ -1561,7 +1561,7 @@ export const api = {
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   // BOD/EOD location tag (Remote / site / Off-Site Punch) for a position.
-  timeWhere:         (pos)       => req(`/timeclock/where?lat=${encodeURIComponent(pos?.lat || '')}&lng=${encodeURIComponent(pos?.lng || '')}&accuracy_m=${pos?.accuracy_m || 0}`),
+  timeWhere:         (pos, off)  => req(`/timeclock/where?lat=${encodeURIComponent(pos?.lat || '')}&lng=${encodeURIComponent(pos?.lng || '')}&accuracy_m=${pos?.accuracy_m || 0}${off ? '&location_off=true' : ''}`),
   // My Teams chats, listed server-side via the session's Graph token (no MSAL popup).
   timeMyChats:       ()          => req('/timeclock/my-chats', { timeoutMs: 30000 }),
   // Channels of every team the caller is in - binding BOD/EOD to a channel (Oct 6).
