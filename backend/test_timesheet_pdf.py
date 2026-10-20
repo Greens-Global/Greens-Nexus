@@ -124,7 +124,8 @@ class Fixed(unittest.TestCase):
         text = text_of(tp.render(FIXED, ctx(pay_type="fixed", start="2026-10-01", end="2026-10-31",
                                             kind="Salaried (monthly)")))
         for s in ("Day", "Effect on Pay", "Present", "Personal", "Weekend", "-INR 2,000.00", "no change",
-                  "Monthly salary", "Missed days (1 full): Personal x1", "NET PAY THIS MONTH", "INR 58,000.00"):
+                  "Monthly salary", "Missed days (1 full): Personal x1", "NET PAY THIS MONTH", "INR 58,000.00",
+                  "TOTAL HOURS WORKED 9:00 (9.00)"):
             self.assertIn(s, text)
         self.assertNotIn("OT rule", text)
 

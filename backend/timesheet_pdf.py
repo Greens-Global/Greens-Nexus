@@ -365,9 +365,10 @@ def fixed_summary(card: dict) -> list:
     t = card.get("totals") or {}
     cur = card.get("currency") or "USD"
     split = len(card.get("rateSplits") or []) > 1
+    # As the screen words it (missedText): "Sick x2", "Sick x2 + 1 half", "Sick x1 half".
     reasons = " · ".join(
         f"{m.get('label')} x{m.get('full')}" + (f" + {m.get('half')} half" if m.get("half") else "")
-        if m.get("full") else f"{m.get('label')} {m.get('half')} half"
+        if m.get("full") else f"{m.get('label')} x{m.get('half')} half"
         for m in t.get("missedReasons") or [])
     missed = (f"Missed days ({t.get('missedFullDays', 0)} full"
               + (f", {t['missedHalfDays']} half" if t.get("missedHalfDays") else "") + ")"
@@ -378,12 +379,13 @@ def fixed_summary(card: dict) -> list:
             (missed, "", f"-{money(t['deduction'], cur)}" if t.get("deduction") else money(0, cur)),
             (f"Weekend pay ({wk} day{'' if wk == 1 else 's'}, {card.get('weekendMultiplier') or 1.35} x daily by hours)",
              "", f"+{money(t['weekendBonus'], cur)}" if t.get("weekendBonus") else money(0, cur)),
-            ("NET PAY THIS MONTH", hd(t.get("workedMin")), money(t.get("totalPay"), cur)),
+            ("NET PAY THIS MONTH", "", money(t.get("totalPay"), cur)),
+            ("TOTAL HOURS WORKED", hd(t.get("workedMin")), ""),
             ("MISSING PUNCHES", str(int(t.get("missingPunches") or 0)), "")]
 
 
 def _summary_table(rows: list, fixed: bool) -> Table:
-    data = [[_p(""), _p("HOURS" if not fixed else "", bold=True), _p("WAGE" if not fixed else "AMOUNT", bold=True)]]
+    data = [[_p(""), _p("HOURS", bold=True), _p("AMOUNT" if fixed else "WAGE", bold=True)]]
     data += [[_p(a, _RIGHT, bold=a.isupper()), _p(b, bold=a.isupper()), _p(c, _RIGHT, bold=a.isupper())]
              for a, b, c in rows]
     t = Table(data, colWidths=[300, 90, 90], hAlign="RIGHT")
@@ -408,8 +410,8 @@ def render(card: dict, ctx: dict) -> bytes:
         who.append(f"<b>Code:</b> {escape(ctx['code'])}")
     if ctx.get("dept"):
         who.append(f"<b>Dept:</b> {escape(ctx['dept'])}")
-    who.append(f"<b>Period:</b> {escape(ctx['period'])}")
-    pay = [escape(ctx["kind"])]
+    # The period leads the second line: a long email would wrap it mid-date.
+    pay = [f"<b>Period:</b> {escape(ctx['period'])}", escape(ctx["kind"])]
     if fixed:
         pay.append(f"<b>Monthly salary:</b> {money(card.get('monthlySalary'), cur)}")
     else:
