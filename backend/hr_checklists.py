@@ -364,9 +364,48 @@ def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type
             signal=row.get("signal", ""), status="open", sort_order=n,
         ))
     db.flush()
-    # The owners' tasks; the API sends their emails (cl.new_task_ids).
+    # The owners' tasks, and their "task assigned" email once this commits -
+    # a hire or a signed promotion starts here from inside a signing request,
+    # with no response to send it after (Pranshu, Oct 20).
     cl.new_task_ids = sync_tasks(db, cl, emp, by=by or "nexus", first=True)
+    email_tasks_after_commit(db, cl.new_task_ids, by or "nexus")
     return cl
+
+
+def email_tasks_after_commit(db, task_ids: list, by: str) -> None:
+    """Queue the task-assigned email (notify_task_event - batched like every
+    task email) for each task once the transaction commits. From a thread, and
+    only once the tasks are really saved: after_commit also fires for a
+    SAVEPOINT, and a rolled-back start never shows up, so nothing is sent."""
+    ids = [t for t in (task_ids or []) if t]
+    if not ids:
+        return
+    import threading
+
+    from sqlalchemy import event as sa_event
+
+    def send():
+        import time
+
+        import models
+        from database import SessionLocal
+        from task_notify import notify_task_event
+        for _ in range(150):                  # up to five minutes
+            s2 = SessionLocal()
+            try:
+                found = s2.query(models.Task.id).filter(models.Task.id == ids[0]).first() is not None
+            finally:
+                s2.close()
+            if found:
+                for tid in ids:
+                    try:
+                        notify_task_event(tid, "assigned", by)
+                    except Exception as e:   # noqa: BLE001 - one email never stops the rest
+                        print(f"[checklists] task email for {tid} failed: {e}")
+                return
+            time.sleep(2)
+
+    sa_event.listen(db, "after_commit", lambda _s: threading.Thread(target=send, daemon=True).start(), once=True)
 
 
 def start_on_hire(db, emp: NexusEmployee, by: str, role_id: str = None) -> None:

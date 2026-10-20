@@ -537,6 +537,45 @@ class ChecklistTests(unittest.TestCase):
             self.assertEqual(keys[-1], "ACC-ON")       # then the hired role's own
         finally:
             db.close()
+    def test_a_hire_emails_each_owner_their_task_once_it_commits(self):
+        import threading
+        import time
+        import task_notify
+        sent, lock = [], threading.Lock()
+        real = task_notify.notify_task_event
+
+        def record(tid, event, actor, **kw):
+            with lock:
+                sent.append((tid, event))
+        task_notify.notify_task_event = record
+        try:
+            db = database.SessionLocal()
+            try:
+                db.add(models.HrCandidate(id="cand-e", first_name="Eve", last_name="Ng", email="eve@example.com",
+                                          stage="offer", company=CO_A,
+                                          expected_start=(date.today() + timedelta(days=20)).isoformat()))
+                db.commit()
+            finally:
+                db.close()
+            r = self.client.patch("/hr/candidates/cand-e", json={"stage": "hired", "stage_note": "Signed on paper"})
+            self.assertEqual(r.status_code, 200, r.text)
+            db = database.SessionLocal()
+            try:
+                cand = db.query(models.HrCandidate).filter_by(id="cand-e").one()
+                cl = db.query(models.HrChecklist).filter_by(employee_id=cand.employee_id).one()
+                subs = [i.task_id for i in db.query(models.HrChecklistItem).filter_by(checklist_id=cl.id).all() if i.task_id]
+                parents = {t.parent_task_id for t in db.query(models.Task).filter(models.Task.id.in_(subs)).all()}
+            finally:
+                db.close()
+            self.assertTrue(parents)
+            for _ in range(50):                       # the email goes from a thread after the commit
+                with lock:
+                    if len(sent) >= len(parents):
+                        break
+                time.sleep(0.1)
+            self.assertEqual({t for t, e in sent if e == "assigned"}, parents)    # one per owner, not per step
+        finally:
+            task_notify.notify_task_event = real
 
 
 if __name__ == "__main__":

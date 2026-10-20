@@ -147,10 +147,9 @@ def start_checklist(eid: str, body: StartIn, background: BackgroundTasks = None,
                       role_id=None if body.role_id is None else body.role_id.strip())
     except ValueError as e:
         raise HTTPException(400, str(e))
-    created = list(getattr(cl, "new_task_ids", []) or [])
-    hc.sync(db, cl, emp)
+    hc.sync(db, cl, emp)                 # start() already queued its own tasks' emails
     db.flush()
-    created += hc.sync_tasks(db, cl, emp, by=user["email"])
+    created = hc.sync_tasks(db, cl, emp, by=user["email"])
     db.commit()
     _send_task_emails(background, created, user["email"])
     return _full(db, cl)
