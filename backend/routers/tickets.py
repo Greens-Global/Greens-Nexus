@@ -591,6 +591,8 @@ class TicketBody(BaseModel):
     property_locked: Optional[bool] = False
     # The unit (or "Common Area") - ticket_property_link.clean_unit.
     property_unit: Optional[str] = ""
+    # Equipment (items) the ticket is about - checked by ticket_items.check_items.
+    item_ids: Optional[list] = None
 
 
 class TicketUpdate(BaseModel):
@@ -1108,6 +1110,9 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     prop_manager = property_links.manager_email(db, prop) if prop is not None else ""
     # Same never-trust-the-client-alone posture requester_email just got above.
     company_id = _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
+    from routers import ticket_items   # Equipment: validated before anything is written
+    linked_items = ticket_items.check_items(db, user, body.item_ids, ticket_company=company_id,
+                                            requester_email=(body.requester_email or user["email"]))
     t = models.TaskTicket(
         # Always the server's. Comments and files share the task tables, keyed
         # only by id - a ticket created with a task's id read that task's
@@ -1162,6 +1167,7 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                  detail=json.dumps(_ticket_snapshot(t)))
+    ticket_items.link_at_intake(db, t, user, linked_items)
     # Default assignee (Oct 2026, ticket_auto_assign.py): nobody chose one and
     # nothing gates it - the help topic's, else the department's default takes
     # it. A gated ticket gets its default at approval (decide_approval).

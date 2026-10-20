@@ -2553,6 +2553,9 @@ def _run_migrations():
         # models.NexusPersonPref / TicketReportEmailLog.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ticket_weekly_report INTEGER",
         "ALTER TABLE ticket_report_email_log ENABLE ROW LEVEL SECURITY",
+        # Tickets <-> equipment (Oct 2026, routers/ticket_items.py) - a new
+        # table: explicit RLS on top of the sweep. models.TicketItemLink.
+        "ALTER TABLE ticket_item_links ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4014,3 +4017,5 @@ app.include_router(unit_map_router.ops_router)     # Operations > Site Map: site
 app.include_router(unit_map_router.public_router)  # Customer unit map /find/<token>: one unit, the route, no login (Neil, 10/20)
 from routers import ticket_reports as ticket_reports_router  # noqa: E402
 app.include_router(ticket_reports_router.router)   # Tickets > Reports: the server-side report, its CSV and the weekly email opt-out (Oct 2026)
+from routers import ticket_items as ticket_items_router  # noqa: E402
+app.include_router(ticket_items_router.router)     # Tickets <-> equipment (items): picker, links, Other Tickets for This Item, by-item (Oct 2026)
