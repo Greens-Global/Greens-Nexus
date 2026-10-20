@@ -55,18 +55,11 @@ function doorTexture() {
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
-/** A soft dark pad under a building - contact shadow / ambient occlusion where walls meet the ground. */
-function contactTexture() {
-  const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64; const x = cv.getContext('2d');
-  const g = x.createRadialGradient(32, 32, 8, 32, 32, 32); g.addColorStop(0, 'rgba(0,0,0,0.55)'); g.addColorStop(0.6, 'rgba(0,0,0,0.28)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-  x.fillStyle = g; x.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(cv); return t;
-}
-
 /** The route ribbon: a bright band with white chevrons pointing along it (the texture scrolls, so they move). */
 function routeTexture() {
   const cv = document.createElement('canvas'); cv.width = 64; cv.height = 32; const x = cv.getContext('2d');
-  x.fillStyle = '#1a73e8'; x.fillRect(0, 0, 64, 32); x.fillStyle = 'rgba(255,255,255,0.95)';
-  x.beginPath(); x.moveTo(18, 6); x.lineTo(34, 16); x.lineTo(18, 26); x.lineTo(26, 16); x.closePath(); x.fill();
+  x.fillStyle = '#2f7de1'; x.fillRect(0, 0, 64, 32); x.fillStyle = 'rgba(255,255,255,0.7)';
+  x.beginPath(); x.moveTo(24, 10); x.lineTo(34, 16); x.lineTo(24, 22); x.lineTo(28, 16); x.closePath(); x.fill();
   const t = new THREE.CanvasTexture(cv); t.wrapS = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
 }
 
@@ -81,7 +74,7 @@ export function mixHex(from, to, k) {
 export function baseUnitColor(u, mode, colors, neutral = KIND_COLORS.neutral, neutralPark = KIND_COLORS.neutralPark) {
   if (mode === 'customer') return u.k === 'park' ? neutralPark : neutral;
   if (colors && colors[u.n] != null) return typeof colors[u.n] === 'string' ? parseInt(colors[u.n].replace('#', ''), 16) : colors[u.n];
-  if (u.r === 0) return KIND_COLORS.bad; if (u.l === 1) return KIND_COLORS.ok; return KIND_COLORS.warn;
+  if (u.l === 1) return KIND_COLORS.ok; if (u.r === 0) return KIND_COLORS.bad; return KIND_COLORS.warn;
 }
 
 /** Frees the GPU side of a scene object (geometry, material, texture) and its children. */
@@ -189,7 +182,7 @@ export function createSiteModelViewer(container, model, options = {}) {
       // A roof over open stalls: a translucent slab on posts, so the stalls under it stay visible.
       polys.forEach((p) => { const slab = flatPoly(p, mat.canopy, 4.2); scene.add(slab); scene.add(lineLoop(p, mat.edge, 4.2)); p.forEach((c) => { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 4.2, 6), mat.door); post.position.copy(W(c[0], c[1], 2.1)); scene.add(post); }); });
     } else {
-      if (!illus) polys.forEach((p) => { scene.add(flatPoly(p, mat.zone, 0.04)); scene.add(lineLoop(p, mat.zoneLine, 0.1)); });
+      // Satellite: the photo already shows the lot - no tinted fill or brown outline over it (Oct 20 review).
     }
     const c = centroid(polys[0]); const l = textSprite(z.name, { size: 48, bg: 'rgba(255,255,255,0.8)', worldHeight: 4 }); l.position.copy(W(c[0], c[1], z.kind === 'canopy' ? 7 : 4)); scene.add(l); screenLabel(l, 17, 1);
   });
@@ -222,7 +215,6 @@ export function createSiteModelViewer(container, model, options = {}) {
     const short = b.letters && b.letters.length && b.letters.length <= 2 && b.letters.every((l) => l.length <= 2);
     const label = textSprite(short ? b.letters.join(' / ') : b.name, { size: 72, bg: 'rgba(255,255,255,0.85)', worldHeight: short ? 7 : 4 });
     label.position.copy(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, b.height + 5)); scene.add(label); screenLabel(label, short ? 24 : 17, 3 + Math.min(4, (L * Wd) / 2000));
-    if (!illus) { const ao = new THREE.Mesh(new THREE.PlaneGeometry(L + 6, Wd + 6), new THREE.MeshBasicMaterial({ map: contactTexture(), transparent: true, depthWrite: false })); ao.rotation.x = -Math.PI / 2; ao.position.copy(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, 0.06)); scene.add(ao); }
   });
 
   // ---- units ----
@@ -233,7 +225,7 @@ export function createSiteModelViewer(container, model, options = {}) {
   const cellGeo = new THREE.BoxGeometry(1, 1, 1);
   const N = Math.max(1, units.length);
   const unitInst = new THREE.InstancedMesh(cellGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), N);
-  unitInst.castShadow = !illus; unitInst.receiveShadow = true; unitInst.frustumCulled = false;
+  unitInst.castShadow = !illus; unitInst.receiveShadow = illus; unitInst.frustumCulled = false;
   const doorInst = new THREE.InstancedMesh(cellGeo, illus ? mat.door : new THREE.MeshLambertMaterial({ map: doorTexture() }), N);
   doorInst.frustumCulled = false; doorInst.count = 0;
   const recs = []; const recOf = {}; const ZERO = new THREE.Vector3(0, 0, 0); const UP = new THREE.Vector3(0, 1, 0);
@@ -241,8 +233,9 @@ export function createSiteModelViewer(container, model, options = {}) {
   let doorCount = 0;
   units.forEach((u, i) => {
     const b = buildings[u.b]; const fh = b ? b.height / b.floors : 0; const baseY = (u.f - 1) * fh;
-    const h = u.k === 'park' ? 0.12 : Math.min(2.2, Math.max(0.6, fh ? fh * 0.6 : 0.6));
-    const pos = W(u.u + u.wu / 2, u.v + u.dv / 2, baseY + h / 2 + 0.03);
+    // Parking stalls are painted slabs lying on the ground; storage units are boxes.
+    const h = u.k === 'park' ? (illus ? 0.12 : 0.08) : Math.min(2.2, Math.max(0.6, fh ? fh * 0.6 : 0.6));
+    const pos = W(u.u + u.wu / 2, u.v + u.dv / 2, baseY + h / 2 + (u.k === 'park' ? 0.01 : 0.03));
     const scale = new THREE.Vector3(Math.max(0.3, u.wu - 0.12), h, Math.max(0.3, u.dv - 0.12));
     // An angled stall from the as-built plans turns about its center (rot:
     // degrees counter-clockwise in u,v; W maps u,v to x,-z, so that is rotation.y).
@@ -305,31 +298,41 @@ export function createSiteModelViewer(container, model, options = {}) {
   const selDoor = new THREE.Mesh(cellGeo, doorInst.material); selDoor.visible = false; scene.add(selDoor);
   let selLift = 0;
 
-  // Unit numbers: only on the chosen building's chosen floor, and only close up (see the loop).
+  // Unit numbers (Oct 20 review): the chosen unit's nearest neighbors on its
+  // floor, and the rest of its building / lot only once the camera is close.
+  // Screen-size, and run through the same overlap check as the building names
+  // (see declutter), so they never pile up. The chosen unit's own number is on its pin.
+  const NEAR_M = 14; const NEAR_MAX = 10; let unitLabelList = [];
   function showUnitLabels(bid, level) {
-    const key = bid ? `${bid}:${level}:${state.explode ? 1 : 0}` : null;
+    const key = bid ? `${bid}:${level}:${state.explode ? 1 : 0}:${state.selected || ''}` : null;
     if (labelsFor === key) return; labelsFor = key;
-    clearGroup(unitLabels);
+    clearGroup(unitLabels); unitLabelList = [];
     if (!bid) return;
     const b = buildings[bid]; const multi = b && b.floors > 1;
-    recs.filter((r) => r.u.b === bid && (!multi || r.u.f === (level || 1))).forEach((r) => { const x = r.u; const sp = textSprite(x.n, { size: 40, mono: true, weight: 500, bg: 'rgba(255,255,255,0.82)', worldHeight: Math.min(1.6, Math.max(0.9, x.wu * 0.45)) }); sp.position.copy(unitTop(r)); sp.position.y += 0.6; sp.userData.unit = x; unitLabels.add(sp); });
+    const sel = state.selected ? recOf[state.selected] : null;
+    const dist = (r) => (sel ? Math.hypot(r.pos.x - sel.pos.x, r.pos.z - sel.pos.z) : 0);
+    const rows = recs.filter((r) => r.u.b === bid && (!multi || r.u.f === (level || 1)) && (!sel || r !== sel)).sort((a, c) => dist(a) - dist(c));
+    rows.forEach((r, i) => {
+      const x = r.u; const sp = textSprite(x.n, { size: 40, mono: true, weight: 500, bg: 'rgba(255,255,255,0.9)' });
+      sp.position.copy(unitTop(r)); sp.position.y += 0.4; sp.userData.unit = x; sp.visible = false;   // the next declutter pass sizes and shows it
+      sp.material.sizeAttenuation = false; sp.material.depthTest = false; sp.renderOrder = 9;
+      sp.userData.px = 13; sp.userData.aspect = sp.scale.x / sp.scale.y; sp.userData.near = !!sel && i < NEAR_MAX && dist(r) <= NEAR_M;
+      unitLabels.add(sp); unitLabelList.push(sp);
+    });
   }
+  let pinLabel = null;
   function updateBeacon() {
-    clearGroup(beacon);
+    clearGroup(beacon); pinLabel = null;
     if (!state.selected) return; const u = byName[state.selected]; const p = unitTop(recOf[u.n]); p.y -= recOf[u.n].h / 2;
-    if (illus) {   // a map pin over the unit, like a pin on a delivery map; sized to the zoom in the loop
+    {   // a map pin over the unit, like a pin on a delivery map; sized to the zoom in the loop (both looks)
       const pin = new THREE.Group(); pin.position.set(p.x, p.y + 0.12, p.z); pin.userData.pin = true; beacon.add(pin);
-      const pinMat = new THREE.MeshLambertMaterial({ color: 0xff7a00 }); const top = 9;
+      const pinMat = new THREE.MeshLambertMaterial({ color: 0xff7a00 }); const top = illus ? 9 : 5;
       const head = new THREE.Mesh(new THREE.SphereGeometry(2.2, 20, 14), pinMat); head.position.set(0, top + 2.2, 0); pin.add(head);
       const dot = new THREE.Mesh(new THREE.SphereGeometry(0.95, 14, 10), new THREE.MeshBasicMaterial({ color: 0xffffff })); dot.position.set(0, top + 2.4, 0); pin.add(dot);
       const tip = new THREE.Mesh(new THREE.ConeGeometry(1.75, 4.6, 20), pinMat); tip.position.set(0, top - 0.7, 0); tip.rotation.x = Math.PI; pin.add(tip);
-      const lab = textSprite(u.n, { size: 64, mono: true, bg: 'rgba(255,255,255,0.97)', color: '#1d1f1a', worldHeight: 3.6, depthTest: false }); lab.position.set(0, top + 7.6, 0); pin.add(lab);
+      const lab = textSprite(u.n, { size: 64, mono: true, bg: 'rgba(255,255,255,0.97)', color: '#1d1f1a', worldHeight: 3.6, depthTest: false }); lab.position.set(0, top + 7.6, 0); lab.renderOrder = 12; pin.add(lab); pinLabel = lab;
       const ring = new THREE.Mesh(new THREE.RingGeometry(1.6, 2.4, 32), new THREE.MeshBasicMaterial({ color: 0xff7a00, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false })); ring.rotation.x = -Math.PI / 2; ring.position.set(p.x, p.y + 0.12, p.z); ring.userData.pulse = true; beacon.add(ring);
-      return;
     }
-    const top = p.y + 28; const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, top - p.y, 6), new THREE.MeshBasicMaterial({ color: 0xff7a00 })); pole.position.set(p.x, (top + p.y) / 2, p.z); beacon.add(pole);
-    const lab = textSprite(u.n, { size: 64, mono: true, bg: 'rgba(255,122,0,0.95)', color: '#fff', worldHeight: 5, depthTest: false }); lab.position.set(p.x, top + 3, p.z); beacon.add(lab);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(1.4, 2.2, 32), new THREE.MeshBasicMaterial({ color: 0xff7a00, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })); ring.rotation.x = -Math.PI / 2; ring.position.set(p.x, p.y + 0.1, p.z); ring.userData.pulse = true; beacon.add(ring);
   }
   function renderPins() {
     clearGroup(pinGroup);
@@ -355,7 +358,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     if (!state.selected || opts.route === false) return;
     const u = byName[state.selected]; const plan = planRoute(model, u, routeSteps(model, u));
     if (!plan || plan.points.length < 2) return;
-    route = plan; const pts = plan.points; const y = illus ? 0.32 : 0.26; const half = 0.85;
+    route = plan; const pts = plan.points; const y = illus ? 0.32 : 0.2; const half = 0.55;
     const pos = []; const uv = []; const idx = []; let dist = 0;
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i], b = pts[i + 1]; const len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 0.01) continue;
@@ -366,17 +369,19 @@ export function createSiteModelViewer(container, model, options = {}) {
     }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
     routeTex = routeTexture();
-    const ribbon = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: routeTex, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
+    const ribbon = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: routeTex, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
     ribbon.renderOrder = 5; routeGroup.add(ribbon);
     routeReveal = { mesh: ribbon, total: idx.length, t0: performance.now() };
     if (reduceMotion) { routeReveal = null; } else g.setDrawRange(0, 0);
     // joints: round caps so the turns read as one line
     for (let i = 1; i < pts.length - 1; i++) { const d = new THREE.Mesh(new THREE.CircleGeometry(half, 16), ribbon.material); d.rotation.x = -Math.PI / 2; d.position.copy(W(pts[i][0], pts[i][1], y)); d.renderOrder = 5; routeGroup.add(d); }
     plan.stops.forEach((s, i) => {
-      const end = !!s.end; const disc = new THREE.Mesh(new THREE.CylinderGeometry(end ? 1.5 : 1.25, end ? 1.5 : 1.25, 0.35, 24), new THREE.MeshLambertMaterial({ color: end ? 0xff7a00 : 0x1a73e8 }));
-      disc.position.copy(W(s.uv[0], s.uv[1], y + 0.18)); routeGroup.add(disc);
-      const l = textSprite(String(i + 1), { size: 48, bg: end ? 'rgba(255,122,0,0.95)' : 'rgba(26,115,232,0.95)', color: '#fff', worldHeight: 2.2, depthTest: false });
-      l.position.copy(W(s.uv[0], s.uv[1], y + 2.6)); l.renderOrder = 11; routeGroup.add(l);
+      // The unit itself already carries the orange pin: only the stops before it get a marker.
+      if (s.end) return;
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.2, 24), new THREE.MeshLambertMaterial({ color: 0x2f7de1 }));
+      disc.position.copy(W(s.uv[0], s.uv[1], y + 0.1)); routeGroup.add(disc);
+      const l = textSprite(String(i + 1), { size: 48, bg: 'rgba(47,125,225,0.95)', color: '#fff', worldHeight: 1.8, depthTest: false });
+      l.position.copy(W(s.uv[0], s.uv[1], y + 1.8)); l.renderOrder = 11; routeGroup.add(l);
     });
   }
 
@@ -386,7 +391,8 @@ export function createSiteModelViewer(container, model, options = {}) {
     const explode = !!state.xray && !state.level;
     const moved = explode !== state.explode; state.explode = explode;
     shells.forEach((m) => { const b = m.userData.building; const open = xray || selB === b.id || (state.level && b.floors > 1); m.material.forEach((mm) => { mm.transparent = open; mm.opacity = open ? 0.16 : 1; mm.depthWrite = !open; }); if (m.userData.cap) m.userData.cap.visible = !open; });
-    const focus = state.selected && state.focusDim !== false;
+    // The before look kept every color crisp with the chosen unit in orange (Oct 20 review): dimming is opt-in.
+    const focus = state.selected && state.focusDim === true;
     const neutral = mat.neutral.color.getHex(), neutralPark = mat.neutralPark.color.getHex();
     recs.forEach((r) => {
       const u = r.u; const b = buildings[u.b]; const multi = b && b.floors > 1;
@@ -409,14 +415,13 @@ export function createSiteModelViewer(container, model, options = {}) {
       selLift = 0;
     } else { selMesh.visible = false; selDoor.visible = false; }
     placeSelected();
-    unitLabels.children.forEach((sp) => { sp.visible = !!recOf[sp.userData.unit.n]?.visible || sp.userData.unit.n === state.selected; });
     showUnitLabels(selB, state.level || (state.selected ? byName[state.selected].f : 0)); updateBeacon(); renderMarkers();
     if (state.routeFor !== state.selected) { state.routeFor = state.selected; renderRoute(); }
   }
   function pushColors() { for (let i = 0; i < recs.length; i++) { tmpC.setRGB(colCur[i * 3], colCur[i * 3 + 1], colCur[i * 3 + 2]); unitInst.setColorAt(i, tmpC); } if (unitInst.instanceColor) unitInst.instanceColor.needsUpdate = true; }
   function placeSelected() {
     const sel = state.selected ? recOf[state.selected] : null; if (!sel) return;
-    const lift = Math.min(1.4, sel.h * 0.6) * selLift;
+    const lift = Math.min(0.6, sel.h * 0.3) * selLift;
     selMesh.position.copy(sel.pos); selMesh.position.y += yOff(sel) + lift;
     if (sel.door) { selDoor.position.copy(sel.door.pos); selDoor.position.y += yOff(sel) + lift; }
   }
@@ -429,7 +434,17 @@ export function createSiteModelViewer(container, model, options = {}) {
     if (now - lastDeclutter < 120) return; lastDeclutter = now;
     const H = el.clientHeight || 1, Wpx = el.clientWidth || 1; const k = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
     labelOrder = labelOrder || sortedLabels(); const placed = [];
-    for (const sp of labelOrder) {
+    if (pinLabel) {   // the chosen unit's pin label wins its spot: no unit number drawn over it
+      pinLabel.getWorldPosition(projV); const d = camera.position.distanceTo(projV); const s = pinLabel.getWorldScale(tmpV);
+      projV.project(camera);
+      if (projV.z <= 1) { const ph = s.y / (d * k); placed.push([(projV.x + 1) / 2 * Wpx, (1 - projV.y) / 2 * H, (ph * s.x / s.y) / 2 + 4, ph / 2 + 4]); }
+    }
+    const close = ctrl.radius < 70; const near = ctrl.radius < 170;
+    for (const sp of [...labelOrder, ...unitLabelList]) {
+      if (sp.userData.unit) {   // a unit number: neighbors from mid zoom, the whole row only close up
+        const rec = recOf[sp.userData.unit.n];
+        if (!rec || !rec.visible || !(close || (near && sp.userData.near))) { sp.visible = false; continue; }
+      }
       const px = sp.userData.px; sp.scale.set(px * sp.userData.aspect * k, px * k, 1);
       projV.copy(sp.position).project(camera);
       if (projV.z > 1 || Math.abs(projV.x) > 1.05 || Math.abs(projV.y) > 1.05) { sp.visible = false; continue; }
@@ -437,8 +452,6 @@ export function createSiteModelViewer(container, model, options = {}) {
       const hit = placed.some((q) => Math.abs(q[0] - x) < q[2] + w && Math.abs(q[1] - y) < q[3] + h);
       sp.visible = !hit; if (!hit) placed.push([x, y, w, h]);
     }
-    // unit numbers only once the camera is close enough to read them
-    unitLabels.visible = ctrl.radius < 140;
   }
 
   // ---- camera ----
@@ -555,10 +568,9 @@ export function createSiteModelViewer(container, model, options = {}) {
   const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null; if (ro) ro.observe(container); else window.addEventListener('resize', resize);
   function loop(now) {
     if (!alive) return; raf = requestAnimationFrame(loop); const dt = last ? Math.min(0.1, (now - last) / 1000) : 0; last = now;
-    if (diorama) {
-      if (!reduceMotion) diorama.update(dt);
-      // the pin bobs and keeps a readable size from any distance; the ring under it pulses
-      const sz = Math.max(1, Math.min(6, ctrl.radius / 110));
+    if (diorama && !reduceMotion) diorama.update(dt);
+    {   // the pin bobs and keeps a readable size from any distance; the ring under it pulses
+      const sz = Math.max(illus ? 1 : 0.6, Math.min(illus ? 6 : 4, ctrl.radius / (illus ? 110 : 140)));
       beacon.children.forEach((c) => {
         if (c.userData.pin) { c.scale.setScalar(sz); c.position.y = (c.userData.y0 ??= c.position.y) + (reduceMotion ? 0 : Math.sin(now / 380) * 0.6 * sz); }
         if (c.userData.pulse) { const k = reduceMotion ? 0.3 : (now / 1400) % 1; c.scale.setScalar(sz * (1 + k * 2.2)); c.material.opacity = 0.5 * (1 - k); }
@@ -567,14 +579,13 @@ export function createSiteModelViewer(container, model, options = {}) {
     // The illustrated look turns slowly until the first touch, like a model on a turntable.
     if (idle && !anim) { ctrl.theta += dt * 0.05; applyCamera(); }
     if (anim) anim(now); if (state.selected) mat.sel.emissive.setHex(0x663300).multiplyScalar(0.5 + 0.5 * Math.sin(now / 400));
-    if (!illus) beacon.children.forEach((c) => { if (c.userData.pulse) { const k = reduceMotion ? 0.3 : (now / 1400) % 1; c.scale.setScalar(1 + k * 2.2); c.material.opacity = 0.5 * (1 - k); } });
     if (colorsMoving) {   // ease every unit's color toward its target (a layer switch fades in ~1/4 s)
       const a = 1 - Math.exp(-dt * 12); let still = true;
       for (let i = 0; i < colCur.length; i++) { const d = colTo[i] - colCur[i]; if (Math.abs(d) > 0.002) { colCur[i] += d * a; still = false; } else colCur[i] = colTo[i]; }
       pushColors(); if (still) colorsMoving = false;
     }
     if (state.selected && selLift < 1) { selLift = reduceMotion ? 1 : Math.min(1, selLift + dt * 3); placeSelected(); }
-    if (routeTex && !reduceMotion) routeTex.offset.x -= dt * 0.9;
+    if (routeTex && !reduceMotion) routeTex.offset.x -= dt * 0.5;
     if (routeReveal) { const k = Math.min(1, (now - routeReveal.t0) / 1400); const n = Math.floor(routeReveal.total * k / 6) * 6; routeReveal.mesh.geometry.setDrawRange(0, k >= 1 ? Infinity : n); if (k >= 1) routeReveal = null; }
     declutter(now);
     renderer.render(scene, camera); }

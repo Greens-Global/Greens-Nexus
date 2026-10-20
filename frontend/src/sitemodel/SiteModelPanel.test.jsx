@@ -38,12 +38,15 @@ describe('SiteModelPanel', () => {
     expect(screen.getAllByText('C214').length).toBeGreaterThan(0);
     expect(screen.getByText(/Building C, Level 2/)).toBeTruthy();
     expect(screen.getByText('How to Get There')).toBeTruthy();
-    expect(screen.queryByText('Inventory')).toBeNull();
+    expect(screen.queryByText(/^Inventory/)).toBeNull();
   });
   it('shows owner inventory, out-of-service units and pins', () => {
     render(<SiteModelPanel model={model} mode="owner" images={{}} pins={[{ id: 'p1', unit: 'C001', title: 'Replace door spring', category: 'maintenance', status: 'open', u: 1, v: 1, y: 0 }]} />);
-    expect(screen.getByText('Inventory')).toBeTruthy();
+    expect(screen.getByText(/^Inventory/)).toBeTruthy();
     expect(screen.getByText('Needs Attention (1)')).toBeTruthy();
+    // the long lists fold away, closed; pins stay open
+    expect(screen.getByText('Needs Attention (1)').closest('details').open).toBe(false);
+    expect(screen.getByText('Pins (1)').closest('details').open).toBe(true);
     expect(screen.getByText(/Replace door spring/)).toBeTruthy();
     expect(screen.getByText('Layout Notes')).toBeTruthy();
   });
@@ -51,7 +54,7 @@ describe('SiteModelPanel', () => {
     const live = { ...model, live: { source: 'cubby', enabled: true, ok: true, asOf: '2026-10-11T20:00:00Z', matched: 2, unplaced: [{ n: 'Q001', w: 10, d: 20, k: 'park', l: 1, r: 1, group: 'RV 10x20' }], missing: [] } };
     render(<SiteModelPanel model={live} mode="owner" images={{}} />);
     expect(screen.getByText(/Live from Cubby/)).toBeTruthy();
-    expect(screen.getByText('Not On The Map Yet (1)')).toBeTruthy();
+    expect(screen.getByText('Not on the Map (1)')).toBeTruthy();
     expect(screen.getByText('Q001')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: 'q1' } });
     fireEvent.submit(screen.getByLabelText('Unit number').closest('form'));
@@ -60,7 +63,7 @@ describe('SiteModelPanel', () => {
   it('says when the model is a snapshot without a live link', () => {
     render(<SiteModelPanel model={{ ...model, live: { source: 'snapshot', enabled: false, asOf: 'Oct 11, 2026', unplaced: [], missing: [] } }} mode="owner" images={{}} />);
     expect(screen.getByText(/Cubby snapshot from Oct 11, 2026 · live link off/)).toBeTruthy();
-    expect(screen.queryByText(/Not On The Map Yet/)).toBeNull();
+    expect(screen.queryByText(/Not on the Map/)).toBeNull();
   });
   it('tells the customer when a unit does not exist', () => {
     render(<SiteModelPanel model={model} mode="customer" images={{}} />);
@@ -68,16 +71,28 @@ describe('SiteModelPanel', () => {
     fireEvent.submit(screen.getByLabelText('Unit number').closest('form'));
     expect(screen.getByRole('alert').textContent).toMatch(/No unit Z999/);
   });
-  it('switches between the satellite and illustrated looks and remembers the choice', () => {
+  it('opens on the Illustrated look, switches to Satellite and remembers the choice', () => {
     localStorage.removeItem('nexus.siteModel.look'); styles.length = 0;
     const { unmount } = render(<SiteModelPanel model={model} mode="customer" images={{}} />);
-    expect(styles.at(-1)).toBe('satellite');
-    fireEvent.click(screen.getByRole('button', { name: 'Illustrated' }));
-    expect(styles.at(-1)).toBe('illustrated');
+    expect(styles.at(-1)).toBe('illustrated');   // the clean illustrated look is the default again (Oct 20 review)
     expect(screen.getByText(/Illustrated, drawn to scale/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Satellite' }));
+    expect(styles.at(-1)).toBe('satellite');
     unmount();
     render(<SiteModelPanel model={model} mode="customer" images={{}} />);
-    expect(styles.at(-1)).toBe('illustrated');
+    expect(styles.at(-1)).toBe('satellite');
+    localStorage.removeItem('nexus.siteModel.look');
+  });
+  it('one status per unit: a lease beats the ACTIVE_LEASE unrentable flag everywhere', () => {
+    localStorage.setItem('nexus.siteModel.look', 'satellite');
+    const m = { ...model, units: [...model.units, { n: 'C002', b: 'C', f: 1, u: 4, v: 0, wu: 3, dv: 6, door: 'sw', k: 'du', w: 10, d: 20, l: 1, r: 0, why: 'ACTIVE_LEASE' }] };
+    render(<SiteModelPanel model={m} mode="owner" images={{}} />);
+    expect(screen.getByText('Needs Attention (1)')).toBeTruthy();          // C001 only, not the leased C002
+    fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: 'C002' } });
+    fireEvent.submit(screen.getByLabelText('Unit number').closest('form'));
+    const card = screen.getAllByText('C002').find((el) => el.closest('section'))?.closest('section');
+    expect(card.textContent).toMatch(/Leased/);
+    expect(card.textContent).not.toMatch(/Out of Service/);
     localStorage.removeItem('nexus.siteModel.look');
   });
   it('draws the dashboard cards in the illustrated look: route for customers, KPIs and attention for owners', () => {
