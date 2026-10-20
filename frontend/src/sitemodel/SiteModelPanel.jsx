@@ -16,12 +16,65 @@
 //   pinsEnabled   false hides markup pins (a screen without the pin grant)
 //   hideSearch    true for the customer route page (one unit, nothing to search)
 //   fitRoute      choosing a unit frames the whole route from the gate (customer page)
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+//
+// Oct 20 2026 (Visesh: "the one in asset management is so much better"): every
+// screen shows production's Site Model - Satellite by default (solid status
+// blocks, see-through buildings), the on-map button bar (Reset View / Overview
+// / Plan / From Gate / look / See Inside / levels) and the side panel in
+// production's order: Inventory 2x2 + legend + live line, the unit card (or
+// Find Your Unit), Needs Attention, Pins, Sources. "Realistic 3D" (Google
+// Photorealistic 3D Tiles) joins the look buttons for owners only, and only
+// when the build carries VITE_GOOGLE_MAPS_KEY; where Google has no 3D coverage
+// it falls back to Satellite.
+//   statusOf(u)   'leased' | 'vacant' | 'bad' - ONE answer for the badge, the
+//                 inventory tiles and Needs Attention (Ops passes the rent
+//                 roll's word). Default: a lease wins over Cubby's unrentable
+//                 flag (ACTIVE_LEASE is not out of service).
+//   fill          (Ops Site Map) the map and the panel take the screen height
+//                 left under them and the panel scrolls on its own; the one
+//                 search (SiteMapSearch, with remoteSearch / onRemoteHit /
+//                 placeName) sits on the map top-left and the screen's own
+//                 controls (`toolbar`) top-right. `legendHint` explains the
+//                 layer under the legend; `asideExtra` follows Needs Attention.
+//                 Without `fill` (Asset Management, the customer pages) the
+//                 search box sits above the map, as in production.
+//
+// Oct 20 2026 (Visesh: "the tenant data is going too unlooked"): owners get
+// the KPI block (SiteModelKpis: one stacked occupancy bar that is the legend
+// and filters the map, the money line from `kpis`, the live line), folded to
+// one line while a unit is open; the unit card leads with a one-line unit
+// summary, then the screen's `renderUnitExtra(u, { pickUnit })` (Ops: the
+// tenant card), and How to Get There folds away for staff. `layerBuckets`
+// ([{ key, label, color, count, units }]) replaces the bar for a layer that is
+// not occupancy, `layerTitle` heads it. Needs Attention is grouped by reason;
+// Sources fold at the very bottom, staff only.
+//
+// Mark an Issue on the Map (Charmi, Oct 20 2026) - staff screens only, all off
+// unless given: `onMarkIssue(spot, snapshot)` puts a Mark an Issue button on
+// the map; the pen draws around the spot (or a circle, or a pin - one dropdown), and
+// the screen opens its ticket form with the spot (markSpot.spotFromMark) and a
+// picture of the map. `markResetKey` changing clears the drawn mark (the form
+// closed). `spots` are the open tickets marked on this map (badge + circle;
+// hover shows title and photo, click calls `onOpenSpot`). `modelId` lets a
+// ticket's Open on Map (mapFocus.js) fly here to its spot.
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { createSiteModelViewer, unitKindLabel, unitDirections, doorSideName, reasonLabel, routeSteps } from './siteModelViewer.js';
-import { planRoute } from './siteModelRoute.js';
+import SiteModelCompass from './SiteModelCompass.jsx';
+import { planRoute, routeDirections } from './siteModelRoute.js';
+import { googleMapsDirectionsUrl, googleMapsUnitPinUrl } from './siteModelDirections.js';
 import { SiteModelPlan2D } from './SiteModelPlan2D.jsx';
 import { formatDateTime } from '../lib/datetime.js';
 import { SiteModelHud } from './SiteModelHud.jsx';
+import { SiteMapSearch } from './SiteMapSearch.jsx';
+import { normalizeQuery } from './unitQuery.js';
+import { useIsMobile } from '../lib/useIsMobile.js';
+import { PHONE_QUERY } from '../lib/keys.js';
+import { AttentionCard, SiteModelKpis } from './SiteModelKpis.jsx';
+import { attentionGroups, countedUnits, focusColors, occupancyBuckets, reasonGroup, summaryLine } from './panelModel.js';
+import { MarkIssueBanner, MarkIssueButton, SpotTooltip } from './MarkIssue.jsx';
+import { spotFromMark } from './markSpot.js';
+import { FOCUS_EVENT, peekMapFocus, takeMapFocus } from './mapFocus.js';
 
 const FONT = "'Inter', system-ui, sans-serif";
 const PIN_CATEGORIES = [['maintenance', 'Maintenance'], ['inspection', 'Inspection'], ['note', 'Note']];
@@ -35,17 +88,83 @@ const card = { border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 1
 
 // Satellite = the property photo under the model; Illustrated = the same model
 // drawn as a miniature with trees and traffic. Remembered per browser.
+// Fill mode (Ops Site Map): the grid rows can never grow past the measured
+// height, the canvas is out of flow, and every control floats on the map.
+const FILL_CSS = `
+.sm-fill{grid-template-columns:minmax(0,1fr) 400px;grid-template-rows:minmax(0,1fr)}
+@media (max-width:1500px){.sm-fill{grid-template-columns:minmax(0,1fr) 384px}}
+.sm-fill .sm-main,.sm-fill .sm-aside,.sm-fill .sm-stage{min-height:0}
+.sm-fill .sm-stage{container:smstage/inline-size}
+.sm-fill .sm-stage>canvas{position:absolute;inset:0}
+.sm-fill .sm-aside{padding:12px 14px;border:1px solid var(--border-color,#d9d6cc);border-radius:12px;background:var(--bg-primary,#fff);scrollbar-width:thin}
+.sm-icon-btn{display:inline-grid;place-items:center;width:32px;height:32px;flex:none;border:0;border-radius:8px;background:transparent;color:inherit;cursor:pointer;padding:0}
+.sm-icon-btn:hover{background:var(--bg-secondary,#eef0ec)}
+.sm-icon-btn:focus-visible{outline:2px solid #2a78d6;outline-offset:1px}
+.sm-ov{position:absolute;z-index:3;background:rgba(255,255,255,.96);color:#1d1f1a;border:1px solid rgba(20,40,30,.08);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.12);font:400 13px/1.3 'Inter',system-ui,sans-serif}
+.sm-ov .sm-icon-btn:hover{background:#eef0ec}
+.sm-ov-tl{position:absolute;z-index:4;top:10px;left:10px;width:min(300px,calc(100% - 20px))}
+.sm-ov-tr{top:10px;right:10px;display:flex;align-items:center;gap:2px;padding:3px}
+.sm-ov-tr>*+*{border-left:1px solid #e3e1da;padding-left:2px}
+.sm-ov .ops-section--map{gap:0}
+.sm-ov .ops-section--map .ops-facility-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.sm-ov .ops-section--map .ops-facility-box select{height:30px;min-width:0;width:auto;max-width:200px;border-color:transparent;background:transparent;color:#1d1f1a;font-weight:500}
+.sm-ov .ops-section--map .ops-facility-box select option{color:#1d1f1a;background:#fff}
+.sm-ov .ops-section--map .ops-facility-box svg{color:#5f6358}
+.sm-ov .ops-section--map .ops-facility-box select:hover{background:#eef0ec}
+.sm-search{position:relative;margin:0}
+.sm-search-box{display:flex;align-items:center;gap:8px;height:38px;padding:0 6px 0 11px;background:rgba(255,255,255,.97);color:#5f6358;border:1px solid rgba(20,40,30,.1);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.12);cursor:text;box-sizing:border-box}
+.sm-search-box:focus-within{border-color:#2a78d6}
+.sm-search-box input{flex:1;min-width:0;border:0;background:transparent;color:#1d1f1a;font:400 13.5px 'Inter',system-ui,sans-serif;padding:0}
+.sm-search-box input::placeholder{color:#7a7f75}
+.sm-search-x{display:inline-grid;place-items:center;width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:#5f6358;cursor:pointer;padding:0}
+.sm-search-x:hover{background:#eef0ec}
+.sm-search-pop{position:absolute;top:calc(100% + 6px);left:0;width:max(100%,340px);max-width:calc(100cqw - 20px);max-height:min(360px,55cqh);overflow-y:auto;background:#fff;color:#1d1f1a;border:1px solid rgba(20,40,30,.1);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.16);padding:4px 0;font:400 13px 'Inter',system-ui,sans-serif}
+.sm-sr-list{list-style:none;margin:0;padding:0}
+.sm-sr-group{padding:8px 12px 4px;font-size:12px;font-weight:600;color:#5f6358}
+.sm-sr-row{display:flex;align-items:center;gap:10px;padding:7px 12px;cursor:pointer}
+.sm-sr-row[data-active="true"]{background:#eef3fb}
+.sm-sr-row[data-off="true"]{cursor:default}
+.sm-sr-unit{font:600 12.5px ui-monospace,Menlo,monospace;min-width:48px}
+.sm-sr-main{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sm-sr-muted{color:#6b7068}
+.sm-sr-word{font-size:12px;color:#5f6358;white-space:nowrap}
+.sm-sr-link{font-size:12px;color:#1f6f4a;white-space:nowrap;display:inline-flex;align-items:center;gap:3px}
+.sm-sr-msg{margin:4px 8px;padding:7px 9px;border-radius:7px;background:#fff6e5;color:#7a4a00;font-size:12.5px}
+.sm-sr-note{margin:0;padding:8px 12px;font-size:12.5px;color:#6b7068}
+@container smstage (max-width:680px){
+  .sm-ov-tl{width:calc(100% - 20px)}
+  .sm-ov-tr{top:56px;left:10px;right:10px}
+  .sm-ov-tr .ops-section--map{flex:1 1 0;min-width:0}
+  .sm-ov .ops-section--map .ops-facility-box select{padding:0 22px 0 28px}
+  .sm-ov .ops-section--map .ops-facility-icon{left:8px} .sm-ov .ops-section--map .ops-facility-chev{right:6px}
+  .sm-ov .ops-section--map .ops-facility-box,.sm-ov .ops-section--map .ops-facility-box select{width:100%;max-width:none}
+}
+@media (max-width:900px){.sm-fill{grid-template-rows:none}}
+@media (pointer:coarse){
+  .sm-ov .ops-section--map .ops-facility-box select{height:42px}
+  .sm-search-box{height:44px}
+  .sm-search-x{width:40px;height:40px}
+  .sm-sr-row{min-height:44px}
+  @container smstage (max-width:680px){ .sm-ov-tr{top:62px} }
+}
+`;
+
 const LOOK_KEY = 'nexus.siteModel.look';
-function readLook() { try { return localStorage.getItem(LOOK_KEY) === 'illustrated' ? 'illustrated' : 'satellite'; } catch { return 'satellite'; } }
+// Satellite is the default again (Visesh, Oct 20 2026: production's look).
+function readLook() { try { const v = localStorage.getItem(LOOK_KEY); return v === 'illustrated' || v === 'photoreal' ? v : 'satellite'; } catch { return 'satellite'; } }
+// The Google key is a browser key restricted to the Nexus domains (siteModelPhotoreal.js).
+const PHOTOREAL_KEY = !!(import.meta.env && import.meta.env.VITE_GOOGLE_MAPS_KEY);
 function saveLook(v) { try { localStorage.setItem(LOOK_KEY, v); } catch { /* private window: the choice just is not remembered */ } }
 
-export function normalizeQuery(q) {
-  const s = (q || '').trim().toUpperCase().replace(/\s+/g, '');
-  const m = s.match(/^([A-Z])(\d{1,3})([A-Z]?)$/);
-  return m ? m[1] + m[2].padStart(3, '0') + m[3] : s;
-}
+/** A unit's occupancy from the model's live flags: a lease wins over the
+ *  rentability flag (Cubby marks a leased unit unrentable with ACTIVE_LEASE). */
+export function defaultStatus(u) { return u.l === 1 ? 'leased' : u.r === 0 ? 'bad' : 'vacant'; }
+const STATUS_WORD = { leased: 'Leased', vacant: 'Vacant', bad: 'Out of Service' };
+const STATUS_COLOR = { leased: '#3f8f5f', vacant: '#c98a1b', bad: '#c43d2f' };
 
-export function SiteModelPanel({ model, mode = 'customer', images, pins = [], tickets = [], onAddPin, onRemovePin, onTogglePin, onOpenTicket, height = 560, initialUnit = '', unitColors = null, legend = null, hoverInfo = null, renderUnitExtra = null, markers = null, pinsEnabled = true, hideSearch = false, fitRoute = false }) {
+export { normalizeQuery };
+
+export function SiteModelPanel({ model, mode = 'customer', images, pins = [], tickets = [], onAddPin, onRemovePin, onTogglePin, onOpenTicket, height = 560, initialUnit = '', unitColors = null, legend = null, hoverInfo = null, renderUnitExtra = null, markers = null, pinsEnabled = true, hideSearch = false, fitRoute = false, statusOf = null, fill = false, toolbar = null, legendHint = '', asideExtra = null, remoteSearch = null, onRemoteHit = null, placeName = '', kpis = null, layerBuckets = null, layerTitle = '', layerNote = '', spots = null, onMarkIssue = null, onOpenSpot = null, markResetKey = 0, modelId = '' }) {
   const stageRef = useRef(null); const viewerRef = useRef(null);
   const [selected, setSelected] = useState(() => initialUnit || null); const [building, setBuilding] = useState(null);
   const [query, setQuery] = useState(''); const [notFound, setNotFound] = useState('');
@@ -53,14 +172,65 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   const [placing, setPlacing] = useState(false); const [pending, setPending] = useState(null);
   const [pinTitle, setPinTitle] = useState(''); const [pinCat, setPinCat] = useState('maintenance');
   const [hover, setHover] = useState(null); const [noGl, setNoGl] = useState(false);
-  const [look, setLook] = useState(readLook);
+  const [lookPref, setLook] = useState(readLook);
+  const [photoFailed, setPhotoFailed] = useState(false); const [googleCredit, setGoogleCredit] = useState('');
+  // Realistic 3D only for owners with a key, and not where it already failed to load.
+  const canPhoto = PHOTOREAL_KEY && mode === 'owner' && !photoFailed;
+  const look = lookPref === 'photoreal' && !canPhoto ? 'satellite' : lookPref;
   const [touched, setTouched] = useState(false);
-  const colorsRef = useRef(unitColors); colorsRef.current = unitColors;
+  // Mark an Issue: null, or the tool in hand ('pen' | 'circle' | 'pin'); the spot under the pointer.
+  const [marking, setMarking] = useState(null); const [spotHover, setSpotHover] = useState(null);
+  const markRef = useRef(null); const openSpotRef = useRef(null);
+  const [focusPick, setFocus] = useState(null); const [kpiOpenFor, setKpiOpenFor] = useState(null);
   const selectedRef = useRef(null); const xrayRef = useRef(false);
   useEffect(() => { selectedRef.current = selected; xrayRef.current = xray; }, [selected, xray]);
   const byName = useMemo(() => Object.fromEntries((model.units || []).map((u) => [u.n, u])), [model]);
   const ticketsByUnit = useMemo(() => { const m = {}; tickets.forEach((t) => { const k = normalizeQuery(t.location || ''); if (k && byName[k]) (m[k] = m[k] || []).push(t); }); return m; }, [tickets, byName]);
   const maxLevel = useMemo(() => Math.max(1, ...(model.buildings || []).map((b) => b.floors || 1)), [model]);
+  // See Inside only means something where units sit inside a real building
+  // (not open stalls tagged with a section letter, e.g. Temecula).
+  const hasInterior = useMemo(() => {
+    const ids = new Set((model.buildings || []).filter((b) => b.kind !== 'office').map((b) => b.id));
+    return (model.units || []).some((u) => ids.has(u.b));
+  }, [model]);
+  const statusFn = statusOf || defaultStatus;
+  // The KPI bar: occupancy, or the active layer's buckets; a picked bucket dims the rest of the map.
+  const buckets = useMemo(() => layerBuckets || occupancyBuckets(model.units, statusFn), [layerBuckets, model, statusFn]);
+  // Needs Attention (its own KPI card, and a badge over each unit on the map).
+  const badUnits = useMemo(() => countedUnits(model.units).filter((x) => statusFn(x) === 'bad'), [model, statusFn]);
+  const attention = useMemo(() => attentionGroups(badUnits), [badUnits]);
+  const [showIssues, setShowIssues] = useState(true);
+  const focusBucket = buckets.find((b) => b.key === focusPick)
+    || attention.map((g) => ({ key: `attn:${g.label}`, label: g.label, units: g.units.map((x) => x.n) })).find((b) => b.key === focusPick) || null;
+  const mapColors = useMemo(() => focusColors(model.units, focusBucket, unitColors, statusFn), [model, focusBucket, unitColors, statusFn]);
+  const colorsRef = useRef(mapColors); colorsRef.current = mapColors;
+  // fill: the map + panel take the rest of the screen below where they start
+  // (min 380px). Re-measured on resize, when anything on the page changes size
+  // (a notice above, a wrapped line, a sidebar collapse) and once the fonts are
+  // in; only a change of 2px or more is stored, so it settles in one pass.
+  const rootRef = useRef(null); const asideRef = useRef(null); const [fillH, setFillH] = useState(600);
+  useLayoutEffect(() => {
+    if (!fill || !rootRef.current) return undefined;
+    const size = () => {
+      const el = rootRef.current; if (!el || window.innerWidth <= 900) return;
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      // the page's own padding under the map (the app shell pads its content)
+      let below = 0;
+      for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+        const cs = getComputedStyle(n);
+        below += (parseFloat(cs.marginBottom) || 0) + (n === el ? 0 : (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderBottomWidth) || 0));
+      }
+      const h = Math.max(380, Math.floor(window.innerHeight - top - Math.max(12, below)));
+      setFillH((p) => (Math.abs(p - h) >= 2 ? h : p));
+    };
+    size(); window.addEventListener('resize', size);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(size) : null;
+    if (ro) { ro.observe(document.documentElement); if (rootRef.current.parentElement) ro.observe(rootRef.current.parentElement); }
+    let live = true; document.fonts?.ready?.then(() => { if (live) size(); });
+    return () => { live = false; window.removeEventListener('resize', size); ro?.disconnect(); };
+  }, [fill]);
+  // The drag hint goes after five seconds even if nobody touches the map.
+  useEffect(() => { if (!fill) return undefined; const t = setTimeout(() => setTouched(true), 5000); return () => clearTimeout(t); }, [fill]);
 
   useEffect(() => {
     if (!stageRef.current) return undefined;
@@ -72,6 +242,11 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
         onSelectBuilding: (b) => setBuilding(b),
         onPlacePin: (at) => { setPending(at); setPlacing(false); },
         onHover: (u, pos) => setHover(u ? { n: u.n, f: u.f, ...pos } : null),
+        onAttribution: (c) => setGoogleCredit(c),
+        onPhotorealFallback: () => setPhotoFailed(true),
+        onMark: (m) => markRef.current?.(m),
+        onHoverSpot: (sp, pos) => setSpotHover(sp ? { spot: sp, ...pos } : null),
+        onPickSpot: (sp) => openSpotRef.current?.(sp),
       });
     } catch (e) {
       // No WebGL (old GPU, headless) - the panel still works as a unit list. A throw
@@ -82,6 +257,10 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
     }
     viewerRef.current = v;
     v.setPins(pins); if (xrayRef.current) v.setXray(true);
+    if (spots) v.setSpots?.(spots);
+    if (peekMapFocus(modelId)) {   // a ticket's Open on Map
+      setTimeout(() => { if (viewerRef.current === v) { const f = takeMapFocus(modelId); if (f) v.focusSpot?.(f); } }, 350);
+    }
     // A look switch rebuilds the scene: keep the unit the person was looking at.
     const keep = selectedRef.current || initialUnit;
     if (keep && byName[keep]) setTimeout(() => { if (viewerRef.current === v) v.selectUnit(keep); }, 300);
@@ -89,12 +268,72 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   }, [model, look]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { viewerRef.current?.setMode(mode); }, [mode]);
   useEffect(() => { viewerRef.current?.setPins(pins); }, [pins]);
-  useEffect(() => { viewerRef.current?.setMarkers(markers || Object.fromEntries(Object.entries(ticketsByUnit).map(([k, v]) => [k, v.length]))); }, [ticketsByUnit, markers, look]);
-  useEffect(() => { viewerRef.current?.setUnitColors?.(unitColors); }, [unitColors]);
+  useEffect(() => {
+    const m = { ...(markers || Object.fromEntries(Object.entries(ticketsByUnit).map(([k, v]) => [k, v.length]))) };
+    // A count (tickets, maintenance) keeps its sphere; every other unit needing attention gets the "!" badge.
+    if (showIssues) badUnits.forEach((x) => { if (m[x.n] == null) m[x.n] = { label: '!' }; });
+    viewerRef.current?.setMarkers(m);
+  }, [ticketsByUnit, markers, look, showIssues, badUnits]);
+  useEffect(() => { viewerRef.current?.setUnitColors?.(mapColors); }, [mapColors]);
   useEffect(() => { viewerRef.current?.setPlacing(placing); }, [placing]);
+  // Mark an Issue
+  useEffect(() => { viewerRef.current?.setSpots?.(spots || []); }, [spots, look]);
+  useEffect(() => { viewerRef.current?.setMarking?.(marking); }, [marking, look]);
+  // The form closed: the drawn mark goes (state adjusted while rendering, the viewer after).
+  const [resetSeen, setResetSeen] = useState(markResetKey);
+  if (resetSeen !== markResetKey) { setResetSeen(markResetKey); setMarking(null); }
+  useEffect(() => { viewerRef.current?.clearMark?.(); }, [markResetKey]);
+  useEffect(() => {
+    if (!marking) return undefined;
+    const esc = (e) => { if (e.key === 'Escape') { setMarking(null); viewerRef.current?.clearMark?.(); } };
+    window.addEventListener('keydown', esc); return () => window.removeEventListener('keydown', esc);
+  }, [marking]);
+  useEffect(() => {
+    if (!modelId) return undefined;
+    const go = () => { const f = takeMapFocus(modelId); if (f) viewerRef.current?.focusSpot?.(f); };
+    window.addEventListener(FOCUS_EVENT, go); return () => window.removeEventListener(FOCUS_EVENT, go);
+  }, [modelId]);
+  useEffect(() => {
+    markRef.current = (m) => {
+      const snap = viewerRef.current?.snapshot?.() || '';
+      setMarking(null);
+      onMarkIssue?.(spotFromMark(model, modelId, m), snap);
+    };
+    openSpotRef.current = (sp) => { setSpotHover(null); onOpenSpot?.(sp); };
+  });
 
   const u = selected ? byName[selected] : null;
+  // The figures fold while a unit is open; reopening them lasts for that unit only.
+  const kpiOpen = kpiOpenFor != null && kpiOpenFor === selected;
+  const setKpiOpen = (on) => setKpiOpenFor(on ? selected : null);
+  const phone = useIsMobile(PHONE_QUERY);
+  useEffect(() => {
+    if (!fill || !selected || !asideRef.current) return undefined;
+    asideRef.current.scrollTop = 0;
+    if (!phone) return undefined;
+    // Phone: the panel stacks under a tall map, so the card would open below the
+    // fold. Once the camera has started its flight, scroll so the card's top sits
+    // a little under mid-screen - the unit stays in sight above it.
+    const t = setTimeout(() => {
+      const card = asideRef.current?.querySelector('.sm-unit'); if (!card) return;
+      const top = card.getBoundingClientRect().top; const vh = window.innerHeight;
+      if (top > vh * 0.6 || top < 0) window.scrollBy({ top: top - vh * 0.42, behavior: 'smooth' });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [fill, selected, phone]);
   const steps = useMemo(() => (u ? routeSteps(model, u) : []), [model, u]);
+  // Turn by turn from the main gate along the drive aisles (siteModelRoute.js), else the old written directions.
+  const turnByTurn = useMemo(() => {
+    if (!u) return [];
+    try {
+      const d = routeDirections(model, u);
+      if (d && d.length) return d.map((x) => (typeof x === 'string' ? x : x.text));
+    } catch { /* fall back below */ }
+    return unitDirections(model, u);
+  }, [model, u]);
+  // Google can only route on public roads: directions go to the main gate, the pin to the unit itself.
+  const mapsDir = useMemo(() => (u ? googleMapsDirectionsUrl(model, { unit: u }) : null), [model, u]);
+  const mapsPin = useMemo(() => (u ? googleMapsUnitPinUrl(model, u) : null), [model, u]);
   // The 2D plan draws the same route the 3D view lays on the ground.
   const plan2d = useMemo(() => (noGl && u ? planRoute(model, u, steps) : null), [noGl, model, u, steps]);
   const bldg = (id) => (model.buildings || []).find((b) => b.id === id);
@@ -115,69 +354,103 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
     : `Cubby snapshot from ${live.asOf || 'the build date'}${live.enabled === false ? ' · live link off' : live.error ? ` · ${live.error}` : ''}`;
   const setLvl = (n) => { setLevel(n); viewerRef.current?.setLevel(n); };
   const owner = mode === 'owner';
-  const active = (model.units || []).filter((x) => x.n[0] !== 'M' && !x.gone);
-  const leased = active.filter((x) => x.l === 1).length; const bad = active.filter((x) => x.r === 0); const vacant = active.filter((x) => x.l === 0 && x.r === 1).length;
+  const active = countedUnits(model.units);
+  const leased = active.filter((x) => statusFn(x) === 'leased').length; const bad = active.filter((x) => statusFn(x) === 'bad'); const vacant = active.filter((x) => statusFn(x) === 'vacant').length;
+  const pickHere = (n) => { const ok = viewerRef.current ? viewerRef.current.selectUnit(n) : !!byName[n]; if (ok && !viewerRef.current) { setSelected(n); setBuilding(null); } return ok; };
+  const clearPick = () => { if (viewerRef.current) viewerRef.current.clearSelection(); else setSelected(null); };
+  const setView = (k) => { if (look !== k) { setLook(k); saveLook(k); setPlacing(false); setLevel(0); } };
+  const looks = [...(canPhoto ? [['photoreal', 'Realistic 3D']] : []), ['satellite', 'Satellite'], ['illustrated', 'Illustrated']];
+  const credit = look === 'illustrated' ? 'Illustrated, drawn to scale' : look === 'photoreal' ? `Map data: ${googleCredit || 'Google'}` : model.image?.attribution || 'Imagery: Esri';
+  const liveOk = live.source === 'cubby' && !live.error;
+  // "Drive-Up, Vehicle · 10 × 25 ft · Building C, Level 2 · Door Southwest Side" - the unit in one line (owners).
+  const unitLine = (x) => {
+    const where = `${bldg(x.b)?.name || zone(x.b)?.name || ''}${bldg(x.b)?.floors > 1 ? `, Level ${x.f}` : ''}`;
+    const side = x.door && x.k !== 'park' ? (x.k === 'du' || x.k === 'ccdu' ? doorSideName(model, x.door) : 'hallway') : '';
+    return [unitKindLabel(x), x.w && x.d ? `${x.w} × ${x.d} ft` : x.d ? `${x.d} in. mailbox` : '', where,
+      side === 'hallway' ? 'Hallway Door' : side ? `Door ${side.replace(/ side$/, '').split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}` : ''].filter(Boolean).join(' · ');
+  };
+  // "Repairs Required: Door fall when closing it" - a flagged unit's reason and note.
+  const attnText = (x) => { const r = reasonGroup(x.why, x.note); const n = (x.note || '').trim(); return n && n.toLowerCase() !== r.toLowerCase() ? `${r}: ${n}` : r; };
+  // Flagged units on another level of the same building that share this unit's spot.
+  const stacked = (x) => badUnits.filter((o) => o.n !== x.n && o.b === x.b && o.f !== x.f
+    && o.u < x.u + x.wu && x.u < o.u + o.wu && o.v < x.v + x.dv && x.v < o.v + o.dv);
   const savePin = (e) => { e.preventDefault(); if (!pending || !pinTitle.trim()) return; onAddPin?.({ ...pending, title: pinTitle.trim(), category: pinCat }); setPending(null); setPinTitle(''); };
+  // Production's on-map button bar (Visesh, Oct 20 2026: "the one in asset management is so much better").
+  const pill = { display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' };
+  const pillOn = { background: '#1f6f4a', color: '#fff' };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px', gap: 14, fontFamily: FONT }} className="site-model">
-      <style>{`.site-model{--sm-cols:1} @media (max-width: 900px){ .site-model{grid-template-columns:1fr !important} }`}</style>
-      <div style={{ minWidth: 0 }}>
-        {!hideSearch && <form onSubmit={find} style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+    <div ref={rootRef} style={{ display: 'grid', gridTemplateColumns: fill ? undefined : 'minmax(0, 1fr) 320px', gap: 14, fontFamily: FONT, '--sm-h': `${fillH}px` }} className={`site-model${fill ? ' sm-fill' : ''}`}>
+      <style>{`.site-model{--sm-cols:1}
+        .sm-fill{height:var(--sm-h)} .sm-fill .sm-main{display:flex;flex-direction:column;height:100%} .sm-fill .sm-stage{flex:1;min-height:0}
+        .sm-fill .sm-aside{height:100%;overflow-y:auto;overscroll-behavior:contain}
+        @media (max-width: 900px){ .site-model{grid-template-columns:1fr !important} .sm-fill{height:auto} .sm-fill .sm-main{height:auto} .sm-fill .sm-stage{flex:none;height:62vh;min-height:360px} .sm-fill .sm-aside{height:auto;overflow:visible} }`}</style>
+      {fill && <style>{FILL_CSS}</style>}
+      <div style={{ minWidth: 0 }} className="sm-main">
+        {!hideSearch && !fill && <form onSubmit={find} style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <input id="site-model-search" value={query} onChange={(e) => { setQuery(e.target.value); setNotFound(''); }} placeholder="Find a unit, e.g. C214" aria-label="Unit number" list="site-model-units"
             style={{ flex: 1, minWidth: 160, padding: '8px 11px', borderRadius: 8, border: '1px solid var(--border-color, #d9d6cc)', font: `500 14px ui-monospace, Menlo, monospace`, textTransform: 'uppercase', background: 'var(--bg-primary, #fff)', color: 'inherit' }} />
           <UnitList units={model.units || []} />
           <button type="submit" style={btnOn}>Find</button>
           {notFound && <span role="alert" style={{ fontSize: 12, color: '#c43d2f', alignSelf: 'center' }}>{notFound}</span>}
         </form>}
-        <div ref={stageRef} onPointerDown={() => setTouched(true)} onWheel={() => setTouched(true)} style={{ position: 'relative', height: look === 'illustrated' ? height + 80 : height, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-secondary, #dfe6e9)' }}>
+        <div ref={stageRef} className="sm-stage" onPointerDown={() => setTouched(true)} onWheel={() => setTouched(true)} style={{ position: 'relative', height: fill ? undefined : typeof height === 'number' && look === 'illustrated' ? height + 80 : height, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-secondary, #dfe6e9)' }}>
+          {!noGl && <SiteModelCompass viewerRef={viewerRef} />}
           {hover && (() => { const hu = byName[hover.n]; const info = hu && hoverInfo ? hoverInfo(hu) : '';
             return <div role="tooltip" style={{ position: 'absolute', left: hover.x + 12, top: hover.y - 30, pointerEvents: 'none', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '4px 8px', borderRadius: 8, boxShadow: '0 4px 14px rgba(0,0,0,0.12)', zIndex: 2, lineHeight: 1.35, maxWidth: 260 }}>
               <div style={{ font: `600 12px ui-monospace, Menlo, monospace` }}>{hover.n}{hover.f > 1 ? ` · L${hover.f}` : ''}{hu?.w && hu?.d ? <span style={{ font: `400 11px ${FONT}`, color: 'var(--text-muted, #5f6358)' }}> · {hu.w} × {hu.d} ft</span> : null}</div>
-              {owner && hu && <div style={{ fontSize: 11, color: 'var(--text-muted, #5f6358)' }}>{hu.l === 1 ? 'Leased' : hu.r === 0 ? 'Out of Service' : 'Vacant'}</div>}
+              {owner && hu && <div style={{ fontSize: 11, color: 'var(--text-muted, #5f6358)' }}>{STATUS_WORD[statusFn(hu)]}</div>}
+              {owner && hu && statusFn(hu) === 'bad' ? <div style={{ fontSize: 11, fontWeight: 600, color: '#b42318' }}>{`${hu.n}${bldg(hu.b)?.floors > 1 ? ` · Level ${hu.f}` : ''} · ${attnText(hu)}`}</div> : null}
               {info ? <div style={{ fontSize: 11, fontWeight: 600 }}>{info}</div> : null}
             </div>; })()}
+          {marking && <MarkIssueBanner shape={marking} onShape={setMarking} top={fill ? 58 : 10} onCancel={() => { setMarking(null); viewerRef.current?.clearMark?.(); }} />}
+          {spotHover && !marking && <SpotTooltip spot={spotHover.spot} x={spotHover.x} y={spotHover.y} />}
           {placing && <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '5px 12px', borderRadius: 999, fontSize: 12, zIndex: 2 }}>Click a unit, a building or the ground to place the pin</div>}
           {noGl && <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
-            <SiteModelPlan2D model={model} mode={mode} colors={owner ? unitColors : null} selected={selected} route={plan2d} onSelect={(x) => { setSelected(x.n); setBuilding(null); setQuery(x.n); setNotFound(''); }} />
-            <div role="status" style={{ position: 'absolute', left: 10, top: 10, fontSize: 12, background: 'rgba(255,255,255,0.9)', padding: '3px 8px', borderRadius: 6, color: '#5f6358' }}>Flat plan - the 3D view is not available on this device.</div>
+            <SiteModelPlan2D model={model} mode={mode} colors={owner ? mapColors : null} selected={selected} route={plan2d} onSelect={(x) => { setSelected(x.n); setBuilding(null); setQuery(x.n); setNotFound(''); }} />
+            <div role="status" style={{ position: 'absolute', left: 10, top: fill ? undefined : 10, bottom: fill ? 10 : undefined, fontSize: 12, background: 'rgba(255,255,255,0.9)', padding: '3px 8px', borderRadius: 6, color: '#5f6358' }}>Flat plan - the 3D view is not available on this device.</div>
           </div>}
-          {!noGl && <div style={{ position: 'absolute', left: 10, bottom: 10, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 2 }}>
+          {!noGl && <div className="sm-cambar" role="group" aria-label="Map Controls" style={{ position: 'absolute', left: 10, bottom: 10, right: fill ? 10 : undefined, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 3 }}>
+            {owner && onMarkIssue && <MarkIssueButton on={!!marking} onClick={() => { setPlacing(false); if (marking) viewerRef.current?.clearMark?.(); setMarking(marking ? null : 'pen'); }} />}
             <button type="button" style={btn} onClick={() => { viewerRef.current?.resetView?.(); setLevel(0); }} title="Back to the whole site">Reset View</button>
             {[['overview', 'Overview'], ['plan', 'Plan'], ['gate', 'From Gate']].map(([k, l]) => <button key={k} type="button" style={btn} onClick={() => viewerRef.current?.view(k)}>{l}</button>)}
-            <span style={{ display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' }} role="group" aria-label="Look">
-              {[['satellite', 'Satellite'], ['illustrated', 'Illustrated']].map(([k, l]) => <button key={k} type="button" aria-pressed={look === k} onClick={() => { if (look !== k) { setLook(k); saveLook(k); setPlacing(false); setLevel(0); } }} style={{ ...btn, border: 0, borderRadius: 0, ...(look === k ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{l}</button>)}
+            <span style={pill} role="group" aria-label="View">
+              {looks.map(([k, l]) => <button key={k} type="button" aria-pressed={look === k} onClick={() => setView(k)} style={{ ...btn, border: 0, borderRadius: 0, ...(look === k ? pillOn : {}) }}>{l}</button>)}
             </span>
-            <button type="button" style={xray ? btnOn : btn} aria-pressed={xray} onClick={() => { setXray(!xray); viewerRef.current?.setXray(!xray); }}>See Inside</button>
-            {maxLevel > 1 && <span style={{ display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' }} role="group" aria-label="Level">
-              {[0, ...Array.from({ length: maxLevel }, (_, i) => i + 1)].map((n) => <button key={n} type="button" aria-pressed={level === n} onClick={() => setLvl(n)} style={{ ...btn, border: 0, borderRadius: 0, ...(level === n ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{n ? `L${n}` : 'All Levels'}</button>)}
+            {hasInterior && <button type="button" style={xray ? btnOn : btn} aria-pressed={xray} title="Open the buildings to see the units inside" onClick={() => { setXray(!xray); viewerRef.current?.setXray(!xray); }}>See Inside</button>}
+            {maxLevel > 1 && <span style={pill} role="group" aria-label="Level">
+              {[0, ...Array.from({ length: maxLevel }, (_, i) => i + 1)].map((n) => <button key={n} type="button" aria-pressed={level === n} onClick={() => setLvl(n)} style={{ ...btn, border: 0, borderRadius: 0, ...(level === n ? pillOn : {}) }}>{n ? `L${n}` : 'All Levels'}</button>)}
             </span>}
           </div>}
-          {!noGl && !touched && <div aria-hidden="true" className="sm-hint" style={{ position: 'absolute', left: '50%', top: 12, transform: 'translateX(-50%)', background: 'rgba(29,31,26,0.78)', color: '#fff', fontSize: 12, padding: '5px 12px', borderRadius: 999, zIndex: 2, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-            <span className="sm-hint-mouse">Drag to orbit · Scroll to zoom · Right-drag to pan</span><span className="sm-hint-touch">Drag to orbit · Pinch to zoom · Two fingers to pan</span>
+          {!noGl && !touched && <div aria-hidden="true" className="sm-hint" style={{ position: 'absolute', left: '50%', top: fill ? '50%' : 12, transform: fill ? 'translate(-50%, -50%)' : 'translateX(-50%)', background: 'rgba(29,31,26,0.78)', color: '#fff', fontSize: 12, padding: '5px 12px', borderRadius: 999, zIndex: 2, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+            <span className="sm-hint-mouse">Drag to move · Scroll to zoom · Right-drag to turn</span><span className="sm-hint-touch">Drag to move · Pinch to zoom · Twist to turn</span>
           </div>}
           <style>{`.sm-hint-touch{display:none} @media (pointer: coarse){ .sm-hint-touch{display:inline} .sm-hint-mouse{display:none} }`}</style>
-          <div style={{ position: 'absolute', right: 10, top: 10, fontSize: 10, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{look === 'illustrated' ? 'Illustrated, drawn to scale' : model.image?.attribution || ''} · 1 unit = 1 m</div>
-          {look === 'illustrated' && <SiteModelHud model={model} owner={owner} live={live} unit={u}
+          <div style={{ position: 'absolute', right: 10, top: fill ? undefined : 10, bottom: fill ? 52 : undefined, fontSize: 10, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{credit} · 1 unit = 1 m</div>
+          {fill && <>
+            <div className="sm-ov-tl">
+              <SiteMapSearch units={model.units || []} placeName={placeName} statusWord={owner ? (x) => STATUS_WORD[statusFn(x)] : null}
+                onPickUnit={pickHere} unplaced={unplaced} remoteSearch={owner ? remoteSearch : null} onRemoteHit={onRemoteHit} />
+            </div>
+            {toolbar && <div className="sm-ov sm-ov-tr">{toolbar}</div>}
+          </>}
+          {look === 'illustrated' && <SiteModelHud compact={fill} model={model} owner={owner} live={live} unit={u}
             stats={{ active: active.length, leased, vacant, bad: bad.length, leasedPct: active.length ? Math.round(100 * leased / active.length) : 0 }}
-            attention={bad} pins={pins} ticketsByUnit={ticketsByUnit}
+            attention={bad} pins={pins} ticketsByUnit={ticketsByUnit} pinsEnabled={pinsEnabled}
             onPickUnit={(n) => viewerRef.current?.selectUnit(n)} onPickPin={(p) => viewerRef.current?.flyToPin(p)} />}
         </div>
       </div>
-      <aside style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+      <aside ref={asideRef} style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }} className="sm-aside">
         {owner && (
-          <section>
-            <h2 style={h2}>Inventory</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {[[active.length, 'Active Units and Stalls'], [`${active.length ? (100 * leased / active.length).toFixed(1) : 0}%`, `Leased (${leased})`], [vacant, 'Vacant, Rentable'], [bad.length, 'Out of Service']].map(([v, l]) => (
-                <div key={l} style={{ ...card, padding: '8px 10px' }}><b style={{ display: 'block', fontSize: 20, fontVariantNumeric: 'tabular-nums' }}>{v}</b><span style={{ fontSize: 11, color: 'var(--text-muted, #5f6358)' }}>{l}</span></div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', fontSize: 12, marginTop: 8 }}>
-              {legend || [['#5fae7d', 'Leased'], ['#e0b45a', 'Vacant'], ['#d65a4c', 'Out of Service'], ['#ff7a00', 'Selected']].map(([c, l]) => <span key={l}><i style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, verticalAlign: -2, marginRight: 5, background: c }} />{l}</span>)}
-            </div>
-            <div style={{ fontSize: 12, color: live.source === 'cubby' && !live.error ? '#3f8f5f' : 'var(--text-muted, #5f6358)', marginTop: 6 }}><i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 999, marginRight: 6, verticalAlign: 0, background: live.source === 'cubby' && !live.error ? '#3f8f5f' : '#b8b4a8' }} />{liveLine}</div>
-          </section>
+          <>
+            <SiteModelKpis buckets={buckets} title={layerBuckets ? (layerTitle || 'Layer') : `Inventory · ${active.length} Units`} total={layerBuckets ? 0 : active.length}
+              info={legendHint || 'Green is leased, yellow is vacant and ready to rent, red is out of service (not leased and cannot be rented). Click a color to show only those units on the map.'}
+              kpis={kpis} focusKey={focusBucket ? focusBucket.key : null} onFocus={setFocus} liveLine={liveLine} liveOk={liveOk} note={layerNote}
+              collapsed={!!u && !kpiOpen} summary={summaryLine(active.length, leased, kpis)} onToggle={u ? () => setKpiOpen(!kpiOpen) : undefined} />
+            <AttentionCard groups={attention} total={badUnits.length} focusKey={focusBucket ? focusBucket.key : null} onFocus={setFocus} onPickUnit={pickHere}
+              showOnMap={showIssues} onShowOnMap={setShowIssues} collapsed={!!u && !kpiOpen} onExpand={() => setKpiOpen(true)} />
+            {legend && !layerBuckets ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', fontSize: 12, marginTop: -6 }}>{legend}</div> : null}
+          </>
         )}
         {owner && (unplaced.length || live.missing?.length) ? (
           <section style={card}>
@@ -199,34 +472,65 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
           </section>
         )}
         {u ? (
-          <section style={card}>
+          <section style={card} className="sm-unit">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <div style={{ font: `500 26px ui-monospace, Menlo, monospace`, letterSpacing: '.02em' }}>{u.n}</div>
-              {owner && (u.r === 0 ? <span style={chip('#c43d2f')}>Out of Service</span> : u.l === 1 ? <span style={chip('#3f8f5f')}>Leased</span> : <span style={chip('#c98a1b')}>Vacant</span>)}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                {owner && <span style={chip(STATUS_COLOR[statusFn(u)])}>{STATUS_WORD[statusFn(u)]}</span>}
+                {fill && <button type="button" className="sm-icon-btn" aria-label={`Close Unit ${u.n}`} title="Close" onClick={clearPick}><X size={16} aria-hidden="true" /></button>}
+              </span>
             </div>
+            {owner && statusFn(u) === 'bad' ? (
+              <div role="note" className="sm-attn-banner" style={{ margin: '8px 0 4px', padding: '7px 10px', borderRadius: 8, background: '#fdecea', border: '1px solid #f6c9c4', color: '#7a271a', fontSize: 12.5, lineHeight: 1.4 }}>
+                <b style={{ color: '#b42318' }}>Needs Attention</b> · {attnText(u)}
+              </div>
+            ) : null}
+            {owner && statusFn(u) !== 'bad' ? stacked(u).map((x) => (
+              <button key={x.n} type="button" onClick={() => pickHere(x.n)} className="sm-attn-near"
+                style={{ display: 'block', margin: '6px 0 2px', padding: 0, border: 0, background: 'transparent', font: 'inherit', fontSize: 12, color: 'var(--text-muted, #5f6358)', textAlign: 'left', cursor: 'pointer' }}>
+                <span style={{ color: '#b42318' }}>!</span> {x.n} {x.f < u.f ? 'below' : 'above'} on Level {x.f} needs attention: {reasonGroup(x.why, x.note)}
+              </button>
+            )) : null}
+            {owner ? <div className="sm-unit-line" style={{ fontSize: 12.5, color: 'var(--text-muted, #5f6358)', margin: '2px 0 0', lineHeight: 1.45 }}>{unitLine(u)}</div> : null}
+            {owner && renderUnitExtra ? (u.gone ? <div style={{ fontSize: 12, color: '#c43d2f', marginTop: 4 }}>No longer in Cubby's inventory</div> : null) : (
             <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', fontSize: 13, margin: '8px 0 0' }}>
+              {!owner && <>
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Type</dt><dd style={{ margin: 0 }}>{unitKindLabel(u)}</dd>
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Size</dt><dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{u.w && u.d ? `${u.w} × ${u.d} ft (${(u.w * u.d).toLocaleString()} sq ft)` : u.d ? `${u.d} in. mailbox` : 'not listed'}</dd>
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Location</dt><dd style={{ margin: 0 }}>{bldg(u.b)?.name || zone(u.b)?.name || ''}{bldg(u.b)?.floors > 1 ? `, Level ${u.f}` : ''}</dd>
               {u.door && u.k !== 'park' && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Door</dt><dd style={{ margin: 0 }}>{u.k === 'du' || u.k === 'ccdu' ? `Outside wall${doorSideName(model, u.door) ? `, ${doorSideName(model, u.door)}` : ''}` : 'Hallway'}</dd></>}
-              {owner && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Days vacant</dt><dd style={{ margin: 0 }}>{u.l ? '-' : typeof u.dvac === 'number' ? u.dvac : 'since the last build'}</dd>{u.r === 0 && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Reason</dt><dd style={{ margin: 0 }}>{reasonLabel(u.why) || 'not given'}{u.note ? ` - ${u.note}` : ''}</dd></>}</>}
+              </>}
+              {owner && !renderUnitExtra && statusFn(u) !== 'leased' && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Days Vacant</dt><dd style={{ margin: 0 }}>{typeof u.dvac === 'number' ? u.dvac : 'Since the last build'}</dd></>}
+              {owner && statusFn(u) === 'bad' && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Reason</dt><dd style={{ margin: 0 }}>{reasonLabel(u.why) || 'Not given'}{u.note ? ` - ${u.note}` : ''}</dd></>}
               {u.gone ? <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Cubby</dt><dd style={{ margin: 0, color: '#c43d2f' }}>No longer in Cubby's inventory</dd></> : null}
-            </dl>
-            <div style={{ marginTop: 10, borderTop: '1px solid var(--border-color, #d9d6cc)', paddingTop: 8, fontSize: 13 }}>
-              <b>How to Get There</b>
+            </dl>)}
+            {renderUnitExtra ? renderUnitExtra(u, { pickUnit: pickHere }) : null}
+            {(() => { const route = <>
               {steps.length > 1 && <ol aria-label="Route steps" style={{ listStyle: 'none', display: 'flex', flexWrap: 'wrap', gap: 4, margin: '6px 0 4px', padding: 0 }}>
                 {steps.map((s, i) => <li key={i}><button type="button" onClick={() => viewerRef.current?.flyToStep?.(i)} title={noGl ? s.sub : `Show step ${i + 1} on the map`}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-primary, #fff)', borderRadius: 999, padding: '2px 9px 2px 3px', font: `500 12px ${FONT}`, color: 'inherit', cursor: 'pointer' }}>
                   <span style={{ width: 18, height: 18, borderRadius: 999, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, color: '#fff', background: s.end ? '#ff7a00' : '#1a73e8' }}>{i + 1}</span>{s.label}</button></li>)}
               </ol>}
-              <ol style={{ margin: '4px 0 0', paddingLeft: 18 }}>{unitDirections(model, u).map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ol>
-            </div>
+              <ol style={{ margin: '4px 0 0', paddingLeft: 18 }}>{turnByTurn.map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ol>
+              {(mapsDir || mapsPin) && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                  {mapsDir && <a href={mapsDir} target="_blank" rel="noopener noreferrer" style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                    title="Driving directions to the main gate. Follow the steps above once inside.">Open in Google Maps</a>}
+                  {mapsPin && <a href={mapsPin} target="_blank" rel="noopener noreferrer" style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                    title={`Where ${u.n} is on Google Maps`}>Show Unit on Google Maps</a>}
+                </div>
+              )}
+            </>;
+            // Staff open a unit for its tenant: the route folds away (Visesh, Oct 20 2026); customers always see it.
+            return owner
+              ? <details className="sm-route sm-fold-route" style={{ marginTop: 12, borderTop: '1px solid var(--border-color, #d9d6cc)', paddingTop: 8, fontSize: 13 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>How to Get There</summary>{route}</details>
+              : <div className="sm-route" style={{ marginTop: 10, borderTop: '1px solid var(--border-color, #d9d6cc)', paddingTop: 8, fontSize: 13 }}><b>How to Get There</b>{route}</div>; })()}
             {owner && (ticketsByUnit[u.n]?.length ? (
               <div style={{ marginTop: 10 }}><b style={{ fontSize: 13 }}>Tickets at This Unit</b>
                 <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>{ticketsByUnit[u.n].map((t) => <li key={t.id}><button type="button" onClick={() => onOpenTicket?.(t)} style={{ ...btn, padding: '4px 8px', fontSize: 12, width: '100%', textAlign: 'left' }}>#{t.id} · {t.title || t.subject || 'Ticket'}</button></li>)}</ul>
               </div>
             ) : null)}
-            {renderUnitExtra ? renderUnitExtra(u) : null}
             {owner && pinsEnabled && <div style={{ marginTop: 10 }}><button type="button" style={btn} onClick={() => { const b = bldg(u.b); setPlacing(false); setPending({ u: u.u + u.wu / 2, v: u.v + u.dv / 2, y: b ? +((u.f - 1) * b.height / b.floors).toFixed(2) : 0, unit: u.n, building: u.b }); }}>Add Pin at This Unit</button></div>}
             {/* Per unit (Oct 14 2026): traced units say where their position came from. */}
             {u.tr === 2
@@ -246,21 +550,18 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             <p style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', margin: '8px 0 0' }}>{building.note}</p>
           </section>
         ) : (
-          <section style={card}><b>Find Your Unit</b><p style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)', margin: '6px 0 0' }}>Type a unit number above, or tap any unit on the model. Drag to orbit, scroll or pinch to zoom, right-drag or two fingers to pan.</p></section>
+          <section style={card}><b>Find Your Unit</b><p style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)', margin: '6px 0 0' }}>Type a unit number above, or tap any unit on the model. Drag to move, scroll or pinch to zoom, right-drag or twist with two fingers to turn.</p></section>
         )}
         {owner && (
           <>
-            <section>
-              <h2 style={h2}>Needs Attention ({bad.length})</h2>
-              {bad.length ? <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflow: 'auto' }}>{bad.map((x) => <li key={x.n} style={{ display: 'flex', gap: 8, fontSize: 12, alignItems: 'center' }}><button type="button" onClick={() => viewerRef.current?.selectUnit(x.n)} style={{ border: 0, background: 'transparent', font: `500 12px ui-monospace, Menlo, monospace`, color: '#1f6f4a', cursor: 'pointer', padding: '2px 4px' }}>{x.n}</button><span style={{ color: 'var(--text-muted, #5f6358)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{reasonLabel(x.why) || 'out of service'}{x.note ? ` - ${x.note}` : ''}</span></li>)}</ul> : <div style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)' }}>Every unit is rentable.</div>}
-            </section>
+            {asideExtra}
             {pinsEnabled && <section>
               <h2 style={h2}>Pins ({pins.length})</h2>
               <div style={{ marginBottom: 6 }}><button type="button" style={placing ? btnOn : btn} onClick={() => setPlacing(!placing)}>{placing ? 'Click the model…' : 'Add Pin'}</button></div>
               {pins.length ? <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflow: 'auto' }}>{pins.map((p) => (
                 <li key={p.id} style={{ display: 'flex', gap: 6, fontSize: 12, alignItems: 'center', opacity: p.status === 'done' ? 0.55 : 1 }}>
                   <button type="button" onClick={() => viewerRef.current?.flyToPin(p)} style={{ border: 0, background: 'transparent', font: `500 12px ui-monospace, Menlo, monospace`, color: '#1f6f4a', cursor: 'pointer', padding: '2px 4px', flexShrink: 0 }}>{p.unit || p.building || 'site'}</button>
-                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted, #5f6358)', textDecoration: p.status === 'done' ? 'line-through' : 'none' }}>{p.title} · {p.category}</span>
+                  <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', color: 'var(--text-muted, #5f6358)', textDecoration: p.status === 'done' ? 'line-through' : 'none' }}>{p.title} · {p.category}</span>
                   <button type="button" aria-label={p.status === 'done' ? 'Reopen pin' : 'Mark pin done'} title={p.status === 'done' ? 'Reopen' : 'Done'} onClick={() => onTogglePin?.(p)} style={{ ...btn, padding: '1px 7px', fontSize: 12 }}>✓</button>
                   <button type="button" aria-label="Remove pin" onClick={() => onRemovePin?.(p)} style={{ ...btn, padding: '1px 7px', fontSize: 12 }}>×</button>
                 </li>))}</ul> : <div style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)' }}>No pins yet. Drop one on a unit, a building or anywhere on the site.</div>}
@@ -268,7 +569,10 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             {model.layout?.flags?.length ? <section><h2 style={h2}>Layout Notes</h2><ul style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', paddingLeft: 16, margin: 0 }}>{model.layout.flags.map((f, i) => <li key={i} style={{ margin: '3px 0' }}>{f}</li>)}<li style={{ margin: '3px 0' }}>Building letters were matched to footprints from imagery and unit sizes; every assignment is marked inferred in the build config.</li></ul></section> : null}
           </>
         )}
-        {(model.sources || []).length > 0 && <section><h2 style={h2}>Sources</h2><ul style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', paddingLeft: 16, margin: 0 }}>{(model.sources || []).map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ul></section>}
+        {/* Sources: staff only, folded at the very bottom (Visesh, Oct 20 2026). */}
+        {owner && (model.sources || []).length > 0 && <details className="sm-sources" style={{ marginTop: 'auto', borderTop: '1px solid var(--border-color, #d9d6cc)', paddingTop: 8 }}>
+          <summary style={{ ...h2, margin: 0, cursor: 'pointer' }}>Sources ({model.sources.length})</summary>
+          <ul style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', paddingLeft: 16, margin: '6px 0 0' }}>{(model.sources || []).map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ul></details>}
       </aside>
     </div>
   );

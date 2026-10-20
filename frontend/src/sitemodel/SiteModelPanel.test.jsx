@@ -29,6 +29,18 @@ const model = {
 };
 
 describe('SiteModelPanel', () => {
+  // See Inside opens real buildings; a site of open stalls (units tagged with a
+  // section letter, no building of that id) has nothing to open (Oct 20).
+  it('shows See Inside only where units sit inside a building', () => {
+    const { unmount } = render(<SiteModelPanel model={model} mode="owner" images={{}} />);
+    expect(screen.queryByRole('button', { name: 'See Inside' })).toBeTruthy();
+    unmount();
+    const stalls = { ...model, buildings: [{ id: 'OFFICE', kind: 'office', letters: ['O'], name: 'Office', u: [0, 5], v: [0, 5], height: 3, floors: 1 }],
+      units: model.units.map((u) => ({ ...u, b: 'E', f: 1, k: 'park' })) };
+    render(<SiteModelPanel model={stalls} mode="owner" images={{}} />);
+    expect(screen.queryByRole('button', { name: 'See Inside' })).toBeNull();
+  });
+
   it('renders the customer finder and a unit card after a search', () => {
     render(<SiteModelPanel model={model} mode="customer" images={{}} />);
     expect(screen.getByText('Find Your Unit')).toBeTruthy();
@@ -38,12 +50,15 @@ describe('SiteModelPanel', () => {
     expect(screen.getAllByText('C214').length).toBeGreaterThan(0);
     expect(screen.getByText(/Building C, Level 2/)).toBeTruthy();
     expect(screen.getByText('How to Get There')).toBeTruthy();
-    expect(screen.queryByText('Inventory')).toBeNull();
+    expect(screen.queryByText(/^Inventory/)).toBeNull();
   });
   it('shows owner inventory, out-of-service units and pins', () => {
     render(<SiteModelPanel model={model} mode="owner" images={{}} pins={[{ id: 'p1', unit: 'C001', title: 'Replace door spring', category: 'maintenance', status: 'open', u: 1, v: 1, y: 0 }]} />);
-    expect(screen.getByText('Inventory')).toBeTruthy();
-    expect(screen.getByText('Needs Attention (1)')).toBeTruthy();
+    // Oct 20 (Visesh): one occupancy bar that is the legend, and Needs Attention as its own card
+    expect(screen.getByText(/^Inventory · \d+ Units$/)).toBeTruthy();
+    ['Leased', 'Vacant', 'Out of Service'].forEach((t) => expect(screen.getAllByText(t).length).toBeGreaterThan(0));
+    expect(screen.getByRole('region', { name: 'Needs Attention' }).querySelector('.sma-n').textContent).toBe('1');
+    expect(screen.getByText('Pins (1)')).toBeTruthy();
     expect(screen.getByText(/Replace door spring/)).toBeTruthy();
     expect(screen.getByText('Layout Notes')).toBeTruthy();
   });
@@ -68,16 +83,57 @@ describe('SiteModelPanel', () => {
     fireEvent.submit(screen.getByLabelText('Unit number').closest('form'));
     expect(screen.getByRole('alert').textContent).toMatch(/No unit Z999/);
   });
-  it('switches between the satellite and illustrated looks and remembers the choice', () => {
+  it('opens on the Satellite look, switches to Illustrated and remembers the choice', () => {
     localStorage.removeItem('nexus.siteModel.look'); styles.length = 0;
     const { unmount } = render(<SiteModelPanel model={model} mode="customer" images={{}} />);
-    expect(styles.at(-1)).toBe('satellite');
+    expect(styles.at(-1)).toBe('satellite');   // production's look is the default (Oct 20)
+    expect(screen.getByText(/Imagery: Esri · 1 unit = 1 m/)).toBeTruthy();
+    // production's look buttons; no Realistic 3D without a Google key
+    const looks = screen.getByRole('group', { name: 'View' });
+    expect([...looks.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Satellite', 'Illustrated']);
     fireEvent.click(screen.getByRole('button', { name: 'Illustrated' }));
     expect(styles.at(-1)).toBe('illustrated');
     expect(screen.getByText(/Illustrated, drawn to scale/)).toBeTruthy();
     unmount();
     render(<SiteModelPanel model={model} mode="customer" images={{}} />);
     expect(styles.at(-1)).toBe('illustrated');
+    localStorage.removeItem('nexus.siteModel.look');
+  });
+  it('never opens Realistic 3D without a key: a remembered choice falls back to Satellite', () => {
+    localStorage.setItem('nexus.siteModel.look', 'photoreal'); styles.length = 0;
+    render(<SiteModelPanel model={model} mode="owner" images={{}} />);
+    expect(styles.at(-1)).toBe('satellite');
+    expect(screen.getByRole('button', { name: 'Satellite' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('button', { name: 'Realistic 3D' })).toBeNull();
+    localStorage.removeItem('nexus.siteModel.look');
+  });
+  it('a flagged unit says why at the top of its card; the unit stacked over it points down to it', () => {
+    const m = { ...model, units: [...model.units, { n: 'C101', b: 'C', f: 2, u: 0.5, v: 1, wu: 3, dv: 6, door: 'sw', k: 'cc', w: 10, d: 20, l: 1, r: 1, why: '', note: '' }] };
+    render(<SiteModelPanel model={m} mode="owner" images={{}} />);
+    const find = (n) => { fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: n } }); fireEvent.submit(screen.getByLabelText('Unit number').closest('form')); };
+    find('C001');
+    expect(screen.getByRole('note').textContent).toBe('Needs Attention · Damage: door');
+    find('C101');
+    expect(screen.queryByRole('note')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /C001 below on Level 1 needs attention: Damage/ }));
+    expect(screen.getByRole('note').textContent).toMatch(/Damage/);
+  });
+  it('keeps the production map buttons: camera, See Inside and the levels', () => {
+    render(<SiteModelPanel model={model} mode="owner" images={{}} />);
+    ['Reset View', 'Overview', 'Plan', 'From Gate', 'See Inside', 'All Levels', 'L1', 'L2'].forEach((n) => expect(screen.getByRole('button', { name: n })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'L2' }));
+    expect(screen.getByRole('button', { name: 'L2' }).getAttribute('aria-pressed')).toBe('true');
+  });
+  it('one status per unit: a lease beats the ACTIVE_LEASE unrentable flag everywhere', () => {
+    localStorage.setItem('nexus.siteModel.look', 'satellite');
+    const m = { ...model, units: [...model.units, { n: 'C002', b: 'C', f: 1, u: 4, v: 0, wu: 3, dv: 6, door: 'sw', k: 'du', w: 10, d: 20, l: 1, r: 0, why: 'ACTIVE_LEASE' }] };
+    render(<SiteModelPanel model={m} mode="owner" images={{}} />);
+    expect(screen.getByRole('region', { name: 'Needs Attention' }).querySelector('.sma-n').textContent).toBe('1');   // C001 only, not the leased C002
+    fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: 'C002' } });
+    fireEvent.submit(screen.getByLabelText('Unit number').closest('form'));
+    const card = screen.getAllByText('C002').find((el) => el.closest('section'))?.closest('section');
+    expect(card.textContent).toMatch(/Leased/);
+    expect(card.textContent).not.toMatch(/Out of Service/);
     localStorage.removeItem('nexus.siteModel.look');
   });
   it('draws the dashboard cards in the illustrated look: route for customers, KPIs and attention for owners', () => {

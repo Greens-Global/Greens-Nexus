@@ -449,6 +449,7 @@ export const fieldOption = (field, value) =>
 // components (a non-component export there disables Fast Refresh for the file).
 export const projectToForm = (p) => ({
   id: p.id, name: p.name || '', description: p.description || '', color: p.color || NX.blue,
+  icon: p.icon || '',
   ownerId: p.ownerId || null,
   hrDepartmentId: p.hrDepartmentId || '', hrDepartmentName: p.hrDepartmentName || '',
   portfolioId: p.portfolioId || '',

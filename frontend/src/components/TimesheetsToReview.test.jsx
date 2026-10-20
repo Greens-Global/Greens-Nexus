@@ -23,6 +23,7 @@ vi.mock('../api', () => ({
 }));
 vi.mock('../tasks/components', () => ({
   Modal: ({ title, children, footer }) => <div role="dialog" aria-label={title}>{children}{footer}</div>,
+  Avatar: ({ email, name }) => <span data-testid="avatar" data-email={email} aria-label={name} />,
 }));
 vi.mock('./ESign', () => ({ SignModal: ({ partyId }) => <div data-testid="sign-modal">{partyId}</div> }));
 
@@ -44,6 +45,15 @@ beforeEach(() => {
 });
 
 describe('TimesheetsToReview', () => {
+  it("shows each person's photo in front of their name (Neil, Oct 19)", async () => {
+    render(<TimesheetsToReview onOpen={() => {}} />);
+    const name = await screen.findByText('Erin Test');
+    const avatar = document.querySelector('[data-review="erin@x.com"] [data-testid="avatar"]');
+    expect(avatar.getAttribute('data-email')).toBe('erin@x.com');
+    // ...ahead of the name in reading order.
+    expect(avatar.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('lists what is waiting and approves in one click', async () => {
     const toastOk = vi.fn();
     render(<TimesheetsToReview onOpen={() => {}} toastOk={toastOk} />);

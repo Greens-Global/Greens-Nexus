@@ -19,6 +19,7 @@ import { formatDate } from '../lib/datetime';
 import { count, money } from './model';
 import { groupsOf, loadSelection, monthChoices, net, pctText, saveSelection, selectionLabel, signed, toggle } from './portfolioModel';
 import { Legend } from './charts';
+import SectionPicker from './SectionPicker';
 import './portfolio.css';
 
 const CY = 'var(--ops-s1)';
@@ -41,19 +42,24 @@ function PropertyPicker({ properties, ids, onChange }) {
   const groups = useMemo(() => groupsOf(properties), [properties]);
   const chosen = (id) => (ids.length ? ids.includes(id) : properties.find((p) => p.id === id)?.connected);
   const sameAs = (list) => list.length === ids.length && list.every((x) => ids.includes(x));
+  // The quick picks were a pill row; now one dropdown (Visesh, Oct 20).
+  const quick = !ids.length ? 'all' : groups.find((g) => sameAs(g.ids))?.label || 'custom';
+  const pickQuick = (v) => { if (v === 'all') onChange([]); else { const g = groups.find((x) => x.label === v); if (g) onChange(g.ids); } };
   return (
-    <div className="pf-picker" ref={box}>
-      <button type="button" className="ops-pill pf-picker-btn" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((o) => !o)}>
-        <SlidersHorizontal size={14} aria-hidden="true" /> {selectionLabel(ids, properties)} <ChevronDown size={14} aria-hidden="true" />
-      </button>
+    <div className="pf-picker ops-facility" ref={box}>
+      <span className="ops-facility-label">Properties</span>
+      <span className="ops-facility-box">
+        <SlidersHorizontal size={14} className="ops-facility-icon" aria-hidden="true" />
+        <button type="button" className="ops-section-btn pf-picker-btn" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((o) => !o)}>
+          {selectionLabel(ids, properties)}
+        </button>
+        <ChevronDown size={13} className="ops-facility-chev" aria-hidden="true" />
+      </span>
       {open && (
         <div className="dash-card pf-picker-panel" role="group" aria-label="Choose properties">
-          <div className="pf-picker-groups">
-            <button type="button" className="ops-pill" aria-pressed={!ids.length} onClick={() => onChange([])}>All Properties</button>
-            {groups.map((g) => (
-              <button type="button" key={g.label} className="ops-pill" aria-pressed={sameAs(g.ids)} onClick={() => onChange(g.ids)}>{g.label}</button>
-            ))}
-          </div>
+          <SectionPicker label="Quick Pick" value={quick} onChange={pickQuick}
+            options={[{ value: 'all', label: 'All Properties' }, ...groups.map((g) => ({ value: g.label, label: g.label })),
+              ...(quick === 'custom' ? [{ value: 'custom', label: 'Custom Selection', disabled: true }] : [])]} />
           <ul className="pf-picker-list">
             {properties.map((p) => (
               <li key={p.id}>

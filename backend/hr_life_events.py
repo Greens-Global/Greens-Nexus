@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+import hr_checklist_seed
 from currency import is_currency, money_prefix
 from models import (HrCandidate, HrEntity, HrLifeEvent, HrPacketSetting, HrSignParty,
                     HrSignRequest, HrSignTemplate, HrStageEvent, NexusEmployee)
@@ -2280,11 +2281,10 @@ _APPLY["promotion"] = _apply_promotion
 # sessions ended. The paperwork is optional (a company may not have a
 # separation package yet); the offboarding itself never waits on a signature.
 
-SEPARATION_TYPES = {
-    "resignation": "Resignation", "resignation_no_notice": "Resignation Without Notice",
-    "termination": "Termination", "end_of_contract": "End Of Contract", "retirement": "Retirement",
-    "death": "Death",
-}
+# The reason list and its words live in hr_checklist_seed (Voluntary
+# Resignation / Job Abandonment since Charmi, Oct 20 2026); stored keys never
+# change, so a package sent before the rename still reads with the new label.
+SEPARATION_TYPES = dict(hr_checklist_seed.EXIT_TYPE_LABELS)
 
 
 def _today() -> str:

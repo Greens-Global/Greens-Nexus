@@ -1,14 +1,20 @@
-// Operations -> Reports. Three parts (Neil, Oct 20):
-//   Reports        - Cubby's report list as interactive tables (CubbyReports.jsx)
+// Operations -> Reports. Four parts (Neil, Oct 20; library Oct 20):
+//   Reports        - the report library: search, favorites, open any report
+//                    as an interactive table, download XLSX / PDF / CSV
+//                    (CubbyReports.jsx, ReportLibrary.jsx, ReportRunDialog.jsx)
+//   Scheduled      - reports emailed on a schedule (ReportSchedules.jsx)
 //   Report Builder - your own metrics, saved, shared and scheduled (lazy-loaded)
 //   Quick Exports  - every list on the other tabs, and Cubby's own rent roll
 //                    and aged receivables, as a spreadsheet (Oct 13).
 // Follows the facility picker; the period only applies where a report is
 // about activity over time.
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Download } from 'lucide-react';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import CubbyReports from './CubbyReports';
+import SectionPicker from './SectionPicker';
+import ReportSchedules, { ScheduleDialog, blankSchedule, useSchedules } from './ReportSchedules';
+import { todayIso } from './reportPeriod';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { csvName, downloadCsv } from './csv';
@@ -82,26 +88,68 @@ const CUBBY_REPORTS = [
 
 const ReportBuilder = lazy(() => import('./ReportBuilder'));
 
-const SECTIONS = [['reports', 'Reports'], ['builder', 'Report Builder'], ['exports', 'Quick Exports']];
-
-export default function Reports({ data, facilities, scope, range, onPick }) {
+// The facility is the page's one Facility dropdown (Oct 20); no picker of its own.
+export default function Reports({ data, facilities, scope, range }) {
   const [section, setSection] = useState('reports');
-  const pick = (id) => onPick?.(id);
+  const [catalog, setCatalog] = useState({ status: 'loading' });
+  const [editing, setEditing] = useState(null);   // a schedule being made or changed
+  const [flash, setFlash] = useState('');
+  const schedules = useSchedules();
+  const today = todayIso(facilities[0]?.asOf);
+
+  const [catalogTry, setCatalogTry] = useState(0);
+  useEffect(() => {
+    let live = true;
+    api.opsReportCatalog()
+      .then((d) => { if (live) setCatalog({ status: 'ready', data: { categories: d?.categories || [], reports: d?.reports || [] } }); })
+      .catch((err) => { if (live) setCatalog({ status: 'error', error: err }); });
+    return () => { live = false; };
+  }, [catalogTry]);
+  const loadCatalog = () => { setCatalog({ status: 'loading' }); setCatalogTry((n) => n + 1); };
+  useEffect(() => {
+    if (!flash) return undefined;
+    const t = setTimeout(() => setFlash(''), 6000);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  const count = schedules.list.length;
+  const sections = [['reports', 'Reports'], ['scheduled', count ? `Scheduled (${count})` : 'Scheduled'], ['builder', 'Report Builder'], ['exports', 'Quick Exports']];
+  const reports = catalog.data?.reports || [];
+  const canSchedule = schedules.status !== 'off';
+  const scheduleFrom = (meta, choices) => setEditing({ ...blankSchedule(meta, choices?.facilityIds || scope.map((f) => f.id)),
+    ...(choices ? { options: choices.options, format: choices.format, period: meta.period && choices.period?.mode !== 'manual' ? choices.period : { mode: 'previous', unit: 'week' } } : {}) });
+
+  const catalogBody = (render) => {
+    if (catalog.status === 'loading') return <div className="dash-card"><SkeletonBlocks count={4} height={52} /></div>;
+    if (catalog.status === 'error') return <ErrorBanner message="Couldn't load the report list." onRetry={loadCatalog} />;
+    return render();
+  };
+
   return (
     <>
-      <div className="ops-pills scroll-tabs" role="tablist" aria-label="Reports">
-        {SECTIONS.map(([key, label]) => (
-          <button key={key} type="button" role="tab" className="ops-pill" aria-selected={section === key} aria-pressed={section === key}
-            onClick={() => setSection(key)}>{label}</button>
-        ))}
+      <div className="ops-rep-bar">
+        <SectionPicker label="View" value={section} onChange={setSection}
+          options={sections.map(([key, label]) => ({ value: key, label }))} />
       </div>
-      {section === 'reports' && <CubbyReports facilities={facilities} scope={scope} range={range} onPick={pick} />}
+      {flash && <div className="ops-rep-flash" role="status">{flash}</div>}
+      {section === 'reports' && catalogBody(() => (
+        <CubbyReports catalog={catalog.data} scope={scope} facilities={facilities} range={range} today={today}
+          canSchedule={canSchedule} onSchedule={scheduleFrom} />
+      ))}
+      {section === 'scheduled' && catalogBody(() => (
+        <ReportSchedules schedules={schedules} reports={reports} facilities={facilities}
+          onNew={() => setEditing(blankSchedule(null, scope.map((f) => f.id)))} onEdit={(s) => setEditing(s)} />
+      ))}
       {section === 'builder' && (
         <Suspense fallback={<div className="dash-card"><SkeletonBlocks count={3} height={70} /></div>}>
           <ReportBuilder scope={scope} facilities={facilities} />
         </Suspense>
       )}
       {section === 'exports' && <QuickExports data={data} facilities={facilities} scope={scope} range={range} />}
+      {editing && (
+        <ScheduleDialog initial={editing} reports={reports} facilities={facilities} today={today} onClose={() => setEditing(null)}
+          onSaved={(s) => { setEditing(null); setFlash(`${s?.name || 'The schedule'} was saved.`); schedules.reload(); }} />
+      )}
     </>
   );
 }

@@ -7,7 +7,9 @@ from here):
           owner model for the facility picked in Operations plus, per unit, the
           facts behind the layers (occupancy, days vacant, our rate against the
           market median for that size), the facility's Customer Entrance, and
-          the customer links.
+          the customer links. Per unit (`/unit`, Oct 20 2026): the tenant's
+          name and lease / money facts and the unit's tickets - staff only,
+          the same Operations read as the Collections and Units tabs.
   public  /unit-map/...               No login. ONE customer's unit on the map:
           the site geometry, the gates, the path steps and that unit - never
           another unit's number, never occupancy, never tenant data.
@@ -48,7 +50,7 @@ import models
 import ops_market
 import secret_box
 from app_url import app_url
-from auth import require_level_or_module
+from auth import get_current_user, require_level_or_module
 from database import get_db
 from routers import site_models
 
@@ -291,6 +293,28 @@ def unit_facts(rent_roll: List[dict], leases: List[dict], market: Dict[str, dict
     return facts
 
 
+def facility_kpis(rent_roll: List[dict], receivables: List[dict], leases: List[dict], today: date) -> Dict[str, Any]:
+    """The panel's money line (Visesh, Oct 20 2026): rent roll, past due (and
+    how many tenants owe), economic occupancy (rent of the leased units over the
+    street rate of every rentable unit) and this month's move-ins / move-outs.
+    Pure; synced rows only. Cents throughout."""
+    rented = [r for r in rent_roll if r.get("status") == "RENTED"]
+    rentable = [r for r in rent_roll if r.get("status") in ("RENTED", "VACANT")]
+    rent = sum(int(r.get("monthlyRentalAmount") or 0) for r in rented)
+    potential = sum(int(r.get("standardRate") or 0) for r in rentable)
+    owing = [e for e in receivables if int(e.get("totalAmount") or 0) > 0]
+    month, today_s = today.isoformat()[:7], today.isoformat()
+    ins = sum(1 for le in leases if _day(le.get("moveInDate"))[:7] == month and _day(le.get("moveInDate")) <= today_s)
+    outs = sum(1 for le in leases if _day(le.get("moveOutDate"))[:7] == month and _day(le.get("moveOutDate")) <= today_s)
+    return {
+        "rentRoll": rent, "potential": potential,
+        "economicPct": round(100 * rent / potential, 1) if potential else None,
+        "pastDue": sum(int(e.get("totalAmount") or 0) for e in owing),
+        "pastDueTenants": len({e.get("customerId") or e.get("unitId") for e in owing}),
+        "moveIns": ins, "moveOuts": outs, "month": month,
+    }
+
+
 def _cubby_rows(facility_id: str):
     import cubby
     for fac, raw in cubby._rows():
@@ -311,6 +335,7 @@ def _site_map(db: Session, facility_id: str) -> Dict[str, Any]:
         print(f"[unit_map] cubby rows unavailable: {type(e).__name__}")
     today = date.today()
     facts: Dict[str, dict] = {}
+    kpis: Optional[Dict[str, Any]] = None
     if raw:
         try:
             today = date.fromisoformat(raw["today"].isoformat() if hasattr(raw.get("today"), "isoformat") else str(raw.get("today")))
@@ -324,9 +349,10 @@ def _site_map(db: Session, facility_id: str) -> Dict[str, Any]:
                for r in rates if r.competitor_id in active]
         market = ops_market.latest_rates(obs, today)
         facts = unit_facts(raw.get("rent_roll") or [], raw.get("leases") or [], market, today)
+        kpis = facility_kpis(raw.get("rent_roll") or [], raw.get("receivables") or [], raw.get("leases") or [], today)
     return {
         "facilityId": facility_id, "modelId": pid, "facility": (fac or {}).get("name") or (model.get("property") or {}).get("name") or "",
-        "model": model, "facts": facts, "asOf": today.isoformat(),
+        "model": model, "facts": facts, "kpis": kpis, "asOf": today.isoformat(),
         "marketBand": MARKET_BAND, "minCompetitors": ops_market.MIN_COMPETITORS,
         "entrance": entrance_for(db, model, staff=True),
         "cubbyTemplate": template_url(pid),
@@ -402,3 +428,261 @@ def _save_entrance(db: Session, body: EntranceIn, email: str) -> Dict[str, Any]:
 @ops_router.put("/entrance")
 async def save_entrance(body: EntranceIn, db: Session = Depends(get_db), user: dict = Depends(require_ops_edit)):
     return await asyncio.to_thread(_save_entrance, db, body, (user or {}).get("email") or "")
+
+
+# ── Ops: one unit's tenant, lease and tickets (Oct 20 2026) ───────────────
+#
+# What the unit card shows for a leased unit: the tenant's NAME and the lease /
+# money facts (move-in, rent vs street, balance and days past due, autopay,
+# the next rent change, lease status) plus a link into Cubby. Never a phone,
+# email or street address: the output is built key by key below, nothing is
+# passed through from Cubby's row. Staff only (the ops router's Operations
+# read); the public customer map never reaches any of this.
+
+AGING_DAYS = {"d0_30": 0, "d30_60": 30, "d60_90": 60, "d90_120": 90, "d120_plus": 120}
+TICKETS_RECENT = 5
+
+
+def _day(v) -> str:
+    s = str(v or "")[:10]
+    try:
+        date.fromisoformat(s)
+        return s
+    except ValueError:
+        return ""
+
+
+def unit_detail(row: dict, receivable: Optional[dict], leases: List[dict], today: date) -> Dict[str, Any]:
+    """One rent-roll line (+ that unit's receivable and leases) -> the card's
+    facts. Pure; whitelisted keys only."""
+    import cubby
+    status = row.get("status") or ""
+    rented = status == "RENTED"
+    out: Dict[str, Any] = {
+        "unit": (row.get("unitName") or "").strip().upper(),
+        "status": "rented" if rented else "vacant" if status == "VACANT" else "off-market",
+        "type": (row.get("pricingGroupName") or "").strip(), "street": int(row.get("standardRate") or 0),
+        "tenant": None, "vacantSince": "", "daysVacant": None,
+    }
+    uid = row.get("unitId") or ""
+    mine = [le for le in leases if (le.get("unitId") or "") == uid]
+    today_s = today.isoformat()
+    if not rented:
+        outs = sorted(d for d in (_day(le.get("moveOutDate")) for le in mine) if d and d <= today_s)
+        if outs and status == "VACANT":
+            out["vacantSince"] = outs[-1]
+            out["daysVacant"] = _days_between(outs[-1], today)
+        return out
+    current = [le for le in mine if not (_day(le.get("moveOutDate")) and _day(le.get("moveOutDate")) <= today_s)]
+    lease = max(current, key=lambda le: _day(le.get("moveInDate")), default={})
+    rec = receivable or {}
+    balance = int(rec.get("totalAmount") or 0)
+    ranges = {cubby.AGING_KEYS.get(x.get("range"), "unknown"): x.get("amount") or 0 for x in rec.get("ranges") or []}
+    oldest = next((k for k in ("d120_plus", "d90_120", "d60_90", "d30_60", "d0_30") if ranges.get(k)), "")
+    paid = _day(row.get("paidThroughDate"))
+    days_due = 0
+    if balance > 0:
+        days_due = (today - date.fromisoformat(paid)).days if paid and paid < today_s else AGING_DAYS.get(oldest, 0)
+    move_in = _day(row.get("moveInDate")) or _day(lease.get("moveInDate"))
+    change = None
+    if lease.get("rentChangeScheduledDate") and lease.get("rentChangeNewRentAmount") is not None:
+        change = {"date": _day(lease.get("rentChangeScheduledDate")), "rent": int(lease.get("rentChangeNewRentAmount") or 0)}
+    move_out = _day((lease.get("scheduledMoveOut") or {}).get("moveOutDate"))
+    overlocked = bool(row.get("overlockApplied"))
+    out["tenant"] = {
+        "name": (row.get("customerName") or "").strip(),
+        "moveIn": move_in, "daysInUnit": _days_between(move_in, today) if move_in else None,
+        "rent": int(row.get("monthlyRentalAmount") or 0),
+        "balance": balance, "daysPastDue": days_due,
+        "paidThrough": paid, "autoPay": bool(row.get("autoPayEnabled")),
+        "rentChange": change, "moveOut": move_out, "overlocked": overlocked,
+        "leaseStatus": "moving-out" if move_out else "overlocked" if overlocked else "past-due" if balance > 0 else "current",
+        "cubbyUrl": cubby._tenant_url(row.get("customerId") or ""),
+        # Cubby's id for the tenant: opens the Operations drill-down (ledger).
+        "customerId": row.get("customerId") or "",
+    }
+    return out
+
+
+COVERAGE_KIND = {"ORGANISATION": "facility", "ORGANIZATION": "facility", "PRIVATE_POLICY": "private"}
+PAY_METHOD = {"CREDIT_CARD": "Card", "OFFLINE_CARD": "Card (Offline)", "ACH": "ACH", "CASH": "Cash", "CHECK": "Check",
+              "DIRECT_DEBIT": "Direct Debit"}
+PAY_STATUS = {"SUCCEEDED": "Paid", "DECLINED": "Declined", "REJECTED": "Rejected", "FAILED": "Failed",
+              "DIRECT_DEBIT_RETURN": "Returned", "DISPUTED": "Disputed", "REFUNDED": "Refunded", "PENDING": "Pending"}
+PAYMENTS_SHOWN = 3
+
+
+def _all_rows():
+    """[(facility, raw)] for every facility - the tenant's units elsewhere and
+    their payments. The synced cubby_* rows behind the Operations summary."""
+    import cubby
+    return cubby._rows()
+
+
+def _short_name(fac: dict) -> str:
+    name = (fac.get("name") or "").strip()
+    return name.replace("Greens Storage", "").strip() or name
+
+
+def _compliance_missing(lease_id: str, facility_id: str) -> Optional[List[str]]:
+    """Open lease documents from the Lease Compliance report's last saved answer
+    (ops_report_cache) - never a live Cubby call. None = not known yet."""
+    if not lease_id:
+        return None
+    import ops_reports
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        row = db.get(models.OpsReportCache, f"compliance:{facility_id}:current")
+        payload = (row.payload or {}) if row else None
+    finally:
+        db.close()
+    if payload is None:
+        return None
+    hit = next((c for c in payload.get("compliances") or [] if c.get("leaseId") == lease_id), None)
+    if hit is None:
+        return None
+    docs = {x.get("type"): (x.get("status") or "").upper() for x in hit.get("documents") or []}
+    return [label for t, _, label in ops_reports.DOC_TYPES if docs.get(t) and docs[t] not in ops_reports.DOC_OK]
+
+
+def _word(code: str) -> str:
+    return (code or "").replace("_", " ").title()
+
+
+def tenant_extras(customer_id: str, facility_id: str, unit: str, lease: dict, rows) -> Dict[str, Any]:
+    """The tenant card's second half (Visesh, Oct 20 2026): the tenant's other
+    units here and at the other facilities, their last payments, and the
+    lease's coverage. Pure; built key by key - a payment's reason text, a
+    policy number and every contact field stay behind."""
+    import cubby
+    others: List[Dict[str, Any]] = []
+    pays: List[dict] = []
+    for fac, raw in rows or []:
+        fid = fac.get("facilityId") or ""
+        for r in (raw or {}).get("rent_roll") or []:
+            name = (r.get("unitName") or "").strip().upper()
+            if customer_id and r.get("customerId") == customer_id and r.get("status") == "RENTED" \
+                    and not (fid == facility_id and name == unit):
+                others.append({"unit": name, "facilityId": fid, "facility": _short_name(fac), "here": fid == facility_id,
+                               "rent": int(r.get("monthlyRentalAmount") or 0)})
+        pays += [p for p in (raw or {}).get("payments") or [] if customer_id and p.get("customerId") == customer_id]
+    others.sort(key=lambda x: (not x["here"], x["facility"], x["unit"]))
+    pays.sort(key=lambda p: p.get("createdAt") or "", reverse=True)
+    payments = [{"date": _day(p.get("createdAt")), "amount": int(p.get("amount") or 0),
+                 "method": PAY_METHOD.get(p.get("methodType") or "", _word(p.get("methodType") or "")),
+                 "status": PAY_STATUS.get(p.get("status") or "", _word(p.get("status") or "")),
+                 "failed": (p.get("status") or "") in cubby.FAILED_PAYMENT}
+                for p in pays[:PAYMENTS_SHOWN]]
+    lease = lease or {}
+    cov = lease.get("coverage") or {}
+    kind = COVERAGE_KIND.get((cov.get("coverageType") or "").upper(), "none")
+    coverage = {"kind": kind, "amount": int(cov.get("coverageAmount") or 0) if kind == "facility" else 0,
+                "premium": int(cov.get("premiumAmount") or 0) if kind == "facility" else 0,
+                "policyOnFile": bool(lease.get("privatePolicyNumber")) if kind == "private" else False,
+                "policyExpires": _day(lease.get("privatePolicyExpirationDate")) if kind == "private" else ""}
+    return {"otherUnits": others, "payments": payments, "coverage": coverage}
+
+
+def _ticket_row(t) -> Dict[str, Any]:
+    from property_links import CLOSED_STATES
+    return {"id": t.id, "code": t.code or "", "subject": t.subject or "", "status": t.status or "new",
+            "priority": t.priority or "medium", "createdAt": t.created_at or "", "resolvedAt": t.resolved_at or "",
+            "closed": (t.status or "") in CLOSED_STATES}
+
+
+def unit_tickets(db: Session, facility_id: str, unit: str, user: dict) -> Dict[str, Any]:
+    """Open and recently closed tickets on this unit of the facility's property.
+    A private property stays private and the company wall applies, as on the
+    maintenance layer (facility_maintenance_map.build_map)."""
+    import auth
+    import property_links
+    import ticket_property_link as L
+    prop = L.property_for_facility(db, facility_id)
+    if prop is None or not property_links.viewable(prop, user):
+        return {"property": None, "open": [], "recent": []}
+    ids = property_links.group_ids(db, prop, user)
+    want = " ".join((unit or "").split()).lower()
+    scope = auth.company_scope(user, db)
+    rows = [t for t in db.query(models.TaskTicket).filter(models.TaskTicket.property_asset_id.in_(ids)).all()
+            if " ".join((t.property_unit or "").split()).lower() == want and not (t.deleted_at or "")
+            and (scope is None or (t.company_id or "") in scope)]
+    rows.sort(key=lambda t: t.created_at or "", reverse=True)
+    items = [_ticket_row(t) for t in rows]
+    recent = sorted((x for x in items if x["closed"]), key=lambda x: x["resolvedAt"] or x["createdAt"], reverse=True)
+    return {"property": {"id": prop.id, "name": property_links.display_name(prop)},
+            "open": [x for x in items if not x["closed"]], "recent": recent[:TICKETS_RECENT]}
+
+
+def _unit_card(db: Session, facility_id: str, unit: str, user: dict) -> Dict[str, Any]:
+    name = clean_unit(unit)
+    if not name:
+        raise HTTPException(status_code=400, detail="Enter a unit number")
+    out: Dict[str, Any] = {"unit": name, "status": "", "tenant": None, "connected": False}
+    try:
+        _fac, raw = _cubby_rows(facility_id)
+    except Exception as e:  # noqa: BLE001 - the tickets still answer without Cubby
+        print(f"[unit_map] cubby rows unavailable: {type(e).__name__}")
+        raw = None
+    if raw:
+        today = date.today()
+        try:
+            today = date.fromisoformat(str(raw.get("today"))[:10])
+        except (ValueError, TypeError):
+            pass
+        row = next((r for r in raw.get("rent_roll") or [] if (r.get("unitName") or "").strip().upper() == name), None)
+        out["connected"] = True
+        if row is not None:
+            rec = next((e for e in raw.get("receivables") or [] if (e.get("unitId") or "") == (row.get("unitId") or "")), None)
+            out.update(unit_detail(row, rec, raw.get("leases") or [], today))
+            t = out.get("tenant")
+            if t:
+                uid = row.get("unitId") or ""
+                lease = max((le for le in raw.get("leases") or [] if (le.get("unitId") or "") == uid
+                             and not (_day(le.get("moveOutDate")) and _day(le.get("moveOutDate")) <= today.isoformat())),
+                            key=lambda le: _day(le.get("moveInDate")), default={})
+                try:
+                    rows = _all_rows()
+                except Exception as e:  # noqa: BLE001 - this facility's own rows still answer
+                    print(f"[unit_map] all cubby rows unavailable: {type(e).__name__}")
+                    rows = [({"facilityId": facility_id}, raw)]
+                t.update(tenant_extras(t["customerId"], facility_id, name, lease, rows))
+                try:
+                    t["compliance"] = _compliance_missing(lease.get("leaseId") or "", facility_id)
+                except Exception as e:  # noqa: BLE001 - the card shows no compliance line
+                    print(f"[unit_map] compliance unavailable: {type(e).__name__}")
+                    t["compliance"] = None
+    out["tickets"] = unit_tickets(db, facility_id, name, user)
+    return out
+
+
+@ops_router.get("/unit")
+async def site_map_unit(facility_id: str, unit: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    return await asyncio.to_thread(_unit_card, db, facility_id, unit, user)
+
+
+def _ticket_tenant(db: Session, property_id: str, unit: str, user: dict) -> Dict[str, Any]:
+    import property_links
+    import ticket_property_link as L
+    pid = (property_id or "").strip()
+    prop = db.get(models.PropertyAsset, pid) if pid else None
+    want = " ".join((unit or "").split()).upper()
+    if prop is None or not property_links.viewable(prop, user) or not want or want == L.COMMON_AREA.upper():
+        return {"tenant": ""}
+    fid = L.facility_for_property(db, prop)
+    if not fid:
+        return {"tenant": ""}
+    try:
+        _fac, raw = _cubby_rows(fid)
+    except Exception:  # noqa: BLE001 - nothing to add without Cubby
+        return {"tenant": ""}
+    row = next((r for r in (raw or {}).get("rent_roll") or [] if (r.get("unitName") or "").strip().upper() == want), None)
+    if not row or row.get("status") != "RENTED":
+        return {"tenant": ""}
+    return {"tenant": (row.get("customerName") or "").strip()}
+
+
+@ops_router.get("/tenant")
+async def ticket_tenant(property_id: str = "", unit: str = "", db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """The tenant renting a ticket's unit (the ticket drawer's property block). Name only, staff only."""
+    return await asyncio.to_thread(_ticket_tenant, db, property_id, unit, user)

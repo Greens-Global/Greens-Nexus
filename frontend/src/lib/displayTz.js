@@ -28,12 +28,46 @@ let _current = readStored();
 
 export function currentTzOption() { return _current; }
 
+// The zone of the employee whose team card is open ('' = none) - see
+// useEmployeeZone. While set, a click on the switch is remembered for that
+// kind of employee instead of app-wide.
+let _viewing = '';
+const PICK_PREFIX = 'nexus:timecardTz:for:';
+
 export function setDisplayTz(key) {
   const next = TZ_OPTIONS.find((o) => o.key === key) || TZ_OPTIONS[0];
+  try { localStorage.setItem(_viewing ? PICK_PREFIX + _viewing : STORAGE_KEY, next.key); } catch { /* ignore */ }
   if (next.key === _current.key) return;
   _current = next;
-  try { localStorage.setItem(STORAGE_KEY, next.key); } catch { /* ignore */ }
   window.dispatchEvent(new CustomEvent(EVENT));
+}
+
+/** The zone a team card opens in (Visesh, Oct 20 2026): the EMPLOYEE's
+ *  (`zoneKey` from the server - India-based staff read in India time, US
+ *  staff in California time), unless this viewer flipped the switch on an
+ *  employee of that kind before - that choice is remembered per viewer
+ *  (this browser) and per employee zone. Leaving puts the saved app-wide
+ *  choice back. */
+export function useEmployeeZone(on, zoneKey = '') {
+  useEffect(() => {
+    if (!on || !TZ_OPTIONS.some((o) => o.key === zoneKey)) return undefined;
+    let picked = '';
+    try { picked = localStorage.getItem(PICK_PREFIX + zoneKey) || ''; } catch { /* blocked storage: use the default */ }
+    const next = TZ_OPTIONS.find((o) => o.key === picked) || TZ_OPTIONS.find((o) => o.key === zoneKey);
+    _viewing = zoneKey;
+    if (next.key !== _current.key) {
+      _current = next;
+      window.dispatchEvent(new CustomEvent(EVENT));
+    }
+    return () => {
+      _viewing = '';
+      const saved = readStored();
+      if (saved.key !== _current.key) {
+        _current = saved;
+        window.dispatchEvent(new CustomEvent(EVENT));
+      }
+    };
+  }, [on, zoneKey]);
 }
 
 /** 'india' when this browser runs on India time, else 'california'. */
@@ -84,7 +118,10 @@ export function useDisplayTz() {
 /** h:mm[:ss] am/pm for a stored UTC punch (no 'Z' suffix), in the current zone. */
 export function formatTimeTz(iso, { seconds = false } = {}) {
   if (!iso) return '';
-  return new Date(iso + 'Z').toLocaleTimeString('en-US', {
+  // Stored punch times are naive UTC; one that already carries a zone
+  // ("...+00:00" / "...Z") must not get a second one ("Invalid Date").
+  const zoned = /(Z|[+-]\d{2}:?\d{2})$/.test(iso);
+  return new Date(zoned ? iso : iso + 'Z').toLocaleTimeString('en-US', {
     hour: 'numeric', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}),
     hour12: true, timeZone: _current.tz,
   }).replace(' ', '').toLowerCase();

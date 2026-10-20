@@ -180,12 +180,12 @@ export default function FeatureBanner({ activeView, onNavigate }) {
   const lead = update
     ? (hasNews ? 'Reload to get the latest Nexus, including ' : 'Reload to get the latest Nexus whenever it suits you.')
     : 'Updates this week, including ';
-  const leadShort = update ? (hasNews ? 'New version: ' : 'A new version is ready.') : 'Including ';
+  const leadShort = update ? (hasNews ? 'New Version: ' : 'A New Version is ready.') : 'Including ';
   const message = `${lead}${parts.map((p, i) => `${p.count} ${p.label}${partJoiner(i, parts.length)}`).join('')}`;
   const Icon = update && !(counts?.['New Feature'] > 0) ? RefreshCw : Sparkles;
 
   return (
-    <div role="region" aria-label={update ? 'New version of Nexus' : 'New in Nexus'}
+    <div role="region" aria-label={update ? 'New Version of Nexus' : 'New in Nexus'}
       onAnimationEnd={onAnimationEnd}
       className={`feature-banner is-${mode}${closing ? ' is-closing' : ''}`}>
       <div className="feature-banner-clip">

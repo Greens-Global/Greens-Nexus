@@ -333,3 +333,36 @@ def test_sync_now_without_a_key_says_not_connected(db, monkeypatch):
 def test_sync_now_while_one_runs_is_a_409(db, warehouse):
     ops_stortrack._write_state(db, {"lastStatus": "running", "startedAt": datetime.now(timezone.utc).isoformat()})
     assert _client(3, "manager").post("/facility-ops/market/stortrack/sync").status_code == 409
+
+
+# ── A signed-in Google account instead of a service account (Oct 20) ─────────
+
+USER_KEY = {"type": "authorized_user", "client_id": "cid.apps.googleusercontent.com",
+            "client_secret": "client-secret-bits", "refresh_token": "refresh-secret-bits",
+            "quota_project_id": "greens-cubby-data"}
+
+
+def test_a_signed_in_account_is_accepted_and_bills_its_quota_project(monkeypatch):
+    monkeypatch.setenv("CUBBY_BQ_CREDENTIALS_JSON", json.dumps(USER_KEY))
+    monkeypatch.delenv("CUBBY_BQ_PROJECT", raising=False)
+    assert cubby_warehouse.configured() is True
+    assert cubby_warehouse.billing_project() == "greens-cubby-data"
+    monkeypatch.setenv("CUBBY_BQ_PROJECT", "greens-billing")
+    assert cubby_warehouse.billing_project() == "greens-billing"
+
+
+def test_a_signed_in_account_missing_its_token_is_refused_without_echoing_secrets(monkeypatch):
+    monkeypatch.setenv("CUBBY_BQ_CREDENTIALS_JSON", json.dumps({**USER_KEY, "refresh_token": ""}))
+    with pytest.raises(cubby_warehouse.WarehouseError) as e:
+        cubby_warehouse.billing_project()
+    assert "client-secret-bits" not in str(e.value) and "refresh token" in str(e.value)
+
+
+def test_a_signed_in_account_builds_user_credentials(monkeypatch):
+    pytest.importorskip("google.cloud.bigquery")
+    monkeypatch.setenv("CUBBY_BQ_CREDENTIALS_JSON", json.dumps(USER_KEY))
+    monkeypatch.delenv("CUBBY_BQ_PROJECT", raising=False)
+    client = cubby_warehouse._client()
+    assert client.project == "greens-cubby-data"
+    assert type(client._credentials).__module__ == "google.oauth2.credentials"
+    assert client._credentials.refresh_token == "refresh-secret-bits"

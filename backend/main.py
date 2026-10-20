@@ -27,7 +27,7 @@ from routers import github_webhook  # PR/push merged to dev/main -> admin notifi
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
 from routers import facility_ops  # Operations: storage facility figures read from Cubby (Oct 2026)
-from routers import ops_rates  # Operations -> Rate Management: proposed street rates, push to Cubby (Oct 20 2026)
+from routers import ops_rates  # Operations -> Rate Management: proposed street rates, marked entered in Cubby (Oct 20 2026)
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import hr_life_events as hr_life_events_router  # hiring packet / promotion / separation via Nexus Sign (Oct 2026)
@@ -995,6 +995,8 @@ def _run_migrations():
             # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
             "ALTER TABLE task_projects ADD COLUMN default_view JSON",
             "ALTER TABLE task_projects ADD COLUMN shared_charts JSON DEFAULT '[]'",
+            # Project icon (Oct 15 2026). models.TaskProject.icon.
+            "ALTER TABLE task_projects ADD COLUMN icon VARCHAR DEFAULT ''",
             # Time entries (Oct 2026). models.Task.time_entry_count.
             "ALTER TABLE tasks ADD COLUMN time_entry_count INTEGER DEFAULT 0",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
@@ -1131,6 +1133,23 @@ def _run_migrations():
             "ALTER TABLE ticket_inbound_email ADD COLUMN auth_summary VARCHAR DEFAULT ''",
             # Weekly Ticket Report opt-out (Oct 2026, ticket_reports.py). models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN ticket_weekly_report INTEGER",
+            # Unified audit log (Oct 20 2026) - see the Postgres list. models.AuditLog.
+            "ALTER TABLE audit_logs ADD COLUMN request_id VARCHAR DEFAULT ''",
+            "ALTER TABLE audit_logs ADD COLUMN module VARCHAR DEFAULT ''",
+            "ALTER TABLE audit_logs ADD COLUMN kind VARCHAR DEFAULT ''",
+            "ALTER TABLE audit_logs ADD COLUMN acting_as VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_audit_logs_request_id ON audit_logs (request_id)",
+            'CREATE INDEX IF NOT EXISTS ix_audit_logs_ts_id ON audit_logs ("timestamp", id)',
+            'CREATE INDEX IF NOT EXISTS ix_audit_logs_module_ts ON audit_logs (module, "timestamp")',
+            'CREATE INDEX IF NOT EXISTS ix_audit_logs_user_ts ON audit_logs (user_email, "timestamp")',
+            'CREATE INDEX IF NOT EXISTS ix_audit_logs_rtype_ts ON audit_logs (resource_type, "timestamp")',
+            # Mark an Issue on the Map (Oct 20 2026) - models.SiteModelMarkup, ticket_map_spot.py.
+            "ALTER TABLE site_model_markups ADD COLUMN radius FLOAT DEFAULT 0",
+            "ALTER TABLE site_model_markups ADD COLUMN outline TEXT DEFAULT ''",
+            "ALTER TABLE site_model_markups ADD COLUMN lat FLOAT",
+            "ALTER TABLE site_model_markups ADD COLUMN lng FLOAT",
+            "ALTER TABLE site_model_markups ADD COLUMN place VARCHAR DEFAULT ''",
+            "ALTER TABLE site_model_markups ADD COLUMN updated_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2349,6 +2368,8 @@ def _run_migrations():
         # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS default_view JSONB",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS shared_charts JSONB DEFAULT '[]'::jsonb",
+        # Project icon (Oct 15 2026). models.TaskProject.icon.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS icon VARCHAR DEFAULT ''",
         # Time entries (Oct 2026). models.Task.time_entry_count.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS time_entry_count INTEGER DEFAULT 0",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
@@ -2532,6 +2553,9 @@ def _run_migrations():
         # new tables, explicit RLS. models.OpsReportCache, models.OpsSavedReport.
         "ALTER TABLE ops_report_cache ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_saved_reports ENABLE ROW LEVEL SECURITY",
+        # Scheduled catalog reports (Oct 20 2026, ops_report_schedules.py): new
+        # table, explicit RLS. models.OpsReportSchedule.
+        "ALTER TABLE ops_report_schedules ENABLE ROW LEVEL SECURITY",
         # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived
         # (models.TaskTicket.source), and the inbound log - a new table:
         # explicit RLS on top of the sweep. models.TicketInboundEmail.
@@ -2549,6 +2573,44 @@ def _run_migrations():
         # models.NexusPersonPref / TicketReportEmailLog.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ticket_weekly_report INTEGER",
         "ALTER TABLE ticket_report_email_log ENABLE ROW LEVEL SECURITY",
+        # Tickets <-> equipment (Oct 2026, routers/ticket_items.py) - a new
+        # table: explicit RLS on top of the sweep. models.TicketItemLink.
+        "ALTER TABLE ticket_item_links ENABLE ROW LEVEL SECURITY",
+        # Ticket AI (Oct 2026, ticket_ai.py): cached AI Summaries - a new
+        # table, explicit RLS. models.TicketAiSummary.
+        "ALTER TABLE ticket_ai_summaries ENABLE ROW LEVEL SECURITY",
+        # Operations > Pricing Insights (Oct 20 2026, cubby_pricing.py /
+        # ops_insights.py): Cubby's pricing groups, discounts, value pricing
+        # strategies, our rate change history and tracked ECRIs - new tables,
+        # explicit RLS. models.CubbyPricingGroup / CubbyDiscount /
+        # CubbyValuePricingStrategy / CubbyRateHistory / CubbyRentChange.
+        "ALTER TABLE cubby_pricing_groups ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_discounts ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_value_pricing_strategies ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_rate_history ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_rent_changes ENABLE ROW LEVEL SECURITY",
+        # Unified audit log (Oct 20 2026, audit_capture.py / routers/audit_events.py):
+        # the request id that joins a request row to its field-level changes, and
+        # module / kind / acting_as filled for new rows so the feed filters on an
+        # index. audit_changes is a new table - explicit RLS on top of the sweep.
+        # The keyset indexes serve "newest first" per module / person / resource.
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id VARCHAR DEFAULT ''",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS module VARCHAR DEFAULT ''",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT ''",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS acting_as VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_request_id ON audit_logs (request_id) WHERE request_id <> ''",
+        'CREATE INDEX IF NOT EXISTS ix_audit_logs_ts_id ON audit_logs ("timestamp" DESC, id DESC)',
+        """CREATE INDEX IF NOT EXISTS ix_audit_logs_module_ts ON audit_logs (module, "timestamp" DESC) WHERE module <> ''""",
+        'CREATE INDEX IF NOT EXISTS ix_audit_logs_user_ts ON audit_logs (user_email, "timestamp" DESC)',
+        'CREATE INDEX IF NOT EXISTS ix_audit_logs_rtype_ts ON audit_logs (resource_type, "timestamp" DESC)',
+        "ALTER TABLE audit_changes ENABLE ROW LEVEL SECURITY",
+        # Mark an Issue on the Map (Oct 20 2026) - models.SiteModelMarkup, ticket_map_spot.py.
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS radius FLOAT DEFAULT 0",
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS outline TEXT DEFAULT ''",
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS lat FLOAT",
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS lng FLOAT",
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS updated_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3836,7 +3898,7 @@ app.include_router(pfs.router)                # Personal Financial Statements (o
 app.include_router(leasing.router)            # Leasing: tenants, rent over time, expected vs received
 app.include_router(operations.router)
 app.include_router(facility_ops.router)       # Operations: occupancy, collections, pricing, worklist
-app.include_router(ops_rates.router)          # Operations -> Rate Management (drafts, push to Cubby, rate history)
+app.include_router(ops_rates.router)          # Operations -> Rate Management (drafts, mark entered in Cubby, rate history)
 app.include_router(unifi.router)
 app.include_router(dashboard.router)
 app.include_router(dashboards_router.router)
@@ -4008,5 +4070,15 @@ app.include_router(ops_reports_router.router)     # Operations > Reports: Cubby'
 from routers import unit_map as unit_map_router  # noqa: E402
 app.include_router(unit_map_router.ops_router)     # Operations > Site Map: site model + layers per facility (Neil, 10/20)
 app.include_router(unit_map_router.public_router)  # Customer unit map /find/<token>: one unit, the route, no login (Neil, 10/20)
+from routers import ticket_map_spots  # noqa: E402
+app.include_router(ticket_map_spots.router)  # Mark an Issue on the Map: ticket spots on the site map (Charmi, 10/20)
 from routers import ticket_reports as ticket_reports_router  # noqa: E402
 app.include_router(ticket_reports_router.router)   # Tickets > Reports: the server-side report, its CSV and the weekly email opt-out (Oct 2026)
+from routers import ticket_items as ticket_items_router  # noqa: E402
+app.include_router(ticket_items_router.router)     # Tickets <-> equipment (items): picker, links, Other Tickets for This Item, by-item (Oct 2026)
+from routers import ticket_ai as ticket_ai_router  # noqa: E402
+app.include_router(ticket_ai_router.router)        # Tickets: AI Summary + Suggested Help Topic, and the desk's AI switch (Oct 2026)
+from routers import ops_insights as ops_insights_router  # noqa: E402
+app.include_router(ops_insights_router.router)     # Operations > Pricing Insights: ranked insights from Cubby's pricing + the market (Visesh, 10/20)
+from routers import audit_events as audit_events_router  # noqa: E402
+app.include_router(audit_events_router.router)     # Unified Audit Log: one feed, modules, before/after, record history (Oct 20 2026)

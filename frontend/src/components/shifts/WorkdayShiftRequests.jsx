@@ -90,7 +90,7 @@ export default function WorkdayShiftRequests({ toast }) {
           {incoming.map((r) => {
             const Icon = KIND_ICON[r.kind] || Hand;
             return (
-              <div key={r.id} className="nx-needs-you" style={{ ...card, borderColor: 'var(--wk-brand)' }}>
+              <div key={r.id} className="nx-needs-you--card" style={{ ...card, borderColor: 'var(--wk-brand)' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', gap: 5 }}><Icon size={12} /> Waiting On You</div>
                 <div style={{ fontSize: 13, color: 'var(--ink)', margin: '4px 0' }}>{r.summary}.</div>
                 {(r.shift || r.targetShift) && (

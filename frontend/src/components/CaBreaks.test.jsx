@@ -131,11 +131,46 @@ describe('CaReview', () => {
     fireEvent.click(screen.getByRole('button', { name: /Run Review/ }));
     expect(await screen.findByText('Erin Test')).toBeTruthy();
     expect(screen.getByText('1 Open')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Open Time Sheet/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Adjust Time Sheet/ }));
     expect(onOpen).toHaveBeenCalledWith('e@x.com', '2026-09-13', 'hourly');
-    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve with Note' }));
     await waitFor(() => expect(apiMock.caReviewResolve).toHaveBeenCalledWith(
       { email: 'e@x.com', periodStart: '2026-09-13', key: 'meal:2026-09-16', note: 'Paid the premium' }));
+  });
+
+  it('groups by person and type, says it in plain words, pays the premium, lists unknown work states', async () => {
+    const meal = { email: 'e@x.com', name: 'Erin Test', periodStart: '2026-09-13', date: '2026-09-16', key: 'meal:2026-09-16',
+      rule: 'meal', kind: 'meal_short', status: 'open', premiumKind: 'meal', owed: 22,
+      what: 'Took a 15-minute meal break on 09/16 (7 hours worked) - California requires at least 30 minutes, so it was 15 minutes short.',
+      means: '1 hour of meal premium is owed at their regular rate ($22.00).' };
+    const split = { ...meal, key: 'split_shift:2026-09-17', date: '2026-09-17', rule: 'split_shift', kind: 'split_shift',
+      premiumKind: '', what: 'Clocked out for 1 hour 30 minutes in the middle of the day on 09/17.', means: '$16.10 is owed.' };
+    const other = { ...meal, email: 'o@x.com', name: 'Omar Test', key: 'meal:2026-09-18', date: '2026-09-18' };
+    apiMock.caReview.mockResolvedValue({ ...REPORT, openCount: 3, rows: [meal, split, other],
+      summary: [{ kind: 'meal_short', label: 'Meal Short', count: 2 }, { kind: 'split_shift', label: 'Split Shift', count: 1 }],
+      unknownState: [{ email: 'u@x.com', name: 'Uma Unknown', reason: 'No work site, punch location or company address with a state' }],
+      outsideCa: [{ email: 't@x.com', name: 'Tex', state: 'TX', reason: 'Work site: Austin, TX' }] });
+    const { dialog } = await import('../ui/dialog');
+    dialog.confirm.mockResolvedValue(true);
+    apiMock.breakPremiumAdd.mockResolvedValue({});
+    render(<CaReview />);
+    fireEvent.click(screen.getByRole('button', { name: /Run Review/ }));
+    expect(await screen.findByText('Erin Test')).toBeTruthy();
+    expect(screen.getByText('2 days · 2 open')).toBeTruthy();
+    expect(screen.getAllByText(/15 minutes short/).length).toBe(2);
+    expect(screen.getByText(/1 outside California is not checked/)).toBeTruthy();
+    // Filter by type.
+    fireEvent.click(screen.getByRole('button', { name: /Split Shift 1/ }));
+    expect(screen.queryByText('Omar Test')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /All 3/ }));
+    expect(screen.getByText('Omar Test')).toBeTruthy();
+    // Work State Unknown opens to the names.
+    fireEvent.click(screen.getByRole('button', { name: /Work State Unknown/ }));
+    expect(screen.getByText('Uma Unknown')).toBeTruthy();
+    // Pay Meal Premium adds the premium for that day.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Pay Meal Premium' })[0]);
+    await waitFor(() => expect(apiMock.breakPremiumAdd).toHaveBeenCalledWith(
+      { email: 'e@x.com', date: '2026-09-16', kind: 'meal', note: 'California Review' }));
   });
 
   it('asks for step-up instead of rendering blank', async () => {

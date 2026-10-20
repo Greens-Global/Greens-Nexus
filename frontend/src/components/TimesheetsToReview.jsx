@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ClipboardCheck, CheckCircle, CheckCheck, FileSignature, Undo2, ChevronRight, PenLine } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
-import { Modal } from '../tasks/components';
+import { Avatar, Modal } from '../tasks/components';
 import { SignModal } from './ESign';
 import { ForChip } from './DelegateApprovals';
 
@@ -46,8 +46,8 @@ const hm = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStar
 const ROLE_WORD = { manager: 'as the manager', hr: 'for HR', employee: 'as the employee' };
 
 // `onCount` (optional) hears how many are waiting (to review plus to sign) -
-// null when the list could not be loaded - so the People > Time "To Review"
-// tile and the Workday Time Sheet tab show the same number.
+// null when the list could not be loaded - for the Workday Time Sheet tab's
+// count.
 export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount }) {
   const [rows, setRows] = useState([]);
   const [toSign, setToSign] = useState([]);
@@ -160,7 +160,11 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
             {rows.map(r => (
               <div key={rowKey(r)} data-review={r.employeeEmail} className={r.id ? 'nx-needs-you' : undefined} style={{ borderTop: '1px solid var(--line)', padding: '10px 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <div style={{ flex: 1, minWidth: 220 }}>
+                  {/* Whose time sheet, at a glance: their photo (initials when
+                      there is none) in front of the name (Neil, Oct 19 2026). */}
+                  <div style={{ flex: 1, minWidth: 220, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    <Avatar email={r.employeeEmail} name={r.name} size={32} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700 }}>
                       {r.name}{r.resubmitted && <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', marginLeft: 6 }}>Resubmitted</span>}
                       {r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}
@@ -172,6 +176,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
                     {r.agreeBlocker && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>{r.agreeBlocker}</div>}
                     {/* Approve works, but Approve All Clean leaves it: an exception to look at. */}
                     {!r.agreeBlocker && r.reviewFlag && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>{r.reviewFlag}</div>}
+                    </div>
                   </div>
                   {/* Review opens the full timecard in People > Time - offered only
                       where the caller can open it (no onOpen = no button, Oct 1). */}
@@ -217,13 +222,16 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {toSign.map(s => (
               <div key={s.partyId || `resign-${s.id}`} data-sign={s.employeeEmail} className="nx-needs-you" style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{ flex: 1, minWidth: 220, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  <Avatar email={s.employeeEmail} name={s.name} size={32} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700 }}>{s.role === 'employee' ? 'Your Time Sheet' : s.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {formatDate(s.periodStart)} - {formatDate(s.periodEnd)}
                     {s.agreedBy ? ` · agreed by ${s.agreedBy}${s.agreedAt ? ` on ${formatDate(s.agreedAt)}` : ''}` : ''}
                     {` · you sign ${ROLE_WORD[s.role] || ''}`.replace(/ $/, '')}
                     {s.needsResign ? ' · HR changed the hours - sign the updated time sheet' : ''}
+                  </div>
                   </div>
                 </div>
                 {/* needsResign (Oct 17): HR changed it while it was out for signature -

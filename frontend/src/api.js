@@ -1255,13 +1255,16 @@ export const api = {
   opsMarketAnalysis: (facilityId) => req(`/facility-ops/market/analysis?facility_id=${encodeURIComponent(facilityId)}`, { method: "POST" }),
   // StorTrack (Oct 2026): import the newest rates from Cubby's warehouse now (managers and above).
   syncOpsStorTrack: (facilityId) => req(`/facility-ops/market/stortrack/sync?facility_id=${encodeURIComponent(facilityId || "")}`, { method: "POST", timeoutMs: 180_000 }),
-  // Rate Management (Oct 20 2026): the CMA table, proposed-rate drafts, Review & Push to Cubby, rate history.
+  // Rate Management (Oct 20 2026): the CMA table, proposed-rate drafts, Mark Entered in Cubby, rate history. Nexus never writes to Cubby.
   getOpsRates: (facilityId) => req(`/facility-ops/rates?facility_id=${encodeURIComponent(facilityId)}`),
   saveOpsRateDraft: (data) => req("/facility-ops/rates/draft", { method: "PUT", body: JSON.stringify(data) }),
-  pushOpsRates: (facilityId, unitTypes) => req("/facility-ops/rates/push", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, confirm: true }), timeoutMs: 180_000 }),
+  markOpsRatesEntered: (facilityId, unitTypes, seen = {}) => req("/facility-ops/rates/entered", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, seen }) }),
   getOpsRateHistory: (facilityId, unitType) => req(`/facility-ops/rates/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  getOpsRateComps: (facilityId, unitType) => req(`/facility-ops/rates/comps?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
   // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
   getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
+  // Operations > Pricing Insights (Oct 20): ranked insights + sections from Cubby's pricing and the market. '' = every facility.
+  getOpsInsights: (facilityId) => req(`/facility-ops/insights?facility_id=${encodeURIComponent(facilityId || "")}`),
 
   // Dev
   getDevProjects: () => req("/dev-projects"),
@@ -1559,7 +1562,7 @@ export const api = {
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   // BOD/EOD location tag (Remote / site / Off-Site Punch) for a position.
-  timeWhere:         (pos)       => req(`/timeclock/where?lat=${encodeURIComponent(pos?.lat || '')}&lng=${encodeURIComponent(pos?.lng || '')}&accuracy_m=${pos?.accuracy_m || 0}`),
+  timeWhere:         (pos, off)  => req(`/timeclock/where?lat=${encodeURIComponent(pos?.lat || '')}&lng=${encodeURIComponent(pos?.lng || '')}&accuracy_m=${pos?.accuracy_m || 0}${off ? '&location_off=true' : ''}`),
   // My Teams chats, listed server-side via the session's Graph token (no MSAL popup).
   timeMyChats:       ()          => req('/timeclock/my-chats', { timeoutMs: 30000 }),
   // Channels of every team the caller is in - binding BOD/EOD to a channel (Oct 6).
@@ -2202,6 +2205,9 @@ export const api = {
   addSiteModelMarkup:     (id, body) => req(`/site-models/${encodeURIComponent(id)}/markups`, { method: 'POST', body: JSON.stringify(body) }),
   updateSiteModelMarkup:  (id, mid, body) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteSiteModelMarkup:  (id, mid) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'DELETE' }),
+  // Mark an Issue on the Map (Oct 20 2026): open tickets marked on a site map (staff), one ticket's spot.
+  getTicketMapSpots:      (modelId) => req(`/ticket-map-spots?model_id=${encodeURIComponent(modelId)}`),
+  getTicketMapSpot:       (ticketId) => req(`/ticket-map-spots/ticket/${encodeURIComponent(ticketId)}`),
   followPropertyTicket:   (id, ticketId) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/follow`, { method: 'POST' }),
   // Maintenance record + recurring services (Pranshu, 10/06).
   addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),
@@ -2479,6 +2485,9 @@ export const api = {
   approvalDelegationRevoke:    (id)   => req(`/approval-delegations/${encodeURIComponent(id)}/revoke`, { method: 'POST' }),
   approvalDelegationsAll:      (includePast = false) => req(`/approval-delegations${includePast ? '?include_past=true' : ''}`),
   approvalDelegationCreateFor: (data) => req('/approval-delegations', { method: 'POST', body: JSON.stringify(data) }),
+  // Oct 20: who may cover (up or across only) + the delegator's upcoming
+  // approved time off - the only days a delegation may cover. HR passes whose.
+  approvalDelegationOptions:   (delegatorEmail = '') => req(`/approval-delegations/options${delegatorEmail ? `?delegator_email=${encodeURIComponent(delegatorEmail)}` : ''}`),
   // CA meal and rest breaks (Oct 17): the employee's Yes / No before signing,
   // the manager's premium lines, HR's meal waiver (backend/ca_breaks.py).
   timesheetBreakClaim:   (rid, data) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-claim`, { method: 'POST', body: JSON.stringify(data) }),
@@ -2526,7 +2535,6 @@ export const api = {
   opsRevenueBatch:      (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}`),
   opsRevenueSetStatus:  (id, status, note = '') => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/status`, { method: 'POST', body: JSON.stringify({ status, note }) }),
   opsRevenueRemoveChange: (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}`, { method: 'DELETE' }),
-  opsRevenuePush:       (id, cid, useCubbyDate = false) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/push`, { method: 'POST', body: JSON.stringify({ use_cubby_date: useCubbyDate }), timeoutMs: 60_000 }),
   opsRevenueEntered:    (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/entered`, { method: 'POST' }),
   opsRevenueExport:     (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/export`),
   opsRevenueLetters:    (id) => reqBlob(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/letters.pdf`),
@@ -2550,8 +2558,8 @@ export const api = {
   // Operations > Reports (Neil, Oct 20): Cubby's reports as interactive tables,
   // tenant / unit drill-down, and the Report Builder (saved, shared, scheduled).
   opsReportCatalog: () => req('/ops-reports/catalog'),
-  opsReport: (kind, { facilityId = '', start = '', end = '' } = {}) =>
-    req(`/ops-reports/run/${encodeURIComponent(kind)}?${new URLSearchParams({ facility_id: facilityId, start, end })}`),
+  // Old callers pass { facilityId }; the library passes { facilityIds, options } (_opsReportQuery, end of file).
+  opsReport: (kind, opts = {}) => req(`/ops-reports/run/${encodeURIComponent(kind)}?${_opsReportQuery(opts)}`),
   opsTenant: (facilityId, customerId) => req(`/ops-reports/tenant?${new URLSearchParams({ facility_id: facilityId, customer_id: customerId })}`),
   opsTenantLedger: (facilityId, customerId) => req(`/ops-reports/tenant/ledger?${new URLSearchParams({ facility_id: facilityId, customer_id: customerId })}`),
   opsUnit: (facilityId, unitId) => req(`/ops-reports/unit?${new URLSearchParams({ facility_id: facilityId, unit_id: unitId })}`),
@@ -2571,6 +2579,9 @@ export const api = {
   saveOpsEntrance:         (body)        => req('/facility-ops/site-map/entrance', { method: 'PUT', body: JSON.stringify(body) }),
   // Maintenance layer: built by the maintenance work (another branch); a 404 means not connected yet.
   getOpsMaintenanceMap:    (facilityId)  => req(`/facility-ops/maintenance-map?facility_id=${encodeURIComponent(facilityId)}`),
+  // Oct 20 2026: one unit's tenant / lease facts and tickets (staff, Operations read)
+  getOpsSiteMapUnit:       (facilityId, unit) => req(`/facility-ops/site-map/unit?facility_id=${encodeURIComponent(facilityId)}&unit=${encodeURIComponent(unit)}`),
+  getOpsTicketTenant:      (propertyId, unit) => req(`/facility-ops/site-map/tenant?property_id=${encodeURIComponent(propertyId)}&unit=${encodeURIComponent(unit)}`),
   // Email to ticket (Oct 2026, ticket_inbound.py): the support mailbox's log
   // (supervisors, last 100) and a pass now instead of waiting for the loop.
   getTicketInboundLog: (params = {}) => req(`/task-tickets/inbound/log?${new URLSearchParams(params).toString()}`),
@@ -2581,6 +2592,44 @@ export const api = {
   ticketReportCsv: (params = {}) => reqBlob(`/task-tickets/reports.csv?${new URLSearchParams(params).toString()}`),
   getTicketReportMeta: () => req("/task-tickets/reports/meta"),
   setTicketWeeklyEmail: (on) => req("/task-tickets/reports/weekly-email", { method: "PUT", body: JSON.stringify({ on }) }),
+  // Tickets <-> equipment (Oct 2026, backend/routers/ticket_items.py). The
+  // picker's choices (ticketId on a ticket; companyId + requester on the
+  // create form), a ticket's linked items, link/unlink, and an item's tickets.
+  getTicketItemOptions: (params = {}) => req(`/task-tickets/item-options?${new URLSearchParams(params).toString()}`),
+  getTicketItems: (id) => req(`/task-tickets/${id}/items`),
+  linkTicketItems: (id, itemIds) => req(`/task-tickets/${id}/items`, { method: "POST", body: JSON.stringify({ item_ids: itemIds }) }),
+  unlinkTicketItem: (id, itemId) => req(`/task-tickets/${id}/items/${encodeURIComponent(itemId)}`, { method: "DELETE" }),
+  getTicketsForItem: (itemId) => req(`/task-tickets/by-item/${encodeURIComponent(itemId)}`),
+  // Ticket AI (Oct 2026, backend/routers/ticket_ai.py): what may show, the
+  // desk's switch, Suggested Help Topic and the drawer's AI Summary.
+  getTicketAiStatus: () => cachedGet("/ticket-ai/status", 60_000),
+  getTicketAiSettings: () => req("/ticket-ai/settings"),
+  setTicketAiSettings: (enabled) => req("/ticket-ai/settings", { method: "PUT", body: JSON.stringify({ enabled }) }),
+  suggestTicketTopics: (data) => req("/ticket-ai/suggest-topics", { method: "POST", body: JSON.stringify(data) }),
+  getTicketSuggestedTopic: (id) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/suggested-topic`),
+  getTicketAiSummary: (id) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/summary`),
+  makeTicketAiSummary: (id, refresh = false) => req(`/ticket-ai/tickets/${encodeURIComponent(id)}/summary`, { method: "POST", body: JSON.stringify({ refresh }), timeoutMs: 60_000 }),
+  // Operations > Reports library (Oct 20): a report as a formatted file
+  // (xlsx | pdf | csv -> {blob, filename}; saveBlob() below saves it), the
+  // Report Builder's table as one, and scheduled report emails.
+  opsReportExport: (kind, { format = 'xlsx', ...opts } = {}) =>
+    reqBlob(`/ops-reports/export/${encodeURIComponent(kind)}?${_opsReportQuery(opts, { format })}`, { timeoutMs: 180_000 }),
+  opsBuilderExport: (spec, name, format = 'xlsx') => reqBlob(`/ops-reports/builder/export?format=${encodeURIComponent(format)}`,
+    { method: 'POST', body: JSON.stringify({ spec, name }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 180_000 }),
+  opsReportSchedules: () => req('/ops-reports/schedules'),
+  createOpsReportSchedule: (data) => req('/ops-reports/schedules', { method: 'POST', body: JSON.stringify(data) }),
+  updateOpsReportSchedule: (id, data) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteOpsReportSchedule: (id) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  sendOpsReportSchedule: (id, toMe = false) => req(`/ops-reports/schedules/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify({ to_me: toMe }) }),
+  // Unified Audit Log (Oct 20, Settings > Logs): every change across Nexus
+  // with who, Act As, and the field-by-field before/after. `params` are the
+  // screen's filters (module, actor, acting_as, action, q, from, to,
+  // include_system, cursor, limit); empty values are left out.
+  auditEvents: (params = {}) => req(`/audit/events?${new URLSearchParams(params).toString()}`),
+  auditEvent: (id) => req(`/audit/events/${encodeURIComponent(id)}`),
+  auditRecordHistory: (type, id) => req(`/audit/records/${encodeURIComponent(type)}/${encodeURIComponent(id)}/history`),
+  auditFacets: (params = {}) => req(`/audit/facets?${new URLSearchParams(params).toString()}`),
+  auditExport: (params = {}) => reqBlob(`/audit/export.csv?${new URLSearchParams(params).toString()}`, { timeoutMs: 120_000 }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
@@ -2623,4 +2672,31 @@ export async function fetchPublicUnitMapTemplate(params) {
   const res = await fetch(`${BASE}/unit-map/u?${q}`);
   if (!res.ok) { let d = ''; try { d = (await res.json()).detail; } catch { /* not JSON */ } throw new Error(typeof d === 'string' && d ? d : `Could not load the map (${res.status})`); }
   return res.json();
+}
+
+// Operations reports: the query string for /ops-reports/run and /export.
+// { facilityId } (one, or '' for all) is the old form; { facilityIds } is a
+// list ([] = all) and also sends facility_id when it holds one, so a server
+// without facility_ids still gets it right. Options go as their own params.
+function _opsReportQuery({ facilityId = '', facilityIds, start = '', end = '', options } = {}, extra = {}) {
+  const ids = Array.isArray(facilityIds) ? facilityIds.filter(Boolean) : null;
+  const q = new URLSearchParams({ ...extra, facility_id: ids ? (ids.length === 1 ? ids[0] : '') : facilityId, start, end });
+  if (ids?.length) q.set('facility_ids', ids.join(','));
+  const opts = Object.fromEntries(Object.entries(options || {}).filter(([, v]) => v !== undefined && v !== null));
+  Object.entries(opts).forEach(([k, v]) => q.set(k, typeof v === 'boolean' ? String(v) : v));
+  // The export endpoint reads them as one JSON object.
+  if (Object.keys(opts).length) q.set('options', JSON.stringify(opts));
+  return q;
+}
+
+// Save a {blob, filename} from reqBlob as a download.
+export function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'download';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

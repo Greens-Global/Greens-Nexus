@@ -1,7 +1,8 @@
 """Operations -> Rate Management (ops_rate_mgmt.py, routers/ops_rates.py):
-the CMA rows built on ops_market.compare, proposed-rate drafts, Review & Push
-to Cubby (HTTP mocked - the real Cubby is never called), who may do what, and
-the audit log that is our rate history.
+the CMA rows built on ops_market.compare, proposed-rate drafts, Mark Entered
+in Cubby (HTTP mocked - the real Cubby is never called), who may do what, and
+the log that is our rate history. Nexus never writes to Cubby (Oct 20 2026):
+the fake fails the test on any Cubby call that is not a read.
 
 Throwaway SQLite. Run alone: python -m pytest test_ops_rate_mgmt.py
 """
@@ -59,34 +60,34 @@ def _facility():
             "unitTypes": [dict(t) for t in TYPES]}
 
 
+def _is_read(url: str) -> bool:
+    """A Cubby call Nexus may make: a `*/search` or one of Cubby's `reports/*`."""
+    path = url.rsplit("/v1/", 1)[-1]
+    return path.endswith("/search") or path.startswith("reports/")
+
+
 class FakeCubby:
-    """Stands in for httpx.post inside ops_rate_mgmt: answers the pricing group
-    search and records every change-rates body. `fail` = group ids to refuse."""
+    """Stands in for httpx.post: answers the pricing group search and FAILS the
+    test on any Cubby call that is not a read - Nexus never writes to Cubby."""
 
     def __init__(self):
-        self.calls, self.fail, self.status = [], set(), 200
+        self.calls, self.status = [], 200
 
-    def __call__(self, url, json=None, headers=None, timeout=None):
+    def __call__(self, url, json=None, headers=None, timeout=None, **kw):
+        assert _is_read(url), f"Nexus must never write to Cubby, but it called {url}"
         self.calls.append((url.rsplit("/v1/", 1)[-1], json))
 
         class R:
             pass
         r = R()
-        if url.endswith("pricing-groups/search"):
+        if self.status != 200:
+            r.status_code, body = self.status, {"status": self.status, "errors": ["Access Denied"]}
+        else:
             r.status_code, body = 200, {"status": 200, "data": {"pricingGroups": [dict(g) for g in GROUPS], "facilities": [
                 {"facilityId": FAC, "billingCycle": "MONTHLY",
                  "contact": {"address": "5044 Peabody Road", "city": "Fairfield", "state": "CA", "zip": "94533"}}]}}
-        else:
-            gid = json["pricingGroups"][0]["pricingGroupId"]
-            if self.status != 200 or gid in self.fail:
-                r.status_code, body = (self.status if self.status != 200 else 400), {"status": 400, "errors": ["Access Denied"]}
-            else:
-                r.status_code, body = 200, {"status": 200, "data": {}}
         r.json = lambda: body
         return r
-
-    def changes(self):
-        return [b["pricingGroups"][0] for path, b in self.calls if path == "pricing-groups/change-rates"]
 
 
 @pytest.fixture
@@ -102,9 +103,8 @@ def db():
 @pytest.fixture
 def cubby_api(monkeypatch):
     monkeypatch.setenv("CUBBY_API_KEY", "test-key")
-    monkeypatch.setenv("CUBBY_MANAGER_API_KEY", "test-key")
     fake = FakeCubby()
-    monkeypatch.setattr(ops_rate_mgmt.httpx, "post", fake)
+    monkeypatch.setattr(ops_rate_mgmt.httpx, "post", fake)   # the httpx module itself: every caller is guarded
     ops_rate_mgmt.forget()
 
     async def fake_facility(fid):
@@ -151,7 +151,7 @@ def test_the_set_rate_keeps_its_gap_unless_one_is_typed():
     assert ops_rate_mgmt.plan(None, 11350, 11850, None)["newSet"] == 11850
 
 
-def test_two_groups_with_one_name_cannot_be_pushed():
+def test_two_groups_with_one_name_are_not_matched():
     idx = ops_rate_mgmt.group_index([{"name": "A", "pricingGroupId": "1"}, {"name": "A", "pricingGroupId": "2"}])
     assert idx["A"] is None
 
@@ -170,14 +170,15 @@ def test_rows_group_by_category_and_price_against_the_sell_rate(db, cubby_api):
     assert v["kpis"]["rateable"] == 2 and v["kpis"]["belowMarket"] == 1 and v["kpis"]["offline"] == 12
     assert any("fully offline" in a for a in v["attention"])
     assert v["address"] == "5044 Peabody Road, Fairfield, CA 94533"
-    assert v["canPush"] is True and v["canEdit"] is True
+    assert v["canMark"] is True and v["canEdit"] is True
+    assert "canPush" not in v and "pushConnected" not in v
 
 
 def test_the_screen_still_opens_when_cubby_pricing_groups_fail(db, cubby_api, monkeypatch):
     monkeypatch.delenv("CUBBY_API_KEY")
     v = _client().get(f"/facility-ops/rates?facility_id={FAC}").json()
     assert v["cubbyGroups"]["ok"] is False and v["rows"][0]["groupId"] == "" and v["rows"][0]["sell"] == 11900
-    assert "nothing can be pushed" in v["attention"][0]
+    assert "could not be read" in v["attention"][0] and "push" not in v["attention"][0]
 
 
 # ── Drafts ───────────────────────────────────────────────────────────────────
@@ -202,86 +203,98 @@ def test_a_draft_for_an_unknown_unit_type_is_a_404(db, cubby_api):
     assert r.status_code == 404
 
 
-def test_supervisors_look_but_do_not_propose_or_push(db, cubby_api):
+def test_supervisors_look_but_do_not_propose_or_mark(db, cubby_api):
     sup = _client(2, "supervisor")
     assert sup.get(f"/facility-ops/rates?facility_id={FAC}").status_code == 200
-    assert sup.get(f"/facility-ops/rates?facility_id={FAC}").json()["canPush"] is False
+    assert sup.get(f"/facility-ops/rates?facility_id={FAC}").json()["canMark"] is False
     assert sup.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115}).status_code == 401
-    assert sup.post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True}).status_code == 401
+    assert sup.post("/facility-ops/rates/entered", json={"facility_id": FAC, "unit_types": ["8' x 10'"]}).status_code == 401
     assert _client(1, "employee").get(f"/facility-ops/rates?facility_id={FAC}").status_code == 401
-    assert cubby_api.changes() == []
 
 
-# ── Push ─────────────────────────────────────────────────────────────────────
+# ── No push: Nexus only reads from Cubby (Visesh, Oct 20 2026) ───────────────
 
-def test_push_sends_each_group_on_its_own_audits_it_and_clears_the_draft(db, cubby_api):
+def test_the_push_route_is_gone(db, cubby_api):
+    r = _client(4, "administrator").post("/facility-ops/rates/push",
+                                         json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True})
+    assert r.status_code in (404, 405)
+    assert not hasattr(ops_rate_mgmt, "change_rate") and not hasattr(ops_rate_mgmt, "write_configured")
+
+
+def test_no_endpoint_writes_to_cubby(db, cubby_api):
+    """Every route on the screen, end to end, with httpx.post failing on any
+    Cubby URL that is not a `*/search` or `reports/*` read."""
+    _comps(db)
+    c = _client(4, "administrator")
+    assert c.get(f"/facility-ops/rates?facility_id={FAC}").status_code == 200
+    assert c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115}).status_code == 200
+    assert c.post("/facility-ops/rates/entered", json={"facility_id": FAC, "unit_types": ["8' x 10'"]}).status_code == 200
+    assert c.get(f"/facility-ops/rates/history?facility_id={FAC}&unit_type=8' x 10'").status_code == 200
+    assert cubby_api.calls and all(_is_read("https://x/v1/" + path) for path, _ in cubby_api.calls)
+
+
+def test_the_read_helper_refuses_a_write_path(cubby_api):
+    with pytest.raises(ValueError):
+        ops_rate_mgmt._call("pricing-groups/change-rates", {})
+    assert cubby_api.calls == []
+
+
+# ── Mark Entered in Cubby ────────────────────────────────────────────────────
+
+def test_mark_entered_records_who_and_when_and_clears_the_draft(db, cubby_api):
     c = _client()
     c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115})
     c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "10' x 20'", "proposed": 200})
-    out = c.post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'", "10' x 20'"], "confirm": True}).json()
-    assert [r["status"] for r in out["results"]] == ["ok", "ok"]
-    assert cubby_api.changes() == [{"pricingGroupId": "pg_810", "standardRate": 12050, "webRate": 11500},
-                                   {"pricingGroupId": "pg_1020", "standardRate": 20500, "webRate": 20000}]
+    out = c.post("/facility-ops/rates/entered", json={"facility_id": FAC, "unit_types": ["8' x 10'", "10' x 20'"]}).json()
+    assert [r["status"] for r in out["results"]] == ["entered", "entered"]
+    assert {r["detail"] for r in out["results"]} == {"Entered in Cubby by hand"}
     db.expire_all()
     assert db.query(models.OpsRateDraft).count() == 0
     log = db.query(models.OpsRatePush).order_by(models.OpsRatePush.unit_type).all()
     assert len(log) == 2 and {p.batch_id for p in log} == {out["batchId"]}
     p = next(x for x in log if x.unit_type == "8' x 10'")
     assert (p.old_set_cents, p.old_sell_cents, p.new_set_cents, p.new_sell_cents) == (11900, 11350, 12050, 11500)
-    assert p.monthly_delta_cents == 150 * 4 and p.pushed_by == "manager@greensglobal.com" and p.status == "ok"
-    assert len(out["view"]["pushes"]) == 2
+    assert p.monthly_delta_cents == 150 * 4 and p.pushed_by == "manager@greensglobal.com" and p.pushed_at
+    assert p.status == "entered" and p.pricing_group_id == "pg_810"
+    assert len(out["view"]["pushes"]) == 2 and all(r["proposed"] is None for r in out["view"]["rows"])
 
 
-def test_a_refused_row_is_logged_and_keeps_its_draft_while_the_others_go_through(db, cubby_api):
-    cubby_api.fail = {"pg_810"}
+def test_mark_entered_keeps_the_rates_the_review_showed(db, cubby_api):
+    """Once staff typed the new rate in Cubby a fresh read already shows it, so
+    the record's "from" side is what the person reviewed."""
     c = _client()
     c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115})
-    c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "10' x 20'", "proposed": 200})
-    res = {r["unitType"]: r for r in c.post("/facility-ops/rates/push", json={
-        "facility_id": FAC, "unit_types": ["8' x 10'", "10' x 20'"], "confirm": True}).json()["results"]}
-    assert res["8' x 10'"]["status"] == "failed" and "Access Denied" in res["8' x 10'"]["detail"]
-    assert res["10' x 20'"]["status"] == "ok"
-    db.expire_all()
-    assert [d.unit_type for d in db.query(models.OpsRateDraft).all()] == ["8' x 10'"]
-    assert db.query(models.OpsRatePush).filter(models.OpsRatePush.status == "failed").count() == 1
+    c.post("/facility-ops/rates/entered", json={"facility_id": FAC, "unit_types": ["8' x 10'"],
+                                                "seen": {"8' x 10'": {"set": 11000, "sell": 10500}}})
+    p = db.query(models.OpsRatePush).one()
+    assert (p.old_set_cents, p.old_sell_cents, p.new_sell_cents, p.new_set_cents) == (11000, 10500, 11500, 12000)
+    assert p.monthly_delta_cents == 1000 * 4
 
 
-def test_a_read_only_key_says_so(db, cubby_api):
-    cubby_api.status = 403
+def test_mark_entered_skips_what_has_no_draft(db, cubby_api):
+    r = _client().post("/facility-ops/rates/entered", json={"facility_id": FAC, "unit_types": ["8' x 10'"]}).json()
+    assert r["results"][0]["status"] == "skipped"
+
+
+def test_mark_entered_works_while_cubby_cannot_be_read(db, cubby_api):
     c = _client()
     c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115})
-    r = c.post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True}).json()["results"][0]
-    assert r["status"] == "failed" and "Manager-role key" in r["detail"]
-
-
-def test_push_needs_confirmation_and_skips_what_has_no_draft(db, cubby_api):
-    c = _client()
-    assert c.post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"]}).status_code == 422
-    r = c.post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True}).json()
-    assert r["results"][0]["status"] == "skipped" and cubby_api.changes() == []
-
-
-def test_push_without_a_cubby_key_is_a_503(db, cubby_api, monkeypatch):
-    monkeypatch.delenv("CUBBY_API_KEY")
-    r = _client(4, "administrator").post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True})
-    assert r.status_code == 503 and cubby_api.changes() == []
-
-
-def test_push_needs_the_manager_key_not_the_sync_key(db, cubby_api, monkeypatch):
-    monkeypatch.delenv("CUBBY_MANAGER_API_KEY")
-    r = _client(4, "administrator").post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True})
-    assert r.status_code == 503 and cubby_api.changes() == []
+    cubby_api.status = 503
+    ops_rate_mgmt.forget()
+    r = c.post("/facility-ops/rates/entered", json={"facility_id": FAC, "unit_types": ["8' x 10'"],
+                                                    "seen": {"8' x 10'": {"set": 11900, "sell": 11350}}})
+    assert r.status_code == 200 and r.json()["results"][0]["status"] == "entered"
 
 
 # ── History ──────────────────────────────────────────────────────────────────
 
-def test_history_shows_our_pushes_and_the_competitors_rates_for_that_size(db, cubby_api):
+def test_history_shows_our_entered_rates_and_the_competitors_rates_for_that_size(db, cubby_api):
     _comps(db)
     c = _client()
     c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115})
-    c.post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True})
+    c.post("/facility-ops/rates/entered", json={"facility_id": FAC, "unit_types": ["8' x 10'"]})
     h = c.get(f"/facility-ops/rates/history?facility_id={FAC}&unit_type=8' x 10'").json()
-    assert [(p["oldSell"], p["newSell"], p["status"]) for p in h["ours"]] == [(11350, 11500, "ok")]
+    assert [(p["oldSell"], p["newSell"], p["status"]) for p in h["ours"]] == [(11350, 11500, "entered")]
     assert sorted(x["rate"] for x in h["competitors"]) == [10500, 12000, 15000]
     assert {x["competitor"] for x in h["competitors"]} == {"StorQuest", "Extra Space", "Public Storage"}
 
@@ -289,5 +302,88 @@ def test_history_shows_our_pushes_and_the_competitors_rates_for_that_size(db, cu
 def test_cubby_errors_never_leak_the_key(cubby_api):
     cubby_api.status = 403
     with pytest.raises(cubby.CubbyError) as e:
-        ops_rate_mgmt.change_rate("pg_810", 100, 100)
+        ops_rate_mgmt.pricing_groups(FAC, fresh=True)
     assert "test-key" not in e.value.message
+
+
+# ── Plain-language summary and the competitor list (Visesh, Oct 20 2026) ─────
+
+def test_comps_lists_each_competitor_for_the_size_cheapest_first(db, cubby_api):
+    _comps(db)
+    db.query(models.OpsCompetitor).filter_by(id="c1").update({"distance_miles": 1.4})
+    # An older observation of the same competitor and size is history, not the market.
+    db.add(models.OpsCompetitorRate(id="old", competitor_id="c0", facility_id=FAC, width=10, depth=8,
+                                    rate_cents=9000, observed_on="2026-09-01", source="manual", created_at="0"))
+    # A closed competitor's rate never counts.
+    db.add(models.OpsCompetitorRate(id="closed", competitor_id="gone", facility_id=FAC, width=8, depth=10,
+                                    rate_cents=5000, observed_on="2026-10-15", source="manual", created_at="1"))
+    db.add(models.OpsCompetitorRate(id="st", competitor_id="c2", facility_id=FAC, width=8, depth=10, rate_cents=15000,
+                                    online_cents=13900, promo_cents=7500, promo="First month half off",
+                                    observed_on="2026-10-16", source="stortrack", created_at="2"))
+    db.commit()
+    c = _client(2, "supervisor")                      # same door as the rate view
+    out = c.get(f"/facility-ops/rates/comps?facility_id={FAC}&unit_type=8' x 10'").json()
+    rows = out["competitors"]
+    assert [(r["competitor"], r["rate"]) for r in rows] == [("StorQuest", 10500), ("Extra Space", 12000), ("Public Storage", 15000)]
+    assert rows[1]["distanceMiles"] == 1.4
+    st = rows[2]
+    assert (st["online"], st["promoRate"], st["promo"], st["source"], st["observedOn"]) == (
+        13900, 7500, "First month half off", "stortrack", "2026-10-16")
+    # The same rates the row's low / median / high come from.
+    v = c.get(f"/facility-ops/rates?facility_id={FAC}").json()
+    r = next(x for x in v["rows"] if x["name"] == "8' x 10'")
+    assert (r["marketLow"], r["marketHigh"], r["competitors"]) == (rows[0]["rate"], rows[-1]["rate"], len(rows))
+    assert c.get(f"/facility-ops/rates/comps?facility_id={FAC}&unit_type=nope").status_code == 404
+    assert _client(1, "employee").get(f"/facility-ops/rates/comps?facility_id={FAC}&unit_type=8' x 10'").status_code == 401
+
+
+def test_old_competitor_rates_are_flagged_but_still_count(db, cubby_api):
+    _comps(db)
+    db.query(models.OpsCompetitorRate).filter_by(id="a0").update({"observed_on": "2026-08-01"})
+    db.commit()
+    out = _client().get(f"/facility-ops/rates/comps?facility_id={FAC}&unit_type=8' x 10'").json()
+    old = [r for r in out["competitors"] if r["stale"]]
+    assert len(old) == 1 and old[0]["competitor"] == "StorQuest" and old[0]["ageDays"] == 80
+    v = _client().get(f"/facility-ops/rates?facility_id={FAC}").json()
+    assert next(r for r in v["rows"] if r["name"] == "8' x 10'")["staleComps"] == 1
+    stale = next(g for g in v["gaps"] if g["key"] == "stale")
+    assert stale["items"] == ["8' x 10' (1 of 3)"]
+
+
+def test_summary_headline_gaps_and_competitors(db, cubby_api):
+    _comps(db)
+    v = _client().get(f"/facility-ops/rates?facility_id={FAC}").json()
+    rows = {r["name"]: r for r in v["rows"]}
+    # 8x10 sells at 113.50 vs a 120 median (5% under), 10x20 at 195 vs 195 (at market).
+    assert rows["8' x 10'"]["position"] == "below" and rows["10' x 20'"]["position"] == "at"
+    assert rows["12' x 30' Parking"]["position"] == "offline" and rows["12' x 30' Parking"]["suggested"] is None
+    assert rows["8' x 10'"]["reason"] in ("Vacancy: Raise", "Vacancy: Lower", "Vacancy: Hold")
+    h = v["headline"]
+    assert (h["below"], h["at"], h["above"], h["offline"]) == (1, 1, 0, 1)
+    assert h["upside"] == sum(r["suggestedDelta"] for r in v["rows"])
+    gaps = {g["key"]: g for g in v["gaps"]}
+    assert gaps["thin"]["items"] == ["10' x 20' (2)"]
+    assert gaps["offline"]["items"] == ["12' x 30' Parking (11)"]
+    assert "nothing to price" in gaps["offline"]["action"]
+    assert gaps["no_web_walkin"]["items"] == ["10' x 20' (Walk-In)"]   # the parking group is offline only
+    names = {c["name"]: c for c in v["competitors"]}
+    assert names["StorQuest"]["lastUpdated"] == "2026-10-15" and names["StorQuest"]["source"] == "stortrack"
+    assert names["Public Storage"]["source"] == "manual" and names["Public Storage"]["sizes"] == 1
+    assert names["StorQuest"]["distanceMiles"] is None                 # none recorded, no map point
+    assert "StorQuest" in gaps["no_distance"]["items"]
+
+
+def test_distance_is_the_recorded_one_else_straight_line():
+    assert ops_rate_mgmt.distance_miles(2.44, (33.1, -117.1), None, None) == 2.4
+    assert ops_rate_mgmt.distance_miles(0, None, 33.1, -117.1) is None
+    assert 6.5 < ops_rate_mgmt.distance_miles(0, (33.12, -117.08), 33.2, -117.0) < 7.5
+
+
+def test_a_placeholder_rate_is_flagged_and_not_suggested():
+    rows = ops_rate_mgmt.build_rows(
+        [{"name": "5x5 Air Duct", "width": 5, "depth": 5, "total": 2, "rented": 2, "vacant": 0, "unavailable": 0, "street": 1}],
+        [{"name": "5x5 Air Duct", "competitors": 3, "marketLow": 5200, "marketHigh": 9900, "marketMedian": 8200,
+          "suggested": 0, "why": "100% occupied"}], {}, {})
+    assert rows[0]["suggested"] is None and "placeholder" in rows[0]["why"]
+    gaps = {g["key"]: g for g in ops_rate_mgmt.gaps(rows, {})}
+    assert gaps["odd"]["items"] == ["5x5 Air Duct (Sell $0.01)"]

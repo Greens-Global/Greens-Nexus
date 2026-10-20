@@ -19,7 +19,8 @@ function Cell({ col, row, onDrill }) {
   return text;
 }
 
-export default function ReportTable({ title, where, asOf, columns, rows, totals, groups, onDrill, empty = 'Nothing in this report for the facility and period picked.' }) {
+// `csv` false where the page has its own Download menu (the report library view).
+export default function ReportTable({ title, where, asOf, columns, rows, totals, groups, onDrill, csv = true, empty = 'Nothing in this report for the facility and period picked.' }) {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState(null);
   const [limit, setLimit] = useState(PAGE);
@@ -49,10 +50,12 @@ export default function ReportTable({ title, where, asOf, columns, rows, totals,
         </label>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
           <span className="ops-note" style={{ margin: 0 }}>{shown.length.toLocaleString('en-US')} {shown.length === 1 ? 'line' : 'lines'}</span>
-          <button type="button" className="secondary-btn" onClick={exportCsv} disabled={!shown.length}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} aria-label={`Download ${title} as a spreadsheet`}>
-            <Download size={14} aria-hidden="true" /> Download CSV
-          </button>
+          {csv && (
+            <button type="button" className="secondary-btn" onClick={exportCsv} disabled={!shown.length}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} aria-label={`Download ${title} as a spreadsheet`}>
+              <Download size={14} aria-hidden="true" /> Download CSV
+            </button>
+          )}
         </div>
       </div>
       {!rows.length ? <div className="ops-empty">{empty}</div> : (

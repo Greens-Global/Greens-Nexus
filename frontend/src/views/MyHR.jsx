@@ -13,7 +13,6 @@ import EgnytePreview from '../egnyte/EgnytePreview';
 import { canPreview } from '../egnyte/lib';
 import { MyChecklistSteps } from '../components/HrChecklists';
 import MyShifts from '../components/MyShifts';
-import DelegateApprovalsCard from '../components/DelegateApprovals';
 import ReimbursementsTile from '../components/Reimbursements';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
@@ -495,9 +494,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null, foc
       {/* Onboarding / offboarding steps this person owns - a manager, IT or the
           new hire ticks them here. Renders nothing when there are none. */}
       <MyChecklistSteps />
-      {/* Delegate My Approvals (Oct 17): a stand-in while you are away.
-          Renders nothing for someone with nothing to approve. */}
-      <DelegateApprovalsCard />
+      {/* Delegate My Approvals moved to the Time Off tab (Neil, Oct 20). */}
 
       {profErr ? (
         <div className="dash-card" style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, padding: 40 }}>{profErr}</div>

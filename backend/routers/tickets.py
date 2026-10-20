@@ -591,6 +591,11 @@ class TicketBody(BaseModel):
     property_locked: Optional[bool] = False
     # The unit (or "Common Area") - ticket_property_link.clean_unit.
     property_unit: Optional[str] = ""
+    # Equipment (items) the ticket is about - checked by ticket_items.check_items.
+    item_ids: Optional[list] = None
+    # Mark an Issue on the Map (Charmi, Oct 20 2026): the spot on the
+    # property's site map - checked and stored by ticket_map_spot.py.
+    map_spot: Optional[dict] = None
 
 
 class TicketUpdate(BaseModel):
@@ -1105,9 +1110,14 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     # is filed under, must name its property, and may name its unit.
     unit = ticket_property_link.check_intake(db, user, body, prop, service_area_for(db, body.application or ""),
                                              _has_desk_grant(user, db))
+    import ticket_map_spot   # Mark an Issue on the Map: checked before anything is written
+    spot = ticket_map_spot.clean(db, body.map_spot, prop)
     prop_manager = property_links.manager_email(db, prop) if prop is not None else ""
     # Same never-trust-the-client-alone posture requester_email just got above.
     company_id = _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
+    from routers import ticket_items   # Equipment: validated before anything is written
+    linked_items = ticket_items.check_items(db, user, body.item_ids, ticket_company=company_id,
+                                            requester_email=(body.requester_email or user["email"]))
     t = models.TaskTicket(
         # Always the server's. Comments and files share the task tables, keyed
         # only by id - a ticket created with a task's id read that task's
@@ -1162,6 +1172,8 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                  detail=json.dumps(_ticket_snapshot(t)))
+    ticket_items.link_at_intake(db, t, user, linked_items)
+    ticket_map_spot.attach(db, t, spot, user["email"])
     # Default assignee (Oct 2026, ticket_auto_assign.py): nobody chose one and
     # nothing gates it - the help topic's, else the department's default takes
     # it. A gated ticket gets its default at approval (decide_approval).
@@ -2328,6 +2340,8 @@ def delete_ticket_comment(comment_id: str, user: dict = Depends(get_current_user
                                     "author": (c.author_email or "").lower(),
                                     "createdAt": c.created_at or ""}))
     db.delete(c)
+    # A cached AI Summary may quote the deleted words (routers/ticket_ai.py).
+    db.query(models.TicketAiSummary).filter(models.TicketAiSummary.ticket_id == t.id).delete()
     db.commit()
 
 

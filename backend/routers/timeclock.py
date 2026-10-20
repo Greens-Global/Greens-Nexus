@@ -10118,11 +10118,20 @@ def payroll_timecard(email: str, start: str, end: str,
         card["review"] = _review_state(db, em, card["periodStart"], user, team=True)
         # The Notes column is on the monthly card too (Sep 29).
         card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
+        card["zoneKey"] = _employee_zone_key(db, em)   # India staff open in India time (Oct 20)
         return _no_pay(db, user, card)
     card = _compute_timecard(db, em, start, end)
+    if em == (user.get("email") or "").lower():
+        # Your own card: no CA meal flag, as on /my-payroll (Charmi, Oct 20).
+        for _d in card.get("days") or []:
+            _d.pop("meal", None)
     card.update(_signoff_state(db, em, start, end))
     card["review"] = _review_state(db, em, start, user, team=True)
     card["notes"] = _timecard_notes(db, em, start, end)
+    # The zone the card opens in for this employee (Visesh, Oct 20 2026):
+    # India-based staff read in India time, US staff in California time,
+    # unless the viewer picked the other one (lib/displayTz.js).
+    card["zoneKey"] = _employee_zone_key(db, em)
     return _no_pay(db, user, card)
 
 
@@ -10270,6 +10279,11 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
         return card
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
+    # The CA meal check's flag ("Meal Missed") is for HR only - the employee
+    # never sees it, not even in the response (Charmi, Oct 20). Premium pay
+    # lines are their pay and stay.
+    for _d in card.get("days") or []:
+        _d.pop("meal", None)
     card.update(_signoff_state(db, user["email"], p_start, p_end))
     card["review"] = _review_state(db, user["email"], p_start, user, team=False)
     card["periodStart"], card["periodEnd"] = p_start, p_end
@@ -10609,10 +10623,14 @@ def _where_label(geo: dict, ctx: dict) -> str:
 
 
 @router.get("/where")
-def where_label(lat: str = "", lng: str = "", accuracy_m: int = 0,
+def where_label(lat: str = "", lng: str = "", accuracy_m: int = 0, location_off: bool = False,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """The BOD/EOD composer's location tag for the caller's current position."""
+    """The BOD/EOD composer's location tag for the caller's current position.
+    No position (Oct 20): "Location Off" when the browser blocks location,
+    else "No Location" - the same words as the Time Sheet, never a blank."""
     ctx = _geo_context(db, user["email"])
+    if not ctx.get("remote") and not _has_coords(lat, lng):
+        return {"label": _OFF_SITE_LABEL["location_off" if location_off else "no_location"]}
     return {"label": _where_label(_geofence(db, lat, lng, accuracy_m, ctx=ctx), ctx)}
 
 

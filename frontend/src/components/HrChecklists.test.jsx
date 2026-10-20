@@ -132,4 +132,14 @@ describe('ChecklistChip', () => {
     render(<ChecklistChip p={{ checklistId: 'x', kind: 'onboarding', kindLabel: 'Onboarding', done: 3, total: 30, overdue: 2 }} />);
     expect(screen.getByLabelText('Onboarding checklist: 3 of 30 done, 2 overdue')).toBeInTheDocument();
   });
+
+  it('names the checklist, not the person - and reads Complete when every step is done', () => {
+    const { unmount } = render(<ChecklistChip p={{ checklistId: 'y', kind: 'offboarding', kindLabel: 'Offboarding', status: 'open', done: 5, total: 26, overdue: 0 }} />);
+    expect(screen.getByText('Offboarding Checklist')).toBeInTheDocument();
+    expect(screen.getByText('5/26')).toBeInTheDocument();
+    unmount();
+    render(<ChecklistChip p={{ checklistId: 'z', kind: 'offboarding', kindLabel: 'Offboarding', status: 'done', done: 26, total: 26, overdue: 0 }} />);
+    expect(screen.getByText('Offboarding Complete')).toBeInTheDocument();
+    expect(screen.queryByText('26/26')).toBeNull();
+  });
 });

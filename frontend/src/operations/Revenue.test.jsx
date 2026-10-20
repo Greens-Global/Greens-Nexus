@@ -4,11 +4,13 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 // Operations > Revenue Management (Oct 20 2026): the tab renders the tenant
 // table, a strategy can be built, and the preview shows the revenue impact.
 // The numbers come from the server; these tests check the screen draws them.
+// Nexus never writes to Cubby (Oct 20 2026): a row reaches Cubby only when
+// staff mark it Entered in Cubby; the Push button is shown but disabled.
 
 const api = {
   opsRevenueTenants: vi.fn(), opsRevenueStrategies: vi.fn(), opsRevenueBatches: vi.fn(),
   opsRevenueSaveStrategy: vi.fn(), opsRevenuePreview: vi.fn(), opsRevenueCreateBatch: vi.fn(),
-  opsRevenueBatch: vi.fn(),
+  opsRevenueBatch: vi.fn(), opsRevenueEntered: vi.fn(),
 };
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => (...a) => api[k](...a) }) }));
 // The shared Modal pulls in the Tasks module's providers; a plain dialog is enough here.
@@ -26,7 +28,7 @@ const tenant = (key, extra = {}) => ({
   scheduled: null, pending: null, url: '', ...extra,
 });
 const DATA = {
-  facilityId: 'fac_t', facility: 'Temecula', asOf: '2026-10-20', writeEnabled: false,
+  facilityId: 'fac_t', facility: 'Temecula', asOf: '2026-10-20',
   unitTypes: ['10x10', '10x20'],
   defaults: { method: 'percent', increasePct: 8, capMode: 'street', minMonthsIn: 12, minMonthsSince: 12, skipBalance: true, noticeDays: 30, roundDollar: true },
   tenants: [
@@ -44,13 +46,14 @@ beforeEach(() => {
 });
 
 describe('Revenue Management', () => {
-  it('asks for a facility when none is picked', () => {
-    render(<Revenue facility={null} facilities={[FAC]} onPick={() => {}} />);
-    expect(screen.getByText('Choose a Facility')).toBeTruthy();
+  it('points at the page Facility dropdown when none is picked, and has no picker of its own', () => {
+    render(<Revenue facility={null} />);
+    expect(screen.getByText(/Pick a facility above to see Revenue Management/)).toBeTruthy();
+    expect(screen.queryByLabelText('Facility')).toBeNull();
   });
 
   it('renders the tenant table with the gap, balance and last change', async () => {
-    render(<Revenue facility={FAC} facilities={[FAC]} onPick={() => {}} />);
+    render(<Revenue facility={FAC} />);
     expect(await screen.findByText('Tenant a1')).toBeTruthy();
     expect(screen.getAllByText('$50.00 (33.3%)')).toHaveLength(2);
     expect(screen.getByText('$50.00 Past Due')).toBeTruthy();
@@ -70,7 +73,7 @@ describe('Revenue Management', () => {
         { ...tenant('a2'), eligible: false, reasons: ['Moved in less than 12 months before the effective date'], newRent: 14500, increase: 0, increasePct: 0, capped: false },
       ],
     });
-    render(<Revenue facility={FAC} facilities={[FAC]} onPick={() => {}} />);
+    render(<Revenue facility={FAC} />);
     await screen.findByText('Tenant a1');
     fireEvent.click(screen.getByRole('button', { name: /Apply Strategy/ }));
     const dialog = screen.getByRole('dialog', { name: 'Apply a Strategy' });
@@ -86,6 +89,36 @@ describe('Revenue Management', () => {
     expect(within(dialog).getByText('+$10.00')).toBeTruthy();                  // monthly impact
     expect(within(dialog).getByText(/Moved in less than 12 months/)).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: 'Save as Draft' }).disabled).toBe(false);
+  });
+
+  it('marks each row Entered in Cubby and its Push button is disabled', async () => {
+    const change = (id, status) => ({ id, leaseId: `lease_${id}`, tenant: `Tenant ${id}`, unit: id.toUpperCase(), unitType: '10x10',
+      rent: 10000, newRent: 10800, increase: 800, status, cubbyChangeDate: '', url: '', pushedBy: '', pushedAt: '' });
+    const batch = (statuses) => ({
+      id: 'b1', facility: 'Greens Storage Temecula', scopeLabel: 'Unit type 10x10', strategyName: 'Annual 8%',
+      status: 'notified', effectiveDate: '2026-12-01', noticeDate: '2026-11-01', createdAt: '2026-10-20T17:00:00Z', createdBy: 'ops@greensglobal.com',
+      count: 2, monthlyIncrease: 1600, annualIncrease: 19200, inCubby: statuses.filter((x) => x === 'entered').length,
+      changes: [change('a1', statuses[0]), change('a2', statuses[1])], audit: [],
+    });
+    api.opsRevenueBatches.mockResolvedValue({ batches: [batch(['pending', 'pending'])] });
+    api.opsRevenueBatch.mockResolvedValue(batch(['pending', 'pending']));
+    api.opsRevenueEntered.mockResolvedValue(batch(['entered', 'pending']));
+    render(<Revenue facility={FAC} />);
+    await screen.findByText('Tenant a1');
+    fireEvent.change(screen.getByLabelText('View'), { target: { value: 'batches' } });
+    fireEvent.click(await screen.findByRole('button', { name: '10/20/2026' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Unit type 10x10 - Annual 8%' });
+    expect(await within(dialog).findByText(/Nexus doesn't change rents in Cubby/)).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: /push/i })).toBeDisabled();
+    expect(within(dialog).queryByText(/Manager role/i)).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Mark Applied' }).disabled).toBe(true);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Mark Tenant a1 Entered in Cubby' }));
+    await waitFor(() => expect(api.opsRevenueEntered).toHaveBeenCalledWith('b1', 'a1'));
+    await waitFor(() => expect(within(dialog).queryByRole('button', { name: 'Mark Tenant a1 Entered in Cubby' })).toBeNull());
+    expect(within(dialog).getAllByText('Entered in Cubby').some((el) => el.classList.contains('status-badge'))).toBe(true);
+    expect(within(dialog).getByRole('button', { name: 'Mark Tenant a2 Entered in Cubby' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Mark Applied' }).disabled).toBe(true);   // every row first
   });
 });
 

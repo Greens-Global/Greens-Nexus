@@ -663,6 +663,13 @@ async def ops_report_schedule_loop():
                 print(f"[ops-reports] sent {n} scheduled report(s)")
         except Exception as e:  # noqa: BLE001
             print(f"[ops-reports] schedule loop error: {type(e).__name__}")
+        try:    # scheduled catalog reports (Operations > Reports > Scheduled) ride the same loop
+            import ops_report_schedules
+            n = await asyncio.to_thread(ops_report_schedules.scan_once)
+            if n:
+                print(f"[ops-reports] sent {n} scheduled report file(s)")
+        except Exception as e:  # noqa: BLE001
+            print(f"[ops-reports] scheduled export loop error: {type(e).__name__}")
         try:
             await asyncio.to_thread(warm)
         except Exception as e:  # noqa: BLE001

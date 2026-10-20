@@ -6,11 +6,12 @@
 // (GET /ops-reports/builder/registry) and refuses anything else.
 // Lazy-loaded from Reports.jsx.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Play, Plus, Save, Send, Share2, Trash2, X } from 'lucide-react';
-import { api } from '../api';
+import { Download, Group, Play, Plus, Save, Send, Share2, Sparkles, Trash2, X } from 'lucide-react';
+import { api, saveBlob } from '../api';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import ReportTable from './ReportTable';
+import { MultiPicker, SectionPicker } from './SectionPicker';
 
 const PRESETS = [
   { name: 'Rent per Occupied Sq Ft', spec: { dataset: 'units', dimensions: ['facility'], period: 'this-month',
@@ -179,6 +180,8 @@ export default function ReportBuilder({ scope, facilities }) {
   const [spec, setSpec] = useState(blank());
   const [current, setCurrent] = useState(null);      // the saved report being edited
   const [result, setResult] = useState({ status: 'idle' });
+  const [exporting, setExporting] = useState('');
+  const [exportError, setExportError] = useState('');
   const [saved, setSaved] = useState([]);
   const [saving, setSaving] = useState(null);
   const [sharing, setSharing] = useState(null);
@@ -207,8 +210,8 @@ export default function ReportBuilder({ scope, facilities }) {
   const update = (patch) => setSpec((s) => ({ ...s, ...patch }));
   const setMeasure = (i, patch) => update({ measures: spec.measures.map((m, j) => (j === i ? { ...m, ...patch } : m)) });
   const setFormula = (i, patch) => update({ formulas: spec.formulas.map((f, j) => (j === i ? { ...f, ...patch } : f)) });
-  const toggleDim = (k) => update({ dimensions: spec.dimensions.includes(k) ? spec.dimensions.filter((d) => d !== k)
-    : spec.dimensions.length < registry.limits.dimensions ? [...spec.dimensions, k] : spec.dimensions });
+  // Keeps the order things were picked in; never more than the server's cap.
+  const setDims = (list) => update({ dimensions: list.slice(0, registry.limits.dimensions) });
 
   const loadSpec = (s, report = null) => {
     setSpec({ ...blank(s.dataset), ...s, filters: s.filters || [] });
@@ -235,8 +238,9 @@ export default function ReportBuilder({ scope, facilities }) {
           </div>
         </div>
         <div className="ops-rep-bar" style={{ flexWrap: 'wrap' }}>
-          <span className="ops-note" style={{ margin: 0 }}>Start From</span>
-          {PRESETS.map((p) => <button key={p.name} type="button" className="ops-chip" onClick={() => loadSpec(p.spec)}>{p.name}</button>)}
+          <SectionPicker label="Start From" icon={Sparkles} value="" placeholder="Pick a Preset"
+            onChange={(name) => { const p = PRESETS.find((x) => x.name === name); if (p) loadSpec(p.spec); }}
+            options={PRESETS.map((p) => ({ value: p.name, label: p.name }))} />
         </div>
 
         <div className="ops-form" style={{ marginTop: 6 }}>
@@ -259,12 +263,8 @@ export default function ReportBuilder({ scope, facilities }) {
             </>
           )}
           <div style={{ gridColumn: '1 / -1' }}>
-            <div className="ops-drill-h">Group By (up to {registry.limits.dimensions})</div>
-            <div className="ops-pills">
-              {ds.dimensions.map((d) => (
-                <button key={d.key} type="button" className="ops-pill" aria-pressed={spec.dimensions.includes(d.key)} onClick={() => toggleDim(d.key)}>{d.label}</button>
-              ))}
-            </div>
+            <MultiPicker label={`Group By (up to ${registry.limits.dimensions})`} icon={Group} value={spec.dimensions} onChange={setDims}
+              max={registry.limits.dimensions} emptyText="No Grouping" options={ds.dimensions.map((d) => ({ value: d.key, label: d.label }))} />
           </div>
         </div>
 
@@ -329,7 +329,21 @@ export default function ReportBuilder({ scope, facilities }) {
           {current?.canEdit && (
             <button type="button" className="secondary-btn" onClick={() => { setCurrent(null); }}>Save as New</button>
           )}
+          {/* The formatted Excel file (Oct 20); POST /ops-reports/builder/export. */}
+          <button type="button" className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} disabled={!!exporting}
+            onClick={async () => {
+              setExporting('xlsx'); setExportError('');
+              try {
+                const { blob, filename } = await api.opsBuilderExport(fullSpec, current?.name || 'Report Builder', 'xlsx');
+                saveBlob(blob, filename);
+              } catch (err) {
+                setExportError(err?.status === 404 ? 'Excel files are not switched on yet. Use Download CSV under the table.' : (err?.message || 'The file could not be prepared.'));
+              } finally { setExporting(''); }
+            }}>
+            <Download size={14} aria-hidden="true" /> {exporting ? 'Preparing...' : 'Download Excel'}
+          </button>
         </div>
+        {exportError && <p className="ops-form-error" role="alert" style={{ marginTop: 8 }}>{exportError}</p>}
         <p className="ops-note" style={{ marginTop: 10 }}>Facilities: {one ? one.shortName : 'All Facilities'} (the picker at the top of the page).</p>
       </div>
 

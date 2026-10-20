@@ -61,6 +61,7 @@ import {
   Tags,
   Clock, Users, CloudRain, UserPlus, FileText, ClipboardList,
   MessageSquareText,
+  Sparkles,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -73,6 +74,7 @@ import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
 import TicketHelpTopicsSettings from '../tickets/TicketHelpTopicsSettings';
 import TicketDeskAccessSettings from '../tickets/TicketDeskAccessSettings';
 import TicketSavedRepliesSettings from '../tickets/TicketSavedRepliesSettings';
+import TicketAiSettings from '../tickets/TicketAiSettings';
 import DailyBriefingSettings from '../components/DailyBriefingSettings';
 import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
 import WorkforceScorecardSettings from '../components/WorkforceScorecardSettings';
@@ -110,9 +112,10 @@ const ShiftGroupsPanel = lazy(() => import('../components/shifts/ShiftSettingsSe
 // Weather Alerts (Weather Call, Oct 2026): the per-company switch and the rain thresholds.
 const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSettings'));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
-// header AdminPanel drawer that used to render this is gone; AuditLogs is
-// named-exported from that file and embedded directly here now.
-const AuditLogs = lazy(() => import('../components/AdminPanel').then(m => ({ default: m.AuditLogs })));
+// header AdminPanel drawer that used to render this is gone. Since Oct 20 the
+// tab is the unified Audit Log (components/audit/AuditLog.jsx): every module,
+// Act As, and each change's before -> after; the tab key stays 'audit'.
+const AuditLogs = lazy(() => import('../components/audit/AuditLog'));
 // TaskNotifySettings needs TasksContext (task lookups for its delivery log's
 // "open task" link) - wrapped in its own TasksProvider here, same trick
 // Support.jsx uses for its Tasks-borrowed composers, since Admin has no
@@ -169,7 +172,7 @@ const GLOBAL_SECTIONS = [
     keywords: 'geofence location address time clock punch map work site' },
   { id: 'service-desk', category: 'notifications', icon: Headset, title: 'Ticket Manager',
     sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
-    keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with saved replies canned responses default assignee auto assign' },
+    keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with saved replies canned responses default assignee auto assign ai summary suggested help topic' },
   { id: 'task-notifications', category: 'notifications', icon: Bell, title: 'Task Notifications',
     sub: 'The mailbox task emails come from, due-date reminders, how updates are batched into one email, and how email replies are posted.',
     keywords: 'email mailbox reminders overdue batch replies delivery log' },
@@ -333,6 +336,8 @@ const SERVICE_DESK_TABS = [
   { key: 'access',        label: 'Desk Access',          Icon: ShieldCheck, Panel: TicketDeskAccessSettings },
   // The desk's canned responses (Oct 2026, routers/ticket_saved_replies.py).
   { key: 'replies',       label: 'Saved Replies',        Icon: MessageSquareText, Panel: TicketSavedRepliesSettings },
+  // AI Summary + Suggested Help Topic on/off (Oct 2026, routers/ticket_ai.py).
+  { key: 'ai',            label: 'AI Features',          Icon: Sparkles, Panel: TicketAiSettings },
 ];
 
 function ServiceDeskSection({ defaultOpen }) {

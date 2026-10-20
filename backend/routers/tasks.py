@@ -31,7 +31,8 @@ from routers.task_util import (
     is_manager, visible_project_ids, task_is_visible, wall_tasks,
     project_for_task, require_project_role, require_task_role, create_comment,
     task_assignees, set_task_assignees,
-    purge_task_permanently, assert_person_on_task, COMMENT_REACTIONS, extract_mentions,
+    purge_task_permanently, assert_person_on_task, COMMENT_REACTIONS,
+    extract_mentions,
 )
 from task_notify import notify_task_event
 import task_due
@@ -1518,7 +1519,8 @@ def search_everything(q: str = "", limit: int = 6,
         # active list and from task pickers, it does not hide its history. The
         # flag rides along so the result can be marked as archived rather than
         # looking like live work.
-        "projects": [{"id": p.id, "name": p.name, "color": p.color or "", "archived": bool(p.archived)}
+        "projects": [{"id": p.id, "name": p.name, "color": p.color or "", "icon": p.icon or "",
+                      "archived": bool(p.archived)}
                      for p in top(projects, lambda p: p.name)],
         "portfolios": [{"id": p.id, "name": p.name} for p in top(portfolios, lambda p: p.name)],
         "teams": [{"id": t.id, "name": t.name, "color": t.color or ""}
@@ -1623,7 +1625,8 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
         },
         "tasks": {"assigned": newest(assigned), "assignedByYou": newest(assigned_by_you),
                   "created": newest(created), "collaboratingWithYou": newest(collaborating)},
-        "projects": [{"id": p.id, "name": p.name, "color": p.color or ""} for p in projects],
+        "projects": [{"id": p.id, "name": p.name, "color": p.color or "", "icon": p.icon or ""}
+                     for p in projects],
         "teams": [{"id": t.id, "name": t.name, "color": t.color or ""} for t in teams],
         # How they do against deadlines (task_due.person_record). Only for a
         # manager or the person themselves - a colleague's lateness is not
@@ -3354,37 +3357,79 @@ def task_activity(task_id: str, user: dict = Depends(get_current_user), db: Sess
     return [activity_to_dict(a) for a in rows]
 
 
-# The Updates card shows what PEOPLE did (Neil, Oct 18 2026: "every single
-# minor update about an email sent... it keeps saying System"). Only these
-# activity types, and only a real person's - never the notification log
-# (notify_sent / notify_failed / notify_error), recurrence scheduling,
-# automations or time entries. Anything not listed stays out, so a new
-# system-written type can never flood the card.
-UPDATE_TYPES = ("commented", "created", "completed", "task_completed", "status_changed",
-                "assignee_changed", "attached", "checklist_done", "comment_resolved",
-                "comment_assigned", "restored", "deleted", "closed_missed")
-_NOT_PEOPLE = ("", "system", "automation@nexus")
+# ── The Updates card (Tasks Home) ────────────────────────────────────────────
+# Which events are worth telling someone about a task they are ON. The
+# activity table also carries the machinery: email receipts ("Recurring email
+# sent to priyanka@..." - someone else's address, in my feed), the scheduler's
+# "occurrence created", the closed-as-missed of a recurring cycle, logged
+# time, files taken off. Those stay on the task's own History; this card is
+# for what a person did that changes what I should do (Neil, Oct 15 2026: "a
+# bit spammy - it should think about what is relevant").
+_UPDATE_TYPES = {
+    "commented", "completed", "task_completed", "status_changed", "due_changed",
+    "assignee_changed", "created", "attached", "checklist_done",
+    "comment_assigned", "comment_resolved", "restored",
+}
+# On a task I only FOLLOW, the headline changes - not every file and tick.
+_FOLLOWING_TYPES = {"commented", "completed", "task_completed", "status_changed", "due_changed", "restored"}
+# One person's run of edits on one task inside this window is ONE update:
+# "attached 2 files and changed the status to In Progress", not three rows.
+_UPDATE_BURST = timedelta(minutes=60)
+# Rows to scan for the card. Bounded so the query stays a slice of the
+# activity table rather than a walk over all of it.
+_UPDATE_SCAN = 3000
+_BLOCK_END_RE = re.compile(r"<(?:br|/p|/div|/li|/h\d|/blockquote)[^>]*>", re.I)
 _TAG_RE = re.compile(r"<[^>]+>")
 
 
-def _preview(body: str, limit: int = 140) -> str:
-    """One line of a rich-text comment, tags stripped."""
+def _when(at: str):
+    """An activity/comment timestamp as an aware datetime (None if unreadable)."""
+    try:
+        d = datetime.fromisoformat((at or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def _plain(body: str, limit: int = 180) -> str:
+    """A comment's rich text as one plain line for a preview."""
     import html as html_lib
-    text = re.sub(r"\s+", " ", html_lib.unescape(_TAG_RE.sub(" ", body or ""))).strip()
-    return text if len(text) <= limit else text[:limit - 1] + "…"
+    # Paragraph and line breaks become spaces; inline tags (a mention's link,
+    # bold) vanish without one, so "@Neil?" does not read "@Neil ?".
+    text = _TAG_RE.sub("", _BLOCK_END_RE.sub(" ", body or ""))
+    text = re.sub(r"\s+", " ", html_lib.unescape(text)).strip()
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
+def _is_person(actor: str) -> bool:
+    """A real colleague, not the scheduler, the mailer, the Asana sync or a
+    rule ("system", "asana-sync", automation@nexus)."""
+    a = (actor or "").lower()
+    return "@" in a and a != task_automation.AUTOMATION_ACTOR
 
 
 @router.get("/activity/mine")
 def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_current_user),
                      db: Session = Depends(get_db)):
-    """What OTHER people did lately on the tasks I am on - assigned to me or
-    following as a collaborator - plus comments that @mention me, newest
-    first. The Updates card on the Tasks Home (Neil, Oct 14 2026). Only a
-    person's own actions (UPDATE_TYPES, never "system" / automation), each
-    attributed to that person; a comment carries its text (`preview`). My own
-    actions stay out (I know what I did); a task in the Trash drops out with
-    the default soft-delete filter. The window is capped so the scan stays a
-    bounded slice of the activity table rather than a walk over all of it.
+    """The Updates card on the Tasks Home (Neil, Oct 14 2026; reworked Oct 15):
+    what OTHER PEOPLE did lately on the tasks I am on - assigned to me or
+    following as a collaborator - plus comments that @mention me anywhere
+    (relation "mentioned"), newest first, as UPDATES rather than raw
+    activity rows.
+
+    - Only people: my own actions, the Asana sync, the scheduler, the mailer
+      and automation rules stay out (see _UPDATE_TYPES / _is_person).
+    - Only what matters: comments, completion, status and due-date changes,
+      being assigned, files and checklist ticks on my own tasks. A task I just
+      follow reports only its headline changes.
+    - Grouped: one person's edits to one task within an hour are one update,
+      its `parts` saying everything that happened ({kind, count, detail}).
+    - Directed at me first-class: "assigned you", "mentioned you", "asked you
+      to act on a comment" set `forYou`, and a comment carries a `preview` of
+      what was said.
+
+    Each update also keeps the newest event's own fields (id, type, detail,
+    actorId, at, entity*) so an older tab still renders a sentence.
 
     Declared as /activity/mine, which the /{task_id}/activity route cannot
     capture (its second segment is the literal "activity")."""
@@ -3394,20 +3439,19 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
     limit = max(1, min(int(limit or 30), 100))
     days = max(1, min(int(days or 14), 90))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    actor = func.lower(func.coalesce(models.TaskActivity.actor_email, ""))
-    # The bounded activity slice first - people's actions only, so the
-    # notification log can no longer push them out of it; only the tasks it
-    # names are read (not every task's assignee list), in chunks that stay
-    # under SQLite's bound-parameter limit.
     rows = (db.query(models.TaskActivity)
             .filter(models.TaskActivity.entity_kind == "task",
                     models.TaskActivity.at >= since,
-                    models.TaskActivity.type.in_(UPDATE_TYPES),
-                    actor != me, actor.notin_(_NOT_PEOPLE))
-            .order_by(models.TaskActivity.at.desc()).limit(2000).all())
-    ids = list({a.entity_id for a in rows if a.entity_id})
+                    models.TaskActivity.type.in_(_UPDATE_TYPES),
+                    func.lower(func.coalesce(models.TaskActivity.actor_email, "")) != me)
+            .order_by(models.TaskActivity.at.desc()).limit(_UPDATE_SCAN).all())
+    rows = [a for a in rows if a.entity_id and _is_person(a.actor_email)]
+    ids = list({a.entity_id for a in rows})
     if not ids:
         return []
+    # Which of those tasks I am on, read only for the tasks the slice names, in
+    # chunks that stay under SQLite's bound-parameter limit. The default
+    # soft-delete filter drops a task in the Trash.
     mine = {}
     for i in range(0, len(ids), 500):
         for t in db.query(models.Task.id, models.Task.assignee_email, models.Task.assignee_emails,
@@ -3416,42 +3460,152 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
                 mine[t.id] = "assignee"
             elif me in email_list(t.follower_emails):
                 mine[t.id] = "collaborator"
-    # Comments in the window, for the text of each comment row and for the
-    # ones that @mention me on a task I am not otherwise on.
-    comments = {}
-    commented_ids = list({a.entity_id for a in rows if a.type == "commented" and a.entity_id})
-    for i in range(0, len(commented_ids), 500):
-        for c in (db.query(models.TaskComment)
-                  .filter(models.TaskComment.task_id.in_(commented_ids[i:i + 500]),
-                          models.TaskComment.created_at >= since).all()):
-            comments.setdefault(c.task_id, []).append(c)
+    # A comment AIMED at me reaches me even on a task I only follow or am not
+    # on at all (Neil, Oct 18 2026): one that @mentions me, one written to me,
+    # or one handed to me later - that event only, not the task's other
+    # events. Such a task's relation is "mentioned".
+    handed_to_me = f"assigned a comment to {me}"
+    # "commented" rows on tasks I am not on, by (task, author), so each comment
+    # finds its row without a walk over the whole slice.
+    by_author = {}
+    for a in rows:
+        if a.type == "commented" and a.entity_id not in mine:
+            by_author.setdefault((a.entity_id, (a.actor_email or "").lower()), []).append(a)
+    direct_rows = set()
+    for a in rows:
+        if a.type == "comment_assigned" and (a.detail or "").strip().lower() == handed_to_me \
+                and mine.get(a.entity_id) != "assignee":
+            direct_rows.add(a.id)
+            mine.setdefault(a.entity_id, "mentioned")
+    others = list({k[0] for k in by_author})
+    for i in range(0, len(others), 500):
+        # SQL keeps only comments that could be aimed at me; extract_mentions
+        # then confirms a mention (the LIKE is a coarse prefilter).
+        for c in (db.query(models.TaskComment.task_id, models.TaskComment.author_email,
+                           models.TaskComment.created_at, models.TaskComment.body,
+                           models.TaskComment.assignee_email)
+                  .filter(models.TaskComment.task_id.in_(others[i:i + 500]),
+                          models.TaskComment.created_at >= since,
+                          or_(func.lower(func.coalesce(models.TaskComment.assignee_email, "")) == me,
+                              models.TaskComment.body.ilike(f"%{me}%"))).all()):
+            if (c.assignee_email or "").lower() != me and me not in extract_mentions(c.body or ""):
+                continue
+            w = _when(c.created_at)
+            for a in by_author.get((c.task_id, (c.author_email or "").lower()), []):
+                at = _when(a.at)
+                if w is not None and at is not None and abs((w - at).total_seconds()) <= 120:
+                    direct_rows.add(a.id)
+                    mine.setdefault(a.entity_id, "mentioned")
+    rows = [a for a in rows if a.id in direct_rows
+            or (mine.get(a.entity_id) in ("assignee", "collaborator")
+                and (mine[a.entity_id] == "assignee" or a.type in _FOLLOWING_TYPES))]
+    if not rows:
+        return []
+    my_ids = list({a.entity_id for a in rows})
 
-    def comment_for(a):
-        """The comment this "commented" row logged: same task and author,
-        written at (or a moment before) the row's time."""
-        best = None
-        for c in comments.get(a.entity_id, []):
-            if (c.author_email or "").lower() == (a.actor_email or "").lower() and (c.created_at or "") <= (a.at or ""):
-                if best is None or (c.created_at or "") > (best.created_at or ""):
-                    best = c
+    # "Assigned you": the assignment notification the change sent me. The
+    # activity row itself only says "reassigned this task" - it cannot tell
+    # me being added from somebody else being.
+    assigned_at = {}
+    # The comments behind "commented" rows, for the preview and for whether
+    # the comment mentions me or was assigned to me.
+    comments = {}
+    for i in range(0, len(my_ids), 500):
+        chunk = my_ids[i:i + 500]
+        for n in (db.query(models.TaskNotification.task_id, models.TaskNotification.created_at)
+                  .filter(models.TaskNotification.kind == "task_assigned",
+                          models.TaskNotification.for_email == me,
+                          models.TaskNotification.created_at >= since,
+                          models.TaskNotification.task_id.in_(chunk)).all()):
+            w = _when(n.created_at)
+            if w:
+                assigned_at.setdefault(n.task_id, []).append(w)
+        if any(a.type == "commented" for a in rows):
+            for c in (db.query(models.TaskComment)
+                      .filter(models.TaskComment.task_id.in_(chunk),
+                              models.TaskComment.created_at >= since).all()):
+                comments.setdefault((c.task_id, (c.author_email or "").lower()), []).append(c)
+
+    def assigned_me(a, at):
+        return at is not None and any(abs((w - at).total_seconds()) <= 120 for w in assigned_at.get(a.entity_id, []))
+
+    def comment_for(a, at):
+        best, gap = None, 121.0
+        for c in comments.get((a.entity_id, (a.actor_email or "").lower()), []):
+            w = _when(c.created_at)
+            if w is not None and at is not None and abs((w - at).total_seconds()) < gap:
+                best, gap = c, abs((w - at).total_seconds())
         return best
 
-    out = []
-    for a in rows:
-        rel = mine.get(a.entity_id or "")
-        c = comment_for(a) if a.type == "commented" else None
-        mentioned = c is not None and me in extract_mentions(c.body or "")
-        if mentioned:
-            rel = "mentioned"
-        if not rel:
-            continue
-        row = {**activity_to_dict(a), "taskId": a.entity_id, "relation": rel}
-        if c is not None:
-            row["preview"] = _preview(c.body)
-        out.append(row)
-        if len(out) >= limit:
-            break
-    return out
+    updates, open_groups = [], {}
+    for a in rows:   # newest first
+        at = _when(a.at)
+        key = (a.entity_id, (a.actor_email or "").lower())
+        g = open_groups.get(key)
+        if g is None or at is None or g["_oldest"] is None or g["_oldest"] - at > _UPDATE_BURST:
+            g = {**activity_to_dict(a), "taskId": a.entity_id, "relation": mine[a.entity_id],
+                 "forYou": False, "preview": "", "_events": [], "_oldest": at}
+            open_groups[key] = g
+            updates.append(g)
+        g["_oldest"] = at
+        g["_events"].append((a, at))
+
+    for g in updates:
+        parts = {}
+
+        def add(kind, detail=""):
+            p = parts.setdefault(kind, {"kind": kind, "count": 0, "detail": ""})
+            p["count"] += 1
+            if not p["detail"] and detail:
+                p["detail"] = detail   # events are newest first: the latest wins
+        for a, at in g.pop("_events"):
+            t = a.type
+            if t in ("created", "assignee_changed"):
+                if mine[a.entity_id] == "assignee" and assigned_me(a, at):
+                    add("assigned_you")
+                elif t == "assignee_changed":
+                    add("assignees")
+            elif t in ("completed", "task_completed"):
+                add("completed")
+            elif t == "status_changed":
+                add("status", a.detail or "")
+            elif t == "due_changed":
+                add("due", a.detail or "")
+            elif t == "commented":
+                c = comment_for(a, at)
+                if c is not None:
+                    if me in extract_mentions(c.body or ""):
+                        add("mentioned_you")
+                    if (c.assignee_email or "").lower() == me:
+                        add("comment_for_you")
+                    if not g["preview"]:
+                        g["preview"] = _plain(c.body or "")
+                add("commented")
+            elif t == "comment_assigned":
+                if (a.detail or "").strip().lower() == handed_to_me:
+                    add("comment_for_you")
+            elif t == "comment_resolved":
+                add("resolved")
+            elif t == "attached":
+                add("attached")
+            elif t == "checklist_done":
+                add("checklist", a.detail or "")
+            elif t == "restored":
+                add("restored")
+        # Completing a task also logs its status change; "completed" says it.
+        if "completed" in parts:
+            parts.pop("status", None)
+        g.pop("_oldest", None)
+        g["parts"] = [parts[k] for k in _PART_ORDER if k in parts]
+        g["forYou"] = any(k in parts for k in ("assigned_you", "mentioned_you", "comment_for_you"))
+    # An assignment of somebody else that left nothing to tell (no parts)
+    # drops - before the limit, so it never takes the place of a real update.
+    return [g for g in updates if g["parts"]][:limit]
+
+
+# What an update says first: what is asked of me, then what happened.
+_PART_ORDER = ["assigned_you", "mentioned_you", "comment_for_you", "completed", "restored",
+               "status", "due", "assignees", "commented", "resolved", "attached", "checklist"]
 
 
 # ── Sections & custom statuses (board columns) ───────────────────────────────

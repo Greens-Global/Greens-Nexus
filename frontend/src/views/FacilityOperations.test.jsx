@@ -20,7 +20,11 @@ const checkOpsCompetitor = vi.fn();
 const updateOpsCompetitor = vi.fn();
 const getCubbySync = vi.fn();
 const startCubbySync = vi.fn();
+const opsRevenueTenants = vi.fn();
 vi.mock('../api', () => ({ api: {
+  opsRevenueTenants: (...a) => opsRevenueTenants(...a),
+  opsRevenueStrategies: () => Promise.resolve({ strategies: [] }),
+  opsRevenueBatches: () => Promise.resolve({ batches: [] }),
   getOpsNearby: (...a) => getOpsNearby(...a), addOpsCompetitor: (...a) => addOpsCompetitor(...a),
   checkOpsCompetitor: (...a) => checkOpsCompetitor(...a), updateOpsCompetitor: (...a) => updateOpsCompetitor(...a),
   getFacilityOps: (...a) => getFacilityOps(...a), facilityOpsLookup: (...a) => facilityOpsLookup(...a),
@@ -29,7 +33,20 @@ vi.mock('../api', () => ({ api: {
   getCubbySync: (...a) => getCubbySync(...a), startCubbySync: (...a) => startCubbySync(...a),
   // Reports > Reports (Oct 20) loads its list on open; the export test below uses Quick Exports.
   opsReportCatalog: () => Promise.resolve({ categories: [], reports: [] }),
+  getOpsSiteMapFacilities: () => Promise.resolve([{ facilityId: 'fac_b', modelId: 'm', name: 'Murrieta' }]),
 } }));
+// The Site Map tab loads three.js; a stand-in says which facility it was handed,
+// and reports its own search box on screen unless `siteMapReady` is false (still
+// loading, failed, or no site model).
+let siteMapReady = true;
+vi.mock('../operations/SiteMap', async () => {
+  const { useEffect } = await import('react');
+  return { default: function SiteMapStub({ facility, onMapSearch }) {
+    const ready = !!facility && siteMapReady;
+    useEffect(() => { onMapSearch?.(ready); }, [ready, onMapSearch]);
+    return <div>Site Map for {facility?.shortName || 'none'}</div>;
+  } };
+});
 let isManager = false;
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: (r) => (r === 'manager' ? isManager : true) }) }));
 const downloadCsv = vi.fn();
@@ -42,12 +59,13 @@ vi.mock('../components/ModuleTabs', () => ({
 
 const FacilityOperations = (await import('./FacilityOperations')).default;
 
-// Rate Management (Oct 20 2026) is the market tab now: its facility is a dropdown, and the
-// competitor set and manual entry (the Market screen) open from Comp Set & Manual Entry.
+// Rate Management (Oct 20 2026) is the market tab now: its facility is the page's one
+// Facility dropdown (opening on the first facility), and the competitor set and manual
+// entry (the Market screen) open from Comp Set & Manual Entry.
 const RATES_VIEW = { facilityId: 'fac_a', facility: 'Temecula', name: 'Greens Storage Temecula', asOf: '2026-10-13', address: '', billingCycle: 'MONTHLY',
   lastSurvey: '', cubbyGroups: { ok: true, count: 0, error: '' }, compSet: { active: 0, web: 0, stortrack: 0, manual: 0, closed: 0 },
   kpis: { vsMarket: null, rateable: 0, belowMarket: 0, occupancy: 0, units: 0, rented: 0, offline: 0, ready: 0, readyDelta: 0 },
-  attention: [], rows: [], competitors: [], freshDays: 120, minCompetitors: 2, pushes: [], canEdit: true, canPush: true };
+  attention: [], rows: [], competitors: [], freshDays: 120, minCompetitors: 2, pushes: [], canEdit: true, canMark: true };
 async function openCompSet(id = 'fac_a') {
   getOpsRates.mockResolvedValue({ ...RATES_VIEW, facilityId: id });
   fireEvent.change(await screen.findByLabelText('Facility'), { target: { value: id } });
@@ -94,6 +112,9 @@ const NO_NEARBY = { facilityId: 'fac_a', radiusKm: 8, radiusMiles: 5, attributio
 beforeEach(() => {
   getFacilityOps.mockReset().mockResolvedValue(PAYLOAD);
   getOpsNearby.mockReset().mockResolvedValue(NO_NEARBY);
+  getOpsRates.mockReset().mockResolvedValue(RATES_VIEW);
+  opsRevenueTenants.mockReset().mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', unitTypes: [], defaults: {}, tenants: [] });
+  localStorage.removeItem('nexus.ops.facility');   // the remembered facility
 });
 
 describe('Operations module', () => {
@@ -113,9 +134,84 @@ describe('Operations module', () => {
   it('narrows to one facility, and an old bookmarked tab lands on Overview', async () => {
     render(<FacilityOperations activeSub="reputation" onSubChange={() => {}} />);
     await screen.findByText('Facility Scorecard');
-    fireEvent.click(screen.getAllByRole('button', { name: 'Murrieta' })[0]);   // the picker pill
+    fireEvent.change(screen.getByLabelText('Facility'), { target: { value: 'fac_b' } });   // the page's one dropdown
     expect(screen.getByText('90.0%')).toBeTruthy();                       // 45 of 50
     expect(screen.queryByText('Facility Scorecard')).toBeNull();          // nothing to compare against
+    expect(localStorage.getItem('nexus.ops.facility')).toBe('fac_b');     // remembered on this device
+  });
+
+  it('is one dropdown, not a row of chips, and remembers the facility picked', async () => {
+    localStorage.setItem('nexus.ops.facility', 'fac_b');
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    const select = await screen.findByLabelText('Facility');
+    expect(select.tagName).toBe('SELECT');
+    expect(select.value).toBe('fac_b');
+    expect(screen.getByText('90.0%')).toBeTruthy();
+    expect([...select.options].map((o) => o.textContent)).toEqual(['All Facilities', 'Temecula', 'Murrieta']);
+    expect(screen.queryByRole('button', { name: 'All Facilities' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Murrieta' })).toBeNull();
+  });
+
+  it('drives every tab from the one dropdown, and no tab shows a second facility picker', async () => {
+    isManager = true;   // Revenue Management is for managers
+    try {
+      const { rerender } = render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+      await screen.findByText('Facility Scorecard');
+      fireEvent.change(screen.getByLabelText('Facility'), { target: { value: 'fac_b' } });
+      const one = async () => {
+        await waitFor(() => expect(screen.getAllByLabelText('Facility')).toHaveLength(1));
+        expect(screen.getByLabelText('Facility').value).toBe('fac_b');
+        // No other select lists the facilities.
+        expect([...document.querySelectorAll('select')].filter((s) => [...s.options].some((o) => o.textContent === 'Temecula'))).toHaveLength(1);
+        expect(screen.queryByRole('button', { name: 'Temecula' })).toBeNull();
+      };
+      for (const tab of ['overview', 'collections', 'units', 'worklist', 'reports']) {
+        rerender(<FacilityOperations activeSub={tab} onSubChange={() => {}} />);
+        await one();
+      }
+      rerender(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
+      await one();
+      await waitFor(() => expect(getOpsRates).toHaveBeenLastCalledWith('fac_b'));
+      rerender(<FacilityOperations activeSub="revenue" onSubChange={() => {}} />);
+      await one();
+      await waitFor(() => expect(opsRevenueTenants).toHaveBeenLastCalledWith('fac_b'));
+      // Back on Overview it is still Murrieta.
+      rerender(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+      expect(screen.getByLabelText('Facility').value).toBe('fac_b');
+      expect(screen.getByText('90.0%')).toBeTruthy();
+    } finally {
+      isManager = false;
+    }
+  });
+
+  it('opens a one-facility tab on the first facility when All Facilities is picked, and keeps All for the rest', async () => {
+    const { rerender } = render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
+    const select = await screen.findByLabelText('Facility');
+    expect(select.value).toBe('fac_a');
+    expect([...select.options].map((o) => o.textContent)).toEqual(['Temecula', 'Murrieta']);   // no All on this tab
+    await waitFor(() => expect(getOpsRates).toHaveBeenCalledWith('fac_a'));
+    rerender(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    expect(screen.getByLabelText('Facility').value).toBe('all');
+    expect(screen.getByText('Facility Scorecard')).toBeTruthy();
+  });
+
+  it('opens the Site Map on the first facility that has a site model', async () => {
+    render(<FacilityOperations activeSub="site-map" onSubChange={() => {}} />);
+    expect(await screen.findByText('Site Map for Murrieta')).toBeTruthy();   // Temecula has no model
+    expect(screen.getByLabelText('Facility').value).toBe('fac_b');
+    // one search on this tab: the map's own (it finds tenants too), not a second box above it
+    await waitFor(() => expect(screen.queryByLabelText('Find a unit or tenant across every facility')).toBeNull());
+  });
+
+  it('keeps the page search on the Site Map tab while the map is not on screen', async () => {
+    siteMapReady = false;
+    try {
+      render(<FacilityOperations activeSub="site-map" onSubChange={() => {}} />);
+      expect(await screen.findByText('Site Map for Murrieta')).toBeTruthy();
+      expect(screen.getByLabelText('Find a unit or tenant across every facility')).toBeTruthy();
+    } finally {
+      siteMapReady = true;
+    }
   });
 
   it('jumps from a flagged item to its tab and facility', async () => {
@@ -191,7 +287,7 @@ describe('Operations module', () => {
   it('exports a list from the screen and a report from Cubby', async () => {
     facilityOpsReport.mockResolvedValue({ title: 'Rent Roll', asOf: '2026-10-13', columns: ['Unit'], rows: [['A12']] });
     render(<FacilityOperations activeSub="reports" onSubChange={() => {}} />);
-    fireEvent.click(await screen.findByRole('tab', { name: 'Quick Exports' }));
+    fireEvent.change(await screen.findByLabelText('View'), { target: { value: 'exports' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
     expect(downloadCsv.mock.calls[0][0]).toBe('Tenants Past Due - All Facilities - 10-13-2026.csv');
     expect(downloadCsv.mock.calls[0][2]).toHaveLength(2);
@@ -201,15 +297,13 @@ describe('Operations module', () => {
     expect(downloadCsv.mock.calls[1].slice(1)).toEqual([['Unit'], [['A12']]]);
   });
 
-  it('compares one facility against its market, and asks for one when all are chosen', async () => {
+  it('compares one facility against its market', async () => {
     const row = { name: "10' x 20' Drive-Up", width: 10, depth: 20, parking: false, total: 100, rented: 70, vacant: 30, street: 20000, averageRent: 19000,
       competitors: 2, marketLow: 21000, marketMedian: 22000, marketHigh: 23000, lowestBy: 'StorQuest', newestObservation: '2026-10-01',
       suggested: 20500, why: '70% occupied: some vacancy, so sit just under the market to fill it.', change: 500, monthlyImpact: 15000 };
     getOpsMarket.mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', freshDays: 120, minCompetitors: 2, rows: [row],
       competitors: [{ id: 'c1', name: 'StorQuest', distanceMiles: 1.2, rates: [{ observedOn: '2026-10-01' }] }] });
     render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
-    expect((await screen.findAllByText('Choose a Facility')).length).toBeGreaterThan(0);
-    expect(getOpsMarket).not.toHaveBeenCalled();
     await openCompSet();
     expect(await screen.findByText('9% Below')).toBeTruthy();                 // $200 against a $220 median
     expect(screen.getByText('$205')).toBeTruthy();
