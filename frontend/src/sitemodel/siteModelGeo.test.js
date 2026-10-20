@@ -3,7 +3,7 @@
 // right ground, Terrarium must decode to real heights, the lot must stay flat,
 // and the status tints must keep their legend hue.
 import { describe, expect, it } from 'vitest';
-import { geoFrame, lonLatToTile, tileToLonLat, tileRange, tileMeters, decodeTerrarium, convexHull, distanceOutside, flattenWeight, mutedTint, sunDirection, enuToWorld, unitForm, nameBucket } from './siteModelGeo.js';
+import { geoFrame, lonLatToTile, tileToLonLat, tileRange, tileMeters, decodeTerrarium, convexHull, distanceOutside, flattenWeight, mutedTint, sunDirection, enuToWorld, unitForm, nameBucket, wgs84MetersPerDeg, enuScale, enuToModelWorld, unplacedZoneIds } from './siteModelGeo.js';
 
 // Greens Storage Temecula's frame and one of its picture corners (backend/site_models).
 const frame = { lat0: 33.44295, lon0: -117.13637, bearingDeg: 21.4, mPerDegLon: 92889, mPerDegLat: 110900, north: [0.9311, 0.3649] };
@@ -96,5 +96,34 @@ describe('unitForm', () => {
   it('hashes a name to a stable paint bucket', () => {
     expect(nameBucket('X002', 7)).toBe(nameBucket('X002', 7));
     expect(nameBucket('X002', 7)).toBeGreaterThanOrEqual(0); expect(nameBucket('X002', 7)).toBeLessThan(7);
+  });
+});
+
+describe('Google mesh frame (Realistic 3D)', () => {
+  it('knows the WGS84 ground scale', () => {
+    const [lon0, lat0] = wgs84MetersPerDeg(0); expect(lon0).toBeCloseTo(111319.49, 1); expect(lat0).toBeCloseTo(110574.28, 1);
+    const [lon45, lat45] = wgs84MetersPerDeg(45); expect(lon45).toBeCloseTo(78846.84, 1); expect(lat45).toBeCloseTo(111131.78, 1);
+  });
+  it('stretches true meters to the model meters-per-degree', () => {
+    const [sE, sN] = enuScale(frame);
+    expect(sE).toBeCloseTo(92889 / 92983.45, 6); expect(sN).toBeCloseTo(110900 / 110912.37, 6);
+  });
+  it('puts a point of the globe on the model unit that stands there (within 0.1 m across the lot)', () => {
+    const g = geoFrame(frame); const m = enuToModelWorld(frame); const [tLon, tLat] = wgs84MetersPerDeg(frame.lat0);
+    for (const [u, v] of [[120, -45], [-190, -95], [200, 20], [-100, 30], [0, 0]]) {
+      const [lon, lat] = g.uvToLl(u, v);
+      // true local east / north meters of that latitude / longitude (Google's ENU frame at the origin)
+      const E = (lon - frame.lon0) * tLon, N = (lat - frame.lat0) * tLat;
+      const x = m[0] * E + m[1] * N, y = m[3] * E + m[4] * N, z = m[6] * E + m[7] * N;
+      expect(Math.hypot(x - u, z + v)).toBeLessThan(0.1); expect(Math.abs(y)).toBeLessThan(1e-9);
+    }
+  });
+});
+
+describe('unplacedZoneIds', () => {
+  it('finds the zones of units with no known position', () => {
+    const ids = unplacedZoneIds({ zones: [{ id: 'UNMAPPED', name: 'Unmapped Stalls' }, { id: 'HOLD', name: 'Not On Site Plan' }, { id: 'A', name: 'Section A' }, { id: 'Q', name: 'Stalls not on the site plan' }] });
+    expect([...ids].sort()).toEqual(['HOLD', 'Q', 'UNMAPPED']);
+    expect(unplacedZoneIds({}).size).toBe(0);
   });
 });

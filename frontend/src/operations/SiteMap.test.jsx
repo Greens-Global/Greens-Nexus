@@ -16,7 +16,7 @@ vi.mock('../sitemodel/siteModelViewer.js', async () => {
       calls.colors.push(opts.colors); calls.styles.push(opts.style);
       return {
         selectUnit: (n) => { const u = model.units.find((x) => x.n === n); if (!u) return false; opts.onSelectUnit(u); return true; },
-        clearSelection() {}, setMode() {}, setXray() {}, setLevel() {}, setPins() {}, setMarkers: (m) => calls.markers.push(m), setPlacing() {}, setBackground() {}, view() {}, flyToPin() {},
+        clearSelection: () => opts.onSelectUnit(null), setMode() {}, setXray() {}, setLevel() {}, setPins() {}, setMarkers: (m) => calls.markers.push(m), setPlacing() {}, setBackground() {}, view() {}, flyToPin() {},
         setUnitColors: (c) => calls.colors.push(c), flyToStep() {}, resetView() {}, getRoute: () => null, getState: () => ({}), destroy() {},
       };
     },
@@ -58,12 +58,18 @@ vi.mock('../api', () => ({
     getOpsCustomerLink: vi.fn(async () => ({ url: 'https://nexus/find/abc', unit: 'C214' })),
     getOpsSiteMapUnit: vi.fn(async (fac, unit) => (unit === 'C001' ? unitCard : { unit, status: 'vacant', street: 9000, connected: true, tenant: null, daysVacant: 160, tickets: { property: null, open: [], recent: [] } })),
     saveOpsEntrance: vi.fn(),
+    facilityOpsLookup: vi.fn(async () => ({ results: [
+      { facilityId: 'fac_1', facility: 'Escondido', unit: 'C001', tenant: 'Pat Example', status: 'rented' },
+      { facilityId: 'fac_2', facility: 'Vista', unit: 'B102', tenant: 'Pat Other', status: 'rented' },
+      { facilityId: 'fac_3', facility: 'Temecula', unit: 'A015', tenant: 'Pat Third', status: 'rented', url: 'https://app.cubbystorage.com/tenants/cust_3' },
+    ] })),
   },
 }));
 
 import SiteMap from './SiteMap';
 
-const pick = (n) => { const box = screen.getByLabelText('Unit number'); fireEvent.change(box, { target: { value: n } }); fireEvent.submit(box.closest('form')); };
+const SEARCH = 'Find a unit or tenant';
+const pick = (n) => { const box = screen.getByRole('combobox', { name: SEARCH }); fireEvent.change(box, { target: { value: n } }); fireEvent.submit(box.closest('form')); };
 const cardOf = (n) => screen.getAllByText(n).map((el) => el.closest('section')).find(Boolean);
 
 beforeEach(() => { calls.colors.length = 0; calls.markers.length = 0; calls.styles.length = 0; localStorage.removeItem('nexus.ops.siteMap.layer'); localStorage.removeItem('nexus.siteModel.look'); });
@@ -75,14 +81,27 @@ describe('Operations > Site Map', () => {
     expect(screen.queryByRole('button', { name: 'Escondido' })).toBeNull();
   });
 
-  it('opens on the Illustrated look with the panel folded: Inventory, the unit, then closed lists', async () => {
+  it('tells the page when its own search is on screen, so the page Lookup stands in otherwise', async () => {
+    const seen = [];
+    const onMapSearch = (v) => seen.push(v);
+    const { rerender } = render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} onMapSearch={onMapSearch} />);
+    expect(seen[0]).toBe(false);                      // loading: no map search yet
+    await screen.findByRole('combobox', { name: SEARCH });
+    expect(seen.at(-1)).toBe(true);
+    rerender(<SiteMap facility={null} onMapSearch={onMapSearch} />);
+    await waitFor(() => expect(seen.at(-1)).toBe(false));
+  });
+
+  it('opens on the Illustrated look with Inventory, then Needs Attention open and the rest folded', async () => {
     render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
     expect(await screen.findByLabelText('Layer')).toHaveProperty('value', 'occupancy');
     expect(calls.styles.at(-1)).toBe('illustrated');
-    for (const t of ['Needs Attention (1)', 'Not on the Map (1)', 'Sources']) {
+    expect(screen.getByText('Needs Attention (1)').closest('button').getAttribute('aria-expanded')).toBe('true');   // fills the panel, scrolls on its own
+    expect(screen.queryByRole('button', { name: /Show All/ })).toBeNull();
+    for (const t of ['Not on the Map (1)', 'Sources']) {
       expect(screen.getByText(t).closest('details').open).toBe(false);
     }
-    expect(screen.getByText('Pick a Unit')).toBeTruthy();
+    expect(screen.getByText(/Pick a unit on the map or search/)).toBeTruthy();
     // the entrance + template link moved behind a button into a dialog
     expect(screen.queryByText('Customer Entrance')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Customer Link Settings' }));
@@ -113,7 +132,7 @@ describe('Operations > Site Map', () => {
 
   it('a leased unit card: the badge says Leased, with the tenant, the money, Cubby and the tickets', async () => {
     render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
-    await screen.findByLabelText('Unit number');
+    await screen.findByRole('combobox', { name: SEARCH });
     pick('C001');
     expect(await screen.findByText('Pat Example')).toBeTruthy();
     const card = cardOf('C001');
@@ -137,7 +156,7 @@ describe('Operations > Site Map', () => {
   it('a vacant unit card: days vacant, street rate, vs market, and the customer link', async () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } });
     render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
-    await screen.findByLabelText('Unit number');
+    await screen.findByRole('combobox', { name: SEARCH });
     pick('C214');
     const card = cardOf('C214');
     expect(within(card).getByText('Vacant')).toBeTruthy();
@@ -149,5 +168,56 @@ describe('Operations > Site Map', () => {
     expect(await within(card).findByRole('button', { name: 'Copied' })).toBeTruthy();
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://nexus/find/abc');
     expect(screen.queryByText(/^Pins/)).toBeNull();   // no pin grant on this screen
+  });
+
+  // Visesh, Oct 20: "this looks glitchy when you have to scroll down to see options".
+  it('puts every control on the map: one search, Layer, View, camera and the legend', async () => {
+    render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
+    expect(await screen.findAllByRole('combobox', { name: SEARCH })).toHaveLength(1);
+    expect(screen.queryByLabelText('Unit number')).toBeNull();               // the old full-width search row is gone
+    expect(screen.queryByRole('button', { name: 'Find' })).toBeNull();
+    expect(screen.getByLabelText('Layer')).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'View' }).value).toBe('illustrated');
+    for (const b of ['Reset View', 'Overview', 'Plan', 'From Gate', 'Customer Link Settings', 'About This Layer']) {
+      expect(screen.getByRole('button', { name: b })).toBeTruthy();
+    }
+    expect(screen.getByRole('combobox', { name: 'Level' })).toBeTruthy();   // a dropdown, not a row of level buttons
+    const stage = document.querySelector('.sm-stage');
+    expect(stage.contains(screen.getByRole('combobox', { name: SEARCH }))).toBe(true);
+    expect(stage.contains(screen.getByLabelText('Layer'))).toBe(true);
+    // the layer's explanation sits behind the legend's info button
+    fireEvent.click(screen.getByRole('button', { name: 'About This Layer' }));
+    expect(screen.getByRole('tooltip').textContent).toMatch(/Green is leased/);
+  });
+
+  it('finds a tenant here, opens a unit at another facility, and offers Cubby where there is no map', async () => {
+    const onPick = vi.fn();
+    render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} onPick={onPick} modelIds={['fac_1', 'fac_2']}
+      facilities={[{ id: 'fac_1', shortName: 'Escondido' }, { id: 'fac_2', shortName: 'Vista' }, { id: 'fac_3', shortName: 'Temecula' }]} />);
+    const box = await screen.findByRole('combobox', { name: SEARCH });
+    fireEvent.change(box, { target: { value: 'pat' } });
+    expect(await screen.findByText('Pat Third')).toBeTruthy();
+    expect(screen.getByText('Tenants and Other Facilities')).toBeTruthy();
+    expect(screen.getByText('No Site Map Yet', { exact: false })).toBeTruthy();
+    expect(screen.getByText(/Open in Cubby/).closest('a').getAttribute('href')).toBe('https://app.cubbystorage.com/tenants/cust_3');
+    fireEvent.click(screen.getByText('Pat Example'));
+    expect(await screen.findByText('Pat Example', { selector: 'dd' })).toBeTruthy();   // the unit card opened on C001
+    fireEvent.change(box, { target: { value: 'pat' } });
+    fireEvent.click(await screen.findByText('Pat Other'));
+    expect(onPick).toHaveBeenCalledWith('fac_2');
+  });
+
+  it('says inside the search when a unit is not here, and the card closes with its X', async () => {
+    render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
+    await screen.findByRole('combobox', { name: SEARCH });
+    pick('Z999');
+    expect(screen.getByRole('status').textContent).toMatch(/No unit Z999 at Escondido/);
+    pick('C002');
+    const card = cardOf('C002');
+    expect(within(card).getAllByText('Out of Service').length).toBe(2);   // badge + heading, never "Vacancy"
+    expect(card.textContent).toMatch(/Reason.*Door spring/);
+    expect(card.textContent).not.toMatch(/Days Vacant/);
+    fireEvent.click(within(card).getByRole('button', { name: 'Close Unit C002' }));
+    expect(cardOf('C002')).toBeUndefined();
   });
 });

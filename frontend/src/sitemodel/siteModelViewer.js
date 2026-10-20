@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { buildDiorama, DIORAMA } from './siteModelDiorama.js';
 import { planRoute } from './siteModelRoute.js';
 import { createRealGround, createSky, ATMOSPHERE } from './siteModelGround.js';
-import { sunDirection, mutedTint, unitForm, nameBucket } from './siteModelGeo.js';
+import { sunDirection, mutedTint, unitForm, nameBucket, unplacedZoneIds } from './siteModelGeo.js';
 
 const KIND_COLORS = {
   neutral: 0xd9d0bb, neutralPark: 0xc7c1b2, ok: 0x5fae7d, warn: 0xe0b45a, bad: 0xd65a4c, sel: 0xff7a00,
@@ -138,6 +138,8 @@ export function createSiteModelViewer(container, model, options = {}) {
   const state = { mode: opts.mode, selected: null, xray: false, level: 0, placing: false, pins: [], markers: {}, colors: opts.colors || null, explode: false, routeFor: null, focusDim: opts.focusDim };
   const units = model.units || []; const byName = {}; units.forEach((u) => { byName[u.n] = u; });
   const buildings = {}; (model.buildings || []).forEach((b) => { buildings[b.id] = b; });
+  // Units the build parked off the lot because no plan shows them ("Unmapped Stalls").
+  const unplacedZones = unplacedZoneIds(model);
   const W = (u, v, y) => new THREE.Vector3(u, y || 0, -v);
   const illus = opts.style === 'illustrated';
   // The realistic looks (Oct 20 2026): 'satellite' = real terrain + imagery
@@ -259,6 +261,11 @@ export function createSiteModelViewer(container, model, options = {}) {
   if (!illus && !real) parcels.forEach((p) => { if (p && p.length > 2) scene.add(lineLoop(p, mat.parcel, 0.4)); });
   // Realistic: the property line follows the ground (a thin white line), redrawn once the hills arrive.
   const parcelLines = new THREE.Group(); if (real) scene.add(parcelLines);
+  parcelLines.userData.photoHide = true;
+  // Realistic 3D (Google's mesh): labels stand on the real surface, sampled under
+  // each one (see sampleSurface); `y0` is where they sit in the other looks.
+  const anchors = [];
+  const anchor = (obj, u, v, dy) => { anchors.push({ obj, dy, y0: obj.position.y, s: { u, v, sy: null } }); };
   function drapeParcels() {
     if (!real) return; clearGroup(parcelLines);
     parcels.forEach((p) => {
@@ -281,7 +288,7 @@ export function createSiteModelViewer(container, model, options = {}) {
       const roof = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5, metalness: 0.35, transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: true });
       const postGeo = new THREE.CylinderGeometry(0.11, 0.11, H, 8); const posts = [];
       polys.forEach((p) => {
-        const slab = flatPoly(p, roof, H); slab.castShadow = true; slab.userData.canopy = true; scene.add(slab); scene.add(lineLoop(p, mat.edge, H));
+        const slab = flatPoly(p, roof, H); slab.castShadow = true; slab.userData.canopy = true; scene.add(slab); const rim = lineLoop(p, mat.edge, H); rim.userData.canopy = true; scene.add(rim);
         p.forEach((c, i) => { const d = p[(i + 1) % p.length]; const n = Math.max(1, Math.round(Math.hypot(d[0] - c[0], d[1] - c[1]) / 7)); for (let k = 0; k < n; k++) posts.push([c[0] + ((d[0] - c[0]) * k) / n, c[1] + ((d[1] - c[1]) * k) / n]); });
       });
       const inst = new THREE.InstancedMesh(postGeo, mat.door, posts.length); inst.castShadow = true;
@@ -293,8 +300,10 @@ export function createSiteModelViewer(container, model, options = {}) {
       // Satellite: the photo already shows the lot - no tinted fill or brown outline over it (Oct 20 review).
     }
     const c = centroid(polys[0]); const l = textSprite(z.name, { size: 48, bg: 'rgba(255,255,255,0.8)', worldHeight: 4 }); l.position.copy(W(c[0], c[1], z.kind === 'canopy' ? 7 : 4)); scene.add(l); screenLabel(l, 17, 1);
+    // Unmapped units have no real place: under Google's mesh their label (and they) are not drawn.
+    if (unplacedZones.has(z.id)) l.userData.photoHide = true; else anchor(l, c[0], c[1], z.kind === 'canopy' ? 2.5 : 4);
   });
-  (model.gates || []).forEach((g) => { const l = textSprite(g.name, { size: 48, bg: 'rgba(31,111,74,0.9)', color: '#fff', worldHeight: 4 }); l.position.copy(W(g.uv[0], g.uv[1], illus ? 4.5 : 3)); scene.add(l); screenLabel(l, 20, 9); if (illus) return; const post = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 2.5, 8), new THREE.MeshLambertMaterial({ color: 0x1f6f4a })); post.position.copy(W(g.uv[0], g.uv[1], 1.25)); scene.add(post); });
+  (model.gates || []).forEach((g) => { const l = textSprite(g.name, { size: 48, bg: 'rgba(31,111,74,0.9)', color: '#fff', worldHeight: 4 }); l.position.copy(W(g.uv[0], g.uv[1], illus ? 4.5 : 3)); scene.add(l); screenLabel(l, 20, 9); anchor(l, g.uv[0], g.uv[1], 3); if (illus) return; const post = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 2.5, 8), new THREE.MeshLambertMaterial({ color: 0x1f6f4a })); post.position.copy(W(g.uv[0], g.uv[1], 1.25)); post.userData.photoHide = true; scene.add(post); });
 
   // ---- buildings ----
   const shells = [];
@@ -330,6 +339,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     const short = b.letters && b.letters.length && b.letters.length <= 2 && b.letters.every((l) => l.length <= 2);
     const label = textSprite(short ? b.letters.join(' / ') : b.name, { size: 72, bg: 'rgba(255,255,255,0.85)', worldHeight: short ? 7 : 4 });
     label.position.copy(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, b.height + 5)); scene.add(label); screenLabel(label, short ? 24 : 17, 3 + Math.min(4, (L * Wd) / 2000));
+    anchor(label, (b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, 5);
   });
 
   // ---- units ----
@@ -357,7 +367,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     // An angled stall from the as-built plans turns about its center (rot:
     // degrees counter-clockwise in u,v; W maps u,v to x,-z, so that is rotation.y).
     const rot = u.rot ? (u.rot * Math.PI) / 180 : 0;
-    const r = { u, i, pos, scale, rot, h, door: null, visible: true, lift: 0, form, vis: null };
+    const r = { u, i, pos, scale, rot, h, door: null, visible: true, ours: true, lift: 0, form, vis: null, unplaced: unplacedZones.has(u.b), s: { u: pos.x, v: -pos.z, sy: null } };
     if (u.k !== 'park' && b) {
       let dpos, dscale;
       if (u.door === 'w' || u.door === 'e') {   // rows that run across the frame: the door is on a u face
@@ -431,13 +441,15 @@ export function createSiteModelViewer(container, model, options = {}) {
   function placeInstance(r) {
     tmpQ.setFromAxisAngle(UP, r.rot); tmpV.copy(r.pos); tmpV.y += yOff(r);
     tmpM.compose(tmpV, tmpQ, r.visible ? r.scale : ZERO); unitInst.setMatrixAt(r.i, tmpM);
+    // Our own boxes and doors (r.ours): under Google's mesh only inside an opened building.
+    if (r.vis || r.door) { tmpM.compose(tmpV, tmpQ, r.visible && r.ours ? r.scale : ZERO); }
     if (r.vis) {
       if (r.vis.tint != null) vis.tint.setMatrixAt(r.vis.tint, tmpM);
       if (r.vis.box != null) vis.box.setMatrixAt(r.vis.box, tmpM);
       if (r.vis.inner != null) vis.inner.setMatrixAt(r.vis.inner, tmpM);
-      if (r.vis.roof != null) { tmpV.y += r.h / 2 + 0.025; tmpS.set(r.scale.x * 0.985, 0.04, r.scale.z * 0.97); tmpM.compose(tmpV, tmpQ, r.visible ? tmpS : ZERO); vis.roof.setMatrixAt(r.vis.roof, tmpM); }
+      if (r.vis.roof != null) { tmpV.y += r.h / 2 + 0.025; tmpS.set(r.scale.x * 0.985, 0.04, r.scale.z * 0.97); tmpM.compose(tmpV, tmpQ, r.visible && r.ours ? tmpS : ZERO); vis.roof.setMatrixAt(r.vis.roof, tmpM); }
     }
-    if (r.door) { tmpV.copy(r.door.pos); tmpV.y += yOff(r); tmpM.compose(tmpV, tmpQ, r.visible ? r.door.scale : ZERO); doorInst.setMatrixAt(r.door.at, tmpM); }
+    if (r.door) { tmpV.copy(r.door.pos); tmpV.y += yOff(r); tmpM.compose(tmpV, tmpQ, r.visible && r.ours ? r.door.scale : ZERO); doorInst.setMatrixAt(r.door.at, tmpM); }
   }
   const matricesChanged = () => { unitInst.instanceMatrix.needsUpdate = true; doorInst.instanceMatrix.needsUpdate = true; ['tint', 'box', 'roof', 'inner'].forEach((k) => { if (vis[k]) vis[k].instanceMatrix.needsUpdate = true; }); };
   recs.forEach(placeInstance);
@@ -447,16 +459,56 @@ export function createSiteModelViewer(container, model, options = {}) {
   const colCur = new Float32Array(N * 3); const colTo = new Float32Array(N * 3); let colorsMoving = false;
   recs.forEach((r) => unitInst.setColorAt(r.i, tmpC.setHex(KIND_COLORS.neutral)));
   /** Where a unit's box sits now (exploded floors included). */
-  const unitTop = (r) => new THREE.Vector3(r.pos.x, r.pos.y + yOff(r) + r.h / 2, r.pos.z);
+  const unitTop = (r) => (onMesh(r) ? new THREE.Vector3(r.pos.x, r.s.sy + photoreal.offsetY() + 1.2, r.pos.z) : new THREE.Vector3(r.pos.x, r.pos.y + yOff(r) + r.h / 2, r.pos.z));
+  /** Under Google's mesh, a unit not drawn by us (not in an opened building) stands on the sampled surface. */
+  const onMesh = (r) => !!(photo && photoreal && r.s.sy != null && !(r.form === 'interior' && r.open));
 
-  /** Under Google's mesh: no container boxes or shelter roofs of our own (the
-   *  real ones are in the mesh); status tints and roof plates draw on top of it. */
+  // Realistic 3D (Google's mesh, Oct 20 2026): the mesh already shows the real
+  // RVs, shelters, containers and buildings, so none of ours are drawn. Each
+  // unit is a small round status marker - a white puck with the legend color on
+  // top and a soft dark halo - standing on the real surface under the unit's
+  // center (sampled from the mesh, sampleSurface), a readable size at any zoom.
+  // Unmapped units (no known position) get none. Picking uses the puck.
+  const mk = { recs: [], group: new THREE.Group(), base: null, top: null, halo: null };
+  if (real) {
+    mk.recs = recs.filter((r) => !r.unplaced);
+    const n = Math.max(1, mk.recs.length);
+    const puck = new THREE.CylinderGeometry(1, 1, 0.34, 28); puck.translate(0, 0.17, 0);
+    const face = new THREE.CircleGeometry(0.74, 28); face.rotateX(-Math.PI / 2); face.translate(0, 0.35, 0);
+    const ring = new THREE.RingGeometry(0.96, 1.32, 28); ring.rotateX(-Math.PI / 2); ring.translate(0, 0.02, 0);
+    const inst = (g, m) => { const x = new THREE.InstancedMesh(g, m, n); x.count = mk.recs.length; x.frustumCulled = false; mk.group.add(x); return x; };
+    mk.halo = inst(ring, new THREE.MeshBasicMaterial({ color: 0x14160f, transparent: true, opacity: 0.32, depthWrite: false, toneMapped: false }));
+    mk.base = inst(puck, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
+    mk.top = inst(face, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
+    mk.halo.renderOrder = 3; mk.base.renderOrder = 4; mk.top.renderOrder = 5;
+    mk.recs.forEach((r, k) => { r.mi = k; mk.top.setColorAt(k, tmpC.setHex(KIND_COLORS.neutral)); });
+    mk.group.visible = false; scene.add(mk.group);
+  }
+  const markerQ = new THREE.Quaternion(); const markerP = new THREE.Vector3(); const markerS = new THREE.Vector3();
+  /** Size and stand every marker for this frame: ~1.4 m across, never under ~11 px or over ~40 px on screen. */
+  function placeMarkers() {
+    if (!mk.base) return;
+    const off = photoreal ? photoreal.offsetY() : 0; const k = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / (el.clientHeight || 1);
+    mk.recs.forEach((r, i) => {
+      const y = r.s.sy;
+      if (!r.mshow || y == null) { tmpM.compose(ZERO, markerQ, ZERO); }
+      else {
+        markerP.set(r.pos.x, y + off + 0.04, r.pos.z); const mpp = camera.position.distanceTo(markerP) * k;
+        let sc = Math.min(Math.max(0.7, 5.5 * mpp), 20 * mpp); if (hovered && hovered.n === r.u.n) sc *= 1.35;
+        tmpM.compose(markerP, markerQ, markerS.set(sc, sc, sc));
+      }
+      mk.halo.setMatrixAt(i, tmpM); mk.base.setMatrixAt(i, tmpM); mk.top.setMatrixAt(i, tmpM);
+    });
+    [mk.halo, mk.base, mk.top].forEach((m) => { m.instanceMatrix.needsUpdate = true; });
+  }
+
+  /** Switches between Google's mesh and our own drawing of the site (also back, when the mesh cannot load). */
   function applyPhotoMode() {
     if (!real) return;
-    if (vis.box) vis.box.visible = !photo;
-    [vis.tint, vis.roof, vis.lines].forEach((m) => { if (m) { m.material.depthTest = !photo; m.material.needsUpdate = true; } });
-    if (vis.lines) vis.lines.visible = !photo;
-    scene.children.forEach((c) => { if (c.userData.canopy || c.userData.canopyPosts) c.visible = !photo; });
+    [vis.box, vis.tint, vis.roof, vis.lines].forEach((m) => { if (m) m.visible = !photo; });
+    scene.traverse((c) => { if (c.userData.canopy || c.userData.canopyPosts || c.userData.photoHide) c.visible = !photo; });
+    mk.group.visible = photo;
+    anchors.forEach((a) => { if (!photo) a.obj.position.y = a.y0; });
     scene.fog.density = photo ? 0.00012 : 0.00021;
     restyle(true);
   }
@@ -465,10 +517,10 @@ export function createSiteModelViewer(container, model, options = {}) {
   if (model.gates && model.gates.length && model.frame && model.frame.north) {
     const g = model.gates[0].uv; const n = model.frame.north; const at = [g[0] + 30, g[1] + 2];
     const arrow = new THREE.Mesh(new THREE.ConeGeometry(1.6, 7, 12), new THREE.MeshLambertMaterial({ color: 0x1f6f4a }));
-    arrow.position.copy(W(at[0], at[1], 0.6)); arrow.lookAt(W(at[0] + n[0] * 10, at[1] + n[1] * 10, 0.6)); arrow.rotateX(Math.PI / 2); scene.add(arrow);
-    const nl = textSprite('N', { size: 64, bg: 'rgba(255,255,255,0.85)', worldHeight: 3 }); nl.position.copy(W(at[0] + n[0] * 6, at[1] + n[1] * 6, 3)); scene.add(nl);
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(15.24, 0.5, 1.2), new THREE.MeshLambertMaterial({ color: 0x1d1f1a })); bar.position.copy(W(at[0] + 8, at[1] - 8, 0.3)); scene.add(bar);
-    const sl = textSprite('50 ft', { size: 48, bg: 'rgba(255,255,255,0.85)', worldHeight: 2.6 }); sl.position.copy(W(at[0] + 8, at[1] - 8, 2.2)); scene.add(sl);
+    arrow.position.copy(W(at[0], at[1], 0.6)); arrow.lookAt(W(at[0] + n[0] * 10, at[1] + n[1] * 10, 0.6)); arrow.rotateX(Math.PI / 2); arrow.userData.photoHide = true; scene.add(arrow);
+    const nl = textSprite('N', { size: 64, bg: 'rgba(255,255,255,0.85)', worldHeight: 3 }); nl.position.copy(W(at[0] + n[0] * 6, at[1] + n[1] * 6, 3)); nl.userData.photoHide = true; scene.add(nl);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(15.24, 0.5, 1.2), new THREE.MeshLambertMaterial({ color: 0x1d1f1a })); bar.position.copy(W(at[0] + 8, at[1] - 8, 0.3)); bar.userData.photoHide = true; scene.add(bar);
+    const sl = textSprite('50 ft', { size: 48, bg: 'rgba(255,255,255,0.85)', worldHeight: 2.6 }); sl.position.copy(W(at[0] + 8, at[1] - 8, 2.2)); sl.userData.photoHide = true; scene.add(sl);
   }
 
   // ---- selection furniture ----
@@ -488,6 +540,7 @@ export function createSiteModelViewer(container, model, options = {}) {
   }
   function showHover(unit) {
     if (!hoverBox) return; const r = unit && recOf[unit.n];
+    if (photo && r && r.mshow) { hoverBox.visible = false; return; }   // the marker itself grows (placeMarkers)
     if (!r || unit.n === state.selected || !r.visible) { hoverBox.visible = false; return; }
     hoverBox.visible = true; hoverBox.position.copy(r.pos); hoverBox.position.y += yOff(r); hoverBox.quaternion.setFromAxisAngle(UP, r.rot);
     hoverBox.scale.set(r.scale.x + 0.15, Math.max(0.12, r.h + 0.06), r.scale.z + 0.15);
@@ -517,6 +570,20 @@ export function createSiteModelViewer(container, model, options = {}) {
     });
   }
   let pinLabel = null; let pinGeo = null; let dotTex = null; let shadowTex = null;
+  /** A thin flat outline of a unit's footprint at height y (drawn over the mesh). */
+  function footprintOutline(r, y) {
+    const c = Math.cos(r.rot), sn = Math.sin(r.rot); const hx = r.scale.x / 2 + 0.1, hz = r.scale.z / 2 + 0.1; const half = 0.08;
+    const cs = [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]].map(([a, b]) => [r.pos.x + a * c + b * sn, r.pos.z - a * sn + b * c]);
+    const pos = []; const idx = [];
+    for (let e = 0; e < 4; e++) {
+      const a = cs[e], b = cs[(e + 1) % 4]; const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; const nx = (-(b[1] - a[1]) / len) * half, nz = ((b[0] - a[0]) / len) * half;
+      const o = pos.length / 3; [[a[0] + nx, a[1] + nz], [a[0] - nx, a[1] - nz], [b[0] + nx, b[1] + nz], [b[0] - nx, b[1] - nz]].forEach((q) => pos.push(q[0], y, q[1]));
+      idx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xff7a00, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+    m.renderOrder = 8; return m;
+  }
   function updateBeacon() {
     clearGroup(beacon); pinLabel = null;
     if (!state.selected) return; const u = byName[state.selected]; const p = unitTop(recOf[u.n]); p.y -= recOf[u.n].h / 2;
@@ -524,16 +591,21 @@ export function createSiteModelViewer(container, model, options = {}) {
       // A slim map pin that keeps one size on screen (~40 px, scaled in the loop):
       // a lathe-turned head and stem, a white eye, the unit chip above and a soft
       // shadow on the ground under it. It stands on the unit (a container's roof).
-      const r = recOf[u.n]; const pin = new THREE.Group(); pin.position.set(p.x, p.y + r.h + Math.min(0.6, r.h * 0.3) + 0.05, p.z); pin.userData.pin = true; pin.userData.real = true; beacon.add(pin);
+      const r = recOf[u.n];
+      // Under Google's mesh the pin stands on the real surface (an RV's roof, a
+      // shelter roof, the lot) and a thin orange outline marks the footprint there.
+      const mesh = onMesh(r); const top = mesh ? r.s.sy + photoreal.offsetY() : p.y + r.h + Math.min(0.6, r.h * 0.3);
+      if (mesh) beacon.add(footprintOutline(r, top + 0.12));
+      const pin = new THREE.Group(); pin.position.set(p.x, top + 0.05, p.z); pin.userData.pin = true; pin.userData.real = true; beacon.add(pin);
       const body = new THREE.Mesh(pinGeo || (pinGeo = new THREE.LatheGeometry(pinProfile(), 36)), new THREE.MeshStandardMaterial({ color: 0xec5f17, roughness: 0.42, metalness: 0.05, emissive: 0x401400 }));
       body.castShadow = false; pin.add(body);
       const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex || (dotTex = radialTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0)')), depthTest: false, toneMapped: false }));
       eye.scale.setScalar(0.3); eye.position.set(0, 0.68, 0); eye.renderOrder = 13; pin.add(eye);
       const lab = textSprite(u.n, { size: 64, mono: true, bg: 'rgba(255,255,255,0.96)', color: '#1d1f1a', worldHeight: 0.42, depthTest: false }); lab.position.set(0, 1.36, 0); lab.renderOrder = 12; pin.add(lab); pinLabel = lab;
       const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shadowTex || (shadowTex = radialTexture('rgba(0,0,0,0.5)', 'rgba(0,0,0,0)')), transparent: true, depthWrite: false, toneMapped: false }));
-      shadow.rotation.x = -Math.PI / 2; shadow.position.set(p.x, p.y + r.h + 0.08, p.z); shadow.userData.shadow = true; shadow.renderOrder = 4; beacon.add(shadow);
+      shadow.rotation.x = -Math.PI / 2; shadow.position.set(p.x, (mesh ? top : p.y + r.h) + 0.08, p.z); shadow.userData.shadow = true; shadow.renderOrder = 4; beacon.add(shadow);
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.5, 48), new THREE.MeshBasicMaterial({ color: 0xff7a00, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
-      ring.rotation.x = -Math.PI / 2; ring.position.set(p.x, p.y + r.h + 0.1, p.z); ring.userData.pulse = true; beacon.add(ring);
+      ring.rotation.x = -Math.PI / 2; ring.position.set(p.x, (mesh ? top : p.y + r.h) + 0.1, p.z); ring.userData.pulse = true; beacon.add(ring);
       return;
     }
     {   // a map pin over the unit, like a pin on a delivery map; sized to the zoom in the loop (both looks)
@@ -571,31 +643,42 @@ export function createSiteModelViewer(container, model, options = {}) {
     const u = byName[state.selected]; const plan = planRoute(model, u, routeSteps(model, u));
     if (!plan || plan.points.length < 2) return;
     route = plan; const pts = plan.points; const y = illus ? 0.32 : 0.2; const half = 0.55;
+    // Under Google's mesh the lot is not flat at y = 0: the ribbon follows the real
+    // surface, sampled every ~3 m along it (and draws over the mesh).
+    const onReal = photo && photoreal; const off = onReal ? photoreal.offsetY() : 0;
+    const yAt = (q) => { if (!onReal) return y; const h = photoreal.surfaceAt(q[0], q[1]); return (h == null ? 0 : h + off) + 0.25; };
+    const line = [];
+    pts.forEach((q, i) => {
+      if (onReal && i) { const a = pts[i - 1]; const n = Math.ceil(Math.hypot(q[0] - a[0], q[1] - a[1]) / 3); for (let k = 1; k < n; k++) line.push([a[0] + ((q[0] - a[0]) * k) / n, a[1] + ((q[1] - a[1]) * k) / n]); }
+      line.push(q);
+    });
+    const ly = line.map(yAt);
     const pos = []; const uv = []; const idx = []; let dist = 0;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i], b = pts[i + 1]; const len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 0.01) continue;
+    for (let i = 0; i < line.length - 1; i++) {
+      const a = line[i], b = line[i + 1]; const len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 0.01) continue;
       const nx = -(b[1] - a[1]) / len * half, ny = (b[0] - a[0]) / len * half; const base = pos.length / 3;
-      [[a[0] + nx, a[1] + ny], [a[0] - nx, a[1] - ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny]].forEach((q) => pos.push(q[0], y, -q[1]));
+      [[a[0] + nx, a[1] + ny, ly[i]], [a[0] - nx, a[1] - ny, ly[i]], [b[0] + nx, b[1] + ny, ly[i + 1]], [b[0] - nx, b[1] - ny, ly[i + 1]]].forEach((q) => pos.push(q[0], q[2], -q[1]));
       uv.push(dist / 2.4, 1, dist / 2.4, 0, (dist + len) / 2.4, 1, (dist + len) / 2.4, 0); dist += len;
       idx.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
     }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
     routeTex = routeTexture();
-    const ribbon = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: routeTex, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
+    // Under Google's mesh the lot is not flat at y = 0: the ribbon draws over it.
+    const ribbon = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: routeTex, transparent: true, opacity: 0.8, depthWrite: false, depthTest: !photo, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
     ribbon.renderOrder = 5; routeGroup.add(ribbon);
     routeReveal = { mesh: ribbon, total: idx.length, t0: performance.now() };
     if (reduceMotion) { routeReveal = null; } else g.setDrawRange(0, 0);
     // joints: round caps so the turns read as one line
-    for (let i = 1; i < pts.length - 1; i++) { const d = new THREE.Mesh(new THREE.CircleGeometry(half, 16), ribbon.material); d.rotation.x = -Math.PI / 2; d.position.copy(W(pts[i][0], pts[i][1], y)); d.renderOrder = 5; routeGroup.add(d); }
+    for (let i = 1; i < pts.length - 1; i++) { const d = new THREE.Mesh(new THREE.CircleGeometry(half, 16), ribbon.material); d.rotation.x = -Math.PI / 2; d.position.copy(W(pts[i][0], pts[i][1], yAt(pts[i]))); d.renderOrder = 5; routeGroup.add(d); }
     plan.stops.forEach((s, i) => {
       // The unit itself already carries the orange pin: only the stops before it get a marker.
       if (s.end) return;
       // Realistic: the slim pin is short - a stop right beside the unit would cover it.
       if (real && i > 0 && Math.hypot(s.uv[0] - (u.u + u.wu / 2), s.uv[1] - (u.v + u.dv / 2)) < 12) return;
       const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.2, 24), new THREE.MeshLambertMaterial({ color: 0x2f7de1 }));
-      disc.position.copy(W(s.uv[0], s.uv[1], y + 0.1)); routeGroup.add(disc);
+      const sy = yAt(s.uv) - y; disc.position.copy(W(s.uv[0], s.uv[1], sy + y + 0.1)); routeGroup.add(disc);
       const l = textSprite(String(i + 1), { size: 48, bg: 'rgba(47,125,225,0.95)', color: '#fff', worldHeight: 1.8, depthTest: false });
-      l.position.copy(W(s.uv[0], s.uv[1], y + 1.8)); l.renderOrder = 11; routeGroup.add(l);
+      l.position.copy(W(s.uv[0], s.uv[1], sy + y + 1.8)); l.renderOrder = 11; routeGroup.add(l);
     });
   }
 
@@ -606,8 +689,9 @@ export function createSiteModelViewer(container, model, options = {}) {
     const selB = state.selected ? byName[state.selected].b : null;
     const explode = !!state.xray && !state.level;
     const moved = explode !== state.explode; state.explode = explode;
+    const openB = {};
     shells.forEach((m) => {
-      const b = m.userData.building; const open = xray || selB === b.id || (state.level && b.floors > 1);
+      const b = m.userData.building; const open = xray || selB === b.id || (state.level && b.floors > 1); openB[b.id] = !!open;
       m.material.forEach((mm) => { mm.transparent = open; mm.opacity = open ? 0.16 : 1; mm.depthWrite = !open; }); if (m.userData.cap) m.userData.cap.visible = !open;
       // Under Google's mesh the real building is already there: our shell shows only when opened.
       m.visible = !photo || !!open; if (m.userData.edges) m.userData.edges.visible = m.visible;
@@ -620,21 +704,31 @@ export function createSiteModelViewer(container, model, options = {}) {
       // A chosen level cuts away the floors above it; the floors below stay, dimmed.
       const lvlOk = !state.level || !multi || u.f <= state.level;
       const show = lvlOk && (!b || u.f === 1 || xray || selB === u.b || (multi && !!state.level)) && state.selected !== u.n;
-      if (show !== r.visible || moved) { r.visible = show; placeInstance(r); }
+      // Under Google's mesh our own unit boxes show only inside an opened building; the rest are markers.
+      r.open = !!openB[u.b]; const ours = !photo || (r.form === 'interior' && r.open);
+      if (show !== r.visible || ours !== r.ours || moved) { r.visible = show; r.ours = ours; placeInstance(r); }
+      r.mshow = photo && show && !ours && !r.unplaced;
       let c = baseUnitColor(u, state.mode, state.colors, neutral, neutralPark);
+      if (r.mi != null) {   // the marker wears the legend's own color (no photo muting)
+        let mc = c; if (multi && state.level && u.f < state.level) mc = mixHex(mc, 0xcfccc4, 0.6);
+        if (focus && state.selected !== u.n) mc = mixHex(mc, u.b === selB ? 0xd8d5cc : 0xbdbab2, u.b === selB ? 0.35 : 0.55);
+        mk.top.setColorAt(r.mi, tmpC.setHex(mc));
+      }
       if (real) c = mutedTint(c, 0.28);   // same hue as the legend, calmer over the photo
       if (multi && state.level && u.f < state.level) c = mixHex(c, 0xcfccc4, 0.6);
       if (focus && state.selected !== u.n) c = mixHex(c, u.b === selB ? 0xd8d5cc : 0xbdbab2, u.b === selB ? 0.35 : 0.55);
       tmpC.setHex(c); colTo[r.i * 3] = tmpC.r; colTo[r.i * 3 + 1] = tmpC.g; colTo[r.i * 3 + 2] = tmpC.b;
     });
     matricesChanged();
+    if (mk.top && mk.top.instanceColor) mk.top.instanceColor.needsUpdate = true;
     if (vis.tint) vis.tint.material.opacity = state.mode === 'customer' ? 0.22 : photo ? 0.5 : 0.4;
     if (snap || reduceMotion) { colCur.set(colTo); pushColors(); } else colorsMoving = true;
     const sel = state.selected ? recOf[state.selected] : null;
     if (sel) {
       const b = buildings[sel.u.b]; const lvlOk = !state.level || !b || b.floors === 1 || sel.u.f <= state.level;
-      selMesh.visible = lvlOk; selMesh.quaternion.setFromAxisAngle(UP, sel.rot); selMesh.scale.copy(sel.scale).multiplyScalar(1.04);
-      selDoor.visible = lvlOk && !!sel.door; if (sel.door) { selDoor.scale.copy(sel.door.scale); selDoor.quaternion.copy(selMesh.quaternion); }
+      // Under Google's mesh the chosen stall / container is the pin and its outline, not a box.
+      selMesh.visible = lvlOk && (!photo || (sel.form === 'interior' && !!openB[sel.u.b])); selMesh.quaternion.setFromAxisAngle(UP, sel.rot); selMesh.scale.copy(sel.scale).multiplyScalar(1.04);
+      selDoor.visible = selMesh.visible && !!sel.door; if (sel.door) { selDoor.scale.copy(sel.door.scale); selDoor.quaternion.copy(selMesh.quaternion); }
       selLift = 0;
     } else { selMesh.visible = false; selDoor.visible = false; }
     placeSelected();
@@ -671,6 +765,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     }
     const close = ctrl.radius < 70; const near = ctrl.radius < 170;
     for (const sp of [...labelOrder, ...unitLabelList]) {
+      if (photo && sp.userData.photoHide) { sp.visible = false; continue; }
       if (sp.userData.unit) {   // a unit number: neighbors from mid zoom, the whole row only close up
         const rec = recOf[sp.userData.unit.n];
         if (!rec || !rec.visible || !(close || (near && sp.userData.near))) { sp.visible = false; continue; }
@@ -748,10 +843,18 @@ export function createSiteModelViewer(container, model, options = {}) {
   // ---- picking ----
   const ray = new THREE.Raycaster(); const ndc = new THREE.Vector2();
   function cast(e, list) { const r = el.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera); return ray.intersectObjects(list, false); }
-  const pickList = () => (selMesh.visible ? [unitInst, selMesh] : [unitInst]);
+  const pickList = () => {
+    const list = photo && mk.base ? [mk.base] : [unitInst];
+    if (photo && mk.base) mk.base.computeBoundingSphere();   // the markers move and resize every frame
+    return selMesh.visible ? list.concat(selMesh) : list;
+  };
   selMesh.userData.selected = true;
   /** The unit a ray hit: an instance id, or the raised selected box. */
-  const unitOfHit = (h) => (!h ? null : h.object === selMesh ? byName[state.selected] : h.object === unitInst && recs[h.instanceId] && recs[h.instanceId].visible ? recs[h.instanceId].u : null);
+  const unitOfHit = (h) => {
+    if (!h) return null; if (h.object === selMesh) return byName[state.selected];
+    const r = h.object === unitInst ? recs[h.instanceId] : h.object === mk.base ? mk.recs[h.instanceId] : null;
+    return r && (h.object === mk.base ? r.mshow : r.visible) ? r.u : null;
+  };
   const firstUnit = (hits) => { for (const h of hits) { const u = unitOfHit(h); if (u) return { h, u }; } return null; };
   let hovered = null; let lastHoverAt = 0;
   function hover(e) {
@@ -768,7 +871,12 @@ export function createSiteModelViewer(container, model, options = {}) {
     if (state.placing) {
       const hits = cast(e, pickList().concat(shells, groundHits)); const uh = firstUnit(hits);
       const hit = uh ? uh.h : hits.find((h) => h.object !== unitInst && h.object !== selMesh);
-      if (hit && opts.onPlacePin) { const u = uh ? uh.u : null; const b = hit.object.userData.building; opts.onPlacePin({ u: +hit.point.x.toFixed(2), v: +(-hit.point.z).toFixed(2), y: +hit.point.y.toFixed(2), unit: u ? u.n : '', building: u ? u.b : b ? b.id : '' }); }
+      if (hit && opts.onPlacePin) {
+        const u = uh ? uh.u : null; const b = hit.object.userData.building;
+        // Under Google's mesh the pin goes on the real surface at that spot.
+        let y = hit.point.y; if (photo && photoreal && !b) { const sy = photoreal.surfaceAt(hit.point.x, -hit.point.z); if (sy != null) y = sy + photoreal.offsetY(); }
+        opts.onPlacePin({ u: +hit.point.x.toFixed(2), v: +(-hit.point.z).toFixed(2), y: +y.toFixed(2), unit: u ? u.n : '', building: u ? u.b : b ? b.id : '' });
+      }
       return;
     }
     const hit = firstUnit(cast(e, pickList()));
@@ -835,10 +943,38 @@ export function createSiteModelViewer(container, model, options = {}) {
       // Clip planes follow the zoom: close to the ground for detail, far enough for the horizon.
       const near = Math.max(0.3, Math.min(8, ctrl.radius * 0.006)); if (Math.abs(near - camera.near) > 0.05) { camera.near = near; camera.updateProjectionMatrix(); }
       if (sky) sky.position.copy(camera.position);
-      if (photoreal) { photoreal.update(now); if (now - lastCredit > 1000) { lastCredit = now; const c = photoreal.attribution(); if (c !== credit) { credit = c; if (opts.onAttribution) opts.onAttribution(c); } } }
+      if (photoreal) { photoreal.update(now); if (photo) { sampleSurface(now); placeMarkers(); } if (now - lastCredit > 1000) { lastCredit = now; const c = photoreal.attribution(); if (c !== credit) { credit = c; if (opts.onAttribution) opts.onAttribution(c); } } }
     }
     renderer.render(scene, camera); }
   let lastCredit = 0; let credit = '';
+
+  // The real surface under every marker and label, from Google's mesh: rays
+  // straight down, a few milliseconds' worth a frame, cached per unit. A pass
+  // runs again whenever the mesh changes (tiles load or refine), so the heights
+  // sharpen as the finer tiles arrive and then it goes quiet.
+  const surfList = mk.recs.map((r) => r.s).concat(anchors.map((a) => a.s));
+  const surf = { ver: -1, i: 0, running: false, again: false, changed: false, at: 0, off: 0 };
+  function sampleSurface(now) {
+    const v = photoreal.version();
+    if (v !== surf.ver) { surf.ver = v; if (surf.running) surf.again = true; else { surf.running = true; surf.i = 0; } }
+    if (surf.running) {
+      const t0 = performance.now(); let n = 0;
+      while (surf.i < surfList.length && (n < 8 || performance.now() - t0 < 3)) {
+        const t = surfList[surf.i++]; n++; const y = photoreal.surfaceAt(t.u, t.v);
+        if (y != null && (t.sy == null || Math.abs(y - t.sy) > 0.03)) { t.sy = y; surf.changed = true; }
+      }
+      if (surf.i >= surfList.length) { if (surf.again) { surf.again = false; surf.i = 0; } else surf.running = false; }
+    }
+    const off = photoreal.offsetY(); if (Math.abs(off - surf.off) > 0.02) { surf.off = off; surf.changed = true; }
+    // Labels, the chosen unit's pin and the Needs Attention badges follow (at most twice a second).
+    if (surf.changed && now - surf.at > 500) {
+      surf.changed = false; surf.at = now;
+      anchors.forEach((a) => { if (a.s.sy != null) a.obj.position.y = a.s.sy + off + a.dy; });
+      unitLabelList.forEach((sp) => { const r = recOf[sp.userData.unit.n]; if (r) { sp.position.copy(unitTop(r)); sp.position.y += 0.4; } });
+      if (state.selected) updateBeacon();
+      if (Object.keys(state.markers).length) renderMarkers();
+    }
+  }
   if (diorama) diorama.setParked(units, state.mode === 'owner');
   resize(); applyCamera(); restyle(true); if (photo) applyPhotoMode(); raf = requestAnimationFrame(loop);
 

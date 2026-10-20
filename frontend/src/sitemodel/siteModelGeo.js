@@ -110,6 +110,42 @@ export function enuToWorld(frame) {
   return [g.su, g.cu, 0, 0, 0, 1, g.cu, -g.su, 0];
 }
 
+/** WGS84 meters per degree of longitude / latitude at `lat` (the true ground
+ *  scale; the model's mPerDegLon / mPerDegLat are the build's rounder numbers). */
+export function wgs84MetersPerDeg(lat) {
+  const a = 6378137, e2 = 0.00669437999014; const r = (lat * Math.PI) / 180; const s = Math.sin(r);
+  const w = Math.sqrt(1 - e2 * s * s); const k = Math.PI / 180;
+  return [k * (a * Math.cos(r)) / w, k * (a * (1 - e2)) / (w * w * w)];
+}
+
+/** Model meters per true meter east and north. The model was laid out with the
+ *  frame's mPerDeg numbers, so true east / north meters (Google's globe) scale by
+ *  these to land on the model's u / v: ~0.1% east at Temecula, 0.2 m across the lot. */
+export function enuScale(frame) {
+  const f = frame || {}; const lat0 = f.lat0 ?? 0; const [tLon, tLat] = wgs84MetersPerDeg(lat0);
+  const mLon = f.mPerDegLon || 111320 * Math.cos((lat0 * Math.PI) / 180) || tLon, mLat = f.mPerDegLat || 110900;
+  return [mLon / tLon, mLat / tLat];
+}
+
+/** Row-major 3x3 from true east / north / up meters straight to the model's
+ *  world axes: enuToWorld times the mean enuScale. One uniform scale, because
+ *  the tiles renderer needs one for its screen-space error; the leftover east /
+ *  north difference (~0.05%) is under 0.1 m across a 400 m lot. */
+export function enuToModelWorld(frame) {
+  const [sE, sN] = enuScale(frame); const k = (sE + sN) / 2;
+  return enuToWorld(frame).map((x) => x * k);
+}
+
+/** Zones that hold units with no known position (parked off the lot by the
+ *  build: Temecula's "Unmapped Stalls", Fairfield's "Not On Site Plan"). */
+export function unplacedZoneIds(model) {
+  const out = new Set();
+  ((model && model.zones) || []).forEach((z) => {
+    if (/^(UNMAPPED|HOLD)$/i.test(z.id || '') || /unmapped|not on (the )?(site )?plan/i.test(z.name || '')) out.add(z.id);
+  });
+  return out;
+}
+
 /** The kind of 3D object a unit is drawn as in the realistic look. */
 export function unitForm(u, buildings) {
   if (u.k === 'park') return 'stall';

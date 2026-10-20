@@ -14,9 +14,17 @@
 // the colors and Needs Attention. The facility comes from the page's Facility
 // menu; this tab never offers its own picker.
 //
+// Oct 20 2026 (Visesh: "this looks glitchy when you have to scroll down to see
+// options - make this screen better and organized"): no bar above the map any
+// more. The Layer dropdown and Customer Link Settings (a gear) sit on the map
+// top-right, the layer's explanation sits behind the legend's info button, the
+// one search (units here, tenants and other facilities through Cubby) sits on
+// the map top-left, and Property-Wide maintenance moved into the side panel.
+// The map and panel fill the screen to its bottom edge, so nothing scrolls.
+//
 // Loaded lazily from FacilityOperations: three.js stays out of the Operations chunk.
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Layers } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Layers, Settings } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState, SkeletonBlocks } from '../components/AsyncState';
 import WidgetBoundary from '../components/WidgetBoundary';
@@ -25,6 +33,8 @@ import { Modal } from '../tasks/components';
 import { PropertyTicketComposer, PropertyTicketDrawer } from '../asset/components/maintenance/ticketMounts';
 import { SiteModelPanel, siteModelImages } from '../sitemodel/SiteModelPanel.jsx';
 import SectionPicker from './SectionPicker';
+import { normalizeQuery } from '../sitemodel/unitQuery.js';
+import { reasonLabel } from '../sitemodel/siteModelViewer.js';
 import { DAYS_STOPS, LAYERS, MAINT, MARKET, QUIET, UNKNOWN, hoverFact, layerColors, layerCounts, daysVacantOf, occupancyOf } from './siteMapLayers';
 
 const LAYER_KEY = 'nexus.ops.siteMap.layer';
@@ -44,21 +54,24 @@ export function stayLength(days) {
 const LEASE_WORD = { current: 'Current', 'past-due': 'Past Due', overlocked: 'Overlocked', 'moving-out': 'Moving Out' };
 const TICKET_WORD = { new: 'New', open: 'Open', in_progress: 'In Progress', waiting_user: 'Waiting on User', waiting_vendor: 'Waiting on Vendor', on_hold: 'On Hold', resolved: 'Resolved', closed: 'Closed', reopened: 'Reopened' };
 
-/** The legend for the layers that are not occupancy (occupancy's legend is the Inventory tiles). */
+/** The map legend for the layers that are not occupancy (occupancy draws its
+ *  own swatches; the counts are the side panel's Inventory tiles). */
 function Legend({ layer, counts, maint }) {
   const item = (c, l, n) => <span key={l}>{swatch(c)}{l}{n != null ? ` (${n})` : ''}</span>;
   if (layer === 'days') {
     return (
-      <div style={{ width: '100%' }}>
-        <div aria-hidden="true" style={{ height: 10, borderRadius: 5, background: `linear-gradient(90deg, ${DAYS_STOPS.map(([d, c]) => `${c} ${Math.round((d / 180) * 100)}%`).join(', ')})` }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, ...muted, marginTop: 2 }}><span>0 days</span><span>60</span><span>120</span><span>180+</span></div>
-        <div style={{ display: 'flex', gap: '6px 12px', flexWrap: 'wrap', marginTop: 4 }}>{item(UNKNOWN, 'Days Not Known', counts.unknown || 0)}{item(QUIET, 'Not Vacant')}</div>
-      </div>
+      <>
+        <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 1, width: 150 }}>
+          <span aria-hidden="true" style={{ display: 'block', height: 8, borderRadius: 4, background: `linear-gradient(90deg, ${DAYS_STOPS.map(([d, c]) => `${c} ${Math.round((d / 180) * 100)}%`).join(', ')})` }} />
+          <span style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: '#5f6358' }}><span>0 days</span><span>60</span><span>120</span><span>180+</span></span>
+        </span>
+        {item(UNKNOWN, 'Not Known', counts.unknown || 0)}{item(QUIET, 'Not Vacant')}
+      </>
     );
   }
   if (layer === 'market') return <>{item(MARKET.under, 'Under Market', counts.under || 0)}{item(MARKET.at, 'At Market', counts.at || 0)}{item(MARKET.over, 'Over Market', counts.over || 0)}{item(QUIET, 'No Market Data', counts.none || 0)}</>;
   if (layer === 'maintenance') {
-    if (!maint?.connected) return <span style={muted}>Maintenance layer not connected yet</span>;
+    if (!maint?.connected) return <span style={{ color: '#5f6358' }}>{maint ? 'Maintenance layer not connected yet' : 'Loading maintenance items...'}</span>;
     return <>{item(MAINT.urgent, 'Urgent / High')}{item(MAINT.open, 'Open Items', counts.open || 0)}{item(QUIET, 'Nothing Open')}</>;
   }
   return null;
@@ -82,7 +95,7 @@ function TenantFacts({ detail, fact, occ, days }) {
     const gap = street && t.rent ? t.rent - street : 0;
     return (
       <dl style={rowsStyle}>
-        <Row k="Tenant" strong>{t.name || 'Not named'}</Row>
+        <Row k="Name" strong>{t.name || 'Not named'}</Row>
         <Row k="Moved In">{t.moveIn ? `${formatDate(t.moveIn)} · ${stayLength(t.daysInUnit)}` : '-'}</Row>
         <Row k="Rent">{money(t.rent)}/mo{street ? <span style={muted}> vs street {money(street)}{gap ? ` (${money(Math.abs(gap))} ${gap < 0 ? 'under' : 'over'})` : ''}</span> : null}</Row>
         <Row k="Balance" tone={t.balance > 0 ? '#b42318' : undefined} strong={t.balance > 0}>{t.balance > 0 ? `${money(t.balance)} past due · ${t.daysPastDue} day${t.daysPastDue === 1 ? '' : 's'}` : 'Paid up'}</Row>
@@ -132,15 +145,14 @@ function UnitDetails({ u, fact, layer, maint, facilityId, onOpenTicket, onReport
   );
   return (
     <div>
-      <Head right={cubbyUrl ? <a className="ops-link" href={cubbyUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Open in Cubby ↗</a> : null}>{occ === 'leased' ? 'Tenant' : 'Vacancy'}</Head>
-      {err ? <p role="alert" style={{ fontSize: 12, color: '#c43d2f', margin: '6px 0 0' }}>{err}</p> : <TenantFacts detail={detail} fact={fact} occ={occ} days={days} />}
-
-      <Head>Pricing</Head>
-      <dl style={rowsStyle}>
-        {fact?.type ? <Row k="Pricing Group">{fact.type}</Row> : null}
-        <Row k="Vs Market" strong={layer === 'market'}>{fact?.market ? `${money(fact.rate)} vs ${money(fact.marketMedian)} median, ${fact.market === 'at' ? 'at market' : `${Math.abs(fact.marketPct || 0)}% ${fact.market}`}` : fact?.marketCount ? `Only ${fact.marketCount} competitor rate for this size` : 'No competitor rate for this size'}</Row>
-      </dl>
-      {occ === 'vacant' && typeof days === 'number' && days >= 90 && <p style={{ fontSize: 12, margin: '6px 0 0', color: '#9a3412' }}>Empty {days} days - worth a look at this unit's rate.</p>}
+      <Head right={cubbyUrl ? <a className="ops-link" href={cubbyUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Open in Cubby ↗</a> : null}>{occ === 'leased' ? 'Tenant' : occ === 'bad' ? 'Out of Service' : 'Vacancy'}</Head>
+      {err ? <p role="alert" style={{ fontSize: 12, color: '#c43d2f', margin: '6px 0 0' }}>{err}</p>
+        : occ === 'bad' ? (
+          <dl style={rowsStyle}>
+            <Row k="Reason" strong>{reasonLabel(u.why) || 'Not given'}{u.note ? ` - ${u.note}` : ''}</Row>
+            {fact ? <Row k="Street Rate">{money(fact.street)}/mo</Row> : null}
+          </dl>
+        ) : <TenantFacts detail={detail} fact={fact} occ={occ} days={days} />}
 
       <Head right={<button type="button" className="secondary-btn" onClick={() => onReport(tickets.property)} disabled={!tickets.property} title={tickets.property ? '' : 'This facility is not linked to a property in Asset Management yet'} style={{ fontSize: 12, padding: '3px 10px' }}>Report an Issue</button>}>
         Tickets{detail ? ` (${tickets.open.length} Open)` : ''}
@@ -150,12 +162,19 @@ function UnitDetails({ u, fact, layer, maint, facilityId, onOpenTicket, onReport
           {tickets.open.length ? <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>{tickets.open.map(ticketLine)}</ul>
             : <p style={{ fontSize: 12, margin: '6px 0 0', ...muted }}>No open tickets on this unit.</p>}
           {tickets.recent.length ? <>
-            <div style={{ fontSize: 11, ...muted, margin: '8px 0 2px', textTransform: 'uppercase', letterSpacing: '.05em' }}>Recently Closed</div>
+            <div style={{ fontSize: 12, fontWeight: 600, ...muted, margin: '8px 0 2px' }}>Recently Closed</div>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4, opacity: 0.8 }}>{tickets.recent.map(ticketLine)}</ul>
           </> : null}
           {otherItems.length ? <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0, fontSize: 12 }}>{otherItems.slice(0, 4).map((x) => <li key={`m-${x.id}`}><b>Maintenance</b> · {x.title}{x.opened_at ? ` · ${formatDate(x.opened_at)}` : ''}</li>)}</ul> : null}
         </>
       )}
+
+      <Head>Pricing</Head>
+      <dl style={rowsStyle}>
+        {fact?.type ? <Row k="Pricing Group">{fact.type}</Row> : null}
+        <Row k="Vs Market" strong={layer === 'market'}>{fact?.market ? `${money(fact.rate)} vs ${money(fact.marketMedian)} median, ${fact.market === 'at' ? 'at market' : `${Math.abs(fact.marketPct || 0)}% ${fact.market}`}` : fact?.marketCount ? `Only ${fact.marketCount} competitor rate for this size` : 'No competitor rate for this size'}</Row>
+      </dl>
+      {occ === 'vacant' && typeof days === 'number' && days >= 90 && <p style={{ fontSize: 12, margin: '6px 0 0', color: '#9a3412' }}>Empty {days} days - worth a look at this unit's rate.</p>}
 
       <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="button" className="secondary-btn" onClick={copy} disabled={link.status === 'busy'}>{link.status === 'copied' ? 'Copied' : 'Copy Customer Link'}</button>
@@ -232,8 +251,24 @@ function CustomerLinkSettings({ facilityId, entrance, template, onSaved, onClose
   );
 }
 
-export default function SiteMap({ facility }) {
+// Mounted beside the map (true) and in its crash fallback (false), so the page
+// knows whether the map's search box is on screen after a boundary reset too.
+function SearchHere({ on, onChange }) {
+  useEffect(() => { onChange?.(on); }, [on, onChange]);
+  return null;
+}
+function SearchGone({ onGone }) {
+  useEffect(() => { onGone?.(false); }, [onGone]);
+  return <div className="dash-card"><div className="ops-empty">The site map hit a problem. Switch facility or layer to try again.</div></div>;
+}
+
+// onMapSearch(true) once the map (and its search box) is on screen, false
+// otherwise - the page shows its own tenant/unit Lookup whenever it is false.
+export default function SiteMap({ facility, facilities = [], onPick = null, modelIds = null, onMapSearch = null }) {
   const facilityId = facility?.id || '';
+  // A search hit at another facility switches the page's Facility, then opens
+  // the unit once that facility's model is in (used once, then cleared).
+  const pendingRef = useRef(null);
   const [state, setState] = useState({ status: 'idle', data: null, error: null });
   const [maint, setMaint] = useState(null);
   const [layer, setLayerState] = useState(readLayer);
@@ -242,12 +277,19 @@ export default function SiteMap({ facility }) {
   const [report, setReport] = useState(null);
   const [reload, setReload] = useState(0);   // a ticket filed or changed from the card refreshes it
   const setLayer = (k) => { setLayerState(k); saveLayer(k); };
+  const mapShown = !!facility && state.status === 'ready';
+  useEffect(() => { onMapSearch?.(mapShown); }, [onMapSearch, mapShown]);
+  useEffect(() => () => onMapSearch?.(false), [onMapSearch]);
 
   const load = useCallback(() => {
     if (!facilityId) return undefined;
     let on = true;
     setState({ status: 'loading', data: null, error: null }); setMaint(null);
-    api.getOpsSiteMap(facilityId).then((d) => on && setState({ status: 'ready', data: d, error: null }))
+    api.getOpsSiteMap(facilityId).then((d) => {
+      if (!on) return;
+      const p = pendingRef.current; pendingRef.current = null;
+      setState({ status: 'ready', data: d, error: null, unit: p && p.facilityId === facilityId ? normalizeQuery(p.unit) : '' });
+    })
       .catch((e) => on && setState({ status: 'error', data: null, error: e }));
     api.getOpsMaintenanceMap(facilityId).then((m) => on && setMaint({ connected: true, units: m?.units || {}, property: m?.property || [] }))
       .catch((e) => on && setMaint({ connected: false, notFound: e?.status === 404 || e?.status === 405 }));
@@ -270,6 +312,15 @@ export default function SiteMap({ facility }) {
     <UnitDetails key={u.n} u={u} fact={facts[u.n]} layer={layer} maint={maint} facilityId={facilityId} reload={reload}
       onOpenTicket={(t) => setOpenTicket(t)} onReport={(p) => p && setReport({ id: p.id, name: p.name, unit: u.n })} />
   ), [facts, layer, maint, facilityId, reload]);
+  // The map search's Cubby half: tenants anywhere, units at the other facilities.
+  const remoteSearch = useCallback((q) => api.facilityOpsLookup(q).then((r) => (r?.results || []).map((h) => ({
+    ...h, here: h.facilityId === facilityId, noMap: h.facilityId !== facilityId && Array.isArray(modelIds) && !modelIds.includes(h.facilityId),
+  }))), [facilityId, modelIds]);
+  const onRemoteHit = useCallback((h) => {
+    if (!onPick || !facilities.some((f) => f.id === h.facilityId)) return;
+    pendingRef.current = { facilityId: h.facilityId, unit: h.unit };
+    onPick(h.facilityId);
+  }, [onPick, facilities]);
 
   if (!facility) {
     return (
@@ -284,26 +335,41 @@ export default function SiteMap({ facility }) {
   }
   const vacantLong = units.filter((u) => occupancyOf(u, facts[u.n]) === 'vacant' && (daysVacantOf(u, facts[u.n]) || 0) >= 90).length;
   const hint = {
-    occupancy: 'Green is leased, yellow is vacant and ready to rent, red is out of service (not leased and can\'t be rented).',
+    occupancy: 'Green is leased, yellow is vacant and ready to rent, red is out of service (not leased and can\'t be rented). The counts are the Inventory tiles beside the map.',
     days: `How long each empty unit has sat empty - the darker, the longer. ${vacantLong} vacant 90+ days.`,
     market: `Our rate (rent if leased, street rate if vacant) against competitors' median for the same size. Within ${Math.round((data.marketBand || 0.05) * 100)}% counts as at market.`,
     maintenance: maint?.connected ? 'Units with open tickets or maintenance items - red is urgent.' : maint ? 'Maintenance layer not connected yet.' : 'Loading maintenance items…',
   }[layer];
+  const toolbar = (
+    <>
+      <SectionPicker label="Layer" icon={Layers} value={layer} onChange={setLayer} className="ops-section--map"
+        options={LAYERS.map((l) => ({ value: l.key, label: l.label }))} />
+      <button type="button" className="sm-icon-btn" aria-label="Customer Link Settings" title="Customer Link Settings" onClick={() => setSettings(true)}>
+        <Settings size={16} aria-hidden="true" />
+      </button>
+    </>
+  );
+  const property = layer === 'maintenance' && maint?.connected && maint.property?.length ? maint.property : null;
+  const asideExtra = property ? (
+    <details open className="sm-fold" style={{ borderTop: '1px solid var(--border-color, #d9d6cc)' }}>
+      <summary style={{ padding: '11px 0', cursor: 'pointer', font: "600 13px 'Inter', system-ui, sans-serif", display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <span>Property-Wide ({property.length})</span><span aria-hidden="true" className="sm-chev" style={{ ...muted, fontSize: 11 }}>▶</span>
+      </summary>
+      <ul style={{ listStyle: 'none', margin: 0, padding: '0 0 12px', display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+        {property.map((x, i) => <li key={x.id || i} style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.title}</span>
+          {x.opened_at ? <span style={{ ...muted, whiteSpace: 'nowrap' }}>{formatDate(x.opened_at)}</span> : null}
+        </li>)}
+      </ul>
+    </details>
+  ) : null;
   return (
     <div>
-      <div className="dash-card" style={{ marginBottom: 12, padding: '8px 12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <SectionPicker label="Layer" icon={Layers} value={layer} onChange={setLayer}
-            options={LAYERS.map((l) => ({ value: l.key, label: l.label }))} />
-          <span style={{ fontSize: 12, ...muted, flex: '1 1 240px', minWidth: 0 }}>{hint}</span>
-          <button type="button" className="secondary-btn" onClick={() => setSettings(true)}>Customer Link Settings</button>
-        </div>
-        {layer === 'maintenance' && maint?.connected && maint.property?.length ? (
-          <div style={{ marginTop: 8, fontSize: 12 }}><b>Property-Wide ({maint.property.length}):</b> {maint.property.slice(0, 5).map((x) => x.title).join(' · ')}{maint.property.length > 5 ? ' …' : ''}</div>
-        ) : null}
-      </div>
-      <WidgetBoundary name="ops-site-map" resetKey={`${facilityId}:${layer}`} fallback={<div className="dash-card"><div className="ops-empty">The site map hit a problem. Switch facility or layer to try again.</div></div>}>
-        <SiteModelPanel model={data.model} mode="owner" images={siteModelImages(data.modelId)} unitColors={colors} statusOf={statusOf} fill
+      <WidgetBoundary name="ops-site-map" resetKey={`${facilityId}:${layer}`} fallback={<SearchGone onGone={onMapSearch} />}>
+        <SearchHere on onChange={onMapSearch} />
+        <SiteModelPanel key={data.modelId || facilityId} model={data.model} mode="owner" images={siteModelImages(data.modelId)} unitColors={colors} statusOf={statusOf} fill
+          initialUnit={state.unit || ''} placeName={facility.shortName || ''} toolbar={toolbar} legendHint={hint} asideExtra={asideExtra}
+          remoteSearch={remoteSearch} onRemoteHit={onRemoteHit}
           legend={layer === 'occupancy' ? null : <Legend layer={layer} counts={counts} maint={maint} />} hoverInfo={hoverInfo} renderUnitExtra={renderUnitExtra}
           markers={markers} pinsEnabled={false} />
       </WidgetBoundary>

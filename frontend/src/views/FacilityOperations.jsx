@@ -148,6 +148,8 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
 
   const facilities = useMemo(() => [...(state.data?.facilities || []), ...thirdParty], [state.data, thirdParty]);
 
+  // True while the Site Map is on screen with its own search box.
+  const [mapSearch, setMapSearch] = useState(false);
   // Which facilities have a site model, for the Site Map's first facility.
   const [modelIds, setModelIds] = useState(null);
   useEffect(() => {
@@ -238,7 +240,9 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           <div className="ops-bar-top">
             <FacilityPicker facilities={facilities} value={shown} onChange={setPicked} allowAll={!oneTab} />
             <div className="ops-bar-right">
-              <Lookup />
+              {/* The Site Map has its own search on the map (units here, tenants anywhere) - one box, not two.
+                  Until that map is on screen (loading, failed, no site model) this Lookup stands in. */}
+              {(sub !== 'site-map' || !mapSearch) && <Lookup />}
               {!NO_PERIOD.has(sub) && (
                 <label className="ops-period">
                   <span>Period</span>
@@ -268,7 +272,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
             : <div className="dash-card"><div className="ops-empty">Revenue Management is for managers and administrators.</div></div>)}
           {sub === 'site-map' && (current === 'all' && modelIds === null
             ? <LoadingState size="section" label="Loading the site map" minHeight={420} />
-            : <Suspense fallback={<LoadingState size="section" label="Loading the site map" minHeight={420} />}><SiteMap facility={single} facilities={facilities} onPick={setPicked} /></Suspense>)}
+            : <Suspense fallback={<LoadingState size="section" label="Loading the site map" minHeight={420} />}><SiteMap facility={single} facilities={facilities} onPick={setPicked} modelIds={modelIds} onMapSearch={setMapSearch} /></Suspense>)}
         </div>
       )}
     </div>
