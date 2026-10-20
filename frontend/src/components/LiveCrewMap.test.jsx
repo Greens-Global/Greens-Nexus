@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
-// Render smoke for the Location Trail map (People > Time > Location Trail and
-// the Time Clock's "View My Trail"): Leaflet is mocked, the screen must render
-// the live list, a person's day trail, and the self view without crashing.
+// Render smoke for the Location Trail map (Workforce Analytics > Location
+// Trail): Leaflet is mocked, the screen must render the live list and a
+// person's day trail without crashing.
 vi.mock('leaflet', () => {
   const chain = () => { const o = { addTo: () => o, bindTooltip: () => o, on: () => o, clearLayers: () => {}, setView: () => o, fitBounds: () => o, invalidateSize: () => {}, remove: () => {} }; return o; };
   const L = { map: chain, tileLayer: chain, layerGroup: chain, circleMarker: chain, polyline: chain, marker: chain, divIcon: () => ({}) };
@@ -47,10 +47,4 @@ describe('LiveCrewMap', () => {
     expect(await screen.findByText(/No one on your team is clocked in/)).toBeTruthy();
   });
 
-  it('self mode reads only the viewer\'s own trail', async () => {
-    render(<LiveCrewMap self />);
-    await waitFor(() => expect(locationTrailDay).toHaveBeenCalledWith('', expect.any(String)));
-    expect(locationTrailLive).not.toHaveBeenCalled();
-    expect(await screen.findByText(/My Trail/)).toBeTruthy();
-  });
 });
