@@ -2584,6 +2584,14 @@ export const api = {
   ticketReportCsv: (params = {}) => reqBlob(`/task-tickets/reports.csv?${new URLSearchParams(params).toString()}`),
   getTicketReportMeta: () => req("/task-tickets/reports/meta"),
   setTicketWeeklyEmail: (on) => req("/task-tickets/reports/weekly-email", { method: "PUT", body: JSON.stringify({ on }) }),
+  // Tickets <-> equipment (Oct 2026, backend/routers/ticket_items.py). The
+  // picker's choices (ticketId on a ticket; companyId + requester on the
+  // create form), a ticket's linked items, link/unlink, and an item's tickets.
+  getTicketItemOptions: (params = {}) => req(`/task-tickets/item-options?${new URLSearchParams(params).toString()}`),
+  getTicketItems: (id) => req(`/task-tickets/${id}/items`),
+  linkTicketItems: (id, itemIds) => req(`/task-tickets/${id}/items`, { method: "POST", body: JSON.stringify({ item_ids: itemIds }) }),
+  unlinkTicketItem: (id, itemId) => req(`/task-tickets/${id}/items/${encodeURIComponent(itemId)}`, { method: "DELETE" }),
+  getTicketsForItem: (itemId) => req(`/task-tickets/by-item/${encodeURIComponent(itemId)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
