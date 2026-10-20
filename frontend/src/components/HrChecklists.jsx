@@ -28,7 +28,8 @@ import { dialog } from '../ui/dialog';
 import { usePeopleDirectory, useEntities } from '../lib/queries';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
-import { Modal, DateField } from '../tasks/components';
+import { Modal, DateField, ChipMultiSelect } from '../tasks/components';
+import { COUNTRIES, countryName } from '../lib/countries';
 
 // Work OS tokens (style.css --wk-*), so the light themes and dark mode come
 // for free. Status colors carry meaning only: red = late, orange = due soon,
@@ -885,8 +886,10 @@ function OwnersCard({ entityId, people, toastOk, toastErr }) {
   );
 }
 
-const TYPE_CHOICES = [['employee', 'Employees'], ['contractor', 'Contractors'], ['intern', 'Interns']];
-const COUNTRY_CHOICES = [['US', 'US'], ['IN', 'India']];
+// The worker types hr_checklists._applies understands ('employee' = anyone but a contractor).
+const TYPE_CHOICES = [['employee', 'Employees (Any)'], ['full_time', 'Full-Time'], ['part_time', 'Part-Time'],
+  ['intern', 'Interns'], ['contractor', 'Contractors']];
+const COUNTRY_OPTIONS = COUNTRIES.map(c => ({ id: c.code, label: c.name }));
 const ANCHOR_NOUN = { onboarding: 'start', promotion: 'effective date', offboarding: 'last day', inactive: 'leave start' };
 
 // "7 days before start", "3 business days after start", "No due date".
@@ -903,7 +906,7 @@ function timingText(r, kind) {
 function appliesText(a, meta) {
   const bits = [];
   (a?.types || []).forEach(t => bits.push(TYPE_CHOICES.find(([v]) => v === t)?.[1] || t));
-  (a?.countries || []).forEach(c => bits.push(c === 'IN' ? 'India' : `${c} only`));
+  (a?.countries || []).forEach(c => bits.push(countryName(c)));
   (a?.exit_types || []).forEach(t => bits.push(EXIT_LABEL[t] || meta?.exitTypes?.find(x => x.value === t)?.label || t));
   return bits;
 }
@@ -918,7 +921,7 @@ const tag = (text, tone) => (
     background: tone === 'brand' ? 'var(--wk-brand-tint)' : 'var(--wk-hover)', color: tone === 'brand' ? 'var(--wk-brand)' : 'var(--wk-dim)' }}>{text}</span>
 );
 
-function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, toggleIn, onDone }) {
+function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, setApplies, onDone }) {
   const roles = meta?.roles || [];
   const signals = meta?.signals || [];
   const field = (label, el) => <label style={{ display: 'grid', gap: 5 }}><span style={capLabel}>{label}</span>{el}</label>;
@@ -949,25 +952,22 @@ function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, toggleI
         )}
         <span style={{ fontSize: 12.5, color: 'var(--wk-brand)', fontWeight: 600, paddingBottom: 8 }}>{timingText(r, kind)}</span>
       </div>
-      <div style={{ display: 'grid', gap: 6 }}>
-        <span style={capLabel}>Who gets this step <span style={{ color: 'var(--wk-faint)' }}>(nothing ticked = everyone)</span></span>
-        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13 }}>
-          {TYPE_CHOICES.map(([v, l]) => (
-            <label key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <input type="checkbox" checked={(r.applies?.types || []).includes(v)} onChange={() => toggleIn(i, 'types', v)} /> {l}
-            </label>
-          ))}
-          {COUNTRY_CHOICES.map(([v, l]) => (
-            <label key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <input type="checkbox" checked={(r.applies?.countries || []).includes(v)} onChange={() => toggleIn(i, 'countries', v)} /> {l}
-            </label>
-          ))}
-          {kind === 'offboarding' && (meta?.exitTypes || []).map(t => (
-            <label key={t.value} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <input type="checkbox" checked={(r.applies?.exit_types || []).includes(t.value)} onChange={() => toggleIn(i, 'exit_types', t.value)} /> {EXIT_LABEL[t.value] || t.label}
-            </label>
-          ))}
-        </div>
+      {/* Who gets this step: searchable dropdowns, every country in the world
+          (Pranshu, Oct 20 - it was US / India checkboxes). Nothing picked = everyone. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        {field(<>Worker Type <span style={{ color: 'var(--wk-faint)' }}>(none = everyone)</span></>, (
+          <ChipMultiSelect value={r.applies?.types || []} options={TYPE_CHOICES.map(([id, label]) => ({ id, label }))}
+            onChange={v => setApplies(i, 'types', v)} placeholder="Every worker type" searchPlaceholder="Search worker types…" />
+        ))}
+        {field(<>Country <span style={{ color: 'var(--wk-faint)' }}>(none = every country)</span></>, (
+          <ChipMultiSelect value={r.applies?.countries || []} options={COUNTRY_OPTIONS}
+            onChange={v => setApplies(i, 'countries', v)} placeholder="Every country" searchPlaceholder="Search countries…" />
+        ))}
+        {kind === 'offboarding' && field(<>Exit Type <span style={{ color: 'var(--wk-faint)' }}>(none = every exit)</span></>, (
+          <ChipMultiSelect value={r.applies?.exit_types || []}
+            options={(meta?.exitTypes || []).map(t => ({ id: t.value, label: EXIT_LABEL[t.value] || t.label }))}
+            onChange={v => setApplies(i, 'exit_types', v)} placeholder="Every exit type" searchPlaceholder="Search exit types…" />
+        ))}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
         {field('How It Gets Marked Done', (
@@ -1011,11 +1011,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
   const set = (i, patch) => { setRows(r => r.map((x, j) => j === i ? { ...x, ...patch } : x)); touch(); };
   const move = (i, d) => { setRows(r => { const n = [...r]; const t = n[i]; n[i] = n[i + d]; n[i + d] = t; return n; }); setEditIdx(i + d); setPicked(new Set()); touch(); };
   const remove = (i) => { setRows(x => x.filter((_, j) => j !== i)); setEditIdx(-1); setPicked(new Set()); touch(); };
-  const toggleIn = (i, field, value) => {
-    const cur = rows[i].applies?.[field] || [];
-    const next = cur.includes(value) ? cur.filter(v => v !== value) : [...cur, value];
-    set(i, { applies: { ...(rows[i].applies || {}), [field]: next } });
-  };
+  const setApplies = (i, field, list) => set(i, { applies: { ...(rows[i].applies || {}), [field]: list } });
   async function renamePhase(oldName) {
     const name = await dialog.prompt('Phase name', { title: 'Rename Phase', defaultValue: oldName, required: true });
     if (!name || !name.trim() || name.trim() === oldName) return;
@@ -1167,7 +1163,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
             <div style={{ marginLeft: 19, paddingLeft: 14, borderLeft: '1px solid var(--wk-line)', marginTop: 4 }}>
               {p.rows.map(({ r, i }) => (editIdx === i ? (
                 <TemplateRowEditor key={i} r={r} i={i} total={rows.length} kind={template.kind} meta={meta}
-                  set={set} move={move} remove={remove} toggleIn={toggleIn} onDone={() => setEditIdx(-1)} />
+                  set={set} move={move} remove={remove} setApplies={setApplies} onDone={() => setEditIdx(-1)} />
               ) : (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--wk-line2)', background: picked.has(i) ? 'var(--wk-hover)' : 'transparent' }}>
                   <TriCheck label={`Select ${r.title || 'untitled step'}`} checked={picked.has(i)} onChange={e => togglePick([i], e.target.checked)} />

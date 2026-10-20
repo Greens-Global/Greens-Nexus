@@ -121,6 +121,23 @@ describe('ChecklistSettings', () => {
 
 // Neil, Oct 19: a company uses the library or its own copy, and copies to
 // other companies; a department head keeps a role's own steps.
+describe('Who gets a step', () => {
+  // Pranshu, Oct 20: dropdowns with every country, not US / India checkboxes.
+  it('names any country, and the step editor offers worker type and country dropdowns', async () => {
+    api.getChecklistTemplates.mockResolvedValueOnce({ templates: [
+      { id: 't1', kind: 'onboarding', kindLabel: 'Onboarding', name: 'Onboarding', entityId: '', inherited: false, updatedAt: '',
+        items: [{ key: 'DE-1', phase: 'Offer Accepted', title: 'Tax ID Collected', owner: 'hr', anchor: 'S', offset: 0, bd: false,
+                  applies: { countries: ['DE'], types: ['part_time'] }, signal: '', hint: '' }] }] });
+    render(<ChecklistSettings entities={[]} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Germany')).toBeInTheDocument();
+    expect(screen.getByText('Part-Time')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Tax ID Collected'));
+    expect(await screen.findByText(/none = every country/)).toBeInTheDocument();
+    expect(screen.getByText(/none = everyone/)).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'India' })).not.toBeInTheDocument();
+  });
+});
+
 describe('Checklists by company and role', () => {
   it('a company on the library offers its own copy, and copies to other companies', async () => {
     const entities = [{ id: 'co-a', name: 'Greens' }, { id: 'co-b', name: 'MCD' }];
