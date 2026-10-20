@@ -553,6 +553,27 @@ class ChecklistTests(unittest.TestCase):
         _as(IT)
         self.assertIn(it_rows[1]["id"], [x["id"] for x in self.client.get("/hr/checklists/mine").json()["steps"]])
 
+    def test_changing_role_owners_moves_open_steps_and_their_tasks(self):
+        cl = self._start(self._person())                       # IT steps start with IT (the default owner)
+        it_rows = [i for i in cl["items"] if i["ownerRole"] == "it"]
+        self.client.patch(f"/hr/checklists/items/{it_rows[0]['id']}", json={"status": "done"})   # one already done
+        _as(HR)
+        manual = it_rows[1]["id"]                              # one HR handed to the manager by hand
+        self.client.patch(f"/hr/checklists/items/{manual}", json={"owner_email": MANAGER})
+        old_parent = self._task(self._step(it_rows[2]["id"]).task_id).parent_task_id
+        r = self.client.put(f"/hr/checklists/owners?entity_id={CO_A}", json={"owners": {"it": [HRC]}})
+        self.assertEqual(r.status_code, 200, r.text)
+        moved = [self._step(i["id"]) for i in it_rows[2:]]
+        self.assertTrue(moved and all(m.owner_email == HRC for m in moved))
+        subs = [self._task(m.task_id) for m in moved]
+        self.assertTrue(all(s.assignee_emails == [HRC] for s in subs))       # the subtasks moved with them
+        self.assertEqual(len({s.parent_task_id for s in subs}), 1)
+        self.assertNotEqual(subs[0].parent_task_id, old_parent)
+        self.assertEqual(self._task(subs[0].parent_task_id).assignee_emails, [HRC])
+        self.assertTrue(self._task(old_parent).completed)                   # IT has nothing left there
+        self.assertEqual(self._step(it_rows[0]["id"]).owner_email, IT)       # done steps keep who did them
+        self.assertEqual(self._step(manual).owner_email, MANAGER)            # a hand-set owner stays
+
     def test_step_comments_and_task_comments_are_one_thread(self):
         eid = self._person()
         cl = self._start(eid)
