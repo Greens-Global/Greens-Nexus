@@ -426,3 +426,37 @@ class FeedTests(_Roles):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PerRecordRowsTests(unittest.TestCase):
+    """One request that writes an audit row per person (the Intacct code Apply,
+    Oct 21) titles each row after ITS person, not the request's first change."""
+
+    def test_each_row_is_about_its_own_record(self):
+        rid = "req-" + uuid.uuid4().hex
+        db = database.SessionLocal()
+        try:
+            rows = []
+            for i, (pid, name, old, new) in enumerate((("p-1", "Ricky Cotton", "GG-120", "E-0167"),
+                                                       ("p-2", "Ada Sample", "GG-006", "E-0193"),
+                                                       ("p-3", "Ben Example", "GG-001", "E-0194"))):
+                db.add(models.AuditChange(request_id=rid, at=f"2026-10-21T09:28:0{i}Z", actor="hr@x.com", module="people",
+                                          table_name="nexus_employees", record_id=pid, op="update", summary=name,
+                                          changes=json.dumps({"employee_code": {"b": old, "a": new}}), source="POST /hr/intacct-codes/apply"))
+                row = models.AuditLog(timestamp=f"2026-10-21T09:28:0{i}", user_email="hr@x.com", action="Employee code from Intacct",
+                                      resource_type="employee", resource_id=pid, request_id=rid, module="people",
+                                      details=json.dumps({"changes": {"employee_code": [old, new]}}))
+                db.add(row)
+                rows.append(row)
+            db.commit()
+            for r in rows:
+                db.refresh(r)
+            evs = audit_events._request_events(db, rows, {})
+            titles = [e["title"] for e in evs]
+            self.assertEqual(len(set(titles)), 3, titles)
+            self.assertIn("Ada Sample", titles[1])
+            self.assertIn("Ben Example", titles[2])
+            self.assertNotIn("other record", evs[1]["summary"])
+            self.assertEqual(evs[2]["preview"][0]["after"], "E-0194")
+        finally:
+            db.close()
