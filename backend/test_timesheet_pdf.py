@@ -84,10 +84,11 @@ class Hourly(unittest.TestCase):
         self.assertGreater(float(page.mediabox.width), float(page.mediabox.height))
 
     def test_the_screen_columns_and_pay(self):
-        for h in ("Date", "In", "Out", "Deducted Time", "Category", "Hours", "Hrs/Day", "Non-OT", "OT", "Loc",
+        for h in ("Date", "In", "Out", "Deducted Time", "Category", "Hours", "Hrs/Day", "OT", "Loc",
                   "Pay Rate", "Wage", "$22.00/hr", "$97.17", "Total Regular hours at $22.00/hr",
                   "Total Overtime hours at $33.00/hr", "Total Sick hours at $22.00/hr", "TOTAL EDITED PUNCHES"):
             self.assertIn(h, self.text)
+        self.assertNotIn("Non-OT", self.text)      # Pranshu, Oct 20: not on the PDF
 
     def test_every_day_and_week_totals(self):
         self.assertIn("Sun 10/04", self.text)

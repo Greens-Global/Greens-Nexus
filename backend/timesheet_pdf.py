@@ -171,7 +171,7 @@ def _auto_line(g: _Grid, segs: list) -> None:
 
 def hourly_rows(card: dict, ctx: dict) -> Table:
     cur = card.get("currency") or "USD"
-    g = _Grid(["Date", "In", "Out", "Deducted Time", "Category", "Hours", "Hrs/Day", "Non-OT", "OT", "Loc",
+    g = _Grid(["Date", "In", "Out", "Deducted Time", "Category", "Hours", "Hrs/Day", "OT", "Loc",
                "Pay Rate", "Wage"])
     by_date = {d["date"]: d for d in card.get("days") or []}
     start, end = date.fromisoformat(ctx["start"]), date.fromisoformat(ctx["end"])
@@ -196,7 +196,7 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
         segs = d.get("segments") or []
         rate = money(d.get("rate", card.get("rate")), cur) + "/hr"
         if not segs:
-            g.add([_p(day_label(ds), _LEFT, bold=True, italic=True)] + [_p("-")] * 11, band)
+            g.add([_p(day_label(ds), _LEFT, bold=True, italic=True)] + [_p("-")] * 10, band)
             if d.get("isHoliday"):
                 half = d.get("holidayType") == "half_day"
                 g.line(_p(f"{'Half-Day Holiday' if half else 'Holiday'}: {d.get('holidayName') or 'Company holiday'}"
@@ -218,7 +218,6 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
                 _p(seg.get("category") or "-", color=RED if leave else None),
                 _p(hm(seg.get("workedMin")), bold=True),
                 "",   # Hrs/Day, filled below
-                _p(hm(seg["regMin"]) if seg.get("regMin") else "-"),
                 _p(ot, color=RED if seg.get("dtMin") else AMBER if seg.get("otMin") else None,
                    bold=bool(seg.get("otMin") or seg.get("dtMin"))),
                 _p(seg.get("workSite") or seg.get("workSiteOut") or "-"),
@@ -229,9 +228,9 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
                 g.add([_p("Break", _LEFT, color=DIM, italic=True),
                        _time_cell(b.get("start"), b.get("startId") or "", ctx),
                        _time_cell("" if b.get("implicit") else b.get("end"), b.get("endId") or "", ctx),
-                       "", "", "", "", "", "", "", "", ""], band)
+                       "", "", "", "", "", "", "", ""], band)
             # Merged down over the shift's Break rows, as on screen.
-            g.span_down((3, 4, 5, 7, 8, 9, 10, 11), top, len(g.rows) - 1)
+            g.span_down((3, 4, 5, 7, 8, 9, 10), top, len(g.rows) - 1)
         # Hrs/Day: the day's total on its last row, an arrow down to it above.
         for i in range(first_row, len(g.rows)):
             g.rows[i][6] = (_p(hm(d.get("workedMin")), bold=True) if i == len(g.rows) - 1
@@ -265,7 +264,7 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
     ot = " · ".join(x for x in [hm(t["otMin"]) if t.get("otMin") else "",
                                 f"{hm(t['dtMin'])} 2x" if t.get("dtMin") else ""] if x) or "-"
     i = g.add([_p("Total Worked", _LEFT, bold=True), "", "", _p(f"-{t['deductedMin']}m" if t.get("deductedMin") else "-", bold=True),
-               "", _p(hm(worked), bold=True), "", _p(hm(t.get("regMin")), bold=True), _p(ot, bold=True), "", "",
+               "", _p(hm(worked), bold=True), "", _p(ot, bold=True), "", "",
                _p(money(float(t.get("regPay") or 0) + float(t.get("otPay") or 0) + float(t.get("dtPay") or 0), cur),
                   _RIGHT, bold=True)])
     g.cmds += [("SPAN", (0, i), (2, i)), ("BACKGROUND", (0, i), (-1, i), HEAD)]
@@ -273,9 +272,9 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
                           ("Personal", "personalMin", "personalPay")):
         if t.get(mk):
             i = g.add([_p(f"Time Off - {label}", _LEFT, color=RED, bold=True), "", "", "", _p(label),
-                       _p(hm(t[mk]), bold=True), "", "", "", "", "", _p(money(t.get(pk), cur), _RIGHT, bold=True)])
+                       _p(hm(t[mk]), bold=True), "", "", "", "", _p(money(t.get(pk), cur), _RIGHT, bold=True)])
             g.cmds += [("SPAN", (0, i), (2, i)), ("BACKGROUND", (0, i), (-1, i), HEAD)]
-    return g.table([62, 54, 58, 48, 72, 40, 42, 42, 54, 124, 58, 66])
+    return g.table([62, 54, 58, 48, 84, 48, 42, 54, 146, 58, 66])
 
 
 def hourly_summary(card: dict) -> list:
