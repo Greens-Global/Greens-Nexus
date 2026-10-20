@@ -32,13 +32,28 @@ export function directionsGate(model, opts = {}) {
   return gates[0];
 }
 
-/** Driving directions in Google Maps to the entrance gate (from wherever the
- *  phone is). opts: { unit, gate } - see directionsGate. Null without a geo frame. */
+/** Driving directions in Google Maps. With a unit: THROUGH the main gate and
+ *  ending at the unit's own parking spot (where the in-lot route ends - the
+ *  stall's aisle end or the roll-up door), so "Open in Google Maps" lands at the
+ *  unit, not just at the facility (Visesh, Oct 20). Without a unit: to the gate.
+ *  opts: { unit, gate, gateLatLng: [lat, lng] (the office-set entrance pin wins
+ *  over the plan's gate) }. Null without a geo frame. */
 export function googleMapsDirectionsUrl(model, opts = {}) {
   const gate = directionsGate(model, opts);
-  const ll = gate && (gate.ll ? [gate.ll[1], gate.ll[0]] : uvToLatLng(model, gate.uv));
-  if (!ll) return null;
-  return `https://www.google.com/maps/dir/?api=1&destination=${fix(ll[0])},${fix(ll[1])}&travelmode=driving`;
+  const gll = opts.gateLatLng && opts.gateLatLng[0] != null ? opts.gateLatLng
+    : gate && (gate.ll ? [gate.ll[1], gate.ll[0]] : uvToLatLng(model, gate.uv));
+  if (opts.unit) {
+    let end = null;
+    try { const r = findRoute(model, opts.unit); if (r && r.goal) end = r.goal; } catch { end = null; }
+    const u = opts.unit;
+    const ll = uvToLatLng(model, end || [u.u + u.wu / 2, u.v + u.dv / 2]);
+    if (ll) {
+      const via = gll ? `&waypoints=${fix(gll[0])},${fix(gll[1])}` : '';
+      return `https://www.google.com/maps/dir/?api=1&destination=${fix(ll[0])},${fix(ll[1])}${via}&travelmode=driving`;
+    }
+  }
+  if (!gll) return null;
+  return `https://www.google.com/maps/dir/?api=1&destination=${fix(gll[0])},${fix(gll[1])}&travelmode=driving`;
 }
 
 /** A Google Maps pin on the unit's own spot (its center). Null without a geo frame. */

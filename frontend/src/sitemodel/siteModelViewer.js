@@ -162,10 +162,12 @@ export function createSiteModelViewer(container, model, options = {}) {
   const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, terrain ? 1.75 : 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, real ? 2 : terrain ? 1.75 : 2));   // Realistic 3D: the screen's full resolution
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  if (real) { renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05; }
+  // Realistic 3D shows Google's photos as captured: no tone mapping (ACES washed
+  // them out and tinted the shadows blue - Visesh, Oct 20).
+  if (real) { renderer.toneMapping = THREE.NoToneMapping; }
   const el = renderer.domElement; el.style.display = 'block'; el.style.width = '100%'; el.style.height = '100%'; el.style.touchAction = 'none';
   container.appendChild(el);
   const scene = new THREE.Scene(); scene.background = new THREE.Color(illus ? DIORAMA.sky : terrain ? ATMOSPHERE.haze : opts.background || '#dfe6e9');
@@ -527,15 +529,8 @@ export function createSiteModelViewer(container, model, options = {}) {
     restyle(true);
   }
 
-  // ---- north arrow + 50 ft bar ----
-  if (model.gates && model.gates.length && model.frame && model.frame.north) {
-    const g = model.gates[0].uv; const n = model.frame.north; const at = [g[0] + 30, g[1] + 2];
-    const arrow = new THREE.Mesh(new THREE.ConeGeometry(1.6, 7, 12), new THREE.MeshLambertMaterial({ color: 0x1f6f4a }));
-    arrow.position.copy(W(at[0], at[1], 0.6)); arrow.lookAt(W(at[0] + n[0] * 10, at[1] + n[1] * 10, 0.6)); arrow.rotateX(Math.PI / 2); arrow.userData.photoHide = true; scene.add(arrow);
-    const nl = textSprite('N', { size: 64, bg: 'rgba(255,255,255,0.85)', worldHeight: 3 }); nl.position.copy(W(at[0] + n[0] * 6, at[1] + n[1] * 6, 3)); nl.userData.photoHide = true; scene.add(nl);
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(15.24, 0.5, 1.2), new THREE.MeshLambertMaterial({ color: 0x1d1f1a })); bar.position.copy(W(at[0] + 8, at[1] - 8, 0.3)); bar.userData.photoHide = true; scene.add(bar);
-    const sl = textSprite('50 ft', { size: 48, bg: 'rgba(255,255,255,0.85)', worldHeight: 2.6 }); sl.position.copy(W(at[0] + 8, at[1] - 8, 2.2)); sl.userData.photoHide = true; scene.add(sl);
-  }
+  // The north arrow + 50 ft bar on the ground were dropped (Oct 20): the
+  // on-map compass (SiteModelCompass.jsx) shows true north and sat on the stalls.
 
   // ---- selection furniture ----
   const beacon = new THREE.Group(); scene.add(beacon);
@@ -648,10 +643,45 @@ export function createSiteModelViewer(container, model, options = {}) {
       const l = textSprite((p.unit ? p.unit + ' · ' : '') + p.title, { size: 44, bg: p.status === 'done' ? 'rgba(90,93,85,0.8)' : 'rgba(29,31,26,0.85)', color: '#fff', worldHeight: 2.8, depthTest: false }); l.position.copy(W(p.u, p.v, y + 7)); pinGroup.add(l);
     });
   }
+  // Needs Attention badges (Oct 20 2026): a marker given as an object ({ label,
+  // bg }) is a warning badge - a white-ringed disc with "!" that keeps one size
+  // on screen (declutter sizes it) and draws over everything. Numbers stay the
+  // ticket-count spheres.
+  const badgeList = [];
+  function badgeSprite(m) {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 64; const x = cv.getContext('2d');
+    x.beginPath(); x.arc(32, 32, 29, 0, Math.PI * 2); x.fillStyle = '#fff'; x.fill();
+    x.beginPath(); x.arc(32, 32, 24, 0, Math.PI * 2); x.fillStyle = m.bg || '#c43d2f'; x.fill();
+    x.fillStyle = '#fff'; x.font = '800 34px Inter, system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(m.label || '!', 32, 34);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, sizeAttenuation: false, toneMapped: false }));
+    sp.renderOrder = 12; sp.center.set(0.5, 0); sp.userData.px = m.px || 22; sp.userData.aspect = 1;
+    const k = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / (el.clientHeight || 1); sp.scale.set(sp.userData.px * k, sp.userData.px * k, 1);
+    return sp;
+  }
   function renderMarkers() {
-    clearGroup(markerGroup);
+    clearGroup(markerGroup); badgeList.length = 0;
     if (state.mode !== 'owner') return;
-    Object.keys(state.markers).forEach((n) => { const r = recOf[n]; if (!r || !r.visible) return; const p = unitTop(r); const s = new THREE.Mesh(new THREE.SphereGeometry(0.9, 10, 8), mat.marker); s.position.set(p.x, p.y + 1.4, p.z); s.userData.unit = byName[n]; markerGroup.add(s); const l = textSprite(String(state.markers[n]), { size: 40, bg: 'rgba(224,58,47,0.95)', color: '#fff', worldHeight: 1.8, depthTest: false }); l.position.set(p.x, p.y + 3.2, p.z); markerGroup.add(l); });
+    Object.keys(state.markers).forEach((n) => { const r = recOf[n]; const m = state.markers[n];
+      if (r && m && typeof m === 'object') {
+        // A badge stands at its own floor's height, shown whether or not the
+        // building is open; a single-level view shows that level's badges only.
+        const u = byName[n]; const bd = buildings[u.b]; const multi = !!bd && bd.floors > 1;
+        if (state.level && multi && u.f !== state.level) return;
+        const top = unitTop(r); let at = top;
+        // All Levels: a lower-level unit has a floor above it - its badge moves just
+        // outside the nearest wall, with a leader line, so it never reads as the unit above.
+        if (multi && !state.level && u.f < bd.floors) {
+          const cu = u.u + u.wu / 2, cv = u.v + u.dv / 2, out = 3;
+          const spot = [[cu - bd.u[0], bd.u[0] - out, cv], [bd.u[1] - cu, bd.u[1] + out, cv], [cv - bd.v[0], cu, bd.v[0] - out], [bd.v[1] - cv, cu, bd.v[1] + out]].sort((a, c) => a[0] - c[0])[0];
+          at = W(spot[1], spot[2], top.y);
+          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([top, at]), new THREE.LineBasicMaterial({ color: 0xc43d2f, depthTest: false, transparent: true, opacity: 0.9 }));
+          line.renderOrder = 11; markerGroup.add(line);
+        }
+        const b = badgeSprite(m); b.position.set(at.x, at.y + 0.6, at.z); b.userData.unit = u; markerGroup.add(b); badgeList.push(b); return;
+      }
+      if (!r || !r.visible) return; const p = unitTop(r);
+      const s = new THREE.Mesh(new THREE.SphereGeometry(0.9, 10, 8), mat.marker); s.position.set(p.x, p.y + 1.4, p.z); s.userData.unit = byName[n]; markerGroup.add(s); const l = textSprite(String(state.markers[n]), { size: 40, bg: 'rgba(224,58,47,0.95)', color: '#fff', worldHeight: 1.8, depthTest: false }); l.position.set(p.x, p.y + 3.2, p.z); markerGroup.add(l); });
   }
 
   // "How to Get There" drawn on the ground: a ribbon from the gate to the unit
@@ -779,6 +809,7 @@ export function createSiteModelViewer(container, model, options = {}) {
   function declutter(now) {
     if (now - lastDeclutter < 120) return; lastDeclutter = now;
     const H = el.clientHeight || 1, Wpx = el.clientWidth || 1; const k = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / H;
+    for (const b of badgeList) b.scale.set(b.userData.px * k, b.userData.px * k, 1);
     labelOrder = labelOrder || sortedLabels(); const placed = [];
     if (pinLabel) {   // the chosen unit's pin label wins its spot: no unit number drawn over it
       pinLabel.getWorldPosition(projV); const d = camera.position.distanceTo(projV); const s = pinLabel.getWorldScale(tmpV);
@@ -844,16 +875,21 @@ export function createSiteModelViewer(container, model, options = {}) {
     // Stand just outside the gate and look across the site.
     gate: () => { const g = gate0 || [bounds.cu, bounds.cv]; const theta = Math.atan2(g[0] - bounds.cu, -(g[1] - bounds.cv)); flyTo(W(g[0], g[1], 0), theta, 0.22, Math.max(90, bounds.r * 0.4)); },
   };
+  // True north's bearing in the plan (clockwise from +v); 0 when the model does not say.
+  const NORTH = model.frame && model.frame.north ? Math.atan2(model.frame.north[0], model.frame.north[1]) : 0;
   let drag = null; const touches = new Map();
-  function pan(dx, dy) { const s = ctrl.radius * 0.0016; const right = new THREE.Vector3(Math.cos(ctrl.theta), 0, -Math.sin(ctrl.theta)); const fwd = new THREE.Vector3(-Math.sin(ctrl.theta), 0, -Math.cos(ctrl.theta)); ctrl.target.addScaledVector(right, -dx * s).addScaledVector(fwd, -dy * s); }
+  function pan(dx, dy) { const s = ctrl.radius * 0.0016; const right = new THREE.Vector3(Math.cos(ctrl.theta), 0, -Math.sin(ctrl.theta)); const fwd = new THREE.Vector3(-Math.sin(ctrl.theta), 0, -Math.cos(ctrl.theta)); ctrl.target.addScaledVector(right, -dx * s).addScaledVector(fwd, dy * s); }   // grab the ground: it follows the mouse, like Google Maps
   const onDown = (e) => { idle = false; el.setPointerCapture(e.pointerId); touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: false, dist: null }; };
   const onMove = (e) => {
     if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (!drag) { hover(e); return; }
-    if (touches.size === 2) { const pts = [...touches.values()]; const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y); const cx = (pts[0].x + pts[1].x) / 2, cy = (pts[0].y + pts[1].y) / 2; if (drag.dist) { ctrl.radius *= drag.dist / d; pan(cx - drag.cx, cy - drag.cy); } drag.dist = d; drag.cx = cx; drag.cy = cy; drag.moved = true; applyCamera(); return; }
+    // Two fingers: pinch to zoom, twist to turn, move together to tilt.
+    if (touches.size === 2) { const pts = [...touches.values()]; const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y); const a = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x); const cy = (pts[0].y + pts[1].y) / 2; if (drag.dist) { ctrl.radius *= drag.dist / d; let da = a - drag.a; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI; ctrl.theta -= da; ctrl.phi += (cy - drag.cy) * 0.006; } drag.dist = d; drag.a = a; drag.cy = cy; drag.moved = true; applyCamera(); return; }
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
     if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 4) drag.moved = true;
-    if (drag.button === 2 || e.shiftKey) pan(dx, dy); else { ctrl.theta -= dx * 0.006; ctrl.phi += dy * 0.006; }
+    // Google Maps style (Visesh, Oct 20 "unable to move around the map"): a
+    // plain drag moves the map; right-drag or Ctrl / Shift + drag turns and tilts.
+    if (drag.button === 2 || e.ctrlKey || e.shiftKey || e.metaKey) { ctrl.theta -= dx * 0.006; ctrl.phi += dy * 0.006; } else pan(dx, dy);
     applyCamera();
   };
   const onUp = (e) => { touches.delete(e.pointerId); if (drag && !drag.moved && drag.button === 0) click(e); if (touches.size === 0) drag = null; else drag.dist = null; };
@@ -874,15 +910,18 @@ export function createSiteModelViewer(container, model, options = {}) {
   /** The unit a ray hit: an instance id, or the raised selected box. */
   const unitOfHit = (h) => {
     if (!h) return null; if (h.object === selMesh) return byName[state.selected];
+    if (h.object.isSprite) return h.object.userData.unit || null;
     const r = h.object === unitInst ? recs[h.instanceId] : h.object === mk.base ? mk.recs[h.instanceId] : null;
     return r && (h.object === mk.base ? r.mshow : r.visible) ? r.u : null;
   };
   const firstUnit = (hits) => { for (const h of hits) { const u = unitOfHit(h); if (u) return { h, u }; } return null; };
+  // A Needs Attention badge draws over everything, so it is hit first: it picks its own unit, never the one behind it.
+  const pickHit = (e) => (badgeList.length && firstUnit(cast(e, badgeList))) || firstUnit(cast(e, pickList()));
   let hovered = null; let lastHoverAt = 0;
   function hover(e) {
     if (e.pointerType === 'touch') return;
     const now = performance.now(); if (now - lastHoverAt < 40) return; lastHoverAt = now;   // ~25 raycasts/s is plenty
-    const hit = firstUnit(cast(e, pickList())); const r = el.getBoundingClientRect();
+    const hit = pickHit(e); const r = el.getBoundingClientRect();
     el.style.cursor = hit ? 'pointer' : state.placing ? 'crosshair' : '';
     const unit = hit ? hit.u : null;
     if (unit === hovered) return;            // the React side re-renders only when the hovered unit changes
@@ -901,7 +940,7 @@ export function createSiteModelViewer(container, model, options = {}) {
       }
       return;
     }
-    const hit = firstUnit(cast(e, pickList()));
+    const hit = pickHit(e);
     if (hit) { selectUnit(hit.u.n, true); return; }
     const s = cast(e, shells)[0];
     if (s) { state.selected = null; state.level = 0; restyle(); const b = s.object.userData.building; flyTo(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, 0), ctrl.theta, 0.8, Math.max(70, (b.u[1] - b.u[0]) * 0.9)); if (opts.onSelectBuilding) opts.onSelectBuilding(b); if (opts.onSelectUnit) opts.onSelectUnit(null); }
@@ -1020,6 +1059,16 @@ export function createSiteModelViewer(container, model, options = {}) {
     view(name) { if (VIEWS[name]) VIEWS[name](); },
     flyToPin(p) { flyTo(W(p.u, p.v, p.y || 0), ctrl.theta, 0.7, 50); },
     getState() { return { ...state }; },
+    // Compass and tilt (Visesh, Oct 20): heading = the camera's turn (0 = north up), tilt = how far it looks down.
+    // heading = how far true north is turned from screen-up (radians, clockwise).
+    // The plan's axes are not true north (frame.north, e.g. ~50 deg at Escondido),
+    // so north's bearing in the plan is added to the camera's turn.
+    getCamera() { return { heading: ctrl.theta + NORTH, tilt: ctrl.phi }; },
+    turnBy(rad) { idle = false; anim = null; ctrl.theta += rad; applyCamera(); },
+    tiltBy(rad) { idle = false; anim = null; ctrl.phi += rad; applyCamera(); },
+    faceNorth() { idle = false; flyTo(ctrl.target.clone(), -NORTH, ctrl.phi, ctrl.radius, 500); },
+    /** Top-down (2D) and back to the usual 3D angle. */
+    toggleTilt() { idle = false; const flat = ctrl.phi > 1.3; flyTo(ctrl.target.clone(), ctrl.theta, flat ? (illus ? 0.72 : real ? 0.62 : 0.9) : 1.45, ctrl.radius, 500); return !flat; },
     destroy() {
       alive = false; cancelAnimationFrame(raf); if (ro) ro.disconnect(); else window.removeEventListener('resize', resize);
       el.removeEventListener('pointerdown', onDown); el.removeEventListener('pointermove', onMove); el.removeEventListener('pointerup', onUp); el.removeEventListener('pointercancel', onUp); el.removeEventListener('wheel', onWheel); el.removeEventListener('contextmenu', onCtx);

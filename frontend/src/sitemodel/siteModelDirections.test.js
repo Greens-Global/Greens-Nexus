@@ -41,11 +41,19 @@ describe('googleMapsDirectionsUrl', () => {
     expect(googleMapsDirectionsUrl(temecula, { gate: 'east' })).toBe('https://www.google.com/maps/dir/?api=1&destination=33.442126,-117.135645&travelmode=driving');
     expect(directionsGate(temecula, { gate: { id: 'northeast' } }).name).toBe('North-East Entrance');
   });
-  it('always sends people to the main gate, even for a unit right inside a side entrance (Visesh, Oct 20)', () => {
+  it('with a unit, goes THROUGH the main gate and ends at the unit itself (Visesh, Oct 20)', () => {
     const unit = { n: 'B149', b: 'B', k: 'park', f: 1, u: -108, v: -94, wu: 3, dv: 6, door: 'ne' };
     const model = { ...temecula, pads: [[[-200, -110], [140, -110], [140, 40], [-200, 40]]], units: [unit] };
     expect(directionsGate(model, { unit }).id).toBe('main');
-    expect(googleMapsDirectionsUrl(model, { unit })).toContain('destination=33.441318,-117.136457');
+    const url = googleMapsDirectionsUrl(model, { unit });
+    expect(url).toContain('&waypoints=33.441318,-117.136457');          // via the Main Entrance Gate
+    expect(url).not.toContain('destination=33.441318,-117.136457');      // ...but it does not stop there
+    const dest = url.match(/destination=([-\d.]+),([-\d.]+)/);
+    const [lat, lng] = uvToLatLng(model, [unit.u + unit.wu / 2, unit.v + unit.dv / 2]);
+    expect(Math.abs(+dest[1] - lat)).toBeLessThan(0.0002);               // within ~20 m of the unit
+    expect(Math.abs(+dest[2] - lng)).toBeLessThan(0.0002);
+    // The office-set entrance pin wins over the plan's gate.
+    expect(googleMapsDirectionsUrl(model, { unit, gateLatLng: [33.5, -117.2] })).toContain('&waypoints=33.500000,-117.200000');
   });
   it('is null without gates or a frame', () => {
     expect(googleMapsDirectionsUrl({ ...temecula, gates: [] })).toBeNull();

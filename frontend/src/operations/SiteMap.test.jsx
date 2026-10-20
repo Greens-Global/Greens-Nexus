@@ -97,10 +97,11 @@ describe('Operations > Site Map', () => {
     render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
     expect(await screen.findByLabelText('Layer')).toHaveProperty('value', 'occupancy');
     expect(calls.styles.at(-1)).toBe('satellite');
-    for (const t of ['Inventory', 'Active Units and Stalls', 'Vacant, Rentable', 'Find Your Unit', 'Needs Attention (1)', 'Not On The Map Yet (1)', 'Sources']) {
+    for (const t of [/^Inventory · \d+ Units$/, 'Leased', 'Vacant', 'Find Your Unit', /Units? Needs? Attention/, 'Not On The Map Yet (1)', /^Sources/]) {
       expect(screen.getAllByText(t).length).toBeGreaterThan(0);
     }
-    // the layer's explanation sits under the legend
+    // the layer's explanation sits behind the bar's info button
+    fireEvent.click(screen.getByRole('button', { name: 'What the colors mean' }));
     expect(screen.getByText(/Green is leased/)).toBeTruthy();
     // the entrance + template link moved behind a button into a dialog
     expect(screen.queryByText('Customer Entrance')).toBeNull();
@@ -114,17 +115,21 @@ describe('Operations > Site Map', () => {
     expect(await screen.findByLabelText('Layer')).toHaveProperty('value', 'occupancy');
     // the leased-but-unrentable unit is leased, not out of service
     await waitFor(() => expect(calls.colors.at(-1)).toMatchObject({ C001: '#5fae7d', C214: '#e0b45a', C002: '#d65a4c' }));
-    const tiles = screen.getByText('Inventory').closest('section');
-    expect(within(tiles).getByText('Leased (1)').parentElement.textContent).toBe('33.3%Leased (1)');
-    expect(within(tiles).getAllByText('Out of Service')[0].parentElement.textContent).toBe('1Out of Service');
+    const tiles = screen.getByRole('region', { name: 'Property Figures' });
+    const rows = [...tiles.querySelectorAll('.smk-row')].map((b) => b.textContent);
+    expect(rows).toEqual(['Leased133.3%', 'Vacant133.3%', 'Out of Service133.3%']);
+    // a click on a bar row shows only those units on the map
+    fireEvent.click(tiles.querySelectorAll('.smk-row')[1]);
+    await waitFor(() => expect(calls.colors.at(-1)).toMatchObject({ C001: '#d9d6cf', C214: '#e0b45a', C002: '#d9d6cf' }));
+    fireEvent.click(within(tiles).getByRole('button', { name: 'Show All' }));
 
     fireEvent.change(screen.getByLabelText('Layer'), { target: { value: 'days' } });
     await waitFor(() => expect(calls.colors.at(-1).C001).toBe('#cfcac0'));
-    expect(screen.getByText('180+')).toBeTruthy();
+    expect(screen.getAllByText('180+ Days').length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByLabelText('Layer'), { target: { value: 'market' } });
     await waitFor(() => expect(calls.colors.at(-1).C214).toBe('#2563eb'));
-    expect(screen.getByText(/Under Market \(1\)/)).toBeTruthy();
+    expect([...document.querySelectorAll('.smk-row')].map((b) => b.textContent)).toContain('Under Market133.3%');
 
     fireEvent.change(screen.getByLabelText('Layer'), { target: { value: 'maintenance' } });
     expect((await screen.findAllByText(/Maintenance layer not connected yet/)).length).toBeGreaterThan(0);
@@ -138,12 +143,17 @@ describe('Operations > Site Map', () => {
     const card = cardOf('C001');
     expect(within(card).getByText('Leased')).toBeTruthy();                 // badge agrees with the rent roll
     expect(within(card).queryByText('Out of Service')).toBeNull();
-    expect(card.textContent).toMatch(/07\/01\/2024 · 2 yr 3 mo/);
-    expect(card.textContent).toMatch(/\$180\/mo vs street \$194 \(\$14 under\)/);
-    expect(card.textContent).toMatch(/\$144\.50 past due · 35 days/);
-    expect(card.textContent).toMatch(/Autopay\s*Off/);
+    // Oct 20 (Visesh): the tenant's name leads - a heading, not a "Name" row
+    expect(within(card).getByText('Pat Example').className).toBe('sm-tenant-name');
+    expect(card.textContent).not.toMatch(/Name/);
+    expect(card.textContent).toMatch(/Tenant 2 yr 3 mo, since 07\/01\/2024/);
+    expect(card.textContent).toMatch(/Past Due 35 Days/);
+    expect(card.textContent).toMatch(/Autopay Off/);
+    expect(card.textContent).toMatch(/Rent\$180per month/);
+    expect(card.textContent).toMatch(/Balance\$144\.50past due/);
+    expect(card.textContent).toMatch(/Paid Through09\/15\/2026/);
+    expect(card.textContent).toMatch(/\$14 under street: rent increase candidate/);
     expect(card.textContent).toMatch(/\$190\/mo on 12\/01\/2026/);
-    expect(card.textContent).toMatch(/Lease Status\s*Past Due/);
     expect(within(card).getByText('Open in Cubby ↗').closest('a').getAttribute('href')).toBe('https://app.cubbystorage.com/tenants/cust_9');
     expect(within(card).getByText('Tickets (1 Open)')).toBeTruthy();
     expect(within(card).getByText('Light out')).toBeTruthy();
@@ -160,8 +170,10 @@ describe('Operations > Site Map', () => {
     pick('C214');
     const card = cardOf('C214');
     expect(within(card).getByText('Vacant')).toBeTruthy();
-    expect(card.textContent).toMatch(/Days Vacant\s*160/);
-    expect(card.textContent).toMatch(/\$90 vs \$100 median, 10% under/);
+    expect(card.textContent).toMatch(/Vacant Unit/);
+    expect(card.textContent).toMatch(/Street Rate\$90per month/);
+    expect(card.textContent).toMatch(/Days Vacant160/);
+    expect(card.textContent).toMatch(/Market Median\$10010% under/);
     expect(await within(card).findByText('No open tickets on this unit.')).toBeTruthy();
     expect(within(card).getByRole('button', { name: 'Report an Issue' }).disabled).toBe(true);   // no property linked
     fireEvent.click(within(card).getByRole('button', { name: 'Copy Customer Link' }));
@@ -200,7 +212,7 @@ describe('Operations > Site Map', () => {
     expect(screen.getByText('No Site Map Yet', { exact: false })).toBeTruthy();
     expect(screen.getByText(/Open in Cubby/).closest('a').getAttribute('href')).toBe('https://app.cubbystorage.com/tenants/cust_3');
     fireEvent.click(screen.getByText('Pat Example'));
-    expect(await screen.findByText('Pat Example', { selector: 'dd' })).toBeTruthy();   // the unit card opened on C001
+    expect(await screen.findByText('Pat Example', { selector: '.sm-tenant-name' })).toBeTruthy();   // the unit card opened on C001
     fireEvent.change(box, { target: { value: 'pat' } });
     fireEvent.click(await screen.findByText('Pat Other'));
     expect(onPick).toHaveBeenCalledWith('fac_2');
@@ -214,7 +226,7 @@ describe('Operations > Site Map', () => {
     pick('C002');
     const card = cardOf('C002');
     expect(within(card).getAllByText('Out of Service').length).toBe(2);   // badge + heading, never "Vacancy"
-    expect(card.textContent).toMatch(/Reason.*Door spring/);
+    expect(card.textContent).toMatch(/Reason:.*Door spring/);
     expect(card.textContent).not.toMatch(/Days Vacant/);
     fireEvent.click(within(card).getByRole('button', { name: 'Close Unit C002' }));
     expect(cardOf('C002')).toBeUndefined();

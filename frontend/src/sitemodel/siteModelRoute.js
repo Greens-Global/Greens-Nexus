@@ -233,6 +233,16 @@ export function routeGoal(model, u) {
   return goalFor(model, u, null);
 }
 
+/** The middle of the site: the center of every unit and building, cached per model. */
+const CENTERS = new WeakMap();
+function siteCenter(model) {
+  if (CENTERS.has(model)) return CENTERS.get(model);
+  let su = 0, sv = 0, n = 0;
+  for (const x of model.units || []) { su += x.u + x.wu / 2; sv += x.v + x.dv / 2; n++; }
+  for (const b of model.buildings || []) { su += (b.u[0] + b.u[1]) / 2 * 4; sv += (b.v[0] + b.v[1]) / 2 * 4; n += 4; }
+  const c = n ? [su / n, sv / n] : [0, 0]; CENTERS.set(model, c); return c;
+}
+
 function goalFor(model, u, g) {
   const own = ownBuilding(model, u);
   const f = footprint(u); const cu = f.cu, cv = f.cv;
@@ -254,7 +264,16 @@ function goalFor(model, u, g) {
     // an aisle - the end with the most room in front of it.
     const along = f.hu >= f.hv;   // the long axis runs along u before the turn
     const ends = along ? [local(f, f.hu + STALL_OUT, 0), local(f, -f.hu - STALL_OUT, 0)] : [local(f, 0, f.hv + STALL_OUT), local(f, 0, -f.hv - STALL_OUT)];
+    // Both ends open: the one that faces INTO the site, never the end on the
+    // fence / road side (Visesh, Oct 20 - the route ran outside the fence to
+    // reach a stall on the edge of the lot). Only room decides when one end is
+    // walled in.
     const r = ends.map(room);
+    const open = r.map((x) => x >= 1.2);
+    if (open[0] && open[1]) {
+      const c = siteCenter(model); const d = ends.map((p) => Math.hypot(p[0] - c[0], p[1] - c[1]));
+      return { goal: d[1] < d[0] ? ends[1] : ends[0], inside: null, stall: true };
+    }
     return { goal: r[1] > r[0] + 0.05 ? ends[1] : ends[0], inside: null, stall: true };
   }
   // A container or shed on the lot: in front of its door - unless the plan

@@ -38,9 +38,20 @@
 //                 layer under the legend; `asideExtra` follows Needs Attention.
 //                 Without `fill` (Asset Management, the customer pages) the
 //                 search box sits above the map, as in production.
+//
+// Oct 20 2026 (Visesh: "the tenant data is going too unlooked"): owners get
+// the KPI block (SiteModelKpis: one stacked occupancy bar that is the legend
+// and filters the map, the money line from `kpis`, the live line), folded to
+// one line while a unit is open; the unit card leads with a one-line unit
+// summary, then the screen's `renderUnitExtra(u, { pickUnit })` (Ops: the
+// tenant card), and How to Get There folds away for staff. `layerBuckets`
+// ([{ key, label, color, count, units }]) replaces the bar for a layer that is
+// not occupancy, `layerTitle` heads it. Needs Attention is grouped by reason;
+// Sources fold at the very bottom, staff only.
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { createSiteModelViewer, unitKindLabel, unitDirections, doorSideName, reasonLabel, routeSteps } from './siteModelViewer.js';
+import SiteModelCompass from './SiteModelCompass.jsx';
 import { planRoute, routeDirections } from './siteModelRoute.js';
 import { googleMapsDirectionsUrl, googleMapsUnitPinUrl } from './siteModelDirections.js';
 import { SiteModelPlan2D } from './SiteModelPlan2D.jsx';
@@ -50,6 +61,8 @@ import { SiteMapSearch } from './SiteMapSearch.jsx';
 import { normalizeQuery } from './unitQuery.js';
 import { useIsMobile } from '../lib/useIsMobile.js';
 import { PHONE_QUERY } from '../lib/keys.js';
+import { AttentionCard, SiteModelKpis } from './SiteModelKpis.jsx';
+import { attentionGroups, countedUnits, focusColors, occupancyBuckets, reasonGroup, summaryLine } from './panelModel.js';
 
 const FONT = "'Inter', system-ui, sans-serif";
 const PIN_CATEGORIES = [['maintenance', 'Maintenance'], ['inspection', 'Inspection'], ['note', 'Note']];
@@ -66,8 +79,8 @@ const card = { border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 1
 // Fill mode (Ops Site Map): the grid rows can never grow past the measured
 // height, the canvas is out of flow, and every control floats on the map.
 const FILL_CSS = `
-.sm-fill{grid-template-columns:minmax(0,1fr) 360px;grid-template-rows:minmax(0,1fr)}
-@media (max-width:1500px){.sm-fill{grid-template-columns:minmax(0,1fr) 340px}}
+.sm-fill{grid-template-columns:minmax(0,1fr) 400px;grid-template-rows:minmax(0,1fr)}
+@media (max-width:1500px){.sm-fill{grid-template-columns:minmax(0,1fr) 384px}}
 .sm-fill .sm-main,.sm-fill .sm-aside,.sm-fill .sm-stage{min-height:0}
 .sm-fill .sm-stage{container:smstage/inline-size}
 .sm-fill .sm-stage>canvas{position:absolute;inset:0}
@@ -139,7 +152,7 @@ const STATUS_COLOR = { leased: '#3f8f5f', vacant: '#c98a1b', bad: '#c43d2f' };
 
 export { normalizeQuery };
 
-export function SiteModelPanel({ model, mode = 'customer', images, pins = [], tickets = [], onAddPin, onRemovePin, onTogglePin, onOpenTicket, height = 560, initialUnit = '', unitColors = null, legend = null, hoverInfo = null, renderUnitExtra = null, markers = null, pinsEnabled = true, hideSearch = false, fitRoute = false, statusOf = null, fill = false, toolbar = null, legendHint = '', asideExtra = null, remoteSearch = null, onRemoteHit = null, placeName = '' }) {
+export function SiteModelPanel({ model, mode = 'customer', images, pins = [], tickets = [], onAddPin, onRemovePin, onTogglePin, onOpenTicket, height = 560, initialUnit = '', unitColors = null, legend = null, hoverInfo = null, renderUnitExtra = null, markers = null, pinsEnabled = true, hideSearch = false, fitRoute = false, statusOf = null, fill = false, toolbar = null, legendHint = '', asideExtra = null, remoteSearch = null, onRemoteHit = null, placeName = '', kpis = null, layerBuckets = null, layerTitle = '', layerNote = '' }) {
   const stageRef = useRef(null); const viewerRef = useRef(null);
   const [selected, setSelected] = useState(() => initialUnit || null); const [building, setBuilding] = useState(null);
   const [query, setQuery] = useState(''); const [notFound, setNotFound] = useState('');
@@ -153,7 +166,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   const canPhoto = PHOTOREAL_KEY && mode === 'owner' && !photoFailed;
   const look = lookPref === 'photoreal' && !canPhoto ? 'satellite' : lookPref;
   const [touched, setTouched] = useState(false);
-  const colorsRef = useRef(unitColors); colorsRef.current = unitColors;
+  const [focusPick, setFocus] = useState(null); const [kpiOpenFor, setKpiOpenFor] = useState(null);
   const selectedRef = useRef(null); const xrayRef = useRef(false);
   useEffect(() => { selectedRef.current = selected; xrayRef.current = xray; }, [selected, xray]);
   const byName = useMemo(() => Object.fromEntries((model.units || []).map((u) => [u.n, u])), [model]);
@@ -166,6 +179,16 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
     return (model.units || []).some((u) => ids.has(u.b));
   }, [model]);
   const statusFn = statusOf || defaultStatus;
+  // The KPI bar: occupancy, or the active layer's buckets; a picked bucket dims the rest of the map.
+  const buckets = useMemo(() => layerBuckets || occupancyBuckets(model.units, statusFn), [layerBuckets, model, statusFn]);
+  // Needs Attention (its own KPI card, and a badge over each unit on the map).
+  const badUnits = useMemo(() => countedUnits(model.units).filter((x) => statusFn(x) === 'bad'), [model, statusFn]);
+  const attention = useMemo(() => attentionGroups(badUnits), [badUnits]);
+  const [showIssues, setShowIssues] = useState(true);
+  const focusBucket = buckets.find((b) => b.key === focusPick)
+    || attention.map((g) => ({ key: `attn:${g.label}`, label: g.label, units: g.units.map((x) => x.n) })).find((b) => b.key === focusPick) || null;
+  const mapColors = useMemo(() => focusColors(model.units, focusBucket, unitColors, statusFn), [model, focusBucket, unitColors, statusFn]);
+  const colorsRef = useRef(mapColors); colorsRef.current = mapColors;
   // fill: the map + panel take the rest of the screen below where they start
   // (min 380px). Re-measured on resize, when anything on the page changes size
   // (a notice above, a wrapped line, a sidebar collapse) and once the fonts are
@@ -223,11 +246,19 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   }, [model, look]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { viewerRef.current?.setMode(mode); }, [mode]);
   useEffect(() => { viewerRef.current?.setPins(pins); }, [pins]);
-  useEffect(() => { viewerRef.current?.setMarkers(markers || Object.fromEntries(Object.entries(ticketsByUnit).map(([k, v]) => [k, v.length]))); }, [ticketsByUnit, markers, look]);
-  useEffect(() => { viewerRef.current?.setUnitColors?.(unitColors); }, [unitColors]);
+  useEffect(() => {
+    const m = { ...(markers || Object.fromEntries(Object.entries(ticketsByUnit).map(([k, v]) => [k, v.length]))) };
+    // A count (tickets, maintenance) keeps its sphere; every other unit needing attention gets the "!" badge.
+    if (showIssues) badUnits.forEach((x) => { if (m[x.n] == null) m[x.n] = { label: '!' }; });
+    viewerRef.current?.setMarkers(m);
+  }, [ticketsByUnit, markers, look, showIssues, badUnits]);
+  useEffect(() => { viewerRef.current?.setUnitColors?.(mapColors); }, [mapColors]);
   useEffect(() => { viewerRef.current?.setPlacing(placing); }, [placing]);
 
   const u = selected ? byName[selected] : null;
+  // The figures fold while a unit is open; reopening them lasts for that unit only.
+  const kpiOpen = kpiOpenFor != null && kpiOpenFor === selected;
+  const setKpiOpen = (on) => setKpiOpenFor(on ? selected : null);
   const phone = useIsMobile(PHONE_QUERY);
   useEffect(() => {
     if (!fill || !selected || !asideRef.current) return undefined;
@@ -276,15 +307,26 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
     : `Cubby snapshot from ${live.asOf || 'the build date'}${live.enabled === false ? ' · live link off' : live.error ? ` · ${live.error}` : ''}`;
   const setLvl = (n) => { setLevel(n); viewerRef.current?.setLevel(n); };
   const owner = mode === 'owner';
-  const active = (model.units || []).filter((x) => x.n[0] !== 'M' && !x.gone);
+  const active = countedUnits(model.units);
   const leased = active.filter((x) => statusFn(x) === 'leased').length; const bad = active.filter((x) => statusFn(x) === 'bad'); const vacant = active.filter((x) => statusFn(x) === 'vacant').length;
-  const leasedPct = active.length ? (100 * leased / active.length).toFixed(1) : '0';
   const pickHere = (n) => { const ok = viewerRef.current ? viewerRef.current.selectUnit(n) : !!byName[n]; if (ok && !viewerRef.current) { setSelected(n); setBuilding(null); } return ok; };
   const clearPick = () => { if (viewerRef.current) viewerRef.current.clearSelection(); else setSelected(null); };
   const setView = (k) => { if (look !== k) { setLook(k); saveLook(k); setPlacing(false); setLevel(0); } };
   const looks = [...(canPhoto ? [['photoreal', 'Realistic 3D']] : []), ['satellite', 'Satellite'], ['illustrated', 'Illustrated']];
   const credit = look === 'illustrated' ? 'Illustrated, drawn to scale' : look === 'photoreal' ? `Map data: ${googleCredit || 'Google'}` : model.image?.attribution || 'Imagery: Esri';
   const liveOk = live.source === 'cubby' && !live.error;
+  // "Drive-Up, Vehicle · 10 × 25 ft · Building C, Level 2 · Door Southwest Side" - the unit in one line (owners).
+  const unitLine = (x) => {
+    const where = `${bldg(x.b)?.name || zone(x.b)?.name || ''}${bldg(x.b)?.floors > 1 ? `, Level ${x.f}` : ''}`;
+    const side = x.door && x.k !== 'park' ? (x.k === 'du' || x.k === 'ccdu' ? doorSideName(model, x.door) : 'hallway') : '';
+    return [unitKindLabel(x), x.w && x.d ? `${x.w} × ${x.d} ft` : x.d ? `${x.d} in. mailbox` : '', where,
+      side === 'hallway' ? 'Hallway Door' : side ? `Door ${side.replace(/ side$/, '').split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}` : ''].filter(Boolean).join(' · ');
+  };
+  // "Repairs Required: Door fall when closing it" - a flagged unit's reason and note.
+  const attnText = (x) => { const r = reasonGroup(x.why, x.note); const n = (x.note || '').trim(); return n && n.toLowerCase() !== r.toLowerCase() ? `${r}: ${n}` : r; };
+  // Flagged units on another level of the same building that share this unit's spot.
+  const stacked = (x) => badUnits.filter((o) => o.n !== x.n && o.b === x.b && o.f !== x.f
+    && o.u < x.u + x.wu && x.u < o.u + o.wu && o.v < x.v + x.dv && x.v < o.v + o.dv);
   const savePin = (e) => { e.preventDefault(); if (!pending || !pinTitle.trim()) return; onAddPin?.({ ...pending, title: pinTitle.trim(), category: pinCat }); setPending(null); setPinTitle(''); };
   // Production's on-map button bar (Visesh, Oct 20 2026: "the one in asset management is so much better").
   const pill = { display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' };
@@ -306,15 +348,17 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
           {notFound && <span role="alert" style={{ fontSize: 12, color: '#c43d2f', alignSelf: 'center' }}>{notFound}</span>}
         </form>}
         <div ref={stageRef} className="sm-stage" onPointerDown={() => setTouched(true)} onWheel={() => setTouched(true)} style={{ position: 'relative', height: fill ? undefined : typeof height === 'number' && look === 'illustrated' ? height + 80 : height, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-secondary, #dfe6e9)' }}>
+          {!noGl && <SiteModelCompass viewerRef={viewerRef} />}
           {hover && (() => { const hu = byName[hover.n]; const info = hu && hoverInfo ? hoverInfo(hu) : '';
             return <div role="tooltip" style={{ position: 'absolute', left: hover.x + 12, top: hover.y - 30, pointerEvents: 'none', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '4px 8px', borderRadius: 8, boxShadow: '0 4px 14px rgba(0,0,0,0.12)', zIndex: 2, lineHeight: 1.35, maxWidth: 260 }}>
               <div style={{ font: `600 12px ui-monospace, Menlo, monospace` }}>{hover.n}{hover.f > 1 ? ` · L${hover.f}` : ''}{hu?.w && hu?.d ? <span style={{ font: `400 11px ${FONT}`, color: 'var(--text-muted, #5f6358)' }}> · {hu.w} × {hu.d} ft</span> : null}</div>
               {owner && hu && <div style={{ fontSize: 11, color: 'var(--text-muted, #5f6358)' }}>{STATUS_WORD[statusFn(hu)]}</div>}
+              {owner && hu && statusFn(hu) === 'bad' ? <div style={{ fontSize: 11, fontWeight: 600, color: '#b42318' }}>{`${hu.n}${bldg(hu.b)?.floors > 1 ? ` · Level ${hu.f}` : ''} · ${attnText(hu)}`}</div> : null}
               {info ? <div style={{ fontSize: 11, fontWeight: 600 }}>{info}</div> : null}
             </div>; })()}
           {placing && <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '5px 12px', borderRadius: 999, fontSize: 12, zIndex: 2 }}>Click a unit, a building or the ground to place the pin</div>}
           {noGl && <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
-            <SiteModelPlan2D model={model} mode={mode} colors={owner ? unitColors : null} selected={selected} route={plan2d} onSelect={(x) => { setSelected(x.n); setBuilding(null); setQuery(x.n); setNotFound(''); }} />
+            <SiteModelPlan2D model={model} mode={mode} colors={owner ? mapColors : null} selected={selected} route={plan2d} onSelect={(x) => { setSelected(x.n); setBuilding(null); setQuery(x.n); setNotFound(''); }} />
             <div role="status" style={{ position: 'absolute', left: 10, top: fill ? undefined : 10, bottom: fill ? 10 : undefined, fontSize: 12, background: 'rgba(255,255,255,0.9)', padding: '3px 8px', borderRadius: 6, color: '#5f6358' }}>Flat plan - the 3D view is not available on this device.</div>
           </div>}
           {!noGl && <div className="sm-cambar" role="group" aria-label="Map Controls" style={{ position: 'absolute', left: 10, bottom: 10, right: fill ? 10 : undefined, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 3 }}>
@@ -329,7 +373,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             </span>}
           </div>}
           {!noGl && !touched && <div aria-hidden="true" className="sm-hint" style={{ position: 'absolute', left: '50%', top: fill ? '50%' : 12, transform: fill ? 'translate(-50%, -50%)' : 'translateX(-50%)', background: 'rgba(29,31,26,0.78)', color: '#fff', fontSize: 12, padding: '5px 12px', borderRadius: 999, zIndex: 2, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-            <span className="sm-hint-mouse">Drag to orbit · Scroll to zoom · Right-drag to pan</span><span className="sm-hint-touch">Drag to orbit · Pinch to zoom · Two fingers to pan</span>
+            <span className="sm-hint-mouse">Drag to move · Scroll to zoom · Right-drag to turn</span><span className="sm-hint-touch">Drag to move · Pinch to zoom · Twist to turn</span>
           </div>}
           <style>{`.sm-hint-touch{display:none} @media (pointer: coarse){ .sm-hint-touch{display:inline} .sm-hint-mouse{display:none} }`}</style>
           <div style={{ position: 'absolute', right: 10, top: fill ? undefined : 10, bottom: fill ? 52 : undefined, fontSize: 10, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{credit} · 1 unit = 1 m</div>
@@ -348,19 +392,15 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
       </div>
       <aside ref={asideRef} style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }} className="sm-aside">
         {owner && (
-          <section>
-            <h2 style={h2}>Inventory</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {[[active.length, 'Active Units and Stalls'], [`${leasedPct}%`, `Leased (${leased})`], [vacant, 'Vacant, Rentable'], [bad.length, 'Out of Service']].map(([v, l]) => (
-                <div key={l} style={{ ...card, padding: '8px 10px' }}><b style={{ display: 'block', fontSize: 20, fontVariantNumeric: 'tabular-nums' }}>{v}</b><span style={{ fontSize: 11, color: 'var(--text-muted, #5f6358)' }}>{l}</span></div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', fontSize: 12, marginTop: 8 }}>
-              {legend || [['#5fae7d', 'Leased'], ['#e0b45a', 'Vacant'], ['#d65a4c', 'Out of Service'], ['#ff7a00', 'Selected']].map(([c, l]) => <span key={l}><i style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, verticalAlign: -2, marginRight: 5, background: c }} />{l}</span>)}
-            </div>
-            {legendHint ? <p style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', margin: '6px 0 0', lineHeight: 1.45 }}>{legendHint}</p> : null}
-            <div style={{ fontSize: 12, color: liveOk ? '#3f8f5f' : 'var(--text-muted, #5f6358)', marginTop: 6 }}><i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 999, marginRight: 6, verticalAlign: 0, background: liveOk ? '#3f8f5f' : '#b8b4a8' }} />{liveLine}</div>
-          </section>
+          <>
+            <SiteModelKpis buckets={buckets} title={layerBuckets ? (layerTitle || 'Layer') : `Inventory · ${active.length} Units`} total={layerBuckets ? 0 : active.length}
+              info={legendHint || 'Green is leased, yellow is vacant and ready to rent, red is out of service (not leased and cannot be rented). Click a color to show only those units on the map.'}
+              kpis={kpis} focusKey={focusBucket ? focusBucket.key : null} onFocus={setFocus} liveLine={liveLine} liveOk={liveOk} note={layerNote}
+              collapsed={!!u && !kpiOpen} summary={summaryLine(active.length, leased, kpis)} onToggle={u ? () => setKpiOpen(!kpiOpen) : undefined} />
+            <AttentionCard groups={attention} total={badUnits.length} focusKey={focusBucket ? focusBucket.key : null} onFocus={setFocus} onPickUnit={pickHere}
+              showOnMap={showIssues} onShowOnMap={setShowIssues} collapsed={!!u && !kpiOpen} onExpand={() => setKpiOpen(true)} />
+            {legend && !layerBuckets ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', fontSize: 12, marginTop: -6 }}>{legend}</div> : null}
+          </>
         )}
         {owner && (unplaced.length || live.missing?.length) ? (
           <section style={card}>
@@ -390,18 +430,32 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
                 {fill && <button type="button" className="sm-icon-btn" aria-label={`Close Unit ${u.n}`} title="Close" onClick={clearPick}><X size={16} aria-hidden="true" /></button>}
               </span>
             </div>
+            {owner && statusFn(u) === 'bad' ? (
+              <div role="note" className="sm-attn-banner" style={{ margin: '8px 0 4px', padding: '7px 10px', borderRadius: 8, background: '#fdecea', border: '1px solid #f6c9c4', color: '#7a271a', fontSize: 12.5, lineHeight: 1.4 }}>
+                <b style={{ color: '#b42318' }}>Needs Attention</b> · {attnText(u)}
+              </div>
+            ) : null}
+            {owner && statusFn(u) !== 'bad' ? stacked(u).map((x) => (
+              <button key={x.n} type="button" onClick={() => pickHere(x.n)} className="sm-attn-near"
+                style={{ display: 'block', margin: '6px 0 2px', padding: 0, border: 0, background: 'transparent', font: 'inherit', fontSize: 12, color: 'var(--text-muted, #5f6358)', textAlign: 'left', cursor: 'pointer' }}>
+                <span style={{ color: '#b42318' }}>!</span> {x.n} {x.f < u.f ? 'below' : 'above'} on Level {x.f} needs attention: {reasonGroup(x.why, x.note)}
+              </button>
+            )) : null}
+            {owner ? <div className="sm-unit-line" style={{ fontSize: 12.5, color: 'var(--text-muted, #5f6358)', margin: '2px 0 0', lineHeight: 1.45 }}>{unitLine(u)}</div> : null}
+            {owner && renderUnitExtra ? (u.gone ? <div style={{ fontSize: 12, color: '#c43d2f', marginTop: 4 }}>No longer in Cubby's inventory</div> : null) : (
             <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', fontSize: 13, margin: '8px 0 0' }}>
+              {!owner && <>
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Type</dt><dd style={{ margin: 0 }}>{unitKindLabel(u)}</dd>
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Size</dt><dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{u.w && u.d ? `${u.w} × ${u.d} ft (${(u.w * u.d).toLocaleString()} sq ft)` : u.d ? `${u.d} in. mailbox` : 'not listed'}</dd>
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Location</dt><dd style={{ margin: 0 }}>{bldg(u.b)?.name || zone(u.b)?.name || ''}{bldg(u.b)?.floors > 1 ? `, Level ${u.f}` : ''}</dd>
               {u.door && u.k !== 'park' && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Door</dt><dd style={{ margin: 0 }}>{u.k === 'du' || u.k === 'ccdu' ? `Outside wall${doorSideName(model, u.door) ? `, ${doorSideName(model, u.door)}` : ''}` : 'Hallway'}</dd></>}
+              </>}
               {owner && !renderUnitExtra && statusFn(u) !== 'leased' && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Days Vacant</dt><dd style={{ margin: 0 }}>{typeof u.dvac === 'number' ? u.dvac : 'Since the last build'}</dd></>}
               {owner && statusFn(u) === 'bad' && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Reason</dt><dd style={{ margin: 0 }}>{reasonLabel(u.why) || 'Not given'}{u.note ? ` - ${u.note}` : ''}</dd></>}
               {u.gone ? <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Cubby</dt><dd style={{ margin: 0, color: '#c43d2f' }}>No longer in Cubby's inventory</dd></> : null}
-            </dl>
-            {renderUnitExtra ? renderUnitExtra(u) : null}
-            <div className="sm-route" style={{ marginTop: 10, borderTop: '1px solid var(--border-color, #d9d6cc)', paddingTop: 8, fontSize: 13 }}>
-              <b>How to Get There</b>
+            </dl>)}
+            {renderUnitExtra ? renderUnitExtra(u, { pickUnit: pickHere }) : null}
+            {(() => { const route = <>
               {steps.length > 1 && <ol aria-label="Route steps" style={{ listStyle: 'none', display: 'flex', flexWrap: 'wrap', gap: 4, margin: '6px 0 4px', padding: 0 }}>
                 {steps.map((s, i) => <li key={i}><button type="button" onClick={() => viewerRef.current?.flyToStep?.(i)} title={noGl ? s.sub : `Show step ${i + 1} on the map`}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-primary, #fff)', borderRadius: 999, padding: '2px 9px 2px 3px', font: `500 12px ${FONT}`, color: 'inherit', cursor: 'pointer' }}>
@@ -416,7 +470,12 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
                     title={`Where ${u.n} is on Google Maps`}>Show Unit on Google Maps</a>}
                 </div>
               )}
-            </div>
+            </>;
+            // Staff open a unit for its tenant: the route folds away (Visesh, Oct 20 2026); customers always see it.
+            return owner
+              ? <details className="sm-route sm-fold-route" style={{ marginTop: 12, borderTop: '1px solid var(--border-color, #d9d6cc)', paddingTop: 8, fontSize: 13 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>How to Get There</summary>{route}</details>
+              : <div className="sm-route" style={{ marginTop: 10, borderTop: '1px solid var(--border-color, #d9d6cc)', paddingTop: 8, fontSize: 13 }}><b>How to Get There</b>{route}</div>; })()}
             {owner && (ticketsByUnit[u.n]?.length ? (
               <div style={{ marginTop: 10 }}><b style={{ fontSize: 13 }}>Tickets at This Unit</b>
                 <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>{ticketsByUnit[u.n].map((t) => <li key={t.id}><button type="button" onClick={() => onOpenTicket?.(t)} style={{ ...btn, padding: '4px 8px', fontSize: 12, width: '100%', textAlign: 'left' }}>#{t.id} · {t.title || t.subject || 'Ticket'}</button></li>)}</ul>
@@ -441,14 +500,10 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             <p style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', margin: '8px 0 0' }}>{building.note}</p>
           </section>
         ) : (
-          <section style={card}><b>Find Your Unit</b><p style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)', margin: '6px 0 0' }}>Type a unit number above, or tap any unit on the model. Drag to orbit, scroll or pinch to zoom, right-drag or two fingers to pan.</p></section>
+          <section style={card}><b>Find Your Unit</b><p style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)', margin: '6px 0 0' }}>Type a unit number above, or tap any unit on the model. Drag to move, scroll or pinch to zoom, right-drag or twist with two fingers to turn.</p></section>
         )}
         {owner && (
           <>
-            <section>
-              <h2 style={h2}>Needs Attention ({bad.length})</h2>
-              {bad.length ? <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflow: 'auto' }}>{bad.map((x) => <li key={x.n} style={{ display: 'flex', gap: 8, fontSize: 12, alignItems: 'center' }}><button type="button" onClick={() => pickHere(x.n)} style={{ border: 0, background: 'transparent', font: `500 12px ui-monospace, Menlo, monospace`, color: '#1f6f4a', cursor: 'pointer', padding: '2px 4px' }}>{x.n}</button><span style={{ color: 'var(--text-muted, #5f6358)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{reasonLabel(x.why) || 'Out of service'}{x.note ? ` - ${x.note}` : ''}</span></li>)}</ul> : <div style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)' }}>Every unit is rentable.</div>}
-            </section>
             {asideExtra}
             {pinsEnabled && <section>
               <h2 style={h2}>Pins ({pins.length})</h2>
@@ -456,7 +511,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
               {pins.length ? <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflow: 'auto' }}>{pins.map((p) => (
                 <li key={p.id} style={{ display: 'flex', gap: 6, fontSize: 12, alignItems: 'center', opacity: p.status === 'done' ? 0.55 : 1 }}>
                   <button type="button" onClick={() => viewerRef.current?.flyToPin(p)} style={{ border: 0, background: 'transparent', font: `500 12px ui-monospace, Menlo, monospace`, color: '#1f6f4a', cursor: 'pointer', padding: '2px 4px', flexShrink: 0 }}>{p.unit || p.building || 'site'}</button>
-                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted, #5f6358)', textDecoration: p.status === 'done' ? 'line-through' : 'none' }}>{p.title} · {p.category}</span>
+                  <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', color: 'var(--text-muted, #5f6358)', textDecoration: p.status === 'done' ? 'line-through' : 'none' }}>{p.title} · {p.category}</span>
                   <button type="button" aria-label={p.status === 'done' ? 'Reopen pin' : 'Mark pin done'} title={p.status === 'done' ? 'Reopen' : 'Done'} onClick={() => onTogglePin?.(p)} style={{ ...btn, padding: '1px 7px', fontSize: 12 }}>✓</button>
                   <button type="button" aria-label="Remove pin" onClick={() => onRemovePin?.(p)} style={{ ...btn, padding: '1px 7px', fontSize: 12 }}>×</button>
                 </li>))}</ul> : <div style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)' }}>No pins yet. Drop one on a unit, a building or anywhere on the site.</div>}
@@ -464,7 +519,10 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             {model.layout?.flags?.length ? <section><h2 style={h2}>Layout Notes</h2><ul style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', paddingLeft: 16, margin: 0 }}>{model.layout.flags.map((f, i) => <li key={i} style={{ margin: '3px 0' }}>{f}</li>)}<li style={{ margin: '3px 0' }}>Building letters were matched to footprints from imagery and unit sizes; every assignment is marked inferred in the build config.</li></ul></section> : null}
           </>
         )}
-        {(model.sources || []).length > 0 && <section><h2 style={h2}>Sources</h2><ul style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', paddingLeft: 16, margin: 0 }}>{(model.sources || []).map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ul></section>}
+        {/* Sources: staff only, folded at the very bottom (Visesh, Oct 20 2026). */}
+        {owner && (model.sources || []).length > 0 && <details className="sm-sources" style={{ marginTop: 'auto', borderTop: '1px solid var(--border-color, #d9d6cc)', paddingTop: 8 }}>
+          <summary style={{ ...h2, margin: 0, cursor: 'pointer' }}>Sources ({model.sources.length})</summary>
+          <ul style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', paddingLeft: 16, margin: '6px 0 0' }}>{(model.sources || []).map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ul></details>}
       </aside>
     </div>
   );

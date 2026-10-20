@@ -54,10 +54,10 @@ describe('SiteModelPanel', () => {
   });
   it('shows owner inventory, out-of-service units and pins', () => {
     render(<SiteModelPanel model={model} mode="owner" images={{}} pins={[{ id: 'p1', unit: 'C001', title: 'Replace door spring', category: 'maintenance', status: 'open', u: 1, v: 1, y: 0 }]} />);
-    expect(screen.getByText('Inventory')).toBeTruthy();
-    // production's 2x2 tiles (Oct 20: "make it like the asset management site model")
-    ['Active Units and Stalls', 'Leased (1)', 'Vacant, Rentable', 'Out of Service'].forEach((t) => expect(screen.getAllByText(t).length).toBeGreaterThan(0));
-    expect(screen.getByText('Needs Attention (1)')).toBeTruthy();
+    // Oct 20 (Visesh): one occupancy bar that is the legend, and Needs Attention as its own card
+    expect(screen.getByText(/^Inventory · \d+ Units$/)).toBeTruthy();
+    ['Leased', 'Vacant', 'Out of Service'].forEach((t) => expect(screen.getAllByText(t).length).toBeGreaterThan(0));
+    expect(screen.getByRole('region', { name: 'Needs Attention' }).querySelector('.sma-n').textContent).toBe('1');
     expect(screen.getByText('Pins (1)')).toBeTruthy();
     expect(screen.getByText(/Replace door spring/)).toBeTruthy();
     expect(screen.getByText('Layout Notes')).toBeTruthy();
@@ -107,6 +107,17 @@ describe('SiteModelPanel', () => {
     expect(screen.queryByRole('button', { name: 'Realistic 3D' })).toBeNull();
     localStorage.removeItem('nexus.siteModel.look');
   });
+  it('a flagged unit says why at the top of its card; the unit stacked over it points down to it', () => {
+    const m = { ...model, units: [...model.units, { n: 'C101', b: 'C', f: 2, u: 0.5, v: 1, wu: 3, dv: 6, door: 'sw', k: 'cc', w: 10, d: 20, l: 1, r: 1, why: '', note: '' }] };
+    render(<SiteModelPanel model={m} mode="owner" images={{}} />);
+    const find = (n) => { fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: n } }); fireEvent.submit(screen.getByLabelText('Unit number').closest('form')); };
+    find('C001');
+    expect(screen.getByRole('note').textContent).toBe('Needs Attention · Damage: door');
+    find('C101');
+    expect(screen.queryByRole('note')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /C001 below on Level 1 needs attention: Damage/ }));
+    expect(screen.getByRole('note').textContent).toMatch(/Damage/);
+  });
   it('keeps the production map buttons: camera, See Inside and the levels', () => {
     render(<SiteModelPanel model={model} mode="owner" images={{}} />);
     ['Reset View', 'Overview', 'Plan', 'From Gate', 'See Inside', 'All Levels', 'L1', 'L2'].forEach((n) => expect(screen.getByRole('button', { name: n })).toBeTruthy());
@@ -117,7 +128,7 @@ describe('SiteModelPanel', () => {
     localStorage.setItem('nexus.siteModel.look', 'satellite');
     const m = { ...model, units: [...model.units, { n: 'C002', b: 'C', f: 1, u: 4, v: 0, wu: 3, dv: 6, door: 'sw', k: 'du', w: 10, d: 20, l: 1, r: 0, why: 'ACTIVE_LEASE' }] };
     render(<SiteModelPanel model={m} mode="owner" images={{}} />);
-    expect(screen.getByText('Needs Attention (1)')).toBeTruthy();          // C001 only, not the leased C002
+    expect(screen.getByRole('region', { name: 'Needs Attention' }).querySelector('.sma-n').textContent).toBe('1');   // C001 only, not the leased C002
     fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: 'C002' } });
     fireEvent.submit(screen.getByLabelText('Unit number').closest('form'));
     const card = screen.getAllByText('C002').find((el) => el.closest('section'))?.closest('section');

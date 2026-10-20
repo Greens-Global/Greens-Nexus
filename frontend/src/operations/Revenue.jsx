@@ -14,6 +14,7 @@
 // row reaches Cubby. Do not add a push.
 // Street rates for new renters are Market Rates' job, not this tab's.
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import PushToCubbyDisabled from './PushToCubbyDisabled';
 import { Plus, Pencil, Trash2, FileText, Download, Check, X } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
@@ -409,6 +410,7 @@ function BatchModal({ batchId, onClose, onChanged }) {
         {b.status !== 'draft' && b.status !== 'canceled' && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" disabled={!!busy} onClick={letters} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><FileText size={14} aria-hidden="true" /> Print Notices</button>
+            <PushToCubbyDisabled label="Push Rent Changes to Cubby" />
             <button type="button" className="secondary-btn" disabled={!!busy} onClick={exportCsv} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Download size={14} aria-hidden="true" /> Mail Merge and Checklist</button>
           </div>
         )}

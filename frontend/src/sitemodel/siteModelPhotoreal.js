@@ -39,7 +39,11 @@ export async function attachPhotoreal({ scene, camera, renderer, model, center, 
   const draco = new DRACOLoader().setDecoderPath('/draco/');
   tiles.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader: draco }));
   tiles.registerPlugin(new TilesFadePlugin());
-  tiles.errorTarget = 12;
+  // Sharpness (Visesh, Oct 20 "blunt and smooth edged"): load down to ~4 px of
+  // screen error (was 12 - a coarse level of detail) and keep more tiles cached
+  // so the finer ones are not dropped while orbiting.
+  tiles.errorTarget = 4;
+  if (tiles.lruCache) { tiles.lruCache.minSize = 1200; tiles.lruCache.maxSize = 2400; }
   tiles.setCamera(camera); tiles.setResolutionFromRenderer(camera, renderer);
 
   // Put the model's origin (lat0, lon0) at the world origin: globe (ECEF) ->
@@ -58,6 +62,11 @@ export async function attachPhotoreal({ scene, camera, renderer, model, center, 
   // Anything new in the mesh (a tile loaded, a finer one swapped in) bumps the
   // version, so the viewer re-samples the surface heights it keeps per unit.
   let version = 0; const bump = () => { version++; };
+  // Photo textures stay crisp at a grazing angle (anisotropic filtering).
+  const aniso = renderer.capabilities?.getMaxAnisotropy?.() || 1;
+  tiles.addEventListener('load-model', ({ scene: m }) => {
+    m?.traverse?.((o) => { const mats = o.material ? [].concat(o.material) : []; for (const mt of mats) { if (mt.map) { mt.map.anisotropy = aniso; mt.map.needsUpdate = true; } } });
+  });
   tiles.addEventListener('load-model', bump); tiles.addEventListener('dispose-model', bump); tiles.addEventListener('tile-visibility-change', bump);
   let lastErr = null; tiles.addEventListener('load-error', (e) => { lastErr = e; });
   // Rays go through the scene graph of the tiles on screen: the renderer's own
