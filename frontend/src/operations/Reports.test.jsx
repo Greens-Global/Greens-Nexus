@@ -39,14 +39,14 @@ const RENT_ROLL = {
   columns: [{ key: 'unit', label: 'Unit', type: 'unit' }, { key: 'tenant', label: 'Tenant', type: 'tenant' },
     { key: 'rent', label: 'Monthly Rent', type: 'money', total: true }, { key: 'paidThrough', label: 'Paid Through', type: 'date' }],
   rows: [
-    { _f: 'fac_a', _c: 'cust_1', _u: 'b213', unit: 'B213', tenant: 'Aiden Robb', rent: 95108, paidThrough: '2026-09-30' },
-    { _f: 'fac_a', _c: 'cust_2', _u: 'a104', unit: 'A104', tenant: 'Amanda Sakama', rent: 12000, paidThrough: '2026-10-31' },
+    { _f: 'fac_a', _c: 'cust_1', _u: 'b213', unit: 'B213', tenant: 'Ada Sample', rent: 95108, paidThrough: '2026-09-30' },
+    { _f: 'fac_a', _c: 'cust_2', _u: 'a104', unit: 'A104', tenant: 'Ben Example', rent: 12000, paidThrough: '2026-10-31' },
   ],
   totals: { rent: 107108 }, groups: {},
   summary: [{ label: 'Units Rented', value: 2, type: 'int' }, { label: 'Monthly Rent', value: 107108, type: 'money' }, { label: 'Occupancy', value: 87.5, type: 'pct' }],
 };
 const TENANT = {
-  facilityId: 'fac_a', facility: 'Temecula', customerId: 'cust_1', name: 'Aiden Robb', cubbyUrl: 'https://app.cubbystorage.com/tenants/cust_1',
+  facilityId: 'fac_a', facility: 'Temecula', customerId: 'cust_1', name: 'Ada Sample', cubbyUrl: 'https://app.cubbystorage.com/tenants/cust_1',
   units: [{ unitId: 'b213', unit: 'B213', type: '10x10', rent: 95108, street: 100000, paidThrough: '2026-09-30', moveIn: '2025-01-01', autoPay: false, overlocked: true }],
   balance: { total: 95108, lines: [{ unitId: 'b213', unit: 'B213', total: 95108, range_0_30: 95108 }] },
   payments: [{ date: '2026-09-02', amount: 15000, status: 'Succeeded', method: 'Credit Card', reason: '' }],
@@ -76,7 +76,7 @@ beforeEach(() => {
   api.opsTenant.mockResolvedValue(TENANT);
   api.opsTenantLedger.mockResolvedValue({ entries: [{ date: '2026-10-01', unit: 'B213', type: 'Charge', category: 'Rent', description: '', accrues: '', amount: 15000, paid: 0, waived: false }] });
   api.opsUnit.mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', unitId: 'b213', unit: 'B213', type: '10x10', size: '10x10', area: 100,
-    status: 'Rented', street: 100000, rent: 95108, reason: '', note: '', overlocked: true, tenant: { customerId: 'cust_1', name: 'Aiden Robb' },
+    status: 'Rented', street: 100000, rent: 95108, reason: '', note: '', overlocked: true, tenant: { customerId: 'cust_1', name: 'Ada Sample' },
     paidThrough: '2026-09-30', autoPay: false, balance: 95108, history: [{ customerId: 'cust_0', tenant: 'Earlier Tenant', moveIn: '2024-01-01', moveOut: '2024-12-01', rent: 9000, stayDays: 335 }], tasks: [] });
   api.opsBuilderRegistry.mockResolvedValue(REGISTRY);
   api.opsSavedReports.mockResolvedValue({ reports: [] });
@@ -91,7 +91,7 @@ describe('Operations > Reports', () => {
     expect(await screen.findByRole('button', { name: 'Rent Roll' })).toBeTruthy();       // the library first
     expect(api.opsReport).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Rent Roll' }));
-    expect(await screen.findByText('Aiden Robb')).toBeTruthy();
+    expect(await screen.findByText('Ada Sample')).toBeTruthy();
     expect(api.opsReport).toHaveBeenCalledWith('rent-roll', { facilityIds: [], start: '', end: '', options: undefined });   // a snapshot, every facility
     expect(screen.getByText('As of the Last Cubby Sync')).toBeTruthy();
     expect(screen.getByText('Units Rented')).toBeTruthy();                   // headline tiles
@@ -101,7 +101,7 @@ describe('Operations > Reports', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Monthly Rent' }));    // ascending
     const first = () => document.querySelector('.ops-rtable tbody tr td').textContent;
     expect(first()).toBe('A104');
-    fireEvent.change(screen.getByLabelText('Search Rent Roll'), { target: { value: 'aiden' } });
+    fireEvent.change(screen.getByLabelText('Search Rent Roll'), { target: { value: 'ada' } });
     expect(document.querySelectorAll('.ops-rtable tbody tr')).toHaveLength(1);
     // CSV from the Download menu; before the export endpoint is live it is built here.
     api.opsReportExport.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }));
@@ -110,7 +110,7 @@ describe('Operations > Reports', () => {
     await waitFor(() => expect(downloadCsv).toHaveBeenCalled());
     expect(api.opsReportExport).toHaveBeenCalledWith('rent-roll', { facilityIds: [], start: '', end: '', options: undefined, format: 'csv' });
     expect(downloadCsv.mock.calls[0][1]).toEqual(['Unit', 'Tenant', 'Monthly Rent', 'Paid Through']);
-    expect(downloadCsv.mock.calls[0][2]).toEqual([['B213', 'Aiden Robb', '951.08', '09/30/2026'], ['A104', 'Amanda Sakama', '120.00', '10/31/2026']]);
+    expect(downloadCsv.mock.calls[0][2]).toEqual([['B213', 'Ada Sample', '951.08', '09/30/2026'], ['A104', 'Ben Example', '120.00', '10/31/2026']]);
     fireEvent.click(screen.getByRole('button', { name: 'All Reports' }));
     expect(await screen.findByLabelText('Search Reports')).toBeTruthy();
     expect(screen.getByText('Recent')).toBeTruthy();
@@ -119,8 +119,8 @@ describe('Operations > Reports', () => {
   it('opens a tenant, then their unit, then back', async () => {
     renderReports();
     fireEvent.click(await screen.findByRole('button', { name: 'Rent Roll' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Aiden Robb' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Aiden Robb' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Ada Sample' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Ada Sample' });
     expect(api.opsTenant).toHaveBeenCalledWith('fac_a', 'cust_1');
     await within(dialog).findByText('Cubby Ledger');
     await waitFor(() => expect(api.opsTenantLedger).toHaveBeenCalledWith('fac_a', 'cust_1'));
@@ -129,7 +129,7 @@ describe('Operations > Reports', () => {
     expect(await screen.findByRole('dialog', { name: 'Unit B213' })).toBeTruthy();
     expect(screen.getByText('Earlier Tenant')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
-    expect(await screen.findByRole('dialog', { name: 'Aiden Robb' })).toBeTruthy();
+    expect(await screen.findByRole('dialog', { name: 'Ada Sample' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });

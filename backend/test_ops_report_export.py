@@ -24,7 +24,7 @@ def multi_result():
     cols = [col("facility", "Facility"), col("tenant", "Tenant", "tenant"), col("unit", "Unit", "unit"),
             col("moveIn", "Move-In Date", "date"), col("rent", "Monthly Rent", "money", True), col("occ", "Occupancy", "pct"),
             col("count", "Units", "int", True)]
-    rows = [{"_f": "fa", "_c": "c1", "facility": "GS Temecula", "tenant": "Aiden Robb", "unit": "A1", "moveIn": "2025-03-01",
+    rows = [{"_f": "fa", "_c": "c1", "facility": "GS Temecula", "tenant": "Ada Sample", "unit": "A1", "moveIn": "2025-03-01",
              "rent": 15000, "occ": 85.7, "count": 1},
             {"_f": "fa", "_c": "c2", "facility": "GS Temecula", "tenant": "=cmd|' /C calc'!A0", "unit": "A2", "moveIn": "2026-10-02",
              "rent": 0, "occ": None, "count": 1},
@@ -149,7 +149,7 @@ def test_csv_is_flat_with_dollars_us_dates_and_a_total():
     text = export.to_csv(multi_result())
     rows = list(csv.reader(io.StringIO(text)))
     assert rows[0] == ["Facility", "Tenant", "Unit", "Move-In Date", "Monthly Rent", "Occupancy", "Units"]
-    assert rows[1] == ["GS Temecula", "Aiden Robb", "A1", "03/01/2025", "150.00", "85.7", "1"]
+    assert rows[1] == ["GS Temecula", "Ada Sample", "A1", "03/01/2025", "150.00", "85.7", "1"]
     assert rows[2][1].startswith("'=")                                   # formula text defused
     assert rows[-1] == ["Total", "", "", "", "225.00", "", "4"]
 
@@ -204,7 +204,7 @@ def test_export_endpoint_xlsx_for_two_facilities(client):
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
     ws = wb.active
     text = " ".join(str(ws.cell(i, c).value) for i in range(1, ws.max_row + 1) for c in range(1, ws.max_column + 1))
-    assert "Aiden Robb" in text and "Cy Park" in text and "Total" in text
+    assert "Ada Sample" in text and "Cy Park" in text and "Total" in text
     _no_secrets(text)
 
 

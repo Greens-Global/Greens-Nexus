@@ -20,7 +20,7 @@ from database import SessionLocal
 
 
 def _e(i, j, day, acct, debit=0, credit=0, cust="cust_1", unit="a1", name="A1", expl=""):
-    return {"id": f"x{i}", "journalEntryId": j, "entryTime": f"{day}T10:00:00", "customerId": cust, "customerName": "Aiden Robb",
+    return {"id": f"x{i}", "journalEntryId": j, "entryTime": f"{day}T10:00:00", "customerId": cust, "customerName": "Ada Sample",
             "unitId": unit, "unitName": name, "account": acct, "mappedGlAccount": "", "mappedGlAccountNumber": "",
             "taxCategory": "", "explanation": expl, "debit": debit, "credit": credit}
 
@@ -48,7 +48,7 @@ ACCRUAL = {"entries": [
 
 def _c(i, j, day, acct, direction, amount, cust="cust_1", name="A1"):
     return {"id": f"c{i}", "journalEntryId": j, "paymentTime": f"{day}T10:00:00", "amount": amount, "direction": direction,
-            "account": acct, "details": {"customerId": cust, "customerName": "Aiden Robb", "unitName": name}}
+            "account": acct, "details": {"customerId": cust, "customerName": "Ada Sample", "unitName": name}}
 
 
 CASH = {"entries": [
@@ -165,6 +165,9 @@ def test_balances_summary_through_a_date(client):
     assert lines["A2"]["prepaid"] == 7000 and lines["A1"]["ar"] == 94108
     today = _run(client, "balances-summary", facility_id="fac_a")
     assert today["asOf"] == "2026-10-15" and today["rows"][0]["ar"] == 95108 and today["rows"][0]["prepaid"] == 5000
+    # A date in an earlier month is not "a period that starts after it ends".
+    sept = client.get("/ops-reports/run/balances-summary", params={"facility_id": "fac_a", "end": "2026-09-30"})
+    assert sept.status_code == 200 and sept.json()["asOf"] == "2026-09-30"
     cat = {r["key"]: r for r in client.get("/ops-reports/catalog").json()["reports"]}
     assert cat["balances-summary"]["pointInTime"] is True and cat["rent-roll"]["pointInTime"] is False
 

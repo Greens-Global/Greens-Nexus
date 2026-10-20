@@ -127,7 +127,8 @@ function ReportView({ meta, choices, facilities, today, fav, onFavorite, onBack,
       <div className="ops-view-bar">
         <button type="button" className="ops-ctl" onClick={onChange} aria-label="Change Period">
           <span className="ops-ctl-l">Period</span>
-          <span className="ops-ctl-v">{period ? `${periodName(choices.period)}: ${rangeWords(period)}` : 'As of the Last Cubby Sync'}</span>
+          <span className="ops-ctl-v">{period ? `${periodName(choices.period)}: ${rangeWords(period)}`
+            : meta.pointInTime && choices.period?.mode === 'past' && choices.period.date ? `As of ${formatDate(choices.period.date)}` : 'As of the Last Cubby Sync'}</span>
           <ChevronDown size={13} aria-hidden="true" />
         </button>
         <button type="button" className="ops-ctl" onClick={onChange} aria-label="Change Facilities">

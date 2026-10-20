@@ -14,7 +14,8 @@ import { FacilitiesField, FormatField, OptionsField, PeriodField, ReportModal, f
 // The request for /run and /export: every facility = [] (all).
 export function requestFor(meta, choices, facilities, today) {
   const all = choices.facilityIds.length >= facilities.length;
-  const { from, to } = meta.period ? resolvePeriod(choices.period, today) : { from: '', to: '' };
+  const { from, to } = meta.period ? resolvePeriod(choices.period, today)
+    : { from: '', to: meta.pointInTime && choices.period?.mode === 'past' && choices.period.date ? choices.period.date : '' };
   return { facilityIds: all ? [] : choices.facilityIds, start: from, end: to, options: meta.options?.length ? choices.options : undefined };
 }
 

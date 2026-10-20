@@ -168,8 +168,8 @@ def test_scan_sends_once_per_period_with_the_file_attached_and_retries(client, m
     assert ctype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     ws = openpyxl.load_workbook(io.BytesIO(data)).active
     text = " ".join(str(ws.cell(i, c).value) for i in range(1, ws.max_row + 1) for c in range(1, ws.max_column + 1))
-    assert "Aiden Robb" in text and "Cy Park" in text
-    assert "attached" in m["html"] and "Total Monthly Rent" in m["html"]
+    assert "Ada Sample" in text and "Cy Park" in text
+    assert "attached" in m["html"] and "Rent Roll" in m["html"] and "Unit Occupancy" in m["html"]          # the headline figures
     for s in SECRETS:
         assert s not in text and s not in m["html"]
     # Next week: a failure gives the claim back and waits an hour.

@@ -2,6 +2,7 @@
 // dialog share - the 60% popup shell (CLAUDE.md), period, facilities (a
 // dropdown with checkboxes, not chips), report options, file format, and the
 // Nexus People picker for recipients.
+import { formatDate } from '../lib/datetime';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, FileSpreadsheet, FileText, Sheet, X } from 'lucide-react';
 import { api } from '../api';
@@ -51,6 +52,28 @@ export function Field({ label, hint, children, id }) {
 
 // `allowManual` false in a schedule (a fixed date range cannot repeat).
 export function PeriodField({ meta, value, onChange, today, allowManual = true, scheduled = false }) {
+  if (!meta.period && meta.pointInTime && !scheduled) {
+    // One date (Balances Summary): today, or how things stood on a past day.
+    const past = value?.mode === 'past';
+    return (
+      <Field label="As Of" id="rd-period" hint={past ? `Balances through ${formatDate(value.date)}.` : 'Balances through today.'}>
+        <div className="ops-rd-row">
+          <div className="ops-seg" role="radiogroup" aria-label="As Of">
+            <label className="ops-seg-opt" data-on={!past}>
+              <input type="radio" name="rd-asof" checked={!past} onChange={() => onChange({ mode: 'today' })} />Today
+            </label>
+            <label className="ops-seg-opt" data-on={past}>
+              <input type="radio" name="rd-asof" checked={past} onChange={() => onChange({ mode: 'past', date: value?.date || today })} />In the Past
+            </label>
+          </div>
+          {past && (
+            <input type="date" className="form-input" aria-label="As Of Date" value={value.date || ''} max={today}
+              onChange={(e) => e.target.value && onChange({ mode: 'past', date: e.target.value })} />
+          )}
+        </div>
+      </Field>
+    );
+  }
   if (!meta.period) {
     return (
       <Field label="Period" id="rd-period">

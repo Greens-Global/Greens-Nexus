@@ -1603,7 +1603,9 @@ def run(kind: str, facility_id: str = "", start: str = "", end: str = "",
     db = SessionLocal()
     try:
         d = Data(db, ids, opts)
-        a, b = parse_period(start, end, d.today)
+        # A one-date report takes only `end`; a past date must not trip the
+        # "starts after it ends" check against the default month start.
+        a, b = parse_period(start or (end if kind in DATE_REPORTS else ""), end, d.today)
         if kind in DATE_REPORTS and not start:
             a = b
         base = {"key": kind, "title": title, "category": category, "about": about, "source": source,
