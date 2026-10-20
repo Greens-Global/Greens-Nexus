@@ -84,9 +84,9 @@ const ReportBuilder = lazy(() => import('./ReportBuilder'));
 
 const SECTIONS = [['reports', 'Reports'], ['builder', 'Report Builder'], ['exports', 'Quick Exports']];
 
-export default function Reports({ data, facilities, scope, range, onPick }) {
+// The facility is the page's one Facility dropdown (Oct 20); no picker of its own.
+export default function Reports({ data, facilities, scope, range }) {
   const [section, setSection] = useState('reports');
-  const pick = (id) => onPick?.(id);
   return (
     <>
       <div className="ops-pills scroll-tabs" role="tablist" aria-label="Reports">
@@ -95,7 +95,7 @@ export default function Reports({ data, facilities, scope, range, onPick }) {
             onClick={() => setSection(key)}>{label}</button>
         ))}
       </div>
-      {section === 'reports' && <CubbyReports facilities={facilities} scope={scope} range={range} onPick={pick} />}
+      {section === 'reports' && <CubbyReports scope={scope} range={range} />}
       {section === 'builder' && (
         <Suspense fallback={<div className="dash-card"><SkeletonBlocks count={3} height={70} /></div>}>
           <ReportBuilder scope={scope} facilities={facilities} />

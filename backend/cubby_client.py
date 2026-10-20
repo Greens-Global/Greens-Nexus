@@ -113,13 +113,17 @@ def normalize(data: Dict[str, Any]) -> List[Dict[str, Any]]:
         feats = " ".join(str(f) for f in (g.get("features") or [])).lower()
         rent = u.get("rentability") or {}
         park = bool(g.get("parking") or g.get("vehicleStorage"))
+        # A lease wins (Oct 20 2026): Cubby marks a leased unit unrentable with
+        # the reason ACTIVE_LEASE. That unit is leased, not out of service -
+        # out of service is not leased AND unrentable for a real reason.
+        off = rent.get("rentable") is False and not u.get("leaseId")
         out.append({
             "n": name, "id": u.get("unitId") or "", "w": _num(u.get("width")), "d": _num(u.get("depth")),
             "t": "P" if park else "S",
             "l": 1 if u.get("leaseId") else 0,
-            "r": 0 if rent.get("rentable") is False else 1,
-            "why": str(rent.get("unrentableReason") or "") if rent.get("rentable") is False else "",
-            "note": str(rent.get("unrentableReasonNote") or "")[:160] if rent.get("rentable") is False else "",
+            "r": 0 if off else 1,
+            "why": str(rent.get("unrentableReason") or "") if off else "",
+            "note": str(rent.get("unrentableReasonNote") or "")[:160] if off else "",
             "floor": _floor(u.get("floorName")),
             # None = the pricing group said nothing about power; the model's own classification then stands
             "pw": 1 if ("power" in feats or "electric" in feats) else None,

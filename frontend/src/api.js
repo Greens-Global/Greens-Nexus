@@ -2571,6 +2571,9 @@ export const api = {
   saveOpsEntrance:         (body)        => req('/facility-ops/site-map/entrance', { method: 'PUT', body: JSON.stringify(body) }),
   // Maintenance layer: built by the maintenance work (another branch); a 404 means not connected yet.
   getOpsMaintenanceMap:    (facilityId)  => req(`/facility-ops/maintenance-map?facility_id=${encodeURIComponent(facilityId)}`),
+  // Oct 20 2026: one unit's tenant / lease facts and tickets (staff, Operations read)
+  getOpsSiteMapUnit:       (facilityId, unit) => req(`/facility-ops/site-map/unit?facility_id=${encodeURIComponent(facilityId)}&unit=${encodeURIComponent(unit)}`),
+  getOpsTicketTenant:      (propertyId, unit) => req(`/facility-ops/site-map/tenant?property_id=${encodeURIComponent(propertyId)}&unit=${encodeURIComponent(unit)}`),
   // Email to ticket (Oct 2026, ticket_inbound.py): the support mailbox's log
   // (supervisors, last 100) and a pass now instead of waiting for the loop.
   getTicketInboundLog: (params = {}) => req(`/task-tickets/inbound/log?${new URLSearchParams(params).toString()}`),

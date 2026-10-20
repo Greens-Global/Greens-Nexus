@@ -22,7 +22,8 @@ import SyncStatus from '../operations/SyncStatus';
 import Revenue from '../operations/Revenue';
 import Portfolio from '../operations/Portfolio';
 import ThirdPartyPanel from '../operations/ThirdPartyPanel';
-import { isThirdParty, managedLabel, dataAsOf } from '../operations/thirdParty';
+import { isThirdParty } from '../operations/thirdParty';
+import FacilityPicker from '../operations/FacilityPicker';
 import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
 // Site Map (Oct 20): the 3D site model with layers. Lazy, so three.js loads only on that tab.
@@ -44,18 +45,27 @@ const TABS = [
   { key: 'portfolio',   label: 'Portfolio',       Icon: Gauge },
   { key: 'site-map',    label: 'Site Map',        Icon: MapIcon },
 ];
-// Tabs that pick one facility themselves and are not about a period.
-const NO_PERIOD = new Set(['market', 'revenue', 'site-map']);
-// Market Rates keeps its own records and compares one facility at a time, so
-// the period and the "as of today" note do not apply to it.
+// Tabs that work on one facility at a time and are not about a period. With
+// All Facilities picked they open on the first facility (the first one with a
+// site model, for the Site Map) and the dropdown shows which; the page's
+// choice itself stays All, so the other tabs still see every facility.
+const ONE_FACILITY = new Set(['market', 'revenue', 'site-map']);
+const NO_PERIOD = ONE_FACILITY;
 const TAB_KEYS = new Set(TABS.map((t) => t.key));
+
+// The facility choice is remembered per viewer on this device and kept across tabs.
+const FACILITY_KEY = 'nexus.ops.facility';
+const readFacility = () => { try { return localStorage.getItem(FACILITY_KEY) || 'all'; } catch { return 'all'; } };
+const saveFacility = (id) => { try { localStorage.setItem(FACILITY_KEY, id); } catch { /* not remembered */ } };
 
 export default function FacilityOperations({ activeSub, onSubChange }) {
   // The old mock tab ids (fms, reputation, site-staff) may still be bookmarked.
   const sub = TAB_KEYS.has(activeSub) ? activeSub : 'overview';
   const [state, setState] = useState({ status: 'loading', data: null, error: null });
   const [refreshing, setRefreshing] = useState(false);
-  const [picked, setPicked] = useState('all');
+  // The ONE facility choice for every tab (Oct 20), remembered on this device.
+  const [picked, setPickedState] = useState(readFacility);
+  const setPicked = useCallback((id) => { setPickedState(id); saveFacility(id); }, []);
   const [period, setPeriod] = useState('this-month');
   // Where the last KPI / chart bar pointed: the card to scroll to and, for the
   // past-due table, what to narrow it to. `n` changes on every click so the
@@ -137,10 +147,32 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   useEffect(() => pollWhileVisible(() => load(), 5 * 60 * 1000), [load]);
 
   const facilities = useMemo(() => [...(state.data?.facilities || []), ...thirdParty], [state.data, thirdParty]);
+
+  // Which facilities have a site model, for the Site Map's first facility.
+  const [modelIds, setModelIds] = useState(null);
+  useEffect(() => {
+    if (sub !== 'site-map' || modelIds) return undefined;
+    let on = true;
+    Promise.resolve()
+      .then(() => api.getOpsSiteMapFacilities?.())
+      .then((l) => { if (on) setModelIds((l || []).map((m) => m.facilityId)); })
+      .catch(() => { if (on) setModelIds([]); });
+    return () => { on = false; };
+  }, [sub, modelIds]);
+
+  // A remembered facility that is not on the list (yet, or any more) reads as All.
+  const current = picked === 'all' || facilities.some((f) => f.id === picked) ? picked : 'all';
+  const oneTab = ONE_FACILITY.has(sub);
+  const firstOne = useMemo(() => {
+    if (sub === 'site-map') return modelIds ? facilities.find((f) => modelIds.includes(f.id)) : null;
+    return (state.data?.facilities || [])[0] || facilities[0];
+  }, [sub, modelIds, facilities, state.data]);
+  const shown = oneTab && current === 'all' ? (firstOne?.id || 'all') : current;
   const scope = useMemo(
-    () => (picked === 'all' ? facilities : facilities.filter((f) => f.id === picked)),
-    [facilities, picked],
+    () => (shown === 'all' ? facilities : facilities.filter((f) => f.id === shown)),
+    [facilities, shown],
   );
+  const single = scope.length === 1 ? scope[0] : null;
   const data = useMemo(() => combine(scope), [scope]);
   const many = scope.length > 1;
   const range = useMemo(() => periodRange(period, facilities[0]?.asOf), [period, facilities]);
@@ -204,17 +236,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
       {state.status === 'ready' && facilities.length > 0 && sub !== 'portfolio' && (
         <div className="ops-root">
           <div className="ops-bar-top">
-            {/* Rate Management picks its facility from a dropdown of its own (Neil, Oct 20). */}
-            {sub !== 'market' && <div className="ops-pills" role="group" aria-label="Facility">
-              <button type="button" className="ops-pill" aria-pressed={picked === 'all'} onClick={() => setPicked('all')}>All Facilities</button>
-              {facilities.map((f) => (
-                <button type="button" key={f.id} className="ops-pill" aria-pressed={picked === f.id} onClick={() => setPicked(f.id)}
-                  title={isThirdParty(f) ? `${managedLabel(f)} - ${dataAsOf(f)}` : undefined}>
-                  {f.shortName}
-                  {isThirdParty(f) && <span className="ops-pill-tag">{managedLabel(f)}</span>}
-                </button>
-              ))}
-            </div>}
+            <FacilityPicker facilities={facilities} value={shown} onChange={setPicked} allowAll={!oneTab} />
             <div className="ops-bar-right">
               <Lookup />
               {!NO_PERIOD.has(sub) && (
@@ -239,12 +261,14 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {sub === 'units' && <Units data={data} many={many} focus={focus} go={go}
             unitClasses={state.data.unitClasses} canEditClasses={canSeeKeyHint} onClassesSaved={() => load(true)} />}
           {sub === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
-          {sub === 'market' && <RateManagement facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />}
-          {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} onPick={setPicked} />}
+          {sub === 'market' && <RateManagement facility={single} />}
+          {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} />}
           {sub === 'revenue' && (canRevenue
-            ? <Revenue facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />
+            ? <Revenue facility={single} />
             : <div className="dash-card"><div className="ops-empty">Revenue Management is for managers and administrators.</div></div>)}
-          {sub === 'site-map' && <Suspense fallback={<LoadingState size="section" label="Loading the site map" minHeight={420} />}><SiteMap facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} /></Suspense>}
+          {sub === 'site-map' && (current === 'all' && modelIds === null
+            ? <LoadingState size="section" label="Loading the site map" minHeight={420} />
+            : <Suspense fallback={<LoadingState size="section" label="Loading the site map" minHeight={420} />}><SiteMap facility={single} facilities={facilities} onPick={setPicked} /></Suspense>)}
         </div>
       )}
     </div>

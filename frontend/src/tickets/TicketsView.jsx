@@ -2110,6 +2110,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     watcherIds: [...new Set((fromTask?.collaboratorIds || []).map((e) => (e || '').toLowerCase()).filter(Boolean))]
       .filter((e) => e !== (fromTask?.ownerId || myEmail || '').toLowerCase()),
     propertyAssetId: forProperty?.id || '',
+    // Report an Issue on the Ops Site Map's unit card names the unit too (Oct 20 2026)
+    propertyUnit: forProperty?.unit || '',
   });
   // Close the task once the ticket exists, so the work is not tracked twice.
   const [closeSource, setCloseSource] = useState(true);

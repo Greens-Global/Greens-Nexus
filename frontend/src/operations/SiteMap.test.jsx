@@ -1,17 +1,19 @@
 // Render-smoke test for Operations > Site Map: the tab renders the site model,
-// switching a layer recolors the units and swaps the legend, and a missing
-// maintenance endpoint reads "not connected yet" instead of failing. jsdom has
-// no WebGL: the viewer is mocked and records what it was told.
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+// switching a layer recolors the units and swaps the legend, a missing
+// maintenance endpoint reads "not connected yet" instead of failing, the unit
+// card shows the tenant, the lease facts and the unit's tickets, and ONE status
+// per unit drives the badge, the tiles and the colors. jsdom has no WebGL: the
+// viewer is mocked and records what it was told.
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const calls = { colors: [], markers: [] };
+const calls = { colors: [], markers: [], styles: [] };
 vi.mock('../sitemodel/siteModelViewer.js', async () => {
   const real = await vi.importActual('../sitemodel/siteModelViewer.js');
   return {
     ...real,
     createSiteModelViewer: (container, model, opts) => {
-      calls.colors.push(opts.colors);
+      calls.colors.push(opts.colors); calls.styles.push(opts.style);
       return {
         selectUnit: (n) => { const u = model.units.find((x) => x.n === n); if (!u) return false; opts.onSelectUnit(u); return true; },
         clearSelection() {}, setMode() {}, setXray() {}, setLevel() {}, setPins() {}, setMarkers: (m) => calls.markers.push(m), setPlacing() {}, setBackground() {}, view() {}, flyToPin() {},
@@ -20,6 +22,10 @@ vi.mock('../sitemodel/siteModelViewer.js', async () => {
     },
   };
 });
+vi.mock('../asset/components/maintenance/ticketMounts', () => ({
+  PropertyTicketDrawer: ({ ticketId }) => <div role="dialog" aria-label="Ticket">{`Ticket ${ticketId}`}</div>,
+  PropertyTicketComposer: ({ property }) => <div role="dialog" aria-label="New Ticket">{`New ticket at ${property.name} unit ${property.unit}`}</div>,
+}));
 
 const model = {
   property: { id: 'greens-storage-escondido', name: 'Greens Storage Escondido' },
@@ -27,37 +33,71 @@ const model = {
   buildings: [{ id: 'C', letters: ['C'], name: 'Building C', u: [0, 100], v: [0, 20], height: 7, floors: 2, roof: 'solar' }],
   zones: [], gates: [{ id: 'main', name: 'Main Gate', uv: [50, 30] }],
   units: [{ n: 'C214', b: 'C', f: 2, u: 10, v: 2, wu: 3, dv: 4.5, door: 'ne', k: 'cc', w: 10, d: 15, l: 0, r: 1, dvac: 160 },
-          { n: 'C001', b: 'C', f: 1, u: 0, v: 0, wu: 3, dv: 6, door: 'sw', k: 'du', w: 10, d: 20, l: 1, r: 0, why: 'ACTIVE_LEASE' }],
-  layout: { schematic: false }, sources: [], live: { source: 'cubby', unplaced: [], missing: [] },
+          { n: 'C001', b: 'C', f: 1, u: 0, v: 0, wu: 3, dv: 6, door: 'sw', k: 'du', w: 10, d: 20, l: 1, r: 0, why: 'ACTIVE_LEASE' },
+          { n: 'C002', b: 'C', f: 1, u: 4, v: 0, wu: 3, dv: 6, door: 'sw', k: 'du', w: 10, d: 20, l: 0, r: 0, why: 'REPAIRS_REQUIRED', note: 'Door spring' }],
+  layout: { schematic: false }, sources: ['Cubby export'], live: { source: 'cubby', unplaced: [{ n: 'Q001', w: 10, d: 20, k: 'park', l: 1, r: 1 }], missing: [] },
 };
-const facts = { C214: { status: 'vacant', daysVacant: 160, street: 9000, rate: 9000, market: 'under', marketPct: -10, marketMedian: 10000, marketCount: 3, type: '10x15 CC' } };
+const facts = {
+  C214: { status: 'vacant', daysVacant: 160, street: 9000, rate: 9000, market: 'under', marketPct: -10, marketMedian: 10000, marketCount: 3, type: '10x15 CC' },
+  C001: { status: 'rented', rent: 18000, street: 19400, rate: 18000, type: '10x20 Drive-Up' },
+  C002: { status: 'off-market', street: 19400, rate: 19400, type: '10x20 Drive-Up' },
+};
+const unitCard = {
+  unit: 'C001', status: 'rented', street: 19400, connected: true,
+  tenant: { name: 'Pat Example', moveIn: '2024-07-01', daysInUnit: 841, rent: 18000, balance: 14450, daysPastDue: 35, paidThrough: '2026-09-15',
+    autoPay: false, rentChange: { date: '2026-12-01', rent: 19000 }, moveOut: '', overlocked: false, leaseStatus: 'past-due', cubbyUrl: 'https://app.cubbystorage.com/tenants/cust_9' },
+  tickets: { property: { id: 'esc', name: 'Greens Storage Escondido' },
+    open: [{ id: 't1', subject: 'Gate code not working', status: 'open', createdAt: '2026-10-01T10:00:00Z', closed: false }],
+    recent: [{ id: 't2', subject: 'Light out', status: 'resolved', createdAt: '2026-09-01T10:00:00Z', resolvedAt: '2026-09-02T10:00:00Z', closed: true }] },
+};
 
 vi.mock('../api', () => ({
   api: {
-    getOpsSiteMapFacilities: vi.fn(async () => [{ facilityId: 'fac_1', modelId: 'greens-storage-escondido', name: 'Escondido' }]),
     getOpsSiteMap: vi.fn(async () => ({ facilityId: 'fac_1', modelId: 'greens-storage-escondido', model, facts, entrance: { lat: 33.17, lng: -117.1, source: 'gate', name: 'Main Gate', mapsUrl: 'https://www.google.com/maps/dir/?api=1&destination=33.17,-117.1' }, cubbyTemplate: 'https://nexus/find/u?f=x&k=y&unit=${unit.name}', marketBand: 0.05 })),
     getOpsMaintenanceMap: vi.fn(async () => { const e = new Error('Not Found'); e.status = 404; throw e; }),
     getOpsCustomerLink: vi.fn(async () => ({ url: 'https://nexus/find/abc', unit: 'C214' })),
+    getOpsSiteMapUnit: vi.fn(async (fac, unit) => (unit === 'C001' ? unitCard : { unit, status: 'vacant', street: 9000, connected: true, tenant: null, daysVacant: 160, tickets: { property: null, open: [], recent: [] } })),
     saveOpsEntrance: vi.fn(),
   },
 }));
 
 import SiteMap from './SiteMap';
 
-beforeEach(() => { calls.colors.length = 0; calls.markers.length = 0; localStorage.removeItem('nexus.ops.siteMap.layer'); });
+const pick = (n) => { const box = screen.getByLabelText('Unit number'); fireEvent.change(box, { target: { value: n } }); fireEvent.submit(box.closest('form')); };
+const cardOf = (n) => screen.getAllByText(n).map((el) => el.closest('section')).find(Boolean);
+
+beforeEach(() => { calls.colors.length = 0; calls.markers.length = 0; calls.styles.length = 0; localStorage.removeItem('nexus.ops.siteMap.layer'); localStorage.removeItem('nexus.siteModel.look'); });
 
 describe('Operations > Site Map', () => {
-  it('asks for a facility when All Facilities is picked', async () => {
-    render(<SiteMap facility={null} facilities={[{ id: 'fac_1', shortName: 'Escondido' }]} onPick={() => {}} />);
-    expect(await screen.findByText('Choose a Facility')).toBeTruthy();
+  it('points to the page Facility menu when no single facility is picked - no picker of its own', async () => {
+    render(<SiteMap facility={null} />);
+    expect(await screen.findByText('Pick a facility above to see the Site Map.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Escondido' })).toBeNull();
   });
 
-  it('renders the model, switches layers and their legends', async () => {
-    render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} facilities={[]} onPick={() => {}} />);
+  it('opens on the Illustrated look with the panel folded: Inventory, the unit, then closed lists', async () => {
+    render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
     expect(await screen.findByRole('button', { name: 'Occupancy' })).toBeTruthy();
-    // occupancy: the leased-but-unrentable unit is leased, not out of service
-    await waitFor(() => expect(calls.colors.at(-1)).toMatchObject({ C001: '#5fae7d', C214: '#e0b45a' }));
-    expect(screen.getAllByText(/Leased \(1\)/).length).toBeGreaterThan(0);
+    expect(calls.styles.at(-1)).toBe('illustrated');
+    for (const t of ['Needs Attention (1)', 'Not on the Map (1)', 'Sources']) {
+      expect(screen.getByText(t).closest('details').open).toBe(false);
+    }
+    expect(screen.getByText('Pick a Unit')).toBeTruthy();
+    // the entrance + template link moved behind a button into a dialog
+    expect(screen.queryByText('Customer Entrance')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Customer Link Settings' }));
+    expect(await screen.findByText('Customer Entrance')).toBeTruthy();
+    expect(screen.getByLabelText('Cubby template link').value).toContain('${unit.name}');
+  });
+
+  it('switches layers and their legends; tiles and colors read one status', async () => {
+    render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
+    expect(await screen.findByRole('button', { name: 'Occupancy' })).toBeTruthy();
+    // the leased-but-unrentable unit is leased, not out of service
+    await waitFor(() => expect(calls.colors.at(-1)).toMatchObject({ C001: '#5fae7d', C214: '#e0b45a', C002: '#d65a4c' }));
+    const tiles = screen.getByText(/^Inventory/).closest('section');
+    expect(within(tiles).getByText('Leased').parentElement.textContent).toBe('1Leased');
+    expect(within(tiles).getByText('Out of Service').parentElement.textContent).toBe('1Out of Service');
 
     fireEvent.click(screen.getByRole('button', { name: 'Days Vacant' }));
     await waitFor(() => expect(calls.colors.at(-1).C001).toBe('#cfcac0'));
@@ -68,21 +108,46 @@ describe('Operations > Site Map', () => {
     expect(screen.getByText(/Under Market \(1\)/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Maintenance' }));
-    expect((await screen.findAllByText('Maintenance layer not connected yet')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/Maintenance layer not connected yet/)).length).toBeGreaterThan(0);
   });
 
-  it('shows the layer facts and copies the customer link from the unit card', async () => {
+  it('a leased unit card: the badge says Leased, with the tenant, the money, Cubby and the tickets', async () => {
+    render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
+    await screen.findByLabelText('Unit number');
+    pick('C001');
+    expect(await screen.findByText('Pat Example')).toBeTruthy();
+    const card = cardOf('C001');
+    expect(within(card).getByText('Leased')).toBeTruthy();                 // badge agrees with the rent roll
+    expect(within(card).queryByText('Out of Service')).toBeNull();
+    expect(card.textContent).toMatch(/07\/01\/2024 · 2 yr 3 mo/);
+    expect(card.textContent).toMatch(/\$180\/mo vs street \$194 \(\$14 under\)/);
+    expect(card.textContent).toMatch(/\$144\.50 past due · 35 days/);
+    expect(card.textContent).toMatch(/Autopay\s*Off/);
+    expect(card.textContent).toMatch(/\$190\/mo on 12\/01\/2026/);
+    expect(card.textContent).toMatch(/Lease Status\s*Past Due/);
+    expect(within(card).getByText('Open in Cubby ↗').closest('a').getAttribute('href')).toBe('https://app.cubbystorage.com/tenants/cust_9');
+    expect(within(card).getByText('Tickets (1 Open)')).toBeTruthy();
+    expect(within(card).getByText('Light out')).toBeTruthy();
+    fireEvent.click(within(card).getByText('Gate code not working'));
+    expect(screen.getByRole('dialog', { name: 'Ticket' }).textContent).toBe('Ticket t1');
+    fireEvent.click(within(card).getByRole('button', { name: 'Report an Issue' }));
+    expect(screen.getByRole('dialog', { name: 'New Ticket' }).textContent).toBe('New ticket at Greens Storage Escondido unit C001');
+  });
+
+  it('a vacant unit card: days vacant, street rate, vs market, and the customer link', async () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } });
-    render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} facilities={[]} onPick={() => {}} />);
-    const box = await screen.findByLabelText('Unit number');
-    fireEvent.change(box, { target: { value: 'C214' } });
-    fireEvent.submit(box.closest('form'));
-    expect(screen.getByText(/160 /)).toBeTruthy();
-    expect(screen.getByText(/\$90 vs \$100 median, 10% under/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Copy Customer Link' }));
-    expect(await screen.findByRole('button', { name: 'Copied' })).toBeTruthy();
+    render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
+    await screen.findByLabelText('Unit number');
+    pick('C214');
+    const card = cardOf('C214');
+    expect(within(card).getByText('Vacant')).toBeTruthy();
+    expect(card.textContent).toMatch(/Days Vacant\s*160/);
+    expect(card.textContent).toMatch(/\$90 vs \$100 median, 10% under/);
+    expect(await within(card).findByText('No open tickets on this unit.')).toBeTruthy();
+    expect(within(card).getByRole('button', { name: 'Report an Issue' }).disabled).toBe(true);   // no property linked
+    fireEvent.click(within(card).getByRole('button', { name: 'Copy Customer Link' }));
+    expect(await within(card).findByRole('button', { name: 'Copied' })).toBeTruthy();
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://nexus/find/abc');
-    expect(screen.getByText('Customer Entrance')).toBeTruthy();
     expect(screen.queryByText(/^Pins/)).toBeNull();   // no pin grant on this screen
   });
 });

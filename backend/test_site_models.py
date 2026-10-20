@@ -145,9 +145,27 @@ class SiteModelTests(unittest.TestCase):
                                   {"pricingGroupId": "pg_2", "name": "RV 11x35", "parking": True, "features": ["Uncovered"]}]}
         rows = {r["n"]: r for r in cubby_client.normalize(data)}
         self.assertEqual(rows["B012"]["floor"], 2)
-        self.assertEqual((rows["B012"]["l"], rows["B012"]["r"], rows["B012"]["why"], rows["B012"]["note"]), (1, 0, "USED_BY_FACILITY", "shop"))
+        # a lease wins over the unrentable flag (Oct 20 2026): B012 is leased, not out of service
+        self.assertEqual((rows["B012"]["l"], rows["B012"]["r"], rows["B012"]["why"], rows["B012"]["note"]), (1, 1, "", ""))
         self.assertEqual((rows["B012"]["cc"], rows["B012"]["du"], rows["B012"]["pw"], rows["B012"]["t"]), (1, 1, 1, "S"))
         self.assertEqual((rows["A001"]["l"], rows["A001"]["r"], rows["A001"]["t"]), (0, 1, "P"))
+
+    def test_a_leased_unit_flagged_active_lease_is_leased_not_out_of_service(self):
+        # Cubby marks every leased unit unrentable with ACTIVE_LEASE; the badge, the
+        # inventory tiles, the legend and Needs Attention all read r (Oct 20 2026).
+        data = {"units": [{"unitId": "u1", "name": "E347", "width": 11, "depth": 35, "leaseId": "lease_9",
+                           "rentability": {"rentable": False, "unrentableReason": "ACTIVE_LEASE"}, "pricingGroupId": "pg"},
+                          {"unitId": "u2", "name": "E465", "width": 11, "depth": 40, "leaseId": None,
+                           "rentability": {"rentable": False, "unrentableReason": "OTHER", "unrentableReasonNote": "mud"}, "pricingGroupId": "pg"}],
+                "pricingGroups": [{"pricingGroupId": "pg", "name": "Parking", "parking": True}]}
+        rows = {r["n"]: r for r in cubby_client.normalize(data)}
+        self.assertEqual((rows["E347"]["l"], rows["E347"]["r"], rows["E347"]["why"]), (1, 1, ""))
+        self.assertEqual((rows["E465"]["l"], rows["E465"]["r"], rows["E465"]["why"], rows["E465"]["note"]), (0, 0, "OTHER", "mud"))
+        # a built snapshot that still carries the old flag reads the same way
+        snap = {"units": [{"n": "E347", "l": 1, "r": 0, "why": "ACTIVE_LEASE", "note": ""}, {"n": "E465", "l": 0, "r": 0, "why": "OTHER", "note": "mud"}]}
+        with mock.patch.dict(os.environ, {"CUBBY_API_KEY": ""}):
+            m = site_models.with_live(snap)
+        self.assertEqual([(u["n"], u["l"], u["r"], u["why"]) for u in m["units"]], [("E347", 1, 1, ""), ("E465", 0, 0, "OTHER")])
 
     def test_cubby_answer_in_an_unexpected_shape_is_a_cubby_error(self):
         resp = mock.Mock(status_code=200); resp.json.return_value = ["not", "an", "object"]
