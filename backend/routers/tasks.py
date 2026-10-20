@@ -1519,7 +1519,8 @@ def search_everything(q: str = "", limit: int = 6,
         # active list and from task pickers, it does not hide its history. The
         # flag rides along so the result can be marked as archived rather than
         # looking like live work.
-        "projects": [{"id": p.id, "name": p.name, "color": p.color or "", "archived": bool(p.archived)}
+        "projects": [{"id": p.id, "name": p.name, "color": p.color or "", "icon": p.icon or "",
+                      "archived": bool(p.archived)}
                      for p in top(projects, lambda p: p.name)],
         "portfolios": [{"id": p.id, "name": p.name} for p in top(portfolios, lambda p: p.name)],
         "teams": [{"id": t.id, "name": t.name, "color": t.color or ""}
@@ -1624,7 +1625,8 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
         },
         "tasks": {"assigned": newest(assigned), "assignedByYou": newest(assigned_by_you),
                   "created": newest(created), "collaboratingWithYou": newest(collaborating)},
-        "projects": [{"id": p.id, "name": p.name, "color": p.color or ""} for p in projects],
+        "projects": [{"id": p.id, "name": p.name, "color": p.color or "", "icon": p.icon or ""}
+                     for p in projects],
         "teams": [{"id": t.id, "name": t.name, "color": t.color or ""} for t in teams],
         # How they do against deadlines (task_due.person_record). Only for a
         # manager or the person themselves - a colleague's lateness is not

@@ -995,6 +995,8 @@ def _run_migrations():
             # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
             "ALTER TABLE task_projects ADD COLUMN default_view JSON",
             "ALTER TABLE task_projects ADD COLUMN shared_charts JSON DEFAULT '[]'",
+            # Project icon (Oct 15 2026). models.TaskProject.icon.
+            "ALTER TABLE task_projects ADD COLUMN icon VARCHAR DEFAULT ''",
             # Time entries (Oct 2026). models.Task.time_entry_count.
             "ALTER TABLE tasks ADD COLUMN time_entry_count INTEGER DEFAULT 0",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
@@ -2349,6 +2351,8 @@ def _run_migrations():
         # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS default_view JSONB",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS shared_charts JSONB DEFAULT '[]'::jsonb",
+        # Project icon (Oct 15 2026). models.TaskProject.icon.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS icon VARCHAR DEFAULT ''",
         # Time entries (Oct 2026). models.Task.time_entry_count.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS time_entry_count INTEGER DEFAULT 0",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
