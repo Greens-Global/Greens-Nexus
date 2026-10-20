@@ -22,6 +22,11 @@
 // the map top-left, and Property-Wide maintenance moved into the side panel.
 // The map and panel fill the screen to its bottom edge, so nothing scrolls.
 //
+// Oct 20 2026 (Visesh: "the one in asset management is so much better"): the
+// map and panel are production's Site Model again - solid status blocks on
+// Satellite, the on-map button bar, Inventory 2x2 + legend (the layer's
+// explanation under it), Needs Attention, Sources - still filling the screen.
+//
 // Loaded lazily from FacilityOperations: three.js stays out of the Operations chunk.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layers, Settings } from 'lucide-react';

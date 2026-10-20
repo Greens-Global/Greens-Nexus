@@ -57,6 +57,13 @@ function doorTexture() {
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
+/** A soft dark pad under a building - contact shadow / ambient occlusion where walls meet the ground. */
+function contactTexture() {
+  const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64; const x = cv.getContext('2d');
+  const g = x.createRadialGradient(32, 32, 8, 32, 32, 32); g.addColorStop(0, 'rgba(0,0,0,0.55)'); g.addColorStop(0.6, 'rgba(0,0,0,0.28)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(cv); return t;
+}
+
 /** The route ribbon: a bright band with white chevrons pointing along it (the texture scrolls, so they move). */
 function routeTexture() {
   const cv = document.createElement('canvas'); cv.width = 64; cv.height = 32; const x = cv.getContext('2d');
@@ -145,29 +152,35 @@ export function createSiteModelViewer(container, model, options = {}) {
   // The realistic looks (Oct 20 2026): 'satellite' = real terrain + imagery
   // (siteModelGround.js); 'photoreal' = Google's 3D mesh (siteModelPhotoreal.js),
   // falling back to the satellite ground when it cannot load at this site.
-  const real = !illus; let photo = real && opts.style === 'photoreal';
+  // Satellite keeps the production look (Visesh, Oct 20 2026: "the one in asset
+  // management is so much better"): solid, fully saturated status blocks, see-
+  // through building shells, the same lights. It only gains the real terrain,
+  // sky and haze around the lot (`terrain`), which stays flat at y = 0 so the
+  // blocks sit exactly where they always have. The realistic styling (`real`:
+  // tone mapping, stall paint, containers, markers) belongs to Realistic 3D.
+  const terrain = !illus; const real = opts.style === 'photoreal'; let photo = real;
   const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, real ? 1.75 : 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, terrain ? 1.75 : 2));
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   if (real) { renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05; }
   const el = renderer.domElement; el.style.display = 'block'; el.style.width = '100%'; el.style.height = '100%'; el.style.touchAction = 'none';
   container.appendChild(el);
-  const scene = new THREE.Scene(); scene.background = new THREE.Color(illus ? DIORAMA.sky : real ? ATMOSPHERE.haze : opts.background || '#dfe6e9');
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(illus ? DIORAMA.sky : terrain ? ATMOSPHERE.haze : opts.background || '#dfe6e9');
   // The illustrated look uses a long lens (flatter, toy-like) and cool, even light.
-  const camera = new THREE.PerspectiveCamera(illus ? 30 : 45, 1, 1, real ? 40000 : 6000);
+  const camera = new THREE.PerspectiveCamera(illus ? 30 : 45, 1, 1, terrain ? 40000 : 6000);
   // Realistic light: a late-morning Southern California sun (south-southeast,
   // ~44 degrees up), a sky-blue fill from above and warm bounce from the ground.
-  const sunDir = real ? sunDirection(model.frame, 152, 44) : null;
+  const sunDir = terrain ? sunDirection(model.frame, 152, 44) : null;
   scene.add(real ? new THREE.HemisphereLight(0xdfe9f6, 0x8f8470, 1.15) : new THREE.HemisphereLight(0xffffff, illus ? 0xcfd6e0 : 0x777766, illus ? 1.35 : 1.1));
   const sun = new THREE.DirectionalLight(real ? 0xfff1df : 0xffffff, illus ? 1.75 : real ? 2.1 : 1.6); sun.position.set(-160, 260, 120); sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -260, right: 260, top: 260, bottom: -260, near: 50, far: 700 }); sun.shadow.bias = -0.0008;
   if (real) { sun.shadow.normalBias = 0.04; sun.shadow.radius = 3; }
   scene.add(sun); scene.add(sun.target);
   let sky = null;
-  if (real) { sky = createSky(sunDir); scene.add(sky); scene.fog = new THREE.FogExp2(ATMOSPHERE.haze, 0.00021); }
+  if (terrain) { sky = createSky(sunDir); scene.add(sky); scene.fog = new THREE.FogExp2(ATMOSPHERE.haze, 0.00021); }
 
   const mat = {
     wall: new THREE.MeshLambertMaterial({ color: illus ? DIORAMA.wall : 0xe9e6dd }),
@@ -222,7 +235,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     ground = createRealGround(scene, model, { renderer, images: opts.images || {}, center: lotCenter, onChange: () => drapeParcels() });
     groundHits.length = 0; groundHits.push(ground.mesh);
   }
-  if (real) {
+  if (terrain) {
     base.visible = false; base.position.y = 0; base.material.colorWrite = false; base.material.depthWrite = false; scene.add(base);
     if (photo) {
       import('./siteModelPhotoreal.js').then((m) => m.attachPhotoreal({ scene, camera, renderer, model, center: lotCenter,
@@ -249,8 +262,8 @@ export function createSiteModelViewer(container, model, options = {}) {
     const mesh = new THREE.Mesh(g, m); mesh.receiveShadow = true; scene.add(mesh);
   }
   // The flat photo planes are the old satellite look; the realistic ground drapes the same photos.
-  if (!illus && !real && model.imageWide && model.imageWide.uv) quad(model.imageWide.uv, opts.images.wide, -0.12, 0xa3a898);
-  if (!illus && !real && model.image && model.image.uv) quad(model.image.uv, opts.images.detail, -0.05, 0xb8b4a8);
+  if (!illus && !terrain && model.imageWide && model.imageWide.uv) quad(model.imageWide.uv, opts.images.wide, -0.12, 0xa3a898);
+  if (!illus && !terrain && model.image && model.image.uv) quad(model.image.uv, opts.images.detail, -0.05, 0xb8b4a8);
 
   function flatPoly(pts, material, y) { const s = new THREE.Shape(); pts.forEach((p, i) => (i ? s.lineTo(p[0], p[1]) : s.moveTo(p[0], p[1]))); const m = new THREE.Mesh(new THREE.ShapeGeometry(s), material); m.rotation.x = -Math.PI / 2; m.position.y = y; return m; }
   function lineLoop(pts, material, y) { const g = new THREE.BufferGeometry().setFromPoints(pts.concat([pts[0]]).map((p) => W(p[0], p[1], y))); return new THREE.Line(g, material); }
@@ -258,16 +271,16 @@ export function createSiteModelViewer(container, model, options = {}) {
   const parcels = model.parcels ? model.parcels.map((p) => p.uv) : model.parcel ? [model.parcel] : [];
   // The illustrated board paints its own paving and parcel edge.
   if (!illus && !real) pads.forEach((p) => { if (p && p.length > 2) scene.add(flatPoly(p, mat.pad, 0.02)); });
-  if (!illus && !real) parcels.forEach((p) => { if (p && p.length > 2) scene.add(lineLoop(p, mat.parcel, 0.4)); });
+  if (!illus && !terrain) parcels.forEach((p) => { if (p && p.length > 2) scene.add(lineLoop(p, mat.parcel, 0.4)); });
   // Realistic: the property line follows the ground (a thin white line), redrawn once the hills arrive.
-  const parcelLines = new THREE.Group(); if (real) scene.add(parcelLines);
+  const parcelLines = new THREE.Group(); if (terrain) scene.add(parcelLines);
   parcelLines.userData.photoHide = true;
   // Realistic 3D (Google's mesh): labels stand on the real surface, sampled under
   // each one (see sampleSurface); `y0` is where they sit in the other looks.
   const anchors = [];
   const anchor = (obj, u, v, dy) => { anchors.push({ obj, dy, y0: obj.position.y, s: { u, v, sy: null } }); };
   function drapeParcels() {
-    if (!real) return; clearGroup(parcelLines);
+    if (!terrain) return; clearGroup(parcelLines);
     parcels.forEach((p) => {
       if (!p || p.length < 3) return; const pts = [];
       p.concat([p[0]]).forEach((q, i, arr) => {
@@ -297,7 +310,7 @@ export function createSiteModelViewer(container, model, options = {}) {
       // A roof over open stalls: a translucent slab on posts, so the stalls under it stay visible.
       polys.forEach((p) => { const slab = flatPoly(p, mat.canopy, 4.2); scene.add(slab); scene.add(lineLoop(p, mat.edge, 4.2)); p.forEach((c) => { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 4.2, 6), mat.door); post.position.copy(W(c[0], c[1], 2.1)); scene.add(post); }); });
     } else {
-      // Satellite: the photo already shows the lot - no tinted fill or brown outline over it (Oct 20 review).
+      if (!illus && !real) polys.forEach((p) => { scene.add(flatPoly(p, mat.zone, 0.04)); scene.add(lineLoop(p, mat.zoneLine, 0.1)); });
     }
     const c = centroid(polys[0]); const l = textSprite(z.name, { size: 48, bg: 'rgba(255,255,255,0.8)', worldHeight: 4 }); l.position.copy(W(c[0], c[1], z.kind === 'canopy' ? 7 : 4)); scene.add(l); screenLabel(l, 17, 1);
     // Unmapped units have no real place: under Google's mesh their label (and they) are not drawn.
@@ -339,6 +352,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     const short = b.letters && b.letters.length && b.letters.length <= 2 && b.letters.every((l) => l.length <= 2);
     const label = textSprite(short ? b.letters.join(' / ') : b.name, { size: 72, bg: 'rgba(255,255,255,0.85)', worldHeight: short ? 7 : 4 });
     label.position.copy(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, b.height + 5)); scene.add(label); screenLabel(label, short ? 24 : 17, 3 + Math.min(4, (L * Wd) / 2000));
+    if (!illus && !real) { const ao = new THREE.Mesh(new THREE.PlaneGeometry(L + 6, Wd + 6), new THREE.MeshBasicMaterial({ map: contactTexture(), transparent: true, depthWrite: false })); ao.rotation.x = -Math.PI / 2; ao.position.copy(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, 0.06)); scene.add(ao); }
     anchor(label, (b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, 5);
   });
 
@@ -350,7 +364,7 @@ export function createSiteModelViewer(container, model, options = {}) {
   const cellGeo = new THREE.BoxGeometry(1, 1, 1);
   const N = Math.max(1, units.length);
   const unitInst = new THREE.InstancedMesh(cellGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), N);
-  unitInst.castShadow = !illus; unitInst.receiveShadow = illus; unitInst.frustumCulled = false;
+  unitInst.castShadow = !illus; unitInst.receiveShadow = !real; unitInst.frustumCulled = false;
   const doorInst = new THREE.InstancedMesh(cellGeo, illus ? mat.door : new THREE.MeshLambertMaterial({ map: doorTexture() }), N);
   doorInst.frustumCulled = false; doorInst.count = 0;
   const recs = []; const recOf = {}; const ZERO = new THREE.Vector3(0, 0, 0); const UP = new THREE.Vector3(0, 1, 0);
@@ -361,8 +375,8 @@ export function createSiteModelViewer(container, model, options = {}) {
     // Parking stalls are painted slabs lying on the ground; storage units are boxes.
     // Realistic: an open stall is paint on the ground, a container is a real 8.5 ft box.
     const form = real ? unitForm(u, buildings) : null;
-    const h = form === 'stall' ? 0.08 : form === 'container' ? 2.59 : u.k === 'park' ? (illus ? 0.12 : 0.08) : Math.min(2.2, Math.max(0.6, fh ? fh * 0.6 : 0.6));
-    const pos = W(u.u + u.wu / 2, u.v + u.dv / 2, baseY + h / 2 + (u.k === 'park' || form === 'stall' ? 0.01 : 0.03));
+    const h = form === 'stall' ? 0.08 : form === 'container' ? 2.59 : u.k === 'park' ? 0.12 : Math.min(2.2, Math.max(0.6, fh ? fh * 0.6 : 0.6));
+    const pos = W(u.u + u.wu / 2, u.v + u.dv / 2, baseY + h / 2 + (form === 'stall' ? 0.01 : 0.03));
     const scale = new THREE.Vector3(Math.max(0.3, u.wu - 0.12), h, Math.max(0.3, u.dv - 0.12));
     // An angled stall from the as-built plans turns about its center (rot:
     // degrees counter-clockwise in u,v; W maps u,v to x,-z, so that is rotation.y).
@@ -608,9 +622,15 @@ export function createSiteModelViewer(container, model, options = {}) {
       ring.rotation.x = -Math.PI / 2; ring.position.set(p.x, (mesh ? top : p.y + r.h) + 0.1, p.z); ring.userData.pulse = true; beacon.add(ring);
       return;
     }
-    {   // a map pin over the unit, like a pin on a delivery map; sized to the zoom in the loop (both looks)
+    if (!illus) {   // satellite (production look): a tall orange pole with the unit number on top
+      const top = p.y + 28; const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, top - p.y, 6), new THREE.MeshBasicMaterial({ color: 0xff7a00 })); pole.position.set(p.x, (top + p.y) / 2, p.z); beacon.add(pole);
+      const lab = textSprite(u.n, { size: 64, mono: true, bg: 'rgba(255,122,0,0.95)', color: '#fff', worldHeight: 5, depthTest: false }); lab.position.set(p.x, top + 3, p.z); lab.renderOrder = 12; beacon.add(lab); pinLabel = lab;
+      const ring = new THREE.Mesh(new THREE.RingGeometry(1.4, 2.2, 32), new THREE.MeshBasicMaterial({ color: 0xff7a00, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })); ring.rotation.x = -Math.PI / 2; ring.position.set(p.x, p.y + 0.1, p.z); ring.userData.pulse = true; beacon.add(ring);
+      return;
+    }
+    {   // a map pin over the unit, like a pin on a delivery map; sized to the zoom in the loop
       const pin = new THREE.Group(); pin.position.set(p.x, p.y + 0.12, p.z); pin.userData.pin = true; beacon.add(pin);
-      const pinMat = new THREE.MeshLambertMaterial({ color: 0xff7a00 }); const top = illus ? 9 : 5;
+      const pinMat = new THREE.MeshLambertMaterial({ color: 0xff7a00 }); const top = 9;
       const head = new THREE.Mesh(new THREE.SphereGeometry(2.2, 20, 14), pinMat); head.position.set(0, top + 2.2, 0); pin.add(head);
       const dot = new THREE.Mesh(new THREE.SphereGeometry(0.95, 14, 10), new THREE.MeshBasicMaterial({ color: 0xffffff })); dot.position.set(0, top + 2.4, 0); pin.add(dot);
       const tip = new THREE.Mesh(new THREE.ConeGeometry(1.75, 4.6, 20), pinMat); tip.position.set(0, top - 0.7, 0); tip.rotation.x = Math.PI; pin.add(tip);
@@ -685,7 +705,9 @@ export function createSiteModelViewer(container, model, options = {}) {
   function restyle(snap = false) {
     // See Inside is the only switch that opens every building (Oct 20: staff
     // views used to start see-through, so the button looked dead).
-    const xray = state.xray;
+    // Staff (owner) views see into every building, as in production; See Inside
+    // then lifts the floors apart. Under Google's mesh See Inside is the switch.
+    const xray = state.xray || (state.mode === 'owner' && !photo);
     const selB = state.selected ? byName[state.selected].b : null;
     const explode = !!state.xray && !state.level;
     const moved = explode !== state.explode; state.explode = explode;
@@ -745,7 +767,7 @@ export function createSiteModelViewer(container, model, options = {}) {
   }
   function placeSelected() {
     const sel = state.selected ? recOf[state.selected] : null; if (!sel) return;
-    const lift = Math.min(0.6, sel.h * 0.3) * selLift;
+    const lift = (real ? Math.min(0.6, sel.h * 0.3) : Math.min(1.4, sel.h * 0.6)) * selLift;
     selMesh.position.copy(sel.pos); selMesh.position.y += yOff(sel) + lift;
     if (sel.door) { selDoor.position.copy(sel.door.pos); selDoor.position.y += yOff(sel) + lift; }
   }
@@ -912,7 +934,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     if (!alive) return; raf = requestAnimationFrame(loop); const dt = last ? Math.min(0.1, (now - last) / 1000) : 0; last = now;
     if (diorama && !reduceMotion) diorama.update(dt);
     {   // the pin bobs and keeps a readable size from any distance; the ring under it pulses
-      const sz = Math.max(illus ? 1 : 0.6, Math.min(illus ? 6 : 4, ctrl.radius / (illus ? 110 : 140)));
+      const sz = illus ? Math.max(1, Math.min(6, ctrl.radius / 110)) : 1;   // satellite: the pole keeps its size
       const pin = real && beacon.children.find((c) => c.userData.real);
       if (pin) {
         const px = camera.position.distanceTo(pin.position) * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / (el.clientHeight || 1);
@@ -939,7 +961,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     if (routeTex && !reduceMotion) routeTex.offset.x -= dt * 0.5;
     if (routeReveal) { const k = Math.min(1, (now - routeReveal.t0) / 1400); const n = Math.floor(routeReveal.total * k / 6) * 6; routeReveal.mesh.geometry.setDrawRange(0, k >= 1 ? Infinity : n); if (k >= 1) routeReveal = null; }
     declutter(now);
-    if (real) {
+    if (terrain) {
       // Clip planes follow the zoom: close to the ground for detail, far enough for the horizon.
       const near = Math.max(0.3, Math.min(8, ctrl.radius * 0.006)); if (Math.abs(near - camera.near) > 0.05) { camera.near = near; camera.updateProjectionMatrix(); }
       if (sky) sky.position.copy(camera.position);

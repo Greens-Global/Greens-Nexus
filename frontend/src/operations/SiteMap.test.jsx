@@ -70,7 +70,7 @@ import SiteMap from './SiteMap';
 
 const SEARCH = 'Find a unit or tenant';
 const pick = (n) => { const box = screen.getByRole('combobox', { name: SEARCH }); fireEvent.change(box, { target: { value: n } }); fireEvent.submit(box.closest('form')); };
-const cardOf = (n) => screen.getAllByText(n).map((el) => el.closest('section')).find(Boolean);
+const cardOf = (n) => screen.queryAllByText(n).map((el) => el.closest('section.sm-unit')).find(Boolean);
 
 beforeEach(() => { calls.colors.length = 0; calls.markers.length = 0; calls.styles.length = 0; localStorage.removeItem('nexus.ops.siteMap.layer'); localStorage.removeItem('nexus.siteModel.look'); });
 
@@ -92,16 +92,16 @@ describe('Operations > Site Map', () => {
     await waitFor(() => expect(seen.at(-1)).toBe(false));
   });
 
-  it('opens on the Illustrated look with Inventory, then Needs Attention open and the rest folded', async () => {
+  // Oct 20 (Visesh: "make it like the asset management site model"): production's look and panel.
+  it('opens on the Satellite look with the production panel: Inventory, legend, Find Your Unit, Needs Attention, Sources', async () => {
     render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
     expect(await screen.findByLabelText('Layer')).toHaveProperty('value', 'occupancy');
-    expect(calls.styles.at(-1)).toBe('illustrated');
-    expect(screen.getByText('Needs Attention (1)').closest('button').getAttribute('aria-expanded')).toBe('true');   // fills the panel, scrolls on its own
-    expect(screen.queryByRole('button', { name: /Show All/ })).toBeNull();
-    for (const t of ['Not on the Map (1)', 'Sources']) {
-      expect(screen.getByText(t).closest('details').open).toBe(false);
+    expect(calls.styles.at(-1)).toBe('satellite');
+    for (const t of ['Inventory', 'Active Units and Stalls', 'Vacant, Rentable', 'Find Your Unit', 'Needs Attention (1)', 'Not On The Map Yet (1)', 'Sources']) {
+      expect(screen.getAllByText(t).length).toBeGreaterThan(0);
     }
-    expect(screen.getByText(/Pick a unit on the map or search/)).toBeTruthy();
+    // the layer's explanation sits under the legend
+    expect(screen.getByText(/Green is leased/)).toBeTruthy();
     // the entrance + template link moved behind a button into a dialog
     expect(screen.queryByText('Customer Entrance')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Customer Link Settings' }));
@@ -114,9 +114,9 @@ describe('Operations > Site Map', () => {
     expect(await screen.findByLabelText('Layer')).toHaveProperty('value', 'occupancy');
     // the leased-but-unrentable unit is leased, not out of service
     await waitFor(() => expect(calls.colors.at(-1)).toMatchObject({ C001: '#5fae7d', C214: '#e0b45a', C002: '#d65a4c' }));
-    const tiles = screen.getByText(/^Inventory/).closest('section');
-    expect(within(tiles).getByText('Leased').parentElement.textContent).toBe('1Leased');
-    expect(within(tiles).getByText('Out of Service').parentElement.textContent).toBe('1Out of Service');
+    const tiles = screen.getByText('Inventory').closest('section');
+    expect(within(tiles).getByText('Leased (1)').parentElement.textContent).toBe('33.3%Leased (1)');
+    expect(within(tiles).getAllByText('Out of Service')[0].parentElement.textContent).toBe('1Out of Service');
 
     fireEvent.change(screen.getByLabelText('Layer'), { target: { value: 'days' } });
     await waitFor(() => expect(calls.colors.at(-1).C001).toBe('#cfcac0'));
@@ -171,23 +171,22 @@ describe('Operations > Site Map', () => {
   });
 
   // Visesh, Oct 20: "this looks glitchy when you have to scroll down to see options".
-  it('puts every control on the map: one search, Layer, View, camera and the legend', async () => {
+  it('puts the controls on the map: one search, Layer, and the production button bar', async () => {
     render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
     expect(await screen.findAllByRole('combobox', { name: SEARCH })).toHaveLength(1);
-    expect(screen.queryByLabelText('Unit number')).toBeNull();               // the old full-width search row is gone
+    expect(screen.queryByLabelText('Unit number')).toBeNull();               // one search, on the map
     expect(screen.queryByRole('button', { name: 'Find' })).toBeNull();
     expect(screen.getByLabelText('Layer')).toBeTruthy();
-    expect(screen.getByRole('combobox', { name: 'View' }).value).toBe('illustrated');
-    for (const b of ['Reset View', 'Overview', 'Plan', 'From Gate', 'Customer Link Settings', 'About This Layer']) {
+    for (const b of ['Reset View', 'Overview', 'Plan', 'From Gate', 'Satellite', 'Illustrated', 'See Inside', 'All Levels', 'L1', 'L2', 'Customer Link Settings']) {
       expect(screen.getByRole('button', { name: b })).toBeTruthy();
     }
-    expect(screen.getByRole('combobox', { name: 'Level' })).toBeTruthy();   // a dropdown, not a row of level buttons
+    expect(screen.getByRole('button', { name: 'Satellite' }).getAttribute('aria-pressed')).toBe('true');
     const stage = document.querySelector('.sm-stage');
     expect(stage.contains(screen.getByRole('combobox', { name: SEARCH }))).toBe(true);
     expect(stage.contains(screen.getByLabelText('Layer'))).toBe(true);
-    // the layer's explanation sits behind the legend's info button
-    fireEvent.click(screen.getByRole('button', { name: 'About This Layer' }));
-    expect(screen.getByRole('tooltip').textContent).toMatch(/Green is leased/);
+    expect(stage.contains(screen.getByRole('button', { name: 'See Inside' }))).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Illustrated' }));
+    expect(calls.styles.at(-1)).toBe('illustrated');
   });
 
   it('finds a tenant here, opens a unit at another facility, and offers Cubby where there is no map', async () => {
