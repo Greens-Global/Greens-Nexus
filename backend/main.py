@@ -2562,6 +2562,16 @@ def _run_migrations():
         # Ticket AI (Oct 2026, ticket_ai.py): cached AI Summaries - a new
         # table, explicit RLS. models.TicketAiSummary.
         "ALTER TABLE ticket_ai_summaries ENABLE ROW LEVEL SECURITY",
+        # Operations > Pricing Insights (Oct 20 2026, cubby_pricing.py /
+        # ops_insights.py): Cubby's pricing groups, discounts, value pricing
+        # strategies, our rate change history and tracked ECRIs - new tables,
+        # explicit RLS. models.CubbyPricingGroup / CubbyDiscount /
+        # CubbyValuePricingStrategy / CubbyRateHistory / CubbyRentChange.
+        "ALTER TABLE cubby_pricing_groups ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_discounts ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_value_pricing_strategies ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_rate_history ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_rent_changes ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4027,3 +4037,5 @@ from routers import ticket_items as ticket_items_router  # noqa: E402
 app.include_router(ticket_items_router.router)     # Tickets <-> equipment (items): picker, links, Other Tickets for This Item, by-item (Oct 2026)
 from routers import ticket_ai as ticket_ai_router  # noqa: E402
 app.include_router(ticket_ai_router.router)        # Tickets: AI Summary + Suggested Help Topic, and the desk's AI switch (Oct 2026)
+from routers import ops_insights as ops_insights_router  # noqa: E402
+app.include_router(ops_insights_router.router)     # Operations > Pricing Insights: ranked insights from Cubby's pricing + the market (Visesh, 10/20)
