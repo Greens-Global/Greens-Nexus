@@ -118,15 +118,28 @@ def meta(user: dict = Depends(get_current_user)):
 # --- One person's checklists -----------------------------------------------
 
 @router.get("/employee/{eid}")
-def employee_checklists(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+def employee_checklists(eid: str, background: BackgroundTasks = None,
+                        user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     emp = _employee_in_scope(db, eid, user)
     rows = (db.query(HrChecklist).filter(HrChecklist.employee_id == eid)
             .order_by(HrChecklist.created_at.desc()).all())
-    changed = False
+    changed, created = False, []
     for cl in rows:
         changed = hc.sync(db, cl, emp) or changed
+        db.flush()
+        # A step whose owner is known but has no subtask yet (owner filled in
+        # after the start) gets it now, not at the overnight pass.
+        waiting = cl.status == "open" and db.query(HrChecklistItem.id).filter(
+            HrChecklistItem.checklist_id == cl.id, HrChecklistItem.status == "open",
+            func.coalesce(HrChecklistItem.owner_email, "") != "",
+            func.coalesce(HrChecklistItem.task_id, "") == "").first() is not None
+        if waiting:
+            new = hc.sync_tasks(db, cl, emp, by=user["email"])
+            created += new
+            changed = changed or bool(new)
     if changed:
         db.commit()
+        _send_task_emails(background, created, user["email"])
     return {"checklists": [_full(db, cl) for cl in rows]}
 
 
@@ -505,7 +518,8 @@ class OwnersIn(BaseModel):
 
 
 @router.put("/owners")
-def save_owners(body: OwnersIn, entity_id: str = "", user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def save_owners(body: OwnersIn, entity_id: str = "", background: BackgroundTasks = None,
+                user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     entity_id = _entity_for_settings(db, entity_id, user)
     clean = {}
     for role, email in (body.owners or {}).items():
@@ -520,7 +534,19 @@ def save_owners(body: OwnersIn, entity_id: str = "", user: dict = Depends(requir
         row = NexusSetting(key=key)
         db.add(row)
     row.value, row.updated_by, row.updated_at = json.dumps(clean), user["email"], hc._now()
+    db.flush()
+    # Open checklists waiting on an owner get them now, and their tasks, rather
+    # than at the overnight pass (Pranshu, Oct 20). '' = the default, every company.
+    q = db.query(HrChecklist).filter(HrChecklist.status == "open")
+    if entity_id:
+        q = q.filter(HrChecklist.company == entity_id)
+    created = []
+    for cl in q.all():
+        if hc.sync(db, cl):
+            db.flush()
+            created += hc.sync_tasks(db, cl, by=user["email"])
     db.commit()
+    _send_task_emails(background, created, user["email"])
     return {"owners": clean, "effective": hc.role_owners(db, entity_id)}
 
 

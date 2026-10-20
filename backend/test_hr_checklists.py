@@ -444,6 +444,30 @@ class ChecklistTests(unittest.TestCase):
         self.assertTrue(self._task(parent.id).completed)
         self.assertTrue(self._task(rows[0].task_id).completed)
 
+    def test_an_owner_set_after_the_start_gets_their_task_at_once(self):
+        cl = self._start(self._person("emp-late", company=CO_B))      # CO_B has no Accounting owner yet
+        blank = [i for i in cl["items"] if i["ownerRole"] == "accounting"]
+        self.assertTrue(blank and not any(i["ownerEmail"] for i in blank))
+        r = self.client.put(f"/hr/checklists/owners?entity_id={CO_B}", json={"owners": {"accounting": HRC}})
+        self.assertEqual(r.status_code, 200, r.text)
+        rows, subs, parents = self._tasks_of(cl["id"], HRC)
+        self.assertEqual(len(rows), len(blank))
+        self.assertEqual(len(subs), len(rows))
+        self.assertEqual(len(parents), 1)
+        self.assertEqual(self._task(parents.pop()).assignee_email, HRC)
+        # an owner filled in with no task (the old board refresh did that) gets it when the checklist is opened
+        db = database.SessionLocal()
+        try:
+            for it in db.query(models.HrChecklistItem).filter_by(checklist_id=cl["id"], owner_email=HRC).all():
+                it.task_id = ""
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self.client.get("/hr/checklists/employee/emp-late").status_code, 200)
+        rows, subs, parents = self._tasks_of(cl["id"], HRC)
+        self.assertEqual(len(subs), len(rows))
+        self.assertEqual(len(parents), 1)
+
     def test_completing_in_tasks_closes_the_steps(self):
         cl = self._start(self._person())
         rows, subs, parents = self._tasks_of(cl["id"], MANAGER)
