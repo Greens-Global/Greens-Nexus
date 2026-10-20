@@ -317,7 +317,8 @@ const CHECKLIST_COLUMNS = [
   { header: 'Proposed By', get: (r) => r.draft?.updatedBy || '', width: 22 },
 ];
 
-export default function RateManagement({ facility, facilities, onPick }) {
+// The facility comes from the page's one Facility dropdown (Oct 20).
+export default function RateManagement({ facility }) {
   const facilityId = facility?.id;
   const [state, setState] = useState({ status: 'loading', data: null });
   const [tab, setTab] = useState('all');
@@ -379,27 +380,16 @@ export default function RateManagement({ facility, facilities, onPick }) {
     });
   };
 
-  const picker = (
-    <label className="ops-period" style={{ marginBottom: 12 }}>
-      <span>Facility</span>
-      <select value={facilityId || ''} aria-label="Facility" onChange={(e) => onPick(e.target.value || 'all')}>
-        {!facilityId && <option value="">Choose a Facility</option>}
-        {facilities.map((f) => <option key={f.id} value={f.id}>{f.shortName}</option>)}
-      </select>
-    </label>
-  );
-
   if (!facility) {
     return (
       <div className="dash-card">
-        {picker}
-        <div className="dash-card-title">Choose a Facility</div>
-        <div className="dash-card-sub">Rates are set against the competitors around one facility at a time.</div>
+        <div className="dash-card-title">Pick a Facility</div>
+        <div className="dash-card-sub">Pick a facility above to see Rate Management. Rates are set against the competitors around one facility at a time.</div>
       </div>
     );
   }
-  if (state.status === 'loading') return <>{picker}<LoadingState size="section" label="Loading rate management" minHeight={240} /></>;
-  if (state.status === 'error') return <>{picker}<ErrorBanner message="Couldn't load rate management." onRetry={load} /></>;
+  if (state.status === 'loading') return <LoadingState size="section" label="Loading rate management" minHeight={240} />;
+  if (state.status === 'error') return <ErrorBanner message="Couldn't load rate management." onRetry={load} />;
 
   const k = v.kpis;
   const cs = v.compSet;
@@ -408,7 +398,6 @@ export default function RateManagement({ facility, facilities, onPick }) {
 
   return (
     <>
-      {picker}
       <div className="dash-card">
         <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-secondary, #64748b)', fontWeight: 600 }}>
           Competitive Market Analysis - Confidential
@@ -516,7 +505,7 @@ export default function RateManagement({ facility, facilities, onPick }) {
         </div>
       )}
 
-      {showComps && <Market facility={facility} facilities={facilities} onPick={onPick} />}
+      {showComps && <Market facility={facility} />}
 
       {panel === 'review' && (
         <ReviewModal view={v} onClose={() => setPanel(null)} onPushed={setView} onChecklist={(rows) => exportPdf(rows, true)} />

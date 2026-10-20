@@ -16,7 +16,8 @@ const SOURCE = {
   unavailable: ['Not Available From Cubby Yet', 'pill-warn'],
 };
 
-export default function CubbyReports({ facilities, scope, range, onPick }) {
+// The facility is the page's Facility dropdown (Oct 20): All, or the one picked.
+export default function CubbyReports({ scope, range }) {
   const [catalog, setCatalog] = useState({ status: 'loading' });
   const [picked, setPicked] = useState('rent-roll');
   const [from, setFrom] = useState(range.from);
@@ -90,13 +91,6 @@ export default function CubbyReports({ facilities, scope, range, onPick }) {
               </div>
             </div>
             <div className="ops-rep-bar">
-              <label className="ops-period">
-                <span>Facility</span>
-                <select value={one?.id || 'all'} onChange={(e) => onPick(e.target.value)}>
-                  <option value="all">All Facilities</option>
-                  {facilities.map((f) => <option key={f.id} value={f.id}>{f.shortName}</option>)}
-                </select>
-              </label>
               {meta.period && (
                 <>
                   <label className="ops-period"><span>From</span>
@@ -107,7 +101,7 @@ export default function CubbyReports({ facilities, scope, range, onPick }) {
                   </label>
                 </>
               )}
-              {!meta.period && <span className="ops-note" style={{ margin: 0 }}>As of the last Cubby sync.</span>}
+              {!meta.period && <span className="ops-note" style={{ margin: 0 }}>{where} - as of the last Cubby sync.</span>}
             </div>
             {report.status === 'loading' && !data && <LoadingState size="section" label={`Building ${meta.title}`} minHeight={220} />}
             {report.status === 'error' && <ErrorBanner message={report.error} onRetry={load} />}

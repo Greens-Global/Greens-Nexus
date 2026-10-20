@@ -43,17 +43,16 @@ beforeEach(() => {
 });
 
 describe('Rate Management', () => {
-  it('asks for a facility from a dropdown, then renders the table grouped by category', async () => {
-    const onPick = vi.fn();
-    const { rerender } = render(<RateManagement facility={null} facilities={FACILITIES} onPick={onPick} />);
-    const select = screen.getByLabelText('Facility');
-    expect(select.tagName).toBe('SELECT');
+  it('points at the page Facility dropdown, then renders the table grouped by category', async () => {
+    // The facility is the Operations page's one dropdown (Oct 20): no picker of its own.
+    const { rerender } = render(<RateManagement facility={null} />);
+    expect(screen.getByText(/Pick a facility above to see Rate Management/)).toBeTruthy();
+    expect(screen.queryByLabelText('Facility')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Fairfield' })).toBeNull();          // no chips
-    fireEvent.change(select, { target: { value: 'fac_f' } });
-    expect(onPick).toHaveBeenCalledWith('fac_f');
 
     apiMock.getOpsRates.mockResolvedValue(view(ROWS));
-    rerender(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={onPick} />);
+    rerender(<RateManagement facility={FACILITIES[0]} />);
+    expect(screen.queryByLabelText('Facility')).toBeNull();
     expect(await screen.findByText('Greens Storage Fairfield')).toBeTruthy();
     expect(apiMock.getOpsRates).toHaveBeenCalledWith('fac_f');
     expect(screen.getByText('5044 Peabody Road, Fairfield, CA 94533')).toBeTruthy();

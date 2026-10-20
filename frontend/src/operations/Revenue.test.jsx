@@ -44,13 +44,14 @@ beforeEach(() => {
 });
 
 describe('Revenue Management', () => {
-  it('asks for a facility when none is picked', () => {
-    render(<Revenue facility={null} facilities={[FAC]} onPick={() => {}} />);
-    expect(screen.getByText('Choose a Facility')).toBeTruthy();
+  it('points at the page Facility dropdown when none is picked, and has no picker of its own', () => {
+    render(<Revenue facility={null} />);
+    expect(screen.getByText(/Pick a facility above to see Revenue Management/)).toBeTruthy();
+    expect(screen.queryByLabelText('Facility')).toBeNull();
   });
 
   it('renders the tenant table with the gap, balance and last change', async () => {
-    render(<Revenue facility={FAC} facilities={[FAC]} onPick={() => {}} />);
+    render(<Revenue facility={FAC} />);
     expect(await screen.findByText('Tenant a1')).toBeTruthy();
     expect(screen.getAllByText('$50.00 (33.3%)')).toHaveLength(2);
     expect(screen.getByText('$50.00 Past Due')).toBeTruthy();
@@ -70,7 +71,7 @@ describe('Revenue Management', () => {
         { ...tenant('a2'), eligible: false, reasons: ['Moved in less than 12 months before the effective date'], newRent: 14500, increase: 0, increasePct: 0, capped: false },
       ],
     });
-    render(<Revenue facility={FAC} facilities={[FAC]} onPick={() => {}} />);
+    render(<Revenue facility={FAC} />);
     await screen.findByText('Tenant a1');
     fireEvent.click(screen.getByRole('button', { name: /Apply Strategy/ }));
     const dialog = screen.getByRole('dialog', { name: 'Apply a Strategy' });

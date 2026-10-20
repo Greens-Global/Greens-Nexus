@@ -72,13 +72,14 @@ beforeEach(() => {
   api.getPeopleDirectory.mockResolvedValue([{ email: 'neil@greensglobal.com', name: 'Neil Kadakia' }]);
 });
 
-const renderReports = () => render(<Reports data={{}} facilities={FACS} scope={FACS} range={RANGE} onPick={() => {}} />);
+const renderReports = () => render(<Reports data={{}} facilities={FACS} scope={FACS} range={RANGE} />);
 
 describe('Operations > Reports', () => {
   it('renders a Cubby report as a table with totals, sorting and search', async () => {
     renderReports();
     expect(await screen.findByText('Aiden Robb')).toBeTruthy();
     expect(api.opsReport).toHaveBeenCalledWith('rent-roll', { facilityId: '', start: '', end: '' });   // a snapshot: no period
+    expect(screen.queryByLabelText('Facility')).toBeNull();                   // the page's dropdown picks it (Oct 20)
     expect(screen.getByText('$1,071.08')).toBeTruthy();                       // the total row
     expect(screen.getByText('09/30/2026')).toBeTruthy();                      // US dates
     fireEvent.click(screen.getByRole('button', { name: 'Monthly Rent' }));    // ascending

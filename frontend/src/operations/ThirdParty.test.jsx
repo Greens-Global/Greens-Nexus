@@ -42,6 +42,7 @@ beforeEach(() => {
   uploadThirdPartyReport.mockReset();
   getFacilityOps.mockReset();
   getThirdPartyFacilities.mockReset();
+  localStorage.removeItem('nexus.ops.facility');
 });
 
 describe('ThirdPartyUpload', () => {
@@ -124,9 +125,17 @@ describe('Operations facility picker', () => {
     getFacilityOps.mockResolvedValue({ organization: 'Greens Storage', facilities: [], trend: [], syncedAt: new Date().toISOString(), syncStatus: 'ok', cubbyConfigured: true });
     getThirdPartyFacilities.mockResolvedValue({ facilities: [cubesmartFacility()] });
     render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
-    const pill = await screen.findByRole('button', { name: /Austin\s*CubeSmart Managed/ });
-    expect(pill).toHaveAttribute('title', 'CubeSmart Managed - Data as of 10/19/2026');
-    fireEvent.click(pill);
+    // The page's one Facility dropdown lists the store under its operator's heading.
+    const select = await screen.findByLabelText('Facility');
+    await waitFor(() => expect(within(select).getByRole('option', { name: 'Austin' })).toBeInTheDocument());
+    const group = select.querySelector('optgroup');
+    expect(group).toHaveAttribute('label', 'CubeSmart Managed');
+    expect(within(group).getByRole('option', { name: 'Austin' })).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: 'tp:cubesmart-6992' } });
+    // Picked, the tag and the age of its data sit next to the dropdown.
+    const bar = select.closest('.ops-facility');
+    expect(within(bar).getByText('CubeSmart Managed')).toBeInTheDocument();
+    expect(within(bar).getByText('Data as of 10/19/2026')).toBeInTheDocument();
     const panel = await screen.findByTestId('tp-panel');
     expect(within(panel).getByText('Austin - CubeSmart Managed')).toBeInTheDocument();
     expect(within(panel).getByText('Data as of 10/19/2026')).toBeInTheDocument();
@@ -143,7 +152,9 @@ describe('Operations facility picker', () => {
     getFacilityOps.mockResolvedValue({ organization: 'Greens Storage', facilities: [], trend: [], syncedAt: new Date().toISOString(), syncStatus: 'ok', cubbyConfigured: true });
     getThirdPartyFacilities.mockResolvedValue({ facilities: [cubesmartFacility({ thirdParty: { ...cubesmartFacility().thirdParty, stale: true, dataAsOf: '2026-10-01' } })] });
     render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: /Austin\s*CubeSmart Managed/ }));
+    const select = await screen.findByLabelText('Facility');
+    await waitFor(() => expect(within(select).getByRole('option', { name: 'Austin' })).toBeInTheDocument());
+    fireEvent.change(select, { target: { value: 'tp:cubesmart-6992' } });
     const panel = await screen.findByTestId('tp-panel');
     expect(within(panel).getByText('Data as of 10/01/2026')).toBeInTheDocument();
     expect(within(panel).getByText('Stale')).toBeInTheDocument();

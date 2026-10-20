@@ -483,7 +483,8 @@ function BatchModal({ batchId, writeEnabled, onClose, onChanged }) {
 
 // ── The tab ───────────────────────────────────────────────────────────────────
 
-export default function Revenue({ facility, facilities, onPick }) {
+// The facility comes from the page's one Facility dropdown (Oct 20).
+export default function Revenue({ facility }) {
   const facilityId = facility?.id || '';
   const [section, setSection] = useState('tenants');
   const [state, setState] = useState({ status: 'idle', data: null, error: null });
@@ -518,22 +519,11 @@ export default function Revenue({ facility, facilities, onPick }) {
   const toggle = (key) => setPicked((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const allPicked = rows.length > 0 && rows.every((t) => picked.has(t.key));
 
-  const picker = (
-    <label className="ops-period">
-      <span>Facility</span>
-      <select value={facilityId} onChange={(e) => onPick(e.target.value)} aria-label="Facility">
-        {!facilityId && <option value="">Choose a facility</option>}
-        {facilities.map((f) => <option key={f.id} value={f.id}>{f.shortName}</option>)}
-      </select>
-    </label>
-  );
-
   if (!facilityId) {
     return (
       <div className="dash-card">
-        <div className="dash-card-title">Choose a Facility</div>
-        <div className="dash-card-sub" style={{ marginBottom: 14 }}>Rent changes are planned one facility at a time.</div>
-        {picker}
+        <div className="dash-card-title">Pick a Facility</div>
+        <div className="dash-card-sub">Pick a facility above to see Revenue Management. Rent changes are planned one facility at a time.</div>
       </div>
     );
   }
@@ -547,7 +537,6 @@ export default function Revenue({ facility, facilities, onPick }) {
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          {picker}
           <button type="button" className="primary-btn" disabled={!data} onClick={() => setModal({ kind: 'apply' })}
             style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
             <Plus size={14} aria-hidden="true" /> Apply Strategy{picked.size ? ` (${picked.size})` : ''}
