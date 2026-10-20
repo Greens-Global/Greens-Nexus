@@ -49,15 +49,16 @@ FIXED = {
 
 def ctx(**kw):
     base = {"start": "2026-10-04", "end": "2026-10-17", "pay_type": "hourly", "entity": "Oversite Management, Inc",
-            "name": "Nimi Patel", "email": "nimi@x.com", "code": "GG-014", "dept": "Operations - SCMC",
-            "period": "10/04/2026 - 10/17/2026", "kind": "Hourly (bi-weekly)", "rule": "California",
-            "approvals": ["Approved by Charmi Desai on 10/19/2026 at 2:19 PM."], "version": "f5664b34cff8",
-            "history": ["10/19/2026  Charmi Desai agreed"], "generated": "10/19/2026 at 2:19 PM",
+            "name": "Nimi Patel", "code": "GG-014", "dept": "Operations - SCMC",
+            "period": "10/04/2026 - 10/17/2026", "kind": "Hourly (bi-weekly)", "generated": "10/19/2026 at 2:19 PM",
             "notes": {"2026-10-12": {"employeeNote": "Doctor visit at noon", "note": "HR ONLY"}},
             "punch_meta": {}, "time": lambda iso, _pid: iso[11:16] if iso else "-", "us_date": lambda s: s,
             "names_in": lambda s: s,
             "attestation": ["By execution and signature of this time sheet, I agree the hours are correct."],
-            "approval_log": ["Approved by Charmi Desai (manager) on 10/19/2026 at 2:19 PM"]}
+            "approval_history": [
+                {"step": "Submitted by employee", "by": "Nimi Patel", "when": "10/18/2026 at 9:02 AM", "note": ""},
+                {"step": "Approved by manager", "by": "Charmi Desai", "when": "10/19/2026 at 2:19 PM",
+                 "note": "Looks right"}]}
     base.update(kw)
     return base
 
@@ -111,36 +112,59 @@ class Hourly(unittest.TestCase):
         self.assertNotIn("payroll edit", self.text)
         self.assertNotIn("HR ONLY", self.text)      # the manager / HR note never travels
 
-    def test_signature_and_approval_log_under_the_summary(self):
-        self.assertEqual(self.spot["page"], page_with(self.pdf, "TOTALS"))     # on the summary's page
+    def test_the_card_on_page_one_the_signature_and_history_on_page_two(self):
+        self.assertEqual(len(PdfReader(io.BytesIO(self.pdf)).pages), 2)
+        self.assertEqual(page_with(self.pdf, "MISSING PUNCHES"), 0)            # the whole card ends on page 1
+        self.assertEqual(self.spot["page"], 1)                                  # Charmi, Oct 20: page 2 signs
+        self.assertEqual(page_with(self.pdf, "Approval History"), 1)
         x, y, w, h = self.spot["sign"]
         self.assertTrue(0 < x < x + w < 1 and 0 < y < y + h < 1)
         self.assertLess(x + w, self.spot["date"][0])          # the date sits right of the signature
-        self.assertLess(self.text.index("TOTALS"), self.text.index("Signature"))
-        self.assertLess(self.text.index("Signature"), self.text.index("Approval log"))
-        self.assertIn("Approved by Charmi Desai (manager)", self.text)
+        # The signing date also lands in the history's last row, below the signature.
+        self.assertEqual(self.spot["history"]["page"], 1)
+        self.assertGreater(self.spot["history"]["box"][1], y)
+        for s in ("Submitted by employee Nimi Patel 10/18/2026 at 9:02 AM",
+                  "Approved by manager Charmi Desai 10/19/2026 at 2:19 PM Looks right",
+                  "Signed by employee - finalizes the time sheet Nimi Patel"):
+            self.assertIn(s, self.text)
+        self.assertLess(self.text.index("By execution and signature"), self.text.index("Approval History"))
+        self.assertNotIn("Only the employee signs", self.text)
+        self.assertNotIn("Approval log", self.text)
 
     def test_header(self):
-        for s in ("Time Sheet Report for Oversite Management, Inc", "Code: GG-014", "Dept: Operations - SCMC",
-                  "Approved by Charmi Desai on 10/19/2026 at 2:19 PM", "OT rule: California",
-                  "Charmi Desai agreed"):
+        for s in ("Time Sheet", "Employee: Nimi Patel", "Company: Oversite Management, Inc",
+                  "Employee Code: GG-014", "Department: Operations - SCMC", "Pay Rate: $22.00/hr"):
             self.assertIn(s, self.text)
+        # Charmi, Oct 20: not "... for Greens Global", no email, no OT rule or
+        # version, no approvals up top.
+        for s in ("Time Sheet Report", "nimi@x.com", "OT rule", "Version", "Dept:", "Code: GG"):
+            self.assertNotIn(s, self.text.replace("Employee Code: GG", ""))
+        self.assertLess(self.text.index("Wage"), self.text.index("Approved by manager"))
 
-    def test_long_period_runs_onto_more_pages(self):
+    def test_a_busy_card_still_ends_on_page_one(self):
         day = HOURLY["days"][0]
         many = dict(HOURLY, days=[dict(day, date=f"2026-10-{n:02d}",
                                        segments=day["segments"] * 6) for n in range(4, 18)])
         pdf, spot = tp.render(many, ctx())
-        self.assertGreater(len(PdfReader(io.BytesIO(pdf)).pages), 1)
-        self.assertIn("(continued)", text_of(pdf))
-        # The summary and the signature moved on together, never a signature alone.
-        self.assertEqual(spot["page"], page_with(pdf, "TOTALS"))
-        self.assertGreater(spot["page"], 0)
+        self.assertEqual(len(PdfReader(io.BytesIO(pdf)).pages), 2)
+        self.assertEqual(page_with(pdf, "MISSING PUNCHES"), 0)
+        self.assertEqual(spot["page"], 1)
 
-    def test_a_light_two_weeks_fit_one_page_with_the_signature(self):
+    def test_a_light_card_keeps_its_signature_on_page_two(self):
         light = dict(HOURLY, days=HOURLY["days"][:1])
         pdf, spot = tp.render(light, ctx(notes={}))
-        self.assertEqual(spot["page"], 0)
+        self.assertEqual(spot["page"], 1)
+
+    def test_the_banding_follows_the_day_and_money_is_centered(self):
+        t = tp.hourly_rows(HOURLY, ctx(notes={"2026-10-05": {"employeeNote": "Long day"}}))
+        rows = t._cellvalues
+        note = next(i for i, r in enumerate(rows) if "Long day" in getattr(r[0], "text", ""))
+        day = next(i for i, r in enumerate(rows) if "10/05" in getattr(r[0], "text", ""))
+        banded = {c[1][1] for c in t._bkgrndcmds if c[3] == tp.BAND}
+        self.assertIn(day, banded)                            # Mon 10/05 is a banded day...
+        self.assertIn(note, banded)                           # ...and its note line is banded with it
+        self.assertEqual(rows[day][9].style.alignment, 1)     # Pay Rate and Wage centered
+        self.assertEqual(rows[day][10].style.alignment, 1)
 
 
 class Fixed(unittest.TestCase):

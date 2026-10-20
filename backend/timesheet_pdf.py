@@ -6,10 +6,14 @@ the week's total in a yellow band, the note line under a day, then the
 totals and the HOURS / WAGE summary. Hourly and salaried cards each get
 their own columns, as on screen.
 
-Landscape, built with platypus. The signature block and approval log follow
-the summary on the same page (Pranshu, Oct 20 2026: one document, not a
-separate signature page); the signature line records where it landed so
-Nexus Sign puts its fields exactly there (render's `spot`).
+Landscape, built with platypus. Page 1 is the whole time sheet - header,
+grid and summary down to Missing Punches - shrunk to fit one page however
+many punches there are; page 2 is the attestation, the employee's signature
+and the full Approval History (Charmi, Oct 20 2026: "this should end on the
+first page ... page two be the signature"). The signature line and the
+history's signing-date box record where they landed so Nexus Sign puts its
+fields exactly there (render's `spot`). This copy goes to payroll agencies:
+it prints the card exactly as computed, nothing recalculated here.
 
 Only what the employee may read is printed - they are the signer: the
 manager / HR day note never travels (Neil, Oct 12: supervisor notes are not
@@ -17,6 +21,7 @@ shown to employees); the employee's own note and the punch reasons do.
 """
 from __future__ import annotations
 
+import contextvars
 import io
 from datetime import date, timedelta
 from xml.sax.saxutils import escape
@@ -24,12 +29,14 @@ from xml.sax.saxutils import escape
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import (Flowable, KeepTogether, LongTable, Paragraph, SimpleDocTemplate, Spacer, Table,
-                                TableStyle)
+from reportlab.platypus import (Flowable, KeepInFrame, LongTable, PageBreak, Paragraph, SimpleDocTemplate, Spacer,
+                                Table, TableStyle)
 
 PAGE = landscape(letter)
 MARGIN = 30
+TOP, BOTTOM = 28, 34
 WIDTH = PAGE[0] - 2 * MARGIN - 12      # the frame keeps 6pt of padding each side
+HEIGHT = PAGE[1] - TOP - BOTTOM - 12
 
 INK = colors.HexColor("#1a1a1f")
 DIM = colors.HexColor("#6b6b75")
@@ -47,6 +54,28 @@ _CELL = ParagraphStyle("cell", fontName="Helvetica", fontSize=7.5, leading=9, al
 _LEFT = ParagraphStyle("left", parent=_CELL, alignment=0)
 _RIGHT = ParagraphStyle("right", parent=_CELL, alignment=2)
 _HEAD = ParagraphStyle("head", parent=_CELL, fontName="Helvetica-Bold")
+
+# Page 1 holds the whole card (Charmi, Oct 20: "it should auto fit on one
+# page"). render steps down these (font size, leading, top / bottom cell
+# padding) until it fits, keeping the full page width; a card too big even
+# for the last one is shrunk whole. A context variable, not a global: two
+# PDFs may be built at once on different request threads.
+_LEVELS = ((7.5, 9.0, 2.5, 3.0), (7.2, 8.6, 1.6, 2.0), (6.8, 8.0, 1.0, 1.4), (6.3, 7.4, 0.6, 1.0),
+           (5.8, 6.8, 0.3, 0.6))
+_DENSITY = contextvars.ContextVar("timesheet_pdf_density", default=0)
+_SIZED = {}
+
+
+def _sz(style: ParagraphStyle) -> ParagraphStyle:
+    """A grid-size style at the current density (page 2's larger styles pass through)."""
+    lvl = _DENSITY.get()
+    if lvl == 0 or style.fontSize != _CELL.fontSize:
+        return style
+    key = (style.name, lvl)
+    if key not in _SIZED:
+        _SIZED[key] = ParagraphStyle(f"{style.name}-{lvl}", parent=style, fontSize=_LEVELS[lvl][0],
+                                     leading=_LEVELS[lvl][1])
+    return _SIZED[key]
 _TEXT = ParagraphStyle("text", fontName="Helvetica", fontSize=8.5, leading=11, textColor=INK)
 
 # Markers the server writes on punches that are not a reason (segReasons).
@@ -89,7 +118,7 @@ def _p(text: str, style=_CELL, color=None, bold=False, italic=False) -> Paragrap
         s = f"<i>{s}</i>"
     if color is not None:
         s = f'<font color="#{color.hexval()[2:]}">{s}</font>'
-    return Paragraph(s, style)
+    return Paragraph(s, _sz(style))
 
 
 def _reasons(seg: dict) -> list:
@@ -122,7 +151,9 @@ class _Grid:
         return i
 
     def line(self, para: Paragraph, bg=None) -> int:
-        """A full-width line: a week total, a note, a holiday."""
+        """A full-width line: a week total, a note, a holiday. A line that
+        belongs to a day takes the day's band (Charmi, Oct 20: the banding
+        follows the day, not the row)."""
         i = self.add([para] + [""] * (self.ncols - 1))
         self.cmds.append(("SPAN", (0, i), (-1, i)))
         if bg is not None:
@@ -134,12 +165,13 @@ class _Grid:
             self.cmds.extend(("SPAN", (c, top), (c, bottom)) for c in cols)
 
     def table(self, widths: list) -> LongTable:
+        _fs, _ld, top, bottom = _LEVELS[_DENSITY.get()]
         t = LongTable(self.rows, colWidths=widths, repeatRows=1)
         t.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, LINE),
                                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                               # Tight rows (SwipeClock's): a two-week card, its summary and the
-                               # signature fit on one landscape page.
-                               ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
+                               # Room to read (Charmi, Oct 20: "a little cramped"); a busy card
+                               # still fits - render shrinks page 1 to one page.
+                               ("TOPPADDING", (0, 0), (-1, -1), top), ("BOTTOMPADDING", (0, 0), (-1, -1), bottom),
                                ("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3),
                                *self.cmds]))
         return t
@@ -154,7 +186,7 @@ def _time_cell(iso: str, pid: str, ctx: dict, *, missing: bool = True) -> Paragr
     return _p(ctx["time"](iso, pid), color=EDITED if edited else None, bold=edited)
 
 
-def _note_line(g: _Grid, ds: str, segs: list, ctx: dict, indent: bool = True) -> None:
+def _note_line(g: _Grid, ds: str, segs: list, ctx: dict, band: bool = False, indent: bool = True) -> None:
     parts = []
     emp = ((ctx["notes"] or {}).get(ds) or {}).get("employeeNote") or ""
     if emp.strip():
@@ -164,14 +196,14 @@ def _note_line(g: _Grid, ds: str, segs: list, ctx: dict, indent: bool = True) ->
     if reasons:
         parts.append(f"<b>On the punches:</b> <i>{escape(ctx['names_in']('  ·  '.join(reasons)))}</i>")
     if parts:
-        style = ParagraphStyle("note", parent=_LEFT, leftIndent=14 if indent else 0)
-        g.line(Paragraph("<br/>".join(parts), style))
+        style = _sz(ParagraphStyle("note", parent=_LEFT, leftIndent=14 if indent else 0))
+        g.line(Paragraph("<br/>".join(parts), style), BAND if band else None)
 
 
-def _auto_line(g: _Grid, segs: list) -> None:
+def _auto_line(g: _Grid, segs: list, band: bool = False) -> None:
     if any("auto_clock_out" in (s.get("flags") or []) for s in segs):
         g.line(_p("Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours.",
-                  _LEFT, color=RED, bold=True))
+                  _LEFT, color=RED, bold=True), BAND if band else None)
 
 
 def hourly_rows(card: dict, ctx: dict) -> Table:
@@ -206,7 +238,7 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
                 half = d.get("holidayType") == "half_day"
                 g.line(_p(f"{'Half-Day Holiday' if half else 'Holiday'}: {d.get('holidayName') or 'Company holiday'}"
                           f" - not worked, paid {money(d.get('holidayPay'), cur)}{' (half day)' if half else ''}.",
-                          _LEFT, color=BLUE, bold=True))
+                          _LEFT, color=BLUE, bold=True), BAND if band else None)
             continue
         first_row = len(g.rows)
         # Punch pairs (Charmi / Visesh, Oct 20): one row per stretch of work -
@@ -240,8 +272,8 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
                         _p(ot, color=RED if seg.get("dtMin") else AMBER if seg.get("otMin") else None,
                            bold=bool(seg.get("otMin") or seg.get("dtMin"))) if first else "",
                         _p(seg.get("workSite") or seg.get("workSiteOut") or "-") if first else "",
-                        _p(rate, _RIGHT) if first else "",
-                        _p(money(seg.get("amount"), cur), _RIGHT, bold=True) if first else "",
+                        _p(rate) if first else "",
+                        _p(money(seg.get("amount"), cur), bold=True) if first else "",
                     ], band)
                     if first:
                         top = i
@@ -254,8 +286,8 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
         # Hrs/Day: the day's total on its last row, an arrow down to it above.
         for i in range(first_row, len(g.rows)):
             g.rows[i][6] = (_p(hm(d.get("workedMin")), bold=True) if i == len(g.rows) - 1
-                            else Paragraph('<font name="Symbol">↓</font>', _CELL))
-        _auto_line(g, segs)
+                            else Paragraph('<font name="Symbol">↓</font>', _sz(_CELL)))
+        _auto_line(g, segs, band)
         if d.get("meal") or d.get("mealPremiumMin") or d.get("restPremiumMin"):
             bits = []
             if d.get("meal"):
@@ -264,18 +296,19 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
                                     ("restPremiumMin", "restPremiumPay", "Rest Premium")):
                 if d.get(key):
                     bits.append(f"{label}: 1 hour of pay ({money(d.get(pay), cur)})")
-            g.line(_p("   ".join(bits), _LEFT, color=AMBER, bold=True))
+            g.line(_p("   ".join(bits), _LEFT, color=AMBER, bold=True), BAND if band else None)
         if d.get("holidayPay"):
             g.line(_p(f"Half-Day Holiday: {d.get('holidayName') or 'Company holiday'} - worked the half day, plus "
-                      f"{money(d['holidayPay'], cur)} credited for the other half.", _LEFT, color=BLUE, bold=True))
+                      f"{money(d['holidayPay'], cur)} credited for the other half.", _LEFT, color=BLUE, bold=True),
+                   BAND if band else None)
         if d.get("diffMin") or d.get("callBackMin"):
             bits = [f"{x.get('name')}: {hm(x.get('min'))} worked in the window - {money(x.get('pay'), cur)}"
                     for x in d.get("differentials") or []]
             if d.get("callBackMin"):
                 bits.append(f"Call-Back Pay: {hm(d['callBackMin'])} short of the minimum - "
                             f"{money(d.get('callBackPay'), cur)}")
-            g.line(_p("   ".join(bits), _LEFT, color=PURPLE, bold=True))
-        _note_line(g, ds, segs, ctx)
+            g.line(_p("   ".join(bits), _LEFT, color=PURPLE, bold=True), BAND if band else None)
+        _note_line(g, ds, segs, ctx, band)
     if week:
         week_line()
 
@@ -286,13 +319,13 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
     i = g.add([_p("Total Worked", _LEFT, bold=True), "", "", _p(f"-{t['deductedMin']}m" if t.get("deductedMin") else "-", bold=True),
                "", _p(hm(worked), bold=True), "", _p(ot, bold=True), "", "",
                _p(money(float(t.get("regPay") or 0) + float(t.get("otPay") or 0) + float(t.get("dtPay") or 0), cur),
-                  _RIGHT, bold=True)])
+                  bold=True)])
     g.cmds += [("SPAN", (0, i), (2, i)), ("BACKGROUND", (0, i), (-1, i), HEAD)]
     for label, mk, pk in (("Sick", "sickMin", "sickPay"), ("Vacation", "vacationMin", "vacationPay"),
                           ("Personal", "personalMin", "personalPay")):
         if t.get(mk):
             i = g.add([_p(f"Time Off - {label}", _LEFT, color=RED, bold=True), "", "", "", _p(label),
-                       _p(hm(t[mk]), bold=True), "", "", "", "", _p(money(t.get(pk), cur), _RIGHT, bold=True)])
+                       _p(hm(t[mk]), bold=True), "", "", "", "", _p(money(t.get(pk), cur), bold=True)])
             g.cmds += [("SPAN", (0, i), (2, i)), ("BACKGROUND", (0, i), (-1, i), HEAD)]
     return g.table([62, 54, 58, 48, 84, 48, 42, 54, 146, 58, 66])
 
@@ -353,9 +386,9 @@ def fixed_rows(card: dict, ctx: dict) -> Table:
         if fd.get("holidayName") and fd.get("status", "").startswith("holiday"):
             status = f"{status}: {fd['holidayName']}"
         leave = bool(fd.get("leaveClass"))
-        effect = (_p(f"-{money(fd['deduct'], cur)}", _RIGHT, color=RED, bold=True) if fd.get("deduct")
-                  else _p(f"+{money(fd['bonus'], cur)}", _RIGHT, color=BLUE, bold=True) if fd.get("bonus")
-                  else _p("no change", _RIGHT, color=DIM))
+        effect = (_p(f"-{money(fd['deduct'], cur)}", color=RED, bold=True) if fd.get("deduct")
+                  else _p(f"+{money(fd['bonus'], cur)}", color=BLUE, bold=True) if fd.get("bonus")
+                  else _p("no change", color=DIM))
         date_cell = _p(day_label(ds), _LEFT, color=RED if leave else None, bold=True, italic=True)
         day_cell = _p(status, color=RED if leave or fd.get("status") == "absent" else None, bold=True)
         if not segs:
@@ -375,8 +408,8 @@ def fixed_rows(card: dict, ctx: dict) -> Table:
             g.span_down((4, 5), seg_top, len(g.rows) - 1)
         if segs:
             g.span_down((0, 6), top, len(g.rows) - 1)
-        _auto_line(g, segs)
-        _note_line(g, ds, segs, ctx)
+        _auto_line(g, segs, band)
+        _note_line(g, ds, segs, ctx, band)
     return g.table([84, 130, 84, 84, 158, 80, 100])
 
 
@@ -405,21 +438,31 @@ def fixed_summary(card: dict) -> list:
 
 def _summary_table(rows: list, fixed: bool) -> Table:
     data = [[_p(""), _p("HOURS", bold=True), _p("AMOUNT" if fixed else "WAGE", bold=True)]]
-    data += [[_p(a, _RIGHT, bold=a.isupper()), _p(b, bold=a.isupper()), _p(c, _RIGHT, bold=a.isupper())]
+    data += [[_p(a, _RIGHT, bold=a.isupper()), _p(b, bold=a.isupper()), _p(c, bold=a.isupper())]
              for a, b, c in rows]
-    t = Table(data, colWidths=[300, 90, 90], hAlign="RIGHT")
+    # Full width under the grid (Charmi, Oct 20), the figures centered.
+    t = Table(data, colWidths=[WIDTH - 240, 120, 120])
     cmds = [("GRID", (0, 0), (-1, -1), 0.4, LINE), ("BACKGROUND", (0, 0), (-1, 0), HEAD),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5)]
+            ("TOPPADDING", (0, 0), (-1, -1), max(0.3, _LEVELS[_DENSITY.get()][2] - 0.5)),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), max(0.6, _LEVELS[_DENSITY.get()][3] - 0.5))]
     cmds += [("BACKGROUND", (0, i + 1), (-1, i + 1), BAND) for i, (a, _b, _c) in enumerate(rows) if a.isupper()]
     t.setStyle(TableStyle(cmds))
     return t
 
 
+def _box(c, x, w, h, lift=0.0) -> list:
+    """A field box in Nexus Sign's convention (normalized, top-left), from a
+    point `lift` above the current drawing origin's baseline."""
+    x0, y0 = c.absolutePosition(x, 0)
+    pw, ph = PAGE
+    return [round(x0 / pw, 4), round((ph - (y0 + lift + h)) / ph, 4), round(w / pw, 4), round(h / ph, 4)]
+
+
 class _SignatureLine(Flowable):
     """The employee's signature and date lines. It records, as it is drawn,
-    the page and the boxes (normalized, top-left - Nexus Sign's convention)
-    where the signature and the date belong, into `spot`."""
+    the page and the boxes where the signature and the date belong, into
+    `spot` (sign / date, page)."""
     SIGN_X, SIGN_W, SIGN_H = 110, 330, 28
     DATE_X, DATE_W, DATE_H = 500, 140, 22
     BASE = 12      # the lines' height inside the flowable
@@ -444,56 +487,101 @@ class _SignatureLine(Flowable):
         c.setFont("Helvetica", 7)
         c.drawString(self.SIGN_X, b - 9, "Signature")
         c.drawString(self.DATE_X, b - 9, "Date")
-        x0, y0 = c.absolutePosition(0, b)
-        pw, ph = PAGE
-
-        def box(x, w, h, lift):
-            return [round((x0 + x) / pw, 4), round((ph - (y0 + lift + h)) / ph, 4), round(w / pw, 4), round(h / ph, 4)]
-
-        self.spot.update(page=c.getPageNumber() - 1, sign=box(self.SIGN_X, self.SIGN_W, self.SIGN_H, 0),
-                         date=box(self.DATE_X, self.DATE_W, self.DATE_H, 5))
+        c.saveState()
+        c.translate(0, b)
+        self.spot.update(page=c.getPageNumber() - 1, sign=_box(c, self.SIGN_X, self.SIGN_W, self.SIGN_H),
+                         date=_box(c, self.DATE_X, self.DATE_W, self.DATE_H, 5))
+        c.restoreState()
 
 
-def _signature_block(ctx: dict, spot: dict) -> list:
-    """What the employee attests, their signature and date, then the approval
-    log (render keeps it together with the summary above it)."""
-    muted = ParagraphStyle("muted", parent=_TEXT, fontSize=8.5, leading=11, textColor=DIM)
-    box = Table([[Paragraph("<br/>".join(f"<b>{escape(s)}</b>" for s in ctx["attestation"]), _TEXT)]],
-                colWidths=[WIDTH])
-    box.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.6, DIM), ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                             ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
-    parts = [Paragraph("Only the employee signs. The approver does not sign - the approval, and any change HR "
-                       "made, are logged below.", muted)]
-    parts += [Paragraph(escape(s), muted) for s in ctx.get("sign_note") or []]
-    parts += [Spacer(1, 3), box, Spacer(1, 10), _SignatureLine("Employee", spot), Spacer(1, 4),
-              Paragraph("<b>Approval log</b>", _TEXT)]
-    parts += [Paragraph(escape(s), ParagraphStyle("log", parent=_TEXT, fontSize=8.5, leading=11))
-              for s in ctx.get("approval_log") or ["No approvals recorded."]]
+class _SignedOnBox(Flowable):
+    """The Approval History's last row: the date the employee signs. Nexus
+    Sign stamps it (a second date field), so the history reads employee,
+    manager and HR with their dates (Charmi, Oct 20). Records spot['history']
+    = {page, box}."""
+    W, H = 110, 16
+
+    def __init__(self, spot: dict):
+        super().__init__()
+        self.spot = spot
+
+    def wrap(self, _aw, _ah):
+        return self.W, self.H
+
+    def draw(self):
+        c = self.canv
+        c.setStrokeColor(DIM)
+        c.setLineWidth(0.6)
+        c.line(0, 1, self.W, 1)
+        self.spot["history"] = {"page": c.getPageNumber() - 1, "box": _box(c, 0, self.W, self.H - 2, 2)}
+
+
+_HCELL = ParagraphStyle("hcell", parent=_LEFT, fontSize=8.5, leading=10.5)
+_H2 = ParagraphStyle("h2", parent=_TEXT, fontName="Helvetica-Bold", fontSize=10.5, leading=13)
+
+
+def _history_table(ctx: dict, spot: dict) -> Table:
+    """Every step the time sheet went through, oldest first, then the
+    employee's signature - which finalizes it."""
+    def cell(text, **kw):
+        return _p(text, _HCELL, **kw)
+    data = [[cell("Step", bold=True), cell("By", bold=True), cell("Date and Time", bold=True), cell("Note", bold=True)]]
+    for h in ctx.get("approval_history") or []:
+        data.append([cell(h.get("step") or "", bold=True), cell(h.get("by") or ""), cell(h.get("when") or ""),
+                     cell(h.get("note") or "-", color=None if h.get("note") else DIM)])
+    data.append([cell("Signed by employee - finalizes the time sheet", bold=True), cell(ctx["name"]),
+                 _SignedOnBox(spot), cell("Signature above", color=DIM)])
+    t = Table(data, colWidths=[210, 150, 130, WIDTH - 490], repeatRows=1)
+    t.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, LINE), ("BACKGROUND", (0, 0), (-1, 0), HEAD),
+                           ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                           ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
+                           ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5)]))
+    return t
+
+
+def _signature_page(ctx: dict, spot: dict) -> list:
+    """Page 2: what the employee attests (and, for California staff, the meal
+    and rest break statement), their signature and date, then the Approval
+    History."""
+    muted = ParagraphStyle("muted", parent=_TEXT, textColor=DIM)
+    box = Table([[Paragraph("<br/><br/>".join(f"<b>{escape(s)}</b>" for s in ctx["attestation"]),
+                            ParagraphStyle("att", parent=_TEXT, fontSize=9.5, leading=13))]], colWidths=[WIDTH])
+    box.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.8, DIM), ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                             ("RIGHTPADDING", (0, 0), (-1, -1), 10), ("TOPPADDING", (0, 0), (-1, -1), 8),
+                             ("BOTTOMPADDING", (0, 0), (-1, -1), 9)]))
+    parts = [Paragraph("Employee Attestation", _H2), Spacer(1, 4), box]
+    parts += [Spacer(1, 3)] + [Paragraph(escape(s), muted) for s in ctx.get("sign_note") or []]
+    parts += [Spacer(1, 22), _SignatureLine("Employee", spot), Spacer(1, 22),
+              Paragraph("Approval History", _H2), Spacer(1, 4), _history_table(ctx, spot)]
     return parts
 
 
 def render(card: dict, ctx: dict) -> tuple[bytes, dict]:
     """The Time Sheet PDF and where its signature goes: (bytes, spot), spot =
-    {page, sign: [x, y, w, h], date: [x, y, w, h]}. `ctx`: start, end,
-    pay_type, entity, name, email, code, dept, period, kind, rule, approvals
-    (lines), version, history (lines), generated, notes, punch_meta,
-    time(iso, punch_id) -> '8:45 AM', names_in(text) -> text with emails as
-    names, attestation (lines), sign_note (lines), approval_log (lines)."""
+    {page, sign: [x, y, w, h], date: [x, y, w, h], history: {page, box}}.
+    `ctx`: start, end, pay_type, entity (the person's company), name, code,
+    dept, period, kind, generated, notes, punch_meta, time(iso, punch_id) ->
+    '8:45 AM', us_date, names_in(text) -> text with emails as names,
+    attestation (lines), sign_note (lines), approval_history ([{step, by,
+    when, note}])."""
     fixed = ctx["pay_type"] == "fixed"
     cur = card.get("currency") or "USD"
-    head = ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=13, leading=16, alignment=1, textColor=INK)
-    who = [f"<b>Employee:</b> {escape(ctx['name'])} ({escape(ctx['email'])})"]
+    head = ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=14, leading=17, alignment=1, textColor=INK)
+    # The header is who and what period only (Charmi, Oct 20): no email, no OT
+    # rule or version (HR's, not the employee's), and the approvals live on
+    # page 2. "Time Sheet", not "... for Greens Global": not everyone is.
+    who = [f"<b>Employee:</b> {escape(ctx['name'])}"]
+    if ctx.get("entity"):
+        who.append(f"<b>Company:</b> {escape(ctx['entity'])}")
     if ctx.get("code"):
-        who.append(f"<b>Code:</b> {escape(ctx['code'])}")
+        who.append(f"<b>Employee Code:</b> {escape(ctx['code'])}")
     if ctx.get("dept"):
-        who.append(f"<b>Dept:</b> {escape(ctx['dept'])}")
-    # The period leads the second line: a long email would wrap it mid-date.
+        who.append(f"<b>Department:</b> {escape(ctx['dept'])}")
     pay = [f"<b>Period:</b> {escape(ctx['period'])}", escape(ctx["kind"])]
     if fixed:
-        pay.append(f"<b>Monthly salary:</b> {money(card.get('monthlySalary'), cur)}")
+        pay.append(f"<b>Monthly Salary:</b> {money(card.get('monthlySalary'), cur)}")
     else:
-        pay.append(f"<b>Pay rate:</b> {money(card.get('rate'), cur)}/hr")
-        pay.append(f"<b>OT rule:</b> {escape(ctx.get('rule') or 'None')}")
+        pay.append(f"<b>Pay Rate:</b> {money(card.get('rate'), cur)}/hr")
     splits = card.get("rateSplits") or []
     if len(splits) > 1:
         key = "monthlySalary" if fixed else "rate"
@@ -501,37 +589,42 @@ def render(card: dict, ctx: dict) -> tuple[bytes, dict]:
         pay.append(" · ".join(
             (f"Through {ctx['us_date'](s.get('through'))}" if i == 0 else f"From {ctx['us_date'](s.get('from'))}")
             + f" at {money(s.get(key), cur)}{unit}" for i, s in enumerate(splits)))
-    if ctx.get("version"):
-        pay.append(f"Version {escape(ctx['version'])}")
-    right = ParagraphStyle("appr", parent=_TEXT, alignment=2)
-    top = Table([[Paragraph(" &nbsp;|&nbsp; ".join(who) + "<br/>" + " &nbsp;|&nbsp; ".join(pay), _TEXT),
-                  Paragraph("<b>Approvals:</b><br/>" + "<br/>".join(escape(a) for a in ctx["approvals"]), right)]],
-                colWidths=[WIDTH * 0.68, WIDTH * 0.32])
-    top.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                             ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
-    story = [Paragraph(f"Time Sheet Report for {escape(ctx['entity'] or 'Greens Global')}", head), Spacer(1, 6), top,
-             Spacer(1, 6), fixed_rows(card, ctx) if fixed else hourly_rows(card, ctx), Spacer(1, 6)]
-    # The summary and the signature travel as one: when they do not fit under
-    # the grid they start the next page together, never a signature alone.
+    top = Paragraph(" &nbsp;|&nbsp; ".join(who) + "<br/>" + " &nbsp;|&nbsp; ".join(pay),
+                    ParagraphStyle("top", parent=_TEXT, fontSize=9, leading=12.5))
+    # Page 1 is the whole card down to Missing Punches on one page however many
+    # punches it has (tighter rows first, a whole-page shrink only past the
+    # last step); page 2 is the signature (Charmi, Oct 20).
+    for lvl in range(len(_LEVELS)):
+        token = _DENSITY.set(lvl)
+        try:
+            page1 = [Paragraph("Time Sheet", head), Spacer(1, 6), top, Spacer(1, 8),
+                     fixed_rows(card, ctx) if fixed else hourly_rows(card, ctx), Spacer(1, 8),
+                     _summary_table(fixed_summary(card) if fixed else hourly_summary(card), fixed)]
+        finally:
+            _DENSITY.reset(token)
+        if sum(f.wrap(WIDTH, HEIGHT)[1] for f in page1) <= HEIGHT:
+            break
     spot = {}
-    story.append(KeepTogether([_summary_table(fixed_summary(card) if fixed else hourly_summary(card), fixed),
-                               Spacer(1, 6), *_signature_block(ctx, spot)]))
-    if ctx.get("history"):
-        story += [Spacer(1, 10), Paragraph("<b>Review history</b>", _TEXT)]
-        story += [Paragraph(escape(line), ParagraphStyle("h", parent=_TEXT, fontSize=8, leading=10))
-                  for line in ctx["history"]]
-    story += [Spacer(1, 8), Paragraph(f"<b>Report generated on:</b> {escape(ctx['generated'])}", _TEXT)]
+    story = [KeepInFrame(WIDTH, HEIGHT, page1, mode="shrink"), PageBreak(),
+             Paragraph("Time Sheet - Signature And Approval", head), Spacer(1, 4),
+             Paragraph(" &nbsp;|&nbsp; ".join([f"<b>Employee:</b> {escape(ctx['name'])}"]
+                                              + ([f"<b>Company:</b> {escape(ctx['entity'])}"] if ctx.get("entity") else [])
+                                              + [f"<b>Period:</b> {escape(ctx['period'])}"]),
+                       ParagraphStyle("who2", parent=_TEXT, alignment=1)),
+             Spacer(1, 14), *_signature_page(ctx, spot), Spacer(1, 12),
+             Paragraph(f"Generated by Nexus on {escape(ctx['generated'])}",
+                       ParagraphStyle("gen", parent=_TEXT, fontSize=7.5, textColor=DIM))]
 
     def later(cv, _doc):
         # A short running head so a loose page still says whose time sheet it is.
         cv.saveState()
         cv.setFont("Helvetica", 7.5)
         cv.setFillColor(DIM)
-        cv.drawString(MARGIN, PAGE[1] - 20, f"Time Sheet - {ctx['name']} - {ctx['period']} (continued)")
+        cv.drawString(MARGIN, PAGE[1] - 20, f"Time Sheet - {ctx['name']} - {ctx['period']}")
         cv.restoreState()
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=PAGE, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=28,
-                            bottomMargin=34, title=f"Time Sheet - {ctx['name']} - {ctx['period']}")
+    doc = SimpleDocTemplate(buf, pagesize=PAGE, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=TOP,
+                            bottomMargin=BOTTOM, title=f"Time Sheet - {ctx['name']} - {ctx['period']}")
     doc.build(story, onLaterPages=later)
     return buf.getvalue(), spot

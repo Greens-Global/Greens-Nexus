@@ -45,4 +45,13 @@ describe('SignModal - CA meal and rest break statement', () => {
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(apiMock.timesheetBreakClaim).toHaveBeenCalledWith('rv1', { claims: [{ date: '2026-09-16', kind: 'meal' }], note: '' });
   });
+
+  it('a salaried US employee sees the statement without Report a Missed Break (Oct 20)', async () => {
+    apiMock.mySignRender.mockResolvedValue({ ...BASE, breakAttestation: { ...ATT, flaggedDays: [], canReport: false },
+      gate: null, consentAt: '2026-10-18T10:00:00Z', myTurn: true, status: 'pending', source: 'template', body: [], fields: [] });
+    render(<SignModal partyId="p1" onClose={() => {}} onDone={() => {}} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText(STATEMENT)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Report a Missed Break' })).toBeNull();
+    expect(screen.queryByText(/Missed a meal or rest break\?/)).toBeNull();
+  });
 });
