@@ -211,8 +211,7 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
         first_row = len(g.rows)
         # Punch pairs (Charmi / Visesh, Oct 20): one row per stretch of work -
         # In = the clock-in or a break end, Out = a break start or the
-        # clock-out - with its own hours, and the break as a thin line between
-        # two rows, exactly like the Time Sheet screen (PayrollTimecard).
+        # clock-out - with its own hours, like SwipeClock and the Time Sheet screen.
         from timesheet_review import punch_pairs   # lazy: timesheet_review imports this module
         for si, seg in enumerate(segs):
             leave = bool(seg.get("payClass"))
@@ -246,15 +245,9 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
                     ], band)
                     if first:
                         top = i
-                elif x["kind"] == "break":
-                    paid = f" - {x['paidMin']} min paid" if x.get("paidMin") else ""
-                    if x.get("implicit"):
-                        txt = f"Break {hm(x.get('min'))} ({ctx['time'](x.get('start'), x.get('startId') or '')} - clock-out) - the break end was never punched"
-                    else:
-                        txt = (f"Break {x.get('min')} min ({ctx['time'](x.get('start'), x.get('startId') or '')} - "
-                               f"{ctx['time'](x.get('end'), x.get('endId') or '')}){paid}")
-                    i = g.add([_p("", _LEFT), _p(txt, _LEFT, color=DIM, italic=True), "", "", "", "", "", "", "", "", ""], band)
-                    g.cmds.append(("SPAN", (1, i), (2, i)))   # In + Out only: Deducted Time onward are merged down the shift
+                # No break line on paper (SwipeClock prints none): the gap between a
+                # row's Out and the next row's In is the break, which keeps a light
+                # two weeks on one page with the signature.
             # Deducted Time, Category, OT, Loc, Pay Rate and Wage merge down the shift, as on screen.
             if top is not None:
                 g.span_down((3, 4, 7, 8, 9, 10), top, len(g.rows) - 1)

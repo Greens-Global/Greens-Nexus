@@ -46,9 +46,11 @@ class PdfPairs(ReviewCase):
         from pypdf import PdfReader
         text = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
         self.assertIn("Hrs/Day", text)
-        # 4:00 PM -> 7:00 PM and 7:30 PM -> 11:00 PM: 3h + 3h 30m = 6h 30m for the day.
-        self.assertIn("\n".join(["4:00 PM - 7:00 PM", "3h 00m", "Break 30 min (7:00 PM - 7:30 PM)", "0h 30m",
-                                 "7:30 PM - 11:00 PM", "3h 30m", "6h 30m"]), text)
+        # Two punch-pair rows (Out at the break start, In at the break end), each
+        # with its own hours, and the day's 6:30 on the last row.
+        flat = " ".join(text.split())
+        self.assertIn("4:00 PM 7:00 PM - - 3:00", flat)
+        self.assertIn("7:30 PM 11:00 PM 3:30 6:30", flat)
 
 
 if __name__ == "__main__":
