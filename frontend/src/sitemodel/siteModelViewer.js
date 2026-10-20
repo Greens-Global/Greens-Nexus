@@ -836,10 +836,13 @@ export function createSiteModelViewer(container, model, options = {}) {
       projV.project(camera);
       if (projV.z <= 1) { const ph = s.y / (d * k); placed.push([(projV.x + 1) / 2 * Wpx, (1 - projV.y) / 2 * H, (ph * s.x / s.y) / 2 + 4, ph / 2 + 4]); }
     }
-    // Unit numbers nearest the view's center (or the chosen unit) get the room first.
-    const focus = state.selected && recOf[state.selected] ? recOf[state.selected].pos : ctrl.target;
-    unitLabelList.sort((a, b) => Math.hypot(a.position.x - focus.x, a.position.z - focus.z) - Math.hypot(b.position.x - focus.x, b.position.z - focus.z));
-    for (const sp of [...labelOrder, ...unitLabelList]) {
+    // Unit numbers keep their places while the map moves (Visesh, Oct 20: they
+    // jumped from RV to RV when panning): a number already showing keeps its
+    // room; the rest follow a fixed order (nearest the chosen unit, else the
+    // order they were built in) - never re-ranked by the moving view center.
+    const shownBefore = unitLabelList.filter((sp) => sp.visible);
+    const rest = unitLabelList.filter((sp) => !sp.visible);
+    for (const sp of [...labelOrder, ...shownBefore, ...rest]) {
       if (photo && sp.userData.photoHide) { sp.visible = false; continue; }
       if (sp.userData.unit) {   // a unit number: neighbors from mid zoom, the whole row only close up
         const rec = recOf[sp.userData.unit.n];
