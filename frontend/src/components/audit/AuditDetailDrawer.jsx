@@ -238,7 +238,7 @@ export default function AuditDetailDrawer({ event, onClose, onOpenEvent, onOpenT
         style={{
           width: isMobile ? '100vw' : 'min(100vw, max(420px, 60vw))', height: '100%', background: 'var(--card)',
           borderLeft: '1px solid var(--line)', boxShadow: '-8px 0 40px rgba(0,0,0,0.16)', display: 'flex', flexDirection: 'column',
-          fontFamily: 'Inter, sans-serif', outline: 'none',
+          fontFamily: 'Inter, sans-serif',
         }}>
         <header style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           {view === 'history' ? (

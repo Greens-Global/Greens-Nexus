@@ -114,7 +114,7 @@ const FILL_CSS = `
 .sm-search{position:relative;margin:0}
 .sm-search-box{display:flex;align-items:center;gap:8px;height:38px;padding:0 6px 0 11px;background:rgba(255,255,255,.97);color:#5f6358;border:1px solid rgba(20,40,30,.1);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.12);cursor:text;box-sizing:border-box}
 .sm-search-box:focus-within{border-color:#2a78d6}
-.sm-search-box input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:#1d1f1a;font:400 13.5px 'Inter',system-ui,sans-serif;padding:0}
+.sm-search-box input{flex:1;min-width:0;border:0;background:transparent;color:#1d1f1a;font:400 13.5px 'Inter',system-ui,sans-serif;padding:0}
 .sm-search-box input::placeholder{color:#7a7f75}
 .sm-search-x{display:inline-grid;place-items:center;width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:#5f6358;cursor:pointer;padding:0}
 .sm-search-x:hover{background:#eef0ec}
