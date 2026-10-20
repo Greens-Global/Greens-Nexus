@@ -560,21 +560,40 @@ export function createSiteModelViewer(container, model, options = {}) {
   // floor, and the rest of its building / lot only once the camera is close.
   // Screen-size, and run through the same overlap check as the building names
   // (see declutter), so they never pile up. The chosen unit's own number is on its pin.
-  const NEAR_M = 14; const NEAR_MAX = 10; let unitLabelList = [];
+  const NEAR_M = 14; let unitLabelList = []; const labelCache = new Map();   // unit name -> its number sprite, made once
+  // Every unit's number, all buildings and lots (Visesh, Oct 20: "why are the
+  // unit numbers not visible always?"). In a building with floors only one
+  // floor is labeled: the level picked, else the chosen unit's floor, else the
+  // top floor - so L1 and L2 numbers never stack. Readable size (16 px); the
+  // declutter pass shows as many as fit without overlapping, nearest the
+  // chosen unit / the view's center first.
   function showUnitLabels(bid, level) {
-    const key = bid ? `${bid}:${level}:${state.explode ? 1 : 0}:${state.selected || ''}` : null;
-    if (labelsFor === key) return; labelsFor = key;
-    clearGroup(unitLabels); unitLabelList = [];
-    if (!bid) return;
-    const b = buildings[bid]; const multi = b && b.floors > 1;
     const sel = state.selected ? recOf[state.selected] : null;
-    const dist = (r) => (sel ? Math.hypot(r.pos.x - sel.pos.x, r.pos.z - sel.pos.z) : 0);
-    const rows = recs.filter((r) => r.u.b === bid && (!multi || r.u.f === (level || 1)) && (!sel || r !== sel)).sort((a, c) => dist(a) - dist(c));
-    rows.forEach((r, i) => {
-      const x = r.u; const sp = textSprite(x.n, { size: 40, mono: true, weight: 500, bg: 'rgba(255,255,255,0.9)' });
-      sp.position.copy(unitTop(r)); sp.position.y += 0.4; sp.userData.unit = x; sp.visible = false;   // the next declutter pass sizes and shows it
-      sp.material.sizeAttenuation = false; sp.material.depthTest = false; sp.renderOrder = 9;
-      sp.userData.px = 13; sp.userData.aspect = sp.scale.x / sp.scale.y; sp.userData.near = !!sel && i < NEAR_MAX && dist(r) <= NEAR_M;
+    const key = `${state.level || 0}:${state.explode ? 1 : 0}:${state.selected || ''}:${bid || ''}`;
+    if (labelsFor === key) return; labelsFor = key;
+    while (unitLabels.children.length) unitLabels.remove(unitLabels.children[0]);   // kept in labelCache, not disposed
+    unitLabelList = [];
+    const topFloor = {};
+    for (const r of recs) { const bb = buildings[r.u.b]; if (bb && bb.floors > 1) topFloor[r.u.b] = Math.max(topFloor[r.u.b] || 1, r.u.f || 1); }
+    const floorFor = (bId) => {
+      const bb = buildings[bId]; if (!bb || bb.floors <= 1) return null;
+      if (state.level) return state.level;
+      if (sel && sel.u.b === bId) return sel.u.f || 1;
+      if (bid === bId && level) return level;
+      return topFloor[bId] || 1;
+    };
+    const c = sel ? sel.pos : ctrl.target;
+    const dist = (r) => Math.hypot(r.pos.x - c.x, r.pos.z - c.z);
+    const rows = recs.filter((r) => r !== sel && (floorFor(r.u.b) == null || (r.u.f || 1) === floorFor(r.u.b))).sort((x, y) => dist(x) - dist(y));
+    rows.forEach((r) => {
+      const x = r.u; let sp = labelCache.get(x.n);
+      if (!sp) {
+        sp = textSprite(x.n, { size: 48, mono: true, weight: 700, bg: 'rgba(255,255,255,0.96)', color: '#1d1f1a' });
+        sp.material.sizeAttenuation = false; sp.material.depthTest = false; sp.renderOrder = 9;
+        sp.userData.unit = x; sp.userData.px = 16; sp.userData.aspect = sp.scale.x / sp.scale.y; labelCache.set(x.n, sp);
+      }
+      sp.position.copy(unitTop(r)); sp.position.y += 0.4; sp.visible = false;   // the next declutter pass sizes and shows it
+      sp.userData.near = !!sel && dist(r) <= NEAR_M;
       unitLabels.add(sp); unitLabelList.push(sp);
     });
   }
@@ -816,12 +835,15 @@ export function createSiteModelViewer(container, model, options = {}) {
       projV.project(camera);
       if (projV.z <= 1) { const ph = s.y / (d * k); placed.push([(projV.x + 1) / 2 * Wpx, (1 - projV.y) / 2 * H, (ph * s.x / s.y) / 2 + 4, ph / 2 + 4]); }
     }
-    const close = ctrl.radius < 70; const near = ctrl.radius < 170;
+    // Unit numbers nearest the view's center (or the chosen unit) get the room first.
+    const focus = state.selected && recOf[state.selected] ? recOf[state.selected].pos : ctrl.target;
+    unitLabelList.sort((a, b) => Math.hypot(a.position.x - focus.x, a.position.z - focus.z) - Math.hypot(b.position.x - focus.x, b.position.z - focus.z));
     for (const sp of [...labelOrder, ...unitLabelList]) {
       if (photo && sp.userData.photoHide) { sp.visible = false; continue; }
       if (sp.userData.unit) {   // a unit number: neighbors from mid zoom, the whole row only close up
         const rec = recOf[sp.userData.unit.n];
-        if (!rec || !rec.visible || !(close || (near && sp.userData.near))) { sp.visible = false; continue; }
+        // Whenever there is room on screen (the overlap check below), at any zoom.
+        if (!rec || !rec.visible) { sp.visible = false; continue; }
       }
       const px = sp.userData.px; sp.scale.set(px * sp.userData.aspect * k, px * k, 1);
       projV.copy(sp.position).project(camera);
@@ -1072,7 +1094,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     destroy() {
       alive = false; cancelAnimationFrame(raf); if (ro) ro.disconnect(); else window.removeEventListener('resize', resize);
       el.removeEventListener('pointerdown', onDown); el.removeEventListener('pointermove', onMove); el.removeEventListener('pointerup', onUp); el.removeEventListener('pointercancel', onUp); el.removeEventListener('wheel', onWheel); el.removeEventListener('contextmenu', onCtx);
-      if (diorama) diorama.dispose(); if (ground) ground.dispose(); if (photoreal) photoreal.dispose(); edgeGeo.dispose(); if (pinGeo) pinGeo.dispose(); scene.traverse((o) => { if (o !== scene) disposeObject(o); }); scene.clear();
+      labelCache.forEach((sp) => disposeObject(sp)); labelCache.clear(); if (diorama) diorama.dispose(); if (ground) ground.dispose(); if (photoreal) photoreal.dispose(); edgeGeo.dispose(); if (pinGeo) pinGeo.dispose(); scene.traverse((o) => { if (o !== scene) disposeObject(o); }); scene.clear();
       // dispose() alone keeps the WebGL context: every look switch builds a new renderer, and
       // browsers drop the oldest context past ~16 - release it now.
       renderer.dispose(); renderer.forceContextLoss(); if (el.parentNode) el.parentNode.removeChild(el);
