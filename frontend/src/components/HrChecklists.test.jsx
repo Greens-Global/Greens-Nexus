@@ -152,7 +152,7 @@ describe('Checklists by company and role', () => {
     expect(screen.queryByText('Profile Complete')).not.toBeInTheDocument();     // no company steps here
     fireEvent.click(screen.getByText('Build'));
     expect(await screen.findByText('Accounting Associate - Checklist Steps')).toBeInTheDocument();
-    expect(await screen.findByText(/No extra steps/)).toBeInTheDocument();      // opens on the first one missing
+    expect(await screen.findByText(/steps yet. Until you add some/)).toBeInTheDocument();      // opens on the first one missing
   });
 
   it("the role editor lists the head's roles and the role's steps", async () => {
@@ -160,7 +160,7 @@ describe('Checklists by company and role', () => {
     expect(await screen.findByText('Intacct Training')).toBeInTheDocument();
     expect(screen.getAllByText('Accounting Associate Steps').length).toBeGreaterThan(1);   // the heading and the phase
     fireEvent.click(screen.getByRole('tab', { name: /Promotion/ }));
-    expect(await screen.findByText(/No extra steps/)).toBeInTheDocument();
+    expect(await screen.findByText(/steps yet. Until you add some/)).toBeInTheDocument();
   });
 });
 

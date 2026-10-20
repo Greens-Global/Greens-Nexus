@@ -293,7 +293,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
           onSaved={r => { setEditingShared(null); toastOk(`Saved “${r.name}”. It applies in every company.`); load(); }} />
       )}
       {stepsFor && (
-        <Modal title={`${stepsFor.name} - Checklist Steps`} onClose={() => setStepsFor(null)}>
+        <Modal title={`${stepsFor.name} - Checklist Steps`} onClose={() => setStepsFor(null)} minHeight="60vh">
           <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)' }}>A shared role&apos;s steps apply in every company that uses it.</p>
           <RoleStepsEditor roleId={stepsFor.id} roleName={stepsFor.name}
             toastOk={toastOk} toastErr={toastErr} onCounts={setCountsFor(stepsFor.id)} />

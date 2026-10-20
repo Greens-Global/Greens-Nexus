@@ -1099,8 +1099,8 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        <TriCheck label="Select every step" checked={rows.length > 0 && picked.size === rows.length} indeterminate={picked.size > 0}
-          onChange={e => togglePick(allIdx, e.target.checked)} />
+        {rows.length > 0 && <TriCheck label="Select every step" checked={picked.size === rows.length} indeterminate={picked.size > 0}
+          onChange={e => togglePick(allIdx, e.target.checked)} />}
         <span style={{ fontSize: 13, color: 'var(--wk-dim)', flex: 1, minWidth: 220, lineHeight: 1.5 }}>
           {template.inherited
             ? <>This company uses the <b style={{ color: 'var(--wk-ink)' }}>Checklist Library</b> steps. Saving a change makes a copy just for this company.</>
@@ -1427,7 +1427,7 @@ function RoleAudit({ entityId, companyName, kinds, toastOk, toastErr }) {
         </div>
       )}
       {building && (
-        <Modal title={`${building.role.roleName} - Checklist Steps`} onClose={() => setBuilding(null)}>
+        <Modal title={`${building.role.roleName} - Checklist Steps`} onClose={() => setBuilding(null)} minHeight="60vh">
           <RoleStepsEditor roleId={building.role.roleId} roleName={building.role.roleName} initialKind={building.kind}
             toastOk={toastOk} toastErr={toastErr} onCounts={c => setCounts(building.role.roleId, c)} />
         </Modal>
@@ -1503,7 +1503,7 @@ export function RoleStepsEditor({ roleId, roleName, toastOk, toastErr, onCounts,
       {tpl && (
         <TemplateEditor key={`${roleId}:${kind}:${tpl.updatedAt}`} template={tpl} meta={meta} entityId="" toastOk={toastOk} toastErr={toastErr}
           onSaved={() => {}} saveItems={saveItems} resetLabel="Remove All Steps"
-          emptyText={`No extra steps - people in ${roleName || 'this role'} get the company's steps only.`}
+          emptyText={`${roleName || 'This role'} has no ${(kinds.find(k => k.value === kind)?.label || 'checklist').toLowerCase()} steps yet. Until you add some, people in this role get only the standard steps from the Checklist Library.`}
           resetItems={async () => {
             if (!await dialog.confirm(`Remove every ${kinds.find(k => k.value === kind)?.label.toLowerCase()} step of ${roleName}?`, { title: 'Remove All Steps', confirmText: 'Remove', danger: true })) return;
             try { await saveItems([]); toastOk('Steps removed.'); } catch (e) { toastErr(e?.message || 'Could not remove them.'); }
