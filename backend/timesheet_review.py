@@ -987,6 +987,69 @@ def _sig_fields(last_page: int) -> list:
     return fields
 
 
+def _minutes_between(a: str, b: str) -> int:
+    try:
+        ta = datetime.fromisoformat(a.replace("Z", "+00:00")[:19])
+        tb = datetime.fromisoformat(b.replace("Z", "+00:00")[:19])
+    except (AttributeError, ValueError):
+        return 0
+    return max(0, round((tb - ta).total_seconds() / 60))
+
+
+def punch_pairs(seg: dict) -> list:
+    """A shift as SwipeClock punch pairs (Charmi / Visesh, Oct 20) - the same
+    rows the Time Sheet screen draws (PayrollTimecard workStretches): one row
+    per stretch of work, In = the clock-in or a break end, Out = a break start
+    or the clock-out, with the break between. DISPLAY ONLY: the rows' minutes
+    add up to the shift's paid seg["workedMin"] exactly (rounding and a paid
+    rest break land on the last complete row). Items:
+      {"kind": "work", "in", "inId", "out", "outId", "min"}
+      {"kind": "break", "start", "startId", "end", "endId", "min", "implicit", "paidMin"}
+      {"kind": "auto", "min"}     an auto-deducted lunch (no break punched)"""
+    brks = (seg.get("breaks") or []) if seg.get("in") else []
+    if not brks:
+        out = [{"kind": "work", "in": seg.get("in") or "", "inId": seg.get("inId") or "",
+                "out": seg.get("out") or "", "outId": seg.get("outId") or "", "min": int(seg.get("workedMin") or 0)}]
+        if int(seg.get("deductedMin") or 0) > 0:
+            out.append({"kind": "auto", "min": int(seg["deductedMin"])})
+        return out
+    pts = [(seg.get("in") or "", seg.get("inR") or seg.get("in") or "", seg.get("inId") or "", None)]
+    for b in brks:
+        pts.append((b.get("start") or "", b.get("start") or "", b.get("startId") or "", b))
+        end = "" if b.get("implicit") else (b.get("end") or "")
+        pts.append((end, end, "" if b.get("implicit") else (b.get("endId") or ""), None))
+    pts.append((seg.get("out") or "", seg.get("outR") or seg.get("out") or "", seg.get("outId") or "", None))
+    work = []
+    for i in range(0, len(pts), 2):
+        a, b = pts[i], pts[i + 1]
+        work.append({"kind": "work", "in": a[0], "inId": a[2], "out": b[0], "outId": b[2],
+                     "min": _minutes_between(a[1], b[1]) if (a[0] and b[0]) else 0, "_brk": b[3]})
+    paid = max(0, int(seg.get("workedMin") or 0))
+    if not paid:
+        for w in work:
+            w["min"] = 0
+    else:
+        diff = paid - sum(w["min"] for w in work)
+        for w in reversed(work):
+            if diff == 0:
+                break
+            if not (w["in"] and w["out"]):
+                continue
+            nv = max(0, w["min"] + diff)
+            diff -= nv - w["min"]
+            w["min"] = nv
+    items = []
+    for w in work:
+        brk = w.pop("_brk")
+        items.append(w)
+        if brk:
+            items.append({"kind": "break", "start": brk.get("start") or "", "startId": brk.get("startId") or "",
+                          "end": brk.get("end") or "", "endId": brk.get("endId") or "",
+                          "min": int(brk.get("min") or 0), "implicit": bool(brk.get("implicit")),
+                          "paidMin": int(brk.get("paidMin") or 0)})
+    return items
+
+
 def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tuple[bytes, int]:
     """The agreed timesheet as a PDF: every day, the totals, the review history
     and a signature block on the last page. Returns (bytes, last page index).
@@ -1055,11 +1118,14 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tupl
     y -= 22
 
     # Days
+    hourly = r.pay_type != "fixed"
     cols = (margin, margin + 90, margin + 330, margin + 400)
     text(cols[0], "Date", 9, True)
-    text(cols[1], "Clock in - out", 9, True)
+    text(cols[1], "In - Out" if hourly else "Clock in - out", 9, True)
     text(cols[2], "Break", 9, True)
-    text(cols[3], "Hours" if r.pay_type == "hourly" else "Worked / Status", 9, True)
+    text(cols[3], "Hours" if hourly else "Worked / Status", 9, True)
+    if hourly:
+        text(margin + 460, "Hrs/Day", 9, True)
     y -= 4
     c.line(margin, y, W - margin, y)
     y -= 12
@@ -1071,6 +1137,34 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tupl
             new_page()
         d = by_date.get(ds) or {}
         segs = d.get("segments") or []
+        if hourly and segs and not d.get("isHoliday"):
+            # The screen's punch pairs (Oct 20): a row per stretch of work with
+            # its own hours, the break between two rows, the day's total on its
+            # last row - so the signed copy reads like the Time Sheet.
+            lines = [x for s_ in segs for x in punch_pairs(s_)]
+            last_work = max(i for i, x in enumerate(lines) if x["kind"] == "work")
+            for i, x in enumerate(lines):
+                if y < margin + 40:
+                    new_page()
+                if i == 0:
+                    text(cols[0], date.fromisoformat(ds).strftime("%a %m/%d/%Y"), 8.5)
+                if x["kind"] == "work":
+                    text(cols[1], f"{local_time(x['in'], x['inId']) if x['in'] else 'Missing'} - "
+                                  f"{local_time(x['out'], x['outId']) if x['out'] else 'Missing'}", 8.5)
+                    text(cols[3], _hm(x["min"]), 8.5)
+                    if i == last_work:
+                        text(margin + 460, _hm(d.get("workedMin")), 8.5, True)
+                elif x["kind"] == "auto":
+                    text(cols[1] + 12, f"Auto-Deducted {x['min']} min - no break was punched", 7.5, color=(0.4, 0.4, 0.45))
+                    text(cols[2], _hm(x["min"]), 7.5, color=(0.4, 0.4, 0.45))
+                else:
+                    end = "clock-out, no break end punched" if x["implicit"] else local_time(x["end"], x["endId"])
+                    paid = f", {x['paidMin']} min paid" if x["paidMin"] else ""
+                    text(cols[1] + 12, f"Break {x['min']} min ({local_time(x['start'], x['startId'])} - {end}){paid}"[:62],
+                         7.5, color=(0.4, 0.4, 0.45))
+                    text(cols[2], _hm(x["min"]), 7.5, color=(0.4, 0.4, 0.45))
+                y -= 12 if x["kind"] == "work" else 10
+            continue
         spans = ", ".join(f"{local_time(s.get('in'), s.get('inId') or '')} - "
                           f"{local_time(s.get('out'), s.get('outId') or '')}" for s in segs) or "-"
         if d.get("isHoliday"):
@@ -1597,10 +1691,12 @@ def break_attestation_state(db: Session, r: TimesheetReview) -> dict:
     card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
     import ca_breaks
     worked = ca_breaks.worked_days(card.get("days") or [])
+    # Every caller is the EMPLOYEE's own signing screen, and the CA meal
+    # check's flags are for HR only (Charmi, Oct 20 2026: "I don't want the
+    # employee to ever see") - so no flagged days here; the employee picks
+    # any worked day they missed a break on.
     return {"required": True, "statement": BREAK_STATEMENT, "answered": break_attested(r),
-            "flaggedDays": [{"date": d["date"], "label": d["meal"]["label"], "chip": d["meal"]["chip"]}
-                            for d in (card.get("days") or []) if d.get("meal")],
-            "workedDays": worked}
+            "flaggedDays": [], "workedDays": worked}
 
 
 def claim_breaks(db: Session, r: TimesheetReview, actor: str, claims: list, note: str = "") -> TimesheetReview:

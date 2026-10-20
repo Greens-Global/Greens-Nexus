@@ -5,8 +5,10 @@ employee's pay period against California rules, for HR to handle.
 time card by HR that reviews against California rules and if something
 doesn't make sense it can flag and HR can handle it."
 
-Scope: hourly USD staff on the 'ca' overtime rule working in the US ONLY (ca_breaks.in_scope).
-Nobody else is looked at or produces anything.
+Scope: hourly USD staff on the 'ca' overtime rule working in the US ONLY (ca_breaks.in_scope),
+and - Oct 20 2026 (Charmi) - working in CALIFORNIA (work_state.review_scope: their work
+site, punches or company; or HR put them on the California rule by hand). Nobody else is
+looked at or produces anything; an unknown work state is listed for HR to set.
 
 Every figure comes from the timecard engine (timeclock._compute_timecard) and
 the meal detection inside it (ca_breaks) - never a second calculation. Each
@@ -86,10 +88,49 @@ def fingerprint(facts) -> str:
     return hashlib.sha256(json.dumps(facts, sort_keys=True, default=str).encode()).hexdigest()[:24]
 
 
-def _flag(rule: str, day: str, reason: str, facts, detail: str = "") -> dict:
+def _flag(rule: str, day: str, reason: str, facts, detail: str = "", **plain) -> dict:
+    """`plain` (Charmi, Oct 20 2026) - the same flag in plain words for HR:
+    kind (the summary group), what (what happened), means (what is owed,
+    the math done), owed ($ or None), premiumKind ('meal' / 'rest' when a
+    Meal / Rest Premium is the fix). Never part of the key or fingerprint."""
     key = f"{rule}:{day}" + (f":{detail}" if detail else "")
-    return {"key": key, "rule": rule, "ruleLabel": RULES.get(rule, rule), "date": day, "reason": reason,
-            "fingerprint": fingerprint(facts)}
+    out = {"key": key, "rule": rule, "ruleLabel": RULES.get(rule, rule), "date": day, "reason": reason,
+           "fingerprint": fingerprint(facts)}
+    out.update({"kind": plain.get("kind") or rule, "what": plain.get("what") or reason,
+                "means": plain.get("means") or "", "owed": plain.get("owed"),
+                "premiumKind": plain.get("premiumKind") or ""})
+    return out
+
+
+KIND_LABEL = {
+    "meal_missed": "Meal Missed", "meal_short": "Meal Short", "meal_late": "Meal Late",
+    "missed_break_reported": "Missed Break Reported", "not_signed": "Not Signed Yet",
+    "seventh_day": "7th Day", "dt_missing": "Double Time", "over16": "Over 16 Hours",
+    "split_shift": "Split Shift", "reporting": "Reporting Time", "min_wage": "Minimum Wage",
+    "manual_time": "Manual Time",
+}
+
+
+def _mins(m) -> str:
+    """Minutes in words: "15 minutes", "1 hour 5 minutes"."""
+    m = int(round(m or 0))
+    h, r = divmod(m, 60)
+    if not h:
+        return f"{r} minute{'' if r == 1 else 's'}"
+    out = f"{h} hour{'' if h == 1 else 's'}"
+    return out + (f" {r} minute{'' if r == 1 else 's'}" if r else "")
+
+
+def _money(v) -> str:
+    return f"${float(v or 0):,.2f}"
+
+
+def _short(iso: str) -> str:
+    """10/05 - a day inside the pay period (the year is on the screen)."""
+    try:
+        return date.fromisoformat((iso or "")[:10]).strftime("%m/%d")
+    except ValueError:
+        return iso or ""
 
 
 # ── Settings ──────────────────────────────────────────────────────────────
@@ -132,19 +173,60 @@ def _worked(d: dict) -> int:
     return int(d.get("regMin") or 0) + int(d.get("otMin") or 0) + int(d.get("dtMin") or 0)
 
 
+def _meal_words(d: dict, m: dict, tl) -> tuple:
+    """(kind, what) for a day's meal flag - the minutes math done."""
+    issue = (m.get("issues") or [{}])[0]
+    n, st = issue.get("meal", 1), issue.get("status", "missed")
+    by = ca_breaks.FIRST_BY_MIN if n == 1 else ca_breaks.SECOND_BY_MIN
+    work = int(m.get("workMin") or (tl[0] if tl else 0))
+    gaps = tl[1] if tl else []
+    which = "a meal break" if n == 1 else "a second meal break"
+    hour = "5th" if n == 1 else "10th"
+    day = _short(d["date"])
+    if st == "late":
+        g = next((x for x in gaps if x["min"] >= ca_breaks.MEAL_MIN and x["at"] > by), None)
+        at = g["at"] if g else by
+        what = (f"Took {which} on {day}, but only after {_mins(at)} of work - California requires it to start "
+                f"by the end of the {hour} hour ({_mins(max(0, at - by))} late).")
+    elif st == "short":
+        g = max((x for x in gaps if ca_breaks.SHORT_FLOOR_MIN <= x["min"] < ca_breaks.MEAL_MIN),
+                key=lambda x: x["min"], default=None)
+        what = (f"Took a {g['min'] if g else 0}-minute meal break on {day} ({_mins(work)} worked) - California "
+                "requires at least 30 minutes" + (f", so it was {_mins(ca_breaks.MEAL_MIN - g['min'])} short." if g else "."))
+    elif n == 2:
+        what = (f"Worked {_mins(work)} on {day} with only one meal break - California requires a second "
+                "30-minute meal break once the day is over 10 hours.")
+    else:
+        longest = max((x["min"] for x in gaps), default=0)
+        what = (f"Worked {_mins(work)} on {day} with "
+                + (f"no break longer than {_mins(longest)}" if longest else "no break")
+                + f" - California requires {which} of 30 minutes once the day is over "
+                + ("5 hours." if n == 1 else "10 hours."))
+    if len(m.get("issues") or []) > 1:
+        what += f" The second meal break was also {m['issues'][1]['status']}."
+    return f"meal_{st}", what
+
+
 def meal_flags(days: list, waivers: list, tz_offset_min: int = 0) -> list:
     out = []
     for d in days:
         m = d.get("meal")
         if not m:
             continue
-        out.append(_flag("meal", d["date"], f"{m['chip']}: {m['label']}", {"m": m.get("issues"), "w": m.get("workMin")}))
+        tl = ca_breaks.day_timeline(d.get("segments") or [])
+        kind, what = _meal_words(d, m, tl)
+        rate = float(d.get("rate") or 0)
+        means = (f"1 hour of meal premium is owed at their regular rate ({_money(rate)})." if rate
+                 else "1 hour of meal premium is owed at their regular rate.")
+        out.append(_flag("meal", d["date"], f"{m['chip']}: {m['label']}", {"m": m.get("issues"), "w": m.get("workMin")},
+                         kind=kind, what=what, means=means, owed=round(rate, 2) if rate else None,
+                         premiumKind="meal"))
         # A waiver would have excused it, but none is on file for the day.
         tl = ca_breaks.day_timeline(d.get("segments") or [])
         if tl and not ca_breaks.waiver_on(waivers, d["date"], tz_offset_min) and not ca_breaks.evaluate(tl[0], tl[1], True):
             out.append(_flag("waiver", d["date"],
                              f"No signed meal waiver on file - one would have covered this {_hm(tl[0])} day",
-                             {"w": tl[0], "g": tl[1]}))
+                             {"w": tl[0], "g": tl[1]}, kind="waiver"))
     return out
 
 
@@ -160,18 +242,33 @@ def attestation_flags(review) -> list:
         if e.get("breakClaims"):
             words = "; ".join(f"{us_date(c.get('date'))} {'Meal' if c.get('kind') == 'meal' else 'Rest'}"
                               for c in e["breakClaims"])
-            out.append(_flag("attest_no", review.period_start,
-                             f"Reported a missed break instead of signing ({words})"
-                             + (" - re-approved since" if i < last_approval else ""),
-                             {"c": e["breakClaims"], "at": e.get("at")}, detail=str(i)))
+            claims = e["breakClaims"]
+            pk = claims[0].get("kind") if len(claims) == 1 and claims[0].get("kind") in ("meal", "rest") else ""
+            what = ("Reported a missed " + ", ".join(
+                        f"{'meal' if c.get('kind') == 'meal' else 'rest'} break on {_short(c.get('date'))}" for c in claims)
+                    + " instead of signing the time sheet" + (" (approved again since)." if i < last_approval else "."))
+            f = _flag("attest_no", review.period_start,
+                      f"Reported a missed break instead of signing ({words})"
+                      + (" - re-approved since" if i < last_approval else ""),
+                      {"c": claims, "at": e.get("at")}, detail=str(i), kind="missed_break_reported", what=what,
+                      means=("If the break was missed, 1 hour of premium is owed for each day reported, at their "
+                             "regular rate. Reporting it added the premium to the time sheet - check it is still there."),
+                      premiumKind=pk)
+            if pk:
+                f["premiumDate"] = claims[0].get("date")
+            out.append(f)
     if review.status == "signing" and not tsr.break_attested(review):
         out.append(_flag("attest_pending", review.period_start,
                          "Approved - the employee has not signed the meal and rest break statement yet",
-                         {"env": review.sign_request_id}))
+                         {"env": review.sign_request_id}, kind="not_signed",
+                         what="The time sheet is approved, but the employee has not signed the meal and rest break statement yet.",
+                         means="Nothing is owed yet. If they report a missed break instead of signing, it shows here."))
     elif review.status == "approved":
         out.append(_flag("attest_pending", review.period_start,
                          "Approved - waiting on the employee to sign the meal and rest break statement",
-                         {"st": "approved", "at": review.updated_at}))
+                         {"st": "approved", "at": review.updated_at}, kind="not_signed",
+                         what="The time sheet is approved and waiting on the employee to sign the meal and rest break statement.",
+                         means="Nothing is owed yet. If they report a missed break instead of signing, it shows here."))
     return out
 
 
@@ -190,10 +287,19 @@ def seventh_day_flags(days: list) -> list:
         w7 = _worked(d7)
         want_dt = max(0, w7 - 480)
         if int(d7.get("regMin") or 0) > 0 or int(d7.get("dtMin") or 0) < want_dt:
+            rate = float(d7.get("rate") or 0)
+            due = (min(w7, 480) * 1.5 + max(0, w7 - 480) * 2) / 60
+            paid = (int(d7.get("regMin") or 0) + int(d7.get("otMin") or 0) * 1.5 + int(d7.get("dtMin") or 0) * 2) / 60
+            owed = round(max(0.0, due - paid) * rate, 2) if rate else None
             out.append(_flag("seventh_day", seq[6],
                              f"7th consecutive day worked ({_hm(w7)}) but paid {_hm(d7.get('regMin'))} regular and "
                              f"{_hm(d7.get('dtMin'))} double time - 7th-day overtime / double time not applied",
-                             {"r": d7.get("regMin"), "o": d7.get("otMin"), "d": d7.get("dtMin")}))
+                             {"r": d7.get("regMin"), "o": d7.get("otMin"), "d": d7.get("dtMin")}, kind="seventh_day",
+                             what=(f"Worked 7 days in a row; on the 7th day ({_short(seq[6])}, {_mins(w7)}) "
+                                   f"{_mins(d7.get('regMin'))} was paid as regular time."),
+                             means=("California pays the 7th day's first 8 hours at 1.5x and the rest at 2x"
+                                    + (f" - about {_money(owed)} more is owed." if owed else ".")),
+                             owed=owed))
     return out
 
 
@@ -203,15 +309,37 @@ def long_day_flags(days: list) -> list:
         w = _worked(d)
         if w > 16 * 60:
             out.append(_flag("over16", d["date"], f"Worked {_hm(w)} in one day - over 16 hours, likely a missed punch",
-                             {"w": w}))
+                             {"w": w}, kind="over16", what=f"Clocked {_mins(w)} on {_short(d['date'])}.",
+                             means="Over 16 hours in one day is usually a missed clock-out. Fix the punch on the time sheet."))
         if w > 12 * 60 and int(d.get("dtMin") or 0) < w - 12 * 60:
+            rate = float(d.get("rate") or 0)
+            short = w - 12 * 60 - int(d.get("dtMin") or 0)
+            owed = round(short / 60 * rate * 0.5, 2) if rate else None
             out.append(_flag("dt_missing", d["date"],
                              f"Worked {_hm(w)} but only {_hm(d.get('dtMin'))} double time - hours past 12 should be "
-                             "double time", {"w": w, "d": d.get("dtMin")}))
+                             "double time", {"w": w, "d": d.get("dtMin")}, kind="dt_missing",
+                             what=(f"Worked {_mins(w)} on {_short(d['date'])}; {_mins(short)} past the 12th hour was "
+                                   "not paid as double time."),
+                             means=("California pays hours past 12 in a day at 2x"
+                                    + (f" - about {_money(owed)} more is owed." if owed else ".")),
+                             owed=owed))
     return out
 
 
-def split_shift_flags(days: list) -> list:
+def split_shift_owed(d: dict, min_wage: float) -> float:
+    """California's split-shift premium for one day: one hour at the minimum
+    wage, less whatever the day's pay ABOVE the minimum already covers
+    (DLSE: owed = minimum x (hours + 1) - wages earned, never below 0)."""
+    w = _worked(d) / 60
+    rate = float(d.get("rate") or 0)
+    earned = rate * (int(d.get("regMin") or 0) + int(d.get("otMin") or 0) * 1.5 + int(d.get("dtMin") or 0) * 2) / 60
+    return round(max(0.0, float(min_wage) * (w + 1) - earned), 2)
+
+
+def split_shift_flags(days: list, min_wage: float | None = None) -> list:
+    """An unpaid gap over 1 hour between work on one day. With `min_wage`
+    (the review always passes it - Charmi, Oct 20 2026) a day whose pay
+    already covers the premium is not flagged: nothing is owed."""
     out = []
     for d in days:
         tl = ca_breaks.day_timeline(d.get("segments") or [])
@@ -220,9 +348,17 @@ def split_shift_flags(days: list) -> list:
         long_gaps = [g for g in tl[1] if g["min"] > 60]
         if long_gaps:
             g = max(long_gaps, key=lambda x: x["min"])
+            owed = split_shift_owed(d, min_wage) if min_wage else None
+            if min_wage and float(d.get("rate") or 0) > 0 and not owed:
+                continue
+            means = ("A split-shift premium is one hour at the minimum wage, less what their pay above the minimum "
+                     "already covers" + (f" - {_money(owed)} is owed." if owed else ".")
+                     + " A gap that was a real meal break is not a split shift.")
             out.append(_flag("split_shift", d["date"],
                              f"Unpaid gap of {_hm(g['min'])} between work periods - check whether a split-shift "
-                             "premium is owed", {"g": [x["min"] for x in long_gaps]}))
+                             "premium is owed", {"g": [x["min"] for x in long_gaps]}, kind="split_shift",
+                             what=f"Clocked out for {_mins(g['min'])} in the middle of the day on {_short(d['date'])}.",
+                             means=means, owed=owed or None))
     return out
 
 
@@ -234,9 +370,18 @@ def reporting_flags(days: list, scheduled: dict) -> list:
     for ds, sched in sorted(scheduled.items()):
         w = _worked(by.get(ds) or {})
         if sched > 0 and 0 < w < sched / 2:
+            rate = float((by.get(ds) or {}).get("rate") or 0)
+            pay_min = min(max(sched / 2, 120), 240)       # half the shift, 2 h at least, 4 h at most
+            extra = max(0, pay_min - w)
+            owed = round(extra / 60 * rate, 2) if rate and extra else None
             out.append(_flag("reporting", ds,
                              f"Worked {_hm(w)} of a {_hm(sched)} scheduled shift - under half, check reporting time pay",
-                             {"w": w, "s": sched}))
+                             {"w": w, "s": sched}, kind="reporting",
+                             what=f"Was scheduled for {_mins(sched)} on {_short(ds)} but worked only {_mins(w)}.",
+                             means=(f"If they were sent home early, California owes pay for {_mins(pay_min)} (half the "
+                                    "shift, 2 to 4 hours)" + (f" - {_mins(extra)} more, about {_money(owed)}."
+                                                              if owed else ".") + " Not owed if they chose to leave."),
+                             owed=owed))
     return out
 
 
@@ -245,10 +390,18 @@ def min_wage_flags(days: list, min_wage: float, period_start: str) -> list:
                   if _worked(d) > 0 and 0 < float(d.get("rate") or 0) < float(min_wage)})
     if not low:
         return []
-    first = min(d["date"] for d in days if _worked(d) > 0 and 0 < float(d.get("rate") or 0) < float(min_wage))
+    lowd = [d for d in days if _worked(d) > 0 and 0 < float(d.get("rate") or 0) < float(min_wage)]
+    first = min(d["date"] for d in lowd)
+    mins = sum(_worked(d) for d in lowd)
+    owed = round(sum((float(min_wage) - float(d["rate"])) * _worked(d) / 60 for d in lowd), 2)
     return [_flag("min_wage", first,
                   f"Pay rate ${low[0]:.2f}/hr is below the California minimum wage (${float(min_wage):.2f}/hr)",
-                  {"r": low, "m": float(min_wage)}, detail=period_start)]
+                  {"r": low, "m": float(min_wage)}, detail=period_start, kind="min_wage",
+                  what=(f"Paid {_money(low[0])}/hr on {len(lowd)} day{'' if len(lowd) == 1 else 's'} - the California "
+                        f"minimum is {_money(min_wage)}/hr."),
+                  means=(f"{_money(float(min_wage) - low[0])}/hr short for {_mins(mins)} worked = {_money(owed)} owed. "
+                         "Raise the rate on Pay & Benefits."),
+                  owed=owed)]
 
 
 def manual_time_flags(punches: list) -> list:
@@ -269,7 +422,10 @@ def manual_time_flags(punches: list) -> list:
         kinds = sorted({k for k, _ in items})
         out.append(_flag("manual_time", ds,
                          f"{len(items)} punch{'' if len(items) == 1 else 'es'} ({', '.join(kinds)}) with no reason given",
-                         sorted(i for _, i in items)))
+                         sorted(i for _, i in items), kind="manual_time",
+                         what=(f"{len(items)} punch{'' if len(items) == 1 else 'es'} on {_short(ds)} "
+                               f"({', '.join(kinds)}) with no reason given."),
+                         means="Nothing is owed. Ask whoever changed the time why, and note it."))
     return out
 
 
@@ -282,7 +438,8 @@ def prefetch(db: Session, emails, s: str, e: str) -> dict:
     import timesheet_review as tsr
     tc = _tc()
     emails = sorted({(x or "").lower() for x in emails if x})
-    ctx = {"cfg": get_settings(db), "reviews": {}, "punches": {}, "scheduled": {}, "waivers": {}, "res": {}}
+    ctx = {"cfg": get_settings(db), "reviews": {}, "punches": {}, "scheduled": {}, "waivers": {}, "res": {},
+           "premiums": {}}
     if not emails:
         return ctx
     for r in (db.query(models.TimesheetReview)
@@ -312,15 +469,30 @@ def prefetch(db: Session, emails, s: str, e: str) -> dict:
               .filter(models.CaReviewResolution.employee_email.in_(emails), models.CaReviewResolution.period_start == s)
               .order_by(models.CaReviewResolution.resolved_at).all()):
         ctx["res"].setdefault(r.employee_email, {})[r.flag_key] = r
+    # Premiums already on the time sheets (a flag they answer reads as handled)
+    # and where each person works (work_state.py, Oct 20 2026).
+    ctx["premiums"] = {}
+    for p in (db.query(models.TimeBreakPremium)
+              .filter(models.TimeBreakPremium.employee_email.in_(emails), models.TimeBreakPremium.status == "active",
+                      models.TimeBreakPremium.local_date >= s, models.TimeBreakPremium.local_date <= e).all()):
+        ctx["premiums"].setdefault(p.employee_email, set()).add((p.local_date, p.kind))
+    import work_state
+    pre = (db.info.get(ca_breaks._PRELOAD) or {}).get("workState") if hasattr(db, "info") else None
+    ctx["workState"] = (pre if pre is not None and set(emails) <= pre.get("preloaded", set())
+                        else work_state.preload(db, emails))
+    ctx["emps"] = {(x.work_email or "").lower(): x for x in
+                   db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email.in_(emails)).all()}
     return ctx
 
 
 def flags_for(db: Session, em: str, s: str, e: str, *, card: dict | None = None, rate_row=None,
-              cfg: dict | None = None, ctx: dict | None = None, in_scope: bool | None = None) -> list:
+              cfg: dict | None = None, ctx: dict | None = None, in_scope: bool | None = None,
+              review_ok: bool | None = None) -> list:
     """Every California Review flag for one person-period ([] for anyone not
-    on the CA rule). `card` may be a longer engine card covering [s, e]
-    (Payroll Readiness passes its own) - only its days in [s, e] are read.
-    `ctx` = prefetch() for a roster; without it each fact is read here."""
+    on the CA rule, or - Oct 20 2026 - not working in California:
+    work_state.review_scope). `card` may be a longer engine card covering
+    [s, e] (Payroll Readiness passes its own) - only its days in [s, e] are
+    read. `ctx` = prefetch() for a roster; without it each fact is read here."""
     tc = _tc()
     em = (em or "").lower()
     if rate_row is None:
@@ -329,6 +501,13 @@ def flags_for(db: Session, em: str, s: str, e: str, *, card: dict | None = None,
         return []
     if ctx is None:
         ctx = prefetch(db, [em], s, e)
+    if review_ok is None:
+        import work_state
+        emp = (ctx["emps"].get(em) if "emps" in ctx else
+               db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == em).first())
+        review_ok = work_state.review_scope(db, emp, ctx.get("workState"))[0]
+    if not review_ok:
+        return []
     cfg = cfg or ctx["cfg"]
     if card is None:
         card = tc._compute_timecard(db, em, s, e)
@@ -337,15 +516,29 @@ def flags_for(db: Session, em: str, s: str, e: str, *, card: dict | None = None,
     days = [d for d in (card.get("days") or []) if s <= d["date"] <= e and not d.get("isHoliday")]
     flags = []
     _p = ctx["punches"].get(em) or []
-    flags += meal_flags(days, ctx["waivers"].get(em, []), (_p[-1].tz_offset_min or 0) if _p else 0)
+    flags += _fold_waivers(meal_flags(days, ctx["waivers"].get(em, []), (_p[-1].tz_offset_min or 0) if _p else 0))
     flags += attestation_flags(ctx["reviews"].get(em))
     flags += seventh_day_flags(days)
     flags += long_day_flags(days)
-    flags += split_shift_flags(days)
+    flags += split_shift_flags(days, cfg["minWage"])
     flags += reporting_flags(days, ctx["scheduled"].get(em, {}))
     flags += min_wage_flags(days, cfg["minWage"], s)
     flags += manual_time_flags(ctx["punches"].get(em, []))
     return flags
+
+
+def _fold_waivers(flags: list) -> list:
+    """The "a waiver would have covered this day" note rides on that day's
+    meal flag instead of being a second row for the same day (Oct 20 2026)."""
+    by_day = {f["date"]: f for f in flags if f["rule"] == "meal"}
+    out = []
+    for f in flags:
+        if f["rule"] == "waiver" and f["date"] in by_day:
+            by_day[f["date"]]["means"] += (" A signed meal waiver would have covered this day - none is on file; "
+                                           "send one from their Pay & Benefits.")
+            continue
+        out.append(f)
+    return out
 
 
 def _resolutions(db: Session, em: str, s: str) -> dict:
@@ -358,15 +551,28 @@ def _resolutions(db: Session, em: str, s: str) -> dict:
 
 
 def with_status(db: Session, em: str, s: str, flags: list, ctx: dict | None = None) -> list:
+    """Each flag with its status. A flag whose fix is a Meal / Rest Premium
+    reads as handled while that premium is on the time sheet (Oct 20 2026) -
+    and opens again by itself if the premium is removed."""
     if not flags:
         return []
     res = ctx["res"].get(em, {}) if ctx is not None else _resolutions(db, em, s)
+    if ctx is not None and "premiums" in ctx:
+        prem = ctx["premiums"].get(em, set())
+    else:
+        _s, _e = _tc()._pay_period(s)
+        prem = {(p.local_date, p.kind) for p in ca_breaks.premium_rows(db, em, _s, _e)}
     out = []
     for f in flags:
         r = res.get(f["key"])
         row = dict(f)
+        pk, pd = f.get("premiumKind"), f.get("premiumDate") or f["date"]
         if r and r.status == "resolved" and r.fingerprint == f["fingerprint"]:
             row.update(status="resolved", resolution={"note": r.note, "by": r.resolved_by, "at": r.resolved_at})
+        elif pk and (pd, pk) in prem:
+            row.update(status="resolved", premiumAdded=True,
+                       resolution={"note": f"{ca_breaks.KIND_LABEL.get(pk, pk)} is on the time sheet for {us_date(pd)}.",
+                                   "by": "", "at": ""})
         else:
             row["status"] = "open"
             if r and r.status == "resolved":
@@ -381,31 +587,64 @@ def open_count(db: Session, em: str, s: str, e: str, **kw) -> int:
 
 def build(db: Session, scope, anchor: str = "") -> dict:
     """The queue for the pay period containing `anchor` (default: the last
-    one that is over), over `scope` (timeclock._visible_emails)."""
+    one that is over), over `scope` (timeclock._visible_emails).
+
+    Oct 20 2026 (Charmi): only people who work in California are checked
+    (work_state.review_scope). People on the California rule whose work
+    state is not known come back in `unknownState` - set it, and they are
+    checked; people known to work in another state are counted in
+    `outsideCa` (never checked)."""
     import payroll_readiness as pr
+    import work_state
     tc = _tc()
     P = pr.periods(anchor or pr.default_anchor())
     s, e = P["start"], P["end"]
     rates = {(r.employee_email or "").lower(): r for r in db.query(models.PayrollRate).all()}
     emps = {(x.work_email or "").lower(): x for x in db.query(models.NexusEmployee).all() if x.work_email}
-    team = [r for r in tc._team_rows(db, s, e, only_emails=scope)
-            if ca_breaks.in_scope(db, r["email"], rates.get(r["email"]), emp=emps.get(r["email"]), _load_rate=False)]
+    rows_all = tc._team_rows(db, s, e, only_emails=scope)
+    wctx = work_state.preload(db, [r["email"] for r in rows_all])
+    team, unknown, outside = [], [], []
+    for r in rows_all:
+        em = r["email"]
+        emp = emps.get(em)
+        rr = rates.get(em)
+        if not ca_breaks.is_ca_rate(rr) or ca_breaks.country_of(db, em, emp) not in ("", "US", "USA"):
+            continue
+        ok, ws = work_state.review_scope(db, emp, wctx)
+        if ok and ca_breaks.in_scope(db, em, rr, emp=emp, _load_rate=False, ws_ctx=wctx):
+            team.append(r)
+        elif not ws["state"]:
+            unknown.append({"email": em, "name": r.get("name") or em, "reason": ws["label"],
+                            "company": (getattr(emp, "company", "") or "") if emp else ""})
+        else:
+            outside.append({"email": em, "name": r.get("name") or em, "state": ws["state"], "reason": ws["label"]})
     ctx = prefetch(db, [r["email"] for r in team], s, e)
+    ctx["workState"] = wctx
     cfg = ctx["cfg"]
     rows = []
     people = 0
     for r in team:
         em = r["email"]
         people += 1
-        flags = with_status(db, em, s, flags_for(db, em, s, e, rate_row=rates.get(em), cfg=cfg, ctx=ctx), ctx)
+        flags = with_status(db, em, s, flags_for(db, em, s, e, rate_row=rates.get(em), cfg=cfg, ctx=ctx,
+                                                 in_scope=True, review_ok=True), ctx)
         emp = emps.get(em)
         for f in flags:
             rows.append({**f, "email": em, "name": r.get("name") or em, "periodStart": s, "periodEnd": e,
                          "company": (getattr(emp, "company", "") or "") if emp else "",
                          "payType": "hourly"})
     rows.sort(key=lambda x: (x["status"] != "open", x["name"].lower(), x["date"], x["rule"]))
+    counts = {}
+    for x in rows:
+        if x["status"] == "open":
+            counts[x["kind"]] = counts.get(x["kind"], 0) + 1
+    summary = [{"kind": k, "label": KIND_LABEL.get(k, RULES.get(k, k)), "count": counts[k]}
+               for k in list(KIND_LABEL) + sorted(set(counts) - set(KIND_LABEL)) if counts.get(k)]
     return {"period": {"start": s, "end": e}, "rows": rows, "people": people,
             "openCount": sum(1 for x in rows if x["status"] == "open"), "settings": cfg,
+            "summary": summary, "unknownState": sorted(unknown, key=lambda x: x["name"].lower()),
+            "outsideCa": sorted(outside, key=lambda x: x["name"].lower()),
+            "byWorkState": work_state.CA_SCOPE_BY_WORK_STATE,
             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 

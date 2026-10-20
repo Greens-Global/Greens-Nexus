@@ -1203,7 +1203,12 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
           {row2('freq', 'Frequency', label(PAY_FREQ, data.comp.frequency))}
           {row2('eff', 'Effective', formatDate(data.comp.effectiveDate))}
           {sectionLabel('Time clock')}
-          {row2('otrule', 'Overtime rule', `${label(OT_RULES, data.payroll?.overtimeRule).split(' (')[0] || '-'}${data.comp.overtimeRule ? '' : ' (company default)'}`)}
+          {row2('otrule', 'Overtime rule', `${label(OT_RULES, data.payroll?.overtimeRule).split(' (')[0] || '-'}${data.comp.overtimeRule ? ''
+            : (data.payroll?.defaultOvertimeRule && data.payroll.defaultOvertimeRule !== data.payroll.overtimeRule
+              ? ` (the company default is now ${label(OT_RULES, data.payroll.defaultOvertimeRule).split(' (')[0]} - not applied yet)`
+              : ' (company default)')}`)}
+          {/* Where they work decides the default rule (Charmi, Oct 20): California work state -> California rule. */}
+          {data.payroll?.workState?.byWorkState && row2('workstate', 'Work state', workStateText(data.payroll.workState))}
           {row2('fullday', 'Full day hours', data.payroll?.fullDayHours ? `${data.payroll.fullDayHours} h` : '')}
           {/* Read-only: set on the person's role in Settings > Access, beside the screen-share exemption (Visesh, 10/02). */}
           {row2('tracking', 'Time tracking', timeTrackingText(data.payroll))}
@@ -5400,6 +5405,8 @@ const BENEFIT_TYPES = [['health', 'Health'], ['dental', 'Dental'], ['vision', 'V
 // The timecard-only fields live here too since Sep 30 (Charmi: "this should all
 // be linked into their individual people module") - Pay & Benefits is the one
 // writer of PayrollRate; the timecard only reads.
+// "California (Work site: GS Temecula, CA)" - the person's work state and why (work_state.py, Oct 20 2026).
+const workStateText = (w) => (w?.state ? `${w.stateName || w.state} (${w.label})` : `Unknown - ${w?.label || 'no work site'}`);
 const OT_RULES = [['ca', 'California (daily 8h / 12h, 7th day, weekly 40h)'], ['federal', 'Federal (weekly 40h only)'], ['none', 'None (no US overtime premium)']];
 const COMP_DEFAULTS = { base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [],
   overtimeRule: '', fullDayHours: '8' };
@@ -5505,7 +5512,11 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                   <option value="">Company default{payroll.defaultOvertimeRule ? ` (${(OT_RULES.find(([k]) => k === payroll.defaultOvertimeRule) || [])[1]?.split(' (')[0] || payroll.defaultOvertimeRule})` : ''}</option>
                   {OT_RULES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
-                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>The default follows the company's country: US is California, India is None. The time sheet only reads this.</div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>
+                  {payroll.workState?.byWorkState
+                    ? `The default follows where they work: California is the California rule, another US state is Federal, India is None. ${payroll.workState.state ? `Work state: ${workStateText(payroll.workState)}.` : 'Work state unknown - give them a work site, or pick a rule here.'} The time sheet only reads this.`
+                    : "The default follows the company's country: US is California, India is None. The time sheet only reads this."}
+                </div>
               </div>
               <div>
                 <label style={FL}>FULL DAY HOURS</label>

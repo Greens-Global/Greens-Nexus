@@ -27,6 +27,11 @@
 // Satellite, the on-map button bar, Inventory 2x2 + legend (the layer's
 // explanation under it), Needs Attention, Sources - still filling the screen.
 //
+// Oct 20 2026 (Charmi: "go to the map and physically mark it out saying fix
+// right here"): Mark an Issue on the map files a normal ticket on the
+// facility's property with the spot and a picture of the map; open tickets'
+// spots show on every layer (hover for the photo, click for the ticket).
+//
 // Loaded lazily from FacilityOperations: three.js stays out of the Operations chunk.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layers, Settings } from 'lucide-react';
@@ -356,6 +361,9 @@ export default function SiteMap({ facility, facilities = [], onPick = null, mode
   const [report, setReport] = useState(null);
   const [ledger, setLedger] = useState(null);   // ['tenant', facilityId, customerId] - the Reports drill-down
   const [reload, setReload] = useState(0);   // a ticket filed or changed from the card refreshes it
+  // Mark an Issue: the open tickets marked on this map, the mark being filed, and the reset for the drawn shape.
+  const [marked, setMarked] = useState({ property: null, spots: [] });
+  const [mark, setMark] = useState(null); const [markReset, setMarkReset] = useState(0);
   const setLayer = (k) => { setLayerState(k); saveLayer(k); };
   const mapShown = !!facility && state.status === 'ready';
   useEffect(() => { onMapSearch?.(mapShown); }, [onMapSearch, mapShown]);
@@ -376,6 +384,16 @@ export default function SiteMap({ facility, facilities = [], onPick = null, mode
     return () => { on = false; };
   }, [facilityId]);
   useEffect(() => load(), [load]);
+  const modelId = state.data?.modelId || '';
+  useEffect(() => {
+    if (!modelId || !api.getTicketMapSpots) return undefined;
+    let on = true;
+    Promise.resolve(api.getTicketMapSpots(modelId)).then((r) => on && setMarked({ property: r?.property || null, spots: r?.spots || [] }))
+      .catch(() => on && setMarked({ property: null, spots: [] }));
+    return () => { on = false; };
+  }, [modelId, reload]);
+  const onMarkIssue = useCallback((spot, snapshot) => setMark({ spot, snapshot }), []);
+  const onOpenSpot = useCallback((sp) => setOpenTicket({ id: sp.ticketId }), []);
 
   const data = state.data;
   const units = data?.model?.units;
@@ -460,12 +478,15 @@ export default function SiteMap({ facility, facilities = [], onPick = null, mode
           remoteSearch={remoteSearch} onRemoteHit={onRemoteHit}
           kpis={data.kpis || null} layerBuckets={buckets} layerTitle={layerTitle}
           layerNote={layer === 'maintenance' && !maint?.connected ? (maint ? 'Maintenance layer not connected yet.' : 'Loading maintenance items...') : ''} hoverInfo={hoverInfo} renderUnitExtra={renderUnitExtra}
-          markers={markers} pinsEnabled={false} />
+          markers={markers} pinsEnabled={false}
+          modelId={data.modelId || ''} spots={marked.spots} onMarkIssue={marked.property ? onMarkIssue : null} onOpenSpot={onOpenSpot} markResetKey={markReset} />
       </WidgetBoundary>
       {settings && <CustomerLinkSettings facilityId={facilityId} entrance={data.entrance} template={data.cubbyTemplate} onClose={() => setSettings(false)}
         onSaved={(entrance) => setState((s) => ({ ...s, data: { ...s.data, entrance } }))} />}
       {openTicket && <PropertyTicketDrawer ticketId={openTicket.id} onClose={() => { setOpenTicket(null); setReload((n) => n + 1); }} />}
       {ledger && <DrillPanel key={ledger.join(':')} target={ledger} onClose={() => setLedger(null)} />}
+      {mark && marked.property && <PropertyTicketComposer property={{ ...marked.property, unit: mark.spot.ticketUnit }} mapSpot={mark}
+        onClose={() => { setMark(null); setMarkReset((n) => n + 1); setReload((n) => n + 1); }} />}
       {report && <PropertyTicketComposer property={report} onClose={() => { setReport(null); setReload((n) => n + 1); }} />}
     </div>
   );

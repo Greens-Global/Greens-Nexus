@@ -2205,6 +2205,9 @@ export const api = {
   addSiteModelMarkup:     (id, body) => req(`/site-models/${encodeURIComponent(id)}/markups`, { method: 'POST', body: JSON.stringify(body) }),
   updateSiteModelMarkup:  (id, mid, body) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteSiteModelMarkup:  (id, mid) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'DELETE' }),
+  // Mark an Issue on the Map (Oct 20 2026): open tickets marked on a site map (staff), one ticket's spot.
+  getTicketMapSpots:      (modelId) => req(`/ticket-map-spots?model_id=${encodeURIComponent(modelId)}`),
+  getTicketMapSpot:       (ticketId) => req(`/ticket-map-spots/ticket/${encodeURIComponent(ticketId)}`),
   followPropertyTicket:   (id, ticketId) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/follow`, { method: 'POST' }),
   // Maintenance record + recurring services (Pranshu, 10/06).
   addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),

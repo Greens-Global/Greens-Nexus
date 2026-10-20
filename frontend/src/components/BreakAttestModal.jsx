@@ -80,7 +80,7 @@ export default function BreakAttestModal({ reviewId, attestation, onClose, onSen
     <Modal title="Report a Missed Break" onClose={onClose} footer={footer}>
       <div style={{ display: 'grid', gap: 12 }}>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-          Pick each day and the break you missed. Days your punches flagged are already ticked for Meal. This does not sign your time sheet - it goes back to your manager.
+          Pick each day and the break you missed. This does not sign your time sheet - it goes back to your manager.
         </p>
         <div role="table" aria-label="Missed Breaks" style={{ display: 'grid', gap: 2 }}>
           <div role="row" style={{ display: 'grid', gridTemplateColumns: '1fr 70px 70px', gap: 8, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', padding: '4px 2px' }}>

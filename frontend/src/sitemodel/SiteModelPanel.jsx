@@ -48,6 +48,15 @@
 // ([{ key, label, color, count, units }]) replaces the bar for a layer that is
 // not occupancy, `layerTitle` heads it. Needs Attention is grouped by reason;
 // Sources fold at the very bottom, staff only.
+//
+// Mark an Issue on the Map (Charmi, Oct 20 2026) - staff screens only, all off
+// unless given: `onMarkIssue(spot, snapshot)` puts a Mark an Issue button on
+// the map; a click pins a spot, a drag circles it (or draws an outline), and
+// the screen opens its ticket form with the spot (markSpot.spotFromMark) and a
+// picture of the map. `markResetKey` changing clears the drawn mark (the form
+// closed). `spots` are the open tickets marked on this map (badge + circle;
+// hover shows title and photo, click calls `onOpenSpot`). `modelId` lets a
+// ticket's Open on Map (mapFocus.js) fly here to its spot.
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { createSiteModelViewer, unitKindLabel, unitDirections, doorSideName, reasonLabel, routeSteps } from './siteModelViewer.js';
@@ -63,6 +72,9 @@ import { useIsMobile } from '../lib/useIsMobile.js';
 import { PHONE_QUERY } from '../lib/keys.js';
 import { AttentionCard, SiteModelKpis } from './SiteModelKpis.jsx';
 import { attentionGroups, countedUnits, focusColors, occupancyBuckets, reasonGroup, summaryLine } from './panelModel.js';
+import { MarkIssueBanner, MarkIssueButton, SpotTooltip } from './MarkIssue.jsx';
+import { spotFromMark } from './markSpot.js';
+import { FOCUS_EVENT, peekMapFocus, takeMapFocus } from './mapFocus.js';
 
 const FONT = "'Inter', system-ui, sans-serif";
 const PIN_CATEGORIES = [['maintenance', 'Maintenance'], ['inspection', 'Inspection'], ['note', 'Note']];
@@ -152,7 +164,7 @@ const STATUS_COLOR = { leased: '#3f8f5f', vacant: '#c98a1b', bad: '#c43d2f' };
 
 export { normalizeQuery };
 
-export function SiteModelPanel({ model, mode = 'customer', images, pins = [], tickets = [], onAddPin, onRemovePin, onTogglePin, onOpenTicket, height = 560, initialUnit = '', unitColors = null, legend = null, hoverInfo = null, renderUnitExtra = null, markers = null, pinsEnabled = true, hideSearch = false, fitRoute = false, statusOf = null, fill = false, toolbar = null, legendHint = '', asideExtra = null, remoteSearch = null, onRemoteHit = null, placeName = '', kpis = null, layerBuckets = null, layerTitle = '', layerNote = '' }) {
+export function SiteModelPanel({ model, mode = 'customer', images, pins = [], tickets = [], onAddPin, onRemovePin, onTogglePin, onOpenTicket, height = 560, initialUnit = '', unitColors = null, legend = null, hoverInfo = null, renderUnitExtra = null, markers = null, pinsEnabled = true, hideSearch = false, fitRoute = false, statusOf = null, fill = false, toolbar = null, legendHint = '', asideExtra = null, remoteSearch = null, onRemoteHit = null, placeName = '', kpis = null, layerBuckets = null, layerTitle = '', layerNote = '', spots = null, onMarkIssue = null, onOpenSpot = null, markResetKey = 0, modelId = '' }) {
   const stageRef = useRef(null); const viewerRef = useRef(null);
   const [selected, setSelected] = useState(() => initialUnit || null); const [building, setBuilding] = useState(null);
   const [query, setQuery] = useState(''); const [notFound, setNotFound] = useState('');
@@ -166,6 +178,9 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   const canPhoto = PHOTOREAL_KEY && mode === 'owner' && !photoFailed;
   const look = lookPref === 'photoreal' && !canPhoto ? 'satellite' : lookPref;
   const [touched, setTouched] = useState(false);
+  // Mark an Issue: null, or the shape being drawn ('circle' | 'free'); the spot under the pointer.
+  const [marking, setMarking] = useState(null); const [spotHover, setSpotHover] = useState(null);
+  const markRef = useRef(null); const openSpotRef = useRef(null);
   const [focusPick, setFocus] = useState(null); const [kpiOpenFor, setKpiOpenFor] = useState(null);
   const selectedRef = useRef(null); const xrayRef = useRef(false);
   useEffect(() => { selectedRef.current = selected; xrayRef.current = xray; }, [selected, xray]);
@@ -229,6 +244,9 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
         onHover: (u, pos) => setHover(u ? { n: u.n, f: u.f, ...pos } : null),
         onAttribution: (c) => setGoogleCredit(c),
         onPhotorealFallback: () => setPhotoFailed(true),
+        onMark: (m) => markRef.current?.(m),
+        onHoverSpot: (sp, pos) => setSpotHover(sp ? { spot: sp, ...pos } : null),
+        onPickSpot: (sp) => openSpotRef.current?.(sp),
       });
     } catch (e) {
       // No WebGL (old GPU, headless) - the panel still works as a unit list. A throw
@@ -239,6 +257,10 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
     }
     viewerRef.current = v;
     v.setPins(pins); if (xrayRef.current) v.setXray(true);
+    if (spots) v.setSpots?.(spots);
+    if (peekMapFocus(modelId)) {   // a ticket's Open on Map
+      setTimeout(() => { if (viewerRef.current === v) { const f = takeMapFocus(modelId); if (f) v.focusSpot?.(f); } }, 350);
+    }
     // A look switch rebuilds the scene: keep the unit the person was looking at.
     const keep = selectedRef.current || initialUnit;
     if (keep && byName[keep]) setTimeout(() => { if (viewerRef.current === v) v.selectUnit(keep); }, 300);
@@ -254,6 +276,31 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   }, [ticketsByUnit, markers, look, showIssues, badUnits]);
   useEffect(() => { viewerRef.current?.setUnitColors?.(mapColors); }, [mapColors]);
   useEffect(() => { viewerRef.current?.setPlacing(placing); }, [placing]);
+  // Mark an Issue
+  useEffect(() => { viewerRef.current?.setSpots?.(spots || []); }, [spots, look]);
+  useEffect(() => { viewerRef.current?.setMarking?.(marking); }, [marking, look]);
+  // The form closed: the drawn mark goes (state adjusted while rendering, the viewer after).
+  const [resetSeen, setResetSeen] = useState(markResetKey);
+  if (resetSeen !== markResetKey) { setResetSeen(markResetKey); setMarking(null); }
+  useEffect(() => { viewerRef.current?.clearMark?.(); }, [markResetKey]);
+  useEffect(() => {
+    if (!marking) return undefined;
+    const esc = (e) => { if (e.key === 'Escape') { setMarking(null); viewerRef.current?.clearMark?.(); } };
+    window.addEventListener('keydown', esc); return () => window.removeEventListener('keydown', esc);
+  }, [marking]);
+  useEffect(() => {
+    if (!modelId) return undefined;
+    const go = () => { const f = takeMapFocus(modelId); if (f) viewerRef.current?.focusSpot?.(f); };
+    window.addEventListener(FOCUS_EVENT, go); return () => window.removeEventListener(FOCUS_EVENT, go);
+  }, [modelId]);
+  useEffect(() => {
+    markRef.current = (m) => {
+      const snap = viewerRef.current?.snapshot?.() || '';
+      setMarking(null);
+      onMarkIssue?.(spotFromMark(model, modelId, m), snap);
+    };
+    openSpotRef.current = (sp) => { setSpotHover(null); onOpenSpot?.(sp); };
+  });
 
   const u = selected ? byName[selected] : null;
   // The figures fold while a unit is open; reopening them lasts for that unit only.
@@ -356,12 +403,15 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
               {owner && hu && statusFn(hu) === 'bad' ? <div style={{ fontSize: 11, fontWeight: 600, color: '#b42318' }}>{`${hu.n}${bldg(hu.b)?.floors > 1 ? ` · Level ${hu.f}` : ''} · ${attnText(hu)}`}</div> : null}
               {info ? <div style={{ fontSize: 11, fontWeight: 600 }}>{info}</div> : null}
             </div>; })()}
+          {marking && <MarkIssueBanner shape={marking} onShape={setMarking} top={fill ? 58 : 10} onCancel={() => { setMarking(null); viewerRef.current?.clearMark?.(); }} />}
+          {spotHover && !marking && <SpotTooltip spot={spotHover.spot} x={spotHover.x} y={spotHover.y} />}
           {placing && <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '5px 12px', borderRadius: 999, fontSize: 12, zIndex: 2 }}>Click a unit, a building or the ground to place the pin</div>}
           {noGl && <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
             <SiteModelPlan2D model={model} mode={mode} colors={owner ? mapColors : null} selected={selected} route={plan2d} onSelect={(x) => { setSelected(x.n); setBuilding(null); setQuery(x.n); setNotFound(''); }} />
             <div role="status" style={{ position: 'absolute', left: 10, top: fill ? undefined : 10, bottom: fill ? 10 : undefined, fontSize: 12, background: 'rgba(255,255,255,0.9)', padding: '3px 8px', borderRadius: 6, color: '#5f6358' }}>Flat plan - the 3D view is not available on this device.</div>
           </div>}
           {!noGl && <div className="sm-cambar" role="group" aria-label="Map Controls" style={{ position: 'absolute', left: 10, bottom: 10, right: fill ? 10 : undefined, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 3 }}>
+            {owner && onMarkIssue && <MarkIssueButton on={!!marking} onClick={() => { setPlacing(false); if (marking) viewerRef.current?.clearMark?.(); setMarking(marking ? null : 'circle'); }} />}
             <button type="button" style={btn} onClick={() => { viewerRef.current?.resetView?.(); setLevel(0); }} title="Back to the whole site">Reset View</button>
             {[['overview', 'Overview'], ['plan', 'Plan'], ['gate', 'From Gate']].map(([k, l]) => <button key={k} type="button" style={btn} onClick={() => viewerRef.current?.view(k)}>{l}</button>)}
             <span style={pill} role="group" aria-label="View">

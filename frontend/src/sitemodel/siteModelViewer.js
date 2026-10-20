@@ -10,6 +10,7 @@ import { buildDiorama, DIORAMA } from './siteModelDiorama.js';
 import { planRoute } from './siteModelRoute.js';
 import { createRealGround, createSky, ATMOSPHERE } from './siteModelGround.js';
 import { sunDirection, mutedTint, unitForm, nameBucket, unplacedZoneIds } from './siteModelGeo.js';
+import { createMarkup } from './siteModelMarkup.js';
 
 const KIND_COLORS = {
   neutral: 0xd9d0bb, neutralPark: 0xc7c1b2, ok: 0x5fae7d, warn: 0xe0b45a, bad: 0xd65a4c, sel: 0xff7a00,
@@ -901,9 +902,13 @@ export function createSiteModelViewer(container, model, options = {}) {
   const NORTH = model.frame && model.frame.north ? Math.atan2(model.frame.north[0], model.frame.north[1]) : 0;
   let drag = null; const touches = new Map();
   function pan(dx, dy) { const s = ctrl.radius * 0.0016; const right = new THREE.Vector3(Math.cos(ctrl.theta), 0, -Math.sin(ctrl.theta)); const fwd = new THREE.Vector3(-Math.sin(ctrl.theta), 0, -Math.cos(ctrl.theta)); ctrl.target.addScaledVector(right, -dx * s).addScaledVector(fwd, dy * s); }   // grab the ground: it follows the mouse, like Google Maps
-  const onDown = (e) => { idle = false; el.setPointerCapture(e.pointerId); touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: false, dist: null }; };
+  const onDown = (e) => { idle = false; el.setPointerCapture(e.pointerId); touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Mark an Issue: one finger / the mouse draws; a second finger cancels the stroke and moves the map.
+    if (markup.active()) { if (touches.size === 1 && markup.down(e)) { drag = null; return; } markup.cancelStroke(); }
+    drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: false, dist: null }; };
   const onMove = (e) => {
     if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (markup.move(e)) return;
     if (!drag) { hover(e); return; }
     // Two fingers: pinch to zoom, twist to turn, move together to tilt.
     if (touches.size === 2) { const pts = [...touches.values()]; const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y); const a = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x); const cy = (pts[0].y + pts[1].y) / 2; if (drag.dist) { ctrl.radius *= drag.dist / d; let da = a - drag.a; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI; ctrl.theta -= da; ctrl.phi += (cy - drag.cy) * 0.006; } drag.dist = d; drag.a = a; drag.cy = cy; drag.moved = true; applyCamera(); return; }
@@ -914,7 +919,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     if (drag.button === 2 || e.ctrlKey || e.shiftKey || e.metaKey) { ctrl.theta -= dx * 0.006; ctrl.phi += dy * 0.006; } else pan(dx, dy);
     applyCamera();
   };
-  const onUp = (e) => { touches.delete(e.pointerId); if (drag && !drag.moved && drag.button === 0) click(e); if (touches.size === 0) drag = null; else drag.dist = null; };
+  const onUp = (e) => { touches.delete(e.pointerId); if (markup.up(e)) return; if (drag && !drag.moved && drag.button === 0) click(e); if (touches.size === 0) drag = null; else drag.dist = null; };
   const onWheel = (e) => { idle = false; e.preventDefault(); ctrl.radius *= Math.exp(e.deltaY * 0.0012); applyCamera(); };
   const onCtx = (e) => e.preventDefault();
   el.addEventListener('pointerdown', onDown); el.addEventListener('pointermove', onMove); el.addEventListener('pointerup', onUp); el.addEventListener('pointercancel', onUp);
@@ -939,12 +944,30 @@ export function createSiteModelViewer(container, model, options = {}) {
   const firstUnit = (hits) => { for (const h of hits) { const u = unitOfHit(h); if (u) return { h, u }; } return null; };
   // A Needs Attention badge draws over everything, so it is hit first: it picks its own unit, never the one behind it.
   const pickHit = (e) => (badgeList.length && firstUnit(cast(e, badgeList))) || firstUnit(cast(e, pickList()));
+  // Mark an Issue (siteModelMarkup.js): where a stroke starts - a unit, a building or the ground.
+  const markup = createMarkup({
+    scene, camera, el, onMark: (m) => { if (opts.onMark) opts.onMark(m); },
+    rayFor: (e) => { cast(e, []); return ray.ray; },
+    start: (e) => {
+      const hits = cast(e, pickList().concat(shells, groundHits)); const uh = firstUnit(hits);
+      const h = uh ? uh.h : hits.find((x) => x.object !== unitInst && x.object !== selMesh); if (!h) return null;
+      const b = h.object.userData.building;
+      return { u: +h.point.x.toFixed(2), v: +(-h.point.z).toFixed(2), y: +h.point.y.toFixed(2), unit: uh ? uh.u.n : '', building: uh ? uh.u.b : b ? b.id : '' };
+    },
+  });
+  const spotAt = (e) => { if (!markup.badges.length) return null; const h = cast(e, markup.badges)[0]; return h ? h.object.userData.spot : null; };
+  let hoveredSpot = null;
   let hovered = null; let lastHoverAt = 0;
   function hover(e) {
     if (e.pointerType === 'touch') return;
     const now = performance.now(); if (now - lastHoverAt < 40) return; lastHoverAt = now;   // ~25 raycasts/s is plenty
-    const hit = pickHit(e); const r = el.getBoundingClientRect();
-    el.style.cursor = hit ? 'pointer' : state.placing ? 'crosshair' : '';
+    const r = el.getBoundingClientRect();
+    // An open ticket's spot first: its badge draws over everything.
+    const sp = spotAt(e);
+    if (sp !== hoveredSpot) { hoveredSpot = sp; if (opts.onHoverSpot) opts.onHoverSpot(sp, { x: e.clientX - r.left, y: e.clientY - r.top }); }
+    if (sp) { el.style.cursor = 'pointer'; if (hovered) { hovered = null; showHover(null); if (opts.onHover) opts.onHover(null); } return; }
+    const hit = pickHit(e);
+    el.style.cursor = hit ? 'pointer' : state.placing || markup.active() ? 'crosshair' : '';
     const unit = hit ? hit.u : null;
     if (unit === hovered) return;            // the React side re-renders only when the hovered unit changes
     hovered = unit; showHover(unit);
@@ -962,6 +985,8 @@ export function createSiteModelViewer(container, model, options = {}) {
       }
       return;
     }
+    const sp = spotAt(e);
+    if (sp) { if (opts.onPickSpot) opts.onPickSpot(sp); return; }
     const hit = pickHit(e);
     if (hit) { selectUnit(hit.u.n, true); return; }
     const s = cast(e, shells)[0];
@@ -1078,6 +1103,21 @@ export function createSiteModelViewer(container, model, options = {}) {
     setMarkers(map) { state.markers = map || {}; renderMarkers(); },
     setPlacing(v) { state.placing = !!v; el.style.cursor = v ? 'crosshair' : ''; },
     setBackground(c) { scene.background = new THREE.Color(c); },
+    // Mark an Issue: 'circle' | 'free' turns marking on, null off; the open tickets' spots; fly to one.
+    setMarking(shape) { markup.setShape(shape); el.style.cursor = shape ? 'crosshair' : ''; },
+    clearMark() { markup.clearDraft(); },
+    setSpots(list) { markup.setSpots(list); },
+    focusSpot(s) { if (!s) return; idle = false; flyTo(W(s.u, s.v, s.y || 0), ctrl.theta, 0.95, Math.max(60, (s.r || 0) * 8)); },
+    /** The view as a JPEG data URL (rendered now, so the drawing buffer still holds it), or ''. */
+    snapshot(maxW = 1280) {
+      try {
+        renderer.render(scene, camera);
+        const k = Math.min(1, maxW / (el.width || 1)); const cv = document.createElement('canvas');
+        cv.width = Math.round(el.width * k); cv.height = Math.round(el.height * k);
+        cv.getContext('2d').drawImage(el, 0, 0, cv.width, cv.height);
+        return cv.toDataURL('image/jpeg', 0.82);
+      } catch { return ''; }
+    },
     view(name) { if (VIEWS[name]) VIEWS[name](); },
     flyToPin(p) { flyTo(W(p.u, p.v, p.y || 0), ctrl.theta, 0.7, 50); },
     getState() { return { ...state }; },

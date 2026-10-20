@@ -6140,6 +6140,16 @@ class SiteModelMarkup(Base):
     ticket_id   = Column(String, default="")
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
+    # Mark an Issue on the Map (Charmi, Oct 20 2026 - ticket_map_spot.py): a
+    # ticket's spot is one of these rows (ticket_id set) - the circle's radius
+    # in meters (0 = a point), the free-hand outline as JSON [[u, v], ...], the
+    # spot on the globe from the model's geo frame, and "Near C214, Building C".
+    radius      = Column(Float, default=0.0)
+    outline     = Column(Text, default="")
+    lat         = Column(Float, nullable=True)
+    lng         = Column(Float, nullable=True)
+    place       = Column(String, default="")
+    updated_at  = Column(String, default="")   # site_models.py has always written it
 
 
 class WeatherOutlook(Base):

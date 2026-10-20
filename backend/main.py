@@ -1143,6 +1143,13 @@ def _run_migrations():
             'CREATE INDEX IF NOT EXISTS ix_audit_logs_module_ts ON audit_logs (module, "timestamp")',
             'CREATE INDEX IF NOT EXISTS ix_audit_logs_user_ts ON audit_logs (user_email, "timestamp")',
             'CREATE INDEX IF NOT EXISTS ix_audit_logs_rtype_ts ON audit_logs (resource_type, "timestamp")',
+            # Mark an Issue on the Map (Oct 20 2026) - models.SiteModelMarkup, ticket_map_spot.py.
+            "ALTER TABLE site_model_markups ADD COLUMN radius FLOAT DEFAULT 0",
+            "ALTER TABLE site_model_markups ADD COLUMN outline TEXT DEFAULT ''",
+            "ALTER TABLE site_model_markups ADD COLUMN lat FLOAT",
+            "ALTER TABLE site_model_markups ADD COLUMN lng FLOAT",
+            "ALTER TABLE site_model_markups ADD COLUMN place VARCHAR DEFAULT ''",
+            "ALTER TABLE site_model_markups ADD COLUMN updated_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2597,6 +2604,13 @@ def _run_migrations():
         'CREATE INDEX IF NOT EXISTS ix_audit_logs_user_ts ON audit_logs (user_email, "timestamp" DESC)',
         'CREATE INDEX IF NOT EXISTS ix_audit_logs_rtype_ts ON audit_logs (resource_type, "timestamp" DESC)',
         "ALTER TABLE audit_changes ENABLE ROW LEVEL SECURITY",
+        # Mark an Issue on the Map (Oct 20 2026) - models.SiteModelMarkup, ticket_map_spot.py.
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS radius FLOAT DEFAULT 0",
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS outline TEXT DEFAULT ''",
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS lat FLOAT",
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS lng FLOAT",
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
+        "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS updated_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4056,6 +4070,8 @@ app.include_router(ops_reports_router.router)     # Operations > Reports: Cubby'
 from routers import unit_map as unit_map_router  # noqa: E402
 app.include_router(unit_map_router.ops_router)     # Operations > Site Map: site model + layers per facility (Neil, 10/20)
 app.include_router(unit_map_router.public_router)  # Customer unit map /find/<token>: one unit, the route, no login (Neil, 10/20)
+from routers import ticket_map_spots  # noqa: E402
+app.include_router(ticket_map_spots.router)  # Mark an Issue on the Map: ticket spots on the site map (Charmi, 10/20)
 from routers import ticket_reports as ticket_reports_router  # noqa: E402
 app.include_router(ticket_reports_router.router)   # Tickets > Reports: the server-side report, its CSV and the weekly email opt-out (Oct 2026)
 from routers import ticket_items as ticket_items_router  # noqa: E402

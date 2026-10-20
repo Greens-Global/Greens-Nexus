@@ -10120,6 +10120,10 @@ def payroll_timecard(email: str, start: str, end: str,
         card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
         return _no_pay(db, user, card)
     card = _compute_timecard(db, em, start, end)
+    if em == (user.get("email") or "").lower():
+        # Your own card: no CA meal flag, as on /my-payroll (Charmi, Oct 20).
+        for _d in card.get("days") or []:
+            _d.pop("meal", None)
     card.update(_signoff_state(db, em, start, end))
     card["review"] = _review_state(db, em, start, user, team=True)
     card["notes"] = _timecard_notes(db, em, start, end)
@@ -10270,6 +10274,11 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
         return card
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
+    # The CA meal check's flag ("Meal Missed") is for HR only - the employee
+    # never sees it, not even in the response (Charmi, Oct 20). Premium pay
+    # lines are their pay and stay.
+    for _d in card.get("days") or []:
+        _d.pop("meal", None)
     card.update(_signoff_state(db, user["email"], p_start, p_end))
     card["review"] = _review_state(db, user["email"], p_start, user, team=False)
     card["periodStart"], card["periodEnd"] = p_start, p_end

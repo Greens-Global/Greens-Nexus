@@ -130,19 +130,28 @@ def country_of(db: Session, email: str, emp=_UNSET) -> str:
 
 
 def in_scope(db: Session, email: str, rate_row=None, rule: str | None = None, emp=_UNSET,
-             _load_rate: bool = True) -> bool:
+             _load_rate: bool = True, ws_ctx: dict | None = None) -> bool:
     """THE one rule for who the CA meal / rest features apply to (meal
     detection, the signing question, premium lines, the waiver, California
     Review and its minimum-wage check): is_ca_rate (hourly, USD, rule 'ca')
     AND working in the US - the person's People country, else their
-    company's; unknown counts as US only because the pay is USD. The
+    company's; unknown counts as US only because the pay is USD - AND not
+    known to work outside California (work_state.engine_scope, Oct 20). The
     overtime engine's own rule is untouched."""
     em = (email or "").strip().lower()
     if rate_row is None and _load_rate and em:
         rate_row = db.query(models.PayrollRate).filter(models.PayrollRate.employee_email == em).first()
     if not is_ca_rate(rate_row, rule):
         return False
-    return country_of(db, em, emp) in _US
+    if emp is _UNSET:
+        emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == em).first()
+    if country_of(db, em, emp) not in _US:
+        return False
+    # Oct 20 2026 (Charmi): off for someone known to work OUTSIDE California
+    # (work_state.py) unless HR put them on the California rule by hand.
+    import work_state
+    pre = db.info.get(_PRELOAD) if hasattr(db, "info") else None
+    return work_state.engine_scope(db, emp, ws_ctx if ws_ctx is not None else (pre or {}).get("workState"))
 
 
 def is_ca(db: Session, email: str) -> bool:
@@ -287,6 +296,8 @@ def preload(db: Session, emails, start: str, end: str) -> None:
                   .order_by(models.TimeBreakPremium.local_date, models.TimeBreakPremium.kind,
                             models.TimeBreakPremium.created_at).all()):
             pre["premiums"].setdefault(p.employee_email, []).append(p)
+    import work_state
+    pre["workState"] = work_state.preload(db, ems)
     db.info[_PRELOAD] = pre
 
 
