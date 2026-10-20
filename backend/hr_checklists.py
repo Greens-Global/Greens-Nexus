@@ -369,12 +369,13 @@ def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type
     return cl
 
 
-def start_on_hire(db, emp: NexusEmployee, by: str) -> None:
-    """Hook for the hiring pipeline (Hired -> employee in Onboarding). Never
-    lets a checklist problem block the hire itself."""
+def start_on_hire(db, emp: NexusEmployee, by: str, role_id: str = None) -> None:
+    """Hook for the hiring pipeline (Hired -> employee in Onboarding), with the
+    steps of the role they were hired into. Never lets a checklist problem
+    block the hire itself."""
     try:
         if not open_checklist(db, emp.id, "onboarding"):
-            start(db, emp, "onboarding", by=by)
+            start(db, emp, "onboarding", by=by, role_id=role_id or None)
     except Exception as e:   # noqa: BLE001 - best effort by design
         print(f"[checklists] onboarding checklist not started for {emp.id}: {e}")
 

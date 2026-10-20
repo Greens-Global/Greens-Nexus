@@ -443,6 +443,31 @@ class ChecklistTests(unittest.TestCase):
             self.assertEqual(db.query(models.Task).count(), 0)
         finally:
             db.close()
+    def test_hiring_into_a_role_adds_that_roles_steps(self):
+        rid = self._role()
+        r = self.client.put(f"/hr/checklists/role-templates/{rid}/onboarding",
+                            json={"items": [{"key": "ACC-ON", "title": "Intacct Training", "owner": "manager"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrCandidate(id="cand-r", first_name="Ana", last_name="Ruiz", email="ana@example.com",
+                                      stage="offer", company=CO_A, role_id=rid, role_title="Accounting Associate",
+                                      expected_start=(date.today() + timedelta(days=20)).isoformat()))
+            db.commit()
+        finally:
+            db.close()
+        r = self.client.patch("/hr/candidates/cand-r", json={"stage": "hired", "stage_note": "Signed on paper"})
+        self.assertEqual(r.status_code, 200, r.text)
+        db = database.SessionLocal()
+        try:
+            cand = db.query(models.HrCandidate).filter_by(id="cand-r").one()
+            cl = db.query(models.HrChecklist).filter_by(employee_id=cand.employee_id, kind="onboarding").one()
+            keys = [i.key for i in db.query(models.HrChecklistItem).filter_by(checklist_id=cl.id)
+                    .order_by(models.HrChecklistItem.sort_order).all()]
+            self.assertIn("ON-01", keys)               # the company's steps
+            self.assertEqual(keys[-1], "ACC-ON")       # then the hired role's own
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

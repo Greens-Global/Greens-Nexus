@@ -955,7 +955,9 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
     cand.employee_id = emp.id
     # Their onboarding checklist starts with the hire (hr_checklists.py).
     import hr_checklists
-    hr_checklists.start_on_hire(db, emp, actor)
+    # The role they were hired into adds its own steps - passed in, because
+    # cand.employee_id is not flushed yet (autoflush is off).
+    hr_checklists.start_on_hire(db, emp, actor, role_id=cand.role_id or "")
     # Their interview recordings and transcripts come with them onto the
     # profile's Documents (routers/hr_interviews.py).
     try:
