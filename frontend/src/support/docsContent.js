@@ -845,7 +845,7 @@ export const DOCS = [
       { name: 'Dashboard', desc: 'Shortcuts to New Document, New Template and Send for Signature, plus what is waiting.' },
       { name: 'My Documents', desc: 'Your documents in folders with tags. Edit, Duplicate, Archive, Restore or Delete.' },
       { name: 'Templates', desc: 'Reusable templates with categories, an owning department, draft or active status, and a default per type.' },
-      { name: 'Nexus Sign', desc: 'Envelopes with statuses: Awaiting Signatures, Partially Executed, Fully Executed, Declined, Voided, Expired. Each signer shows Waiting, Notified, Viewed or Signed.' },
+      { name: 'Nexus Sign', desc: 'Envelopes with statuses: Awaiting Signatures, Partially Executed, Fully Executed, Declined, Voided, Expired. Each signer shows Waiting, Notified, Viewed or Signed. Signed Time Sheets are not listed here: they open from the Time Sheet (Open Signed Copy) for the employee, the approving manager, the company HR contact, Full HR and Global Admins only.' },
       { name: 'Signing Fields', desc: 'Signature, Initials, Name, Date Signed, Text, Checkbox, Dropdown, Radio and File Upload.' },
       { name: 'Sign on Paper', desc: 'A signer can print, sign by hand and upload a scan instead.' },
       { name: 'PDF Tools', desc: 'Open a PDF full screen to add text, draw, add shapes and save.' },

@@ -32,6 +32,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, Header, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
@@ -2117,6 +2118,7 @@ def place_hold(rid: str, body: HoldIn, user: dict = Depends(require_hr_write),
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req:
         raise HTTPException(404, "Request not found")
+    _require_view(db, req, user)
     if not body.reason.strip():
         raise HTTPException(400, "A hold needs a reason")
     hold = HrSignRetentionHold(id=str(uuid.uuid4()), request_id=rid,
@@ -2132,6 +2134,7 @@ def place_hold(rid: str, body: HoldIn, user: dict = Depends(require_hr_write),
 @router.post("/requests/{rid}/holds/{hid}/release")
 def release_hold(rid: str, hid: str, user: dict = Depends(require_hr_write),
                  db: Session = Depends(get_db)):
+    _require_view_rid(db, rid, user)
     hold = (db.query(HrSignRetentionHold)
             .filter(HrSignRetentionHold.id == hid, HrSignRetentionHold.request_id == rid).first())
     if not hold:
@@ -2148,6 +2151,7 @@ def release_hold(rid: str, hid: str, user: dict = Depends(require_hr_write),
 
 @router.get("/requests/{rid}/holds")
 def list_holds(rid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    _require_view_rid(db, rid, user)
     rows = (db.query(HrSignRetentionHold).filter(HrSignRetentionHold.request_id == rid)
             .order_by(HrSignRetentionHold.placed_at).all())
     return [{"id": h.id, "reason": h.reason, "placedBy": h.placed_by, "placedAt": h.placed_at,
@@ -2260,7 +2264,10 @@ def certificate_of_record(rid: str, user: dict = Depends(require_hr_read),
     if not req:
         raise HTTPException(404, "Request not found")
     import auth
-    auth.assert_company(auth.company_of(req.created_by or "", db), user, db)
+    if (req.link_kind or "") == "timesheet":
+        _require_view(db, req, user)
+    else:
+        auth.assert_company(auth.company_of(req.created_by or "", db), user, db)
     if not req.certificate_html:
         raise HTTPException(409, "No certificate yet - this envelope is not completed")
     snapshot = req.certificate_snapshot or {}
@@ -2296,7 +2303,10 @@ def excluded_categories(user: dict = Depends(get_current_user)):
 
 @router.get("/requests")
 def list_requests(status: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    q = db.query(HrSignRequest)
+    # Signed Time Sheets never list here (Neil, Oct 20 2026: "this document
+    # should not be found here") - they live on the Time Sheet, in the
+    # employee's My Documents and in their Egnyte HR folder.
+    q = db.query(HrSignRequest).filter(or_(HrSignRequest.link_kind.is_(None), HrSignRequest.link_kind != "timesheet"))
     if status:
         q = q.filter(HrSignRequest.status == status)
     rows = q.order_by(HrSignRequest.created_at.desc()).all()
@@ -2314,6 +2324,7 @@ def get_request(rid: str, user: dict = Depends(require_hr_read), db: Session = D
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req:
         raise HTTPException(404, "Request not found")
+    _require_view(db, req, user)
     _check_expiry(db, req)
     events = (db.query(HrSignEvent).filter(HrSignEvent.request_id == rid)
               .order_by(HrSignEvent.at).all())
@@ -2331,6 +2342,7 @@ def remind(rid: str, user: dict = Depends(require_hr_write), db: Session = Depen
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req:
         raise HTTPException(404, "Request not found")
+    _require_view(db, req, user)
     _check_expiry(db, req)
     if req.status != "pending":
         raise HTTPException(409, f"Request is {req.status}")
@@ -2354,6 +2366,7 @@ def void_request(rid: str, user: dict = Depends(require_hr_write), db: Session =
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req:
         raise HTTPException(404, "Request not found")
+    _require_view(db, req, user)
     if req.status not in ("pending",):
         raise HTTPException(409, f"Request is already {req.status}")
     req.status = "voided"
@@ -2407,6 +2420,22 @@ def reroute_party(db: Session, req: HrSignRequest, party: HrSignParty, *, email:
     return True
 
 
+def _require_view(db: Session, req: HrSignRequest, user: dict) -> None:
+    """A signed Time Sheet opens only for its employee, the approving manager,
+    the company's HR contact, Full HR and Global Admins (Neil, Oct 20 2026 -
+    timesheet_review.can_view_envelope). 404, not 403: a hidden envelope does
+    not admit it exists. Every other envelope is unchanged."""
+    if req is None or (getattr(req, "link_kind", "") or "") != "timesheet":
+        return
+    import timesheet_review
+    if not timesheet_review.can_view_envelope(db, req, user):
+        raise HTTPException(404, "Request not found")
+
+
+def _require_view_rid(db: Session, rid: str, user: dict) -> None:
+    _require_view(db, db.query(HrSignRequest).filter(HrSignRequest.id == rid).first(), user)
+
+
 def _require_pay_access(db: Session, req: HrSignRequest, user: dict) -> None:
     """An envelope whose documents print pay (offer and promotion letters) opens
     only for hr_comp holders - owner or explicit grant; an administrator's role
@@ -2431,6 +2460,7 @@ def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
     if not req or not party:
         raise HTTPException(404, "Not found")
     _require_pay_access(db, req, user)
+    _require_view(db, req, user)
     _check_expiry(db, req)
     if req.status != "pending":
         raise HTTPException(409, f"Request is {req.status}")
@@ -2473,6 +2503,7 @@ def party_link(rid: str, pid: str, user: dict = Depends(require_hr_write),
     if not req or not party:
         raise HTTPException(404, "Not found")
     _require_pay_access(db, req, user)
+    _require_view(db, req, user)
     if party.kind != "external":
         raise HTTPException(400, "Teammates sign inside Nexus - there is no external link")
     if req.status != "pending":
@@ -2486,10 +2517,16 @@ def party_link(rid: str, pid: str, user: dict = Depends(require_hr_write),
 
 
 @router.get("/requests/{rid}/download")
-def download_final(rid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+def download_final(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req or not req.final_pdf_path:
         raise HTTPException(404, "No completed document")
+    if (req.link_kind or "") == "timesheet":
+        # The approving manager opens it from the Time Sheet without an HR grant
+        # (Neil, Oct 20: "Valinda should be able to see this").
+        _require_view(db, req, user)
+    else:
+        require_hr_read(user=user, db=db)
     _require_pay_access(db, req, user)
     resp = _storage_signed_url(_DOC_BUCKET, req.final_pdf_path)
     if not resp.is_success:
@@ -2522,6 +2559,7 @@ def verify_final(rid: str, user: dict = Depends(require_hr_read), db: Session = 
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req or not req.final_pdf_path:
         raise HTTPException(404, "No completed document")
+    _require_view(db, req, user)
     integrity = _check_final_integrity(req)
     events = (db.query(HrSignEvent).filter(HrSignEvent.request_id == rid)
               .order_by(HrSignEvent.seq).all())
@@ -3885,6 +3923,7 @@ def request_uploads(rid: str, user: dict = Depends(require_hr_read), db: Session
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req:
         raise HTTPException(404, "Not found")
+    _require_view(db, req, user)
     names = {p.id: p.name for p in _parties(db, rid)}
     return [{**sign_uploads.serialize(u), "partyId": u.party_id,
              "partyName": names.get(u.party_id, "")}
@@ -3896,6 +3935,7 @@ def request_uploads(rid: str, user: dict = Depends(require_hr_read), db: Session
 @router.get("/requests/{rid}/uploads/{upload_id}")
 def request_upload_url(rid: str, upload_id: str, request: Request,
                        user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    _require_view_rid(db, rid, user)
     row = _upload_row(db, upload_id, rid)
     resp = _storage_signed_url(_DOC_BUCKET, row.storage_path)
     if not resp.is_success:

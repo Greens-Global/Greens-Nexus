@@ -569,6 +569,32 @@ def waiting_on(db: Session, reviewer: str) -> list:
     return sorted(rows, key=lambda r: (r.updated_at or "", r.period_start))
 
 
+def can_view_envelope(db: Session, req, user: dict) -> bool:
+    """Who may open a signed Time Sheet envelope (Neil, Oct 20 2026 - hotfix:
+    "Valinda should be able to see this and Amy should be able to see it as a
+    recipient and global admin and HR should be able to see it, but not
+    everyone"): its parties (the employee), the manager who approved it, the
+    employee's company HR contact, a Full HR grant, and Global Admins. An HR
+    Viewer / Editor or an Administrator's role alone does not open one."""
+    me = (user.get("email") or "").strip().lower()
+    if not me:
+        return False
+    from sqlalchemy import func
+    if db.query(HrSignParty.id).filter(HrSignParty.request_id == req.id,
+                                       func.lower(HrSignParty.email) == me).first():
+        return True
+    r = _for(db, req)
+    employee = (r.employee_email if r else "") or ""
+    if r is not None and me in {(r.agreed_by or "").lower(), (r.manager_email or "").lower()} - {""}:
+        return True
+    if employee and me == hr_of(db, employee):
+        return True
+    from auth import _MODULE_LEVEL_RANK, _module_level, is_global_admin
+    if _module_level(me, "hr", db) >= _MODULE_LEVEL_RANK["full"]:
+        return True
+    return is_global_admin({"email": me}, db)
+
+
 def _is_global_admin(db: Session, email: str) -> bool:
     from models import NexusRole
     return bool(email) and db.query(NexusRole).filter(NexusRole.email == email,
