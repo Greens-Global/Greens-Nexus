@@ -1133,6 +1133,16 @@ def _run_migrations():
             "ALTER TABLE ticket_inbound_email ADD COLUMN auth_summary VARCHAR DEFAULT ''",
             # Weekly Ticket Report opt-out (Oct 2026, ticket_reports.py). models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN ticket_weekly_report INTEGER",
+            # Unified audit log (Oct 20 2026) - see the Postgres list. models.AuditLog.
+            "ALTER TABLE audit_logs ADD COLUMN request_id VARCHAR DEFAULT ''",
+            "ALTER TABLE audit_logs ADD COLUMN module VARCHAR DEFAULT ''",
+            "ALTER TABLE audit_logs ADD COLUMN kind VARCHAR DEFAULT ''",
+            "ALTER TABLE audit_logs ADD COLUMN acting_as VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_audit_logs_request_id ON audit_logs (request_id)",
+            'CREATE INDEX IF NOT EXISTS ix_audit_logs_ts_id ON audit_logs ("timestamp", id)',
+            'CREATE INDEX IF NOT EXISTS ix_audit_logs_module_ts ON audit_logs (module, "timestamp")',
+            'CREATE INDEX IF NOT EXISTS ix_audit_logs_user_ts ON audit_logs (user_email, "timestamp")',
+            'CREATE INDEX IF NOT EXISTS ix_audit_logs_rtype_ts ON audit_logs (resource_type, "timestamp")',
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2562,6 +2572,21 @@ def _run_migrations():
         # Ticket AI (Oct 2026, ticket_ai.py): cached AI Summaries - a new
         # table, explicit RLS. models.TicketAiSummary.
         "ALTER TABLE ticket_ai_summaries ENABLE ROW LEVEL SECURITY",
+        # Unified audit log (Oct 20 2026, audit_capture.py / routers/audit_events.py):
+        # the request id that joins a request row to its field-level changes, and
+        # module / kind / acting_as filled for new rows so the feed filters on an
+        # index. audit_changes is a new table - explicit RLS on top of the sweep.
+        # The keyset indexes serve "newest first" per module / person / resource.
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id VARCHAR DEFAULT ''",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS module VARCHAR DEFAULT ''",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT ''",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS acting_as VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_request_id ON audit_logs (request_id) WHERE request_id <> ''",
+        'CREATE INDEX IF NOT EXISTS ix_audit_logs_ts_id ON audit_logs ("timestamp" DESC, id DESC)',
+        """CREATE INDEX IF NOT EXISTS ix_audit_logs_module_ts ON audit_logs (module, "timestamp" DESC) WHERE module <> ''""",
+        'CREATE INDEX IF NOT EXISTS ix_audit_logs_user_ts ON audit_logs (user_email, "timestamp" DESC)',
+        'CREATE INDEX IF NOT EXISTS ix_audit_logs_rtype_ts ON audit_logs (resource_type, "timestamp" DESC)',
+        "ALTER TABLE audit_changes ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4027,3 +4052,5 @@ from routers import ticket_items as ticket_items_router  # noqa: E402
 app.include_router(ticket_items_router.router)     # Tickets <-> equipment (items): picker, links, Other Tickets for This Item, by-item (Oct 2026)
 from routers import ticket_ai as ticket_ai_router  # noqa: E402
 app.include_router(ticket_ai_router.router)        # Tickets: AI Summary + Suggested Help Topic, and the desk's AI switch (Oct 2026)
+from routers import audit_events as audit_events_router  # noqa: E402
+app.include_router(audit_events_router.router)     # Unified Audit Log: one feed, modules, before/after, record history (Oct 20 2026)
