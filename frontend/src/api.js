@@ -2611,7 +2611,7 @@ export const api = {
   createOpsReportSchedule: (data) => req('/ops-reports/schedules', { method: 'POST', body: JSON.stringify(data) }),
   updateOpsReportSchedule: (id, data) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteOpsReportSchedule: (id) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  sendOpsReportSchedule: (id) => req(`/ops-reports/schedules/${encodeURIComponent(id)}/send`, { method: 'POST' }),
+  sendOpsReportSchedule: (id, toMe = false) => req(`/ops-reports/schedules/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify({ to_me: toMe }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
@@ -2664,7 +2664,10 @@ function _opsReportQuery({ facilityId = '', facilityIds, start = '', end = '', o
   const ids = Array.isArray(facilityIds) ? facilityIds.filter(Boolean) : null;
   const q = new URLSearchParams({ ...extra, facility_id: ids ? (ids.length === 1 ? ids[0] : '') : facilityId, start, end });
   if (ids?.length) q.set('facility_ids', ids.join(','));
-  Object.entries(options || {}).forEach(([k, v]) => { if (v !== undefined && v !== null) q.set(k, typeof v === 'boolean' ? String(v) : v); });
+  const opts = Object.fromEntries(Object.entries(options || {}).filter(([, v]) => v !== undefined && v !== null));
+  Object.entries(opts).forEach(([k, v]) => q.set(k, typeof v === 'boolean' ? String(v) : v));
+  // The export endpoint reads them as one JSON object.
+  if (Object.keys(opts).length) q.set('options', JSON.stringify(opts));
   return q;
 }
 
