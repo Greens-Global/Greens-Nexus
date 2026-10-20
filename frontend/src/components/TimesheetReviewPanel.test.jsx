@@ -13,6 +13,7 @@ const approve = vi.fn(() => Promise.resolve({}));
 const approvePeriod = vi.fn(() => Promise.resolve({}));
 const sign = vi.fn(() => Promise.resolve({ status: 'signing', myPartyId: 'p-emp' }));
 const finalizeUnsigned = vi.fn(() => Promise.resolve({ status: 'completed' }));
+const downloadSign = vi.fn(() => Promise.resolve({ url: 'http://storage/signed.pdf' }));
 vi.mock('../api', () => ({
   api: {
     timesheetReviewSubmit: (...a) => submit(...a),
@@ -21,6 +22,7 @@ vi.mock('../api', () => ({
     timesheetReviewApprovePeriod: (...a) => approvePeriod(...a),
     timesheetReviewSign: (...a) => sign(...a),
     timesheetReviewFinalizeUnsigned: (...a) => finalizeUnsigned(...a),
+    downloadSign: (...a) => downloadSign(...a),
   },
 }));
 vi.mock('./ESign', () => ({ SignModal: ({ partyId }) => <div data-testid="sign-modal">{partyId}</div> }));
@@ -165,5 +167,16 @@ describe('TimesheetReviewPanel', () => {
   it('says so when it is finalized', () => {
     render(<TimesheetReviewPanel {...props} review={{ ...base, status: 'completed', parties: [] }} />);
     expect(screen.getByText(/finalized for payroll/)).toBeInTheDocument();
+    expect(screen.queryByText('Open Signed Copy')).toBeNull();          // no envelope, no button
+  });
+
+  it('the approving manager opens the signed copy from the Time Sheet (Neil, Oct 20)', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'completed', parties: [], signRequestId: 'env-1' }} />);
+    expect(screen.getByText(/filed to the employee's HR folder/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Open Signed Copy'));
+    await waitFor(() => expect(downloadSign).toHaveBeenCalledWith('env-1'));
+    expect(open).toHaveBeenCalledWith('http://storage/signed.pdf', '_blank', 'noopener');
+    open.mockRestore();
   });
 });
