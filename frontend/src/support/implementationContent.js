@@ -452,7 +452,7 @@ export const IMPL_PHASES = [
         'Set the default owner for each kind of step (HR, IT, Accounting).',
       ]},
       { title: 'Each company', where: 'Settings > Company Settings > the company > Checklists', items: [
-        'Use the library as it is, or Make A Copy For This Company and change it. Copy To Other Companies keeps several companies the same.',
+        'Set the Role Owners (HR, IT, Accounting), then read the Role Checklists audit: every role should have its onboarding, promotion, offboarding and leave steps built. Click Build on any role with something Missing.',
       ]},
       { title: 'Each role', where: 'Team > Role Checklists', view: 'shifts', sub: 'role-checklists', items: [
         'The head of each department adds the extra steps its roles need - their training and tools. Set department heads in Company Settings > Departments first.',

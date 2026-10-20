@@ -842,7 +842,7 @@ function OwnersCard({ entityId, people, toastOk, toastErr }) {
   return (
     <section style={{ ...card, padding: 18, marginBottom: 18 }}>
       <div style={{ marginBottom: 14 }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: FONT, color: 'var(--wk-ink)' }}>Who Owns Each Role</h3>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: FONT, color: 'var(--wk-ink)' }}>Role Owners</h3>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
           Manager and Employee steps go to each person&apos;s reports-to and to the person. HR steps go to the company&apos;s HR contact{data.hrContact ? ` (${nameOf(data.hrContact)})` : ''} first.
           {entityId ? ' A role left blank here uses the default.' : ''}
@@ -1281,13 +1281,6 @@ export function ChecklistSettings({ entityId = '', entities = [], toastOk, toast
   const tpl = (templates || []).find(t => t.kind === kind);
   const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'promotion', label: 'Promotion' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }];
   const companyName = entityId ? (entities.find(e => e.id === entityId)?.name || 'This company') : '';
-  async function customize() {
-    try {
-      await api.copyChecklistTemplates({ kinds: [kind], from_entity_id: '', to_entity_ids: [entityId] });
-      setReloadKey(k => k + 1);
-      toastOk('This company now has its own copy - change any step below.');
-    } catch (e) { toastErr(e?.message || 'Could not make the copy.'); }
-  }
   return (
     <div style={{ fontFamily: FONT }}>
       {/* What these settings apply to, stated once at the top. */}
@@ -1297,23 +1290,26 @@ export function ChecklistSettings({ entityId = '', entities = [], toastOk, toast
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>{entityId ? `Checklists For ${companyName}` : 'Checklist Library'}</div>
           <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
             {entityId
-              ? 'Use the Checklist Library as it is, or make this company\'s own copy and change it. Each role adds its own steps on top - Roles tab > pick a role > Checklists (department heads also have Team > Role Checklists).'
-              : 'The standard steps every company starts from. A company uses them as they are or makes its own copy in Company Settings > Checklists.'}
+              ? 'Each role builds its own onboarding, promotion, offboarding and leave steps (Roles tab > a role > Checklists). Below: which roles are built and what is still missing. Steps every hire gets, whatever the role, are in Global Settings > Hiring > Checklist Library.'
+              : 'The standard steps every new checklist starts with, whatever the role. Each role\'s own steps are built on the role (Company Settings > Roles > a role > Checklists).'}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {entityId && <button onClick={() => setCopying('from')} style={ghostBtn}><Copy size={13} /> Copy From…</button>}
-          {entities.length > (entityId ? 1 : 0) && <button onClick={() => setCopying('to')} style={ghostBtn}><Copy size={13} /> Copy To Other Companies…</button>}
-        </div>
+        {!entityId && entities.length > 0 && (
+          <button onClick={() => setCopying('to')} style={ghostBtn}><Copy size={13} /> Copy To Companies…</button>
+        )}
       </section>
 
       <OwnersCard key={entityId || 'default'} entityId={entityId} people={people} toastOk={toastOk} toastErr={toastErr} />
 
+      {/* A company's own steps are its roles' (Pranshu, Oct 20: "we are
+          already adding phase and steps according to role ... just see an
+          audit here"). The library keeps the steps every hire gets. */}
+      {entityId ? <RoleAudit entityId={entityId} companyName={companyName} kinds={kinds} toastOk={toastOk} toastErr={toastErr} /> : (
       <section style={{ ...card, padding: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
           <div style={{ flex: '1 1 240px' }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Steps</h3>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>What every new checklist is built from.</p>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Steps Every Hire Gets</h3>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>Added to every checklist, before the role&apos;s own steps.</p>
           </div>
           <div className="scroll-tabs" role="tablist" aria-label="Checklist kind"
             style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)', maxWidth: '100%' }}>
@@ -1332,12 +1328,6 @@ export function ChecklistSettings({ entityId = '', entities = [], toastOk, toast
             })}
           </div>
         </div>
-        {tpl && entityId && tpl.inherited && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', marginBottom: 14, borderRadius: 'var(--wk-r)', background: 'var(--wk-brand-tint)' }}>
-            <span style={{ flex: 1, minWidth: 220, fontSize: 13, color: 'var(--wk-ink)' }}>Using the Checklist Library&apos;s steps as they are.</span>
-            <button className="primary-btn" onClick={customize} style={{ fontSize: 12.5 }}>Make A Copy For This Company</button>
-          </div>
-        )}
         {templates === null && <SkeletonBlocks count={3} height={56} />}
         {templates === false && <div style={{ fontSize: 13, color: 'var(--wk-dim)' }}>Could not load the steps.</div>}
         {tpl && (
@@ -1345,11 +1335,104 @@ export function ChecklistSettings({ entityId = '', entities = [], toastOk, toast
             onSaved={saved => setTemplates(prev => prev.map(t => t.kind === saved.kind ? saved : t))} />
         )}
       </section>
+      )}
       {copying && (
         <CopyStepsModal direction={copying} entityId={entityId} entities={entities} kinds={kinds} kind={kind}
           onClose={() => setCopying('')} onDone={() => { setCopying(''); setReloadKey(k => k + 1); }} toastOk={toastOk} toastErr={toastErr} />
       )}
     </div>
+  );
+}
+
+// Company Settings > Checklists: is every role's checklist built? One row per
+// role the company offers (its own and the shared ones), a cell per checklist
+// - its steps, or Missing - and Build opens that role's steps right here.
+function RoleAudit({ entityId, companyName, kinds, toastOk, toastErr }) {
+  const [roles, setRoles] = useState(null);
+  const [gapsOnly, setGapsOnly] = useState(false);
+  const [building, setBuilding] = useState(null);      // { role, kind }
+  useEffect(() => {
+    api.getRoleChecklistRoles()
+      .then(r => setRoles((r.roles || []).filter(x => !x.companyId || x.companyId === entityId)))
+      .catch(() => setRoles(false));
+  }, [entityId]);
+  if (roles === null) return <SkeletonBlocks count={3} height={48} />;
+  if (roles === false) return <div style={{ ...card, padding: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load the roles.</div>;
+  const missing = r => kinds.filter(k => !(r.counts?.[k.value] > 0));
+  const done = roles.filter(r => !missing(r).length).length;
+  const shown = (gapsOnly ? roles.filter(r => missing(r).length) : roles)
+    .slice().sort((a, b) => missing(b).length - missing(a).length || a.roleName.localeCompare(b.roleName));
+  const setCounts = (roleId, counts) => setRoles(rs => rs.map(r => (r.roleId === roleId ? { ...r, counts } : r)));
+  const cell = { padding: '10px 12px', borderBottom: '1px solid var(--wk-line2)', fontSize: 13, verticalAlign: 'middle' };
+  return (
+    <section style={{ ...card, padding: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ flex: '1 1 260px' }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Role Checklists</h3>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>
+            {roles.length
+              ? <><b style={{ color: done === roles.length ? 'var(--wk-green)' : 'var(--wk-ink)' }}>{done} of {roles.length}</b> roles at {companyName} have all four checklists built.</>
+              : `${companyName} has no roles yet - add them on the Roles tab.`}
+          </p>
+        </div>
+        {roles.length > 0 && done < roles.length && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--wk-ink)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={gapsOnly} onChange={e => setGapsOnly(e.target.checked)} /> Only Roles With Something Missing
+          </label>
+        )}
+      </div>
+      {roles.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT }}>
+            <thead>
+              <tr>
+                {['Role', ...kinds.map(k => k.label), ''].map((h, i) => (
+                  <th key={i} style={{ ...cell, textAlign: 'left', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-dim)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map(r => {
+                const gaps = missing(r);
+                return (
+                  <tr key={r.roleId}>
+                    <td style={cell}>
+                      <div style={{ fontWeight: 700, color: 'var(--wk-ink)' }}>{r.roleName}</div>
+                      <div style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{[r.department, r.companyId ? '' : 'Shared role'].filter(Boolean).join(' · ')}</div>
+                    </td>
+                    {kinds.map(k => {
+                      const n = r.counts?.[k.value] || 0;
+                      return (
+                        <td key={k.value} style={cell}>
+                          {n > 0
+                            ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontWeight: 600 }}><CheckCircle2 size={14} /> {n} {n === 1 ? 'step' : 'steps'}</span>
+                            : <button onClick={() => setBuilding({ role: r, kind: k.value })} title={`Build the ${k.label.toLowerCase()} steps for ${r.roleName}`}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-orange)', fontWeight: 600, fontFamily: FONT, fontSize: 13 }}>
+                                <AlertTriangle size={14} /> Missing
+                              </button>}
+                        </td>
+                      );
+                    })}
+                    <td style={{ ...cell, textAlign: 'right' }}>
+                      <button className={gaps.length ? 'primary-btn' : undefined} style={gaps.length ? { fontSize: 12.5 } : ghostBtn}
+                        onClick={() => setBuilding({ role: r, kind: gaps[0]?.value || 'onboarding' })}>
+                        {gaps.length ? 'Build' : 'Open'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {building && (
+        <Modal title={`${building.role.roleName} - Checklist Steps`} onClose={() => setBuilding(null)}>
+          <RoleStepsEditor roleId={building.role.roleId} roleName={building.role.roleName} initialKind={building.kind}
+            toastOk={toastOk} toastErr={toastErr} onCounts={c => setCounts(building.role.roleId, c)} />
+        </Modal>
+      )}
+    </section>
   );
 }
 
@@ -1370,9 +1453,9 @@ const countsOf = d => Object.fromEntries((d?.templates || []).map(t => [t.kind, 
 // Checklists and by Company Settings > Roles (a role's Checklists tab, and
 // the Checklists button on shared roles). `onCounts` gets {kind: steps} after
 // the load and after every save so a parent can refresh its counts.
-export function RoleStepsEditor({ roleId, roleName, toastOk, toastErr, onCounts, heading = null }) {
+export function RoleStepsEditor({ roleId, roleName, toastOk, toastErr, onCounts, heading = null, initialKind = 'onboarding' }) {
   const [data, setData] = useState(null);
-  const [kind, setKind] = useState('onboarding');
+  const [kind, setKind] = useState(initialKind);
   const [meta, setMeta] = useState(null);
   useEffect(() => { api.getChecklistMeta().then(setMeta).catch(() => setMeta(null)); }, []);
   useEffect(() => {

@@ -97,7 +97,7 @@ describe('MyChecklistSteps', () => {
 describe('ChecklistSettings', () => {
   it('renders the owners and the template editor', async () => {
     render(<ChecklistSettings entities={[{ id: 'co-a', name: 'Greens' }]} toastOk={() => {}} toastErr={() => {}} />);
-    expect(await screen.findByText('Who Owns Each Role')).toBeInTheDocument();
+    expect(await screen.findByText('Role Owners')).toBeInTheDocument();
     expect(await screen.findByText('Profile Complete')).toBeInTheDocument();
     expect(screen.getByText('When the checklist starts')).toBeInTheDocument();
     // Read first, edit on click: the step opens its fields in place.
@@ -139,15 +139,20 @@ describe('Who gets a step', () => {
 });
 
 describe('Checklists by company and role', () => {
-  it('a company on the library offers its own copy, and copies to other companies', async () => {
-    const entities = [{ id: 'co-a', name: 'Greens' }, { id: 'co-b', name: 'MCD' }];
-    render(<ChecklistSettings entityId="co-a" entities={entities} toastOk={() => {}} toastErr={() => {}} />);
-    expect(await screen.findByText('Checklists For Greens')).toBeInTheDocument();
-    fireEvent.click(await screen.findByText('Make A Copy For This Company'));
-    await waitFor(() => expect(api.copyChecklistTemplates).toHaveBeenCalledWith({ kinds: ['onboarding'], from_entity_id: '', to_entity_ids: ['co-a'] }));
-    fireEvent.click(screen.getByText('Copy To Other Companies…'));
-    expect(await screen.findByText("Copy Greens's Steps To Other Companies")).toBeInTheDocument();
-    expect(screen.getByLabelText('MCD')).toBeInTheDocument();
+  // Pranshu, Oct 20: a company's checklists are its roles' - the company tab
+  // audits which roles are built instead of holding steps of its own.
+  it('a company shows which roles are built and what is missing, and builds one in place', async () => {
+    render(<ChecklistSettings entityId="co-a" entities={[{ id: 'co-a', name: 'Greens' }]} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Role Checklists')).toBeInTheDocument();
+    expect(screen.getByText('Role Owners')).toBeInTheDocument();
+    expect(screen.getByText('0 of 1')).toBeInTheDocument();
+    expect(screen.getByText('Accounting Associate')).toBeInTheDocument();
+    expect(screen.getByText('1 step')).toBeInTheDocument();
+    expect(screen.getAllByText('Missing')).toHaveLength(3);
+    expect(screen.queryByText('Profile Complete')).not.toBeInTheDocument();     // no company steps here
+    fireEvent.click(screen.getByText('Build'));
+    expect(await screen.findByText('Accounting Associate - Checklist Steps')).toBeInTheDocument();
+    expect(await screen.findByText(/No extra steps/)).toBeInTheDocument();      // opens on the first one missing
   });
 
   it("the role editor lists the head's roles and the role's steps", async () => {
