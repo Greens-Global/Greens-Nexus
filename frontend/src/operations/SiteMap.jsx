@@ -16,6 +16,7 @@
 //
 // Loaded lazily from FacilityOperations: three.js stays out of the Operations chunk.
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Layers } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState, SkeletonBlocks } from '../components/AsyncState';
 import WidgetBoundary from '../components/WidgetBoundary';
@@ -23,6 +24,7 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 import { Modal } from '../tasks/components';
 import { PropertyTicketComposer, PropertyTicketDrawer } from '../asset/components/maintenance/ticketMounts';
 import { SiteModelPanel, siteModelImages } from '../sitemodel/SiteModelPanel.jsx';
+import SectionPicker from './SectionPicker';
 import { DAYS_STOPS, LAYERS, MAINT, MARKET, QUIET, UNKNOWN, hoverFact, layerColors, layerCounts, daysVacantOf, occupancyOf } from './siteMapLayers';
 
 const LAYER_KEY = 'nexus.ops.siteMap.layer';
@@ -291,9 +293,8 @@ export default function SiteMap({ facility }) {
     <div>
       <div className="dash-card" style={{ marginBottom: 12, padding: '8px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div className="ops-pills" role="group" aria-label="Layer">
-            {LAYERS.map((l) => <button type="button" key={l.key} className="ops-pill" aria-pressed={layer === l.key} onClick={() => setLayer(l.key)}>{l.label}</button>)}
-          </div>
+          <SectionPicker label="Layer" icon={Layers} value={layer} onChange={setLayer}
+            options={LAYERS.map((l) => ({ value: l.key, label: l.label }))} />
           <span style={{ fontSize: 12, ...muted, flex: '1 1 240px', minWidth: 0 }}>{hint}</span>
           <button type="button" className="secondary-btn" onClick={() => setSettings(true)}>Customer Link Settings</button>
         </div>

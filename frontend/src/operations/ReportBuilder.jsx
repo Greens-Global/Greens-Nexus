@@ -6,11 +6,12 @@
 // (GET /ops-reports/builder/registry) and refuses anything else.
 // Lazy-loaded from Reports.jsx.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, Play, Plus, Save, Send, Share2, Trash2, X } from 'lucide-react';
+import { Download, Group, Play, Plus, Save, Send, Share2, Sparkles, Trash2, X } from 'lucide-react';
 import { api, saveBlob } from '../api';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import ReportTable from './ReportTable';
+import { MultiPicker, SectionPicker } from './SectionPicker';
 
 const PRESETS = [
   { name: 'Rent per Occupied Sq Ft', spec: { dataset: 'units', dimensions: ['facility'], period: 'this-month',
@@ -209,8 +210,8 @@ export default function ReportBuilder({ scope, facilities }) {
   const update = (patch) => setSpec((s) => ({ ...s, ...patch }));
   const setMeasure = (i, patch) => update({ measures: spec.measures.map((m, j) => (j === i ? { ...m, ...patch } : m)) });
   const setFormula = (i, patch) => update({ formulas: spec.formulas.map((f, j) => (j === i ? { ...f, ...patch } : f)) });
-  const toggleDim = (k) => update({ dimensions: spec.dimensions.includes(k) ? spec.dimensions.filter((d) => d !== k)
-    : spec.dimensions.length < registry.limits.dimensions ? [...spec.dimensions, k] : spec.dimensions });
+  // Keeps the order things were picked in; never more than the server's cap.
+  const setDims = (list) => update({ dimensions: list.slice(0, registry.limits.dimensions) });
 
   const loadSpec = (s, report = null) => {
     setSpec({ ...blank(s.dataset), ...s, filters: s.filters || [] });
@@ -237,8 +238,9 @@ export default function ReportBuilder({ scope, facilities }) {
           </div>
         </div>
         <div className="ops-rep-bar" style={{ flexWrap: 'wrap' }}>
-          <span className="ops-note" style={{ margin: 0 }}>Start From</span>
-          {PRESETS.map((p) => <button key={p.name} type="button" className="ops-chip" onClick={() => loadSpec(p.spec)}>{p.name}</button>)}
+          <SectionPicker label="Start From" icon={Sparkles} value="" placeholder="Pick a Preset"
+            onChange={(name) => { const p = PRESETS.find((x) => x.name === name); if (p) loadSpec(p.spec); }}
+            options={PRESETS.map((p) => ({ value: p.name, label: p.name }))} />
         </div>
 
         <div className="ops-form" style={{ marginTop: 6 }}>
@@ -261,12 +263,8 @@ export default function ReportBuilder({ scope, facilities }) {
             </>
           )}
           <div style={{ gridColumn: '1 / -1' }}>
-            <div className="ops-drill-h">Group By (up to {registry.limits.dimensions})</div>
-            <div className="ops-pills">
-              {ds.dimensions.map((d) => (
-                <button key={d.key} type="button" className="ops-pill" aria-pressed={spec.dimensions.includes(d.key)} onClick={() => toggleDim(d.key)}>{d.label}</button>
-              ))}
-            </div>
+            <MultiPicker label={`Group By (up to ${registry.limits.dimensions})`} icon={Group} value={spec.dimensions} onChange={setDims}
+              max={registry.limits.dimensions} emptyText="No Grouping" options={ds.dimensions.map((d) => ({ value: d.key, label: d.label }))} />
           </div>
         </div>
 

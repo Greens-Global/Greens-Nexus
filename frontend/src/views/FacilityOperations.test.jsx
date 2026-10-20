@@ -264,7 +264,7 @@ describe('Operations module', () => {
   it('exports a list from the screen and a report from Cubby', async () => {
     facilityOpsReport.mockResolvedValue({ title: 'Rent Roll', asOf: '2026-10-13', columns: ['Unit'], rows: [['A12']] });
     render(<FacilityOperations activeSub="reports" onSubChange={() => {}} />);
-    fireEvent.click(await screen.findByRole('tab', { name: 'Quick Exports' }));
+    fireEvent.change(await screen.findByLabelText('View'), { target: { value: 'exports' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
     expect(downloadCsv.mock.calls[0][0]).toBe('Tenants Past Due - All Facilities - 10-13-2026.csv');
     expect(downloadCsv.mock.calls[0][2]).toHaveLength(2);

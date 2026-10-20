@@ -77,7 +77,7 @@ describe('Operations > Site Map', () => {
 
   it('opens on the Illustrated look with the panel folded: Inventory, the unit, then closed lists', async () => {
     render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
-    expect(await screen.findByRole('button', { name: 'Occupancy' })).toBeTruthy();
+    expect(await screen.findByLabelText('Layer')).toHaveProperty('value', 'occupancy');
     expect(calls.styles.at(-1)).toBe('illustrated');
     for (const t of ['Needs Attention (1)', 'Not on the Map (1)', 'Sources']) {
       expect(screen.getByText(t).closest('details').open).toBe(false);
@@ -92,22 +92,22 @@ describe('Operations > Site Map', () => {
 
   it('switches layers and their legends; tiles and colors read one status', async () => {
     render(<SiteMap facility={{ id: 'fac_1', shortName: 'Escondido' }} />);
-    expect(await screen.findByRole('button', { name: 'Occupancy' })).toBeTruthy();
+    expect(await screen.findByLabelText('Layer')).toHaveProperty('value', 'occupancy');
     // the leased-but-unrentable unit is leased, not out of service
     await waitFor(() => expect(calls.colors.at(-1)).toMatchObject({ C001: '#5fae7d', C214: '#e0b45a', C002: '#d65a4c' }));
     const tiles = screen.getByText(/^Inventory/).closest('section');
     expect(within(tiles).getByText('Leased').parentElement.textContent).toBe('1Leased');
     expect(within(tiles).getByText('Out of Service').parentElement.textContent).toBe('1Out of Service');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Days Vacant' }));
+    fireEvent.change(screen.getByLabelText('Layer'), { target: { value: 'days' } });
     await waitFor(() => expect(calls.colors.at(-1).C001).toBe('#cfcac0'));
     expect(screen.getByText('180+')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Market' }));
+    fireEvent.change(screen.getByLabelText('Layer'), { target: { value: 'market' } });
     await waitFor(() => expect(calls.colors.at(-1).C214).toBe('#2563eb'));
     expect(screen.getByText(/Under Market \(1\)/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Maintenance' }));
+    fireEvent.change(screen.getByLabelText('Layer'), { target: { value: 'maintenance' } });
     expect((await screen.findAllByText(/Maintenance layer not connected yet/)).length).toBeGreaterThan(0);
   });
 
