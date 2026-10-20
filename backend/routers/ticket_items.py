@@ -37,7 +37,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, or_
+from sqlalchemy import false, func, or_
 from sqlalchemy.orm import Session
 
 import auth
@@ -55,6 +55,8 @@ router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 HELD_CHECKOUT_STATES = ("pending_receipt", "allocated")
 MAX_LINKS_PER_TICKET = 20
 OPTION_LIMIT = 50
+OTHER_TICKETS_SHOWN = 10    # per item in the drawer; the count is separate
+BY_ITEM_DEFAULT, BY_ITEM_MAX = 50, 200
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
@@ -100,18 +102,42 @@ def _company_fits(db: Session, item_company: str, ticket_company: str) -> bool:
     return not auth._company_walls_on(db)
 
 
+def _company_filter(q, db: Session, scope, ticket_company: str):
+    """_company_fits and auth.company_ok, in SQL - so a LIMIT applied after
+    it still returns a full page of the right company's items."""
+    co = func.coalesce(models.Item.company_id, "")
+    walls = auth._company_walls_on(db)
+    if scope is not None:
+        q = q.filter(co.in_(sorted(scope)))
+    tc = (ticket_company or "").strip()
+    if walls:
+        q = q.filter(co == tc) if tc else q.filter(false())
+    elif tc:
+        q = q.filter(or_(co == tc, co == ""))
+    return q
+
+
+def _like(needle: str) -> str:
+    """A LIKE pattern matching `needle` literally (its % and _ backslash-escaped)."""
+    esc = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{esc}%"
+
+
 def _label(name: str, serial: str) -> str:
     return f"{name} ({serial})" if serial else (name or "an item")
 
 
 def _item_dict(i: Optional[models.Item], *, holder: str = "", fallback_name: str = "",
-               item_id: str = "", mine: bool = False) -> dict:
+               item_id: str = "", mine: bool = False, restricted: bool = False) -> dict:
     """What a ticket shows about an item - identity and who has it, nothing
-    financial (no value, no custom fields beyond an asset tag)."""
-    if i is None:
-        return {"id": item_id, "name": fallback_name or "Removed Item", "serialNumber": "", "assetTag": "",
-                "itemType": "", "makeModel": "", "assignedToEmail": "", "assignedToName": "",
-                "heldBy": "", "status": "", "removed": True, "deleted": True, "mine": False}
+    financial (no value, no custom fields beyond an asset tag). `i` None =
+    the row is gone; `restricted` = it is behind the viewer's company wall
+    (the ticket moved company) - both show the stored name and nothing else."""
+    if i is None or restricted:
+        return {"id": item_id or (i.id if i is not None else ""), "name": fallback_name or "Removed Item",
+                "serialNumber": "", "assetTag": "", "itemType": "", "makeModel": "", "assignedToEmail": "",
+                "assignedToName": "", "heldBy": "", "status": "", "removed": i is None,
+                "deleted": i is None, "restricted": i is not None, "mine": False}
     cf = i.custom_fields if isinstance(i.custom_fields, dict) else {}
     return {
         "id": i.id, "name": i.name or "", "serialNumber": i.serial_number or "",
@@ -122,7 +148,8 @@ def _item_dict(i: Optional[models.Item], *, holder: str = "", fallback_name: str
         "makeModel": " ".join(x for x in ((i.make or "").strip(), (i.model or "").strip()) if x),
         "assignedToEmail": (i.assigned_to_email or "").lower(), "assignedToName": i.assigned_to_name or "",
         "heldBy": holder or (i.assigned_to_email or "").lower(),
-        "status": i.status or "", "removed": False, "deleted": bool(i.deleted_at), "mine": mine,
+        "status": i.status or "", "removed": False, "deleted": bool(i.deleted_at), "restricted": False,
+        "mine": mine,
     }
 
 
@@ -132,19 +159,39 @@ def _ticket_brief(t) -> dict:
             "createdAt": t.created_at or ""}
 
 
-def _visible_tickets(db: Session, user: dict, ticket_ids: set) -> list:
-    """The tickets among `ticket_ids` the caller may see - ListScope, the same
-    rule as the ticket list (company wall in SQL, participant match off the
-    desk, then the exact admits() guard)."""
-    if not ticket_ids:
-        return []
+def _linked_tickets(db: Session, user: dict, item_ids, *, exclude: str = "",
+                    limit: int = OTHER_TICKETS_SHOWN) -> dict:
+    """{item_id: (count, newest `limit` briefs)} of the tickets linked to
+    these items that the caller may see - ListScope, the same rule as the
+    ticket list (company wall in SQL, participant match off the desk, then
+    the exact admits() guard on column-only rows). Deleted tickets are
+    dropped by the database.py hook. `exclude` = the ticket being viewed."""
+    item_ids = sorted({x for x in item_ids or [] if x})
+    if not item_ids:
+        return {}
+    TT, L = models.TaskTicket, models.TicketItemLink
+    cols = (TT.id, TT.code, TT.subject, TT.status, TT.priority, TT.requester_email, TT.created_at,
+            TT.assignee_email, TT.watcher_emails, TT.created_by_email, TT.approver_email, TT.approval_status)
     scope = T.ListScope(db, user)
-    q = scope.apply(db.query(models.TaskTicket).filter(models.TaskTicket.id.in_(sorted(ticket_ids))))
-    return [t for t in q.all() if scope.admits(t)]
+    q = db.query(L.item_id, *cols).join(TT, TT.id == L.ticket_id).filter(L.item_id.in_(item_ids))
+    if exclude:
+        q = q.filter(L.ticket_id != exclude)
+    out = {}
+    for r in scope.apply(q).order_by(TT.created_at.desc(), TT.id).all():
+        if not scope.admits(r):
+            continue
+        n, briefs = out.get(r.item_id, (0, []))
+        if len(briefs) < limit:
+            briefs.append(_ticket_brief(r))
+        out[r.item_id] = (n + 1, briefs)
+    return out
 
 
 def _is_desk(db: Session, user: dict) -> bool:
-    return ticket_roles.can_work_queue(user, db)
+    """can_work_queue, asked once per request (the user dict is per request)."""
+    if "_ticket_desk" not in user:
+        user["_ticket_desk"] = ticket_roles.can_work_queue(user, db)
+    return user["_ticket_desk"]
 
 
 def _may_link(db: Session, user: dict, t: models.TaskTicket) -> bool:
@@ -166,7 +213,7 @@ def check_items(db: Session, user: dict, item_ids, *, ticket_company: str, reque
     if not ids:
         return []
     if len(ids) > MAX_LINKS_PER_TICKET:
-        raise HTTPException(422, f"A ticket can name at most {MAX_LINKS_PER_TICKET} items")
+        raise HTTPException(422, f"A ticket can name at most {MAX_LINKS_PER_TICKET} pieces of equipment")
     rows = {i.id: i for i in _live(db.query(models.Item).filter(models.Item.id.in_(ids))).all()}
     scope = auth.company_scope(user, db)
     desk = _is_desk(db, user)
@@ -175,9 +222,9 @@ def check_items(db: Session, user: dict, item_ids, *, ticket_company: str, reque
     for iid in ids:
         i = rows.get(iid)
         if i is None or not auth.company_ok(i.company_id or "", scope):
-            raise HTTPException(404, "Equipment not found")
+            raise HTTPException(404, "That equipment was not found - remove it and pick again")
         if not _company_fits(db, i.company_id or "", ticket_company):
-            raise HTTPException(422, f"{i.name} belongs to a different company than this ticket")
+            raise HTTPException(422, f"That equipment ({i.name}) belongs to a different company than this ticket")
         if not desk and iid not in held:
             raise HTTPException(403, "You can only link equipment assigned to you or checked out by you")
         out.append(i)
@@ -190,7 +237,7 @@ def _add_links(db: Session, t: models.TaskTicket, items: list, actor: str) -> in
             .filter(models.TicketItemLink.ticket_id == t.id).all()}
     fresh = [i for i in items if i.id not in have]
     if len(have) + len(fresh) > MAX_LINKS_PER_TICKET:
-        raise HTTPException(422, f"A ticket can name at most {MAX_LINKS_PER_TICKET} items")
+        raise HTTPException(422, f"A ticket can name at most {MAX_LINKS_PER_TICKET} pieces of equipment")
     now = now_iso()
     for i in fresh:
         db.add(models.TicketItemLink(id=gen_id(), ticket_id=t.id, item_id=i.id, item_name=i.name or "",
@@ -214,27 +261,20 @@ def _links_payload(db: Session, user: dict, t: models.TaskTicket) -> dict:
     ids = [lk.item_id for lk in links]
     rows = ({i.id: i for i in db.query(models.Item).filter(models.Item.id.in_(ids)).all()} if ids else {})
     holders = _checkout_holders(db, ids)
-    # Other tickets for each item - one query for every link, one for the
-    # tickets, then ListScope decides what this caller may see of them.
-    others = {}
-    if ids:
-        for iid, tid in (db.query(models.TicketItemLink.item_id, models.TicketItemLink.ticket_id)
-                         .filter(models.TicketItemLink.item_id.in_(ids),
-                                 models.TicketItemLink.ticket_id != t.id).all()):
-            others.setdefault(iid, set()).add(tid)
-    visible = {x.id: x for x in _visible_tickets(db, user, set().union(*others.values()) if others else set())}
+    others = _linked_tickets(db, user, ids, exclude=t.id)
+    scope = auth.company_scope(user, db)
     me = (user.get("email") or "").lower()
     desk = _is_desk(db, user)
     may_link = _may_link(db, user, t)
     out = []
     for lk in links:
-        d = _item_dict(rows.get(lk.item_id), holder=holders.get(lk.item_id, ""), fallback_name=lk.item_name,
-                       item_id=lk.item_id)
-        tickets_ = sorted((_ticket_brief(visible[x]) for x in others.get(lk.item_id, ()) if x in visible),
-                          key=lambda b: b["createdAt"], reverse=True)
+        i = rows.get(lk.item_id)
+        d = _item_dict(i, holder=holders.get(lk.item_id, ""), fallback_name=lk.item_name, item_id=lk.item_id,
+                       restricted=i is not None and not auth.company_ok(i.company_id or "", scope))
+        count, briefs = others.get(lk.item_id, (0, []))
         d.update({"linkedBy": lk.linked_by or "", "linkedAt": lk.linked_at or "",
                   "canUnlink": desk or (may_link and (lk.linked_by or "").lower() == me),
-                  "otherTickets": tickets_, "otherCount": len(tickets_)})
+                  "otherTickets": briefs, "otherCount": count})
         out.append(d)
     return {"items": out, "canLink": may_link, "desk": desk}
 
@@ -268,24 +308,24 @@ def item_options(ticket_id: str = "", company_id: str = "", requester: str = "",
     query = _live(db.query(I))
     needle = (q or "").strip().lower()
     if needle:
-        like = f"%{needle}%"
-        query = query.filter(or_(*[func.lower(func.coalesce(c, "")).like(like)
+        like = _like(needle)
+        query = query.filter(or_(*[func.lower(func.coalesce(c, "")).like(like, escape="\\")
                                    for c in (I.name, I.serial_number, I.make, I.model, I.assigned_to_name, I.item_type)]))
+    query = _company_filter(query, db, scope, ticket_company)
     if not desk:
         if not held:
             return {"items": [], "desk": False}
         query = query.filter(I.id.in_(sorted(held)))
-    # The requester's own first, then by name; a little over the limit is
-    # read so the company filter below still leaves a full page.
-    rows = query.order_by(I.name).limit(OPTION_LIMIT * 4).all()
-    rows = [i for i in rows if auth.company_ok(i.company_id or "", scope) and _company_fits(db, i.company_id or "", ticket_company)]
+    # The company wall and the ticket's company are in SQL above, so the
+    # LIMIT leaves a full page; _company_fits stays as the exact final guard.
+    rows = [i for i in query.order_by(I.name).limit(OPTION_LIMIT).all()
+            if _company_fits(db, i.company_id or "", ticket_company)]
     if desk and not needle:
         # Make sure the requester's own are in the page even in a big catalog.
         mine_missing = [x for x in held if x not in {i.id for i in rows}]
         if mine_missing:
-            extra = _live(db.query(I).filter(I.id.in_(mine_missing))).all()
-            rows += [i for i in extra if auth.company_ok(i.company_id or "", scope)
-                     and _company_fits(db, i.company_id or "", ticket_company)]
+            extra = _company_filter(_live(db.query(I).filter(I.id.in_(mine_missing))), db, scope, ticket_company).all()
+            rows += [i for i in extra if _company_fits(db, i.company_id or "", ticket_company)]
     rows.sort(key=lambda i: (0 if held.get(i.id) == req_email else 1 if i.id in held else 2, (i.name or "").lower()))
     holders = _checkout_holders(db, [i.id for i in rows[:OPTION_LIMIT]])
     return {"items": [_item_dict(i, holder=held.get(i.id) or holders.get(i.id, ""), mine=held.get(i.id) == req_email)
@@ -294,19 +334,19 @@ def item_options(ticket_id: str = "", company_id: str = "", requester: str = "",
 
 
 @router.get("/task-tickets/by-item/{item_id}")
-def tickets_for_item(item_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Every ticket linked to this item that the caller may see (ListScope),
-    newest first - the read the item screen uses for an item's ticket
-    history. 404 for an item behind the company wall."""
+def tickets_for_item(item_id: str, limit: int = BY_ITEM_DEFAULT, user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """The tickets linked to this item that the caller may see (ListScope),
+    newest first, at most `limit` (max 200) with the full `count` - the read
+    the item screen uses for an item's ticket history. 404 for an item
+    behind the company wall."""
     item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if item is None:
         raise HTTPException(404, "Item not found")
     auth.assert_company(item.company_id or "", user, db)
-    ids = {r.ticket_id for r in db.query(models.TicketItemLink.ticket_id)
-           .filter(models.TicketItemLink.item_id == item_id).all()}
-    rows = sorted((_ticket_brief(t) for t in _visible_tickets(db, user, ids)),
-                  key=lambda b: b["createdAt"], reverse=True)
-    return {"item": _item_dict(item), "tickets": rows, "count": len(rows)}
+    limit = max(1, min(int(limit or BY_ITEM_DEFAULT), BY_ITEM_MAX))
+    count, briefs = _linked_tickets(db, user, [item_id], limit=limit).get(item_id, (0, []))
+    return {"item": _item_dict(item), "tickets": briefs, "count": count}
 
 
 @router.get("/task-tickets/{ticket_id}/items")

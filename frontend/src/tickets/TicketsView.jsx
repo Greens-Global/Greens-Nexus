@@ -68,6 +68,7 @@ import { registerTour } from '../lib/tours';
 import SavedReplyPicker from './SavedReplyPicker';
 import TicketReports from './TicketReports';
 import { TicketEquipmentIntake, TicketEquipment } from './TicketEquipment';
+import { equipmentError } from './ticketEquipmentError';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -2123,6 +2124,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // this is missing").
   const [showErrors, setShowErrors] = useState(!!fromTask);
   const [busy, setBusy] = useState(false);
+  const [equipErr, setEquipErr] = useState('');   // TicketEquipmentIntake's server refusal
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setTfVal = (k, v) => setTf((p) => ({ ...p, [k]: v }));
   // The admin's saved type order arrives after mount (useTicketConfig). If it
@@ -2368,7 +2370,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         window.dispatchEvent(new CustomEvent('nexus:tickets-changed', { detail: { propertyId: created.propertyAssetId } }));
       }
       onClose();
-    } catch (e) { appDialog.alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
+    } catch (e) { if (equipmentError(e)) setEquipErr(equipmentError(e)); else appDialog.alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
   };
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
@@ -2625,8 +2627,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           text={`${form.subject} ${form.description || ''}`} units={propUnits} style={sel} />
       )}
 
-      <TicketEquipmentIntake value={form.items || []} onChange={(v) => set('items', v)}
-        requester={requester || ''} companyId={form.companyId || ''} />
+      <TicketEquipmentIntake value={form.items || []} onChange={(v) => { setEquipErr(''); set('items', v); }}
+        requester={requester || ''} companyId={form.companyId || ''} error={equipErr} />
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>

@@ -54,12 +54,15 @@ export function EquipmentPicker({ params, takenIds = [], onPick, onClose, busy =
   const { loading, items, error } = useItemOptions({ ...params, q }, true);
   const shown = items.filter((i) => !takenIds.includes(i.id));
   return (
-    <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, background: NX.surface, padding: 8, marginTop: 6 }}>
+    // Escape anywhere in the picker (the search box or a result row) closes
+    // just the picker: defaultPrevented tells the modal's Escape layer
+    // (useEscapeLayer) to leave the Create a Ticket form open.
+    <div onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose?.(); } }}
+      style={{ border: `1px solid ${NX.border}`, borderRadius: 10, background: NX.surface, padding: 8, marginTop: 6 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <Search size={14} style={{ color: NX.faint, flexShrink: 0 }} />
         <input ref={inputRef} aria-label="Search equipment" value={q} onChange={(e) => setQ(e.target.value)}
           placeholder="Search by name, serial number or person…"
-          onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose?.(); } }}
           style={{ ...inputStyle, flex: 1 }} />
         <button type="button" onClick={onClose} style={btn('ghost')}>Done</button>
       </div>
@@ -104,6 +107,7 @@ function ItemChip({ item, onRemove }) {
         {(item.assignedToName || item.assignedToEmail) && <span style={{ color: NX.faint }}> · {item.assignedToName || item.assignedToEmail}</span>}
       </span>
       {gone && <span style={{ ...chip(NX.faint, NX.border2), fontSize: 10.5, padding: '0 6px' }}>{item.removed ? 'Removed' : 'Deleted'}</span>}
+      {item.restricted && <span title="This item belongs to another company" style={{ ...chip(NX.faint, NX.border2), fontSize: 10.5, padding: '0 6px' }}>Other Company</span>}
       {onRemove && (
         <button type="button" onClick={onRemove} aria-label={`Remove ${item.name}`} title="Remove"
           style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={12} /></button>
@@ -115,27 +119,43 @@ function ItemChip({ item, onRemove }) {
 /**
  * Create a Ticket: Equipment. `value` is the picked items (objects - the
  * form submits their ids as item_ids). `requester` / `companyId` are the
- * form's, so the suggestions follow whoever the ticket is for.
+ * form's, so the suggestions follow whoever the ticket is for - and a change
+ * to either clears the picks, since what may be linked depends on both.
+ * `error`: the server's refusal of a pick (equipmentError), shown here.
  */
-export function TicketEquipmentIntake({ value = [], onChange, requester = '', companyId = '' }) {
+export function TicketEquipmentIntake({ value = [], onChange, requester = '', companyId = '', error = '' }) {
   const [open, setOpen] = useState(false);
   const picked = Array.isArray(value) ? value : [];
+  const key = `${requester || ''}|${companyId || ''}`;
+  // Which requester|company the picks were made for. A new one is noted
+  // during render (React's adjust-state-on-prop-change pattern) and the
+  // parent's list is emptied in the effect below.
+  const [seen, setSeen] = useState({ key, cleared: false });
+  if (seen.key !== key) setSeen({ key, cleared: picked.length > 0 });
+  const boxRef = useRef(null);
+  useEffect(() => {
+    if (seen.cleared && picked.length) onChange([]);
+  }, [seen]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (error) boxRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }); }, [error]);
+  const change = (next) => { if (seen.cleared) setSeen({ key, cleared: false }); onChange(next); };
   return (
-    <div style={field}>
+    <div ref={boxRef} style={field}>
       <label style={label}>Equipment</label>
       {picked.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-          {picked.map((i) => <ItemChip key={i.id} item={i} onRemove={() => onChange(picked.filter((x) => x.id !== i.id))} />)}
+          {picked.map((i) => <ItemChip key={i.id} item={i} onRemove={() => change(picked.filter((x) => x.id !== i.id))} />)}
         </div>
       )}
       {open ? (
         <EquipmentPicker params={{ requester: requester || '', company_id: companyId || '' }} takenIds={picked.map((i) => i.id)}
-          onPick={(i) => onChange([...picked, i])} onClose={() => setOpen(false)} />
+          onPick={(i) => change([...picked, i])} onClose={() => setOpen(false)} />
       ) : (
         <button type="button" onClick={() => setOpen(true)} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12 }}>
           <Plus size={13} /> Add Equipment
         </button>
       )}
+      {error && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 4 }}>{error}</div>}
+      {!error && seen.cleared && !picked.length && hint('The requester or company changed, so the equipment was cleared - pick it again.')}
       {hint('Optional - the laptop, phone or tool this is about. Yours are listed first.')}
     </div>
   );
@@ -170,6 +190,9 @@ function OtherTickets({ item }) {
               </button>
             );
           })}
+          {n > (item.otherTickets || []).length && (
+            <div style={{ fontSize: 12, color: NX.faint, padding: '2px 6px' }}>and {n - (item.otherTickets || []).length} more</div>
+          )}
         </div>
       )}
     </div>
@@ -204,7 +227,8 @@ export function TicketEquipment({ ticketId }) {
   if (error) {
     return (
       <div style={{ fontSize: 12.5, color: NX.faint }}>
-        {error}. <button type="button" onClick={retry} style={{ ...btn('ghost'), padding: '0 4px', fontSize: 12.5, color: NX.primary }}>Try Again</button>
+        <span>{error}</span>{' '}
+        <button type="button" onClick={retry} style={{ ...btn('ghost'), padding: '0 4px', fontSize: 12.5, color: NX.primary }}>Try Again</button>
       </div>
     );
   }

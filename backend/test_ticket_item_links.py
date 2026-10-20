@@ -177,6 +177,44 @@ class TicketItemLinkTests(unittest.TestCase):
         self.assertEqual(self._status(self._link, AGENT, t["id"], self.far_item), 422)
         self._link(AGENT, t["id"], self.laptop)                            # same company - fine
 
+    def test_a_big_other_company_catalog_does_not_crowd_out_mine(self):
+        """The company filter is in SQL before the LIMIT: 210 co1 items that
+        sort first must not leave a co2 agent an empty picker."""
+        self.walls_on()
+        for n in range(210):
+            self._item(f"Aaa Monitor {n:03d}", "co1")
+        self.db.commit()
+        t = self._create(FAR)                                              # a co2 ticket
+        names = [i["name"] for i in TI.item_options(ticket_id=t["id"], user=AGENT2, db=self.db)["items"]]
+        self.assertEqual(names, ["India Laptop"])
+
+    def test_search_wildcards_are_literal(self):
+        self.assertEqual(TI.item_options(q="%", user=AGENT, db=self.db)["items"], [])
+        self.assertEqual(TI.item_options(q="_", user=AGENT, db=self.db)["items"], [])
+        self.assertEqual([i["name"] for i in TI.item_options(q="gg-00002", user=AGENT, db=self.db)["items"]], ["Drill"])
+
+    def test_an_item_behind_the_viewers_wall_shows_its_name_only(self):
+        t = self._create(REQ, item_ids=[self.laptop])
+        self.walls_on()
+        row = self.db.get(models.TaskTicket, t["id"])
+        row.company_id = "co2"                                            # the ticket moved company
+        self.db.commit()
+        item = TI.ticket_items(t["id"], user=AGENT2, db=self.db)["items"][0]
+        self.assertEqual(item["name"], "Dell Laptop")
+        self.assertTrue(item["restricted"])
+        for k in ("serialNumber", "assetTag", "makeModel", "assignedToEmail", "assignedToName", "heldBy"):
+            self.assertEqual(item[k], "", k)
+
+    def test_history_is_capped_with_a_separate_count(self):
+        first = self._create(REQ, item_ids=[self.laptop], subject="First")
+        for n in range(11):
+            self._create(REQ, item_ids=[self.laptop], subject=f"Again {n}")
+        item = TI.ticket_items(first["id"], user=AGENT, db=self.db)["items"][0]
+        self.assertEqual(item["otherCount"], 11)
+        self.assertEqual(len(item["otherTickets"]), TI.OTHER_TICKETS_SHOWN)
+        out = TI.tickets_for_item(self.laptop, limit=3, user=AGENT, db=self.db)
+        self.assertEqual((out["count"], len(out["tickets"])), (12, 3))
+
     # ── by-item and Other Tickets for This Item ──────────────────────────
     def test_by_item_shows_only_tickets_the_caller_may_see(self):
         mine = self._create(REQ, item_ids=[self.laptop], subject="Mine")
