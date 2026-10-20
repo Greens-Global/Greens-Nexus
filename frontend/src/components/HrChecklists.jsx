@@ -1301,7 +1301,7 @@ export function ChecklistSettings({ entityId = '', entities = [], toastOk, toast
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>{entityId ? `Checklists For ${companyName}` : 'Checklist Library'}</div>
           <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
             {entityId
-              ? 'Use the Checklist Library as it is, or make this company\'s own copy and change it. Each role adds its own steps on top (Team > Role Checklists).'
+              ? 'Use the Checklist Library as it is, or make this company\'s own copy and change it. Each role adds its own steps on top - Roles tab > pick a role > Checklists (department heads also have Team > Role Checklists).'
               : 'The standard steps every company starts from. A company uses them as they are or makes its own copy in Company Settings > Checklists.'}
           </div>
         </div>
@@ -1368,21 +1368,79 @@ export function ChecklistLibrary({ toastOk, toastErr }) {
 // department head to build out ... so the department head can build it, edit
 // it, and manage it." A role's steps are added after the company's whenever
 // one of its people starts a checklist.
-export function RoleChecklists({ toastOk, toastErr }) {
-  const [roles, setRoles] = useState(null);
-  const [roleId, setRoleId] = useState('');
+const countsOf = d => Object.fromEntries((d?.templates || []).map(t => [t.kind, (t.items || []).length]));
+
+// One role's extra steps: the kind tabs and the editor. Used by Team > Role
+// Checklists and by Company Settings > Roles (a role's Checklists tab, and
+// the Checklists button on shared roles). `onCounts` gets {kind: steps} after
+// the load and after every save so a parent can refresh its counts.
+export function RoleStepsEditor({ roleId, roleName, toastOk, toastErr, onCounts, heading = null }) {
   const [data, setData] = useState(null);
   const [kind, setKind] = useState('onboarding');
   const [meta, setMeta] = useState(null);
+  useEffect(() => { api.getChecklistMeta().then(setMeta).catch(() => setMeta(null)); }, []);
+  useEffect(() => {
+    if (!roleId) { setData(null); return undefined; }
+    let live = true;
+    setData(null);
+    api.getRoleChecklist(roleId)
+      .then(d => { if (!live) return; setData(d); onCounts?.(countsOf(d)); })
+      .catch(() => { if (live) setData(false); });
+    return () => { live = false; };
+  }, [roleId]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'promotion', label: 'Promotion' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }];
+  const counts = countsOf(data);
+  const tpl = data?.templates?.find(t => t.kind === kind);
+  const saveItems = async items => {
+    const saved = await api.saveRoleChecklist(roleId, kind, items);
+    const next = { ...data, templates: data.templates.map(t => (t.kind === kind ? saved : t)) };
+    setData(next);
+    onCounts?.(countsOf(next));
+    return saved;
+  };
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+        {heading}
+        <div className="scroll-tabs" role="tablist" aria-label="Checklist kind"
+          style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)', maxWidth: '100%' }}>
+          {kinds.map(k => {
+            const look = KIND_LOOK[k.value] || KIND_LOOK.onboarding;
+            const on = kind === k.value;
+            const n = counts[k.value] || 0;
+            return (
+              <button key={k.value} role="tab" aria-selected={on} onClick={() => setKind(k.value)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: FONT, fontSize: 13, fontWeight: 600,
+                  background: on ? 'var(--wk-card)' : 'transparent', color: on ? 'var(--wk-ink)' : 'var(--wk-dim)', boxShadow: on ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
+                <look.Icon size={14} /> {k.label}
+                {n > 0 && <span style={{ fontSize: 11.5, color: 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {data === null && <SkeletonBlocks count={2} height={56} />}
+      {data === false && <div style={{ fontSize: 13, color: 'var(--wk-dim)' }}>Could not load this role&apos;s steps.</div>}
+      {tpl && (
+        <TemplateEditor key={`${roleId}:${kind}:${tpl.updatedAt}`} template={tpl} meta={meta} entityId="" toastOk={toastOk} toastErr={toastErr}
+          onSaved={() => {}} saveItems={saveItems} resetLabel="Remove All Steps"
+          emptyText={`No extra steps - people in ${roleName || 'this role'} get the company's steps only.`}
+          resetItems={async () => {
+            if (!await dialog.confirm(`Remove every ${kinds.find(k => k.value === kind)?.label.toLowerCase()} step of ${roleName}?`, { title: 'Remove All Steps', confirmText: 'Remove', danger: true })) return;
+            try { await saveItems([]); toastOk('Steps removed.'); } catch (e) { toastErr(e?.message || 'Could not remove them.'); }
+          }} />
+      )}
+    </>
+  );
+}
+
+export function RoleChecklists({ toastOk, toastErr }) {
+  const [roles, setRoles] = useState(null);
+  const [roleId, setRoleId] = useState('');
   const loadRoles = useCallback(() => api.getRoleChecklistRoles()
     .then(r => { setRoles(r.roles || []); setRoleId(id => id || r.roles?.[0]?.roleId || ''); })
     .catch(() => setRoles(false)), []);
-  useEffect(() => { loadRoles(); api.getChecklistMeta().then(setMeta).catch(() => setMeta(null)); }, [loadRoles]);
-  useEffect(() => {
-    if (!roleId) { setData(null); return; }
-    setData(null);
-    api.getRoleChecklist(roleId).then(setData).catch(() => setData(false));
-  }, [roleId]);
+  useEffect(() => { loadRoles(); }, [loadRoles]);
   if (roles === null) return <SkeletonBlocks count={3} height={56} />;
   if (roles === false) return <div style={{ ...card, padding: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load your roles.</div>;
   if (!roles.length) {
@@ -1393,9 +1451,7 @@ export function RoleChecklists({ toastOk, toastErr }) {
       </div>
     );
   }
-  const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'promotion', label: 'Promotion' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }];
   const role = roles.find(r => r.roleId === roleId);
-  const tpl = data?.templates?.find(t => t.kind === kind);
   const groups = [];
   roles.forEach(r => {
     const label = `${r.companyName || 'Shared Roles'}${r.department ? ` - ${r.department}` : ''}`;
@@ -1403,12 +1459,7 @@ export function RoleChecklists({ toastOk, toastErr }) {
     if (!g) { g = { label, roles: [] }; groups.push(g); }
     g.roles.push(r);
   });
-  const saveItems = async items => {
-    const saved = await api.saveRoleChecklist(roleId, kind, items);
-    setData(d => ({ ...d, templates: d.templates.map(t => (t.kind === kind ? saved : t)) }));
-    setRoles(rs => rs.map(r => (r.roleId === roleId ? { ...r, counts: { ...r.counts, [kind]: saved.items.length } } : r)));
-    return saved;
-  };
+  const onCounts = c => setRoles(rs => rs.map(r => (r.roleId === roleId ? { ...r, counts: { ...r.counts, ...c } } : r)));
   return (
     <div style={{ fontFamily: FONT }}>
       <section style={{ ...card, padding: '14px 18px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
@@ -1434,39 +1485,13 @@ export function RoleChecklists({ toastOk, toastErr }) {
         </label>
       </section>
       <section style={{ ...card, padding: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-          <div style={{ flex: '1 1 240px' }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>{role?.roleName || 'Role'} Steps</h3>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>{[role?.department, role?.companyName || 'Shared role'].filter(Boolean).join(' · ')}</p>
-          </div>
-          <div className="scroll-tabs" role="tablist" aria-label="Checklist kind"
-            style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)', maxWidth: '100%' }}>
-            {kinds.map(k => {
-              const look = KIND_LOOK[k.value] || KIND_LOOK.onboarding;
-              const on = kind === k.value;
-              const n = role?.counts?.[k.value] || 0;
-              return (
-                <button key={k.value} role="tab" aria-selected={on} onClick={() => setKind(k.value)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: FONT, fontSize: 13, fontWeight: 600,
-                    background: on ? 'var(--wk-card)' : 'transparent', color: on ? 'var(--wk-ink)' : 'var(--wk-dim)', boxShadow: on ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
-                  <look.Icon size={14} /> {k.label}
-                  {n > 0 && <span style={{ fontSize: 11.5, color: 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        {data === null && <SkeletonBlocks count={2} height={56} />}
-        {data === false && <div style={{ fontSize: 13, color: 'var(--wk-dim)' }}>Could not load this role&apos;s steps.</div>}
-        {tpl && (
-          <TemplateEditor key={`${roleId}:${kind}:${tpl.updatedAt}`} template={tpl} meta={meta} entityId="" toastOk={toastOk} toastErr={toastErr}
-            onSaved={() => {}} saveItems={saveItems} resetLabel="Remove All Steps"
-            emptyText={`No extra steps - people in ${role?.roleName || 'this role'} get the company's steps only.`}
-            resetItems={async () => {
-              if (!await dialog.confirm(`Remove every ${kinds.find(k => k.value === kind)?.label.toLowerCase()} step of ${role?.roleName}?`, { title: 'Remove All Steps', confirmText: 'Remove', danger: true })) return;
-              try { await saveItems([]); toastOk('Steps removed.'); } catch (e) { toastErr(e?.message || 'Could not remove them.'); }
-            }} />
-        )}
+        <RoleStepsEditor roleId={roleId} roleName={role?.roleName} toastOk={toastOk} toastErr={toastErr} onCounts={onCounts}
+          heading={(
+            <div style={{ flex: '1 1 240px' }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>{role?.roleName || 'Role'} Steps</h3>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>{[role?.department, role?.companyName || 'Shared role'].filter(Boolean).join(' · ')}</p>
+            </div>
+          )} />
       </section>
     </div>
   );

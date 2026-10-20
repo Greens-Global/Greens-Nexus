@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Pencil, Trash2, UserPlus, X, Copy, ArrowRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, UserPlus, X, Copy, ArrowRight, ListChecks } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
@@ -7,6 +7,8 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { RoleEditor, AssignModal, ApproverPicker, TierBadge, ModuleLevelPill, Avatar, PENDING_ACCESS_TAB } from './RolesAccess';
 import { setPendingOpen } from '../lib/pendingOpen';
+import { Modal } from '../tasks/components';
+import { RoleStepsEditor } from '../components/HrChecklists';
 
 // ── Company Settings > [company] > Roles ─────────────────────────────────────
 // Job roles are given company by company (Neil, Sep 2026); who can reach what
@@ -24,6 +26,9 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
   const [editing, setEditing] = useState(undefined);   // undefined = closed, object = edit / new seed
   const [editingShared, setEditingShared] = useState(null);   // a shared role open in the editor
   const [assignFor, setAssignFor] = useState(null);
+  const [tab, setTab] = useState('access');   // the selected role's panel: 'access' | 'checklists'
+  const [stepsFor, setStepsFor] = useState(null);   // a shared role open in the checklist modal
+  const [stepCounts, setStepCounts] = useState({});   // roleId -> {kind: steps}
   const { data: dir } = usePeopleDirectory();
   const nameOf = useNameResolver();
 
@@ -37,6 +42,14 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
       .then(list => setDepartments((list || []).map(d => d.name).filter(Boolean)))
       .catch(() => setDepartments([]));
   }, [entity.id]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    api.getRoleChecklistRoles()
+      .then(r => setStepCounts(Object.fromEntries((r.roles || []).map(x => [x.roleId, x.counts || {}]))))
+      .catch(() => {});   // counts are a hint; the role list works without them
+  }, []);
+  const stepTotal = id => Object.values(stepCounts[id] || {}).reduce((a, b) => a + b, 0);
+  const setCountsFor = id => c => setStepCounts(m => ({ ...m, [id]: c }));
+  const pickRole = id => { if (id !== selId) setTab('access'); setSelId(id); };
 
   const people = useMemo(() => (dir || []).map(p => ({
     email: (p.email || p.workEmail || '').toLowerCase(),
@@ -80,7 +93,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
     if (moveBlocker(r)) return;
     if (!await dialog.confirm(`Move "${r.name}" to ${entity.name}? It will only be offered to people at ${entity.name} from now on. The ${r.member_count} ${r.member_count === 1 ? 'person' : 'people'} in it keep the role.`,
       { title: 'Move Role', confirmText: 'Move Role' })) return;
-    try { await api.updateJobRole(r.id, { company_id: entity.id }); toastOk(`“${r.name}” now belongs to ${entity.name}.`); setSelId(r.id); load(); }
+    try { await api.updateJobRole(r.id, { company_id: entity.id }); toastOk(`“${r.name}” now belongs to ${entity.name}.`); pickRole(r.id); load(); }
     catch (e) { toastErr(e?.message || 'Could not move the role.'); }
   }
   const duplicateHere = r => setEditing({
@@ -129,9 +142,10 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
               <div style={deptLabel}>{dept}<span style={countPill}>{list.length}</span></div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                 {list.map(r => (
-                  <button key={r.id} onClick={() => setSelId(r.id)}
+                  <button key={r.id} onClick={() => pickRole(r.id)}
                     style={{ ...roleCard, borderColor: selId === r.id ? 'var(--ink)' : 'var(--line)' }}>
                     <span style={{ fontWeight: 800, fontSize: 13.5, flex: 1, minWidth: 0 }}>{r.name}</span>
+                    {stepTotal(r.id) > 0 && <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{stepTotal(r.id)} {stepTotal(r.id) === 1 ? 'step' : 'steps'}</span>}
                     <TierBadge tier={r.tier} />
                     <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{r.member_count}</span>
                   </button>
@@ -154,32 +168,55 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
               </div>
               {selected.description && <p style={{ color: 'var(--muted)', fontSize: 13, margin: '8px 0 0' }}>{selected.description}</p>}
 
-              <div style={sectLabel}>What this role can reach</div>
-              {(selected.allowed_modules || []).length === 0
-                ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>No modules granted yet - edit the role to build its bundle.</div>
-                : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {selected.allowed_modules.map(g => <ModuleLevelPill key={g.id} moduleId={g.id} level={g.level} />)}
-                  </div>}
+              <div role="tablist" aria-label="Role details" className="scroll-tabs"
+                style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', margin: '12px 0 0' }}>
+                {[['access', 'Access & People'], ['checklists', 'Checklists']].map(([key, label]) => {
+                  const on = tab === key;
+                  const n = key === 'checklists' ? stepTotal(selected.id) : 0;
+                  return (
+                    <button key={key} type="button" role="tab" aria-selected={on} onClick={() => setTab(key)}
+                      style={{ ...tabBtn, color: on ? 'var(--wk-brand)' : 'var(--muted)', borderBottom: `2px solid ${on ? 'var(--wk-brand)' : 'transparent'}` }}>
+                      {label}{n > 0 && <span style={{ fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>{n}</span>}
+                    </button>
+                  );
+                })}
+              </div>
 
-              <div style={sectLabel}>Time Sheet approver (default manager)</div>
-              <ApproverPicker role={selected} people={companyPeople} nameOf={nameOf}
-                onSaved={load} toastOk={toastOk} toastErr={toastErr} />
-
-              <div style={sectLabel}>People with this role · {selected.member_count}</div>
-              {(selected.members || []).length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-                  {selected.members.map(em => (
-                    <div key={em} style={memberRow}>
-                      <Avatar name={nameOf(em)} src={personByEmail[em]?.photo} size={24} />
-                      <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</span>
-                      <button onClick={() => removeMember(em)} title="Remove from this role" aria-label={`Remove ${nameOf(em)}`} style={iconBtn}><X size={13} /></button>
-                    </div>
-                  ))}
+              {tab === 'checklists' ? (
+                <div role="tabpanel" style={{ marginTop: 16 }}>
+                  <RoleStepsEditor key={selected.id} roleId={selected.id} roleName={selected.name}
+                    toastOk={toastOk} toastErr={toastErr} onCounts={setCountsFor(selected.id)} />
                 </div>
+              ) : (
+              <div role="tabpanel">
+                <div style={sectLabel}>What this role can reach</div>
+                {(selected.allowed_modules || []).length === 0
+                  ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>No modules granted yet - edit the role to build its bundle.</div>
+                  : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {selected.allowed_modules.map(g => <ModuleLevelPill key={g.id} moduleId={g.id} level={g.level} />)}
+                    </div>}
+
+                <div style={sectLabel}>Time Sheet approver (default manager)</div>
+                <ApproverPicker role={selected} people={companyPeople} nameOf={nameOf}
+                  onSaved={load} toastOk={toastOk} toastErr={toastErr} />
+
+                <div style={sectLabel}>People with this role · {selected.member_count}</div>
+                {(selected.members || []).length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                    {selected.members.map(em => (
+                      <div key={em} style={memberRow}>
+                        <Avatar name={nameOf(em)} src={personByEmail[em]?.photo} size={24} />
+                        <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</span>
+                        <button onClick={() => removeMember(em)} title="Remove from this role" aria-label={`Remove ${nameOf(em)}`} style={iconBtn}><X size={13} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setAssignFor(selected)}>
+                  <UserPlus size={14} /> Assign a Person
+                </button>
+              </div>
               )}
-              <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setAssignFor(selected)}>
-                <UserPlus size={14} /> Assign a Person
-              </button>
             </>
           )}
         </div>
@@ -216,6 +253,11 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
                     <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>{r.member_count} {r.member_count === 1 ? 'person' : 'people'}</span>
                     <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditingShared(r)}
                       title="Edit this shared role (applies in every company)" aria-label={`Edit ${r.name}`}><Pencil size={13} /></button>
+                    <button className="secondary-btn" onClick={() => setStepsFor(r)}
+                      title="Extra checklist steps for people in this role"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', fontSize: 12 }}>
+                      <ListChecks size={13} /> Checklists
+                    </button>
                     {/* The wrapper carries the tooltip: a disabled button gets no hover events. */}
                     <span title={blocker || `Only people at ${entity.name} will be offered this role.`}>
                       <button className="secondary-btn" disabled={!!blocker} onClick={() => moveHere(r)}
@@ -240,7 +282,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
       {editing !== undefined && (
         <RoleEditor role={editing} jobRoles={own} companyId={entity.id} departments={departments}
           onClose={() => setEditing(undefined)} onErr={toastErr}
-          onSaved={r => { setEditing(undefined); toastOk(`Saved “${r.name}”.`); setSelId(r.id); load(); }} />
+          onSaved={r => { setEditing(undefined); toastOk(`Saved “${r.name}”.`); pickRole(r.id); load(); }} />
       )}
       {/* A shared role keeps company_id '' on save (RoleEditor only sets a
           company when creating), and its departments come from the other
@@ -249,6 +291,13 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
         <RoleEditor role={editingShared} jobRoles={shared}
           onClose={() => setEditingShared(null)} onErr={toastErr}
           onSaved={r => { setEditingShared(null); toastOk(`Saved “${r.name}”. It applies in every company.`); load(); }} />
+      )}
+      {stepsFor && (
+        <Modal title={`${stepsFor.name} - Checklist Steps`} onClose={() => setStepsFor(null)}>
+          <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)' }}>A shared role&apos;s steps apply in every company that uses it.</p>
+          <RoleStepsEditor roleId={stepsFor.id} roleName={stepsFor.name}
+            toastOk={toastOk} toastErr={toastErr} onCounts={setCountsFor(stepsFor.id)} />
+        </Modal>
       )}
       {assignFor && (
         <AssignModal role={assignFor} onClose={() => setAssignFor(null)} onErr={toastErr}
@@ -264,4 +313,5 @@ const countPill = { fontSize: 10.5, fontWeight: 700, background: 'var(--mist)', 
 const roleCard = { display: 'flex', alignItems: 'center', gap: 9, textAlign: 'left', width: '100%', background: 'var(--card)', border: '1.5px solid var(--line)', borderRadius: 12, padding: '10px 13px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', color: 'var(--ink)' };
 const sectLabel = { fontSize: 10.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)', margin: '18px 0 9px' };
 const memberRow = { display: 'flex', alignItems: 'center', gap: 9, padding: '6px 10px', borderRadius: 10, background: 'var(--paper)', border: '1px solid var(--line)' };
+const tabBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', whiteSpace: 'nowrap', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, marginBottom: -1 };
 const iconBtn = { border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 };
