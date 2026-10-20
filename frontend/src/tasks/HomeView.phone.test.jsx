@@ -39,6 +39,7 @@ const { default: HomeView } = await import('./HomeView');
 const ME = 'neil@greensglobal.com';
 const SAGAR = 'sagar@greensglobal.com';
 const minutesAgo = (m) => new Date(Date.now() - m * 60e3).toISOString();
+const yesterdayNoon = () => { const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(12, 0, 0, 0); return d.toISOString(); };
 
 beforeEach(() => {
   mobile = true;
@@ -182,9 +183,11 @@ describe('a grouped update', () => {
 
   it('marks what is aimed at me, shows what was said, and For You narrows the list', async () => {
     activity.mockImplementation(() => Promise.resolve([
-      grouped({ id: 'g1', forYou: true, preview: 'Can you check this, @Neil?',
+      // Pinned to calendar days, not "N hours ago" - CI runs at any hour and
+      // 30 hours back is two days ago before 6 AM (failed on PR #680 at 00:53 UTC).
+      grouped({ id: 'g1', at: new Date().toISOString(), forYou: true, preview: 'Can you check this, @Neil?',
         parts: [{ kind: 'mentioned_you', count: 1 }, { kind: 'commented', count: 1 }] }),
-      grouped({ id: 'g2', taskId: 't2', relation: 'collaborator', at: minutesAgo(60 * 30),
+      grouped({ id: 'g2', taskId: 't2', relation: 'collaborator', at: yesterdayNoon(),
         parts: [{ kind: 'completed', count: 1 }] }),
     ]));
     render(<HomeView onNavigate={() => {}} />);
