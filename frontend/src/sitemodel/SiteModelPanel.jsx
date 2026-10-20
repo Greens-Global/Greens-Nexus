@@ -48,7 +48,8 @@
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Globe, Info, X } from 'lucide-react';
 import { createSiteModelViewer, unitKindLabel, unitDirections, doorSideName, reasonLabel, routeSteps } from './siteModelViewer.js';
-import { planRoute } from './siteModelRoute.js';
+import { planRoute, routeDirections } from './siteModelRoute.js';
+import { googleMapsDirectionsUrl, googleMapsUnitPinUrl } from './siteModelDirections.js';
 import { SiteModelPlan2D } from './SiteModelPlan2D.jsx';
 import { formatDateTime, formatTime } from '../lib/datetime.js';
 import { SiteModelHud } from './SiteModelHud.jsx';
@@ -351,6 +352,18 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
     return () => clearTimeout(t);
   }, [fill, selected, phone]);
   const steps = useMemo(() => (u ? routeSteps(model, u) : []), [model, u]);
+  // Turn by turn from the main gate along the drive aisles (siteModelRoute.js), else the old written directions.
+  const turnByTurn = useMemo(() => {
+    if (!u) return [];
+    try {
+      const d = routeDirections(model, u);
+      if (d && d.length) return d.map((x) => (typeof x === 'string' ? x : x.text));
+    } catch { /* fall back below */ }
+    return unitDirections(model, u);
+  }, [model, u]);
+  // Google can only route on public roads: directions go to the main gate, the pin to the unit itself.
+  const mapsDir = useMemo(() => (u ? googleMapsDirectionsUrl(model, { unit: u }) : null), [model, u]);
+  const mapsPin = useMemo(() => (u ? googleMapsUnitPinUrl(model, u) : null), [model, u]);
   // The 2D plan draws the same route the 3D view lays on the ground.
   const plan2d = useMemo(() => (noGl && u ? planRoute(model, u, steps) : null), [noGl, model, u, steps]);
   const bldg = (id) => (model.buildings || []).find((b) => b.id === id);
@@ -559,7 +572,15 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-primary, #fff)', borderRadius: 999, padding: '2px 9px 2px 3px', font: `500 12px ${FONT}`, color: 'inherit', cursor: 'pointer' }}>
                   <span style={{ width: 18, height: 18, borderRadius: 999, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, color: '#fff', background: s.end ? '#ff7a00' : '#1a73e8' }}>{i + 1}</span>{s.label}</button></li>)}
               </ol>}
-              <ol style={{ margin: '4px 0 0', paddingLeft: 18 }}>{unitDirections(model, u).map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ol>
+              <ol style={{ margin: '4px 0 0', paddingLeft: 18 }}>{turnByTurn.map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ol>
+              {(mapsDir || mapsPin) && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                  {mapsDir && <a href={mapsDir} target="_blank" rel="noopener noreferrer" style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                    title="Driving directions to the main gate. Follow the steps above once inside.">Open in Google Maps</a>}
+                  {mapsPin && <a href={mapsPin} target="_blank" rel="noopener noreferrer" style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                    title={`Where ${u.n} is on Google Maps`}>Show Unit on Google Maps</a>}
+                </div>
+              )}
             </details>
             {owner && pinsEnabled && <div style={{ marginTop: 10 }}><button type="button" style={btn} onClick={() => { const b = bldg(u.b); setPlacing(false); setPending({ u: u.u + u.wu / 2, v: u.v + u.dv / 2, y: b ? +((u.f - 1) * b.height / b.floors).toFixed(2) : 0, unit: u.n, building: u.b }); }}>Add Pin at This Unit</button></div>}
             {/* Per unit (Oct 14 2026): traced units say where their position came from. */}
