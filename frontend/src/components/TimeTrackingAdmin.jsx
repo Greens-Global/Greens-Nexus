@@ -7,6 +7,7 @@ import ScreenshotsAdmin from './ScreenshotsAdmin';
 import TimeInsights from './TimeInsights';
 import { MonitoringAlertsPanel } from './MonitoringAlerts';
 import LiveView from './LiveView';
+import LiveCrewMap from './LiveCrewMap';
 import Locations from '../views/Locations';
 import { WorkforceViewBar, ViewNotice } from './workforce/WorkforceViews';
 import { WorkforceViewProvider, useWorkforceView, useWorkforceViews } from './workforce/viewContext';
@@ -493,6 +494,7 @@ const MON_SUBTABS = [
   { id: 'activity',    label: 'Activity',    grant: 'employee-tracking' },
   { id: 'scorecard',   label: 'Scorecard',   grant: 'workforce-scorecard' },
   { id: 'locations',   label: 'Locations',   grant: 'employee-tracking' },
+  { id: 'trail',       label: 'Location Trail', grant: 'employee-tracking' },
   { id: 'computers',   label: 'Computers',   grant: 'employee-tracking' },
   { id: 'screenshots', label: 'Screenshots', grant: 'employee-tracking' },
 ];
@@ -577,6 +579,20 @@ export function MonitoringPolicy({ companyId }) {
       </>)}
     </div>
   );
+}
+
+// Location Trail While Clocked In (location_trail.py): managers only, here and
+// nowhere else - Neil, Oct 21 2026. The picker lists the team view's people
+// so a past day can be opened for someone who is not live now.
+function LocationTrail() {
+  const [everyone, setPeople] = useState([]);
+  const { inView } = useWorkforceView();
+  useEffect(() => {
+    api.getPeopleDirectory()
+      .then(rows => setPeople((rows || []).map(u => ({ email: (u.email || '').toLowerCase(), name: u.name || u.display_name || u.email })).filter(p => p.email)))
+      .catch(() => setPeople([]));
+  }, []);
+  return <LiveCrewMap people={everyone.filter(p => inView(p.email))} />;
 }
 
 // Activity/Insights (apps, sites, active vs idle, productivity) for a chosen day.
@@ -669,6 +685,8 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
       {sub === 'scorecard' && allowed('scorecard') && <Scorecard />}
 
       {sub === 'locations' && allowed('locations') && <Locations embedded />}
+
+      {sub === 'trail' && allowed('trail') && <LocationTrail />}
 
       {sub === 'screenshots' && allowed('screenshots') && (
         <ScreenshotsAdmin embedded initialEmail={shotReq.email} initialDate={shotReq.date} onBack={() => { setShotReq({ email: '', date: '' }); setSub('coverage'); }} />

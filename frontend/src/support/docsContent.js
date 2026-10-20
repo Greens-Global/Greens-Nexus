@@ -326,6 +326,7 @@ export const DOCS = [
       { name: 'Activity', desc: 'Time and activity per person across the day.' },
       { name: 'Scorecard', desc: 'Punched hours against expected hours for each hourly person, by week: On Track, Below Expected, Well Below, Absent, with the days that were excused and why. The same report goes to managers by email.' },
       { name: 'Locations', desc: 'A map of where each person last punched from.' },
+      { name: 'Location Trail', desc: 'When a company turns on Location Trail While Clocked In (Global Settings > Shifts), the live position of each person on your team who is clocked in, and the trail of any one person for a chosen day with their punches on it. Managers only: employees never see a trail, their own included.' },
       { name: 'Computers', desc: 'Company computers with the desktop agent. Copy the install or uninstall command here.' },
       { name: 'Screenshots', desc: 'Screenshots captured under the policy, shown by day, with the capture interval.' },
     ],

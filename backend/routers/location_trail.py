@@ -19,13 +19,14 @@ follows them):
   - one ping per person per ~2 minutes at most (two open tabs, a retry), the
     rest are ignored.
 The browser asks for nothing: it pings only when location permission is
-already granted, and the Time Clock page says plainly that it is on.
+already granted.
 
-Reading (People > Time > Location Trail, and the person's own trail from the
-Time Clock page): the viewer's team scope is `timeclock._visible_emails`
-(administrators and unrestricted HR = everyone; scoped HR = their companies)
-joined with `my_team.team_members` (supervisors: direct reports; managers:
-the whole reporting line). Everyone reads their own trail.
+Reading is managers only, on Workforce Analytics > Location Trail (Neil,
+Oct 21 2026: no employee sees a trail, their own included):
+`require_tracking_read`, then the viewer's team scope is
+`timeclock._visible_emails` (administrators and unrestricted HR = everyone;
+scoped HR = their companies) joined with `my_team.team_members` (the
+reporting line).
 
 Retention: raw pings older than 90 days are purged by the daily reminders job
 (timeclock.purge_old_track_pings) - web pings included.
@@ -167,7 +168,7 @@ def web_ping(body: WebPingIn, user: dict = Depends(get_current_user), db: Sessio
 # ── Read: live positions and one person's day ────────────────────────────────
 
 @router.get("/live")
-def trail_live(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def trail_live(user: dict = Depends(tc.require_tracking_read), db: Session = Depends(get_db)):
     """The newest ping of everyone in the viewer's scope who is clocked in now
     and was heard from in the last LIVE_WINDOW_MIN minutes (web or phone)."""
     scope = viewer_scope(db, user)
@@ -198,11 +199,11 @@ def trail_live(user: dict = Depends(get_current_user), db: Session = Depends(get
 
 
 @router.get("/day")
-def trail_day(email: str = "", date: str = "", user: dict = Depends(get_current_user),
+def trail_day(email: str = "", date: str = "", user: dict = Depends(tc.require_tracking_read),
               db: Session = Depends(get_db)):
     """One person's breadcrumb for one local date, with that day's punches so
-    the map can plot clock in / break / clock out on the same trail. Your own
-    any time; someone else's only inside your team scope."""
+    the map can plot clock in / break / clock out on the same trail, inside the
+    viewer's team scope."""
     me = (user.get("email") or "").lower()
     target = (email or "").strip().lower() or me
     try:
