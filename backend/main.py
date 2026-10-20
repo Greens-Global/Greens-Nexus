@@ -2536,6 +2536,9 @@ def _run_migrations():
         # new tables, explicit RLS. models.OpsReportCache, models.OpsSavedReport.
         "ALTER TABLE ops_report_cache ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_saved_reports ENABLE ROW LEVEL SECURITY",
+        # Scheduled catalog reports (Oct 20 2026, ops_report_schedules.py): new
+        # table, explicit RLS. models.OpsReportSchedule.
+        "ALTER TABLE ops_report_schedules ENABLE ROW LEVEL SECURITY",
         # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived
         # (models.TaskTicket.source), and the inbound log - a new table:
         # explicit RLS on top of the sweep. models.TicketInboundEmail.
