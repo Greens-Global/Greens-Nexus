@@ -134,15 +134,15 @@ export function destinationFor(n) {
       // Manager verifies/accepts the return under Checkouts → Assignments
       // (Permanent) → Returns to Accept, not the Temporary checkouts list.
       return ['inventory', 'assignment-returns'];
-    case 'req_fulfill':
-      return ['inventory', 'purchasereqs'];  // allocator's To Fulfill queue
-    case 'req_pending':
+    case 'req_fulfill':      // allocator's To Fulfill queue
+    case 'req_pending':      // approver's queue
     case 'req_update':
     case 'req_approved':
     case 'req_rejected':
-      // Land on the Requisition Log (status/steps live there), not the blank
-      // New Request form (Jun 16).
-      return ['purchase', 'log'];
+      // Purchase Requisition lives in Workday > Purchase Requests (Neil,
+      // Oct 22 2026): approvers land on Approvals, everyone else on My
+      // Requests - never the blank New Request form (Jun 16).
+      return ['myhr', 'purchase'];
     case 'time_missed_out':
     case 'time_overtime':
       // Straight to the punch card so a missed clock-out can be fixed (or the
@@ -770,7 +770,7 @@ export default function NotificationBell({ onNavigate }) {
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                             {/* Neil: Review = yellow/caution with a ? icon so people
                                 know it opens the full list to decide item-by-item */}
-                            <button onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: n.type === 'req_pending' ? 'purchasereqs' : 'checkouts' } })); }}
+                            <button onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: n.type === 'req_pending' ? { view: 'myhr', sub: 'purchase' } : { view: 'inventory', sub: 'checkouts' } })); }}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: '1px solid hsla(var(--color-orange),0.4)', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                               <HelpCircle size={15} /> Review
                             </button>

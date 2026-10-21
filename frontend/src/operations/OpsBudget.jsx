@@ -7,7 +7,7 @@
 // and formats them. A missing figure is a dash, never 0%; website visitors
 // and reviews read "Pending API" until those connections are live.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Upload } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, History, Upload } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, LabelList,
 } from 'recharts';
@@ -17,6 +17,7 @@ import { formatDate } from '../lib/datetime';
 import { Legend } from './charts';
 import { DASH, byKey, fmtValue, monthOptions, monthText, pill } from './opsBudgetFormat';
 import OpsBudgetUpload from './OpsBudgetUpload';
+import HbHistoryPanel from './HbHistoryPanel';
 import './opsBudget.css';
 
 const PREFS_KEY = 'nexus.ops.budget';
@@ -375,7 +376,7 @@ export function AllNumbers({ report }) {
                   <tr key={m.key} className={m.isRate ? 'ob-rate' : ''}>
                     <th scope="row">{m.label}</th>
                     <td className="num">{fmtValue(m.unit, m.budget)}</td>
-                    <td className="num ob-actual" title={m.source ? `From ${m.source.replace('cubby_api', 'Cubby').replace('workbook', 'the workbook')}${m.otherSource !== null && m.otherSource !== undefined ? ` (the other source says ${fmtValue(m.unit, m.otherSource)})` : ''}` : undefined}>
+                    <td className="num ob-actual" title={m.source ? `From ${m.source.replace('cubby_api', 'Cubby').replace('hummingbird', 'Hummingbird').replace('workbook', 'the workbook')}${m.otherSource !== null && m.otherSource !== undefined ? ` (the other source says ${fmtValue(m.unit, m.otherSource)})` : ''}` : undefined}>
                       <Cell m={m} v={m.actual} />
                     </td>
                     <td className="num"><VarPill unit={m.unit} variance={m.vsBudget} /></td>
@@ -400,6 +401,7 @@ export default function OpsBudget() {
   const setPrefs = useCallback((patch) => setPrefsState((p) => { const n = { ...p, ...patch }; savePrefs(n); return n; }), []);
   const [rep, setRep] = useState({ status: 'loading', report: null, trend: null, error: null });
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [hbOpen, setHbOpen] = useState(false);
 
   const loadMeta = useCallback(async () => {
     try {
@@ -470,6 +472,11 @@ export default function OpsBudget() {
               <Upload size={14} aria-hidden="true" /> Upload Workbook
             </button>
           )}
+          {meta.data?.canUpload && (
+            <button type="button" className="secondary-btn ob-upload-btn" onClick={() => setHbOpen(true)}>
+              <History size={14} aria-hidden="true" /> Hummingbird History
+            </button>
+          )}
         </div>
       </header>
       <div className="ob-subbar">
@@ -477,6 +484,7 @@ export default function OpsBudget() {
         <span className="ops-note ob-loaded">
           {facility?.lastWorkbookAt ? `Workbook loaded ${formatDate(facility.lastWorkbookAt)}` : 'No workbook loaded for this site yet'}
           {facility?.lastCubbyAt ? ` · Cubby actuals updated ${formatDate(facility.lastCubbyAt)}` : ''}
+          {facility?.lastHummingbirdAt ? ` · Hummingbird history loaded ${formatDate(facility.lastHummingbirdAt)}` : ''}
         </span>
       </div>
 
@@ -541,6 +549,7 @@ export default function OpsBudget() {
         </div>
       )}
 
+      {hbOpen && <HbHistoryPanel onClose={() => setHbOpen(false)} />}
       {uploadOpen && (
         <OpsBudgetUpload facilities={facilities} current={facility?.id || ''} onClose={() => setUploadOpen(false)}
           onSaved={() => { loadMeta(); loadReport(); }} />

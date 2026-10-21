@@ -13,3 +13,14 @@
 export const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr', insights: 'bi', bi: 'bi',
   team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support' };
 export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', bi: 'insights', shifts: 'team', support: 'help-center' };
+
+// Purchase Requisition moved to Workday > Purchase Requests (Neil, Oct 22
+// 2026). Where an old address goes: the retired 'purchase' view (sub 'new' =
+// the form, 'log' = the list) and Item Management's old 'purchasereqs' tab -
+// bells, emails, bookmarks and saved dashboard tiles still carry them.
+// null = not a moved address.
+export function purchaseRedirect(view, sub) {
+  if (view === 'purchase') return { view: 'myhr', sub: sub === 'new' ? 'purchase:new' : 'purchase' };
+  if (view === 'inventory' && sub === 'purchasereqs') return { view: 'myhr', sub: 'purchase' };
+  return null;
+}

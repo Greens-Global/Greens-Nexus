@@ -3,19 +3,20 @@
 // market low-high band - with the gap to market, rent vs web rate and
 // occupancy cards, and a change log of every Cubby rate change, survey, comp
 // set edit, approval and website sync (GET /facility-ops/cma/history).
-// "Seed history from past CMA workbooks" stays off until we have a sample
-// workbook to read safely (the server says why).
+// Before Cubby (Sep 2026) the chart and the log reach back through the
+// Hummingbird months - one month-end point each, our rates and occupancy only
+// (source "Hummingbird"). Neil, Oct 21 2026: the old Excel CMAs are not wanted,
+// so there is no workbook seed.
 import { useEffect, useMemo, useState } from 'react';
-import { Download, Upload } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner, LoadingState } from '../../components/AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { count } from '../model';
 import { dash, exportRows, pctText, signedUsd, sizeOf, usd } from './cmaModel';
 
-const SOURCE = { manual: ['manual', 'Manual'], comp_set: ['comp_set', 'Comp Set'], cubby: ['cubby', 'Cubby'], website: ['website', 'Website'], import: ['import', 'Import'] };
+const SOURCE = { manual: ['manual', 'Manual'], comp_set: ['comp_set', 'Comp Set'], cubby: ['cubby', 'Cubby'], website: ['website', 'Website'], import: ['import', 'Import'], hummingbird: ['hummingbird', 'Hummingbird'] };
 const W = 760; const H = 260; const PAD = { l: 52, r: 16, t: 14, b: 30 };
-const shortDay = (iso) => { const [, m, d] = String(iso).split('-'); return `${Number(m)}/${Number(d)}`; };
 
 function Chart({ points }) {
   const [hover, setHover] = useState(null);
@@ -61,14 +62,14 @@ function Chart({ points }) {
         ))}
         {hp && <line x1={x(hp.date)} x2={x(hp.date)} y1={PAD.t} y2={H - PAD.b} stroke="var(--muted)" strokeWidth="1" />}
         {[points[0], points[points.length - 1]].filter((p, i, a) => i === 0 || p.date !== a[0].date).map((p) => (
-          <text key={p.date} x={x(p.date)} y={H - 10} fontSize="11" fill="var(--muted)" textAnchor="middle">{shortDay(p.date)}</text>
+          <text key={p.date} x={x(p.date)} y={H - 10} fontSize="11" fill="var(--muted)" textAnchor={p === points[0] ? 'start' : 'end'}>{formatDate(p.date)}</text>
         ))}
       </svg>
       {hp && (
         <div role="status" style={{ position: 'absolute', top: 30, left: `${Math.min(70, (x(hp.date) / W) * 100)}%`, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', fontSize: 12, pointerEvents: 'none', boxShadow: '0 4px 12px rgba(15,23,42,.12)' }}>
-          <strong>{formatDate(hp.date)}</strong>
+          <strong>{formatDate(hp.date)}</strong>{hp.source === 'hummingbird' && <span className="cma-badge cma-badge-hummingbird" style={{ marginLeft: 6 }}>Hummingbird</span>}
           <div>Web Rate {usd(hp.sell)}</div>
-          <div>Market Avg {usd(hp.marketAvg)} ({usd(hp.marketLow)} - {usd(hp.marketHigh)}, {hp.comps} comps)</div>
+          {hp.marketAvg != null && <div>Market Avg {usd(hp.marketAvg)} ({usd(hp.marketLow)} - {usd(hp.marketHigh)}, {hp.comps} comps)</div>}
           {hp.avgRent != null && <div>Avg In-Place Rent {usd(hp.avgRent)}</div>}
         </div>
       )}
@@ -101,7 +102,7 @@ export default function CmaHistory({ facility, view, onSection }) {
   }).catch((err) => console.error('Operations: history export failed', err));
   const exportPoints = (format) => exportRows(format, {
     title: `Rate History Points ${unit}`, facility: view.facility, asOf: view.asOf, rows: d.points,
-    columns: [{ header: 'Date', get: (p) => formatDate(p.date) }, { header: 'Web Rate', get: (p) => usd(p.sell) },
+    columns: [{ header: 'Date', get: (p) => formatDate(p.date) }, { header: 'Source', get: (p) => (p.source === 'hummingbird' ? 'Hummingbird' : 'Cubby') }, { header: 'Web Rate', get: (p) => usd(p.sell) },
       { header: 'Standard Rate', get: (p) => usd(p.standard) }, { header: 'Avg In-Place Rent', get: (p) => usd(p.avgRent) },
       { header: 'Market Low', get: (p) => usd(p.marketLow) }, { header: 'Market Avg', get: (p) => usd(p.marketAvg) },
       { header: 'Market High', get: (p) => usd(p.marketHigh) }, { header: 'Comps', get: (p) => p.comps },
@@ -116,7 +117,7 @@ export default function CmaHistory({ facility, view, onSection }) {
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 }}>
           <div>
             <h2 className="cma-title">Rate History · {row ? `${sizeOf(row)} ${row.category === 'Vehicle Storage' ? 'parking' : 'storage'}` : unit}</h2>
-            <div className="cma-sub">Our rates from Cubby&apos;s rate changes and daily snapshots · competitor rates from each website read and manual survey.</div>
+            <div className="cma-sub">Our rates from Cubby&apos;s rate changes and daily snapshots, and from Hummingbird month-ends before Cubby · competitor rates from each website read and manual survey.</div>
           </div>
         </div>
         <div className="cma-pills" role="group" aria-label="Unit type" style={{ marginTop: 10 }}>
@@ -136,9 +137,9 @@ export default function CmaHistory({ facility, view, onSection }) {
                 <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}>Show as a Table</summary>
                 <div className="req-table-wrapper">
                   <table className="req-table stack-table cma-table">
-                    <thead><tr><th>Date</th><th className="num">Web Rate</th><th className="num">Avg In-Place Rent</th><th className="num">Mkt Low</th><th className="num">Mkt Avg</th><th className="num">Mkt High</th><th className="num">Comps</th></tr></thead>
+                    <thead><tr><th>Date</th><th>Source</th><th className="num">Web Rate</th><th className="num">Avg In-Place Rent</th><th className="num">Mkt Low</th><th className="num">Mkt Avg</th><th className="num">Mkt High</th><th className="num">Comps</th></tr></thead>
                     <tbody>{d.points.map((p) => (
-                      <tr key={p.date}><td>{formatDate(p.date)}</td><td className="num">{usd(p.sell)}</td><td className="num">{usd(p.avgRent)}</td>
+                      <tr key={p.date}><td>{formatDate(p.date)}</td><td>{p.source === 'hummingbird' ? 'Hummingbird' : 'Cubby'}</td><td className="num">{usd(p.sell)}</td><td className="num">{usd(p.avgRent)}</td>
                         <td className="num">{usd(p.marketLow)}</td><td className="num">{usd(p.marketAvg)}</td><td className="num">{usd(p.marketHigh)}</td><td className="num">{p.comps}</td></tr>
                     ))}</tbody>
                   </table>
@@ -196,13 +197,6 @@ export default function CmaHistory({ facility, view, onSection }) {
                 </table>
               </div>
             )}
-          </section>
-
-          <section className="cma-panel" aria-label="Seed history from past CMA workbooks">
-            <h3 className="cma-h3">Seed History From Past CMA Workbooks</h3>
-            <p className="cma-note">Upload the monthly Excel CMAs (GSE, GSF, GSM, GST, GSVC) and Nexus reads each Input tab as a dated snapshot, so trends start from your earliest workbook instead of today.</p>
-            <p className="cma-note">{d.workbookImport.why}</p>
-            <button type="button" className="secondary-btn cma-btn" disabled title={d.workbookImport.why}><Upload size={14} aria-hidden="true" /> Upload Workbooks</button>
           </section>
         </>
       )}

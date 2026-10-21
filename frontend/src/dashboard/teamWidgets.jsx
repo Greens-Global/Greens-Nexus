@@ -331,9 +331,9 @@ export function PendingPurchasesWidget() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {state.rows.slice(0, PURCHASES_SHOWN).map(r => (
-            <Row key={r.id} Icon={ShoppingCart} title={r.title} meta={r.meta} status={r.status} statusLabel={r.statusLabel} onClick={() => navigate('purchase')} />
+            <Row key={r.id} Icon={ShoppingCart} title={r.title} meta={r.meta} status={r.status} statusLabel={r.statusLabel} onClick={() => navigate('myhr', 'purchase')} />
           ))}
-          <MoreRow count={state.rows.length - PURCHASES_SHOWN} noun="more pending" onClick={() => navigate('purchase')} />
+          <MoreRow count={state.rows.length - PURCHASES_SHOWN} noun="more pending" onClick={() => navigate('myhr', 'purchase')} />
         </div>
       )}
     </DashCard>

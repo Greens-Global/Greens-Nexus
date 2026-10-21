@@ -45,6 +45,7 @@ from sqlalchemy.orm import Session
 
 import auth
 import cubby
+import hb_history
 import models
 import ops_cma
 import ops_cubby_push
@@ -469,6 +470,23 @@ def _history(db: Session, facility: dict, unit_type: str, groups: list) -> dict:
                        "avgRent": s.avg_rent_cents if s else None, "occupied": s.occupied if s else None,
                        "total": s.total if s else None,
                        "marketAvg": m["avg"], "marketLow": m["low"], "marketHigh": m["high"], "comps": m["count"]})
+    # Hummingbird (before Cubby, Sep 2026): a point per month-end with our
+    # sell rate, in-place rent and occupancy (no market - surveys came later).
+    # A market reading dated before Cubby takes our rates from that HB month,
+    # not from Cubby's first-known rate.
+    hb = hb_history.rate_history(db, facility.get("shortName") or "", unit_type)
+    hb_month = {p["date"][:7]: p for p in hb["points"]}
+    for p in points:
+        h = hb_month.get(p["date"][:7]) if p["date"][:7] < hb_history.ob.CUBBY_FROM else None
+        if h:
+            p["sell"] = h["sell"]
+            for k in ("avgRent", "occupied", "total"):
+                if p.get(k) is None:
+                    p[k] = h[k]
+            p["source"] = "hummingbird"
+    taken = {p["date"] for p in points}
+    hb_points = [p for p in hb["points"] if p["date"] not in taken]
+    points = sorted(hb_points + points, key=lambda p: p["date"])
     cur = ops_cma.pick_comps(t, obs, active, today)
     rented = t.get("rented") or 0
     avg_rent = round((t.get("rentSum") or 0) / rented) if rented else None
@@ -500,13 +518,12 @@ def _history(db: Session, facility: dict, unit_type: str, groups: list) -> dict:
     for d, n in synced.items():
         log.append({"at": d, "date": d, "source": "website", "by": "Nexus",
                     "text": f"Website sync - {n} competitor {'price' if n == 1 else 'prices'} for this size"})
+    log += hb["log"]
     log.sort(key=lambda x: x["at"] or "", reverse=True)
     return {"unitType": unit_type, "asOf": facility["asOf"], "points": points, "cards": cards,
             "comps": cur["comps"], "log": log[:200], "groupId": gid,
-            "workbookImport": {"available": False,
-                               "why": "Seeding history from past CMA workbooks needs a sample of the monthly Excel "
-                                      "CMAs (GSE, GSF, GSM, GST, GSVC) to read their Input tabs safely. Send one "
-                                      "and this upload turns on."}}
+            "hummingbird": {"first": hb_points[0]["date"][:7] if hb_points else "",
+                            "last": hb_points[-1]["date"][:7] if hb_points else ""}}
 
 
 @router.get("/history")
