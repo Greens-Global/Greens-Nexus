@@ -6258,6 +6258,10 @@ class NexusPersonPref(Base):
     # mode's default: on for roster supervisors, off under legacy), 1 = on,
     # 0 = off. No column default on purpose. ALTER lines in main.py.
     ticket_weekly_report = Column(Integer, nullable=True, default=None)
+    # Tasks Home > Updates (Neil, Oct 21 2026): when this person last looked
+    # at the card, so it can mark what arrived since - on the server so a
+    # phone and a desktop agree. ALTER lines in main.py.
+    updates_seen_at = Column(String, default="")
 
 
 class TaskAutomationRun(Base):

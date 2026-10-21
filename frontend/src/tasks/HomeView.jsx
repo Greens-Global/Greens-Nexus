@@ -215,6 +215,18 @@ export default function HomeView({ onNavigate }) {
     }, updatesRead.current ? 800 : 0);
     return () => { alive = false; clearTimeout(timer); };
   }, [tasksStamp, showUpdates]);
+  // New since I last looked (Oct 21): stamped on the server once per visit,
+  // after the first read lands; the stamp it replaces marks what is New for
+  // the rest of this visit.
+  const [updatesSeenAt, setUpdatesSeenAt] = useState(null);
+  const seenMarked = useRef(false);
+  useEffect(() => {
+    if (updates === null || seenMarked.current || typeof api.markUpdatesSeen !== 'function') return;
+    seenMarked.current = true;
+    api.markUpdatesSeen()
+      .then((r) => setUpdatesSeenAt(r?.seenAt || ''))
+      .catch(() => {});
+  }, [updates]);
   const rangeDef = RANGES.find((r) => r.key === range);
   const rangeEnd = addDays(todayISO(), rangeDef.days);
   // The My Day / My Week / My Month picker scopes every tile and tab except
@@ -401,7 +413,7 @@ export default function HomeView({ onNavigate }) {
       </>
     );
     if (key === 'updates') return (
-      <UpdatesCard updates={updates} failed={updatesFailed} nameOf={nameOf} statusMeta={store.statusMeta}
+      <UpdatesCard updates={updates} failed={updatesFailed} seenAt={updatesSeenAt} nameOf={nameOf} statusMeta={store.statusMeta}
         taskById={taskById} onOpen={setOpenId} fill={coreWide} isMobile={isMobile} />
     );
     if (key === 'projects') return widgetBox(

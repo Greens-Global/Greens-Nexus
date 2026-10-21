@@ -1164,6 +1164,8 @@ def _run_migrations():
             "UPDATE external_links SET department = 'Operations' WHERE lower(department) = 'storage'",
             "UPDATE personal_links SET department = 'Operations' WHERE lower(department) = 'storage'",
             "UPDATE link_layout_views SET layout = json_set(layout, '$.filters.department', 'Operations') WHERE lower(json_extract(layout, '$.filters.department')) = 'storage'",
+            # Tasks Home > Updates: when the card was last looked at. models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN updates_seen_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2637,6 +2639,8 @@ def _run_migrations():
         "UPDATE external_links SET department = 'Operations' WHERE lower(department) = 'storage'",
         "UPDATE personal_links SET department = 'Operations' WHERE lower(department) = 'storage'",
         "UPDATE link_layout_views SET layout = jsonb_set(layout::jsonb, '{filters,department}', '\"Operations\"'::jsonb) WHERE lower(layout::jsonb #>> '{filters,department}') = 'storage'",
+        # Tasks Home > Updates: when the card was last looked at. models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS updates_seen_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

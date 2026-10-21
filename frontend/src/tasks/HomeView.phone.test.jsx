@@ -12,9 +12,10 @@ let store;
 let mobile = true;
 let savedHome;
 const activity = vi.fn(() => Promise.resolve([]));
+const seen = vi.fn(() => Promise.resolve({ seenAt: '' }));
 
 vi.mock('./TasksContext', () => ({ useTasks: () => store }));
-vi.mock('../api', () => ({ api: { getMyTaskActivity: (...a) => activity(...a) } }));
+vi.mock('../api', () => ({ api: { getMyTaskActivity: (...a) => activity(...a), markUpdatesSeen: (...a) => seen(...a) } }));
 vi.mock('./TaskDetailDrawer', () => ({ default: ({ taskId }) => <div data-testid="drawer">{taskId}</div> }));
 vi.mock('./ManageView', () => ({ DeletedTasksTab: () => null }));
 vi.mock('../components/AnchoredMenu', () => ({ default: ({ open, children }) => (open ? <div>{children}</div> : null) }));
@@ -45,6 +46,8 @@ beforeEach(() => {
   mobile = true;
   savedHome = undefined;
   activity.mockReset();
+  seen.mockReset();
+  seen.mockImplementation(() => Promise.resolve({ seenAt: '' }));
   activity.mockImplementation(() => Promise.resolve([
     { id: 'a1', type: 'status_changed', actorId: SAGAR, at: minutesAgo(5), detail: 'changed status to in_progress', taskId: 't1', relation: 'assignee', entityTitle: 'Fix roof' },
     { id: 'a2', type: 'commented', actorId: SAGAR, at: minutesAgo(180), detail: 'added a comment', taskId: 't2', relation: 'collaborator', entityTitle: 'Paint fence' },
@@ -177,7 +180,7 @@ describe('a grouped update', () => {
     render(<HomeView onNavigate={() => {}} />);
     await flush();
     const row = document.querySelector('[data-update-row]');
-    expect(row.textContent).toContain('Sagar P changed the status to In Progress, attached 2 files and moved the due date to 10/22/2026');
+    expect(row.textContent).toContain('Sagar P changed the status to In Progress, attached 2 files and pushed the due date to 10/22/2026');
     expect(row.hasAttribute('data-for-you')).toBe(false);
   });
 
@@ -207,9 +210,64 @@ describe('a grouped update', () => {
     expect(rows[0].textContent).toContain('mentioned you');
   });
 
+  it('folds several people on one task into one row, never an ask', async () => {
+    activity.mockImplementation(() => Promise.resolve([
+      grouped({ id: 'a', actorId: SAGAR, at: minutesAgo(2), parts: [{ kind: 'commented', count: 1 }] }),
+      grouped({ id: 'b', actorId: 'dean@greensglobal.com', at: minutesAgo(30), parts: [{ kind: 'commented', count: 2 }] }),
+      grouped({ id: 'c', actorId: 'dean@greensglobal.com', at: minutesAgo(40), forYou: true, ask: 'open',
+        parts: [{ kind: 'mentioned_you', count: 1 }, { kind: 'commented', count: 1 }] }),
+    ]));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    const rows = document.querySelectorAll('[data-update-row]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain('Sagar P and dean@greensglobal.com left 3 comments');
+    expect(rows[1].textContent).toContain('mentioned you in a comment');
+  });
+
+  it('For You keeps what waits on me apart from what I answered', async () => {
+    activity.mockImplementation(() => Promise.resolve([
+      grouped({ id: 'x', at: minutesAgo(1), forYou: true, ask: 'Replied', parts: [{ kind: 'mentioned_you', count: 1 }] }),
+      grouped({ id: 'y', taskId: 't2', at: minutesAgo(5), forYou: true, ask: 'open',
+        parts: [{ kind: 'extension_ask', count: 1, detail: 'asked to extend the due date from 10/22/2026 to 10/30/2026 - extension #3, needs approval' }] }),
+      grouped({ id: 'z', type: 'unblocked', at: minutesAgo(9), forYou: true, ask: '',
+        parts: [{ kind: 'unblocked', count: 1, detail: 'Site survey', left: 0 }] }),
+    ]));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('tab', { name: 'For You (2)' }));
+    expect(screen.getByText('Waiting on You')).toBeTruthy();
+    expect(screen.getByText('Answered')).toBeTruthy();
+    const rows = document.querySelectorAll('[data-update-row]');
+    expect(rows[0].textContent).toContain('asked you to approve an extension to 10/30/2026');
+    expect(rows[1].textContent).toContain('finished Site survey, so this can start');
+    expect(rows[2].hasAttribute('data-answered')).toBe(true);
+    expect(rows[2].textContent).toContain('Replied');
+  });
+
+  it('says a repeat slip, who owns the task, and what is new since I last looked', async () => {
+    seen.mockImplementation(() => Promise.resolve({ seenAt: minutesAgo(10) }));
+    activity.mockImplementation(() => Promise.resolve([
+      grouped({ id: 'n', at: minutesAgo(3), relation: 'owner',
+        parts: [{ kind: 'due', count: 1, detail: 'changed the due date from 10/22/2026 to 10/30/2026 - extension #3' }] }),
+      grouped({ id: 'o', taskId: 't2', at: minutesAgo(60), parts: [{ kind: 'due', count: 1, detail: 'changed the due date from 10/30/2026 to 10/24/2026' }] }),
+    ]));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    const rows = document.querySelectorAll('[data-update-row]');
+    expect(rows[0].textContent).toContain('pushed the due date to 10/30/2026 for the 3rd time');
+    expect(rows[0].textContent).toContain('You Own This');
+    expect(rows[0].hasAttribute('data-new')).toBe(true);
+    expect(rows[1].textContent).toContain('moved the due date up to 10/24/2026');
+    expect(rows[1].hasAttribute('data-new')).toBe(false);
+    expect(screen.getByText(/1 New/)).toBeTruthy();
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
   it('caps a stacked card at 8 with Show All, and a wide one scrolls instead', async () => {
     activity.mockImplementation(() => Promise.resolve(Array.from({ length: 11 }, (_, i) => grouped({
-      id: `g${i}`, at: minutesAgo(i + 1), parts: [{ kind: 'attached', count: 1 }] }))));
+      // Eleven different tasks: one task's updates on one day fold into one row.
+      id: `g${i}`, taskId: `t${i + 10}`, at: minutesAgo(i + 1), parts: [{ kind: 'completed', count: 1 }] }))));
     const { unmount } = render(<HomeView onNavigate={() => {}} />);
     await flush();
     expect(document.querySelectorAll('[data-update-row]')).toHaveLength(8);

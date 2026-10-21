@@ -8,10 +8,18 @@
 // me, gave me a comment to act on) is flagged `forYou`. This card turns the
 // parts into one sentence, sorts the updates under Today / Yesterday /
 // Earlier, and lets the person narrow the list to For You.
+//
+// Oct 21 2026 (Neil: "make it great"): For You is a short list of what is
+// still waiting on me - an ask drops to Answered once I reply, resolve,
+// approve or start - plus "you're unblocked"; several people's updates to one
+// task on one day fold into one row; a due date pushed later reads as a slip;
+// what arrived since I last looked carries a New dot (the stamp is kept on
+// the server, POST /tasks/activity/mine/seen, so phone and desktop agree).
 import { useMemo, useState } from 'react';
 import { Avatar } from './components';
 import { NX, FONT, btn, card } from './theme';
-import { ago, updatePhrases } from './updatesText';
+import { StatusLabel } from '../components/StatusLabel';
+import { ago, updatePhrases, foldByTask, needsMe, isAnswered, actorsLabel } from './updatesText';
 import { formatDateTime } from '../lib/datetime';
 
 // Rows shown before "Show All" where the card is not filling a column.
@@ -45,20 +53,28 @@ const tabStyle = (on) => ({
  * @param failed   the read failed (with nothing read before it)
  * @param fill     the card fills a column the layout sized (the desktop core
  *                 row): the list scrolls inside it, no Show All
+ * @param seenAt   when I last looked at the card before this visit ('' =
+ *                 never, null = not known yet): newer updates are New
  */
-export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskById, onOpen, fill = false, isMobile = false }) {
+export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskById, onOpen, fill = false, isMobile = false, seenAt = null }) {
   const [filter, setFilter] = useState('all');
   const [expanded, setExpanded] = useState(false);
   const rows = useMemo(() => updates || [], [updates]);
-  const forYou = rows.filter((u) => u.forYou).length;
-  const list = filter === 'you' ? rows.filter((u) => u.forYou) : rows;
+  const folded = useMemo(() => foldByTask(rows, dayLabel), [rows]);
+  const waiting = rows.filter(needsMe);
+  const answered = rows.filter((u) => u.forYou && isAnswered(u));
+  // All: by day. For You: what still waits on me, then what I have answered.
+  const list = filter === 'you' ? [...waiting, ...answered] : folded;
   const shown = fill || expanded ? list : list.slice(0, UPDATES_SHOWN);
   const sections = [];
   for (const u of shown) {
-    const label = dayLabel(u.at);
+    const label = filter === 'you' ? (isAnswered(u) ? 'Answered' : 'Waiting on You') : dayLabel(u.at);
     if (!sections.length || sections[sections.length - 1].label !== label) sections.push({ label, rows: [] });
     sections[sections.length - 1].rows.push(u);
   }
+  const seen = seenAt ? new Date(seenAt).getTime() : NaN;
+  const isNew = (u) => Number.isFinite(seen) && new Date(u.at).getTime() > seen;
+  const newCount = rows.filter(isNew).length;
 
   const open = (u) => { if (u.taskId && taskById.has(u.taskId)) onOpen(u.taskId); };
   const note = (text) => <p style={{ padding: '18px 0', margin: 0, textAlign: 'center', fontSize: 13, color: NX.faint }}>{text}</p>;
@@ -80,7 +96,7 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
       </div>
     );
   } else if (rows.length === 0) body = note('Nothing new on your tasks in the last 14 days.');
-  else if (list.length === 0) body = note('Nothing for you right now. Assignments, mentions and comments you need to act on will show here.');
+  else if (list.length === 0) body = note('Nothing waiting on you. Assignments, mentions, comments and date requests for you will show here.');
   else {
     body = (
       <div style={fill ? { flex: 1, minHeight: 0, overflowY: 'auto', margin: '0 -8px', padding: '0 8px' } : undefined}>
@@ -90,32 +106,41 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
             {s.rows.map((u, i) => {
               const t = taskById.get(u.taskId);
               const title = t?.title || u.entityTitle || u.entityCode || 'A task';
-              const who = nameOf(u.actorId) || u.actorId || 'Someone';
+              const who = u.actors ? actorsLabel(u.actors, nameOf) : (nameOf(u.actorId) || u.actorId || 'Someone');
               const phrases = updatePhrases(u, statusMeta);
               const sentence = phrases.map((p) => p.text);
+              const done = isAnswered(u);
+              const fresh = isNew(u);
               return (
                 <div key={u.id} data-update-row data-for-you={u.forYou ? '' : undefined}
+                  data-answered={done ? '' : undefined} data-new={fresh ? '' : undefined}
                   role={t ? 'button' : undefined} tabIndex={t ? 0 : undefined} className={t ? 'nx-row-hover' : undefined}
                   onClick={() => open(u)}
                   onKeyDown={(e) => { if (t && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(u); } }}
-                  title={`${who} ${sentence.join(', ')} · ${formatDateTime(u.at)}`}
+                  title={`${who} ${sentence.join(', ')} · ${formatDateTime(u.at)}${done ? ` · ${u.ask}` : ''}`}
                   style={{
                     display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 8px', margin: '0 -8px', borderRadius: 8,
                     borderTop: i === 0 ? 'none' : `1px solid ${NX.border2}`, cursor: t ? 'pointer' : 'default',
-                    // Aimed at me: a thin rule down the left edge, not a chip.
-                    boxShadow: u.forYou ? `inset 3px 0 0 ${NX.blue}` : 'none',
+                    // Still waiting on me: a thin rule down the left edge, not a chip.
+                    boxShadow: needsMe(u) ? `inset 3px 0 0 ${NX.blue}` : 'none',
                   }}>
-                  <Avatar email={u.actorId} name={who} size={30} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <Avatar email={u.actorId} name={nameOf(u.actorId) || u.actorId || 'Someone'} size={30} />
+                  <div style={{ flex: 1, minWidth: 0, opacity: done ? 0.72 : 1 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600, color: t?.completed ? NX.faint : NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: t?.completed ? 'line-through' : 'none' }}>{title}</span>
-                      <span style={{ fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{ago(u.at)}</span>
+                      {done && <StatusLabel label={u.ask} color="#16a34a" size="sm" style={{ flexShrink: 0, alignSelf: 'center' }} />}
+                      <span style={{ fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0, fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        {fresh && <span role="img" aria-label="New" title="New since you last looked" style={{ width: 7, height: 7, borderRadius: '50%', background: NX.blue }} />}
+                        {ago(u.at)}
+                      </span>
                     </div>
                     <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.4, marginTop: 1 }}>
                       <span style={{ fontWeight: 600, color: NX.ink }}>{who}</span>{' '}
                       {joinPhrases(phrases).map((p, k) => (typeof p === 'string' ? p
-                        : <span key={k} style={p.forYou ? { color: NX.blue, fontWeight: 600 } : undefined}>{p.text}</span>))}
+                        : <span key={k} style={p.forYou && !done ? { color: NX.blue, fontWeight: 600 }
+                          : p.slip ? { color: NX.amber, fontWeight: 600 } : undefined}>{p.text}</span>))}
                       {u.relation === 'collaborator' && <span style={{ color: NX.faint }}> · Following</span>}
+                      {u.relation === 'owner' && <span style={{ color: NX.faint }}> · You Own This</span>}
                     </div>
                     {u.preview && (
                       <div style={{ marginTop: 5, paddingLeft: 9, borderLeft: `2px solid ${NX.border}`, fontSize: 12.5, color: NX.dim, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
@@ -144,13 +169,16 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
     }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Updates</h2>
-        <span style={{ fontSize: 12.5, color: NX.faint }}>On your tasks, last 14 days</span>
+        <span style={{ fontSize: 12.5, color: NX.faint }}>
+          {newCount > 0 && <span style={{ color: NX.blue, fontWeight: 600 }}>{newCount} New · </span>}
+          On your tasks, last 14 days
+        </span>
       </div>
       {rows.length > 0 && (
         <div role="tablist" aria-label="Which updates" style={{ display: 'flex', gap: 16, marginTop: 10, borderBottom: `1px solid ${NX.border}` }}>
           <button role="tab" aria-selected={filter === 'all'} onClick={() => setFilter('all')} style={tabStyle(filter === 'all')}>All</button>
           <button role="tab" aria-selected={filter === 'you'} onClick={() => setFilter('you')} style={tabStyle(filter === 'you')}>
-            For You{forYou > 0 ? ` (${forYou})` : ''}
+            For You{waiting.length > 0 ? ` (${waiting.length})` : ''}
           </button>
         </div>
       )}
