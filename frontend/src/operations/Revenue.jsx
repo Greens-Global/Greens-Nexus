@@ -10,13 +10,13 @@
 // Notified -> Applied). Every number in a preview comes from the server
 // (backend/ops_revenue.py); saving a batch recomputes it there. Nexus never
 // emails a tenant: staff print the notice letters or use the mail-merge
-// export. Nexus never writes to Cubby (Visesh, Oct 20 2026): staff enter each
-// new rent in Cubby by hand and mark the row Entered in Cubby - the only way a
-// row reaches Cubby. Do not add a push.
+// export. Push to Cubby is locked behind the Operations switch (Settings >
+// Global Settings > Operations, OFF by default - Visesh, Oct 21 2026): while it
+// is off staff enter each new rent in Cubby by hand and mark the row Entered in
+// Cubby; with it on (and a Manager-role key) a row can be pushed, one at a time.
 // Street rates for new renters are Market Rates' job, not this tab's.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import PushToCubbyDisabled from './PushToCubbyDisabled';
-import { Plus, Pencil, Trash2, FileText, Download, Check, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileText, Download, Send, Check, X } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { Modal } from '../tasks/components';
@@ -56,9 +56,9 @@ const STATUS = {
   applied: ['status-approved', 'Applied'], canceled: ['pill-muted', 'Canceled'],
 };
 const ROW_STATUS = {
-  // "pushed" / "failed" only exist on rows from before Oct 20 2026.
-  pending: ['pill-muted', 'Not Yet in Cubby'], pushed: ['status-approved', 'In Cubby'],
-  entered: ['status-approved', 'Entered in Cubby'], failed: ['pill-muted', 'Not Yet in Cubby'], removed: ['pill-muted', 'Removed'],
+  // "pushed" / "failed" come from Push to Cubby (only with the Operations switch on).
+  pending: ['pill-muted', 'Not Yet in Cubby'], pushed: ['status-approved', 'Pushed to Cubby'],
+  entered: ['status-approved', 'Entered in Cubby'], failed: ['status-rejected', 'Push Failed'], removed: ['pill-muted', 'Removed'],
 };
 const CAP_LABEL = { street: 'Capped at standard rate', street_plus: 'Capped at standard rate +', none: 'No cap' };
 
@@ -392,6 +392,19 @@ function BatchModal({ batchId, onClose, onChanged }) {
     if (ask && !window.confirm(ask)) return null;
     return api.opsRevenueSetStatus(batchId, s);
   });
+  const push = (c) => act(c.id, async () => {
+    if (!window.confirm(`Schedule ${c.tenant}'s new rent in Cubby: ${cash(c.rent)} -> ${cash(c.newRent)}?`)) return null;
+    try {
+      return await api.opsRevenuePush(batchId, c.id);
+    } catch (e) {
+      if (e?.status === 409 && e?.detail?.cubbyDate && window.confirm(`${e.message}
+
+Use Cubby's date?`)) {
+        return api.opsRevenuePush(batchId, c.id, true);
+      }
+      throw e;
+    }
+  });
   const letters = () => act('letters', async () => {
     const { blob, filename } = await api.opsRevenueLetters(batchId);
     download(blob, filename);
@@ -433,13 +446,16 @@ function BatchModal({ batchId, onClose, onChanged }) {
         {b.status !== 'draft' && b.status !== 'canceled' && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" disabled={!!busy} onClick={letters} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><FileText size={14} aria-hidden="true" /> Print Notices</button>
-            <PushToCubbyDisabled label="Push Rent Changes to Cubby" />
             <button type="button" className="secondary-btn" disabled={!!busy} onClick={exportCsv} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Download size={14} aria-hidden="true" /> Mail Merge and Checklist</button>
           </div>
         )}
         <p className="ops-note" style={{ margin: 0 }}>
           Nexus never emails tenants. Print the notices (address them from Cubby) or use the mail-merge file.
-          {open && " Nexus doesn't change rents in Cubby. Enter each change in Cubby, then mark it entered here. The batch is Applied once every row is marked."}
+          {open && (b.pushReady
+            ? ' Push each change to Cubby, or mark it Entered in Cubby if staff typed it there. The batch is Applied once every row is in Cubby.'
+            : b.pushOn
+              ? " Push to Cubby is on, but this server has no Cubby key with the Manager role yet, so enter each change in Cubby and mark it entered here."
+              : " Nexus doesn't change rents in Cubby. Enter each change in Cubby, then mark it entered here. The batch is Applied once every row is marked.")}
         </p>
         <div className="req-table-wrapper">
           <table className="req-table stack-table">
@@ -458,11 +474,16 @@ function BatchModal({ batchId, onClose, onChanged }) {
                   <td data-th="Cubby">
                     <Badge map={ROW_STATUS} value={c.status} />
                     {c.cubbyChangeDate && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Takes effect {formatDate(c.cubbyChangeDate)}</div>}
+                    {c.status === 'failed' && c.pushDetail && <div style={{ fontSize: 12, color: 'var(--bad-fg)' }}>{c.pushDetail}</div>}
                   </td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     {b.status === 'draft' && c.status !== 'removed' && (
                       <button type="button" className="icon-btn" title="Remove from batch" aria-label={`Remove ${c.tenant}`} disabled={!!busy}
                         onClick={() => act(c.id, () => api.opsRevenueRemoveChange(batchId, c.id))}><X size={14} /></button>
+                    )}
+                    {open && ['pending', 'failed'].includes(c.status) && b.pushReady && c.leaseId && (
+                      <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => push(c)} aria-label={`Push ${c.tenant} to Cubby`}
+                        style={{ display: 'inline-flex', gap: 4, alignItems: 'center', marginRight: 6 }}><Send size={13} aria-hidden="true" /> Push to Cubby</button>
                     )}
                     {open && ['pending', 'failed'].includes(c.status) && (
                       <button type="button" className="secondary-btn" disabled={!!busy}
