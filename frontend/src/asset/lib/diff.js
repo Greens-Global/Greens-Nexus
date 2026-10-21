@@ -29,11 +29,21 @@ export function diffStore(prev, next) {
       if (!old || !same(old, row)) upsert.push(row);
     }
     const del = [...before.keys()].filter((id) => !seen.has(id));
-    if (upsert.length || del.length) { out[coll] = { upsert, delete: del }; any = true; }
+    if (upsert.length || del.length) {
+      // A delete carries the rev the row was read with, so the server can tell
+      // a delete of a row someone changed since (a conflict, not a loss).
+      const deleteRevs = {};
+      for (const id of del) { const r = before.get(id); if (r && r._rev != null) deleteRevs[id] = r._rev; }
+      out[coll] = { upsert, delete: del, deleteRevs };
+      any = true;
+    }
   }
-  const had = new Set((prev?.logs || []).map((l) => l && l.id).filter(Boolean));
-  const append = (next?.logs || []).filter((l) => l && l.id && !had.has(l.id));
-  if (append.length) { out.logs = { append }; any = true; }
+  const hadLogs = new Map((prev?.logs || []).filter((l) => l && l.id).map((l) => [l.id, l]));
+  const append = (next?.logs || []).filter((l) => l && l.id && !hadLogs.has(l.id));
+  // The one thing that changes on an existing entry is its undone flag (Undo in the Activity Log).
+  const update = (next?.logs || []).filter((l) => l && l.id && hadLogs.has(l.id) && !!hadLogs.get(l.id).undone !== !!l.undone)
+    .map((l) => ({ id: l.id, undone: !!l.undone }));
+  if (append.length || update.length) { out.logs = { append, update }; any = true; }
   return any ? out : null;
 }
 
@@ -44,17 +54,20 @@ export function mergeOps(into, ops) {
   for (const coll of ROW_COLLECTIONS) {
     const o = ops?.[coll];
     if (!o) continue;
-    const cur = out[coll] || { upsert: [], delete: [] };
+    const cur = out[coll] || { upsert: [], delete: [], deleteRevs: {} };
     const ups = new Map(cur.upsert.map((r) => [r.id, r]));
     const dels = new Set(cur.delete);
-    for (const r of o.upsert || []) { ups.set(r.id, r); dels.delete(r.id); }
-    for (const id of o.delete || []) { ups.delete(id); dels.add(id); }
-    out[coll] = { upsert: [...ups.values()], delete: [...dels] };
+    const deleteRevs = { ...(cur.deleteRevs || {}) };
+    for (const r of o.upsert || []) { ups.set(r.id, r); dels.delete(r.id); delete deleteRevs[r.id]; }
+    for (const id of o.delete || []) { ups.delete(id); dels.add(id); if (o.deleteRevs && o.deleteRevs[id] != null) deleteRevs[id] = o.deleteRevs[id]; }
+    out[coll] = { upsert: [...ups.values()], delete: [...dels], deleteRevs };
   }
-  if (ops?.logs?.append?.length) {
-    const cur = out.logs || { append: [] };
+  if (ops?.logs?.append?.length || ops?.logs?.update?.length) {
+    const cur = out.logs || { append: [], update: [] };
     const ids = new Set(cur.append.map((l) => l.id));
-    out.logs = { append: [...cur.append, ...ops.logs.append.filter((l) => !ids.has(l.id))] };
+    const upd = new Map((cur.update || []).map((u) => [u.id, u]));
+    for (const u of ops.logs.update || []) upd.set(u.id, u);
+    out.logs = { append: [...cur.append, ...(ops.logs.append || []).filter((l) => !ids.has(l.id))], update: [...upd.values()] };
   }
   return out;
 }
@@ -62,5 +75,5 @@ export function mergeOps(into, ops) {
 export function opsEmpty(ops) {
   if (!ops) return true;
   for (const coll of ROW_COLLECTIONS) if (ops[coll] && (ops[coll].upsert.length || ops[coll].delete.length)) return false;
-  return !(ops.logs && ops.logs.append.length);
+  return !(ops.logs && (ops.logs.append.length || (ops.logs.update || []).length));
 }

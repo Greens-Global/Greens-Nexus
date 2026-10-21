@@ -38,6 +38,11 @@ export function stripTabsFor(assetKind) {
     : [['property', 'Overview'], ['records', 'Records']];
 }
 /** A record collection's segment label: short, Title Case. */
+/** A one-line explanation under a record segment whose name is an initialism. */
+export function recordHint(key) {
+  return { ahj: 'Authority Having Jurisdiction' }[key] || '';
+}
+
 export function recordLabel(key) {
   return { vservice: 'Service', vdocs: 'Documents', permit: 'Permits' }[key] || (TAB_LIST.find(([k]) => k === key) || [])[1] || key;
 }
@@ -115,13 +120,16 @@ export const PORTFOLIO_SUB = 'asset-portfolio';
 // "a:<id>:<view>" - the view is a strip tab or a record collection key. The
 // portfolio has no segment. Ids are URL-encoded so the shell's one-segment
 // path survives whatever an import used as an id.
+// A fourth part, "a:<id>:<view>:<row>", is a record to highlight (bells link to
+// the inspection or warranty they are about); the module drops it from the
+// address once it has landed.
+const enc = (v) => encodeURIComponent(String(v)).replace(/:/g, '%3A');
+const dec = (v) => { try { return decodeURIComponent(v); } catch { return v; } };
 export function assetSub(id, view) {
-  return id ? `a:${encodeURIComponent(id).replace(/:/g, '%3A')}:${view || 'property'}` : null;
+  return id ? `a:${enc(id)}:${view || 'property'}` : null;
 }
 export function parseAssetSub(sub) {
-  const m = /^a:([^:]+)(?::([^:]+))?$/.exec(sub || '');
+  const m = /^a:([^:]+)(?::([^:]+))?(?::([^:]+))?$/.exec(sub || '');
   if (!m) return null;
-  let id = m[1];
-  try { id = decodeURIComponent(id); } catch { /* keep as typed */ }
-  return { id, view: m[2] || 'property' };
+  return { id: dec(m[1]), view: m[2] || 'property', item: m[3] ? dec(m[3]) : '' };
 }

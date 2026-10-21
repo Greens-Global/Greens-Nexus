@@ -84,6 +84,24 @@ describe('sync queue', () => {
     expect(sync.hasPending()).toBe(false);
   });
 
+  it('keeps the batch through a deploy window (404) and the rate limiter (429)', async () => {
+    saveImpl = async () => { const e = new Error('Not Found'); e.status = 404; throw e; };
+    const failed = [];
+    window.addEventListener('nexus:asset-save-failed', (e) => failed.push(e.detail));
+    sync.queueOps({ properties: { upsert: [{ id: 'a', name: 'A1' }], delete: [] } });
+    await vi.advanceTimersByTimeAsync(900);
+    expect(calls.save).toHaveLength(1);
+    expect(sync.hasPending()).toBe(true);
+    saveImpl = async () => { const e = new Error('Too Many Requests'); e.status = 429; throw e; };
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(sync.hasPending()).toBe(true);
+    expect(failed.filter((f) => !f.soft)).toHaveLength(0);
+    saveImpl = async () => ({ ok: true, _ts: 9, conflicts: [] });
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(sync.hasPending()).toBe(false);
+    expect(calls.save[calls.save.length - 1].properties.upsert).toEqual([{ id: 'a', name: 'A1' }]);
+  });
+
   it('re-pulls and tells the app when the server kept someone else\'s row', async () => {
     saveImpl = async () => ({ ok: true, _ts: 7, conflicts: ['a'] });
     const applied = [];

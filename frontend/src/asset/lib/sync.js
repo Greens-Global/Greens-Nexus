@@ -15,6 +15,21 @@ import { api } from '../../api.js';
 
 /** localStorage / IndexedDB key the app's full state blob is stored under (both tiers use the same key). */
 export const STORAGE_KEY = 'nexus_asset_neil_v2';
+// The cache is per person: on a shared machine another account's portfolio
+// (private assets included) must not be the first paint.
+let storageUser = '';
+export function setStorageUser(email) { storageUser = String(email || '').trim().toLowerCase(); }
+export function storageKey() { return storageUser ? `${STORAGE_KEY}:${storageUser}` : STORAGE_KEY; }
+// A row the server kept someone else's version of: the tab's own version is
+// kept here (newest first, 50 at most) so nothing typed is simply gone.
+export const CONFLICTS_KEY = 'nexus_asset_conflicts';
+function keepConflicts(rows) {
+  if (!rows.length || typeof sessionStorage === 'undefined') return;
+  try {
+    const cur = JSON.parse(sessionStorage.getItem(CONFLICTS_KEY) || '[]');
+    sessionStorage.setItem(CONFLICTS_KEY, JSON.stringify([...rows.map((r) => ({ at: Date.now(), row: r })), ...cur].slice(0, 50)));
+  } catch { /* best-effort */ }
+}
 
 /** GET the server's current state. Resolves to `null` on any failure or empty workspace - never rejects. */
 export function serverGet() {
@@ -108,9 +123,12 @@ function notifySaveFailed(status, message, soft) {
   try { console.error('[asset-sync] save failed', { status, message, soft }); } catch { /* noop */ }
 }
 
-function notifyConflicts(ids) {
+function notifyConflicts(ids, batch) {
+  const rows = [];
+  for (const coll of ROW_COLLECTIONS) for (const r of (batch && batch[coll] && batch[coll].upsert) || []) if (ids.includes(r.id)) rows.push({ coll, ...r });
+  keepConflicts(rows);
   try {
-    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('nexus:asset-save-conflict', { detail: { ids, at: Date.now() } }));
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('nexus:asset-save-conflict', { detail: { ids, rows, at: Date.now() } }));
   } catch { /* best-effort */ }
 }
 
@@ -145,7 +163,7 @@ export function flush() {
         }
       }
       if (r && r.conflicts && r.conflicts.length) {
-        notifyConflicts(r.conflicts);
+        notifyConflicts(r.conflicts, batch);
         serverGet().then((server) => {
           if (!server) return;
           lastTs = server._ts || lastTs;
@@ -168,9 +186,12 @@ export function flush() {
       inFlight = false;
       const status = (e && typeof e.status === 'number') ? e.status : 0;
       const message = String((e && e.message) || '');
-      if (status >= 400 && status < 500) {
-        // Permanent (403 no write grant / outside access, 400 a file not in storage, 422 shape):
-        // retrying can never succeed. Drop the batch and say so - never a silent loss.
+      // Permanent (403 no write grant / outside access, 400 a file not in storage, 422 shape,
+      // 413 too large): retrying can never succeed. Drop the batch and say so - never a
+      // silent loss. Everything else is kept and retried: a 404 / 405 is the old API still
+      // serving during a deploy (the frontend lands minutes before the backend), a 401 is a
+      // session being renewed, a 429 is the rate limiter.
+      if ([400, 403, 413, 422].includes(status)) {
         retryCount = 0;
         softNotified = false;
         notifySaveFailed(status, message, false);

@@ -83,16 +83,23 @@ class WorkspaceSaveTests(unittest.TestCase):
         self.assertEqual(cm.exception.status_code, 409)
         self.assertEqual(self.db.query(models.PropertyAsset).count(), 2)
 
-    def test_the_activity_log_is_capped_per_asset_newest_first(self):
+    def test_the_activity_log_is_kept_whole_and_the_workspace_carries_the_newest(self):
         logs = [{"id": f"l{i}", "propertyId": "a", "ts": f"2026-01-01T00:{i // 60:02d}:{i % 60:02d}Z", "action": "edited"} for i in range(PA.LOG_CAP_PER_ASSET + 40)]
         logs += [{"id": "other", "propertyId": "b", "ts": "2025-01-01T00:00:00Z", "action": "added"}]
-        self._save([{"id": "a", "name": "A"}, {"id": "b", "name": "B"}], logs=logs)
+        first = self._save([{"id": "a", "name": "A"}, {"id": "b", "name": "B"}], logs=logs)
+        # Nothing is ever trimmed from the database...
         kept = self.db.query(models.PropertyActivityLog).filter(models.PropertyActivityLog.property_id == "a").all()
-        self.assertEqual(len(kept), PA.LOG_CAP_PER_ASSET)
-        ids = {r.id for r in kept}
-        self.assertIn(f"l{PA.LOG_CAP_PER_ASSET + 39}", ids)     # the newest stays
-        self.assertNotIn("l0", ids)                               # the oldest goes
-        self.assertEqual(self.db.query(models.PropertyActivityLog).filter(models.PropertyActivityLog.property_id == "b").count(), 1)
+        self.assertEqual(len(kept), PA.LOG_CAP_PER_ASSET + 40)
+        # ...a second blob save with fewer entries removes none of them...
+        self._save([{"id": "a", "name": "A"}, {"id": "b", "name": "B"}], logs=logs[:3], base_ts=first["_ts"])
+        self.assertEqual(self.db.query(models.PropertyActivityLog).count(), PA.LOG_CAP_PER_ASSET + 41)
+        # ...and the workspace carries the newest LOG_CAP_PER_ASSET per asset.
+        ws_logs = PA.get_workspace(db=self.db, user=ADMIN)["logs"]
+        ids_a = {l["id"] for l in ws_logs if l.get("propertyId") == "a"}
+        self.assertEqual(len(ids_a), PA.LOG_CAP_PER_ASSET)
+        self.assertIn(f"l{PA.LOG_CAP_PER_ASSET + 39}", ids_a)     # the newest is there
+        self.assertNotIn("l0", ids_a)                               # the oldest is not sent
+        self.assertEqual(len([l for l in ws_logs if l.get("propertyId") == "b"]), 1)
 
 
 
@@ -141,10 +148,12 @@ class FileUrlTests(unittest.TestCase):
         self._save([{"id": "a", "name": "A renamed", "image": "data:image/png;base64,OLD"}], base_ts=ts)
         self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A renamed")
 
-    def test_a_foreign_url_is_refused(self):
-        with self.assertRaises(HTTPException) as cm:
-            self._save([{"id": "a", "name": "A", "image": "https://evil.example.com/x.jpg"}])
-        self.assertEqual(cm.exception.status_code, 400)
+    def test_a_foreign_url_is_left_alone(self):
+        # A legacy /assets path or an outside link is a link, not an upload:
+        # refusing it would make the row unsaveable until someone re-uploads.
+        self._save([{"id": "a", "name": "A", "image": "/assets/properties/a.jpg"}],
+                   [{"id": "w1", "propertyId": "a", "docFile": "https://elsewhere.example/x.pdf"}])
+        self.assertEqual(self.db.get(models.PropertyAsset, "a").payload["image"], "/assets/properties/a.jpg")
 
     def test_without_storage_anything_goes(self):
         PA._FILES_PREFIX = ""
@@ -202,12 +211,12 @@ class RowSaveTests(unittest.TestCase):
         self.assertEqual(out["conflicts"], [])
         self.assertGreater(out["_ts"], 0)
         self.assertEqual(set(out["revs"]), {"a", "b", "w1"})
-        self._changes(properties={"upsert": [{"id": "b", "name": "B2"}]})     # touching B leaves A alone
+        self._changes(properties={"upsert": [{"id": "b", "name": "B2", "_rev": out["revs"]["b"]}]})     # touching B leaves A alone
         ws = self._get()
         self.assertEqual({p["id"]: p["name"] for p in ws["properties"]}, {"a": "A", "b": "B2"})
         self.assertEqual(ws["warranties"][0]["item"], "Roof")
         self.assertTrue(all("_rev" in p for p in ws["properties"]))
-        self._changes(warranties={"delete": ["w1"]})
+        self._changes(warranties={"delete": ["w1"], "deleteRevs": {"w1": out["revs"]["w1"]}})
         self.assertEqual(self._get()["warranties"], [])
 
     def test_a_stale_row_is_reported_not_overwritten(self):
@@ -220,8 +229,9 @@ class RowSaveTests(unittest.TestCase):
         out = self._changes(properties={"upsert": [{"id": "a", "name": "A by an old tab", "_rev": rev}]})
         self.assertEqual(out["conflicts"], ["a"])
         self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A by Neil, again")
-        self._changes(properties={"upsert": [{"id": "a", "name": "A again"}]})   # no rev = not checked
-        self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A again")
+        out = self._changes(properties={"upsert": [{"id": "a", "name": "A again"}]})   # no rev at all = a cached copy
+        self.assertEqual(out["conflicts"], ["a"])
+        self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A by Neil, again")
 
     def test_private_assets_are_officers_alone(self):
         self._changes(properties={"upsert": [{"id": "home", "name": "Residence", "private": True}, {"id": "gs", "name": "GS"}]},
@@ -242,7 +252,8 @@ class RowSaveTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as cm:                      # only an officer flips the flag
             self._changes(STAFF, properties={"upsert": [{"id": "gs", "name": "GS", "private": True}]})
         self.assertEqual(cm.exception.status_code, 403)
-        self._changes(STAFF, properties={"upsert": [{"id": "gs", "name": "GS (staff edit)"}]})
+        gs_rev = [p for p in staff["properties"] if p["id"] == "gs"][0]["_rev"]
+        self._changes(STAFF, properties={"upsert": [{"id": "gs", "name": "GS (staff edit)", "_rev": gs_rev}]})
         self.assertEqual(self.db.get(models.PropertyAsset, "gs").name, "GS (staff edit)")
 
     def test_scope_rows_narrow_a_person(self):
@@ -254,8 +265,48 @@ class RowSaveTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as cm:
             self._changes(STAFF, properties={"upsert": [{"id": "b", "name": "B!"}]})
         self.assertEqual(cm.exception.status_code, 403)
-        self._changes(STAFF, properties={"upsert": [{"id": "a", "name": "A!"}]})
+        a_rev = self._get(STAFF)["properties"][0]["_rev"]
+        self._changes(STAFF, properties={"upsert": [{"id": "a", "name": "A!", "_rev": a_rev}]})
         self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A!")
+
+    def test_a_conflicted_change_leaves_no_log_entry_and_undone_persists(self):
+        out = self._changes(properties={"upsert": [{"id": "a", "name": "A"}]},
+                            logs={"append": [{"id": "l1", "propertyId": "a", "ts": "2026-10-21T10:00:00Z", "action": "added"}]})
+        stale = self._changes(properties={"upsert": [{"id": "a", "name": "A (stale)", "_rev": "old"}]},
+                              logs={"append": [{"id": "l2", "propertyId": "a", "ts": "2026-10-21T10:01:00Z", "action": "edited"}]})
+        self.assertEqual(stale["conflicts"], ["a"])
+        self.assertIsNone(self.db.get(models.PropertyActivityLog, "l2"))     # nothing landed, nothing logged
+        self._changes(logs={"update": [{"id": "l1", "undone": True}]})
+        self.assertTrue(self.db.get(models.PropertyActivityLog, "l1").payload["undone"])
+        del out
+
+    def test_what_the_server_did_to_a_row_travels_with_the_tabs_next_save(self):
+        prefix = "https://proj.supabase.co/storage/v1/object/public/asset-files/"
+        saved = PA._FILES_PREFIX
+        PA._FILES_PREFIX = ""
+        try:
+            out = self._changes(properties={"upsert": [{"id": "a", "name": "A", "address": "1 Main St", "city": "Austin", "state": "TX",
+                                                        "image": "data:image/png;base64,OLD", "images": ["data:image/png;base64,OLD"]}]})
+            # the migration moved the photo and the geocoder placed the pin while a tab held the row
+            row = self.db.get(models.PropertyAsset, "a")
+            row.payload = {**row.payload, "image": prefix + "photos/a/1.jpg", "images": [prefix + "photos/a/1.jpg"],
+                           "geo": {"lat": 1.0, "lng": 2.0, "for": PA.address_of(row.payload) if hasattr(PA, "address_of") else "1 Main St, Austin, TX"}}
+            self.db.commit()
+            PA._FILES_PREFIX = prefix
+            from asset_geocode import address_of
+            row = self.db.get(models.PropertyAsset, "a")
+            row.payload = {**row.payload, "geo": {**row.payload["geo"], "for": address_of(row.payload)}}
+            self.db.commit()
+            # the tab's next save still carries the data: URL and no geo - neither is undone
+            self._changes(properties={"upsert": [{"id": "a", "name": "A renamed", "address": "1 Main St", "city": "Austin", "state": "TX",
+                                                  "image": "data:image/png;base64,OLD", "images": ["data:image/png;base64,OLD"], "_rev": out["revs"]["a"]}]})
+            got = self.db.get(models.PropertyAsset, "a").payload
+            self.assertEqual(got["name"], "A renamed")
+            self.assertEqual(got["image"], prefix + "photos/a/1.jpg")
+            self.assertEqual(got["images"], [prefix + "photos/a/1.jpg"])
+            self.assertEqual(got["geo"]["lat"], 1.0)
+        finally:
+            PA._FILES_PREFIX = saved
 
     def test_a_viewer_cannot_save_rows(self):
         from fastapi import Request
@@ -281,15 +332,23 @@ class RowSaveTests(unittest.TestCase):
             PA.put_workspace(PA.Workspace(properties=[{"id": "a", "name": "A"}]), db=self.db, user=STAFF)
         self.assertEqual(cm.exception.status_code, 403)
 
-    def test_deleting_a_property_takes_its_rows_and_the_log_is_capped(self):
+    def test_deleting_a_property_takes_its_rows_and_the_log_is_kept_whole(self):
         self._changes(properties={"upsert": [{"id": "a", "name": "A"}]},
                       inspections={"upsert": [{"id": "i1", "propertyId": "a", "type": "Fire"}]},
                       logs={"append": [{"id": f"l{i}", "propertyId": "a", "ts": f"2026-01-01T00:{i // 60:02d}:{i % 60:02d}Z"} for i in range(PA.LOG_CAP_PER_ASSET + 10)]})
-        self.assertEqual(self.db.query(models.PropertyActivityLog).count(), PA.LOG_CAP_PER_ASSET)
-        self._changes(properties={"delete": ["a"]})
-        self.assertEqual(self.db.query(models.PropertyRecord).count(), 0)
-        self.assertEqual(self.db.query(models.PropertyActivityLog).count(), 0)
+        self.assertEqual(self.db.query(models.PropertyActivityLog).count(), PA.LOG_CAP_PER_ASSET + 10)   # never trimmed
+        rev = self._get()["properties"][0]["_rev"]
+        # Delete Forever on a LIVE asset only moves it to the Trash...
+        out = self._changes(properties={"delete": ["a"], "deleteRevs": {"a": rev}})
+        self.assertTrue(self.db.get(models.PropertyAsset, "a").payload["deleted"])
+        self.assertEqual(self.db.query(models.PropertyRecord).count(), 1)
+        # ...a wrong rev is a conflict...
+        self.assertEqual(self._changes(properties={"delete": ["a"], "deleteRevs": {"a": rev}})["conflicts"], ["a"])
+        # ...and from the Trash it goes, with its records - the log is history and stays.
+        self._changes(properties={"delete": ["a"], "deleteRevs": {"a": out["revs"]["a"]}})
         self.assertIsNone(self.db.get(models.PropertyAsset, "a"))
+        self.assertEqual(self.db.query(models.PropertyRecord).count(), 0)
+        self.assertEqual(self.db.query(models.PropertyActivityLog).count(), PA.LOG_CAP_PER_ASSET + 10)
 
 
 class GeocodeTests(unittest.TestCase):

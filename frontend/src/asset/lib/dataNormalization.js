@@ -169,7 +169,10 @@ export function splitAddress(property) {
   const street = segments.slice(0, end).join(', ').replace(/^(\d+[a-z]?),\s+/i, '$1 ');
   if (street === address && city === (property.city || '') && state === (property.state || '')
       && zip === (property.zip || '') && county === (property.county || '')) return property;
+  // The free-text line as it was typed or imported is kept once, so nothing
+  // is lost if the split ever reads a line wrong.
   const next = { ...property, address: street };
+  if (street !== address && !property.addressRaw) next.addressRaw = address;
   if (city !== (property.city || '')) next.city = city;
   if (state !== (property.state || '')) next.state = state;
   if (zip !== (property.zip || '')) next.zip = zip;

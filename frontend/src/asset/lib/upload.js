@@ -58,7 +58,12 @@ export async function uploadAssetFile(file, { propertyId = '', kind = 'documents
  *  an unreadable image (callers count those). */
 export async function storeAssetImage(file, propertyId) {
   const dataUrl = await resizeImageToDataUrl(file, 1600, 0.85);
-  if (!supabase) return dataUrl;
+  if (!supabase) {
+    // Only a local build keeps the picture inline; a deployed API refuses a
+    // data: URL, which would drop the whole save with it.
+    if (import.meta.env.PROD) throw new Error('Storage is not configured - the photo was not saved.');
+    return dataUrl;
+  }
   const jpeg = dataUrlToFile(dataUrl, (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg');
   const { url, error } = await uploadAssetFile(jpeg, { propertyId, kind: 'photos' });
   if (error) throw new Error(error);
@@ -71,6 +76,7 @@ export async function storeAssetDocument(file, propertyId) {
     return { url: '', error: 'Use a PDF, image, Word, Excel, CSV or text file.' };
   }
   if (!supabase) {
+    if (import.meta.env.PROD) return { url: '', error: 'Storage is not configured - the file was not saved.' };
     try { return { url: await fileToDataUrl(file), error: null }; } catch { return { url: '', error: 'Could not read that file.' }; }
   }
   return uploadAssetFile(file, { propertyId, kind: 'documents' });

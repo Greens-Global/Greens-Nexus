@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { idbGet, idbSet } from './idb.js';
-import { STORAGE_KEY, serverGet, pickBest, markHydrated, isHydrated, setLastKnown, queueOps, wireBackgroundSync, setRevHandler, hasPending, pullWhenIdle } from './sync.js';
+import { storageKey, serverGet, pickBest, markHydrated, isHydrated, setLastKnown, queueOps, wireBackgroundSync, setRevHandler, hasPending, pullWhenIdle } from './sync.js';
 import { diffStore, ROW_COLLECTIONS } from './diff.js';
 import { VNORM } from './dataNormalization.js';
 
@@ -55,7 +55,7 @@ export function useNexusStore() {
     // the push path, and lastTs/lastLogCount stay at 0 so the server response
     // below, or the first background pull, always replaces it).
     try {
-      const cached = VNORM(JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'));
+      const cached = VNORM(JSON.parse(localStorage.getItem(storageKey()) || 'null'));
       if (cached && Array.isArray(cached.properties) && cached.properties.length) {
         serverEcho.current = true;
         prevStore.current = cached;
@@ -63,7 +63,7 @@ export function useNexusStore() {
         setLoading(false);
       }
     } catch { /* ignore */ }
-    Promise.all([idbGet(STORAGE_KEY), serverGet()])
+    Promise.all([idbGet(storageKey()), serverGet()])
       .then(([idbJson, serverState]) => {
         if (!alive) return;
         if (serverState) {
@@ -80,7 +80,7 @@ export function useNexusStore() {
           return;
         }
         let local = null;
-        try { local = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch { /* ignore */ }
+        try { local = JSON.parse(localStorage.getItem(storageKey()) || 'null'); } catch { /* ignore */ }
         let idb = null;
         try { idb = idbJson ? JSON.parse(idbJson) : null; } catch { /* ignore */ }
         const best = VNORM(pickBest([local, idb]));
@@ -107,8 +107,8 @@ export function useNexusStore() {
     const ts = Date.now();
     let json;
     try { json = JSON.stringify({ ...store, _ts: ts }); } catch (e) { return; }
-    try { localStorage.setItem(STORAGE_KEY, json); } catch { /* ignore */ }
-    idbSet(STORAGE_KEY, json);
+    try { localStorage.setItem(storageKey(), json); } catch { /* ignore */ }
+    idbSet(storageKey(), json);
     if (serverEcho.current) { serverEcho.current = false; return; }
     const ops = diffStore(prev, store);
     if (ops) queueOps(ops);

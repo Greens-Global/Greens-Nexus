@@ -10,13 +10,19 @@ describe('diffStore', () => {
   it('sends only the rows that changed, keeping the _rev they were read with', () => {
     const next = { ...base, properties: [{ id: 'a', name: 'A2', _rev: 'r1' }, base.properties[1]], warranties: [], logs: [...base.logs, { id: 'l2' }] };
     const ops = diffStore(base, next);
-    expect(ops.properties).toEqual({ upsert: [{ id: 'a', name: 'A2', _rev: 'r1' }], delete: [] });
-    expect(ops.warranties).toEqual({ upsert: [], delete: ['w1'] });
-    expect(ops.logs).toEqual({ append: [{ id: 'l2' }] });
+    expect(ops.properties).toEqual({ upsert: [{ id: 'a', name: 'A2', _rev: 'r1' }], delete: [], deleteRevs: {} });
+    expect(ops.warranties.delete).toEqual(['w1']);
+    expect(ops.warranties.deleteRevs).toEqual(base.warranties[0]._rev != null ? { w1: base.warranties[0]._rev } : {});
+    expect(ops.logs).toEqual({ append: [{ id: 'l2' }], update: [] });
     expect(ops.inspections).toBeUndefined();
   });
   it('ignores a rev-only refresh', () => {
     expect(diffStore(base, { ...base, properties: [{ ...base.properties[0], _rev: 'r2' }, base.properties[1]] })).toBeNull();
+  });
+  it('sends the undone flag of an existing log entry as an update', () => {
+    const ops = diffStore(base, { ...base, logs: base.logs.map((l, i) => (i === 0 ? { ...l, undone: true } : l)) });
+    expect(ops.logs).toEqual({ append: [], update: [{ id: base.logs[0].id, undone: true }] });
+    expect(opsEmpty(ops)).toBe(false);
   });
   it('sees a new row as an upsert', () => {
     const ops = diffStore(base, { ...base, inspections: [{ id: 'i1', propertyId: 'a' }] });

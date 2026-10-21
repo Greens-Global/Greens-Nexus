@@ -63,30 +63,54 @@ def _file_values(payload: Dict[str, Any], keys) -> List[str]:
 
 
 def _check_file_rows(rows, db: Session) -> None:
-    """`rows` = [(what, payload, keys)]. 400 on a file URL from outside the
-    asset-files bucket, or a data: URL the server has not seen before (one it
-    already holds is still migrating). The known set is only built when a
-    data: URL is in the payload at all."""
+    """`rows` = [(what, payload, keys)]. 400 on a data: URL the server has not
+    seen before (one it already holds is still migrating). Anything that is not
+    a data: URL is left alone: a bucket URL, a legacy /assets path or an outside
+    link is a link, not an upload - refusing it would make the row unsaveable.
+    The known set is only built when a data: URL is in the payload at all."""
     if not _FILES_PREFIX:
         return
-    if not any(v.startswith("data:") for _, row, keys in rows for v in _file_values(row, keys)):
-        for what, row, keys in rows:
-            for v in _file_values(row, keys):
-                if not v.startswith(_FILES_PREFIX):
-                    name = row.get("name") or row.get("id") or what
-                    raise HTTPException(status_code=400, detail=f"A photo or document on {name} is not stored in Nexus storage. Upload it again.")
+    fresh = [(what, row, keys) for what, row, keys in rows
+             if any(v.startswith("data:") for v in _file_values(row, keys))]
+    if not fresh:
         return
     known: set = set()
     for p in db.query(PropertyAsset).all():
         known.update(v for v in _file_values(p.payload or {}, PROPERTY_FILE_FIELDS) if v.startswith("data:"))
     for r in db.query(PropertyRecord).all():
         known.update(v for v in _file_values(r.payload or {}, RECORD_FILE_FIELDS) if v.startswith("data:"))
-    for what, row, keys in rows:
+    for what, row, keys in fresh:
         for v in _file_values(row, keys):
-            if v.startswith(_FILES_PREFIX) or v in known:
-                continue
-            name = row.get("name") or row.get("id") or what
-            raise HTTPException(status_code=400, detail=f"A photo or document on {name} is not stored in Nexus storage. Upload it again.")
+            if v.startswith("data:") and v not in known:
+                name = row.get("name") or row.get("id") or what
+                raise HTTPException(status_code=400, detail=f"A photo or document on {name} is not stored in Nexus storage. Upload it again.")
+
+
+def _carry_over(payload: Dict[str, Any], existing: Dict[str, Any], keys) -> None:
+    """What the server did to a row while a tab held it travels with the tab's
+    next save instead of being undone by it: a data: value the migration has
+    already moved takes the bucket URL the row holds now (same field, same
+    position), and the geocoded point stays when the address it was looked up
+    for is unchanged."""
+    if not existing:
+        return
+    for k in keys:
+        v = payload.get(k)
+        w = existing.get(k)
+        if isinstance(v, str) and v.startswith("data:") and isinstance(w, str) and _FILES_PREFIX and w.startswith(_FILES_PREFIX):
+            payload[k] = w
+    imgs, had = payload.get("images"), existing.get("images")
+    if isinstance(imgs, list) and isinstance(had, list) and len(imgs) == len(had):
+        payload["images"] = [w if (isinstance(v, str) and v.startswith("data:") and isinstance(w, str) and _FILES_PREFIX and w.startswith(_FILES_PREFIX)) else v
+                             for v, w in zip(imgs, had)]
+        if isinstance(payload.get("image"), str) and payload["image"].startswith("data:") and payload["images"] and isinstance(payload["images"][0], str) and not payload["images"][0].startswith("data:"):
+            payload["image"] = payload["images"][0]
+    geo = existing.get("geo")
+    if "geo" not in payload and isinstance(geo, dict) and geo.get("for"):
+        from asset_geocode import address_of
+        if address_of(payload) == geo.get("for"):
+            payload["geo"] = geo
+
 
 # The flat child collections the module persists alongside properties + logs.
 # vservice/odometer are the vehicle & equipment service/maintenance + odometer logs.
@@ -165,7 +189,17 @@ def get_workspace(db: Session = Depends(get_db), user=Depends(require_asset_read
             obj = dict(r.payload or {})
             obj["_rev"] = r.updated_at or ""
             ws[r.collection].append(obj)
-    ws["logs"] = [l.payload or {} for l in db.query(PropertyActivityLog).all() if l.property_id in visible]
+    # The log is kept whole in the database (nothing is ever trimmed); the
+    # workspace carries the newest LOG_CAP_PER_ASSET entries per asset.
+    per_asset: Dict[str, int] = {}
+    logs = []
+    for l in db.query(PropertyActivityLog).order_by(PropertyActivityLog.created_at.desc()).all():
+        if l.property_id not in visible:
+            continue
+        per_asset[l.property_id] = per_asset.get(l.property_id, 0) + 1
+        if per_asset[l.property_id] <= LOG_CAP_PER_ASSET:
+            logs.append(l.payload or {})
+    ws["logs"] = logs
     # Server-stamped freshness marker - clients pull whenever this moves past the
     # last value they saw (value-only edits move it too, unlike the log count).
     meta = db.get(PropertyWorkspaceMeta, 1)
@@ -192,6 +226,13 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
     email = (user or {}).get("email", "")
     if not can_see_private(user):
         raise HTTPException(status_code=403, detail="Replacing the whole portfolio is an officer's tool - row saves go through /property-assets/changes.")
+    if _reach(db, user)[1] is not None:
+        raise HTTPException(status_code=403, detail="Replacing the whole portfolio needs reach over every asset - row saves go through /property-assets/changes.")
+    # A deployed API (storage configured) takes a whole-blob replace only when
+    # NEXUS_ASSET_SEED_PUT is set for a seeding session: an old tab's blob would
+    # otherwise undo every row saved since it last pulled.
+    if _SUPABASE_URL and os.getenv("NEXUS_ASSET_SEED_PUT", "").strip().lower() not in ("1", "true", "yes"):
+        raise HTTPException(status_code=403, detail="Whole-portfolio saves are off. Reload Asset Management - this tab is running an old version.")
 
     # Refuse a STALE overwrite: this is a whole-blob replace, so a client whose
     # copy predates the server's would silently erase everything saved since it
@@ -220,7 +261,6 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
     _check_files(ws, db)
 
     db.query(PropertyRecord).delete()
-    db.query(PropertyActivityLog).delete()
     db.query(PropertyAsset).delete()
     db.flush()
 
@@ -252,18 +292,16 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
                 updated_at=now,
             ))
 
-    # The log is capped per asset (newest first) - it used to grow without bound
-    # and ride every save. An entry keeps the client's stamp (the Activity Log
-    # shows when the person made the change); one without gets the server's.
-    seen_logs: Dict[str, int] = {}
-    for entry in sorted(ws.logs, key=lambda e: str(e.get("ts") or ""), reverse=True):
+    # The log is append-only: a blob save adds the entries it carries that the
+    # database does not have yet and never removes one (the workspace GET
+    # bounds what a client sees, the database keeps everything). An entry
+    # keeps the client's stamp (the Activity Log shows when the person made
+    # the change); one without gets the server's.
+    for entry in ws.logs:
         lid = str(entry.get("id") or "").strip()
-        if not lid:
+        if not lid or db.get(PropertyActivityLog, lid) is not None:
             continue
         pid = str(entry.get("propertyId") or "")
-        seen_logs[pid] = seen_logs.get(pid, 0) + 1
-        if seen_logs[pid] > LOG_CAP_PER_ASSET:
-            continue
         db.add(PropertyActivityLog(
             id=lid,
             property_id=pid,
@@ -289,10 +327,12 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
 class RowOps(BaseModel):
     upsert: List[Dict[str, Any]] = []
     delete: List[str] = []
+    deleteRevs: Dict[str, str] = {}   # id -> the _rev the row was read with
 
 
 class LogOps(BaseModel):
     append: List[Dict[str, Any]] = []
+    update: List[Dict[str, Any]] = []   # {id, undone}: the one flag that changes on an entry
 
 
 class Changes(BaseModel):
@@ -314,15 +354,17 @@ class Changes(BaseModel):
     logs: LogOps = LogOps()
 
 
+def _stale(existing, rev) -> bool:
+    """A row the server has stamped is written only with the stamp it was read
+    with: a different one, or none at all (a tab that read the row before the
+    stamps existed, or a cached copy), is someone else's turn."""
+    if existing is None or not existing.updated_at:
+        return False
+    return rev is None or str(rev) != existing.updated_at
+
+
 def _strip_rev(row: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in row.items() if k != "_rev"}
-
-
-def _trim_logs(db: Session, pid: str) -> None:
-    rows = (db.query(PropertyActivityLog).filter(PropertyActivityLog.property_id == pid)
-            .order_by(PropertyActivityLog.created_at.desc()).all())
-    for old in rows[LOG_CAP_PER_ASSET:]:
-        db.delete(old)
 
 
 @router.post("/property-assets/changes")
@@ -346,6 +388,13 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             if bool(payload.get("private")) != was:
                 raise HTTPException(status_code=403, detail="Only an officer can mark an asset private or public.")
 
+    for r in ch.properties.upsert:
+        cur = db.get(PropertyAsset, str(r.get("id") or "")) if r.get("id") else None
+        _carry_over(r, (cur.payload or {}) if cur is not None else {}, PROPERTY_FILE_FIELDS)
+    for c in COLLECTIONS:
+        for r in getattr(ch, c).upsert:
+            cur = db.get(PropertyRecord, str(r.get("id") or "")) if r.get("id") else None
+            _carry_over(r, (cur.payload or {}) if cur is not None else {}, RECORD_FILE_FIELDS)
     rows = [("property", r, PROPERTY_FILE_FIELDS) for r in ch.properties.upsert]
     rows += [(c, r, RECORD_FILE_FIELDS) for c in COLLECTIONS for r in getattr(ch, c).upsert]
     _check_file_rows(rows, db)
@@ -366,15 +415,13 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
     # pass the _rev check against a stale updated_at.
     db.expire_all()
 
-    touched_logs: set = set()
     for row in ch.properties.upsert:
         pid = str(row.get("id") or "").strip()
         if not pid:
             continue
         existing = db.get(PropertyAsset, pid)
         guard(pid, existing, row)
-        rev = row.get("_rev")
-        if existing is not None and rev is not None and existing.updated_at and str(rev) != existing.updated_at:
+        if _stale(existing, row.get("_rev")):
             conflicts.append(pid)
             continue
         payload = _strip_rev(row)
@@ -396,8 +443,19 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
         if existing is None:
             continue
         guard(existing.id, existing)
+        if _stale(existing, ch.properties.deleteRevs.get(str(pid))):
+            conflicts.append(existing.id)
+            continue
+        # Delete Forever is only for an asset already in the Trash; a live one
+        # is moved there instead (the client re-pulls and sees it). The
+        # activity log is history and stays either way.
+        if not (existing.payload or {}).get("deleted"):
+            existing.payload = {**(existing.payload or {}), "deleted": True}
+            existing.updated_at = now
+            existing.updated_by = email
+            revs[existing.id] = now
+            continue
         db.query(PropertyRecord).filter(PropertyRecord.property_id == existing.id).delete()
-        db.query(PropertyActivityLog).filter(PropertyActivityLog.property_id == existing.id).delete()
         db.delete(existing)
 
     for c in COLLECTIONS:
@@ -412,8 +470,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             # Moving a record also needs reach over the asset it is leaving.
             if existing is not None and existing.property_id and existing.property_id != pid:
                 guard(existing.property_id, db.get(PropertyAsset, existing.property_id))
-            rev = row.get("_rev")
-            if existing is not None and rev is not None and existing.updated_at and str(rev) != existing.updated_at:
+            if _stale(existing, row.get("_rev")):
                 conflicts.append(rid)
                 continue
             payload = _strip_rev(row)
@@ -430,20 +487,28 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             if existing is None:
                 continue
             guard(existing.property_id, db.get(PropertyAsset, existing.property_id) if existing.property_id else None)
+            if _stale(existing, ops.deleteRevs.get(str(rid))):
+                conflicts.append(existing.id)
+                continue
             db.delete(existing)
 
+    lost = set(conflicts)
     for entry in ch.logs.append:
         lid = str(entry.get("id") or "").strip()
         if not lid or db.get(PropertyActivityLog, lid) is not None:
             continue
         pid = str(entry.get("propertyId") or "")
+        if pid in lost:
+            continue                      # the change it describes did not land
         guard(pid, db.get(PropertyAsset, pid) if pid else None)
         db.add(PropertyActivityLog(id=lid, property_id=pid, payload=entry, created_at=str(entry.get("ts") or now)))
-        touched_logs.add(pid)
+    for patch in ch.logs.update:
+        row = db.get(PropertyActivityLog, str(patch.get("id") or ""))
+        if row is None:
+            continue
+        guard(row.property_id, db.get(PropertyAsset, row.property_id) if row.property_id else None)
+        row.payload = {**(row.payload or {}), "undone": bool(patch.get("undone"))}
     db.flush()
-    for pid in touched_logs:
-        _trim_logs(db, pid)
-
     ts_ms = int(time.time() * 1000)
     meta.ts = ts_ms
     meta.updated_by = email

@@ -90,6 +90,62 @@ def _migrate_row(payload: dict, keys, folder: str, owner: str) -> bool:
     return changed
 
 
+def _moves_for(payload: dict, keys, folder: str, owner: str) -> dict:
+    """Uploads every data: URL in `keys` (and `images`); {data_url: bucket_url}.
+    Only the uploads - nothing is written to the row here."""
+    moves: dict = {}
+    n = 0
+    for k in keys:
+        v = payload.get(k)
+        if isinstance(v, str) and v.startswith("data:") and v not in moves:
+            n += 1
+            moves[v] = _move(v, folder, owner, n)
+    for v in payload.get("images") or []:
+        if isinstance(v, str) and v.startswith("data:") and v not in moves:
+            n += 1
+            moves[v] = _move(v, folder, owner, n)
+    return moves
+
+
+def _apply_moves(payload: dict, keys, moves: dict) -> bool:
+    """Substitutes the uploaded URLs into a row AS IT IS NOW; True when anything changed."""
+    changed = False
+    for k in keys:
+        v = payload.get(k)
+        if isinstance(v, str) and v in moves:
+            payload[k] = moves[v]
+            changed = True
+    images = payload.get("images")
+    if isinstance(images, list):
+        out = [moves.get(v, v) if isinstance(v, str) else v for v in images]
+        if out != images:
+            payload["images"] = out
+            changed = True
+            if str(payload.get("image") or "").startswith("data:") or (out and not payload.get("image")):
+                payload["image"] = out[0] if out else ""
+    return changed
+
+
+def _commit_moves(db, row, keys, moves: dict) -> bool:
+    """The uploads took seconds; someone may have saved the row meanwhile. Under
+    the workspace lock, re-read the row and substitute only the values it still
+    holds - a user's edit is never reverted, and a value they replaced is simply
+    not touched. The row's stamp does not move (a tab's queued edit still lands;
+    _carry_over in the router keeps the moved URL then)."""
+    db.query(PropertyWorkspaceMeta).filter(PropertyWorkspaceMeta.id == 1).with_for_update().first()
+    db.refresh(row)
+    payload = dict(row.payload or {})
+    if not _apply_moves(payload, keys, moves):
+        db.rollback()
+        return False
+    row.payload = payload
+    meta = db.get(PropertyWorkspaceMeta, 1)
+    if meta is not None:
+        meta.ts = int(time.time() * 1000)
+    db.commit()                                  # each row lands on its own
+    return True
+
+
 def _batch() -> int:
     """Migrates up to _BATCH rows; how many rows it changed."""
     db = SessionLocal()
@@ -98,36 +154,25 @@ def _batch() -> int:
         for p in db.query(PropertyAsset).all():
             if done >= _BATCH or p.id in _SKIP:
                 continue
-            payload = dict(p.payload or {})
             try:
-                moved = _migrate_row(payload, PROPERTY_FILE_FIELDS, "photos", p.id)
+                moves = _moves_for(dict(p.payload or {}), PROPERTY_FILE_FIELDS, "photos", p.id)
             except Exception as e:  # noqa: BLE001 - one row's bad file must not stall the rest
                 print(f"[asset-files] {p.id}: {e} - skipped")
                 _SKIP.add(p.id)
                 continue
-            if moved:
-                p.payload = payload
-                db.commit()                      # each row lands on its own
+            if moves and _commit_moves(db, p, PROPERTY_FILE_FIELDS, moves):
                 done += 1
         for r in db.query(PropertyRecord).all():
             if done >= _BATCH or r.id in _SKIP:
                 continue
-            payload = dict(r.payload or {})
             try:
-                moved = _migrate_row(payload, RECORD_FILE_FIELDS, "documents", r.property_id or "unfiled")
+                moves = _moves_for(dict(r.payload or {}), RECORD_FILE_FIELDS, "documents", r.property_id or "unfiled")
             except Exception as e:  # noqa: BLE001
                 print(f"[asset-files] record {r.id}: {e} - skipped")
                 _SKIP.add(r.id)
                 continue
-            if moved:
-                r.payload = payload
-                db.commit()
+            if moves and _commit_moves(db, r, RECORD_FILE_FIELDS, moves):
                 done += 1
-        if done:
-            meta = db.get(PropertyWorkspaceMeta, 1)
-            if meta is not None:
-                meta.ts = int(time.time() * 1000)
-            db.commit()
         return done
     finally:
         db.close()
@@ -155,7 +200,11 @@ async def asset_files_migration_loop():
     if not remaining:
         return
     print(f"[asset-files] migrating {remaining} inline files to the asset-files bucket")
+    from leader import is_background_leader
     while True:
+        if not is_background_leader():            # one worker moves files, not eight
+            await asyncio.sleep(60)
+            continue
         try:
             moved = await asyncio.to_thread(_batch)
         except Exception as e:  # noqa: BLE001 - a storage blip must not kill the API

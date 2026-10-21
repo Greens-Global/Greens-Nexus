@@ -92,9 +92,11 @@ def geocode_pending(db, fetch=None, limit: int = BATCH, pace=None) -> int:
         # The lookup took a second or more; someone may have saved this asset
         # meanwhile. Write the point onto the row as it is NOW, and only if the
         # address is still the one looked up.
+        db.query(PropertyWorkspaceMeta).filter(PropertyWorkspaceMeta.id == 1).with_for_update().first()
         db.refresh(p)
         payload = dict(p.payload or {})
         if address_of(payload) != addr:
+            db.rollback()
             pace()
             continue
         payload["geo"] = {"lat": hit[0] if hit else None, "lng": hit[1] if hit else None,
@@ -118,8 +120,12 @@ def run_pass() -> int:
 
 
 async def geocode_loop():
+    from leader import is_background_leader
     await asyncio.sleep(45)                         # let startup settle
     while True:
+        if not is_background_leader():            # one worker talks to Nominatim, not eight
+            await asyncio.sleep(60)
+            continue
         try:
             n = await asyncio.to_thread(run_pass)
             if n:
