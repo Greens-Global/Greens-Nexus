@@ -164,6 +164,8 @@ export function splitAddress(property) {
     // The segment right before a state is the city when the row has none yet -
     // never the first segment (that is the street) and never a unit line.
     if (!city && state && end > 1 && end < segments.length && !/\d/.test(seg) && !UNIT_RE.test(seg)) { city = seg; end--; continue; }
+    // A plain "City, ST" line with no city on the row: the first segment IS the city.
+    if (!city && state && end === 1 && segments.length === 2 && !/\d/.test(seg) && !UNIT_RE.test(seg)) { city = seg; end--; continue; }
     break;
   }
   const street = segments.slice(0, end).join(', ').replace(/^(\d+[a-z]?),\s+/i, '$1 ');

@@ -38,6 +38,9 @@ describe('splitAddress', () => {
     expect(splitAddress({ address: 'Escondido, Escondido, CA 92026', city: 'Escondido', state: 'CA', zip: '92026' }).address).toBe('Escondido');
     expect(splitAddress({ address: '1 Oak St, San Diego County, CA 92026', city: '', state: '', zip: '' })).toMatchObject({ address: '1 Oak St', county: 'San Diego' });
   });
+  it('a plain "City, ST" line with no city on the row fills the city', () => {
+    expect(splitAddress({ address: 'Escondido, CA', city: '', state: '', zip: '' })).toMatchObject({ address: '', city: 'Escondido', state: 'CA' });
+  });
   it('a city-only address with the city known becomes an empty street line', () => {
     expect(splitAddress({ address: 'Chicago, IL', city: 'Chicago', state: 'IL', zip: '' }).address).toBe('');
   });
