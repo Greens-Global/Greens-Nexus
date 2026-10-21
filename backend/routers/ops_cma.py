@@ -497,13 +497,18 @@ def _history(db: Session, facility: dict, unit_type: str, groups: list, start: s
     rented = t.get("rented") or 0
     avg_rent = round((t.get("rentSum") or 0) / rented) if rented else None
     first = next((p for p in points if p["occupied"] is not None), None)
+    # The trend card follows the period: with an end date it ends at the last
+    # month in it, not today (Visesh, Oct 21).
+    last = next((p for p in reversed(points) if p["occupied"] is not None), None) if end else None
     cards = {
         "gap": (sell_now - cur["avg"]) if cur["avg"] else None,
         "gapPct": round((sell_now - cur["avg"]) / cur["avg"], 4) if cur["avg"] else None,
         "comps": cur["count"], "asOf": facility["asOf"],
         "avgRent": avg_rent, "sell": sell_now, "rentVsSell": (avg_rent - sell_now) if avg_rent is not None else None,
         "occupiedThen": first["occupied"] if first else None, "occupiedFrom": first["date"] if first else "",
-        "occupiedNow": rented, "total": t.get("total") or 0,
+        "occupiedNow": last["occupied"] if last else rented,
+        "occupiedTo": last["date"] if last else facility["asOf"],
+        "total": (last.get("total") if last else None) or t.get("total") or 0,
     }
     log = []
     for e in (db.query(models.OpsCmaEvent).filter(models.OpsCmaEvent.facility_id == fid)
