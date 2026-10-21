@@ -10,6 +10,7 @@ recorder.
 
     python -m pytest test_accounting_ask.py -q
 """
+import json
 import os
 import unittest
 import uuid
@@ -74,6 +75,34 @@ class PureTests(unittest.TestCase):
         self.assertIsNone(ask.reclassed(t, {**read, "accounts": {"99998"}}))
         self.assertIsNone(ask.reclassed(t, {**read, "from": "2026-10-01"}))
         self.assertIsNone(ask.reclassed(t, {**read, "entities": {"56000"}}))
+
+
+class PeriodAndColumnsTests(unittest.TestCase):
+    """Oct 22: the period is the line's date for questions too (Urmi), and the
+    line memo, Department, Vendor and Custom travel with every row (Priyanka)."""
+
+    def test_split_period_across_years(self):
+        threads = [{"date": "2025-03-04", "status": "Open"}, {"date": "2025-12-31", "status": "Resolved"},
+                   {"date": "2026-09-01", "status": "Open"}, {"date": "2026-09-30", "status": "Answered"},
+                   {"date": "2026-10-01", "status": "Open"}, {"date": "", "status": "Open"}]
+        inside, out = ask.split_period(threads, "2026-09-01", "2026-09-30")
+        self.assertEqual([t["date"] for t in inside], ["2026-09-01", "2026-09-30", ""])
+        self.assertEqual(out, {"count": 3, "open": 2, "earliest": "2025-03-04", "latest": "2026-10-01"})
+        inside, out = ask.split_period(threads, "2025-01-01", "2026-12-31")
+        self.assertEqual((len(inside), out["count"]), (6, 0))
+
+    def test_line_dims(self):
+        r = {"department": "200", "department_name": "Operations", "vendor_id": "V00412", "vendor_name": "Amazon Marketplace",
+             "project_id": "P7", "project_name": "Escondido"}
+        self.assertEqual(ask.line_dims(r), {"department": "200 Operations", "vendor": "V00412 Amazon Marketplace", "custom": "P7 Escondido"})
+        self.assertEqual(ask.line_dims({**r, "custom_id": "C1", "custom_name": "Property A"})["custom"], "C1 Property A")
+        self.assertEqual(ask.line_dims({}), {"department": "", "vendor": "", "custom": ""})
+
+    def test_fill_from_lines_only_fills_blanks(self):
+        line = {**ask.line_out(ln("L1")), "memo": "Charge Card Transaction - AMAZON", "department": "200 Ops"}
+        t = {"lineId": "L1", "entryNo": "GJ-100", "accountNo": "99999", "amount": 125.0, "date": "2026-09-15", "memo": "", "department": "Kept", "vendor": "", "custom": ""}
+        ask.fill_from_lines([t], [line])
+        self.assertEqual((t["memo"], t["department"]), ("Charge Card Transaction - AMAZON", "Kept"))
 
 
 class EndpointTests(unittest.TestCase):
@@ -194,6 +223,25 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self.client.get("/accounting/ask/items?from=2026-12-31&to=2026-01-01").status_code, 400)
 
+    def test_questions_follow_the_period_too(self):
+        """Urmi (10/15): 09/01-09/30/2026 still listed lines from 2025 - the
+        questions showed whatever their date. A question on a 2025 line is
+        counted under `outside`, not listed, and the counts follow."""
+        _as(VIEWER)
+        self.lines.append(ln("L7", day="2025-06-02", entry="GJ-077"))
+        r = self.client.post("/accounting/ask/threads", json={
+            "entityCode": "15000", "question": "Old one?", "accountant": ACCT, "lineId": "L7", "entryNo": "GJ-077",
+            "accountNo": "99999", "date": "2025-06-02", "debit": 125.0, "credit": 0.0, "department": "200 Ops", "vendor": "V1 Amazon", "custom": "P7"})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual((r.json()["department"], r.json()["vendor"], r.json()["custom"]), ("200 Ops", "V1 Amazon", "P7"))
+        d = self.client.get("/accounting/ask/items?from=2026-09-01&to=2026-09-30").json()
+        self.assertTrue(all("2026-09-01" <= x["date"] <= "2026-09-30" for x in d["rows"]), d["rows"])
+        self.assertEqual(d["counts"]["All"], len(d["rows"]))
+        self.assertEqual((d["outside"]["count"], d["outside"]["open"], d["outside"]["earliest"]), (1, 1, "2025-06-02"))
+        d = self.client.get("/accounting/ask/items?from=2025-01-01&to=2026-12-31").json()
+        old = next(x for x in d["rows"] if x["lineId"] == "L7")
+        self.assertEqual((old["kind"], old["question"], d["outside"]["count"]), ("thread", "Old one?", 0))
+
     def test_editor_picks_the_accounts(self):
         _as(VIEWER)
         self.assertEqual(self.client.put("/accounting/ask/settings", json={"accounts": ["61000"]}).status_code, 403)
@@ -225,7 +273,9 @@ class EndpointTests(unittest.TestCase):
         notes = self._notes(ACCT)
         self.assertEqual(len(notes), 1)
         self.assertIn("Where does this go?", notes[0][1])
-        self.assertEqual((notes[0][3], notes[0][4]), (t["id"], ask.NOTIFY_ACTION))
+        self.assertEqual(notes[0][3], t["id"])
+        # The bell opens the AMA tab on THIS question (Priyanka, 10/15).
+        self.assertEqual(json.loads(notes[0][4]), {"view": "accounting", "sub": "ama", "label": "Open AMA", "amaThreadId": t["id"]})
         self.assertEqual(self._notes(VIEWER), [])                # never to the person acting
 
         # The accountant answers: Answered, the asker hears.

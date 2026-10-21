@@ -1194,6 +1194,10 @@ def _run_migrations():
             # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
             "ALTER TABLE hr_checklist_items ADD COLUMN owner_emails VARCHAR DEFAULT ''",
             "ALTER TABLE hr_checklist_items ADD COLUMN comments JSON DEFAULT '[]'",
+            # AMA questions keep the line's Department / Vendor / Custom (Priyanka, Oct 22). models.AccountingAmaThread.
+            "ALTER TABLE accounting_ama_threads ADD COLUMN department VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_ama_threads ADD COLUMN vendor VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_ama_threads ADD COLUMN custom VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2723,6 +2727,10 @@ def _run_migrations():
         # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
         "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS owner_emails VARCHAR DEFAULT ''",
         "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'",
+        # AMA questions keep the line's Department / Vendor / Custom (Priyanka, Oct 22). models.AccountingAmaThread.
+        "ALTER TABLE accounting_ama_threads ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_ama_threads ADD COLUMN IF NOT EXISTS vendor VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_ama_threads ADD COLUMN IF NOT EXISTS custom VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

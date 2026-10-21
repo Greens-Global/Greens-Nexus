@@ -6560,6 +6560,11 @@ class AccountingAmaThread(Base):
     last_reply_at    = Column(String, default="")
     last_reply_by    = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Oct 22 (Priyanka): the line's Department, Vendor and Custom dimension,
+    # as Intacct's AMA report lists them ("code name").
+    department       = Column(String, default="")
+    vendor           = Column(String, default="")
+    custom           = Column(String, default="")
 
 
 class AccountingAmaMessage(Base):

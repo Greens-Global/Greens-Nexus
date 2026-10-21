@@ -28,6 +28,9 @@ export function lineFromSearch(r) {
     accountTitle: r.account_name || '', date: String(r.entry_date || '').slice(0, 10), debit: Number(r.debit) || 0, credit: Number(r.credit) || 0,
     description: r.description || '', memo: r.memo || '', journal: r.journal || '',
     party: numbered(r.vendor_name, r.vendor_id) || numbered(r.customer_name, r.customer_id) || r.employee_name || r.employee_id || '',
+    // Oct 22 (Priyanka): the columns Intacct's AMA report carries.
+    department: numbered(r.department_name, r.department), vendor: numbered(r.vendor_name, r.vendor_id),
+    custom: numbered(r.custom_name, r.custom_id || r.custom) || numbered(r.project_name, r.project_id),
   };
 }
 
@@ -39,6 +42,8 @@ export function lineFromEntry(l, g, entry, journal = '') {
     accountTitle: l.account_name || '', date: String(entry?.entry_date || '').slice(0, 10), debit: Number(l.debit) || 0, credit: Number(l.credit) || 0,
     description: l.description || g?.memo || '', memo: g?.memo || '', journal,
     party: numbered(g?.vendor_name, g?.vendor_id) || numbered(g?.customer_name, g?.customer_id) || g?.employee_name || '',
+    department: numbered(l.department_name, l.department), vendor: numbered(g?.vendor_name, g?.vendor_id),
+    custom: numbered(g?.custom_name, g?.custom_id) || numbered(g?.class_name, g?.class_id || g?.project_id),
   };
 }
 
@@ -87,9 +92,12 @@ export function LineFacts({ line }) {
     ['Entry', line.entryNo],
     ['Account', [line.accountNo, line.accountTitle].filter(Boolean).join(' ')],
     ['Amount', amountText(line)],
-    ['Description', line.description],
-    ['Memo', line.memo && line.memo !== line.description ? line.memo : ''],
-    ['Vendor / Customer', line.party],
+    // The line memo first (Priyanka, 10/15), then the entry's own description.
+    ['Description', line.memo || line.description],
+    ['Entry Description', line.memo && line.description && line.description !== line.memo ? line.description : ''],
+    ['Department', line.department],
+    ['Vendor / Customer', line.vendor || line.party],
+    ['Custom', line.custom],
   ].filter(([, v]) => v);
   return (
     <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: '110px 1fr', gap: '3px 10px', fontSize: '0.8rem' }}>
