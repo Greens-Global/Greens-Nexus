@@ -47,7 +47,7 @@ from sqlalchemy import delete, insert
 from cubby_sync import _PII as _CONTACT_KEYS
 
 APP_KEYS = ("applicationData",)
-CHUNK = 2000
+CHUNK = 1000
 
 # Exact keys (lowercased, underscores removed) that hold a person's name, a
 # free-text note or an access code - on top of cubby_sync._PII's substrings.
@@ -351,8 +351,11 @@ def write(db, model, rows: list[dict], load_id: str) -> int:
     ids = [r["id"] for r in rows]
     for i in range(0, len(ids), CHUNK):
         db.execute(delete(model).where(model.id.in_(ids[i:i + CHUNK])))
+    # One multi-row INSERT per chunk (insert().values(list)): a plain
+    # executemany still went out in 1-3 row statements through the Supabase
+    # pooler, about a second each from here.
     for i in range(0, len(rows), CHUNK):
-        db.execute(insert(model), rows[i:i + CHUNK])
+        db.execute(insert(model).values(rows[i:i + CHUNK]))
     db.commit()
     return len(rows)
 
