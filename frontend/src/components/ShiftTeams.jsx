@@ -118,7 +118,8 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
   const [picked, setPicked] = useState([]);
   useEffect(() => {
     let live = true;
-    api.getPeopleDirectory().then(rows => { if (live) setPeople(Array.isArray(rows) ? rows : []); }).catch(() => { if (live) setPeople([]); });
+    // External users too (Pranshu, Oct 22) - see ShiftSettingsSections.
+    api.getPeopleDirectory(true).then(rows => { if (live) setPeople(Array.isArray(rows) ? rows : []); }).catch(() => { if (live) setPeople([]); });
     return () => { live = false; };
   }, []);
   const have = useMemo(() => new Set((team.members || []).map(m => m.toLowerCase())), [team]);
@@ -154,8 +155,7 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
                 <input type="checkbox" checked={picked.includes(em)} onChange={() => toggle(em)} aria-label={`Add ${nameOf(p)}`} />
                 <Avatar name={nameOf(p)} photoUrl={p.photoUrl || p.photo_url || ''} size={24} />
                 <span style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700 }}>{nameOf(p)}</div>
-                  
+                  <div style={{ fontSize: 12.5, fontWeight: 700 }}>{nameOf(p)}{p.external === true && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px' }}>External</span>}</div>
                 </span>
               </label>
             );

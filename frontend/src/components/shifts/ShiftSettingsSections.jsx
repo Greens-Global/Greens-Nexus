@@ -618,7 +618,10 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
       if (Array.isArray(r.companies)) setCompanies(r.companies);
       settleCompany(r, company, setCompany);
     }).catch((e) => { if (live) setError(e?.message || 'Could not load the groups.'); });
-    api.getPeopleDirectory().then((rows) => { if (live) setPeople(Array.isArray(rows) ? rows : []); }).catch(() => {});
+    // External users can be group members too (Pranshu, Oct 22): a contractor
+    // on a crew is scheduled like anyone else. The server answers with them
+    // only for callers who may assign work to them.
+    api.getPeopleDirectory(true).then((rows) => { if (live) setPeople(Array.isArray(rows) ? rows : []); }).catch(() => {});
     api.getWorkSites?.().then((rows) => { if (live) setSites(Array.isArray(rows) ? rows : []); }).catch(() => {});
     return () => { live = false; };
   }, [tick]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -627,7 +630,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
   // the order saved is still the whole list's.
   const visible = useMemo(() => (groups || []).filter((g) => !company || !g.companyId || g.companyId === company), [groups, company]);
   const who = (email) => { const p = people.find((x) => emailOf(x) === (email || '').toLowerCase()); return nameOf(email, p?.name); };
-  const directory = useMemo(() => people.filter((p) => emailOf(p)).map((p) => ({ email: emailOf(p), name: nameOf(emailOf(p), p.name), photoUrl: p.photoUrl || p.photo_url || '' })).sort((a, b) => a.name.localeCompare(b.name)), [people, nameOf]);
+  const directory = useMemo(() => people.filter((p) => emailOf(p)).map((p) => ({ email: emailOf(p), name: nameOf(emailOf(p), p.name), photoUrl: p.photoUrl || p.photo_url || '', external: p.external === true })).sort((a, b) => a.name.localeCompare(b.name)), [people, nameOf]);
 
   async function save() {
     if (!form.name.trim()) { toastErr?.('Name the group.'); return; }
@@ -745,6 +748,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
                     <input type="checkbox" checked={form.members.includes(p.email)} onChange={() => toggleMember(p.email)} aria-label={`Add ${p.name}`} />
                     <Avatar name={p.name} photoUrl={p.photoUrl} size={22} />
                     <span style={{ fontSize: 12.5, fontWeight: 600 }}>{p.name}</span>
+                    {p.external && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px' }}>External</span>}
                   </label>
                 ))}
               </div>
@@ -757,7 +761,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
                   <select className="form-input" value="" aria-label="Add a scheduler" style={{ width: 'auto', fontSize: 12.5 }}
                     onChange={(e) => { const em = e.target.value; if (em) setForm({ ...form, schedulers: [...(form.schedulers || []), em] }); }}>
                     <option value="">Add a scheduler…</option>
-                    {directory.filter((p) => !(form.schedulers || []).includes(p.email)).map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
+                    {directory.filter((p) => !p.external && !(form.schedulers || []).includes(p.email)).map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
                   </select>
                 </div>
               </div>
