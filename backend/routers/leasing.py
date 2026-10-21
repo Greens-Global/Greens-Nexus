@@ -520,8 +520,9 @@ def month_status(expected: float, received: float, lease: dict, year: int, month
 
 def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today: date) -> dict:
     """The year, lease by lease and month by month. `receipts` is
-    {(customer_id, 'YYYY-MM'): {gl_code: credit - debit}}; `months` is
-    {'<lease_id>:<YYYY-MM>': {adjustment, note}}."""
+    {(customer_id, 'YYYY-MM'): {gl_code: credit - debit}} for a tenant read
+    consolidated, {(entity_code, customer_id, 'YYYY-MM'): ...} for one read per
+    entity (see _receipts); `months` is {'<lease_id>:<YYYY-MM>': {adjustment, note}}."""
     rows = []
     totals = [{"month": f"{year}-{m:02d}", "expected": 0.0, "received": 0.0} for m in range(1, 13)]
     for lease in leases:
@@ -530,7 +531,8 @@ def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today
             key = f"{year}-{m:02d}"
             extra = months.get(f"{lease['id']}:{key}") or {"adjustment": 0, "note": ""}
             base = expected_for_month(lease, year, m)
-            posted = receipts.get((lease["customerId"], key), {}) if lease["customerId"] else {}
+            cid = lease["customerId"]
+            posted = (receipts.get((lease.get("entityCode", ""), cid, key)) or receipts.get((cid, key), {})) if cid else {}
             by_account = {code: _r2(v) for code, v in posted.items() if code in lease["incomeAccounts"]}
             received = _r2(sum(by_account.values()))
             if base is None and abs(received) <= _PAID_WITHIN and not extra["note"]:
@@ -570,12 +572,48 @@ def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today
                         "receivedToDate": _r2(sum(t["received"] for t in totals))}}
 
 
-async def _receipts(leases: list[dict], year: int) -> dict:
-    customers = sorted({l["customerId"] for l in leases if l["customerId"]})
-    accounts = sorted({a for l in leases for a in l["incomeAccounts"]})
-    if not customers:
-        return {}
+async def _receipts(scope: dict, leases: list[dict], year: int, every: Optional[list] = None) -> dict:
+    """What each tenant posted to the leases' income accounts, month by month.
+
+    One consolidated /by-customer read for tenants whose leases all sit on one
+    entity. The accounting app reads that report across EVERY entity, so a
+    tenant renting on two entities (one Intacct customer, two leases, the same
+    income account) would show both entities' rent as received on each lease -
+    those tenants get one month read per entity instead (keyed with the entity;
+    rent_roll looks that key up first). `every` is the whole lease table (ORM
+    rows), so a tenant counts as multi-entity even when the caller cannot see
+    the other lease. An entity-limited caller reads per entity for every lease:
+    the consolidated report would carry postings from entities outside their
+    limit."""
     out: dict = {}
+    if not leases:
+        return out
+    entities_of: dict[str, set] = {}
+    for l in (every if every is not None else []):
+        if l.customer_id:
+            entities_of.setdefault(l.customer_id, set()).add(l.entity_code or "")
+    for l in leases:
+        if l["customerId"]:
+            entities_of.setdefault(l["customerId"], set()).add(l["entityCode"])
+    limited = scope.get("allowed") is not None
+    split = {c for c, codes in entities_of.items() if limited or len(codes) > 1}
+
+    async def entity_read(code: str, cust: str) -> dict:
+        location, _ = await accounting._limit(scope, code, None)    # 403 for an entity outside the caller's reach
+        return await accounting._acct_get("/api/internal/reports/buckets", {
+            "from": f"{year}-01-01", "to": f"{year}-12-31", "by": "month", "location": location, "customer": cust})
+
+    pairs = list(dict.fromkeys((l["entityCode"], l["customerId"]) for l in leases if l["customerId"] and l["customerId"] in split))
+    for (code, cust), data in zip(pairs, await asyncio.gather(*[entity_read(code, cust) for code, cust in pairs])):
+        for r in data.get("rows") or []:
+            if not r.get("bucket") or r.get("account_no") is None:
+                continue
+            cell = out.setdefault((code, cust, str(r["bucket"])[:7]), {})
+            acct = str(r["account_no"])
+            cell[acct] = _r2(cell.get(acct, 0) + (r.get("credit") or 0) - (r.get("debit") or 0))
+
+    customers = sorted({l["customerId"] for l in leases if l["customerId"] and l["customerId"] not in split})
+    accounts = sorted({a for l in leases for a in l["incomeAccounts"]})
     # 400 customers a call is the accounting app's limit; nobody has that many tenants, but the loop is cheap.
     for i in range(0, len(customers), 300):
         data = await accounting._acct_get("/api/internal/reports/by-customer", {
@@ -628,7 +666,7 @@ async def get_rent_roll(year: Optional[int] = None, entities: Optional[str] = No
         shown = [l for l in shown if l["customerId"] in picked]
     warning = ""
     try:
-        receipts = await _receipts(shown, year)
+        receipts = await _receipts(scope, shown, year, every=leases)
     except HTTPException as e:
         # The leases and what they expect are Nexus's own; the ledger being
         # unreachable must not blank the screen. Say so, and show zero received.
