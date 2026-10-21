@@ -20,7 +20,7 @@ import { usePhotoMap } from '../lib/peoplePhotos';
 import { useIsMobile } from '../lib/useIsMobile';
 import { useVisualViewport, readVisualViewport } from '../lib/useVisualViewport';
 import { useScrollLock } from '../lib/useScrollLock';
-import { useDialogFocus, trapTab } from '../lib/useDialogFocus';
+import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
 import { useBackToClose } from '../lib/useBackToClose';
 import { toDownloadUrl } from '../lib/storageView';
 import { frequentRows } from './frequentPeople';
@@ -200,7 +200,7 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
     }}>
       {/* role="dialog" sits on the panel. The phone bottom-sheet rules in
           style.css skip it via .nx-sheet - this one is shaped here. */}
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trapTab}
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={dialogKeyDown}
         onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : 'nx-sheet nx-panel'} style={{
         background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
