@@ -844,12 +844,34 @@ async def put_settings(body: SettingsBody, user: dict = Depends(_full)):
     return await asyncio.to_thread(recurring_stale.save_settings, patch, user["email"])
 
 
-@router.post("/stale-check")
+_STALE_RUN: dict = {}
+
+
+@router.post("/stale-check", status_code=202)
 async def stale_check(user: dict = Depends(_full)):
-    """Run the daily Possibly Ended check now (MRI and MRE). It only sets the
-    flags and opens / closes the tasks - never changes a line."""
+    """Start the daily Possibly Ended check now (MRI and MRE), in the
+    background - it reads the ledger once per MRE line (~180 on prod, about
+    two reads a second), longer than a request may wait. It only sets the
+    flags and opens / closes the tasks - never changes a line. One run at a
+    time per worker."""
     import recurring_stale
-    return await recurring_stale.check()
+    task = _STALE_RUN.get("task")
+    if task is not None and not task.done():
+        return {"started": False, "running": True}
+
+    async def run():
+        try:
+            _STALE_RUN["last"] = await recurring_stale.check()
+        except Exception as e:  # noqa: BLE001 - reported on the next GET
+            _STALE_RUN["last"] = {"error": str(e)}
+    _STALE_RUN["task"] = asyncio.create_task(run())
+    return {"started": True, "running": True}
+
+
+@router.get("/stale-check")
+async def stale_check_status():
+    task = _STALE_RUN.get("task")
+    return {"running": bool(task is not None and not task.done()), "last": _STALE_RUN.get("last")}
 
 
 def _norm_words(s: str) -> list[str]:

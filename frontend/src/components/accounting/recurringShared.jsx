@@ -133,8 +133,7 @@ function RecurringSettingsDialog({ onClose, onChecked }) {
     setError('');
     api.runRecurringStaleCheck()
       .then((d) => {
-        const part = (k, n) => (d?.[k]?.error ? `${n}: not read` : `${n}: ${d?.[k]?.possiblyEnded || 0} Possibly Ended, ${d?.[k]?.tasks || 0} new ${d?.[k]?.tasks === 1 ? 'task' : 'tasks'}`);
-        setDone(`Checked. ${part('mri', 'MRI')}; ${part('mre', 'MRE')}.`);
+        setDone(d?.started ? 'The check is running. It reads the ledger for every line and takes a few minutes; the Possibly Ended flags show when you reload.' : 'A check is already running.');
         onChecked?.();
       })
       .catch((e) => setError(e?.message || 'Could not run the check.'))
