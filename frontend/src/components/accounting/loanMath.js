@@ -478,10 +478,53 @@ export function planLoanAmount({ usePurchase = false, loanAmount, purchasePrice,
   return round2(Math.max(0, num0(loanAmount)));
 }
 
+// ── The Loan Calculator's sections (Neil, Oct 16) ───────────────────────────
+// Residential and Commercial are the basic calculators (at most ten inputs:
+// amount, fixed / variable, the rate - or the index and margin - amortization,
+// term, interest-only months, frequency, start date); Commercial's term is
+// usually shorter than its amortization, which leaves a balloon. Other is the
+// fully customizable one: a purchase price and down payment, closing costs
+// and points, an extra principal payment every period, one-time extra
+// payments, and rate periods (from payment N the rate is R).
+export const PLAN_KINDS = [
+  { key: 'residential', label: 'Residential' },
+  { key: 'commercial', label: 'Commercial' },
+  { key: 'other', label: 'Other' },
+];
+// A variable rate is an index plus a margin; the index can be pulled live.
+export const RATE_INDEXES = [
+  { key: 'sofr', label: 'SOFR' },
+  { key: 'treasury10', label: '10-Year Treasury' },
+  { key: 'prime', label: 'Prime' },
+  { key: 'custom', label: 'Custom' },
+];
+const OTHER_ONLY = (p) => !!p.usePurchase || num0(p.closingCosts) > 0 || num0(p.pointsPct) > 0 || num0(p.extraPayment) > 0
+  || (Array.isArray(p.extraPayments) && p.extraPayments.length > 0) || (Array.isArray(p.ratePeriods) && p.ratePeriods.length > 0);
+
+/** The section a plan belongs in: its own, or - for a plan saved before the
+ *  sections - Other when it uses an Other-only input, Commercial when its
+ *  term leaves a balloon, else Residential. */
+export function planKind(p = {}) {
+  if (PLAN_KINDS.some((k) => k.key === p.kind)) return p.kind;
+  if (OTHER_ONLY(p)) return 'other';
+  const amort = num0(p.amortYears);
+  const term = num0(p.termYears) || amort;
+  return term > 0 && term < amort ? 'commercial' : 'residential';
+}
+
+/** The note rate the plan is worked at: typed (fixed), or index + margin (variable). */
+export function planRate(p = {}) {
+  if (p.rateType === 'variable') return Math.max(0, Math.round((num0(p.indexRatePct) + num0(p.marginPct)) * 10000) / 10000);
+  return num0(p.ratePct);
+}
+
 /**
  * A planned loan, worked out.
+ *   kind           residential | commercial | other (planKind): the Other-only
+ *                  inputs below count in Other only
  *   loanAmount | usePurchase + purchasePrice + downPct
- *   ratePct        annual note rate, %
+ *   ratePct        annual note rate, % - or rateType 'variable' with
+ *                  indexRatePct + marginPct (planRate)
  *   amortYears     years the payment is sized over
  *   termYears      years to maturity (default the amortization); shorter
  *                  leaves a balloon
@@ -491,13 +534,24 @@ export function planLoanAmount({ usePurchase = false, loanAmount, purchasePrice,
  *   frequency      monthly (default) | quarterly | semiannual | annual
  *   startDate      YYYY-MM-DD funded; the first payment one period later
  *   closingCosts   $; pointsPct  % of the loan amount
- * Returns the schedule rows [{ n, date, payment, interest, principal,
- * balloon, balance }] and the headline figures, or `errors`.
+ *   extraPayment   $ of extra principal with every amortizing payment
+ *   extraPayments  [{ n, amount }] one-time extra principal with payment n
+ *   ratePeriods    [{ fromPayment, ratePct }] the rate from that payment on;
+ *                  the payment is re-sized over what is left of the
+ *                  amortization
+ * Returns the schedule rows [{ n, date, payment, interest, principal, extra,
+ * balloon, balance }] and the headline figures - with the interest-expense
+ * figures (the interest-only payment at the rate, interest in the first
+ * year and per year on average, total interest) - or `errors`.
  */
-export function mortgagePlan(params = {}) {
+export function mortgagePlan(rawParams = {}) {
+  const kind = planKind(rawParams);
+  // A basic section ignores what only Other shows (switching sections must
+  // not leave a hidden input changing the figures).
+  const params = kind === 'other' ? rawParams : { ...rawParams, usePurchase: false, closingCosts: 0, pointsPct: 0, extraPayment: 0, extraPayments: [], ratePeriods: [] };
   const f = frequencyOf(params.frequency);
   const amount = planLoanAmount(params);
-  const ratePct = num0(params.ratePct);
+  const ratePct = planRate(params);
   const amortYears = num0(params.amortYears);
   const termYears = num0(params.termYears) || amortYears;
   const ioMonths = Math.max(0, Math.floor(num0(params.ioMonths)));
@@ -511,10 +565,27 @@ export function mortgagePlan(params = {}) {
   if (!(nAmort >= 1) || amortYears > 100) errors.push('The amortization must be at least one payment and at most 100 years.');
   if (!(nTerm >= 1) || termYears > 100) errors.push('The term must be at least one payment and at most 100 years.');
   if (nIo > nTerm && nTerm >= 1) errors.push('Interest-only months cannot exceed the term.');
+  if (params.rateType === 'variable' && (params.indexRatePct === '' || params.indexRatePct == null)) errors.push('Enter the index rate (or pull it live).');
+  const steps = (Array.isArray(params.ratePeriods) ? params.ratePeriods : [])
+    .filter((s) => s && s.ratePct !== '' && s.ratePct != null && !Number.isNaN(Number(s.ratePct)))
+    .map((s) => ({ from: Math.floor(num0(s.fromPayment)), rate: num0(s.ratePct) })).filter((s) => s.from >= 1);
+  if (steps.some((s) => s.rate < 0 || s.rate > 50)) errors.push('A rate period\'s rate must be between 0% and 50%.');
+  const extras = new Map();
+  (Array.isArray(params.extraPayments) ? params.extraPayments : []).forEach((e) => {
+    const n = Math.floor(num0(e.n));
+    if (n >= 1 && num0(e.amount) > 0) extras.set(n, (extras.get(n) || 0) + num0(e.amount));
+  });
+  const extraEach = Math.max(0, num0(params.extraPayment));
   const points = round2(amount * num0(params.pointsPct) / 100);
   const closingCosts = round2(num0(params.closingCosts));
   const price = params.usePurchase ? round2(num0(params.purchasePrice)) : null;
+  const r0 = ratePct / 100 / f.perYear;
   const base = {
+    kind, rate: ratePct, rateType: params.rateType === 'variable' ? 'variable' : 'fixed',
+    // Interest expense only (Neil, Oct 16): what a payment of interest alone
+    // would be at the starting rate, per payment, per month and per year.
+    interestOnlyPayment: round2(amount * r0), interestOnlyMonthly: round2((amount * ratePct) / 100 / 12), interestOnlyAnnual: round2((amount * ratePct) / 100),
+    firstYearInterest: 0, avgAnnualInterest: 0, totalExtra: 0,
     amount, frequency: f, rows: [], payment: 0, ioPayment: 0, monthlyPayment: 0, annualDebtService: 0, ioAnnualDebtService: 0,
     firstYearDebtService: 0, totalInterest: 0, totalPaid: 0, balloon: 0, maturityDate: '', payments: 0, ioPayments: nIo,
     points, closingCosts, upfrontCosts: round2(points + closingCosts), netProceeds: round2(amount - points - closingCosts),
@@ -523,15 +594,23 @@ export function mortgagePlan(params = {}) {
   };
   if (errors.length) return base;
 
-  const r = ratePct / 100 / f.perYear;
-  const level = round2(pmt(amount, r, nAmort));
+  let r = r0;
+  const stepAt = new Map(steps.map((s) => [s.from, s.rate / 100 / f.perYear]));
+  // The level payment is sized when amortizing starts and again whenever a
+  // rate period starts, over what is left of the amortization.
+  let level = round2(pmt(amount, r, nAmort));
+  const firstLevel = { value: null };
   const fullyAmortizing = nIo + nAmort <= nTerm;
   const rows = [];
   let bal = amount;
   let ioPayment = 0;
   for (let k = 1; k <= nTerm && bal > 0.004; k += 1) {
+    const stepped = stepAt.has(k) && stepAt.get(k) !== r;
+    if (stepAt.has(k)) r = stepAt.get(k);
+    if (k === nIo + 1 || (stepped && k > nIo)) level = round2(pmt(bal, r, Math.max(1, nIo + nAmort - (k - 1))));
+    if (k === nIo + 1 && firstLevel.value == null) firstLevel.value = level;
     const interest = round2(bal * r);
-    let principal; let payment;
+    let principal; let payment; let extra = 0;
     if (k <= nIo) {
       principal = 0;
       payment = interest;
@@ -544,15 +623,21 @@ export function mortgagePlan(params = {}) {
       if (principal >= bal - 0.004 || (k === nIo + nAmort && fullyAmortizing)) {
         principal = round2(bal);
         payment = round2(interest + principal);
+      } else {
+        // Extra principal (Other): every payment's, and a one-time one.
+        extra = round2(Math.min(bal - principal, extraEach + (extras.get(k) || 0)));
+        principal = round2(principal + extra);
+        payment = round2(payment + extra);
       }
     }
     bal = round2(bal - principal);
     let balloon = 0;
     if (k === nTerm && bal > 0.004) { balloon = bal; bal = 0; }
-    rows.push({ n: k, date: start ? addMonths(start, k * f.months) : '', payment, interest, principal, balloon, balance: bal });
+    rows.push({ n: k, date: start ? addMonths(start, k * f.months) : '', payment, interest, principal, extra, balloon, balance: bal });
   }
   const sum = (list, key) => round2(list.reduce((s, x) => s + x[key], 0));
-  const amortizing = nIo >= nTerm ? ioPayment : level;
+  const amortizing = nIo >= nTerm ? ioPayment : (firstLevel.value ?? level);
+  const totalInterest = sum(rows, 'interest');
   return {
     ...base,
     rows,
@@ -563,7 +648,10 @@ export function mortgagePlan(params = {}) {
     annualDebtService: round2(amortizing * f.perYear),
     ioAnnualDebtService: round2(ioPayment * f.perYear),
     firstYearDebtService: sum(rows.slice(0, f.perYear), 'payment'),
-    totalInterest: sum(rows, 'interest'),
+    totalInterest,
+    firstYearInterest: sum(rows.slice(0, f.perYear), 'interest'),
+    avgAnnualInterest: rows.length ? round2((totalInterest * f.perYear) / rows.length) : 0,
+    totalExtra: sum(rows, 'extra'),
     totalPaid: round2(sum(rows, 'payment') + sum(rows, 'balloon')),
     balloon: rows.length ? rows[rows.length - 1].balloon : 0,
     maturityDate: rows.length ? rows[rows.length - 1].date : '',

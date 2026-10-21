@@ -2430,6 +2430,13 @@ export const api = {
   createPlannedLoan: (body)     => req('/accounting/loan-plans/planned', { method: 'POST', body: JSON.stringify(body) }),
   updatePlannedLoan: (id, body) => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   deletePlannedLoan: (id)       => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Loans, Oct 22 (Charmi / Neil): the live index rate for the Loan Calculator
+  // (sofr | treasury10 | prime), the vendors a loan can be wired to, and Change
+  // Loan's save with room for a slow accounting app (a PUT is never retried,
+  // so at the 18s default a slow save read as "Can't reach Nexus").
+  getLoanIndexRate:  (index)    => req(`/accounting/loan-plans/index-rate?index=${encodeURIComponent(index)}`),
+  getLoanVendors:    (entity, accounts = [], to = '') => req(`/accounting/loans/vendors?entity=${encodeURIComponent(entity)}${accounts.length ? `&accounts=${encodeURIComponent(accounts.join(','))}` : ''}${to ? `&to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
+  updateLoanSlow:    (id, body) => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body), timeoutMs: 90_000 }),
   // Accounting > Reporting > Profitability and Employee Compensation (10/15).
   getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
   getCompensationPeople: (from, to) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs: 180_000 }),

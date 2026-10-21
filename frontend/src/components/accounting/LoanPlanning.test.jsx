@@ -23,6 +23,7 @@ vi.mock('../../api', () => ({
     getLoanEntityNoi: vi.fn(async () => ({ entities: { 12000: { noi: 90000, annualized: 95000 } } })),
     getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
     saveAccountingPrefs: vi.fn(async () => ({ ok: true })),
+    getLoanIndexRate: vi.fn(async (index) => ({ index, label: 'SOFR', ratePct: 4.31, asOf: '2026-10-20', source: 'Federal Reserve Bank of New York - SOFR' })),
   },
 }));
 
@@ -91,5 +92,64 @@ describe('LoanPlanning', () => {
     // A viewer opens and compares, never saves or removes.
     expect(screen.queryByRole('button', { name: /Save/ })).toBeNull();
     expect(screen.queryByLabelText('Remove Chase 10/30')).toBeNull();
+  });
+});
+
+// The Loan Calculator (Neil, Oct 16): Residential / Commercial / Other, a
+// variable rate on a live index, the interest expense alone.
+describe('Loan Calculator', () => {
+  it('has three sections; the basic ones keep to the basics, Other shows everything', async () => {
+    render(<LoanPlanning loans={loans} entities={ENTITIES} picked={['15000']} canEdit to="2026-09-30" />);
+    expect(await screen.findByText('Loan Calculator')).toBeInTheDocument();
+    const tabs = within(screen.getByRole('tablist', { name: 'Loan Calculator' })).getAllByRole('tab').map((t) => t.textContent);
+    expect(tabs).toEqual(['Residential', 'Commercial', 'Other']);
+    fireEvent.click(screen.getByRole('tab', { name: 'Residential' }));
+    expect(screen.getByLabelText('Term (Years)').value).toBe('30');          // the section's default term
+    expect(screen.queryByLabelText('Closing Costs')).toBeNull();
+    expect(screen.queryByText('Rate Periods')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Other' }));
+    expect(screen.getByLabelText('Closing Costs')).toBeInTheDocument();
+    expect(screen.getByLabelText('Extra Principal per Payment')).toBeInTheDocument();
+    expect(screen.getByText('One-Time Extra Payments')).toBeInTheDocument();
+    expect(screen.getByText('Rate Periods')).toBeInTheDocument();
+  });
+
+  it('pulls the live index for a variable rate and shows the interest expense alone', async () => {
+    render(<LoanPlanning loans={loans} entities={ENTITIES} picked={['15000']} canEdit to="2026-09-30" />);
+    await screen.findByText(/No planned loans yet/);
+    typeAmount('Loan Amount', '1,000,000');
+    fireEvent.change(screen.getByLabelText('Fixed or Variable'), { target: { value: 'variable' } });
+    expect(screen.queryByLabelText('Interest Rate %')).toBeNull();
+    expect(within(screen.getByLabelText('Index')).getAllByRole('option').map((o) => o.textContent)).toEqual(['SOFR', '10-Year Treasury', 'Prime', 'Custom']);
+    fireEvent.click(screen.getByRole('button', { name: /Pull Live Rate/ }));
+    await waitFor(() => expect(api.getLoanIndexRate).toHaveBeenCalledWith('sofr'));
+    await waitFor(() => expect(screen.getByLabelText('Index Rate %').value).toBe('4.31'));
+    expect(screen.getByText(/as of 10\/20\/2026/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Margin %'), { target: { value: '1.69' } });
+    expect(screen.getByText('Rate now 6%')).toBeInTheDocument();
+    expect(within(screen.getByText('Monthly Payment (P&I)').parentElement).getByText('5,995.51')).toBeInTheDocument();
+    const io = screen.getByRole('group', { name: 'Interest Expense Only' });
+    expect(within(within(io).getByText('Interest-Only Payment').parentElement).getByText('5,000.00')).toBeInTheDocument();
+    expect(within(io).getByText('Interest per Year').parentElement).toHaveTextContent('60,000.00');
+    // A Custom index is typed: no pull.
+    fireEvent.change(screen.getByLabelText('Index'), { target: { value: 'custom' } });
+    expect(screen.queryByRole('button', { name: /Pull Live Rate/ })).toBeNull();
+  });
+
+  it('says so when the live rate cannot be read', async () => {
+    api.getLoanIndexRate.mockRejectedValueOnce(Object.assign(new Error('Could not read SOFR from the New York Fed just now. Type the rate instead, or try again later.'), { status: 424 }));
+    render(<LoanPlanning loans={loans} entities={ENTITIES} picked={['15000']} canEdit to="2026-09-30" />);
+    await screen.findByText(/No planned loans yet/);
+    fireEvent.change(screen.getByLabelText('Fixed or Variable'), { target: { value: 'variable' } });
+    fireEvent.click(screen.getByRole('button', { name: /Pull Live Rate/ }));
+    expect(await screen.findByText(/Could not read SOFR from the New York Fed/)).toBeInTheDocument();
+  });
+
+  it('opens a plan saved before the sections in the one it fits', async () => {
+    api.getPlannedLoans.mockResolvedValueOnce({ planned: [plan({ params: { ...plan().params, closingCosts: 12000 } })] });
+    render(<LoanPlanning loans={loans} entities={ENTITIES} canEdit to="2026-09-30" />);
+    fireEvent.click((await screen.findByText('Chase 10/30')).closest('tr'));
+    expect(screen.getByRole('tab', { name: 'Other' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('Closing Costs')).toBeInTheDocument();
   });
 });

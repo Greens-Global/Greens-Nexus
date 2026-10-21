@@ -5540,6 +5540,13 @@ class AccountingLoanSetting(Base):
     # whether the Stress Test leaves it out (restorable; the loan stays).
     loan_type          = Column(String, default="")
     stress_excluded    = Column(Boolean, default=False)
+    # Oct 22 (Charmi): the real loan number ("these are GL codes, Loan # will be
+    # different" - '' = none typed; fin_loans.loan_no kept the GL account for
+    # loans set up from the ledger), and the lender's Intacct vendor id: when
+    # set, Interest Paid and Principal Paid count only that vendor's lines.
+    loan_number        = Column(String, default="")
+    vendor_id          = Column(String, default="")
+    vendor_name        = Column(String, default="")
 # ── Marketing: Google Business Profile (Oct 2026) ────────────────────────────
 # Neil, call of 10/01: manage the Google listings and reviews from Nexus so he
 # is not the single point of failure (docs/Marketing-Module-Plan.md, Phase 2).

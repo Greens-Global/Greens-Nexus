@@ -1208,6 +1208,10 @@ def _run_migrations():
             "ALTER TABLE recurring_expenses ADD COLUMN stale_since VARCHAR DEFAULT ''",
             "ALTER TABLE recurring_expenses ADD COLUMN stale_last_paid VARCHAR DEFAULT ''",
             "ALTER TABLE recurring_expenses ADD COLUMN stale_task_id VARCHAR DEFAULT ''",
+            # Accounting > Loans (Charmi, Oct 22) - see the Postgres list.
+            "ALTER TABLE accounting_loan_settings ADD COLUMN loan_number VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN vendor_id VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN vendor_name VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2752,6 +2756,12 @@ def _run_migrations():
         "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_since VARCHAR DEFAULT ''",
         "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_last_paid VARCHAR DEFAULT ''",
         "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_task_id VARCHAR DEFAULT ''",
+        # Accounting > Loans (Charmi, Oct 22): the real loan number (Loan # showed
+        # the GL account, now its own GL Code column) and the lender's vendor id
+        # that Interest / Principal Paid are read by.
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS loan_number VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS vendor_id VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS vendor_name VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

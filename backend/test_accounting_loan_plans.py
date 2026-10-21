@@ -286,6 +286,98 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(self.client.delete(f"/accounting/loan-plans/planned/{b['id']}").status_code, 404)
         self.assertEqual(self.client.put(f"/accounting/loan-plans/planned/{a['id']}", json={"name": "Mine", "entityCode": "15000", "params": {}}).status_code, 200)
 
+    # ── Loan Calculator (Neil, Oct 16): sections, variable rate, live index ──
+    def test_calculator_params_are_kept_and_checked(self):
+        _as(EDITOR)
+        params = {**self.PLAN, "kind": "commercial", "rateType": "variable", "index": "sofr", "indexRatePct": 4.31, "marginPct": 2.75, "indexAsOf": "2026-10-20",
+                  "extraPayment": 500, "extraPayments": [{"n": 12, "amount": 25000}], "ratePeriods": [{"fromPayment": 61, "ratePct": 7.5}]}
+        r = self.client.post("/accounting/loan-plans/planned", json={"name": "SOFR + 275", "entityCode": "15000", "params": params})
+        self.assertEqual(r.status_code, 201, r.text)
+        p = r.json()["planned"]["params"]
+        self.assertEqual({k: p[k] for k in ("kind", "rateType", "index", "indexRatePct", "marginPct", "indexAsOf", "extraPayment")},
+                         {"kind": "commercial", "rateType": "variable", "index": "sofr", "indexRatePct": 4.31, "marginPct": 2.75, "indexAsOf": "2026-10-20", "extraPayment": 500})
+        self.assertEqual((p["extraPayments"], p["ratePeriods"]), ([{"n": 12, "amount": 25000}], [{"fromPayment": 61, "ratePct": 7.5}]))
+        for bad in ({"kind": "jumbo"}, {"rateType": "floating"}, {"index": "libor"}, {"extraPayments": "x"}, {"ratePeriods": [{"fromPayment": 0, "ratePct": 5}]},
+                    {"extraPayments": [{"n": 1, "amount": 1}] * (accounting_loan_plans.MAX_PLAN_LIST + 1)}):
+            self.assertEqual(self.client.post("/accounting/loan-plans/planned", json={"name": "x", "entityCode": "15000", "params": {**self.PLAN, **bad}}).status_code, 400, bad)
+        # A plan saved before the sections still saves as it was (no kind).
+        r = self.client.post("/accounting/loan-plans/planned", json={"name": "Old", "entityCode": "15000", "params": self.PLAN})
+        self.assertNotIn("kind", r.json()["planned"]["params"])
+
+    def test_live_index_rate_is_read_once_and_kept(self):
+        calls = []
+
+        def fake_fetch(index, today=None):
+            calls.append(index)
+            if index == "prime":
+                raise OSError("network down")
+            return {"ratePct": 4.31, "asOf": "2026-10-20", "source": "test", "sourceUrl": ""}
+
+        old, accounting_loan_plans.fetch_index = accounting_loan_plans.fetch_index, fake_fetch
+        accounting_loan_plans._INDEX_CACHE.clear()
+        try:
+            _as(VIEWER)
+            r = self.client.get("/accounting/loan-plans/index-rate?index=sofr")
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual({k: r.json()[k] for k in ("index", "label", "ratePct", "asOf")}, {"index": "sofr", "label": "SOFR", "ratePct": 4.31, "asOf": "2026-10-20"})
+            self.client.get("/accounting/loan-plans/index-rate?index=sofr")
+            self.assertEqual(calls, ["sofr"])                                  # kept: one read serves the next
+            r = self.client.get("/accounting/loan-plans/index-rate?index=prime")
+            self.assertEqual(r.status_code, 424)                               # never a 5xx (the "reconnecting" banner)
+            self.assertIn("Type the rate instead", r.json()["detail"])
+            self.assertEqual(self.client.get("/accounting/loan-plans/index-rate?index=libor").status_code, 400)
+            # A failed refresh answers the last rate read, marked stale.
+            t, data = accounting_loan_plans._INDEX_CACHE["sofr"]
+            accounting_loan_plans._INDEX_CACHE["sofr"] = (t - accounting_loan_plans.INDEX_TTL - 1, data)
+            accounting_loan_plans.fetch_index = lambda index, today=None: (_ for _ in ()).throw(OSError("down"))
+            r = self.client.get("/accounting/loan-plans/index-rate?index=sofr")
+            self.assertEqual((r.status_code, r.json()["stale"], r.json()["ratePct"]), (200, True, 4.31))
+        finally:
+            accounting_loan_plans.fetch_index = old
+            accounting_loan_plans._INDEX_CACHE.clear()
+
+
+class IndexParseTests(unittest.TestCase):
+    """The public sources' answers, as they come (no network in tests)."""
+
+    def test_sofr(self):
+        d = accounting_loan_plans.parse_sofr({"refRates": [{"effectiveDate": "2026-10-20", "type": "SOFR", "percentRate": 4.31, "volumeInBillions": 2400}]})
+        self.assertEqual((d["ratePct"], d["asOf"]), (4.31, "2026-10-20"))
+
+    def test_prime_is_fed_funds_upper_plus_three(self):
+        d = accounting_loan_plans.parse_prime({"refRates": [{"effectiveDate": "2026-10-20", "type": "EFFR", "percentRate": 4.33, "targetRateFrom": 4.25, "targetRateTo": 4.5}]})
+        self.assertEqual((d["ratePct"], d["asOf"]), (7.5, "2026-10-20"))
+        self.assertIn("+ 3.00%", d["source"])
+
+    def test_treasury_csv_takes_the_newest_day(self):
+        text = ("﻿Date,1 Mo,2 Mo,3 Mo,10 Yr,30 Yr\n"
+                "10/17/2026,4.20,4.18,4.10,4.02,4.55\n"
+                "10/20/2026,4.21,4.19,4.11,4.05,4.57\n"
+                "10/16/2026,4.20,4.18,4.10,,4.55\n")
+        d = accounting_loan_plans.parse_treasury_csv(text)
+        self.assertEqual((d["ratePct"], d["asOf"]), (4.05, "2026-10-20"))
+        self.assertIsNone(accounting_loan_plans.parse_treasury_csv("Date,10 Yr\n"))
+
+    def test_fetch_index_reads_last_year_in_early_january(self):
+        from datetime import date as _d
+
+        class R:
+            def __init__(self, text):
+                self.text = text
+
+        urls = []
+
+        def fake_get(url):
+            urls.append(url)
+            return R("Date,10 Yr\n" if "/2027/" in url else "Date,10 Yr\n12/31/2026,4.40\n")
+
+        old, accounting_loan_plans._get = accounting_loan_plans._get, fake_get
+        try:
+            d = accounting_loan_plans.fetch_index("treasury10", today=_d(2027, 1, 1))
+        finally:
+            accounting_loan_plans._get = old
+        self.assertEqual((d["ratePct"], d["asOf"], len(urls)), (4.4, "2026-12-31", 2))
+
 
 if __name__ == "__main__":
     unittest.main()
