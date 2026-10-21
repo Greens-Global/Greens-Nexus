@@ -97,7 +97,7 @@ export const DOCS = [
           'Click your photo (top right) and click What\'s New.',
           'Click For You to see only updates about the modules you use.',
           'Click Follow, pick modules and categories, and tick the Monday digest if you want an email. Matching updates land in your bell.',
-          'Click My Requests, describe what you would like, and click Send Request. Its status (New, Under Review, Planned, In Progress, Shipped or Declined) shows there, and your bell rings when it changes.',
+          'Click Feature Request, describe what you would like, and click Send Request. Its status (New, Under Review, Planned, In Progress, Shipped or Declined) shows there, and your bell rings when it changes.',
         ],
       },
     ],

@@ -108,14 +108,14 @@ describe('Known issues', () => {
 });
 
 describe('Feature requests', () => {
-  it('My Requests shows each status and sends a new one', async () => {
+  it('Feature Request shows each status and sends a new one', async () => {
     api.getMyChangelogRequests.mockResolvedValue([
       { id: 'r1', note: 'Export to Excel', status: 'Shipped', entryTitle: 'Payroll Export', shippedEntryId: 'm2', shippedTitle: 'Shipped Thing', shippedReleased: true, at: at(9) },
       { id: 'r2', note: 'Dark mode', status: 'Planned', statusNote: 'Next month', module: 'Reports', at: at(8) },
     ]);
     api.raiseChangelogRequest.mockResolvedValue({ id: 'r3' });
     render(<Changelog />);
-    fireEvent.click(await screen.findByRole('button', { name: /My Requests/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Feature Request/ }));
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByText('Export to Excel')).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: /Shipped In: Shipped Thing/ })).toBeTruthy();
