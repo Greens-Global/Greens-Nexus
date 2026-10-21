@@ -1179,6 +1179,8 @@ def _run_migrations():
             "ALTER TABLE ops_competitor_rates ADD COLUMN locked_until VARCHAR DEFAULT ''",
             "ALTER TABLE ops_competitor_rates ADD COLUMN override_reason VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_ops_competitor_rates_survey_id ON ops_competitor_rates (survey_id)",
+            # Contractor invoices (Oct 21): the company's payer emails. models.HrEntity.
+            "ALTER TABLE hr_entities ADD COLUMN invoice_recipients JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2679,6 +2681,8 @@ def _run_migrations():
         "ALTER TABLE ops_cma_changes ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_cma_snapshots ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_cma_events ENABLE ROW LEVEL SECURITY",
+        # Contractor invoices (Oct 21): the company's payer emails. models.HrEntity.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS invoice_recipients JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

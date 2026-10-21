@@ -476,7 +476,10 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div style={{ gridColumn: '1 / -1' }}>{cInput('SCOPE / ROLE', 'scope', { placeholder: 'what they are engaged to do' })}</div>
                 {cInput('SOW REFERENCE', 'sow_ref', { placeholder: 'SOW doc # / link' })}
-                {cInput('BILLING CLIENT', 'billing_client', { placeholder: 'client this contractor bills to' })}
+                <div>
+                  {cInput('BILLING CLIENT', 'billing_client', { placeholder: 'client name, for reference' })}
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Invoices bill to the person's own company as set on their profile.</div>
+                </div>
                 {cInput('CONTRACT START', 'contract_start', { type: 'date' })}
                 {cInput('CONTRACT END', 'contract_end', { type: 'date' })}
                 {cInput('RATE', 'rate', { placeholder: 'e.g. 85' })}
@@ -493,6 +496,14 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
                   </select>
                 </div>
                 {cInput('ENGAGEMENT AREA', 'engagement_area', { placeholder: 'e.g. Escondido dev / remote' })}
+                <div>
+                  {cInput('NEXT INVOICE NUMBER', 'invoice_next_number', { type: 'number', min: 1, step: 1, placeholder: 'e.g. 1' })}
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Set once - the first invoice Nexus sends uses this number, then it counts up.</div>
+                </div>
+                <div>
+                  {cInput('INVOICE DESCRIPTION', 'invoice_description', { placeholder: 'e.g. IT Development' })}
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>The service line on the invoice, e.g. IT Development. Blank = the scope above.</div>
+                </div>
               </div>
             </div>
           )}
@@ -2000,6 +2011,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
               {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', formatDate(e.contractor.contract_end))}
               {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
+              {e.employmentType === 'contractor' && e.contractor?.invoice_next_number && row(FileText, 'Next invoice number', String(e.contractor.invoice_next_number))}
+              {e.employmentType === 'contractor' && e.contractor?.invoice_description && row(FileText, 'Invoice description', e.contractor.invoice_description)}
               {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase() ? 'You' : e.managerEmail)}
               {(() => {
                 // Backup Manager (Neil, Oct 13): the one set on the profile, else
@@ -2062,6 +2075,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               ) : '')}
               {row(FileText, 'Document', [DOC_TYPES.find(([v]) => v === e.compliance?.docType)?.[1], e.compliance?.docNumber].filter(Boolean).join(' · '))}
               {row(CalendarDays, 'Issued', formatDate(e.compliance?.issueDate, e.compliance?.issueDate || ''))}
+              {e.compliance?.pan && row(FileText, 'PAN (India)', maskId(e.compliance.pan))}
               {e.compliance?.expiryDate ? (() => {
                 const d = daysUntil(e.compliance.expiryDate); const warn = d !== null && d <= 60;
                 return row(warn ? AlertTriangle : CalendarDays, 'Doc expiry', (
@@ -3575,7 +3589,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const { can } = useRole();
@@ -3627,6 +3641,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       signatory: en.signatory || '', signatory_email: en.signatoryEmail || '', notes: en.notes || '', domains: en.domains || '',
       manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
       hr_contact_email: en.hrContactEmail || '',
+      invoice_recipients: (en.invoiceRecipients || []).join(', '),
       logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
     setF(seeded); formSnapshotRef.current = seeded; setTab('overview'); setMode(en.id);
   };
@@ -3656,6 +3671,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       const payload = {
         ...rest,
         main_phone: f.main_phone_type === 'phone' && f.main_phone.trim() ? `${dial} ${f.main_phone.trim()}` : f.main_phone.trim(),
+        invoice_recipients: (f.invoice_recipients || '').split(/[,\s;]+/).filter(Boolean),
       };
       if (mode === 'new') await api.createEntity(payload); else await api.updateEntity(mode, payload);
       await onChangedEntities(); toastOk('Company saved.'); setMode(null);
@@ -3770,6 +3786,12 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                     {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
                   </select>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL} htmlFor="entity-invoice-recipients">CONTRACTOR INVOICE RECIPIENTS</label>
+                  <input id="entity-invoice-recipients" className="form-input" style={{ width: '100%' }} value={f.invoice_recipients || ''}
+                    onChange={e => set('invoice_recipients', e.target.value)} placeholder="accounts@client.com, another@client.com" />
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Comma-separated. Who receives a contractor's approved invoice by email (for example the client's accounts contacts). They do not need a Nexus login.</div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('PHYSICAL ADDRESS', 'physical_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('MAILING ADDRESS', 'mailing_address', { placeholder: 'if different from the physical address' })}</div>
@@ -5268,9 +5290,12 @@ function daysUntil(iso) {
   return Math.ceil((d - new Date()) / 86400000);
 }
 
-function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
+export const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+
+export function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   const c0 = employee.compliance || {};
   const [c, setC] = useState({
+    pan: c0.pan || '',
     workAuth: c0.workAuth || '', docType: c0.docType || 'passport', docNumber: c0.docNumber || '',
     issueDate: c0.issueDate || '', expiryDate: c0.expiryDate || '', status: c0.status || 'unverified',
     consents: { bgCheck: false, dataProcessing: false, handbook: false, ...(c0.consents || {}) },
@@ -5281,9 +5306,10 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   const setConsent = (k, v) => setC(prev => ({ ...prev, consents: { ...prev.consents, [k]: v } }));
   const initialCRef = useRef(c);
   const dirty = JSON.stringify(c) !== JSON.stringify(initialCRef.current);
+  const panBad = !!c.pan && !PAN_RE.test(c.pan);
 
   async function save() {
-    if (busy) return; setBusy(true);
+    if (busy || panBad) return; setBusy(true);
     try { const saved = await api.updateEmployee(employee.id, { compliance: c }); onSaved(saved); toastOk('Compliance saved.'); onClose(); }
     catch (e) { toastErr(e?.message || 'Could not save.'); setBusy(false); }
   }
@@ -5310,6 +5336,13 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
                 {Object.entries(VERIFY_STATUS).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
               </select>
             </div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL} htmlFor="compliance-pan">PAN (INDIA)</label>
+              <input id="compliance-pan" className="form-input" style={{ width: '100%', borderColor: panBad ? 'hsl(var(--color-red))' : undefined }} value={c.pan} maxLength={10}
+                onChange={e => set('pan', e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="ABCDE1234F" />
+              <div style={{ fontSize: 11.5, color: panBad ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
+                {panBad ? 'PAN is 5 letters, 4 digits and a letter, e.g. ABCDE1234F.' : "Printed on the person's invoices when they are a contractor."}
+              </div>
+            </div>
           </div>
           <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '10px 0 0' }}>Upload the actual passport / visa scan in the Documents section below the profile (private, signed-URL access).</p>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '18px 0 10px' }}>CONSENT CHECKLIST</div>
@@ -5322,7 +5355,7 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save</button>
+          <button className="primary-btn" onClick={save} disabled={busy || panBad} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy || panBad ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save</button>
         </div>
       </div>
       {guard.confirming && (
