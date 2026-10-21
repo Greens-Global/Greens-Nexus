@@ -14,6 +14,7 @@ import TopHeader from "./components/TopHeader";
 import { HeaderTabsProvider } from "./components/ModuleTabs";
 import NotificationToasts from "./components/NotificationToasts";
 import PriorityBar from "./components/PriorityBar";
+import LocationNoticeBar from "./components/LocationNoticeBar";
 import { RoleChangeDeepLinkFallback } from "./components/RoleChangeRequests";
 import TimeclockWidget from "./components/TimeclockWidget";
 import { StepUpOverlay } from "./stepup/StepUp";
@@ -861,6 +862,8 @@ function MainApp() {
             )}
             {/* Priority notices (Neil, 09/29): the yellow bar that stays until acted on. */}
             {!pdfHasDoc && <WidgetBoundary name="priority-bar" resetKey={widgetKey}><PriorityBar onNavigate={navigate} /></WidgetBoundary>}
+            {/* A clock-in with no location (Neil, Oct 21 2026): the red Turn On / Skip bar. */}
+            {!pdfHasDoc && <WidgetBoundary name="location-bar" resetKey={widgetKey}><LocationNoticeBar /></WidgetBoundary>}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
                 dashboard surfaces - see the Work OS section in style.css */}
             {/* pdf-editor is flush for the same reason tasks is: it owns its

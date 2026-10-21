@@ -1590,7 +1590,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                               : '-'}
                           </td>
                           <td rowSpan={rs} style={gc}>
-                            {r.base.geo && r.base.geo !== 'no_location' && r.base.geo !== 'location_off'
+                            {/* Location Off shows (Pranshu, Oct 21: a skipped location ask must read on the card); No Location stays a dash. */}
+                            {r.base.geo && r.base.geo !== 'no_location'
                               ? <LocCell seg={r.base} onOpen={(seg) => { setGeoFocus({ seg, date: r.ds }); setGeoMap(data?.email || email || myEmail || ''); }} />
                               : '-'}
                           </td>
