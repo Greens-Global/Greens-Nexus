@@ -95,7 +95,9 @@ const hoursPrefsText = (emp) => {
   if (Number(p?.maxHoursWeek) > 0) bits.push(`max ${Number(p.maxHoursWeek)}h`);
   return bits.join(' · ');
 };
-export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false, photos = true, onNow = false, usual = null, confirm = null, tools, style, ...rest }) {
+// `onNow`: true (on shift), or a live clock state 'working' / 'break' (the
+// dot turns orange on a break). `extra`: an optional line under the name.
+export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false, photos = true, onNow = false, usual = null, confirm = null, extra = null, tools, style, ...rest }) {
   const availRows = (Array.isArray(emp.availability) ? emp.availability : emp.availability?.days || []).filter((a) => a && a.kind !== 'prefs' && a.weekday !== undefined && a.weekday !== null && !a.date);
   const limited = availRows.length > 0;
   const prefsText = hoursPrefsText(emp);
@@ -105,7 +107,7 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
       {photos && (
         <span style={{ position: 'relative', flexShrink: 0, display: 'flex' }}>
           <Avatar name={emp.name} photoUrl={emp.photoUrl} size={32} />
-          {onNow && <span title="On shift now" style={{ position: 'absolute', right: -1, bottom: -1, width: 10, height: 10, borderRadius: '50%', background: 'hsl(var(--color-green))', border: '2px solid var(--card)' }} />}
+          {onNow && <span data-on-dot={onNow === true ? 'shift' : onNow} title={onNow === 'break' ? 'On break now' : onNow === 'working' ? 'Working now' : 'On shift now'} style={{ position: 'absolute', right: -1, bottom: -1, width: 10, height: 10, borderRadius: '50%', background: onNow === 'break' ? 'hsl(var(--color-orange))' : 'hsl(var(--color-green))', border: '2px solid var(--card)' }} />}
         </span>
       )}
       <span style={{ minWidth: 0, flex: 1, lineHeight: 1.35 }}>
@@ -115,6 +117,7 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
           {confirm === 'some' && <span data-confirm="some" title="Has not confirmed the shared schedule yet" aria-label="Has not confirmed the shared schedule yet" style={{ display: 'inline-flex', color: 'var(--muted)', flexShrink: 0, alignSelf: 'center' }}><Circle size={12} /></span>}
           {isMe && <span style={{ fontWeight: 600, color: 'var(--wk-brand)', fontSize: 12, flexShrink: 0 }}>You</span>}
         </div>
+        {extra && <div style={{ margin: '2px 0' }}>{extra}</div>}
         <div style={{ fontSize: 11.5, color: over.length ? 'hsl(var(--color-orange))' : 'var(--muted)', fontWeight: over.length ? 700 : 500, display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
           title={over.length ? `Over 40 scheduled hours in a week (${over.map(fmtHrs).join(', ')})` : 'Paid hours this week'}>
           {over.length > 0 && <AlertTriangle size={11} aria-label="Over 40 hours" />}
@@ -279,7 +282,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   ariaRole = 'grid', ariaLabel = 'Schedule', notesRow = false, maxHeight = 'calc(100vh - 150px)',
   single = false, emptyNote = null, cornerTools = null, ghostOf = () => null, blockClass = () => '', motion = true, glowToday = false,
   personFill = null, usualCan = () => false, coverageOf = null, onCoverage = null, pulseCells = null, conflictCount = 0, onConflicts = null,
-  conflictWord = 'conflict', actualOf = null, adherence = null, confirmOf = null }) {
+  conflictWord = 'conflict', actualOf = null, adherence = null, confirmOf = null, nameExtra = null }) {
   const today = todayIso();
   const n = days.length;
   const coarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches;
@@ -510,7 +513,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         <Fragment key={`p-${key}-${emp.email}`}>
           <div role="row" data-member={emp.email} aria-current={isMe ? 'true' : undefined} data-ri={r} style={{ display: 'contents', '--ri': r }}>
             <PersonCell role="rowheader" emp={{ ...emp, availability: prefs.availability !== false ? emp.availability : [] }} isMe={isMe} hrs={empWeekMin(emp.email)} over={overWeeks(emp.email)}
-              data-person={emp.email} usual={usualOf(emp.email)} onNow={onNowOf(emp.email)} confirm={confirmOf ? confirmOf(emp.email) : null}
+              data-person={emp.email} usual={usualOf(emp.email)} onNow={onNowOf(emp.email)} confirm={confirmOf ? confirmOf(emp.email) : null} extra={nameExtra ? nameExtra(emp.email) : null}
               viewOnly={!editable && canManage} photos={prefs.photos !== false}
               {...pdp}
               style={{ ...stickyLeft(row), ...(pdp.style || {}) }}

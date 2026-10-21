@@ -1662,6 +1662,7 @@ export const api = {
   timeMyChat:        ()          => req('/timeclock/my-chat'),
   timeSchedule:      (start, end) => req(`/timeclock/schedule?start=${start}&end=${end}`),
   timeMySchedule:    (start, end) => req(`/timeclock/my-schedule?start=${start}&end=${end}`),
+  timeMyScheduleLive: () => req('/timeclock/my-schedule/live'),     // who on my group is working / on break right now
   // Shift self-service (Sep 29): open-shift requests, swaps, offers, manager inbox.
   shiftRequestsMine:       (start = '', end = '') => req(`/timeclock/shift-requests/mine?start=${start}&end=${end}`),
   shiftRequestCreate:      (data)      => req('/timeclock/shift-requests', { method: 'POST', body: JSON.stringify(data) }),

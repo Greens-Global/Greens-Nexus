@@ -11,12 +11,21 @@ import { Avatar } from './ShiftScheduleExtras';
 import { ShiftBlock, TimeOffBlock } from './shifts/ShiftBlock';
 import WeekGrid from './shifts/WeekGrid';
 import { DayStrip, PhoneRow, firstDay } from './shifts/SchedulePhone';
-import { paidMinutes, fmtHrs, todayIso, shiftShortText, teamColor } from './shifts/shiftLib';
+import { paidMinutes, fmtHrs, todayIso, shiftShortText, teamColor, minutesText } from './shifts/shiftLib';
 import TeamPicker from './shifts/TeamPicker';
+import { StatusLabel } from './StatusLabel';
+import { formatTime, formatTimeIn } from '../lib/datetime';
 
 const MUTED = { fontSize: 11, color: 'var(--muted)' };
+const LIVE_COLOR = { working: 'hsl(var(--color-green))', break: 'hsl(var(--color-orange))', out: '#64748b' };
+const LIVE_WORD = { working: ['Working', 'Working since'], break: ['On Break', 'On break since'], out: ['Clocked Out', 'Clocked out at'] };
+const minsSince = (iso) => Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 60000)) || 0;
+const firstName = (r) => (r.isMe ? 'you' : (r.name || '').trim().split(/\s+/)[0]);
 
-export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onNow = [], openShifts = [], onRequestOpen, busyOpenId = '', thisWeek, timeZoneLabel = '', teamZone = '' }) {
+// `live` (Miranda, Oct 21): { email: { state, label, since } } from today's
+// punches, this week only. A person in it gets a status chip under the name
+// and a dot that follows the clock; anyone else keeps the scheduled dot.
+export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onNow = [], openShifts = [], onRequestOpen, busyOpenId = '', thisWeek, timeZoneLabel = '', teamZone = '', live = null }) {
   const phone = useIsMobile();
   const [day, setDay] = useState(() => firstDay(days.map((d) => d.date)));
   useEffect(() => { setDay((k) => (days.some((d) => d.key === k) ? k : firstDay(days.map((d) => d.date)))); }, [days]);
@@ -32,6 +41,25 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
   const weekMin = rows.reduce((a, r) => a + rowMin(r), 0);
   const openOn = (key) => openShifts.filter((s) => s.date === key);
   const isOn = (r) => onNow.some((o) => o.email === r.email);
+  const liveOf = (email) => {
+    const s = live?.[String(email || '').toLowerCase()];
+    return s && LIVE_WORD[s.state] ? s : null;
+  };
+  // The avatar dot: the clock when there is a punch today, else the schedule.
+  const dotOf = (r) => { const s = liveOf(r.email); return s ? (s.state !== 'out' && s.state) : isOn(r); };
+  const liveChip = (email) => {
+    const s = liveOf(email);
+    if (!s) return null;
+    const [word, since] = LIVE_WORD[s.state];
+    const at = s.since ? (teamZone ? formatTimeIn(s.since, teamZone) : formatTime(s.since)) : '';
+    return (
+      <StatusLabel size="sm" color={LIVE_COLOR[s.state]} title={at ? `${since} ${at}` : undefined}
+        label={s.state === 'break' && s.since ? `${word} · ${minutesText(minsSince(s.since))}` : word} />
+    );
+  };
+  const liveGroup = (state) => (live ? rows.filter((r) => liveOf(r.email)?.state === state).map(firstName) : []);
+  const onBreak = liveGroup('break');
+  const workingNow = liveGroup('working');
 
   // Phase 3b: which team the slot belongs to, and an "Other Team" chip when
   // it is one the person is not on (openShiftsAcrossTeams) - the same words
@@ -78,9 +106,20 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
       ) : (
         <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{team.name} · {team.members.length} member{team.members.length === 1 ? '' : 's'}{team.isMember === false ? ' · you manage this group' : ''}</span>
       )}
-      {thisWeek && (
+      {thisWeek && live ? (
+        // From the clock: who is on a break first and loudest, then who is working.
+        <span data-live-summary style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--muted)' }}>
+          {onBreak.length === 0 && workingNow.length === 0 ? 'Nobody clocked in right now' : (
+            <>
+              {onBreak.length > 0 && <b style={{ color: 'hsl(var(--color-orange))' }}>On Break: {onBreak.join(', ')}</b>}
+              {onBreak.length > 0 && workingNow.length > 0 && ' · '}
+              {workingNow.length > 0 && `Working: ${workingNow.join(', ')}`}
+            </>
+          )}
+        </span>
+      ) : thisWeek && (
         <span style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--muted)' }}>
-          {onNow.length === 0 ? 'Nobody on shift right now' : `On shift now: ${onNow.map((r) => (r.isMe ? 'you' : (r.name || '').trim().split(/\s+/)[0])).join(', ')}`}
+          {onNow.length === 0 ? 'Nobody on shift right now' : `On shift now: ${onNow.map(firstName).join(', ')}`}
         </span>
       )}
     </div>
@@ -108,8 +147,8 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
           {d && rows.map((r) => {
             const rd = dayOf(r, d);
             return (
-              <PhoneRow key={r.email} data-member={r.email} aria-current={r.isMe ? 'true' : undefined} isMe={r.isMe} name={r.name} sub={fmtHrs(rowMin(r))} sub2={r.shift ? `Usual ${shiftShortText(r.shift)}` : ''}
-                avatar={<span style={{ position: 'relative', flexShrink: 0, display: 'flex' }}><Avatar name={r.name} photoUrl={r.photoUrl} size={28} />{isOn(r) && <OnDot />}</span>}>
+              <PhoneRow key={r.email} data-member={r.email} aria-current={r.isMe ? 'true' : undefined} isMe={r.isMe} name={r.name} sub={fmtHrs(rowMin(r))} sub2={r.shift ? `Usual ${shiftShortText(r.shift)}` : ''} extra={liveChip(r.email)}
+                avatar={<span style={{ position: 'relative', flexShrink: 0, display: 'flex' }}><Avatar name={r.name} photoUrl={r.photoUrl} size={28} />{dotOf(r) && <OnDot state={dotOf(r)} />}</span>}>
                 {rd ? cellBody(rd) : null}
               </PhoneRow>
             );
@@ -138,11 +177,14 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
         offOn={(email, ds) => offBy[`${email}|${ds}`] || []} usualOf={(email) => rowOf[email]?.shift || null} notes={notes} holidayDates={holidayDates}
         me={meRow?.email || ''} teamZone={teamZone} empWeekMin={(email) => (rowOf[email] ? rowMin(rowOf[email]) : 0)}
         dayStats={(date) => { const d = days.find((x) => x.date === date); return { shifts: dayShifts(d), people: working(d).length, min: dayMin(d) }; }}
-        weekMin={weekMin} overWeeks={(email) => { const m = rowOf[email] ? rowMin(rowOf[email]) : 0; return m > 40 * 60 ? [m] : []; }} onNowOf={(email) => !!rowOf[email] && isOn(rowOf[email])} notesRow maxHeight="none" single
+        weekMin={weekMin} overWeeks={(email) => { const m = rowOf[email] ? rowMin(rowOf[email]) : 0; return m > 40 * 60 ? [m] : []; }} onNowOf={(email) => !!rowOf[email] && dotOf(rowOf[email])} nameExtra={live ? liveChip : null} notesRow maxHeight="none" single
         blockChildren={(s, { email, ds }) => (!email ? openExtra(s, ds) : null)} />
       {zoneLine}
     </div>
   );
 }
 
-const OnDot = () => <span title="On shift now" style={{ position: 'absolute', right: -1, bottom: -1, width: 9, height: 9, borderRadius: '50%', background: 'hsl(var(--color-green))', border: '2px solid var(--card)' }} />;
+const OnDot = ({ state }) => (
+  <span data-on-dot={state === true ? 'shift' : state} title={state === 'break' ? 'On break now' : state === 'working' ? 'Working now' : 'On shift now'}
+    style={{ position: 'absolute', right: -1, bottom: -1, width: 9, height: 9, borderRadius: '50%', background: state === 'break' ? 'hsl(var(--color-orange))' : 'hsl(var(--color-green))', border: '2px solid var(--card)' }} />
+);
