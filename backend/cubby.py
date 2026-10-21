@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 import ops_unit_classes as uc
+from ops_portfolio import _state as _state_of
 
 BASE = os.environ.get("CUBBY_BASE_URL", "https://api.cubbystorage.com/v1").rstrip("/")
 APP_URL = "https://app.cubbystorage.com"
@@ -352,6 +353,9 @@ def summarize_facility(fac: dict, raw: dict, rules: dict | None = None) -> dict:
         "asOf": today_s,
         # Where the facility is, for Market Rates' nearby search. None when Cubby has no map pin.
         "lat": _coord(fac.get("latitude"), 90), "lng": _coord(fac.get("longitude"), 180),
+        # Two-letter state for the Operations State filter (Oct 21). Nexus keeps no
+        # address (strip_pii), so it comes from the map pin - Portfolio's rule.
+        "state": _state_of(fac),
         # Storage units only. Rentable = rented + vacant; off market = the rest.
         "units": {"total": len(storage), "rented": len(s_rented), "vacant": len(vacant), "unavailable": len(held)},
         # Mailboxes, counted apart (Neil, Oct 20 2026). Cubby marks an unrented

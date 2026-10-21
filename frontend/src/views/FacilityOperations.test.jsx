@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { toCsv, csvName } from '../operations/csv';
 import { combine, attentionItems, pastDueTrend, periodRange, periodStats, historyWindow, collectionSeries } from '../operations/model';
 
@@ -53,7 +53,7 @@ const downloadCsv = vi.fn();
 vi.mock('../operations/csv', async (orig) => ({ ...(await orig()), downloadCsv: (...a) => downloadCsv(...a) }));
 vi.mock('../components/ModuleTabs', () => ({
   default: ({ tabs, active, onChange }) => (
-    <div role="tablist">{tabs.map((t) => <button key={t.key} role="tab" aria-selected={t.key === active} onClick={() => onChange(t.key)}>{t.label}</button>)}</div>
+    <div role="tablist">{tabs.map((t) => <button key={t.key} role="tab" aria-selected={t.key === active} data-items={(t.items || []).map((i) => i.label).join('|')} onClick={() => onChange(t.key)}>{t.label}</button>)}</div>
   ),
 }));
 
@@ -66,9 +66,25 @@ const RATES_VIEW = { facilityId: 'fac_a', facility: 'Temecula', name: 'Greens St
   lastSurvey: '', cubbyGroups: { ok: true, count: 0, error: '' }, compSet: { active: 0, web: 0, stortrack: 0, manual: 0, closed: 0 },
   kpis: { vsMarket: null, rateable: 0, belowMarket: 0, occupancy: 0, units: 0, rented: 0, offline: 0, ready: 0, readyDelta: 0 },
   attention: [], rows: [], competitors: [], freshDays: 120, minCompetitors: 2, pushes: [], canEdit: true, canMark: true };
+// The Facility picker is a button opening a listbox (Oct 21: so All Facilities
+// and the TPM heading line up). These open it, read it and pick from it.
+const NAMES = { fac_a: 'Temecula', fac_b: 'Murrieta' };
+const facilityBtn = () => screen.getByLabelText('Facility');
+const facilityValue = () => facilityBtn().dataset.value;
+async function pickFacility(idOrName) {
+  fireEvent.click(await screen.findByLabelText('Facility'));
+  fireEvent.click(within(screen.getByRole('listbox', { name: 'Facilities' })).getByRole('option', { name: NAMES[idOrName] || idOrName }));
+}
+function facilityOptions() {
+  fireEvent.click(facilityBtn());
+  const list = screen.getByRole('listbox', { name: 'Facilities' });
+  const names = within(list).getAllByRole('option').map((o) => o.textContent);
+  fireEvent.keyDown(list, { key: 'Escape' });
+  return names;
+}
 async function openCompSet(id = 'fac_a') {
   getOpsRates.mockResolvedValue({ ...RATES_VIEW, facilityId: id });
-  fireEvent.change(await screen.findByLabelText('Facility'), { target: { value: id } });
+  await pickFacility(id);
   fireEvent.click(await screen.findByRole('button', { name: /Comp Set & Manual Entry/ }));
 }
 const { default: SyncStatus } = await import('../operations/SyncStatus');
@@ -115,6 +131,7 @@ beforeEach(() => {
   getOpsRates.mockReset().mockResolvedValue(RATES_VIEW);
   opsRevenueTenants.mockReset().mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', unitTypes: [], defaults: {}, tenants: [] });
   localStorage.removeItem('nexus.ops.facility');   // the remembered facility
+  localStorage.removeItem('nexus.ops.state');      // and state
 });
 
 describe('Operations module', () => {
@@ -135,10 +152,10 @@ describe('Operations module', () => {
   // and every view inside one is a menu item, never a View box in the page.
   it('draws the bar as five menus, and a menu item opens its screen and view', async () => {
     const onSubChange = vi.fn();
-    isManager = true;   // Revenue Management is for managers
+    isManager = true;   // ECRI Management is for managers
     const { rerender } = render(<FacilityOperations activeSub="overview" onSubChange={onSubChange} />);
     await screen.findByText('Facility Scorecard');
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Dashboard', 'Facilities', 'Pricing', 'Revenue Management', 'Reports']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Dashboard', 'Facilities', 'Pricing', 'ECRI Management', 'Reports']);
     isManager = false;
     // The view comes from the bar: no View box in the page.
     rerender(<FacilityOperations activeSub="reports-exports" onSubChange={onSubChange} />);
@@ -152,7 +169,7 @@ describe('Operations module', () => {
   it('narrows to one facility, and an old bookmarked tab lands on Overview', async () => {
     render(<FacilityOperations activeSub="reputation" onSubChange={() => {}} />);
     await screen.findByText('Facility Scorecard');
-    fireEvent.change(screen.getByLabelText('Facility'), { target: { value: 'fac_b' } });   // the page's one dropdown
+    await pickFacility('fac_b');   // the page's one dropdown
     expect(screen.getByText('90.0%')).toBeTruthy();                       // 45 of 50
     expect(screen.queryByText('Facility Scorecard')).toBeNull();          // nothing to compare against
     expect(localStorage.getItem('nexus.ops.facility')).toBe('fac_b');     // remembered on this device
@@ -161,26 +178,27 @@ describe('Operations module', () => {
   it('is one dropdown, not a row of chips, and remembers the facility picked', async () => {
     localStorage.setItem('nexus.ops.facility', 'fac_b');
     render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
-    const select = await screen.findByLabelText('Facility');
-    expect(select.tagName).toBe('SELECT');
-    expect(select.value).toBe('fac_b');
+    const btn = await screen.findByLabelText('Facility');
+    expect(btn).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(facilityValue()).toBe('fac_b');
     expect(screen.getByText('90.0%')).toBeTruthy();
-    expect([...select.options].map((o) => o.textContent)).toEqual(['All Facilities', 'Temecula', 'Murrieta']);
+    expect(facilityOptions()).toEqual(['All Facilities', 'Temecula', 'Murrieta']);
+    expect(screen.queryByRole('listbox')).toBeNull();                     // Escape closed it
     expect(screen.queryByRole('button', { name: 'All Facilities' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Murrieta' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Temecula' })).toBeNull();
   });
 
   it('drives every tab from the one dropdown, and no tab shows a second facility picker', async () => {
-    isManager = true;   // Revenue Management is for managers
+    isManager = true;   // ECRI Management is for managers
     try {
       const { rerender } = render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
       await screen.findByText('Facility Scorecard');
-      fireEvent.change(screen.getByLabelText('Facility'), { target: { value: 'fac_b' } });
+      await pickFacility('fac_b');
       const one = async () => {
         await waitFor(() => expect(screen.getAllByLabelText('Facility')).toHaveLength(1));
-        expect(screen.getByLabelText('Facility').value).toBe('fac_b');
-        // No other select lists the facilities.
-        expect([...document.querySelectorAll('select')].filter((s) => [...s.options].some((o) => o.textContent === 'Temecula'))).toHaveLength(1);
+        expect(facilityValue()).toBe('fac_b');
+        // No select lists the facilities: the one picker is the listbox.
+        expect([...document.querySelectorAll('select')].filter((s) => [...s.options].some((o) => o.textContent === 'Temecula'))).toHaveLength(0);
         expect(screen.queryByRole('button', { name: 'Temecula' })).toBeNull();
       };
       for (const tab of ['overview', 'collections', 'units', 'worklist', 'reports']) {
@@ -195,28 +213,97 @@ describe('Operations module', () => {
       await waitFor(() => expect(opsRevenueTenants).toHaveBeenLastCalledWith('fac_b'));
       // Back on Overview it is still Murrieta.
       rerender(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
-      expect(screen.getByLabelText('Facility').value).toBe('fac_b');
+      expect(facilityValue()).toBe('fac_b');
       expect(screen.getByText('90.0%')).toBeTruthy();
     } finally {
       isManager = false;
     }
   });
 
+  // Miranda (Oct 21): Cubby calls it Facility Tasks, and Revenue Management is ECRI Management.
+  it("uses Cubby's names in the menus: Facility Tasks and ECRI Management", async () => {
+    isManager = true;
+    try {
+      render(<FacilityOperations activeSub="worklist" onSubChange={() => {}} />);
+      expect((await screen.findAllByText('Sweep aisle B')).length).toBe(2);   // the worklist key still opens it
+      const tabs = screen.getAllByRole('tab');
+      expect(tabs.find((t) => t.textContent === 'Facilities').dataset.items.split('|')).toContain('Facility Tasks');
+      expect(tabs.map((t) => t.dataset.items).join('|')).not.toMatch(/Worklist/);
+      expect(tabs.find((t) => t.textContent === 'ECRI Management')).toBeTruthy();
+    } finally {
+      isManager = false;
+    }
+  });
+
+  it('works the facility list from the keyboard, with All Facilities bold on the left edge', async () => {
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    await screen.findByText('Facility Scorecard');
+    fireEvent.keyDown(facilityBtn(), { key: 'ArrowDown' });
+    const list = screen.getByRole('listbox', { name: 'Facilities' });
+    const [all, temecula, murrieta] = within(list).getAllByRole('option');
+    expect(all).toHaveClass('ops-fp-all');                   // bold, on the heading's edge
+    expect(temecula).toHaveClass('ops-fp-in');               // every facility one indent in
+    expect(murrieta).toHaveClass('ops-fp-in');
+    expect(list).toHaveAttribute('aria-activedescendant', all.id);
+    fireEvent.keyDown(list, { key: 'End' });
+    expect(list).toHaveAttribute('aria-activedescendant', murrieta.id);
+    fireEvent.keyDown(list, { key: 'ArrowUp' });
+    expect(list).toHaveAttribute('aria-activedescendant', temecula.id);
+    fireEvent.keyDown(list, { key: 'm' });                    // type-ahead
+    expect(list).toHaveAttribute('aria-activedescendant', murrieta.id);
+    fireEvent.keyDown(list, { key: 'Enter' });
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(facilityValue()).toBe('fac_b');
+    expect(screen.getByText('90.0%')).toBeTruthy();
+  });
+
+  // Neil (Oct 21): CA vs TX. The State filter narrows the list and what All Facilities means.
+  it('filters by state, remembers it, and hides the filter when there is one state', async () => {
+    const two = { ...PAYLOAD, facilities: [{ ...PAYLOAD.facilities[0], state: 'CA' }, { ...PAYLOAD.facilities[1], state: 'TX' }] };
+    getFacilityOps.mockResolvedValue(two);
+    const { unmount } = render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    await screen.findByText('Facility Scorecard');
+    const pick = screen.getByLabelText('State');
+    expect([...pick.options].map((o) => o.textContent)).toEqual(['All States', 'CA', 'TX']);
+    fireEvent.change(pick, { target: { value: 'TX' } });
+    expect(localStorage.getItem('nexus.ops.state')).toBe('TX');
+    // All Facilities is now every facility in Texas - here, Murrieta alone.
+    expect(facilityValue()).toBe('all');
+    expect(screen.getByLabelText('Facility')).toHaveTextContent('All TX Facilities');
+    expect(facilityOptions()).toEqual(['All TX Facilities', 'Murrieta']);
+    expect(screen.getByText('90.0%')).toBeTruthy();
+    expect(screen.queryByText('Facility Scorecard')).toBeNull();
+    unmount();
+    // Remembered on this device.
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    await waitFor(() => expect(screen.getByLabelText('State').value).toBe('TX'));
+    expect(facilityOptions()).toEqual(['All TX Facilities', 'Murrieta']);
+  });
+
+  it('shows no State filter when every facility is in one state', async () => {
+    getFacilityOps.mockResolvedValue({ ...PAYLOAD, facilities: PAYLOAD.facilities.map((f) => ({ ...f, state: 'CA' })) });
+    localStorage.setItem('nexus.ops.state', 'TX');           // a remembered state that is not here reads as All
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    await screen.findByText('Facility Scorecard');
+    expect(screen.queryByLabelText('State')).toBeNull();
+    expect(facilityOptions()).toEqual(['All Facilities', 'Temecula', 'Murrieta']);
+  });
+
   it('opens a one-facility tab on the first facility when All Facilities is picked, and keeps All for the rest', async () => {
     const { rerender } = render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
-    const select = await screen.findByLabelText('Facility');
-    expect(select.value).toBe('fac_a');
-    expect([...select.options].map((o) => o.textContent)).toEqual(['Temecula', 'Murrieta']);   // no All on this tab
+    await screen.findByLabelText('Facility');
+    expect(facilityValue()).toBe('fac_a');
+    expect(facilityOptions()).toEqual(['Temecula', 'Murrieta']);   // no All on this tab
     await waitFor(() => expect(getOpsRates).toHaveBeenCalledWith('fac_a'));
     rerender(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
-    expect(screen.getByLabelText('Facility').value).toBe('all');
+    expect(facilityValue()).toBe('all');
     expect(screen.getByText('Facility Scorecard')).toBeTruthy();
   });
 
   it('opens the Site Map on the first facility that has a site model', async () => {
     render(<FacilityOperations activeSub="site-map" onSubChange={() => {}} />);
     expect(await screen.findByText('Site Map for Murrieta')).toBeTruthy();   // Temecula has no model
-    expect(screen.getByLabelText('Facility').value).toBe('fac_b');
+    expect(facilityValue()).toBe('fac_b');
     // one search on this tab: the map's own (it finds tenants too), not a second box above it
     await waitFor(() => expect(screen.queryByLabelText('Find a unit or tenant across every facility')).toBeNull());
   });
@@ -305,8 +392,13 @@ describe('Operations module', () => {
   it('exports a list from the screen and a report from Cubby', async () => {
     facilityOpsReport.mockResolvedValue({ title: 'Rent Roll', asOf: '2026-10-13', columns: ['Unit'], rows: [['A12']] });
     render(<FacilityOperations activeSub="reports-exports" onSubChange={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
-    await waitFor(() => expect(downloadCsv).toHaveBeenCalledTimes(1));   // the lazy Quick Exports chunk can land a tick late in CI
+    downloadCsv.mockClear();
+    // The export rows remount when the screen re-renders, so a click can land on
+    // a row that just left the page: click again until one lands, never twice.
+    await waitFor(() => {
+      if (!downloadCsv.mock.calls.length) fireEvent.click(screen.getByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
+      expect(downloadCsv).toHaveBeenCalledTimes(1);
+    });
     expect(downloadCsv.mock.calls[0][0]).toBe('Tenants Past Due - All Facilities - 10-13-2026.csv');
     expect(downloadCsv.mock.calls[0][2]).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'Download Rent Roll as a spreadsheet' }));

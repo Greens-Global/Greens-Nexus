@@ -68,7 +68,7 @@ export default function ThirdPartyUpload({ properties = [], defaultPropertyId = 
   );
 
   return (
-    <Modal title="Upload Operator Report" onClose={onClose} footer={footer} minHeight="60vh">
+    <Modal title="Upload TPM Report" onClose={onClose} footer={footer} minHeight="60vh">
       <p className="ops-note" style={{ margin: '0 0 14px' }}>
         Export the SRE Summary from CubeSmart's Qlik reports, the Daily Flash from SmartView, or the Rent Roll sheet of the
         monthly Financials workbook, as Excel or CSV. Columns can be in any order. Nothing is saved until you check the preview.
