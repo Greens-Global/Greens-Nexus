@@ -18,6 +18,7 @@ import { useRole } from '../contexts/RoleContext';
 import { formatDateTime } from '../lib/datetime';
 import PersonSearchSelect from './PersonSearchSelect';
 import { Spinner } from './AsyncState';
+import { DateField } from '../tasks/components';
 
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
 const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4 };
@@ -49,16 +50,35 @@ export function scheduleProblems(v) {
   return [!v.date && 'Date', !v.time && 'Time', !(v.interviewers || []).length && 'Who it is with'].filter(Boolean);
 }
 
-export function SchedulingFields({ value: v, onChange, roleId, tpls }) {
+// The role's department first, its lead(s) at the top, each with their job
+// title (Neil, Oct 19: "it should prioritize the department ... and should
+// show their role next to their name so it can be selected quickly").
+// Department names are matched however they are capitalized.
+export const leadsFor = (map, dept) => Object.entries(map || {})
+  .find(([k]) => k.toLowerCase() === (dept || '').trim().toLowerCase())?.[1] || [];
+
+export function interviewerGroups(people, department, leads = []) {
+  const dept = (department || '').trim().toLowerCase();
+  if (!dept) return [{ label: 'Nexus People', people }];
+  const lead = e => { const i = leads.indexOf((e || '').toLowerCase()); return i < 0 ? leads.length : i; };
+  const mine = people.filter(p => (p.department || '').trim().toLowerCase() === dept || lead(p.email) < leads.length)
+    .sort((a, b) => lead(a.email) - lead(b.email));
+  return [{ label: `${department} Team`, people: mine }, { label: 'Everyone Else', people: people.filter(p => !mine.includes(p)) }];
+}
+
+export function SchedulingFields({ value: v, onChange, roleId, tpls, department = '', leads = [] }) {
   const { data: people = [] } = usePeopleDirectory();
   const set = (k, x) => onChange({ ...v, [k]: x });
   const name = e => people.find(p => p.email === e)?.name || e;
+  const free = people.filter(p => !(v.interviewers || []).includes(p.email));
   const auto = questionnaireFor(tpls, roleId);
   const pickedTpl = v.templateId && v.templateId !== 'none' ? (tpls || []).find(t => t.id === v.templateId) : null;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
       <div><label style={FL}>Date *</label>
-        <input type="date" className="form-input" style={{ width: '100%' }} value={v.date} onChange={e => set('date', e.target.value)} /></div>
+        <div className="form-input" style={{ width: '100%', display: 'flex', alignItems: 'center' }}>
+          <DateField value={v.date} onChange={x => set('date', x || '')} placeholder="MM/DD/YYYY" title="Interview date" style={{ width: '100%' }} />
+        </div></div>
       <div><label style={FL}>Time *</label>
         <input type="time" className="form-input" style={{ width: '100%' }} value={v.time} onChange={e => set('time', e.target.value)} /></div>
       <div><label style={FL}>Length</label>
@@ -76,7 +96,7 @@ export function SchedulingFields({ value: v, onChange, roleId, tpls }) {
           ))}
         </div>
         <PersonSearchSelect placeholder="+ add an interviewer - type a name"
-          groups={[{ label: 'Nexus People', people: people.filter(p => !(v.interviewers || []).includes(p.email)) }]}
+          groups={interviewerGroups(free, department, leads)}
           onPick={e => e && set('interviewers', [...(v.interviewers || []), e])} />
         <div style={hint}>Everyone here gets the Teams invite with the candidate.</div>
       </div>
@@ -97,7 +117,11 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
   const [tpls, setTpls] = useState([]);
   const [v, setV] = useState(() => emptySchedule(myEmail, replace));
   const [busy, setBusy] = useState(false);
+  const [leads, setLeads] = useState([]);
   useEffect(() => { api.ivTemplates().then(setTpls).catch(() => {}); }, []);
+  useEffect(() => {
+    api.hiringOptions(c.company || '').then(o => setLeads(leadsFor(o?.departmentLeads, c.department))).catch(() => {});
+  }, [c.company, c.department]);
   const problems = scheduleProblems(v);
   const name = [c.firstName, c.lastName].filter(Boolean).join(' ');
 
@@ -120,7 +144,7 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
             <div style={{ fontWeight: 800, fontSize: 15.5 }}>{replace ? 'Reschedule Interview' : 'Schedule Interview'} - {name}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
               {replace ? <>Moving the round on {formatDateTime(replace.at)}. The old invite is withdrawn.</>
-                : c.stage === 'offer' ? 'Another round - this moves them back to Interview.'
+                : ['decision', 'offer'].includes(c.stage) ? 'Another round - this moves them back to Interview.'
                   : `Teams invite to ${c.email || 'their email'} and everyone interviewing.`}
             </div>
           </div>
@@ -128,7 +152,7 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
           {!c.email && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))', marginBottom: 12 }}>Add the candidate's email first (Edit) - the invite goes there.</div>}
-          <SchedulingFields value={v} onChange={setV} roleId={c.roleId} tpls={tpls} />
+          <SchedulingFields value={v} onChange={setV} roleId={c.roleId} tpls={tpls} department={c.department} leads={leads} />
         </div>
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
           {problems.length > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)', marginRight: 'auto' }}>Still needed: {problems.join(', ')}</span>}

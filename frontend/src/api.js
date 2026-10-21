@@ -1381,6 +1381,7 @@ export const api = {
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
   candidateResumeUrl:  (id)       => req(`/hr/candidates/${id}/resume-url`),
+  candidateDecision:   (id)       => req(`/hr/candidates/${id}/decision`),   // Decision step votes (Oct 19)
   hiringOptions:       (companyId = '') => req(`/hr/hiring/options?company_id=${encodeURIComponent(companyId || '')}`),
   hiringAllRoles:      ()         => req('/hr/hiring/options?all_roles=true'),
 
@@ -2134,6 +2135,7 @@ export const api = {
   cancelChecklist:        (id)        => req(`/hr/checklists/${id}/cancel`, { method: 'POST' }),
   reopenChecklist:        (id)        => req(`/hr/checklists/${id}/reopen`, { method: 'POST' }),
   updateChecklistItem:    (id, d)     => req(`/hr/checklists/items/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  addChecklistComment:    (id, body)  => req(`/hr/checklists/items/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
   getMyChecklistSteps:    ()          => req('/hr/checklists/mine'),
   getChecklistProgress:   ()          => req('/hr/checklists/progress'),
   getChecklistBoard:      ()          => req('/hr/checklists/board'),
@@ -2142,6 +2144,11 @@ export const api = {
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
   getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
   saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
+  // Copy steps between companies, and a job role's own steps (Neil, Oct 19).
+  copyChecklistTemplates: (d)         => req('/hr/checklists/templates/copy', { method: 'POST', body: JSON.stringify(d) }),
+  getRoleChecklistRoles:  ()          => req('/hr/checklists/role-templates'),
+  getRoleChecklist:       (roleId)    => req(`/hr/checklists/role-templates/${roleId}`),
+  saveRoleChecklist:      (roleId, kind, items) => req(`/hr/checklists/role-templates/${roleId}/${kind}`, { method: 'PUT', body: JSON.stringify({ items }) }),
   // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
   // loan (built or the bank's file) and saved rate stress scenarios
   // (routers/accounting_loan_plans.py).

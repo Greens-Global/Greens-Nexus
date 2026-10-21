@@ -5999,17 +5999,6 @@ body:has(.docs-root) { overflow-x: clip; }
 }
 .nx-row-hover:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
 
-/* The ticket row's Mark Resolved check (the resolved gutter) - faint until the
-   row is hovered, green under the pointer, always reachable by keyboard. */
-.nx-row-resolve {
-  display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
-  border: none; border-radius: 50%; background: transparent; cursor: pointer;
-  color: var(--nx-faint); opacity: .45; transition: opacity .1s ease, color .1s ease, background-color .1s ease;
-}
-.nx-row-hover:hover .nx-row-resolve, .nx-row-resolve:focus-visible { opacity: 1; }
-.nx-row-resolve:hover, .nx-row-resolve:focus-visible { color: #16a34a; background: rgba(22, 163, 74, 0.14); }
-@media (hover: none) { .nx-row-resolve { opacity: 1; } }
-
 /* Latest Comment cell - a button inside a clickable row: its own hover so it
    reads as "opens the conversation", not just "opens the ticket". */
 .nx-latest-comment:hover, .nx-latest-comment:focus-visible { background: var(--nx-hover) !important; }

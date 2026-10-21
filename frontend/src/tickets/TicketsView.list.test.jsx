@@ -93,15 +93,13 @@ describe('Requester resolves their own ticket', () => {
     expect(onSubmit).toHaveBeenCalledWith({ status: 'resolved', comment: '<p>Sam fixed it &lt;3</p><p>Thanks</p>' });
   });
 
-  it('the requester gets Mark Resolved on their in-progress ticket and resolves it from the list', async () => {
+  // Neil, Oct 19: no one-click resolve on the row - a ticket is resolved
+  // from inside it, with a comment.
+  it('the list row has no Mark Resolved button', async () => {
     ME = 'req@example.com'; LEVEL = 1;
     render(<TicketsView />);
-    const btn = await screen.findByRole('button', { name: /^Mark #?0*1 Resolved$/ });
-    await act(async () => { fireEvent.click(btn); });
-    expect(screen.getByText('What fixed it? (optional)')).toBeTruthy();
-    fireEvent.change(screen.getByPlaceholderText(/A colleague showed me/), { target: { value: 'Rebooted' } });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Mark Resolved' })); });
-    expect(updateTicket).toHaveBeenCalledWith('t1', { status: 'resolved', comment: '<p>Rebooted</p>' });
+    await screen.findByText('Printer jam');
+    expect(screen.queryByRole('button', { name: /^Mark #?0*\d+ Resolved$/ })).toBeNull();
   });
 });
 

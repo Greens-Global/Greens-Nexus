@@ -857,7 +857,7 @@ def people_directory(include_external: bool = False,
     ent_names = {en.id: en.name for en in db.query(HrEntity).all()}
     out = [{"email": e.work_email, "name": _person_name(e), "photoUrl": e.photo_url or "",
             "company": e.company or "", "companyName": ent_names.get(e.company or "", ""),
-            "department": e.department or "",
+            "department": e.department or "", "title": e.job_title or "",
             # Flagged, not silently mixed in - a picker that offers externals
             # should be able to say which ones they are.
             "external": (e.identity_type or "") in ("guest", "external")}

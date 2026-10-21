@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   X, Plus, Trash2, Video, Sparkles, Trophy, Send, FileText,
-  CheckCircle, Play, ClipboardList, RefreshCw, Save, ChevronRight, XCircle, CalendarDays, Clock, AlertTriangle,
+  CheckCircle, Play, ClipboardList, RefreshCw, Save, CalendarDays, Clock, AlertTriangle,
 } from 'lucide-react';
 import { api } from '../api';
 import CandidateNotes from './CandidateNotes';
@@ -296,7 +296,8 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
   const endInterview = run('end', async () => {
     const u = await api.ivFinish(sel.id, { answers: sel.answers });
     refreshSel(u); setTyped(false);
-    toastOk?.(u.followupNote?.startsWith('Waiting') ? 'Interview ended - Nexus pulls the Teams transcript as soon as it is published, then scores it.' : 'Interview ended - scoring now.');
+    toastOk?.((u.followupNote?.startsWith('Waiting') ? 'Interview ended - Nexus pulls the Teams transcript as soon as it is published, then scores it.' : 'Interview ended - scoring now.')
+      + ' The interviewers and the department head were asked for their decision.');
   });
   const retryNow = run('retry', async () => refreshSel(await api.ivFollowupNow(sel.id)));
   const decide = (kind) => { if (onDecision) { onClose(); onDecision(kind, c); } };
@@ -444,7 +445,12 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
       </div>
       <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
         {sel?.status === 'scored' && <span style={{ marginRight: 'auto', fontSize: 12.5, fontWeight: 700 }}>
-          <Trophy size={13} style={{ verticalAlign: 'middle', marginRight: 5, color: 'hsl(var(--color-green))' }} />Scored {Math.round(sel.totalScore)}/100 - what next?</span>}
+          <Trophy size={13} style={{ verticalAlign: 'middle', marginRight: 5, color: 'hsl(var(--color-green))' }} />Scored {Math.round(sel.totalScore)}/100</span>}
+        {/* Interview over, then a decision (Neil, Oct 19): the room no longer
+            offers or rejects - the candidate moves to Decision, where the
+            interviewers answer Yes or No and the department head decides. */}
+        {sel?.status === 'completed' && <span style={{ marginRight: 'auto', fontSize: 12.5, color: 'var(--muted)' }}>
+          Interview over - the interviewers answer Yes or No on their &quot;Decide on&quot; task.</span>}
         <button className="secondary-btn" onClick={guard.requestClose}>Close</button>
         {sel?.status === 'scheduled' && (
           <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} disabled={!!busy}
@@ -470,14 +476,9 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
             <Save size={13} /> Save
           </button>
         )}
-        {sel?.status === 'scored' && onDecision && <>
-          <button onClick={() => decide('reject')}
-            style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' }}>
-            <XCircle size={13} /> Reject
-          </button>
+        {['completed', 'scored'].includes(sel?.status) && onDecision && (
           <button className="secondary-btn" onClick={() => decide('another')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CalendarDays size={13} /> Another Round</button>
-          <button className="primary-btn" onClick={() => decide('offer')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ChevronRight size={14} /> Move To Offer</button>
-        </>}
+        )}
       </div>
       {guard.confirming && (
         <UnsavedChangesPrompt
