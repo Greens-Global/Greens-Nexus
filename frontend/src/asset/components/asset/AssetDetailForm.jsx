@@ -46,9 +46,15 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
   // Read mode shows only the fields that hold a value; a section's empty fields
   // fold behind one "Show N empty fields" line (per section, this visit).
   const [showEmpty, setShowEmpty] = useState({});
+  // Empty fields a deep link scrolled to stay on screen after the 4s highlight ends.
+  const [revealed, setRevealed] = useState(() => new Set());
   // The one flag menu: which row's button opened it ({ key, section, label }).
   const [flagMenu, setFlagMenu] = useState(null);
   const flagBtnRef = useRef(null);
+  // The form stays mounted from one asset to the next (Open Assemblage, a Critical
+  // Items row): the per-section toggles, the revealed rows and an open flag menu
+  // belong to the asset they were opened on.
+  useEffect(() => { setShowEmpty({}); setRevealed(new Set()); setFlagMenu(null); }, [asset.id]);
 
   const sections = buildSections(asset, isProperty, editing);
 
@@ -61,6 +67,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
   // Deep-link to a specific field (e.g. from a search result or a flagged-field notification).
   useEffect(() => {
     if (!highlightField || editing) return;
+    setRevealed((r) => (r.has(highlightField) ? r : new Set([...r, highlightField])));
     const el = document.querySelector(`[data-fl="${highlightField}"]`);
     el && el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [highlightField, editing]);
@@ -187,7 +194,8 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
           const hasValue = (f) => String(f.value ?? '').trim() !== '';
           const filled = all.filter(hasValue).length;
           // Read mode: the filled fields, plus any empty one that is flagged or deep-linked.
-          const rows = (editing || showEmpty[si]) ? all : all.filter((f) => hasValue(f) || (onFlag && flagMap.has(f.flagKey)) || (highlightField && String(f.l).toLowerCase() === highlightField));
+          const open = editing || !!showEmpty[sec.title];
+          const rows = open ? all : all.filter((f) => hasValue(f) || (onFlag && flagMap.has(f.flagKey)) || revealed.has(String(f.l).toLowerCase()) || (highlightField && String(f.l).toLowerCase() === highlightField));
           const hidden = all.length - rows.length;
           return (
           <section key={'sec' + si} id={'gt-sec' + si} style={sectionCardStyle}>
@@ -256,14 +264,14 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
                   </div>
                 );
               })}
-              {!editing && (hidden > 0 || showEmpty[si]) && (
+              {!editing && (hidden > 0 || showEmpty[sec.title]) && (
                 <button
                   type="button"
-                  onClick={() => setShowEmpty((m) => ({ ...m, [si]: !m[si] }))}
+                  onClick={() => setShowEmpty((m) => ({ ...m, [sec.title]: !m[sec.title] }))}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '9px 18px', border: 'none', borderTop: rows.length ? '1px solid var(--border-color)' : 'none', background: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', fontFamily: 'inherit', textAlign: 'left' }}
                 >
-                  {showEmpty[si] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  {showEmpty[si] ? 'Hide empty fields' : `Show ${hidden} empty ${hidden === 1 ? 'field' : 'fields'}`}
+                  {showEmpty[sec.title] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  {showEmpty[sec.title] ? 'Hide empty fields' : `Show ${hidden} empty ${hidden === 1 ? 'field' : 'fields'}`}
                 </button>
               )}
             </div>
