@@ -107,3 +107,21 @@ export function wordStatusTone(status) {
   if (s.includes('pending')) return 'gold';
   return 'mut';
 }
+
+// The shell's default segment for /property-asset (its DEFAULT_SUBS): the portfolio.
+export const PORTFOLIO_SUB = 'asset-portfolio';
+
+// Deep links (Oct 2026): an open asset is one URL segment under /property-asset,
+// "a:<id>:<view>" - the view is a strip tab or a record collection key. The
+// portfolio has no segment. Ids are URL-encoded so the shell's one-segment
+// path survives whatever an import used as an id.
+export function assetSub(id, view) {
+  return id ? `a:${encodeURIComponent(id)}:${view || 'property'}` : null;
+}
+export function parseAssetSub(sub) {
+  const m = /^a:([^:]+)(?::([^:]+))?$/.exec(sub || '');
+  if (!m) return null;
+  let id = m[1];
+  try { id = decodeURIComponent(id); } catch { /* keep as typed */ }
+  return { id, view: m[2] || 'property' };
+}

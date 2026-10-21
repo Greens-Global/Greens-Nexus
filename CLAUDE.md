@@ -332,6 +332,16 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   collections live under Records as a segmented control; `view` still holds
   the collection key, so deep links from bells, Critical Items and the
   Activity Log land on the right table.
+- **Every open asset is a URL** (Oct 21 2026): `/property-asset/a:<id>:<view>`
+  (`assetSub` / `parseAssetSub` in `lib/navigation.js`; the portfolio stays
+  `/property-asset/asset-portfolio`, the shell's default sub). The module's
+  state writes the segment and a segment arriving from outside (a pasted
+  link, Back) sets the state - keep both effects; never navigate by setting
+  `activeId` from a URL anywhere else.
+- **The street line is the street**: `splitAddress` (`lib/dataNormalization.js`)
+  peels "City, ST ZIP" off `address` into city / state / zip / county on every
+  load and on create. Add Asset is one screen (class, name, one address
+  line, type, stage); everything else is filled on the asset.
 - Equipment and vehicles pair with Item Management (`AddItemModal`) - do not
   build a second warranty/serial system there.
 

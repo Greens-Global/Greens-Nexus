@@ -8,7 +8,7 @@ import { RECORD_TYPES } from './lib/recordTypes.jsx';
 import { normLabel, genId, toNumber, snapMap } from './lib/format.js';
 import { editGuard } from './lib/editGuard.js';
 import { makeLogEntry, appendLog, diffChanges, recordDisplayName } from './lib/logging.js';
-import { SHARED_FILTER_GROUPS, LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS, recordViewsFor, stripTabsFor, recordLabel } from './lib/navigation.js';
+import { SHARED_FILTER_GROUPS, LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS, recordViewsFor, stripTabsFor, recordLabel, assetSub, parseAssetSub, PORTFOLIO_SUB } from './lib/navigation.js';
 import { TIMELINE_FIELDS, permitColumns } from './lib/timelineFields.js';
 import { useNexusStore } from './lib/useNexusStore.js';
 import { portfolioStats, assetCompleteness } from './lib/assetMetrics.js';
@@ -92,10 +92,38 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     }
   }
   useEffect(() => {
-    if (!subSeen || activeSub !== subSeen) return;
-    if (subMissing) pushToast?.('That property is no longer in Asset Management.', 'mut');
+    if (!subSeen || activeSub !== subSeen || !subMissing) return;
+    pushToast?.('That property is no longer in Asset Management.', 'mut');
     onSubChange?.(null);
-  }, [subSeen, activeSub, subMissing, onSubChange]);        // deep-link target set by "Go to" from the Activity Log
+  }, [subSeen, activeSub, subMissing, onSubChange]);
+  // Every open asset is a URL (Oct 2026): "a:<id>:<view>" under /property-asset, so a
+  // tab can be bookmarked, shared, reloaded and walked with the browser's Back. State
+  // writes the segment; a segment arriving from outside (a pasted link, Back) sets the
+  // state - each side skips when the other already matches, so they never ping-pong.
+  // The shell's default segment for this module is PORTFOLIO_SUB, so the portfolio
+  // keeps the address it always had.
+  const wantSub = assetSub(activeId, view === 'portfolio' ? 'property' : view) || PORTFOLIO_SUB;
+  useEffect(() => {
+    if (loading || ticketSub) return;
+    if ((activeSub || PORTFOLIO_SUB) !== wantSub) onSubChange?.(wantSub);
+  }, [wantSub]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (loading || ticketSub) return;
+    const target = parseAssetSub(activeSub);
+    if (target) {
+      if (target.id === activeId && target.view === view) return;
+      if (!store.properties.some((p) => p.id === target.id && !p.deleted)) {
+        pushToast?.('That asset is no longer in Asset Management.', 'mut');
+        onSubChange?.(PORTFOLIO_SUB);
+        return;
+      }
+      const go = () => { setActiveId(target.id); setView(target.view); };
+      if (editGuard.dirty) { onSubChange?.(wantSub); setPendingNav(() => go); setLeaveAsk(true); } else go();
+    } else if (activeId && (!activeSub || activeSub === PORTFOLIO_SUB)) {
+      const go = () => { setActiveId(null); setView('portfolio'); };
+      if (editGuard.dirty) { onSubChange?.(wantSub); setPendingNav(() => go); setLeaveAsk(true); } else go();
+    }
+  }, [activeSub, loading]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [typeFilter, setTypeFilter] = useState('');
   const moreRef = useRef(null);                                // the header's "more actions" button
   const [moreOpen, setMoreOpen] = useState(false);
