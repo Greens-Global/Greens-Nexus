@@ -1,7 +1,7 @@
 import { useRef, useLayoutEffect } from 'react';
 import { Link2 } from 'lucide-react';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
-import { cityRegion, typeLabel, tileStats, typeIcon, stageTone } from '../../lib/portfolioCards.js';
+import { cityRegion, typeLabel, tileStats, typeIcon, stageTone, stageMetric } from '../../lib/portfolioCards.js';
 import { parcelAcres } from '../../lib/parcelGrouping.js';
 import { toNumber } from '../../lib/format.js';
 
@@ -31,7 +31,7 @@ const photoPill = {
  * The fit effect below then shrinks the font until the text fits within its two lines; the
  * line-clamp's own ellipsis stays as the last resort for pathological names at the 10px floor.
  */
-export function TileCard({ pr: property, openProperty, secondaries = [] }) {
+export function TileCard({ pr: property, openProperty, secondaries = [], metric = null }) {
   const isGroup = secondaries.length > 0;
 
   // Group members in parcelOrder (falling back to array position for members that have never
@@ -67,7 +67,10 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
   const tone = stageTone(stage);
   const type = typeLabel(lead);
   const Icon = typeIcon(lead);
-  const stats = tileStats(statSource);
+  // The number that matters for the stage leads (Lease-Up / Stabilized: occupancy;
+  // Construction: % complete) when the server has it; the size figures follow.
+  const leadStat = stageMetric(stage, metric);
+  const stats = leadStat ? [leadStat, ...tileStats(statSource)] : tileStats(statSource);
   const title = isGroup && lead.siteName ? lead.siteName : lead.name;
   const isNonProperty = inferAssetKind(lead) !== 'property';
   const subtitle = isNonProperty ? (String(lead.yearBuilt || '') || lead.devStage || '') : (cityRegion(lead) || '-');

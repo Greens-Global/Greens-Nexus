@@ -452,6 +452,41 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
     return {"ok": True, "_ts": ts_ms, "conflicts": conflicts, "revs": revs}
 
 
+@router.get("/property-assets/metrics")
+def get_metrics(db: Session = Depends(get_db), user=Depends(require_asset_read)):
+    """The one number a tile shows for its stage (Neil, Oct 21 2026), per asset
+    the caller may see: `occupancy` (leased units over units, from the site
+    model's last build - Cubby's lease flag) and `percentComplete` (the asset's
+    active construction project). Missing = the tile keeps its size figures.
+    NOI per asset needs the ledger by entity and is not here yet."""
+    visible = _visible_ids(db, user)
+    out: Dict[str, Dict[str, Any]] = {}
+    try:
+        from routers.site_models import list_models, load_model
+        for m in list_models():
+            pid = m.get("id")
+            if pid not in visible:
+                continue
+            units = [u for u in (load_model(pid).get("units") or []) if not u.get("gone")]
+            if units:
+                leased = sum(1 for u in units if u.get("l"))
+                out.setdefault(pid, {})["occupancy"] = round(leased / len(units), 3)
+                out[pid]["units"] = len(units)
+    except Exception as e:  # noqa: BLE001 - a site-model read must not blank the tiles
+        print(f"[property-assets] metrics: site models skipped: {e}")
+    try:
+        from construction_models import ConstructionProject
+        rows = (db.query(ConstructionProject)
+                .filter(ConstructionProject.property_id != "", ConstructionProject.deleted_at == "")
+                .order_by(ConstructionProject.updated_at.desc() if hasattr(ConstructionProject, "updated_at") else ConstructionProject.id).all())
+        for r in rows:
+            if r.property_id in visible and r.property_id not in {k for k, v in out.items() if "percentComplete" in v} and (r.status or "active") in ("active", "on_hold"):
+                out.setdefault(r.property_id, {})["percentComplete"] = round(float(r.percent_complete or 0.0), 1)
+    except Exception as e:  # noqa: BLE001
+        print(f"[property-assets] metrics: construction skipped: {e}")
+    return out
+
+
 def _parse_ymd(s):
     if not s:
         return None

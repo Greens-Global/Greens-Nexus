@@ -349,5 +349,35 @@ class GeocodeTests(unittest.TestCase):
         self.assertNotIn("geo", self.db.get(models.PropertyAsset, "a").payload)
 
 
+class MetricsTests(unittest.TestCase):
+    """GET /property-assets/metrics: a construction asset's % complete, only
+    for assets the caller may see; a site-model-less asset simply has none."""
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        from construction_models import ConstructionProject
+        for m in (models.PropertyAsset, models.PropertyRecord, models.PropertyActivityLog, models.PropertyWorkspaceMeta, ConstructionProject):
+            self.db.query(m).delete()
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.close()
+
+    def test_percent_complete_rides_with_the_visible_asset(self):
+        from construction_models import ConstructionProject
+        PA.post_changes(PA.Changes(properties={"upsert": [{"id": "build", "name": "Build"}, {"id": "home", "name": "Home", "private": True}]}), db=self.db, user=ADMIN)
+        self.db.add(ConstructionProject(id="cp1", name="Build phase 2", property_id="build", status="active", percent_complete=42.5))
+        self.db.add(ConstructionProject(id="cp2", name="Home reno", property_id="home", status="active", percent_complete=10))
+        self.db.commit()
+        self.assertEqual(PA.get_metrics(db=self.db, user=ADMIN).get("build", {}).get("percentComplete"), 42.5)
+        staff = PA.get_metrics(db=self.db, user=STAFF)
+        self.assertIn("build", staff)
+        self.assertNotIn("home", staff)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -23,7 +23,7 @@ import { CollectionTable } from './components/shared/CollectionTable.jsx';
 import { RecordModal } from './components/shared/RecordModal.jsx';
 
 import { Portfolio } from './components/portfolio/Portfolio.jsx';
-import { HealthStrip } from './components/asset/HealthStrip.jsx';
+import { AssetOverview } from './components/asset/AssetOverview.jsx';
 import { CriticalDates } from './components/asset/CriticalDates.jsx';
 import { AssetDetailForm } from './components/asset/AssetDetailForm.jsx';
 import { ParcelManager } from './components/asset/ParcelManager.jsx';
@@ -97,6 +97,12 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const moreRef = useRef(null);                                // the header's "more actions" button
   const [moreOpen, setMoreOpen] = useState(false);
   const [lastRecord, setLastRecord] = useState(null);         // the Records segment last open, per session
+  // Per-asset numbers for the tiles (occupancy, % complete) - one read, refreshed with the store.
+  const [metrics, setMetrics] = useState({});
+  useEffect(() => { let alive = true; api.getAssetMetrics().then((m) => { if (alive && m) setMetrics(m); }).catch(() => {}); return () => { alive = false; }; }, [store._ts]);
+  // The spec sheet's edit state, for the header's Cancel / Save Changes.
+  const [editState, setEditState] = useState({ editing: false, dirty: false });
+  useEffect(() => editGuard.subscribe(() => setEditState({ editing: editGuard.editing, dirty: editGuard.dirty })), []);
 
   const unseenLogCount = (store.logs || []).filter((l) => l.ts > lastManageVisit).length;
   const markManageSeen = () => {
@@ -763,14 +769,19 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
                 {active.private && <StatusLabel label="Private" color="hsl(var(--color-red))" size="sm" title="Hidden from everyone but officers" />}
               </h2>
               <p>{[cityRegion(active), assetKind === 'property' ? typeLabel(active) : ''].filter(Boolean).join(' · ') || '-'}</p>
-              <HealthStrip p={active} store={store} logs={store.logs} />
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
-            {view === 'property' && (
+            {view === 'property' && !editState.editing && (
               <button className="primary-btn" onClick={() => editGuard.startEdit?.()}>
                 <Pencil size={14} /> Edit
               </button>
+            )}
+            {view === 'property' && editState.editing && (
+              <>
+                <button className="secondary-btn" onClick={() => editGuard.cancel?.()}>Cancel</button>
+                <button className="primary-btn" onClick={() => editGuard.save?.()} disabled={!editState.dirty} title={editState.dirty ? undefined : 'No changes yet'}>Save Changes</button>
+              </>
             )}
             <button className="secondary-btn" onClick={() => navigate('manage')} style={{ position: 'relative' }}>
               <Settings2 size={14} /> Manage
@@ -859,10 +870,13 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         <LoadingState label="Loading assets…" minHeight={320} />
       )}
       {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <CriticalDates store={store} openProperty={openAsset} hideIfEmpty />}
-      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} />}
+      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} metrics={metrics} />}
 
       {view === 'property' && active?.assembled && !active.parentId && <AssemblageParcels lead={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} />}
-      {view === 'property' && active && <CriticalDates store={store} only={active.id} openProperty={openAsset} onTab={navigate} hideIfEmpty />}
+      {view === 'property' && active && !editState.editing && (
+        <AssetOverview asset={active} store={store} onTab={navigate} onGoTo={goToLogEntry}
+          onEdit={(field) => { if (field) setHighlight({ tab: 'property', section: '', field: String(field).toLowerCase(), item: '', at: Date.now() }); editGuard.startEdit?.(); }} />
+      )}
       {view === 'property' && active && (
         <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} />
       )}

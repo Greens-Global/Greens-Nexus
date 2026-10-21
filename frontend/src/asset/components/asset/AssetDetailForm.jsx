@@ -64,12 +64,15 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
     el && el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  // Deep-link to a specific field (e.g. from a search result or a flagged-field notification).
+  // Deep-link to a specific field (a search result, a flagged-field notice, a Data Gaps
+  // chip): scroll to it, and in edit mode put the cursor in it.
   useEffect(() => {
-    if (!highlightField || editing) return;
+    if (!highlightField) return;
     setRevealed((r) => (r.has(highlightField) ? r : new Set([...r, highlightField])));
     const el = document.querySelector(`[data-fl="${highlightField}"]`);
-    el && el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (editing) el.querySelector('input,select,textarea')?.focus?.();
   }, [highlightField, editing]);
 
   const startEdit = () => {
@@ -124,13 +127,17 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
     <input className="form-input" type={f.t === 'date' ? 'date' : 'text'} value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={inputStyle} />
   );
 
-  // Register with the shared navigation-away guard whenever this form is mounted/dirty.
+  // Register with the shared navigation-away guard whenever this form is mounted/dirty;
+  // the page header reads `editing`/`dirty` through editGuard.subscribe.
   useEffect(() => {
+    const was = editGuard.editing + ':' + editGuard.dirty;
     editGuard.dirty = editing && dirty;
+    editGuard.editing = editing;
     editGuard.save = save;
     editGuard.cancel = cancel;
     editGuard.startEdit = startEdit;
-    return () => { editGuard.dirty = false; };
+    if (was !== editing + ':' + (editing && dirty)) editGuard.notify();
+    return () => { editGuard.dirty = false; editGuard.editing = false; editGuard.notify(); };
   });
 
   return (
@@ -157,8 +164,8 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
               <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)' }}>You've made changes</div>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Save before you leave this page</div>
             </div>
-            <button className="secondary-btn" onClick={cancel} style={{ padding: '9px 14px', flexShrink: 0 }}>Discard</button>
-            <button className="primary-btn" onClick={save} style={{ padding: '9px 22px', flexShrink: 0 }}>Save</button>
+            <button className="secondary-btn" onClick={cancel} style={{ padding: '9px 14px', flexShrink: 0 }}>Cancel</button>
+            <button className="primary-btn" onClick={save} style={{ padding: '9px 22px', flexShrink: 0 }}>Save Changes</button>
           </div>
         )}
 
@@ -178,17 +185,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
           </div>
         )}
 
-        {onSaveDetail && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: -2 }}>
-            {editing && (
-              <>
-                <button className="secondary-btn" onClick={cancel}>Cancel</button>
-                <button className="primary-btn" onClick={save}>Save Changes</button>
-              </>
-            )}
-          </div>
-        )}
-
+        {!editing && <div style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)', margin: '4px 0 -6px' }}>Details</div>}
         {sections.map((sec, si) => {
           const all = sec.fields.map((f) => ({ ...f, value: formatFieldValue(f.raw, f.t), flagKey: (sec.title || '') + '~#~' + f.l }));
           const hasValue = (f) => String(f.value ?? '').trim() !== '';
