@@ -1,8 +1,10 @@
 """Operations -> Rate Management (ops_rate_mgmt.py, routers/ops_rates.py):
 the CMA rows built on ops_market.compare, proposed-rate drafts, Mark Entered
 in Cubby (HTTP mocked - the real Cubby is never called), who may do what, and
-the log that is our rate history. Nexus never writes to Cubby (Oct 20 2026):
-the fake fails the test on any Cubby call that is not a read.
+the log that is our rate history. Push to Cubby is locked behind the Operations
+switch (ops_cubby_push.py, OFF by default - Oct 21 2026): with it off the fake
+fails the test on any Cubby call that is not a read; a test that turns it on
+lets the fake answer change-rates.
 
 Throwaway SQLite. Run alone: python -m pytest test_ops_rate_mgmt.py
 """
@@ -21,6 +23,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 import cubby  # noqa: E402
 import database  # noqa: E402
 import models  # noqa: E402
+import ops_cubby_push  # noqa: E402
 import ops_rate_mgmt  # noqa: E402
 from auth import get_current_user  # noqa: E402
 from routers import facility_ops, ops_rates  # noqa: E402
@@ -67,20 +70,27 @@ def _is_read(url: str) -> bool:
 
 
 class FakeCubby:
-    """Stands in for httpx.post: answers the pricing group search and FAILS the
-    test on any Cubby call that is not a read - Nexus never writes to Cubby."""
+    """Stands in for httpx.post: answers the pricing group search. A Cubby
+    write FAILS the test unless the test set `writes = True` (it turned the
+    switch on); then change-rates is recorded. `fail` = group ids to refuse."""
 
     def __init__(self):
-        self.calls, self.status = [], 200
+        self.calls, self.status, self.writes, self.fail = [], 200, False, set()
 
     def __call__(self, url, json=None, headers=None, timeout=None, **kw):
-        assert _is_read(url), f"Nexus must never write to Cubby, but it called {url}"
+        assert _is_read(url) or self.writes, f"Nexus must not write to Cubby with the switch off, but it called {url}"
         self.calls.append((url.rsplit("/v1/", 1)[-1], json))
 
         class R:
             pass
         r = R()
-        if self.status != 200:
+        if not _is_read(url):
+            gid = json["pricingGroups"][0]["pricingGroupId"]
+            if self.status != 200 or gid in self.fail:
+                r.status_code, body = (self.status if self.status != 200 else 400), {"status": 400, "errors": ["Access Denied"]}
+            else:
+                r.status_code, body = 200, {"status": 200, "data": {}}
+        elif self.status != 200:
             r.status_code, body = self.status, {"status": self.status, "errors": ["Access Denied"]}
         else:
             r.status_code, body = 200, {"status": 200, "data": {"pricingGroups": [dict(g) for g in GROUPS], "facilities": [
@@ -89,12 +99,16 @@ class FakeCubby:
         r.json = lambda: body
         return r
 
+    def changes(self):
+        return [b["pricingGroups"][0] for path, b in self.calls if path == "pricing-groups/change-rates"]
+
 
 @pytest.fixture
 def db():
     s = database.SessionLocal()
     for m in (models.OpsRateDraft, models.OpsRatePush, models.OpsCompetitorRate, models.OpsCompetitor):
         s.query(m).delete()
+    s.query(models.NexusSetting).filter(models.NexusSetting.key == ops_cubby_push.SETTINGS_KEY).delete()
     s.commit()
     yield s
     s.close()
@@ -103,6 +117,7 @@ def db():
 @pytest.fixture
 def cubby_api(monkeypatch):
     monkeypatch.setenv("CUBBY_API_KEY", "test-key")
+    monkeypatch.delenv(ops_cubby_push.WRITE_KEY_ENV, raising=False)
     fake = FakeCubby()
     monkeypatch.setattr(ops_rate_mgmt.httpx, "post", fake)   # the httpx module itself: every caller is guarded
     ops_rate_mgmt.forget()
@@ -171,7 +186,7 @@ def test_rows_group_by_category_and_price_against_the_sell_rate(db, cubby_api):
     assert any("fully offline" in a for a in v["attention"])
     assert v["address"] == "5044 Peabody Road, Fairfield, CA 94533"
     assert v["canMark"] is True and v["canEdit"] is True
-    assert "canPush" not in v and "pushConnected" not in v
+    assert v["pushOn"] is False and v["pushReady"] is False      # the switch starts off
 
 
 def test_the_screen_still_opens_when_cubby_pricing_groups_fail(db, cubby_api, monkeypatch):
@@ -212,22 +227,91 @@ def test_supervisors_look_but_do_not_propose_or_mark(db, cubby_api):
     assert _client(1, "employee").get(f"/facility-ops/rates?facility_id={FAC}").status_code == 401
 
 
-# ── No push: Nexus only reads from Cubby (Visesh, Oct 20 2026) ───────────────
+# ── Push to Cubby, locked behind the switch (Oct 21 2026) ───────────────────
 
-def test_the_push_route_is_gone(db, cubby_api):
-    r = _client(4, "administrator").post("/facility-ops/rates/push",
-                                         json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True})
-    assert r.status_code in (404, 405)
-    assert not hasattr(ops_rate_mgmt, "change_rate") and not hasattr(ops_rate_mgmt, "write_configured")
+def _switch(db, on=True):
+    ops_cubby_push.save(db, on, {"email": "admin@greensglobal.com", "role": "administrator"})
 
 
-def test_no_endpoint_writes_to_cubby(db, cubby_api):
+def test_the_push_route_refuses_while_the_switch_is_off(db, cubby_api, monkeypatch):
+    monkeypatch.setenv(ops_cubby_push.WRITE_KEY_ENV, "test-key")      # even with a write key
+    c = _client(4, "administrator")
+    c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115})
+    r = c.post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True})
+    assert r.status_code == 403 and "turned off" in r.json()["detail"] and "Entered in Cubby" in r.json()["detail"]
+    assert cubby_api.changes() == [] and all(_is_read("https://x/v1/" + p) for p, _ in cubby_api.calls)
+    db.expire_all()
+    assert db.query(models.OpsRateDraft).count() == 1 and db.query(models.OpsRatePush).count() == 0
+
+
+def test_the_write_client_refuses_before_any_http_while_off(db, cubby_api, monkeypatch):
+    monkeypatch.setenv(ops_cubby_push.WRITE_KEY_ENV, "test-key")
+    with pytest.raises(ops_cubby_push.PushOff):
+        ops_cubby_push.change_rate(db, "pg_810", 12000, 11500)
+    assert cubby_api.calls == []
+
+
+def test_on_without_a_write_key_is_a_clear_503(db, cubby_api):
+    _switch(db)
+    c = _client()
+    c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115})
+    v = c.get(f"/facility-ops/rates?facility_id={FAC}").json()
+    assert v["pushOn"] is True and v["writeConfigured"] is False and v["pushReady"] is False
+    r = c.post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True})
+    assert r.status_code == 503 and ops_cubby_push.WRITE_KEY_ENV in r.json()["detail"]
+    assert cubby_api.changes() == []
+
+
+def test_push_with_the_switch_on_sends_each_group_audits_it_and_clears_the_draft(db, cubby_api, monkeypatch):
+    _switch(db)
+    monkeypatch.setenv(ops_cubby_push.WRITE_KEY_ENV, "test-key")
+    cubby_api.writes = True
+    c = _client()
+    c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115})
+    c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "10' x 20'", "proposed": 200})
+    assert c.post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"]}).status_code == 422
+    out = c.post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'", "10' x 20'"], "confirm": True}).json()
+    assert [r["status"] for r in out["results"]] == ["ok", "ok"]
+    assert cubby_api.changes() == [{"pricingGroupId": "pg_810", "standardRate": 12050, "webRate": 11500},
+                                   {"pricingGroupId": "pg_1020", "standardRate": 20500, "webRate": 20000}]
+    db.expire_all()
+    assert db.query(models.OpsRateDraft).count() == 0
+    p = db.query(models.OpsRatePush).filter(models.OpsRatePush.unit_type == "8' x 10'").one()
+    assert (p.old_set_cents, p.old_sell_cents, p.new_set_cents, p.new_sell_cents) == (11900, 11350, 12050, 11500)
+    assert p.status == "ok" and p.pushed_by == "manager@greensglobal.com"
+    assert out["view"]["pushReady"] is True
+
+
+def test_a_refused_row_keeps_its_draft(db, cubby_api, monkeypatch):
+    _switch(db)
+    monkeypatch.setenv(ops_cubby_push.WRITE_KEY_ENV, "test-key")
+    cubby_api.writes, cubby_api.fail = True, {"pg_810"}
+    c = _client()
+    c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115})
+    c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "10' x 20'", "proposed": 200})
+    res = {r["unitType"]: r for r in c.post("/facility-ops/rates/push", json={
+        "facility_id": FAC, "unit_types": ["8' x 10'", "10' x 20'"], "confirm": True}).json()["results"]}
+    assert res["8' x 10'"]["status"] == "failed" and "Access Denied" in res["8' x 10'"]["detail"]
+    assert res["10' x 20'"]["status"] == "ok"
+    db.expire_all()
+    assert [d.unit_type for d in db.query(models.OpsRateDraft).all()] == ["8' x 10'"]
+
+
+def test_supervisors_cannot_push_even_with_the_switch_on(db, cubby_api, monkeypatch):
+    _switch(db)
+    monkeypatch.setenv(ops_cubby_push.WRITE_KEY_ENV, "test-key")
+    r = _client(2, "supervisor").post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True})
+    assert r.status_code == 401 and cubby_api.changes() == []
+
+
+def test_no_endpoint_writes_to_cubby_while_off(db, cubby_api):
     """Every route on the screen, end to end, with httpx.post failing on any
     Cubby URL that is not a `*/search` or `reports/*` read."""
     _comps(db)
     c = _client(4, "administrator")
     assert c.get(f"/facility-ops/rates?facility_id={FAC}").status_code == 200
     assert c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 115}).status_code == 200
+    assert c.post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True}).status_code == 403
     assert c.post("/facility-ops/rates/entered", json={"facility_id": FAC, "unit_types": ["8' x 10'"]}).status_code == 200
     assert c.get(f"/facility-ops/rates/history?facility_id={FAC}&unit_type=8' x 10'").status_code == 200
     assert cubby_api.calls and all(_is_read("https://x/v1/" + path) for path, _ in cubby_api.calls)

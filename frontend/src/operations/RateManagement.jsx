@@ -5,8 +5,10 @@
 // a person types. Proposals are saved as drafts (who and when) until someone
 // opens Review Changes, enters the new rates in Cubby BY HAND (from the screen
 // or the printable checklist) and marks them Entered in Cubby here, which
-// records who and when and clears the draft. Nexus never writes to Cubby
-// (Visesh, Oct 20 2026) - do not add a push.
+// records who and when and clears the draft. Push to Cubby exists only behind
+// the Operations switch (Settings > Global Settings > Operations, OFF by
+// default - Visesh, Oct 21 2026): with it off no push button is shown and the
+// server refuses the push route.
 //
 // Plain language (Visesh, Oct 20 2026: "where we know which competitor and all
 // that data and what are we lacking"): a summary card names every competitor
@@ -20,8 +22,7 @@
 // The competitor set and manual entry are the existing Market screen, opened
 // from "Comp Set & Manual Entry" (or Manage Competitors in the summary).
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import PushToCubbyDisabled from './PushToCubbyDisabled';
-import { AlertTriangle, Boxes, Check, ChevronDown, ChevronRight, Download, HelpCircle, History, Info, RefreshCw, Users } from 'lucide-react';
+import { AlertTriangle, Boxes, Check, ChevronDown, ChevronRight, Download, HelpCircle, History, Info, RefreshCw, Send, Users } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { Modal } from '../tasks/components';
@@ -54,9 +55,13 @@ const varianceText = (r) => {
 
 const GREEN = '#14532d';
 const NO_PUSH_NOTE = "Nexus doesn't change rates in Cubby. Enter them in Cubby, then mark them entered here.";
+const PUSH_NOTE = 'Push to Cubby sends the new rates to Cubby now, or enter them in Cubby yourself and mark them entered here.';
+const NO_KEY_NOTE = "Push to Cubby is on, but this server has no Cubby key with the Manager role yet. Enter the rates in Cubby and mark them entered.";
+// Push to Cubby shows only with the Operations switch on and for managers and above.
+const pushShown = (v) => !!(v?.pushOn && v?.canPush);
 // Rate history results. "ok" / "failed" are rows from before Oct 20 2026, when Nexus still sent rates itself.
 const RESULT = {
-  entered: ['status-approved', 'Entered in Cubby'], ok: ['status-approved', 'In Cubby'],
+  entered: ['status-approved', 'Entered in Cubby'], ok: ['status-approved', 'Pushed to Cubby'],
   failed: ['status-rejected', 'Failed'], skipped: ['pill-muted', 'Skipped'],
 };
 const resultOf = (p) => RESULT[p.status] || ['pill-muted', p.status];
@@ -517,6 +522,20 @@ export function ReviewModal({ view, onClose, onMarked, onChecklist }) {
   const chosen = left.filter((r) => picked.has(r.name));
   const total = chosen.reduce((a, r) => a + r.revDelta, 0);
   const canMark = view.canMark !== false;
+  const showPush = pushShown(view);
+  const push = async (rows) => {
+    if (!window.confirm(`Send ${rows.length} new ${rows.length === 1 ? 'rate' : 'rates'} to Cubby now? This changes the live web and standard rates.`)) return;
+    setBusy('push');
+    setError('');
+    try {
+      const out = await api.pushOpsRates(view.facilityId, rows.map((r) => r.name));
+      setDone((d) => ({ ...d, ...Object.fromEntries(out.results.map((x) => [x.unitType, x])) }));
+      onMarked(out.view);
+    } catch (err) {
+      console.error('Operations: could not push rates to Cubby', err);
+      setError(err?.message || 'The rates could not be pushed. Nothing was changed. Try again.');
+    } finally { setBusy(''); }
+  };
   const toggle = (name) => setPicked((s) => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; });
   const mark = async (rows, key) => {
     setBusy(key);
@@ -536,7 +555,12 @@ export function ReviewModal({ view, onClose, onMarked, onChecklist }) {
       <button type="button" className="secondary-btn" onClick={() => onChecklist(chosen.length ? chosen : left)} disabled={!left.length}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Download size={14} aria-hidden="true" /> Export Checklist</button>
       <button type="button" className={left.length ? 'secondary-btn' : 'primary-btn'} onClick={onClose}>{left.length ? 'Close' : 'Done'}</button>
-      {left.length > 0 && <PushToCubbyDisabled label="Push to Cubby" />}
+      {showPush && left.length > 0 && (
+        <button type="button" className="primary-btn" onClick={() => push(chosen)} disabled={!!busy || !chosen.length || !view.pushReady}
+          title={view.pushReady ? undefined : NO_KEY_NOTE} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Send size={14} aria-hidden="true" /> {busy === 'push' ? 'Pushing' : `Push ${chosen.length} to Cubby`}
+        </button>
+      )}
       {canMark && left.length > 0 && (
         <button type="button" className="primary-btn" onClick={() => mark(chosen, 'all')} disabled={!!busy || !chosen.length}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -548,7 +572,7 @@ export function ReviewModal({ view, onClose, onMarked, onChecklist }) {
   return (
     <Modal title={`Review Changes - ${view.facility}`} onClose={onClose} width="60vw" minHeight="60vh" footer={footer}>
       <p className="ops-note" style={{ marginTop: 0 }}>
-        {NO_PUSH_NOTE} In Cubby the Sell rate is the web rate and the Set rate is the standard rate; the Set rate moves
+        {showPush ? (view.pushReady ? PUSH_NOTE : NO_KEY_NOTE) : NO_PUSH_NOTE} In Cubby the Sell rate is the web rate and the Set rate is the standard rate; the Set rate moves
         by the same amount unless one was typed.
         {!canMark ? ' Only people who can propose rates can mark them entered. Export the checklist to hand it on.' : ''}
       </p>
@@ -575,7 +599,7 @@ export function ReviewModal({ view, onClose, onMarked, onChecklist }) {
                       {res ? (
                         <>
                           <span className={`status-badge ${resultOf(res)[0]}`}>{resultOf(res)[1]}</span>
-                          {res.status === 'entered'
+                          {res.status === 'entered' || res.status === 'ok'
                             ? <div className="ops-why">{res.pushedBy} - {formatDateTime(res.pushedAt)}</div>
                             : <div className="ops-why">{res.detail}</div>}
                         </>
@@ -830,14 +854,13 @@ export default function RateManagement({ facility }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <PushToCubbyDisabled label="Push Rates to Cubby" />
           <button type="button" onClick={() => setPanel('review')} disabled={!ready.length}
             style={{ background: '#bbf7d0', color: GREEN, border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 700, cursor: ready.length ? 'pointer' : 'default', opacity: ready.length ? 1 : 0.6 }}>
             Review Changes
           </button>
         </div>
       </div>
-      <p className="ops-note" style={{ marginTop: -8 }}>{NO_PUSH_NOTE}</p>
+      <p className="ops-note" style={{ marginTop: -8 }}>{pushShown(v) ? (v.pushReady ? PUSH_NOTE : NO_KEY_NOTE) : NO_PUSH_NOTE}</p>
 
       {error && <p className="ops-form-error" role="alert">{error}</p>}
 

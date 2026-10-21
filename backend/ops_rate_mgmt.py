@@ -7,11 +7,11 @@ HAND and marks them entered here; each mark is a row in `ops_rate_pushes`
 (status "entered") - the history of OUR rates. (Rows from before Oct 20 2026
 carry the old ok / failed / skipped statuses; they stay as history.)
 
-Nexus NEVER writes to Cubby (Visesh, Oct 20 2026: "we don't want anything to
-push to cubby"). This module only READS Cubby's pricing groups
-(`pricing-groups/search`). Do not add a call to `pricing-groups/change-rates`
-or any other Cubby write: staff change rates in Cubby, using the review and
-the printable checklist.
+This module only READS Cubby's pricing groups (`pricing-groups/search`);
+`_call` refuses any other path. The one write (`pricing-groups/change-rates`)
+lives in ops_cubby_push.py behind the Operations "Push to Cubby" switch, OFF
+by default (Visesh, Oct 20-21 2026). While it is off, staff change rates in
+Cubby by hand, using the review and the printable checklist.
 
 Words on the screen, in Cubby's terms:
   Set     the pricing group's standardRate (the in-store rate)
@@ -343,8 +343,8 @@ def attention(rows: list[dict], groups_error: str = "") -> list[str]:
 # ── Cubby (blocking I/O) ──────────────────────────────────────────────────────
 
 def _call(path: str, body: dict) -> dict:
-    """One Cubby READ (a `*/search`), with the body as given. Nexus never
-    writes to Cubby - do not route a write through here."""
+    """One Cubby READ (a `*/search`), with the body as given. Never route a
+    write through here - writes go through ops_cubby_push (behind the switch)."""
     if not path.endswith("/search"):
         raise ValueError(f"Nexus only reads from Cubby; {path} is not a search")
     try:

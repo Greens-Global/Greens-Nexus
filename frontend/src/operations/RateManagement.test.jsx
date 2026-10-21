@@ -4,11 +4,12 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 // Rate Management (Neil / Miranda, Oct 20 2026): the CMA table renders grouped
 // by category with subtotals, the facility is a dropdown (not chips), a typed
 // Proposed rate is saved as a draft, and Review Changes lists old -> new and
-// marks rows Entered in Cubby (per row or all ticked). Nexus never writes to
-// Cubby (Oct 20 2026): the Push button is shown but DISABLED - manual entry only.
+// marks rows Entered in Cubby (per row or all ticked). Push to Cubby is locked
+// behind the Operations switch (Oct 21 2026): off = no Push button at all; on =
+// Push sends the ticked rows through api.pushOpsRates.
 
 const apiMock = vi.hoisted(() => ({
-  getOpsRates: vi.fn(), saveOpsRateDraft: vi.fn(), markOpsRatesEntered: vi.fn(), getOpsRateHistory: vi.fn(),
+  getOpsRates: vi.fn(), saveOpsRateDraft: vi.fn(), markOpsRatesEntered: vi.fn(), getOpsRateHistory: vi.fn(), pushOpsRates: vi.fn(),
   checkOpsCompetitor: vi.fn(), getOpsMarket: vi.fn(), getOpsNearby: vi.fn(), getOpsRateComps: vi.fn(),
 }));
 vi.mock('../api', () => ({ api: apiMock }));
@@ -96,8 +97,8 @@ describe('Rate Management', () => {
     expect(screen.getByText('0 changes ready')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Review Changes' }).disabled).toBe(true);
     expect(screen.getByText(/Nexus doesn't change rates in Cubby/)).toBeTruthy();
-    // Shown but off: disabled, and it says why (manual entry only).
-    for (const b of screen.getAllByRole('button', { name: /push/i })) expect(b).toBeDisabled();
+    // The switch is off: no Push button anywhere, manual entry only.
+    expect(screen.queryByRole('button', { name: /push/i })).toBeNull();
 
     fireEvent.change(screen.getByLabelText('Unit Category'), { target: { value: 'Vehicle Storage' } });
     expect(screen.queryByText('Subtotal Self-Storage')).toBeNull();
@@ -136,7 +137,7 @@ describe('Rate Management', () => {
     render(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Review Changes' }));
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByRole('button', { name: /push/i })).toBeDisabled();
+    expect(within(dialog).queryByRole('button', { name: /push/i })).toBeNull();
     expect(within(dialog).getByText(/Nexus doesn't change rates in Cubby/)).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: /Export Checklist/ })).toBeTruthy();
     const table = within(dialog).getByTestId('review-table');
@@ -161,7 +162,32 @@ describe('Rate Management', () => {
       { "12' x 30' Parking": { set: 11900, sell: 13150 } }));
     await waitFor(() => expect(within(dialog).getAllByText('Entered in Cubby')).toHaveLength(2));
     expect(within(dialog).getByRole('button', { name: 'Done' })).toBeTruthy();
-    for (const b of screen.queryAllByRole('button', { name: /push/i })) expect(b).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /push/i })).toBeNull();
+  });
+
+  it('pushes the ticked rows when the Push to Cubby switch is on', async () => {
+    const ready = [row({ proposed: 11500, proposedSet: 12050, revDelta: 300, ready: true, draft: { proposed: 11500 } })];
+    apiMock.getOpsRates.mockResolvedValue(view(ready, { pushOn: true, pushReady: true, writeConfigured: true, canPush: true }));
+    apiMock.pushOpsRates.mockResolvedValue({ batchId: 'b1', view: view([ROWS[0]], { pushOn: true, pushReady: true, canPush: true }),
+      results: [{ unitType: "8' x 10'", status: 'ok', detail: 'Updated in Cubby', pushedBy: 'neil@greensglobal.com', pushedAt: '2026-10-21T19:00:00Z' }] });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Review Changes' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Push 1 to Cubby' }));
+    await waitFor(() => expect(apiMock.pushOpsRates).toHaveBeenCalledWith('fac_f', ["8' x 10'"]));
+    expect(await within(dialog).findByText('Pushed to Cubby')).toBeTruthy();
+    window.confirm.mockRestore();
+  });
+
+  it('shows Push disabled with the reason when the switch is on but the key is missing', async () => {
+    const ready = [row({ proposed: 11500, proposedSet: 12050, revDelta: 300, ready: true, draft: { proposed: 11500 } })];
+    apiMock.getOpsRates.mockResolvedValue(view(ready, { pushOn: true, pushReady: false, writeConfigured: false, canPush: true }));
+    render(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Review Changes' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('button', { name: 'Push 1 to Cubby' })).toBeDisabled();
+    expect(within(dialog).getAllByText(/no Cubby key with the Manager role/).length).toBeGreaterThan(0);
   });
 
   it('opens a row to each competitor for the size, with ours among them', async () => {

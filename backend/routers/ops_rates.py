@@ -3,17 +3,21 @@
   GET  /facility-ops/rates            the table, the cards, the drafts
   PUT  /facility-ops/rates/draft      propose (or clear) a unit type's new rate
   POST /facility-ops/rates/entered    Mark Entered in Cubby: record rates staff typed into Cubby by hand
+  POST /facility-ops/rates/push       Push to Cubby - ONLY when the Operations switch is on (ops_cubby_push.py)
   GET  /facility-ops/rates/history    our recorded rate changes + competitors' rates for one unit type
   GET  /facility-ops/rates/comps      one unit type, competitor by competitor (the rates the market figures use)
 
-Nexus NEVER writes to Cubby (Visesh, Oct 20 2026). Staff enter the new rates
-in Cubby themselves, from the review or the printable checklist, then mark
-them entered here: that records who and when in `ops_rate_pushes` (status
-"entered" - the table keeps its old name), clears the draft, and is the rate
-history. There is no push route and there must never be one again.
+Pushing is locked behind ONE switch (Visesh, Oct 21 2026: "keep the feature of
+pushing but keep it locked"): Settings > Global Settings > Operations > Push to
+Cubby, OFF by default. While it is off the push route refuses (403) and no
+Cubby write is ever made: staff enter the new rates in Cubby themselves, from
+the review or the printable checklist, then mark them entered here, which
+records who and when in `ops_rate_pushes` (status "entered" - the table keeps
+its old name), clears the draft, and is the rate history.
 
 Same door as the rest of Operations to look. Proposing a rate and marking it
-entered take a manager or an Operations editor grant. Market math:
+entered take a manager or an Operations editor grant; pushing takes a manager
+(level 3) or above with the switch on. Market math:
 routers.facility_ops._market -> ops_market.
 """
 import asyncio
@@ -28,9 +32,10 @@ from sqlalchemy.orm import Session
 import auth
 import cubby
 import models
+import ops_cubby_push
 import ops_market
 import ops_rate_mgmt
-from auth import get_current_user, require_level_or_module
+from auth import get_current_user, require_level_or_module, require_manager
 from database import get_db
 from routers import facility_ops
 
@@ -149,6 +154,8 @@ def _view(db: Session, facility: dict, groups: list, fac: dict, groups_error: st
         "freshDays": market["freshDays"], "minCompetitors": market["minCompetitors"],
         "pushes": [_push_dict(p) for p in pushes],
         "canEdit": _can_edit(user, db), "canMark": _can_edit(user, db),
+        # Push to Cubby (Oct 21 2026): only with the Operations switch on.
+        **ops_cubby_push.status(db), "canPush": user.get("level", 0) >= 3,
     }
 
 
@@ -260,6 +267,77 @@ async def mark_entered(body: EnteredBody, user: dict = Depends(require_editor), 
     groups, fac, err = await _groups(body.facility_id, fresh=True)
     view = await asyncio.to_thread(_view, db, facility, groups, fac, err, user)
     print(f"[ops-rates] entered {batch}: {sum(r['status'] == 'entered' for r in results)} marked entered in Cubby")
+    return {"batchId": batch, "results": results, "view": view}
+
+
+class PushBody(BaseModel):
+    facility_id: str
+    unit_types: list[str] = Field(min_length=1, max_length=200)
+    confirm: bool = False
+
+
+@router.post("/push")
+async def push(body: PushBody, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Send the chosen drafts to Cubby, one pricing group per call, and record
+    each result. Refused (403) while the Operations switch is off - nothing is
+    sent. A failed row keeps its draft so it can be tried again."""
+    await asyncio.to_thread(ops_cubby_push.require_push, db)
+    if not body.confirm:
+        raise HTTPException(status_code=422, detail="Confirm the push in the review first")
+    facility = await facility_ops._facility(body.facility_id)
+    groups, fac, err = await _groups(body.facility_id, fresh=True)   # never push against a stale read
+    if err:
+        raise HTTPException(status_code=424, detail=f"Cubby's pricing groups could not be read: {err}")
+    idx = ops_rate_mgmt.group_index(groups)
+    types = {t["name"]: t for t in facility["unitTypes"]}
+    batch = str(uuid.uuid4())
+    email = user.get("email") or ""
+
+    def _one(name: str) -> dict:
+        d = (db.query(models.OpsRateDraft)
+             .filter(models.OpsRateDraft.facility_id == body.facility_id, models.OpsRateDraft.unit_type == name)
+             .with_for_update().first())
+        g = idx.get(name)
+        t = types.get(name) or {}
+        rec = models.OpsRatePush(id=str(uuid.uuid4()), batch_id=batch, facility_id=body.facility_id, unit_type=name,
+                                 vacant=t.get("vacant") or 0, pushed_by=email, pushed_at=_now())
+        if not d:
+            rec.status, rec.detail = "skipped", "No proposed rate (someone may have pushed or cleared it)"
+        elif not g:
+            rec.status = "skipped"
+            rec.detail = ("Two Cubby pricing groups share this name" if name in idx
+                          else "No Cubby pricing group with this name")
+        else:
+            old_sell = ops_rate_mgmt.sell_of(g) or 0
+            p = ops_rate_mgmt.plan(g.get("standardRate"), old_sell, d.proposed_cents, d.proposed_set_cents)
+            rec.pricing_group_id = g.get("pricingGroupId") or ""
+            rec.old_set_cents, rec.old_sell_cents = g.get("standardRate"), old_sell
+            rec.new_set_cents, rec.new_sell_cents = p["newSet"], p["newSell"]
+            rec.monthly_delta_cents = (p["newSell"] - old_sell) * rec.vacant
+            if p["newSell"] == old_sell and p["newSet"] == g.get("standardRate"):
+                rec.status, rec.detail = "skipped", "Already at this rate in Cubby"
+                db.delete(d)
+            elif p["newSet"] <= 0:
+                rec.status, rec.detail = "failed", "The Set rate would be $0 or less; enter a Set rate"
+            else:
+                try:
+                    ops_cubby_push.change_rate(db, rec.pricing_group_id, p["newSet"], p["newSell"])
+                    rec.status, rec.detail = "ok", "Updated in Cubby"
+                    db.delete(d)
+                except ops_cubby_push.PushOff as e:      # switched off mid-batch: stop, nothing sent
+                    rec.status, rec.detail = "skipped", str(e)[:500]
+                except cubby.CubbyError as e:
+                    rec.status, rec.detail = "failed", (e.message or "Cubby refused the change")[:500]
+        db.add(rec)
+        db.commit()
+        return _push_dict(rec)
+
+    results = await asyncio.to_thread(lambda: [_one(n) for n in dict.fromkeys(body.unit_types)])
+    ops_rate_mgmt.forget(body.facility_id)
+    groups, fac, err = await _groups(body.facility_id, fresh=True)
+    view = await asyncio.to_thread(_view, db, facility, groups, fac, err, user)
+    print(f"[ops-rates] push {batch}: {sum(r['status'] == 'ok' for r in results)} ok, "
+          f"{sum(r['status'] == 'failed' for r in results)} failed")
     return {"batchId": batch, "results": results, "view": view}
 
 

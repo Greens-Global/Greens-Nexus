@@ -4143,3 +4143,5 @@ from routers import audit_events as audit_events_router  # noqa: E402
 app.include_router(audit_events_router.router)     # Unified Audit Log: one feed, modules, before/after, record history (Oct 20 2026)
 from routers import hr_intacct_codes as hr_intacct_codes_router  # noqa: E402
 app.include_router(hr_intacct_codes_router.router)  # People > Sync Employee Codes From Intacct (Charmi, Oct 21 2026)
+from routers import ops_settings as ops_settings_router  # noqa: E402
+app.include_router(ops_settings_router.router)     # Operations settings: the Push to Cubby switch, OFF by default (Visesh, Oct 21 2026)
