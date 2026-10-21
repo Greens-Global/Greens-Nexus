@@ -90,10 +90,11 @@ function WindowChip({ value, label, active, onSelect }) {
  *      `openProperty(id)` to navigate to that asset instead of switching a tab - there's no
  *      single page/tab context to switch within on the portfolio view. Positioned between the
  *      "Asset Management" header and the search/filter toolbar; `hideIfEmpty` makes the whole
- *      component render as `null` there so the banner only ever appears when something is
- *      genuinely due - an always-visible portfolio banner would just be permanent green noise
- *      (unlike the per-asset case, where showing "all clear" for one specific asset is
- *      reassuring, not noise).
+ *      component render as `null` there when nothing is due AND no `extraChips` (Need Data,
+ *      Flagged) carry a count - an always-visible portfolio banner would just be permanent
+ *      green noise (unlike the per-asset case, where showing "all clear" for one specific
+ *      asset is reassuring, not noise). With only chips to show, the zero date pills and the
+ *      Show button stay hidden too.
  *
  * `hideIfEmpty` is deliberately NOT the default and must be opted into per call site - do not
  * flip its default, or the per-asset usage will start disappearing on clean assets.
@@ -115,7 +116,9 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
   // Portfolio banner usage: nothing due at all -> render nothing. Per-asset usage never sets
   // hideIfEmpty, so it always falls through and renders (even all-zero, for context).
   const extras = extraChips.filter((c) => c && c.count > 0);
-  if (hideIfEmpty && !overdueCount && !due30Count && !due90Count && !extras.length) return null;
+  const nothingDue = !overdueCount && !due30Count && !due90Count;
+  if (hideIfEmpty && nothingDue && !extras.length) return null;
+  const chipsOnly = hideIfEmpty && nothingDue && extras.length > 0;
 
   const categories = [...new Set(all.map((x) => x.cat))].sort();
 
@@ -149,11 +152,11 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
           {title}
         </span>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <CountPill count={overdueCount} label="Overdue" color="red" />
-          <CountPill count={due30Count} label="Due in 30d" color="orange" />
-          <CountPill count={due90Count} label="Due in 90d" color="gold" />
+          {!chipsOnly && <CountPill count={overdueCount} label="Overdue" color="red" />}
+          {!chipsOnly && <CountPill count={due30Count} label="Due in 30d" color="orange" />}
+          {!chipsOnly && <CountPill count={due90Count} label="Due in 90d" color="gold" />}
           {extras.map((c) => (
-            <button key={c.label} type="button" onClick={c.onClick} title={c.title}
+            <button key={c.label} type="button" onClick={c.onClick} title={c.title} aria-expanded={c.expanded}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: 'none', fontFamily: 'inherit',
                 color: `hsl(var(--color-${c.color || 'orange'}))`, backgroundColor: `hsla(var(--color-${c.color || 'orange'}), 0.12)` }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: `hsl(var(--color-${c.color || 'orange'}))` }} />
@@ -161,7 +164,7 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
             </button>
           ))}
         </div>
-        <button
+        {!chipsOnly && <button
           onClick={() => setOpen((o) => !o)}
           style={{
             marginLeft: 'auto',
@@ -176,10 +179,10 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
           }}
         >
           {open ? 'Hide' : 'Show'}
-        </button>
+        </button>}
       </div>
 
-      {open && (
+      {open && !chipsOnly && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
             <WindowChip value="overdue" label="Overdue" active={windowSel === 'overdue'} onSelect={setWindowSel} />

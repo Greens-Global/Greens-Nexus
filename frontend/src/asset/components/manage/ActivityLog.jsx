@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { RotateCcw, ArrowRight } from 'lucide-react';
+import { RotateCcw, ArrowRight, X } from 'lucide-react';
 import { Card } from '../shared/Card.jsx';
 import { EmptyState } from '../shared/EmptyState.jsx';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
@@ -82,7 +82,7 @@ function looksNumeric(value) {
  *                     vehicle/equipment) so the section pill can say "Vehicle"/"Equipment"
  *                     instead of the generic "Property" section name for non-property assets
  */
-export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName, onGoTo, onUndo, canUndo, assetsForKind }) {
+export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName, onGoTo, onUndo, canUndo, assetsForKind, onClose }) {
   // Map of assetId -> kind, so the section pill on a "Property" section entry can be relabeled
   // "Vehicle" / "Equipment" for non-property assets (the log itself always calls it "Property").
   const kindById = {};
@@ -159,6 +159,9 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
             <button className="secondary-btn" onClick={() => { setFrom(''); setTo(''); }} style={{ padding: '5px 11px', fontSize: '0.76rem' }}>
               Clear
             </button>
+          )}
+          {onClose && (
+            <button type="button" className="secondary-btn" onClick={onClose} aria-label="Close Activity Log" style={{ padding: 6 }}><X size={15} /></button>
           )}
         </div>
       </div>

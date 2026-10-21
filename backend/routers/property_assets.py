@@ -478,9 +478,13 @@ def get_metrics(db: Session = Depends(get_db), user=Depends(require_asset_read))
         from construction_models import ConstructionProject
         rows = (db.query(ConstructionProject)
                 .filter(ConstructionProject.property_id != "", ConstructionProject.deleted_at == "")
-                .order_by(ConstructionProject.updated_at.desc() if hasattr(ConstructionProject, "updated_at") else ConstructionProject.id).all())
+                .order_by(ConstructionProject.modified_at.desc()).all())
         for r in rows:
-            if r.property_id in visible and r.property_id not in {k for k, v in out.items() if "percentComplete" in v} and (r.status or "active") in ("active", "on_hold"):
+            # The most recently touched live project wins; "live" is the construction
+            # router's own definition (status active / on hold and not archived).
+            if r.archived or (r.status or "active") not in ("active", "on_hold"):
+                continue
+            if r.property_id in visible and "percentComplete" not in out.get(r.property_id, {}):
                 out.setdefault(r.property_id, {})["percentComplete"] = round(float(r.percent_complete or 0.0), 1)
     except Exception as e:  # noqa: BLE001
         print(f"[property-assets] metrics: construction skipped: {e}")

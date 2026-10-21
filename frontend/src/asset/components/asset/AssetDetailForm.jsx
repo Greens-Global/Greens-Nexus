@@ -38,7 +38,12 @@ const inputStyle = { width: '100%', padding: '5px 9px', fontSize: '0.82rem' };
 export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetail, onSaveContact, onOpenLead, onFlag }) {
   const flagMap = new Map((asset.reviewFlags || []).map((x) => [(x.g || '') + '~#~' + (x.f || ''), x.reason || '']));
   const isProperty = inferAssetKind(asset) === 'property';
-  const highlightField = (highlight?.field || '').toLowerCase();
+  // Data Gaps chips name the completeness check, not always the row label.
+  const FIELD_ALIASES = { 'insurance carrier': 'carrier', 'lot size': 'lot size (sf / acres)' };
+  const SECTION_TARGETS = { 'google maps link': 'map', photos: 'media' };
+  const highlightRaw = (highlight?.field || '').toLowerCase();
+  const highlightField = FIELD_ALIASES[highlightRaw] || highlightRaw;
+  const highlightAt = highlight?.at || 0;
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
@@ -68,12 +73,13 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
   // chip): scroll to it, and in edit mode put the cursor in it.
   useEffect(() => {
     if (!highlightField) return;
+    if (SECTION_TARGETS[highlightField]) { jumpTo(SECTION_TARGETS[highlightField]); return; }
     setRevealed((r) => (r.has(highlightField) ? r : new Set([...r, highlightField])));
     const el = document.querySelector(`[data-fl="${highlightField}"]`);
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    if (editing) el.querySelector('input,select,textarea')?.focus?.();
-  }, [highlightField, editing]);
+    if (editing) el.querySelector('input,select,textarea')?.focus?.({ preventScroll: true });
+  }, [highlightField, highlightAt, editing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startEdit = () => {
     if (editing) return;
@@ -129,16 +135,21 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
 
   // Register with the shared navigation-away guard whenever this form is mounted/dirty;
   // the page header reads `editing`/`dirty` through editGuard.subscribe.
+  // The callbacks close over the current draft, so they are refreshed every
+  // render; the state is published only when it changes (publishing from a
+  // deps-less effect re-rendered the App, which re-rendered this form, which
+  // published again - a render loop).
   useEffect(() => {
-    const was = editGuard.editing + ':' + editGuard.dirty;
-    editGuard.dirty = editing && dirty;
-    editGuard.editing = editing;
     editGuard.save = save;
     editGuard.cancel = cancel;
     editGuard.startEdit = startEdit;
-    if (was !== editing + ':' + (editing && dirty)) editGuard.notify();
-    return () => { editGuard.dirty = false; editGuard.editing = false; editGuard.notify(); };
   });
+  useEffect(() => {
+    editGuard.editing = editing;
+    editGuard.dirty = editing && dirty;
+    editGuard.notify();
+    return () => { editGuard.dirty = false; editGuard.editing = false; editGuard.notify(); };
+  }, [editing, dirty]);
 
   return (
     <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>

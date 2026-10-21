@@ -68,7 +68,7 @@ export function DataGapsPanel({ assets, onOpen, onDelete, serverOk, onClose }) {
         {filtered && <button type="button" onClick={clear} className="secondary-btn" style={{ fontSize: '0.78rem', padding: '7px 12px' }}>Clear Filters <X size={13} /></button>}
       </div>
       {deleteTarget && (
-        <div style={{ marginBottom: 12, padding: '13px 14px', borderRadius: 11, border: '1px solid hsl(var(--color-red) / 0.4)', backgroundColor: 'hsl(var(--color-red) / 0.07)' }}>
+        <div style={{ marginBottom: 12, padding: '13px 14px', borderRadius: 11, border: '1px solid hsla(var(--color-red), 0.4)', backgroundColor: 'hsla(var(--color-red), 0.07)' }}>
           <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Move "{deleteTarget.name}" to Trash?</div>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 11 }}>
             It can be restored from Trash{assets.some((x) => x.parentId === deleteTarget.id) ? '; its linked parcels become standalone.' : '.'}
@@ -134,7 +134,7 @@ export function TrashPanel({ deleted, onRecover, onPurge, onClose }) {
     <div style={CARD}>
       <PanelHead title="Trash" subtitle="Restore a deleted asset, or remove it permanently." onClose={onClose} />
       {purgeTarget && (
-        <div style={{ marginBottom: 12, padding: '13px 14px', borderRadius: 11, border: '1px solid hsl(var(--color-red) / 0.4)', backgroundColor: 'hsl(var(--color-red) / 0.07)' }}>
+        <div style={{ marginBottom: 12, padding: '13px 14px', borderRadius: 11, border: '1px solid hsla(var(--color-red), 0.4)', backgroundColor: 'hsla(var(--color-red), 0.07)' }}>
           <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Permanently delete "{purgeTarget.name}"?</div>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 11 }}>This <strong>cannot be undone</strong> - the asset and its records are gone for good.</div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

@@ -39,7 +39,7 @@ import { PropertyMaintenanceSection } from './components/maintenance/PropertyMai
 
 import { ReviewFlagsPanel } from './components/manage/ReviewFlagsPanel.jsx';
 import { ActivityLog } from './components/manage/ActivityLog.jsx';
-import { DataGapsPanel, TrashPanel, PanelHead } from './components/portfolio/PortfolioPanels.jsx';
+import { DataGapsPanel, TrashPanel } from './components/portfolio/PortfolioPanels.jsx';
 
 import { exportAssetCsvAsFile, exportAssetPdf } from './lib/csvExport.js';
 import { ticketMaintenanceRows } from './lib/propertyTickets.js';
@@ -62,7 +62,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   // `setStore(updater)`; it never touches localStorage/IndexedDB/the network directly.
   const [store, setStore, loading, serverOk] = useNexusStore();
 
-  const [view, setView] = useState('portfolio');       // 'portfolio' | 'manage' | a strip tab or record collection key (lib/navigation.js)
+  const [view, setView] = useState('portfolio');       // 'portfolio' | a strip tab or record collection key (lib/navigation.js)
   const [activeId, setActiveId] = useState(null);        // currently open asset's id, or null
   const [leaveAsk, setLeaveAsk] = useState(false);        // "unsaved changes" confirm dialog
   const [pendingNav, setPendingNav] = useState(null);     // navigation to run after that dialog resolves
@@ -109,7 +109,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   useEffect(() => { let alive = true; api.getAssetMetrics().then((m) => { if (alive && m) setMetrics(m); }).catch(() => {}); return () => { alive = false; }; }, [store._ts]);
   // The spec sheet's edit state, for the header's Cancel / Save Changes.
   const [editState, setEditState] = useState({ editing: false, dirty: false });
-  useEffect(() => editGuard.subscribe(() => setEditState({ editing: editGuard.editing, dirty: editGuard.dirty })), []);
+  useEffect(() => editGuard.subscribe(() => setEditState((s) => (s.editing === editGuard.editing && s.dirty === editGuard.dirty) ? s : { editing: editGuard.editing, dirty: editGuard.dirty })), []);
 
   const unseenLogCount = (store.logs || []).filter((l) => l.ts > lastManageVisit).length;
   const markManageSeen = () => {
@@ -682,7 +682,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       const logs = (s.logs || []).map((l) => l.id === entry.id ? { ...l, undone: true } : l);
       return appendLog({ ...s, properties: props, logs }, makeLogEntry(logEntry));
     });
-    if (activeId === entry.propertyId && entry.action === 'added') { setActiveId(null); setView('manage'); }
+    if (activeId === entry.propertyId && entry.action === 'added') { setActiveId(null); setView('portfolio'); }
   };
 
   const canUndo = (entry) => {
@@ -882,23 +882,19 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && (
         <CriticalDates store={store} openProperty={openAsset} hideIfEmpty title="Needs Attention"
           extraChips={[
-            { count: needData, label: 'Need Data', color: 'orange', title: 'Assets with key fields to fill', onClick: () => setPanel((p) => (p === 'data' ? null : 'data')) },
-            { count: flagCount, label: 'Flagged', color: 'purple', title: 'Fields flagged for review', onClick: () => setPanel((p) => (p === 'flags' ? null : 'flags')) },
+            { count: needData, label: 'Need Data', color: 'orange', title: 'Assets with key fields to fill', expanded: panel === 'data', onClick: () => setPanel((p) => (p === 'data' ? null : 'data')) },
+            { count: flagCount, label: 'Flagged', color: 'purple', title: 'Fields flagged for review', expanded: panel === 'flags', onClick: () => setPanel((p) => (p === 'flags' ? null : 'flags')) },
           ]} />
       )}
       {view === 'portfolio' && !active && panel === 'data' && (
         <DataGapsPanel assets={visibleProperties} onOpen={openAsset} onDelete={(id) => deleteAsset(id, true)} serverOk={serverOk} onClose={() => setPanel(null)} />
       )}
       {view === 'portfolio' && !active && panel === 'flags' && (
-        <div style={{ border: '1px solid var(--border-color)', borderRadius: 14, background: 'var(--bg-card)', padding: '16px 18px', marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
-          <PanelHead title="Flagged for Review" subtitle="Fields someone marked as wrong, outdated or unverified - fix them here or on the asset." onClose={() => setPanel(null)} />
-          <ReviewFlagsPanel props={visibleProperties} onClearFlag={toggleFlag} onOpen={openAsset} onPushFix={pushFieldFix} />
-        </div>
+        <ReviewFlagsPanel props={visibleProperties} onClearFlag={toggleFlag} onOpen={openAsset} onPushFix={pushFieldFix} onClose={() => setPanel(null)} />
       )}
       {view === 'portfolio' && !active && panel === 'activity' && (
-        <div style={{ border: '1px solid var(--border-color)', borderRadius: 14, background: 'var(--bg-card)', padding: '16px 18px', marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
-          <PanelHead title="Activity Log" subtitle="Every change across the portfolio, newest first." onClose={() => setPanel(null)} />
-          <ActivityLog logs={store.logs || []} query="" onOpenProperty={openAsset} activeId={null} activeName="" onGoTo={goToLogEntry} onUndo={undoLogEntry} canUndo={canUndo} assetsForKind={visibleProperties} />
+        <div style={{ marginBottom: 16 }}>
+          <ActivityLog onClose={() => setPanel(null)} logs={store.logs || []} query="" onOpenProperty={openAsset} activeId={null} activeName="" onGoTo={goToLogEntry} onUndo={undoLogEntry} canUndo={canUndo} assetsForKind={visibleProperties} />
         </div>
       )}
       {view === 'portfolio' && !active && panel === 'trash' && (

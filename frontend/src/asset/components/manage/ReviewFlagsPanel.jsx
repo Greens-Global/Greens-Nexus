@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Flag } from 'lucide-react';
+import { Flag, X } from 'lucide-react';
 import { normLabel } from '../../lib/format.js';
 
 /**
@@ -74,7 +74,7 @@ function FlagRow({ flag, onOpen, onClearFlag, onPushFix }) {
  *
  * props: { props (all live assets), onClearFlag(id, group, field), onOpen(id), onPushFix(id, group, field, value) }
  */
-export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix }) {
+export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix, onClose }) {
   const flags = [];
   (assets || []).forEach((asset) => {
     (asset.reviewFlags || []).forEach((flag) => {
@@ -105,6 +105,9 @@ export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix
         }}>
           {flags.length}
         </span>
+        {onClose && (
+          <button type="button" className="secondary-btn" onClick={onClose} aria-label="Close Flagged for Review" style={{ padding: 6 }}><X size={15} /></button>
+        )}
       </div>
 
       {flags.length ? (
