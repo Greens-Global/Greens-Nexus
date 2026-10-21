@@ -63,6 +63,9 @@ describe('tradeArea', () => {
   it('summarizes a hover with no personal data', () => {
     const s = summarize([pt(1, 1, 2, 3), pt(1, 1, 1, 6, { tenure: 0, kind: 1, zip: true })]);
     expect(s).toEqual({ count: 3, avgRent: 100, avgMiles: 4, new90: 1, vehicle: 1, storage: 2, approx: 1 });
+    // A group under 3 customers carries no rent: left out of the average, and alone it shows none.
+    expect(summarize([{ count: 1, rent: null, miles: 2, tenure: 2, kind: 0, zip: 0 }]).avgRent).toBeNull();
+    expect(summarize([{ count: 1, rent: null, miles: 2, tenure: 2, kind: 0, zip: 0 }, { count: 3, rent: 300, miles: 2, tenure: 2, kind: 0, zip: 0 }]).avgRent).toBe(100);
     const html = summaryHtml(s);
     expect(html).toMatch(/3 Customers/);
     expect(html).toMatch(/Average Rent<\/span><span>\$100\/mo/);

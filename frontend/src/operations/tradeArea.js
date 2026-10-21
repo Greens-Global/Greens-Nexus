@@ -73,15 +73,17 @@ export function legendFor(colorBy, points, rentBands = []) {
 
 // ── Hover summary (no personal data: sums over groups) ────────────────────────
 export function summarize(points) {
-  let n = 0; let rent = 0; let milesSum = 0; let milesN = 0; let fresh = 0; let vehicle = 0; let approx = 0;
+  let n = 0; let rent = 0; let rentN = 0; let milesSum = 0; let milesN = 0; let fresh = 0; let vehicle = 0; let approx = 0;
   for (const p of points) {
-    n += p.count; rent += p.rent;
+    n += p.count;
+    // A group under 3 customers carries no rent (privacy) - it is left out of the average.
+    if (p.rent != null) { rent += p.rent; rentN += p.count; }
     if (p.miles != null) { milesSum += p.miles * p.count; milesN += p.count; }
     if (p.tenure === 0) fresh += p.count;
     if (p.kind === 1) vehicle += p.count;
     if (p.zip) approx += p.count;
   }
-  return { count: n, avgRent: n ? rent / n : 0, avgMiles: milesN ? milesSum / milesN : null, new90: fresh,
+  return { count: n, avgRent: rentN ? rent / rentN : null, avgMiles: milesN ? milesSum / milesN : null, new90: fresh,
     vehicle, storage: n - vehicle, approx };
 }
 
@@ -90,7 +92,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 /** Tooltip HTML for a dot / hex / cluster. Numbers only, plus fixed words. */
 export function summaryHtml(s, title) {
   const rows = [
-    ['Average Rent', `${money(s.avgRent)}/mo`],
+    ['Average Rent', s.avgRent == null ? 'Fewer than 3 customers' : `${money(s.avgRent)}/mo`],
     ['Average Distance', milesText(s.avgMiles)],
     ['New in Last 90 Days', count(s.new90)],
     ['Self-Storage / Vehicle', `${count(s.storage)} / ${count(s.vehicle)}`],

@@ -305,6 +305,7 @@ BUCKETS = ((0, 1), (1, 2), (2, 3), (3, 5), (5, 10), (10, 50), (50, None))
 PERCENTILES = (50, 80, 90)
 COMPETITOR_RINGS = (3, 5, 10)
 COMPETITOR_REACH = 50        # competitors drawn within this many miles of a shown facility
+MIN_RENT_GROUP = 3                          # smallest group whose rent sum is sent
 POINT_COLS = ("lat", "lng", "facility", "zip", "kind", "tenure", "band", "count", "rent", "miles", "closer")
 
 
@@ -557,7 +558,10 @@ def build_map(db, facility: str = "all", state: str = "", kind: str = "all", sin
             if miles > RINGS[-1]:
                 region = state_of({"latitude": lat, "longitude": lng}) or "Other"
                 outside[region] = outside.get(region, 0) + count
-        rows.append([lat, lng, index[fid], int(is_zip), k, t, b, count, round(rent, 2), _r2(miles), closer_idx])
+        # Rent only for a group of 3+ customers: one person's rent at a ~100 m
+        # point is too close to their door (Oct 22).
+        rows.append([lat, lng, index[fid], int(is_zip), k, t, b, count,
+                     round(rent, 2) if count >= MIN_RENT_GROUP else None, _r2(miles), closer_idx])
 
     competitors = _competitors(db, shown)
     by_facility = {}

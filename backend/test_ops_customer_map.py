@@ -293,7 +293,7 @@ def test_build_map_buckets_filters_outside_and_overlap(db):
     rows = sorted(_rows(body), key=lambda p: p["lat"])
     k, t = body["kinds"], body["tenures"]
     assert [(k[p["kind"]], t[p["tenure"]], p["rent"], p["count"]) for p in rows] == [
-        ("storage", "under90d", 100.0, 1), ("vehicle", "1to3y", 300.0, 1), ("storage", "over3y", 300.0, 1)]
+        ("storage", "under90d", None, 1), ("vehicle", "1to3y", None, 1), ("storage", "over3y", None, 1)]   # 1-person groups: no rent
     assert [b["max"] for b in body["rentBands"]] == [100.0, 300.0, 300.0, 300.0]
     assert [p["band"] for p in rows] == [0, 1, 1]
     st = body["stats"]
@@ -312,11 +312,11 @@ def test_build_map_buckets_filters_outside_and_overlap(db):
     assert [r["count"] for r in _rows(veh)] == [1] and veh["stats"]["customers"] == 1
     assert veh["filters"] == {"kind": "vehicle", "since": "all", "band": "all"}
     new = geo.build_map(db, facility=FAC, since="90", today=today)
-    assert [r["rent"] for r in _rows(new)] == [100.0] and new["stats"]["outside50"]["count"] == 0
+    assert [(r["count"], r["rent"]) for r in _rows(new)] == [(1, None)] and new["stats"]["outside50"]["count"] == 0
     year = geo.build_map(db, since="365", today=today)
     assert year["stats"]["customers"] == 2                       # Temecula c1 + Escondido c1
     top = geo.build_map(db, facility=FAC, band="1", today=today)
-    assert sorted(r["rent"] for r in _rows(top)) == [300.0, 300.0]
+    assert [r["band"] for r in _rows(top)] == [1, 1] and top["stats"]["customers"] == 2   # the $300 band only
     junk = geo.build_map(db, facility=FAC, kind="boats", since="7", band="9", today=today)
     assert junk["filters"] == {"kind": "all", "since": "all", "band": "all"} and junk["stats"]["customers"] == 3
     # All facilities: one comparison row each; each customer measured from their own store.
@@ -362,6 +362,11 @@ def test_api_filters_and_privacy(client, db):
     assert body["pointCols"] == ["lat", "lng", "facility", "zip", "kind", "tenure", "band", "count", "rent", "miles", "closer"]
     for row in body["points"]:
         assert all(v is None or isinstance(v, (int, float)) for v in row)
+    # A group under 3 customers carries no rent - one person's rent at a ~100 m point is too close (Oct 22).
+    ci, ri = body["pointCols"].index("count"), body["pointCols"].index("rent")
+    assert any(row[ci] < 3 for row in body["points"])
+    for row in body["points"]:
+        assert (row[ri] is None) == (row[ci] < 3)
 
 
 def test_access_managers_and_ops_full_only(client, monkeypatch):
