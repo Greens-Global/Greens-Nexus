@@ -186,6 +186,14 @@ class EndpointTests(unittest.TestCase):
         searched = {c[1]["account"] for c in self.calls if c[0].endswith("/search")}
         self.assertEqual(searched, {"99998", "99999"})
 
+    def test_the_period_picker_from_date_is_honored(self):
+        """`?from=` used to be dropped (no Query alias), so a period that ended
+        more than a year ago failed as "from after to"."""
+        _as(VIEWER)
+        r = self.client.get("/accounting/ask/items?from=2024-01-01&to=2024-12-31")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.client.get("/accounting/ask/items?from=2026-12-31&to=2026-01-01").status_code, 400)
+
     def test_editor_picks_the_accounts(self):
         _as(VIEWER)
         self.assertEqual(self.client.put("/accounting/ask/settings", json={"accounts": ["61000"]}).status_code, 403)
