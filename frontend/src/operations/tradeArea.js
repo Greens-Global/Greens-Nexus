@@ -12,10 +12,19 @@ export const MILES_PER_DEG_LAT = 69.05;
 export function decodePoints(data) {
   const cols = data?.pointCols || [];
   const at = Object.fromEntries(cols.map((c, i) => [c, i]));
-  return (data?.points || []).map((r) => ({
-    lat: r[at.lat], lng: r[at.lng], fi: r[at.facility], zip: !!r[at.zip], kind: r[at.kind], tenure: r[at.tenure],
-    band: r[at.band], count: r[at.count] || 0, rent: r[at.rent] || 0, miles: r[at.miles], closer: r[at.closer],
-  }));
+  // A group under 3 customers carries no rent (privacy); its rent is
+  // estimated from its band's median, shared by a quarter of all customers.
+  const bandMedian = Object.fromEntries((data?.rentBands || []).map((b) => [b.band, b.median]));
+  return (data?.points || []).map((r) => {
+    const count = r[at.count] || 0;
+    const exact = r[at.rent];
+    const med = bandMedian[r[at.band]];
+    return {
+      lat: r[at.lat], lng: r[at.lng], fi: r[at.facility], zip: !!r[at.zip], kind: r[at.kind], tenure: r[at.tenure],
+      band: r[at.band], count, rent: exact ?? null, miles: r[at.miles], closer: r[at.closer],
+      rentEst: exact != null ? exact : (med != null ? med * count : null), rentIsEst: exact == null,
+    };
+  });
 }
 
 // ── Color By ──────────────────────────────────────────────────────────────────
@@ -73,17 +82,18 @@ export function legendFor(colorBy, points, rentBands = []) {
 
 // ── Hover summary (no personal data: sums over groups) ────────────────────────
 export function summarize(points) {
-  let n = 0; let rent = 0; let rentN = 0; let milesSum = 0; let milesN = 0; let fresh = 0; let vehicle = 0; let approx = 0;
+  let n = 0; let rent = 0; let rentN = 0; let est = false; let milesSum = 0; let milesN = 0; let fresh = 0; let vehicle = 0; let approx = 0;
   for (const p of points) {
     n += p.count;
-    // A group under 3 customers carries no rent (privacy) - it is left out of the average.
-    if (p.rent != null) { rent += p.rent; rentN += p.count; }
+    // Exact rent for groups of 3+, the band median for smaller ones (est.).
+    const r = p.rentEst !== undefined ? p.rentEst : p.rent;
+    if (r != null) { rent += r; rentN += p.count; if (p.rentIsEst) est = true; }
     if (p.miles != null) { milesSum += p.miles * p.count; milesN += p.count; }
     if (p.tenure === 0) fresh += p.count;
     if (p.kind === 1) vehicle += p.count;
     if (p.zip) approx += p.count;
   }
-  return { count: n, avgRent: rentN ? rent / rentN : null, avgMiles: milesN ? milesSum / milesN : null, new90: fresh,
+  return { count: n, avgRent: rentN && n >= 3 ? rent / rentN : null, rentEst: est, avgMiles: milesN ? milesSum / milesN : null, new90: fresh,
     vehicle, storage: n - vehicle, approx };
 }
 
@@ -92,7 +102,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 /** Tooltip HTML for a dot / hex / cluster. Numbers only, plus fixed words. */
 export function summaryHtml(s, title) {
   const rows = [
-    ['Average Rent', s.avgRent == null ? 'Fewer than 3 customers' : `${money(s.avgRent)}/mo`],
+    [s.rentEst ? 'Average Rent (Est.)' : 'Average Rent', s.avgRent == null ? 'Fewer than 3 customers' : `${money(s.avgRent)}/mo`],
     ['Average Distance', milesText(s.avgMiles)],
     ['New in Last 90 Days', count(s.new90)],
     ['Self-Storage / Vehicle', `${count(s.storage)} / ${count(s.vehicle)}`],

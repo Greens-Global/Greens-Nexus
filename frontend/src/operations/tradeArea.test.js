@@ -13,8 +13,14 @@ const pt = (lat, lng, count, miles, extra = {}) => ({ lat, lng, fi: 1, zip: fals
 describe('tradeArea', () => {
   it('decodes the compact rows', () => {
     const [p] = decodePoints({ pointCols: COLS, points: [[33.51, -117.15, 1, 1, 1, 0, 3, 2, 400, 0.7, 0]] });
-    expect(p).toEqual({ lat: 33.51, lng: -117.15, fi: 1, zip: true, kind: 1, tenure: 0, band: 3, count: 2, rent: 400, miles: 0.7, closer: 0 });
+    expect(p).toEqual({ lat: 33.51, lng: -117.15, fi: 1, zip: true, kind: 1, tenure: 0, band: 3, count: 2, rent: 400, miles: 0.7, closer: 0,
+      rentEst: 400, rentIsEst: false });
     expect(decodePoints(null)).toEqual([]);
+    // A small group's hidden rent stays null - never $0 - and is estimated from its band's median.
+    const [q] = decodePoints({ pointCols: COLS, rentBands: [{ band: 3, median: 250 }], points: [[33.5, -117.1, 1, 0, 0, 2, 3, 2, null, 3, null]] });
+    expect(q.rent).toBeNull();
+    expect(q.rentEst).toBe(500);
+    expect(q.rentIsEst).toBe(true);
   });
 
   it('weighted percentile is nearest-rank over customers, not groups', () => {
@@ -62,7 +68,14 @@ describe('tradeArea', () => {
 
   it('summarizes a hover with no personal data', () => {
     const s = summarize([pt(1, 1, 2, 3), pt(1, 1, 1, 6, { tenure: 0, kind: 1, zip: true })]);
-    expect(s).toEqual({ count: 3, avgRent: 100, avgMiles: 4, new90: 1, vehicle: 1, storage: 2, approx: 1 });
+    expect(s).toEqual({ count: 3, avgRent: 100, rentEst: false, avgMiles: 4, new90: 1, vehicle: 1, storage: 2, approx: 1 });
+    // Small groups' band-median estimates count toward the average, marked (Est.); under 3 customers shows none.
+    const e = summarize([{ count: 2, rent: null, rentEst: 400, rentIsEst: true, miles: 1, tenure: 2, kind: 0, zip: 0 },
+      { count: 3, rent: 300, rentEst: 300, rentIsEst: false, miles: 1, tenure: 2, kind: 0, zip: 0 }]);
+    expect(e.avgRent).toBe(140);
+    expect(e.rentEst).toBe(true);
+    expect(summaryHtml(e)).toMatch(/Average Rent \(Est\.\)/);
+    expect(summarize([{ count: 2, rent: null, rentEst: 400, rentIsEst: true, miles: 1, tenure: 2, kind: 0, zip: 0 }]).avgRent).toBeNull();
     // A group under 3 customers carries no rent: left out of the average, and alone it shows none.
     expect(summarize([{ count: 1, rent: null, miles: 2, tenure: 2, kind: 0, zip: 0 }]).avgRent).toBeNull();
     expect(summarize([{ count: 1, rent: null, miles: 2, tenure: 2, kind: 0, zip: 0 }, { count: 3, rent: 300, miles: 2, tenure: 2, kind: 0, zip: 0 }]).avgRent).toBe(100);

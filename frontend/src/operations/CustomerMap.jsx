@@ -126,7 +126,7 @@ function MapCanvas({ data, points, view, colorBy, rings, showCompetitors, fitKey
     const bounds = tradeBounds(points, data.facilities, data.greens);
     if (!bounds) return;
     fitted.current = want;
-    try { map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 }); } catch { /* one point is fine */ }
+    try { map.fitBounds(bounds, { padding: [56, 56], maxZoom: 14 }); } catch { /* one point is fine */ }
   }, [points, data, fitKey, resetTick]);
 
   useEffect(() => {
@@ -236,7 +236,7 @@ function StatsPanel({ data, onShowOverlap }) {
               <div><span>50% Within</span><b>{miles(r['50'])}</b></div>
               <div><span>90% Within</span><b>{miles(r['90'])}</b></div>
               <div><span>Median Distance</span><b>{miles(st.median)}</b></div>
-              <div><span>Average Distance</span><b>{miles(st.mean)}</b></div>
+              <div><span>Average (Within 50 Mi)</span><b>{miles(st.mean)}</b></div>
             </div>
             <div className="cm-sub">Distance Distribution</div>
             <DistanceChart buckets={st.buckets || []} total={total} />

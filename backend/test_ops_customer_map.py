@@ -236,7 +236,8 @@ def test_trade_stats_on_a_known_set():
     s = geo.trade_stats(d)
     # Nearest rank: 50% -> 5th value, 80% -> 8th, 90% -> 9th.
     assert s["radii"] == {"50": 2.5, "80": 6.0, "90": 20.0}
-    assert s["median"] == 2.75 and s["mean"] == 12.05
+    assert s["median"] == 2.75 and s["meanAll"] == 12.05
+    assert s["mean"] == 4.5                      # the average leaves out the one 50+ mile customer (Oct 22)
     assert [(b["min"], b["max"], b["count"]) for b in s["buckets"]] == [
         (0, 1, 2), (1, 2, 2), (2, 3, 2), (3, 5, 1), (5, 10, 1), (10, 50, 1), (50, None, 1)]
     assert sum(b["count"] for b in s["buckets"]) == len(d)
