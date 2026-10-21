@@ -73,6 +73,24 @@ class ActionCountsCase(unittest.TestCase):
         self.assertEqual(res.status_code, 200, res.text)
         return res.json()["counts"]
 
+    def test_an_exempt_persons_stale_sent_back_sheet_is_not_a_count(self):
+        # A review row of the person's OWN sheet left in "with_employee" from
+        # before they became time-tracking exempt counted as a "1" on a Time
+        # Sheet tab that lists nothing (Neil, Oct 21 2026).
+        for m in (models.TimesheetReview, models.NexusGroupMember, models.NexusGroup):
+            self.db.query(m).delete()
+        self.db.add(models.TimesheetReview(id="r1", employee_email=MGR, period_start="2026-09-20", period_end="2026-10-03",
+                                           status="with_employee", manager_email=""))
+        self.db.commit()
+        self.assertEqual(self._counts(MGR).get("myhr", {}).get("timesheet", 0), 1)   # tracked: it is theirs to fix
+        self.db.add(models.NexusGroup(id="g-exec", name="Executives", time_tracking_exempt=1))
+        self.db.add(models.NexusGroupMember(group_id="g-exec", email=MGR))
+        self.db.commit()
+        self.assertEqual(self._counts(MGR).get("myhr", {}).get("timesheet", 0), 0)   # exempt: no sheet, no count
+        for m in (models.TimesheetReview, models.NexusGroupMember, models.NexusGroup):
+            self.db.query(m).delete()
+        self.db.commit()
+
     def test_nothing_waiting_is_an_empty_map(self):
         self.assertEqual(self._counts(EMP), {})
 

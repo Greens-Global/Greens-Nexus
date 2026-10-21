@@ -30,7 +30,7 @@ import { formatDistance, formatAccuracy } from '../lib/distance';
 import { LeaveBalanceCard, RequestBalanceHint, useMyLeaveBalance } from '../components/LeaveBalances';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
-import { useActionCounts, withBadges, tabCount } from '../lib/useActionCounts';
+import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import DocumentsToSign from '../components/DocumentsToSign';
 import DelegateApprovalsCard from '../components/DelegateApprovals';
 
@@ -1331,8 +1331,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       <ModuleTabs
         tabs={withBadges((exempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
-             time off is the only surface that applies. */
-          ? ['overview', ...(toReview > 0 || tabCount(counts, 'myhr', 'timesheet') > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
+             time off is the only surface that applies. The tab appears only
+             for what the tab itself lists (reviews and signatures waiting on
+             a reviewing manager) - never for the badge count alone, which
+             once surfaced a stale "sent back" row of an exempt person's own
+             old time sheet as a "1" over an empty tab (Neil, Oct 21 2026). */
+          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
           : ['overview', 'timesheet', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
