@@ -73,12 +73,12 @@ export function typeIcon(asset) {
 // Type -> short generic fallback description, used by typeLabel() when nothing more specific
 // (an explicit `type`, or a Proposed/Current Use snapshot value) is available.
 const TYPE_FALLBACK_DESC = {
-  'Self-Storage': 'Self-storage facility',
-  'Vehicle Storage': 'Vehicle storage facility',
-  Retail: 'Retail building',
-  'Office / Medical': 'Office building',
+  'Self-Storage': 'Self-Storage Facility',
+  'Vehicle Storage': 'Vehicle Storage Facility',
+  Retail: 'Retail Building',
+  'Office / Medical': 'Office Building',
   Residential: 'Residential',
-  'Mixed-Use': 'Mixed-use',
+  'Mixed-Use': 'Mixed-Use',
   Land: 'Land',
   Other: '',
 };
@@ -121,6 +121,15 @@ const stat = (v, l) => ({ v, l });
  * make/model/trim/color, etc). Falls back to a generic Acres/NRSF/Stories/Built grid for
  * anything unmatched.
  */
+/** The tile's leading stat for a stage, from GET /property-assets/metrics, or null. */
+export function stageMetric(stage, metric) {
+  if (!metric) return null;
+  const base = String(stage || '').split(/\s+-\s+/)[0].trim();
+  if ((base === 'Lease-Up' || base === 'Stabilized') && typeof metric.occupancy === 'number') return stat(Math.round(metric.occupancy * 100) + '%', 'Occupied');
+  if (base === 'Construction' && typeof metric.percentComplete === 'number') return stat(Math.round(metric.percentComplete) + '%', 'Complete');
+  return null;
+}
+
 export function tileStats(asset) {
   // Lot size shows in the unit it was ENTERED in - no silent SF→acres
   // conversion on cards (Jul 24: "83,043 SF" was rendering as converted

@@ -861,6 +861,10 @@ export const api = {
   getPropertyWorkspaceTs: ()  => req("/property-assets/workspace/ts"),
   savePropertyWorkspace: (ws) => req("/property-assets/workspace", { method: "PUT", body: JSON.stringify(ws), timeoutMs: 60_000 }),
   scanPropertyReminders: ()   => req("/property-assets/reminders/scan", { method: "POST" }),
+  // Row saves (Oct 21 2026): { properties: {upsert, delete}, <collection>: {...}, logs: {append} } -> { _ts, conflicts }.
+  saveAssetChanges:      (ops) => req("/property-assets/changes", { method: "POST", body: JSON.stringify(ops), timeoutMs: 60_000 }),
+  // Per-asset tile numbers: { id: { occupancy, units, percentComplete } } for the assets the caller may see.
+  getAssetMetrics:       ()    => req("/property-assets/metrics"),
 
   // Users
   getUsers: () => req("/users"),

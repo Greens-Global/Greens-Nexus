@@ -59,7 +59,6 @@ export function AssemblageParcels({ lead, all, onOpen }) {
           style={{
             fontSize: '1rem',
             fontWeight: 800,
-            fontFamily: "'Plus Jakarta Sans', sans-serif",
             color: 'var(--text-primary)',
           }}
         >
@@ -80,11 +79,11 @@ export function AssemblageParcels({ lead, all, onOpen }) {
                   key={i}
                   style={{
                     textAlign: 'left',
-                    fontSize: '0.6rem',
+                    fontSize: '0.68rem',
                     fontWeight: 700,
                     textTransform: 'uppercase',
                     letterSpacing: '0.04em',
-                    color: 'var(--text-muted)',
+                    color: 'var(--text-secondary)',
                     padding: '8px 14px',
                     backgroundColor: 'var(--bg-secondary)',
                     whiteSpace: 'nowrap',
@@ -119,7 +118,7 @@ export function AssemblageParcels({ lead, all, onOpen }) {
                       <span
                         style={{
                           marginLeft: 6,
-                          fontSize: '0.58rem',
+                          fontSize: '0.68rem',
                           fontWeight: 700,
                           letterSpacing: '0.03em',
                           color: 'hsl(var(--color-purple))',

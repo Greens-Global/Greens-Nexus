@@ -13,6 +13,19 @@ import { formatDate, formatMoney, formatNumber, daysUntil } from './format.js';
 import { StatusBadge, expirationStatus, dueDateStatus, renewalCellFromDate } from '../components/shared/StatusBadge.jsx';
 
 const byDateDesc = (a, b) => String(b.date || '').localeCompare(String(a.date || ''));
+
+// A warranty with no scope or no expiration cannot be tracked - say which is missing.
+function warrantyMissing(r) {
+  const gaps = [!String(r.scope || '').trim() && 'scope', !String(r.expiration || '').trim() && 'expiration'].filter(Boolean);
+  return gaps.length ? 'Missing ' + gaps.join(' and ') : '';
+}
+// A cost typed as a bare number shows as money, like the summary strip does.
+function costText(v) {
+  const t = String(v ?? '').trim();
+  if (!t) return '-';
+  const n = Number(t.replace(/[$,\s]/g, ''));
+  return Number.isFinite(n) && /^[$]?\s*[\d,]+(\.\d+)?$/.test(t) ? formatMoney(n) : t;
+}
 const totalSpend = (rows) => rows.reduce((sum, r) => {
   const n = parseFloat(String(r.cost || '').replace(/[^0-9.]/g, ''));
   return sum + (isFinite(n) ? n : 0);
@@ -38,7 +51,7 @@ export const RECORD_TYPES = {
       { k: 'cost', label: 'Cost' },
       { k: 'status', label: 'Status', type: 'select', options: ['Completed', 'Scheduled', 'In Progress', 'Needs Attention'] },
       { k: 'nextDue', label: 'Next Service Due', type: 'date' },
-      { k: 'docFile', label: 'Invoice / Report (Upload)', type: 'file', nameKey: 'docFileName', full: true },
+      { k: 'docFile', label: 'Invoice / Report', type: 'file', nameKey: 'docFileName', full: true },
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
     // Quick-add config (single-input fast entry bar): the field it fills, extra defaults, placeholder + button text.
@@ -47,7 +60,7 @@ export const RECORD_TYPES = {
       { label: 'Date', mono: (r) => r.date ? formatDate(r.date) : '-' },
       { label: 'Work', main: (r) => r.system || r.description || '-', sub: (r) => r.system ? (r.description || r.vendor) : r.vendor },
       { label: 'Vendor', plain: (r) => r.vendor || '-' },
-      { label: 'Cost', plain: (r) => r.cost || '-' },
+      { label: 'Cost', plain: (r) => costText(r.cost) },
       { label: 'Status', chip: (r) => statusChip(r.status) },
       { label: 'Next Due', mono: (r) => r.nextDue ? formatDate(r.nextDue) : '-' },
       { label: 'Doc', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : '-') },
@@ -74,7 +87,7 @@ export const RECORD_TYPES = {
       { k: 'vendor', label: 'Shop / Vendor' },
       { k: 'cost', label: 'Cost' },
       { k: 'nextDue', label: 'Next Service Due', type: 'date' },
-      { k: 'docFile', label: 'Invoice / Receipt (Upload)', type: 'file', nameKey: 'docFileName', full: true },
+      { k: 'docFile', label: 'Invoice / Receipt', type: 'file', nameKey: 'docFileName', full: true },
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
     quickAdd: { k: 'type', extra: {}, placeholder: 'Quick add a service - e.g. Oil change, brake job', button: 'Add Service' },
@@ -86,7 +99,7 @@ export const RECORD_TYPES = {
           return [r.vendor, truncated].filter(Boolean).join(' - ');
         } },
       { label: 'Odometer', plain: (r) => r.mileage ? formatNumber(r.mileage) + ' mi' : '-' },
-      { label: 'Cost', plain: (r) => r.cost || '-' },
+      { label: 'Cost', plain: (r) => costText(r.cost) },
       { label: 'Next Due', mono: (r) => r.nextDue ? formatDate(r.nextDue) : '-' },
       { label: 'Doc', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : '-') },
     ],
@@ -132,8 +145,8 @@ export const RECORD_TYPES = {
       { k: 'egnyteDest', label: 'Egnyte Destination', type: 'select', options: ['Registration & Title', 'Insurance', 'Purchase / Financing', 'Service & Maintenance', 'Warranty', 'Other'] },
       { k: 'title', label: 'Title', req: true },
       { k: 'dateOf', label: 'Document Date', type: 'date' },
-      { k: 'location', label: 'Location (Egnyte Path)', full: true },
-      { k: 'docFile', label: 'File (Upload)', type: 'file', nameKey: 'docFileName', full: true },
+      { k: 'location', label: 'Egnyte Path', full: true },
+      { k: 'docFile', label: 'File', type: 'file', nameKey: 'docFileName', full: true },
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
     cols: [
@@ -158,24 +171,27 @@ export const RECORD_TYPES = {
       { k: 'email', label: 'Contact Email' },
       { k: 'startDate', label: 'Start Date', type: 'date' },
       { k: 'expiration', label: 'Expiration', type: 'date', req: true },
-      { k: 'termMonths', label: 'Term (Months, Auto)', type: 'number', readOnly: true },
-      { k: 'docRef', label: 'Document Location (Egnyte Path)', full: true },
-      { k: 'docFile', label: 'Warranty Document (Upload)', type: 'file', nameKey: 'docFileName', full: true },
+      { k: 'termMonths', label: 'Term (months) - calculated', type: 'number', readOnly: true },
+      { k: 'docRef', label: 'Egnyte Path', full: true },
+      { k: 'docFile', label: 'Warranty Document', type: 'file', nameKey: 'docFileName', full: true },
       { k: 'coverage', label: 'Coverage Summary', type: 'textarea', full: true, req: true },
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
     // termMonths is auto-derived from startDate/expiration on save - see ../lib/warrantyTerm.js
+    // An undated or unscoped warranty is "incomplete": its row says what is missing
+    // instead of a row of dashes, and the summary counts it in its own bucket.
     cols: [
-      { label: 'Scope', main: (r) => r.scope, sub: (r) => r.kind },
-      { label: 'Party', main: (r) => r.party, sub: (r) => [r.contactName, r.phone].filter(Boolean).join(' · ') },
-      { label: 'Expires', mono: (r) => formatDate(r.expiration) },
-      { label: 'Status', chip: (r) => expirationStatus(daysUntil(r.expiration)) },
+      { label: 'Scope', main: (r) => r.scope || (r.party ? r.party : 'Incomplete warranty'), sub: (r) => (r.scope ? r.kind : warrantyMissing(r)) },
+      { label: 'Party', main: (r) => r.party || '-', sub: (r) => [r.contactName, r.phone].filter(Boolean).join(' · ') },
+      { label: 'Expires', mono: (r) => (r.expiration ? formatDate(r.expiration) : '') },
+      { label: 'Status', chip: (r) => (r.expiration ? expirationStatus(daysUntil(r.expiration)) : <StatusBadge tone="mut">Incomplete</StatusBadge>) },
     ],
     sort: (a, b) => (a.expiration || '9999') < (b.expiration || '9999') ? -1 : 1,
     summary: (rows) => [
       ['Active', rows.filter((r) => daysUntil(r.expiration) > 90).length],
-      ['Expiring ≤ 90d', rows.filter((r) => { const d = daysUntil(r.expiration); return d != null && d >= 0 && d <= 90; }).length],
+      ['Expiring in 90d', rows.filter((r) => { const d = daysUntil(r.expiration); return d != null && d >= 0 && d <= 90; }).length],
       ['Expired', rows.filter((r) => daysUntil(r.expiration) != null && daysUntil(r.expiration) < 0).length],
+      ['Incomplete', rows.filter((r) => warrantyMissing(r)).length],
     ],
   },
 
@@ -195,7 +211,7 @@ export const RECORD_TYPES = {
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
     cols: [
-      { label: 'Inspection', main: (r) => r.type, sub: (r) => r.frequency + (r.ahjRequired === 'Yes' ? ' · AHJ required' : '') },
+      { label: 'Inspection', main: (r) => r.type, sub: (r) => [r.frequency, r.ahjRequired === 'Yes' && 'AHJ required'].filter(Boolean).join(' · ') },
       { label: 'Vendor', main: (r) => r.vendor || '-', sub: (r) => r.vendorPhone || '' },
       { label: 'Last', mono: (r) => formatDate(r.lastCompleted) },
       { label: 'Next Due', mono: (r) => formatDate(r.nextDue) },
@@ -204,7 +220,7 @@ export const RECORD_TYPES = {
     sort: (a, b) => (a.nextDue || '9999') < (b.nextDue || '9999') ? -1 : 1,
     summary: (rows) => [
       ['Overdue', rows.filter((r) => daysUntil(r.nextDue) != null && daysUntil(r.nextDue) < 0).length],
-      ['Due ≤ 30d', rows.filter((r) => { const d = daysUntil(r.nextDue); return d != null && d >= 0 && d <= 30; }).length],
+      ['Due in 30d', rows.filter((r) => { const d = daysUntil(r.nextDue); return d != null && d >= 0 && d <= 30; }).length],
       ['Current', rows.filter((r) => daysUntil(r.nextDue) == null || daysUntil(r.nextDue) > 30).length],
     ],
   },
@@ -219,8 +235,8 @@ export const RECORD_TYPES = {
       { k: 'title', label: 'Title', req: true },
       { k: 'dateOf', label: 'Document Date', type: 'date' },
       { k: 'version', label: 'Version / Set' },
-      { k: 'location', label: 'Location (Egnyte Path)', full: true },
-      { k: 'docFile', label: 'File (Upload)', type: 'file', nameKey: 'docFileName', full: true },
+      { k: 'location', label: 'Egnyte Path', full: true },
+      { k: 'docFile', label: 'File', type: 'file', nameKey: 'docFileName', full: true },
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
     cols: [
@@ -277,7 +293,7 @@ export const RECORD_TYPES = {
       { label: 'Account #', mono: (r) => r.accountNumber || '-' },
       { label: 'Meter', mono: (r) => r.meterNumber || '-' },
       { label: 'Autopay', plain: (r) => r.autopay || '-' },
-      { label: 'Avg / mo', mono: (r) => formatMoney(r.avgMonthly) },
+      { label: 'Avg / Mo', mono: (r) => formatMoney(r.avgMonthly) },
     ],
     sort: (a, b) => (a.service || '') < (b.service || '') ? -1 : 1,
   },
@@ -301,7 +317,7 @@ export const RECORD_TYPES = {
     cols: [
       { label: 'Vendor', main: (r) => r.company, sub: (r) => r.category },
       { label: 'Contact', main: (r) => r.contactName || '-', sub: (r) => [r.phone, r.email].filter(Boolean).join(' · ') },
-      { label: 'Contract', mono: (r) => formatDate(r.contractStart) + ' → ' + formatDate(r.contractEnd) },
+      { label: 'Contract', mono: (r) => formatDate(r.contractStart) + ' - ' + formatDate(r.contractEnd) },
       { label: 'COI', chip: (r) => r.coiExpiration ? renewalCellFromDate(r.coiExpiration) : <StatusBadge tone="red">Missing</StatusBadge> },
       { label: '$ / mo', mono: (r) => formatMoney(r.monthlyCost) },
     ],

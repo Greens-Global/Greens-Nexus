@@ -48,7 +48,32 @@ export function useDialogFocus(panelRef) {
   }, [panelRef]);
 }
 
-// onKeyDown for the panel: keeps Tab inside it.
+// Home / End inside a text field of a dialog move ITS caret and nothing else.
+// Chromium also scrolls the field's nearest scroll container (the dialog body,
+// .nx-scroll, smooth) on those keys, so the page behind jumped and the caret
+// was left where it was (Neil, Oct 21 2026: renaming a project). The field is
+// moved by hand and the default - the scroll - is cancelled. Textareas keep
+// the browser's own line-based Home / End.
+const TEXT_TYPES = new Set(['', 'text', 'search', 'url', 'tel', 'password']);
+export function fieldHomeEnd(e) {
+  if ((e.key !== 'Home' && e.key !== 'End') || e.ctrlKey || e.metaKey || e.altKey) return;
+  const el = e.target;
+  if (!el || el.tagName !== 'INPUT' || !TEXT_TYPES.has(el.type || '') || typeof el.setSelectionRange !== 'function') return;
+  const len = (el.value || '').length;
+  try {
+    if (e.key === 'Home') el.setSelectionRange(0, e.shiftKey ? (el.selectionEnd ?? 0) : 0, 'backward');
+    else el.setSelectionRange(e.shiftKey ? (el.selectionStart ?? len) : len, len, 'forward');
+  } catch { return; }   // a type that has no selection: leave the browser to it
+  e.preventDefault();
+}
+
+// onKeyDown for the panel: Home / End stay in their field, Tab stays inside the panel.
+export function dialogKeyDown(e) {
+  fieldHomeEnd(e);
+  trapTab(e);
+}
+
+// Keeps Tab inside the panel.
 export function trapTab(e) {
   if (e.key !== 'Tab') return;
   const panel = e.currentTarget;

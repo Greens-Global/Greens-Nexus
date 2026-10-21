@@ -8,7 +8,7 @@ import { NX, FONT, btn } from './theme';
 import { useVisualViewport } from '../lib/useVisualViewport';
 import { useIsMobile } from '../lib/useIsMobile';
 import { useScrollLock } from '../lib/useScrollLock';
-import { useDialogFocus, trapTab } from '../lib/useDialogFocus';
+import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
 import { useBackToClose } from '../lib/useBackToClose';
 import { isBypassing, confirmDiscard } from '../lib/dialogGuard';
 
@@ -59,7 +59,7 @@ export function BottomSheet({ title, onClose, onBack, children }) {
     }}>
       {/* role="dialog" on the panel; .nx-sheet keeps style.css's generic
           phone bottom-sheet rules off it - this one is shaped here. */}
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trapTab}
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={dialogKeyDown}
         className="nx-sheet" onClick={(e) => e.stopPropagation()} style={{
         background: NX.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18,
         // A share of the VISIBLE height, so with the keyboard up the sheet

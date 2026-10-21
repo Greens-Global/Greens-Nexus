@@ -1,58 +1,36 @@
-// Cross-device sync for Nexus state, talking to the dev-server-hosted `/api/state` endpoint.
+// Asset Management sync: a queue of ROW saves and a background pull.
 //
-// PROTOTYPE-GRADE WARNING: the backend behind `/api/state` (see `nexusSyncPlugin()` in
-// vite.config.js) is a single JSON file on the machine running the dev server (nexus-data.json).
-// The desktop running that dev server is the master copy; every device (phone, laptop, etc.)
-// reads and writes the SAME file through the tunnel. There is no per-field merge, no operational
-// transform, no multi-writer CRDT - conflicts are resolved with a blunt rule, applied on both
-// the server (vite.config.js) and the client (`pickBest` below):
+// Until Oct 2026 every edit re-sent the whole portfolio (PUT /workspace) and a
+// stale tab's "merge" overwrote colleagues' rows. Now useNexusStore diffs the
+// store before and after each change (lib/diff.js) and queues only the rows
+// that changed; flush() POSTs them to /property-assets/changes, where each row
+// is written on its own and a row the server changed since this tab read it
+// comes back in `conflicts` (the tab re-pulls and says so). An edit that has
+// not reached the server yet makes the browser ask before the tab closes.
 //
-//     more log entries wins; if log counts are tied, the newer `_ts` (write timestamp) wins.
-//
-// "Logs" here means the app's activity/audit log array (`store.logs`), used as a cheap proxy for
-// "how much has happened in this copy of the data" - more logged activity is assumed to mean a
-// more historically-complete snapshot, so it's preferred over a same-or-later-but-thinner one.
-// This is a genuinely lossy strategy: if two devices edit different, unrelated fields offline at
-// the same time, ONE of those edits silently loses. It is good enough for "one small team, rare
-// simultaneous edits, desktop is home base" - it is not a real sync protocol. Do not build on
-// this assuming stronger guarantees; see README-HANDOFF.md.
-//
-// This module owns:
-//   - serverGet / serverPut: the raw HTTP calls to /api/state.
-//   - a pending-write queue with retry/backoff (__nexusFlush), so a failed POST (e.g. tunnel
-//     hiccup) doesn't silently drop an edit - it keeps retrying with exponential backoff.
-//   - pickBest: the same "most logs, then newest timestamp" rule, applied client-side when
-//     reconciling localStorage / IndexedDB / server copies on load.
-//   - wiring helpers for the flush-on-hide / pull-on-visible / retry-on-online lifecycle that
-//     the app's root component drives from React effects.
-
-// Usage pattern (matches the original app's three root-level React effects - this module is
-// deliberately framework-agnostic, so the calling component owns the useEffect wiring):
-//
-//   1. On mount, hydrate once: read localStorage + idbGet(KEY) + serverGet() in parallel. The
-//      SERVER copy wins whenever the GET succeeds (it's the shared multi-user source of truth,
-//      stamped server-side with _ts); pickBest([local, idb]) is only the offline fallback, and
-//      the fallback is never pushed back to the server. (The old "most logs wins across all
-//      three, push the winner back" rule let a stale device both hide and clobber newer server
-//      data - see useNexusStore.js.)
-//   2. On every state change (debounced), once isHydrated() is true: queueWrite(state) - this
-//      also mirrors the write to localStorage/idbSet at the call site (sync.js only owns the
-//      SERVER side of persistence; local persistence is idb.js + localStorage directly).
-//   3. Once on mount: wireBackgroundSync(onServerNewer) to start the poll/flush/listener
-//      lifecycle; call the returned cleanup function on unmount.
-//
-// See src/main.jsx (or wherever the root data-store component lands) for the concrete wiring.
-
-// NEXUS INTEGRATION: the prototype talked to the vite dev server's /api/state file store.
-// Inside the Nexus platform the whole workspace lives in Supabase behind the authenticated
-// FastAPI endpoint GET/PUT /property-assets/workspace - same {properties, ...collections, logs}
-// shape - so serverGet/serverPut below delegate to Nexus's api.js (which attaches the MSAL
-// Bearer token). Everything else in this file (queue/debounce/backoff/background poll) is
-// unchanged.
+//   - serverGet / serverTs: the pull side (unchanged).
+//   - queueOps(ops) / flush(): the save side.
+//   - wireBackgroundSync(onServerNewer): poll, flush on hide/online, unload warning.
 import { api } from '../../api.js';
 
 /** localStorage / IndexedDB key the app's full state blob is stored under (both tiers use the same key). */
 export const STORAGE_KEY = 'nexus_asset_neil_v2';
+// The cache is per person: on a shared machine another account's portfolio
+// (private assets included) must not be the first paint.
+let storageUser = '';
+export function setStorageUser(email) { storageUser = String(email || '').trim().toLowerCase(); }
+export function storageKey() { return storageUser ? `${STORAGE_KEY}:${storageUser}` : STORAGE_KEY; }
+// A row the server did not take - someone else's version won, or the batch
+// was refused - keeps the tab's own version here (newest first, 50 at most)
+// so nothing typed is simply gone.
+export const CONFLICTS_KEY = 'nexus_asset_conflicts';
+function keepConflicts(rows) {
+  if (!rows.length || typeof sessionStorage === 'undefined') return;
+  try {
+    const cur = JSON.parse(sessionStorage.getItem(CONFLICTS_KEY) || '[]');
+    sessionStorage.setItem(CONFLICTS_KEY, JSON.stringify([...rows.map((r) => ({ at: Date.now(), row: r })), ...cur].slice(0, 50)));
+  } catch { /* best-effort */ }
+}
 
 /** GET the server's current state. Resolves to `null` on any failure or empty workspace - never rejects. */
 export function serverGet() {
@@ -68,64 +46,6 @@ export function serverTs() {
   return api.getPropertyWorkspaceTs()
     .then((r) => (r && typeof r._ts === 'number' ? r._ts : null))
     .catch(() => null);
-}
-
-/**
- * PUT a JSON-stringified state blob to Nexus. Resolves to { status, ts }: status is an HTTP-like
- * code the queue uses to decide retries (200 = accepted, 0 = request failed → transient, retried
- * with backoff), and ts is the SERVER-stamped epoch-ms freshness marker of the accepted write -
- * the flush path records it as lastTs so the pull loop doesn't re-download our own write.
- */
-export function serverPut(json) {
-  let ws;
-  try { ws = JSON.parse(json); } catch { return Promise.resolve({ status: 200, ts: 0 }); }
-  return api.savePropertyWorkspace(ws)
-    .then((r) => ({ status: 200, ts: (r && r._ts) || 0 }))
-    // Preserve the REAL HTTP status so flush() can tell apart:
-    //   - 409 'stale' (someone saved since we pulled): recoverable - flush pulls,
-    //     merges by id and retries, so neither side's work is dropped.
-    //   - 409 other (e.g. the empty-over-populated wipe guard): definitive-benign
-    //     - drop the write, the next pull re-syncs.
-    //   - other 4xx (403 no write grant, 413 too big, 422 bad shape): PERMANENT -
-    //     retrying can never succeed, so drop it and surface a visible error
-    //     instead of silently retrying forever (which lost edits with no warning).
-    //   - 0 (network) or 5xx: transient - keep retrying with backoff.
-    // The old code collapsed every non-409 to 0, so a permanent 4xx looked like a
-    // network blip and was retried in silence until the tab closed and the edit
-    // vanished. Never regress this to `status: 0`.
-    .catch((e) => {
-      const status = (e && typeof e.status === 'number') ? e.status : 0;
-      return {
-        status,
-        ts: 0,
-        stale: !!(status === 409 && /stale/i.test(String(e && e.message || ''))),
-        message: String((e && e.message) || ''),
-      };
-    });
-}
-
-/**
- * Merge a fresher SERVER workspace with this tab's LOCAL one after a stale-write
- * rejection. Union of rows by id per collection: rows only the server has (a
- * colleague's work since we pulled) survive; rows we both have take the LOCAL
- * version (this tab's active edit is the most intentional copy). Known
- * trade-off: a row deleted here while a colleague was editing elsewhere comes
- * back - resurrection is recoverable, silent loss is not.
- */
-const WS_KEYS = ['properties', 'warranties', 'inspections', 'documents', 'ahj', 'utilities',
-  'vendors', 'vservice', 'odometer', 'vdocs', 'maintenance', 'logs'];
-export function mergeWorkspaces(server, local) {
-  if (!local) return server;
-  const out = {};
-  for (const k of WS_KEYS) {
-    const s = Array.isArray(server && server[k]) ? server[k] : [];
-    const l = Array.isArray(local && local[k]) ? local[k] : [];
-    const byId = new Map();
-    for (const row of s) if (row && row.id != null) byId.set(row.id, row);
-    for (const row of l) if (row && row.id != null) byId.set(row.id, row);
-    out[k] = [...byId.values()];
-  }
-  return out;
 }
 
 /**
@@ -153,68 +73,46 @@ export function pickBest(candidates) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Pending-write queue: module-level (not per-component) state, matching the original - there is
-// only ever one Nexus store in the app, so a singleton queue is fine and lets any code path
-// (including page-hide/beacon handlers that can't easily reach into React state) flush it.
+// Pending-save queue (module-level: one store per app, and the page-hide handler needs it).
 // ---------------------------------------------------------------------------------------------
+import { mergeOps, opsEmpty, ROW_COLLECTIONS } from './diff.js';
 
-/** Has the initial local/IndexedDB/server reconcile-on-load completed? Gates the push effect so we never push a value BEFORE we've merged in server state (which would clobber it). */
 export let hydrated = false;
-/** JSON string of the most recent write that still needs to reach the server, or null if nothing is pending. */
+/** Row ops that still have to reach the server (lib/diff.js shape), or null. */
 let pending = null;
-/** Timer handle for the debounced/backoff-scheduled flush. */
 let pushTimer = null;
-/** Consecutive failed-flush count, drives exponential backoff; reset to 0 on a successful (200) or definitively-rejected (409) PUT. */
+let inFlight = false;
 let retryCount = 0;
-/** Whether the soft "not syncing yet" warning has already been surfaced for the current failing streak - so a stuck server warns once, not every 30s retry. Cleared on any successful/definitive PUT. */
 let softNotified = false;
-/** Bookkeeping mirrors of the last state we know the server has, used by the pull loop to decide whether a server poll found something newer. */
+/** The server _ts this tab last saw / wrote - the pull loop compares against it. */
 let lastTs = 0;
 let lastLogCount = 0;
-/** The SERVER _ts this tab's copy derives from - sent with every PUT so the
- * server can reject a stale whole-blob overwrite instead of losing colleagues'
- * work. Advances on hydrate, every adopted pull, and every accepted PUT. */
-let baseTs = 0;
-/** The apply-server-state callback from wireBackgroundSync, kept module-level so
- * the stale-merge path can hand the merged workspace back to the app. */
 let applyServer = null;
+/** A full pull wanted as soon as nothing is pending (a hydrate skipped over an in-flight edit). */
+let pullAfterFlush = false;
+export function pullWhenIdle() { pullAfterFlush = true; }
+/** Hands the store the `_rev` every written row now carries (useNexusStore). */
+let applyRevs = null;
+export function setRevHandler(fn) { applyRevs = fn; }
 
 export function markHydrated() { hydrated = true; }
 export function isHydrated() { return hydrated; }
 export function getLastTs() { return lastTs; }
 export function getLastLogCount() { return lastLogCount; }
-export function setLastKnown(ts, logCount) { lastTs = ts; lastLogCount = logCount; baseTs = ts; }
-export function hasPending() { return !!pending; }
+export function setLastKnown(ts, logCount) { lastTs = ts; lastLogCount = logCount; }
+export function hasPending() { return !opsEmpty(pending) || inFlight; }
 export function getRetryCount() { return retryCount; }
+/** Test seam. */
+export function _resetQueue() { pending = null; inFlight = false; retryCount = 0; softNotified = false; clearTimeout(pushTimer); pushTimer = null; }
 
-/**
- * Queue `stateObj` (already stamped with `_ts`) to be written to the server, debounced by
- * `debounceMs` (the original app uses 1200ms so rapid successive edits coalesce into one PUT).
- * Also updates the lastTs/lastLogCount bookkeeping immediately (optimistic - we know what WE
- * just wrote, independent of whether the network call has completed yet).
- */
-export function queueWrite(stateObj, debounceMs = 1200) {
-  const ts = Date.now();
-  let json;
-  try {
-    json = JSON.stringify({ ...stateObj, _ts: ts, baseTs });
-  } catch (e) {
-    return; // circular/unserializable state - nothing we can do, drop silently like the original
-  }
-  lastTs = ts;
-  lastLogCount = (stateObj.logs && stateObj.logs.length) || 0;
-  pending = json;
+/** Queue row ops (lib/diff.js shape); coalesced for `debounceMs` so a burst of edits is one request. */
+export function queueOps(ops, debounceMs = 800) {
+  if (opsEmpty(ops)) return;
+  pending = mergeOps(pending, ops);
   clearTimeout(pushTimer);
   pushTimer = setTimeout(flush, debounceMs);
 }
 
-/**
- * Surface a save failure to the app and, through it, the user. sync.js is
- * framework-agnostic (no React), so it fires a window event the asset UI listens
- * for to show a banner/toast, and mirrors it to the console. `soft` = the write
- * is still being retried (transient/5xx); a hard failure (4xx) means the write
- * was dropped and will NOT be retried, so the user must redo it.
- */
 function notifySaveFailed(status, message, soft) {
   try {
     if (typeof window !== 'undefined') {
@@ -226,103 +124,97 @@ function notifySaveFailed(status, message, soft) {
   try { console.error('[asset-sync] save failed', { status, message, soft }); } catch { /* noop */ }
 }
 
-/**
- * Attempt to send the pending write now (bypassing the debounce timer). Safe to call
- * unconditionally (e.g. from an interval or an online/visibility handler) - it's a no-op if
- * nothing is pending.
- *
- * Retry/backoff behavior:
- *   - 200 (accepted) or 409 (server has a copy that wins by the pickBest rule - our write is
- *     moot, not an error worth retrying): clear the pending write, reset retry count to 0.
- *   - anything else (network failure -> 0, or a 5xx): treat as transient. Bump retryCount (capped
- *     at 6) and reschedule via exponential backoff: 1.5s, 3s, 6s, 12s, 24s, capped at 30s.
- *
- * Note the "is this write still current" guard: if `pending` has been replaced by a newer write
- * while this PUT was in flight, we don't clear it out from under the newer one.
- */
-export function flush() {
-  if (!pending) return;
-  if (pushTimer) {
-    clearTimeout(pushTimer);
-    pushTimer = null;
-  }
-  const inFlight = pending;
-  serverPut(inFlight).then(({ status, ts, stale, message }) => {
-    if (status === 200) {
-      if (pending === inFlight) pending = null;
-      retryCount = 0;
-      softNotified = false;
-      // Adopt the server's stamp for the write we just landed (even if it's
-      // "behind" our client clock - server time is the only one pulls compare).
-      if (ts) { lastTs = ts; baseTs = ts; }
-    } else if (status === 409 && stale) {
-      // Someone else saved since this tab last pulled. Pull their copy, merge
-      // it with ours (union by id, this tab wins rows it touched) and retry -
-      // the old behavior silently replaced their work with our stale blob.
-      serverGet().then((server) => {
-        if (!server) {
-          retryCount = Math.min((retryCount || 0) + 1, 6);
-          pushTimer = setTimeout(flush, Math.min(1500 * Math.pow(2, retryCount - 1), 30000));
-          return;
-        }
-        let local = null;
-        try { local = JSON.parse(inFlight); } catch { /* keep null */ }
-        const merged = mergeWorkspaces(server, local);
-        baseTs = server._ts || 0;
-        lastLogCount = (merged.logs && merged.logs.length) || 0;
-        const ts2 = Date.now();
-        lastTs = ts2;
-        const json = JSON.stringify({ ...merged, _ts: ts2, baseTs });
-        // Don't clobber a NEWER local write queued while our PUT was in flight -
-        // it will hit the same stale gate and merge on its own turn.
-        if (pending === inFlight) pending = json;
-        // Hand the merged truth back to the app so colleagues' rows appear
-        // in this tab too, not only on the server.
-        if (applyServer) { try { applyServer({ ...merged, _ts: server._ts || 0 }); } catch { /* view update is best-effort */ } }
-        retryCount = 0;
-        pushTimer = setTimeout(flush, 400);
-      });
-    } else if (status === 409) {
-      // Definitive-benign rejection (e.g. the empty-over-populated wipe guard):
-      // drop the write; the next pull re-syncs this tab.
-      if (pending === inFlight) pending = null;
-      retryCount = 0;
-    } else if (status >= 400 && status < 500) {
-      // Permanent client error (403 no write grant, 413 too big, 422 bad shape):
-      // retrying can never succeed. Drop the write so it can't loop forever, and
-      // surface it so the edit doesn't vanish silently - this is the exact class
-      // of failure the old code swallowed as a fake "network blip".
-      if (pending === inFlight) pending = null;
-      retryCount = 0;
-      softNotified = false;
-      notifySaveFailed(status, message, false);
-    } else {
-      // Transient (network -> 0, or 5xx server hiccup): keep retrying with
-      // exponential backoff. Once we've backed off to the cap and still can't
-      // land the write, surface a soft "not syncing yet" warning so a persistently
-      // failing server is never fully silent - but keep retrying so it recovers
-      // on its own when the server comes back.
-      retryCount = Math.min((retryCount || 0) + 1, 6);
-      if (retryCount >= 6 && !softNotified) { softNotified = true; notifySaveFailed(status, message, true); }
-      pushTimer = setTimeout(flush, Math.min(1500 * Math.pow(2, retryCount - 1), 30000));
-    }
-  });
+function notifyConflicts(ids, batch) {
+  const rows = [];
+  for (const coll of ROW_COLLECTIONS) for (const r of (batch && batch[coll] && batch[coll].upsert) || []) if (ids.includes(r.id)) rows.push({ coll, ...r });
+  keepConflicts(rows);
+  try {
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('nexus:asset-save-conflict', { detail: { ids, rows, at: Date.now() } }));
+  } catch { /* best-effort */ }
 }
 
 /**
- * Best-effort synchronous-ish flush for page unload: `fetch` can be cancelled mid-flight when a
- * tab closes, so use `navigator.sendBeacon` instead, which the browser guarantees to complete.
- * Does not update pending/retry state - the beacon fire-and-forgets, we just want the bytes to
- * arrive; a subsequent page load will reconcile via the normal hydrate path regardless.
+ * Send the pending ops now. 200: done (rows the server reports as conflicts are
+ * dropped, the workspace re-pulled and the app told). 4xx: the batch can never
+ * land - drop it and tell the user. Network / 5xx: keep it, retry with backoff;
+ * edits made meanwhile fold into the same batch.
  */
-export function flushBeacon() {
-  if (!pending) return;
-  // The original beaconed the raw JSON to the vite dev server's /api/state. Nexus's workspace
-  // endpoint is MSAL-authenticated, and navigator.sendBeacon can't attach the Bearer token, so
-  // fall back to the normal authenticated flush() - best-effort on pagehide (the periodic poll +
-  // visibilitychange flush cover the common cases; a subsequent load reconciles regardless).
-  flush();
+export function flush() {
+  if (inFlight || opsEmpty(pending)) return;
+  if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+  const batch = pending;
+  pending = null;
+  inFlight = true;
+  api.saveAssetChanges(batch)
+    .then((r) => {
+      inFlight = false;
+      retryCount = 0;
+      softNotified = false;
+      if (r && r._ts) lastTs = r._ts;
+      // Without this the tab's next edit of the same row would carry the rev it
+      // was READ with, and the server would call the tab's own row stale.
+      if (r && r.revs && Object.keys(r.revs).length) {
+        if (applyRevs) { try { applyRevs(r.revs); } catch { /* best-effort */ } }
+        // An edit queued while this save was in flight still holds the rev the row
+        // was read with; it takes the new one or the server would call it stale.
+        if (pending) {
+          for (const coll of ROW_COLLECTIONS) {
+            if (!pending[coll]) continue;
+            pending[coll].upsert = pending[coll].upsert.map((row) => (r.revs[row.id] ? { ...row, _rev: r.revs[row.id] } : row));
+            pending[coll].deleteRevs = pending[coll].deleteRevs || {};
+            for (const id of pending[coll].delete || []) if (r.revs[id]) pending[coll].deleteRevs[id] = r.revs[id];
+          }
+        }
+      }
+      const conflicts = (r && r.conflicts) || [];
+      const trashed = (r && r.trashed) || [];
+      if (conflicts.length) notifyConflicts(conflicts, batch);
+      // A conflict (the server kept someone else's row) or a live asset a Delete
+      // Forever only moved to the Trash: the tab takes the server's copy.
+      if (conflicts.length || trashed.length) pullAfterFlush = true;
+      if (!opsEmpty(pending)) pushTimer = setTimeout(flush, 200);
+      else if (pullAfterFlush) {
+        pullAfterFlush = false;
+        serverGet().then((server) => {
+          if (!server) return;
+          // An edit queued while the GET was out would be painted over by the
+          // older copy; wait for it to land and pull again then.
+          if (hasPending()) { pullAfterFlush = true; return; }
+          lastTs = Math.max(lastTs, server._ts || 0);
+          lastLogCount = (server.logs && server.logs.length) || 0;
+          if (applyServer) { try { applyServer(server); } catch { /* best-effort */ } }
+        });
+      }
+    })
+    .catch((e) => {
+      inFlight = false;
+      const status = (e && typeof e.status === 'number') ? e.status : 0;
+      const message = String((e && e.message) || '');
+      // Permanent (403 no write grant / outside access, 400 a file not in storage, 422 shape,
+      // 413 too large): retrying can never succeed. Drop the batch and say so - never a
+      // silent loss. Everything else is kept and retried: a 404 / 405 is the old API still
+      // serving during a deploy (the frontend lands minutes before the backend), a 401 is a
+      // session being renewed, a 429 is the rate limiter.
+      if ([400, 403, 413, 422].includes(status)) {
+        const rows = [];
+        for (const coll of ROW_COLLECTIONS) for (const row of (batch[coll] && batch[coll].upsert) || []) rows.push({ coll, ...row });
+        keepConflicts(rows);
+        retryCount = 0;
+        softNotified = false;
+        notifySaveFailed(status, message, false);
+        if (!opsEmpty(pending)) pushTimer = setTimeout(flush, 200);
+        return;
+      }
+      // Transient: the batch goes back under whatever was queued meanwhile.
+      pending = mergeOps(batch, pending);
+      retryCount = Math.min((retryCount || 0) + 1, 6);
+      if (retryCount >= 6 && !softNotified) { softNotified = true; notifySaveFailed(status, message, true); }
+      pushTimer = setTimeout(flush, Math.min(1500 * Math.pow(2, retryCount - 1), 30000));
+    });
 }
+
+/** Page-hide: the authenticated flush (a beacon cannot carry the bearer token). */
+export function flushBeacon() { flush(); }
 
 /**
  * Wire up the background sync lifecycle. Call once (e.g. from a root-level `useEffect` with an
@@ -357,16 +249,16 @@ export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
       // and recovery states where the log count went DOWN. The log-count check
       // stays as a fallback for a server that predates _ts (deploy skew).
       if (ts > lastTs || logs > lastLogCount) {
+        if (hasPending()) { pullAfterFlush = true; return; }
         lastLogCount = logs;
         lastTs = Math.max(ts, lastTs);
-        baseTs = Math.max(ts, baseTs);   // our copy now derives from this server state
         onServerNewer(serverState);
       }
     });
   };
 
   const pull = () => {
-    if (pushTimer || pending) return; // a write is queued/going out; don't race it with an incoming pull
+    if (pushTimer || inFlight || !opsEmpty(pending)) return; // a save is queued/going out; don't race it with a pull
     // Cheap freshness check first: the ~few-byte _ts marker tells us whether the
     // heavy full-workspace pull is even worth doing. Re-pulling the whole portfolio
     // blob every 7s just to read _ts was a top pooler-egress driver. If the ts
@@ -379,7 +271,7 @@ export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
   };
 
   const intervalId = setInterval(() => {
-    if (pending) flush();
+    if (!opsEmpty(pending)) flush();
     if (typeof document !== 'undefined' && document.visibilityState !== 'hidden') pull();
   }, pollMs);
 
@@ -390,12 +282,15 @@ export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
   const onFocus = () => pull();
   const onPageHide = () => flushBeacon();
   const onOnline = () => flush();
+  // An edit that has not reached the server: the browser asks before the tab goes.
+  const onBeforeUnload = (e) => { if (hasPending()) { flush(); e.preventDefault(); e.returnValue = ''; } };
 
   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
   if (typeof window !== 'undefined') {
     window.addEventListener('focus', onFocus);
     window.addEventListener('pagehide', onPageHide);
     window.addEventListener('online', onOnline);
+    window.addEventListener('beforeunload', onBeforeUnload);
   }
 
   return () => {
@@ -407,6 +302,7 @@ export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('online', onOnline);
+      window.removeEventListener('beforeunload', onBeforeUnload);
     }
   };
 }

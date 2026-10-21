@@ -5,6 +5,7 @@ import { BFF_MODE, bffLogout } from '../bffAuth';
 import { useRole, ROLES, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
 import { usePersonPhoto } from '../lib/peoplePhotos';
 import { NAV } from './Sidebar';
+import { orderNav } from './navOrder';
 import { useActionCounts, moduleCount } from '../lib/useActionCounts';
 
 // Sub-screens per module - the same sub ids the views' tab strips use, so a
@@ -137,7 +138,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   // external (B2B guest) accounts see ONLY their granted modules (Aug 17);
   // an item's `grants` list means any one of them opens it (Oct 10).
   const granted = item => (item.grants || [item.grant || item.view]).some(g => myGrantedModules?.has(g));
-  const visible = NAV.filter(item => isExternal
+  const visible = orderNav(NAV).filter(item => isExternal
     ? (!item.divider && granted(item))
     : (item.divider || !item.minRole || can?.('administrator') || granted(item)));
   const go = (id, sub = null) => { onNavigate(id, sub); onClose(); };

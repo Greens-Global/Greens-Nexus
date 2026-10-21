@@ -12,9 +12,14 @@ function toneOf(days) {
   return 'green';
 }
 
+// Five rows is a glance; the rest sit behind Show All.
+const ROW_CAP = 5;
+// "Inspection · Inspection Due" says it twice - drop the category when the label starts with it.
+const rowLabel = (item) => (String(item.label).toLowerCase().startsWith(String(item.cat).toLowerCase()) ? item.label : `${item.cat} · ${item.label}`);
+
 function dueText(days) {
   if (days < 0) return Math.abs(days) + 'd overdue';
-  if (days === 0) return 'Due today';
+  if (days === 0) return 'Due Today';
   return 'Due in ' + days + 'd';
 }
 
@@ -90,31 +95,38 @@ function WindowChip({ value, label, active, onSelect }) {
  *      `openProperty(id)` to navigate to that asset instead of switching a tab - there's no
  *      single page/tab context to switch within on the portfolio view. Positioned between the
  *      "Asset Management" header and the search/filter toolbar; `hideIfEmpty` makes the whole
- *      component render as `null` there so the banner only ever appears when something is
- *      genuinely due - an always-visible portfolio banner would just be permanent green noise
- *      (unlike the per-asset case, where showing "all clear" for one specific asset is
- *      reassuring, not noise).
+ *      component render as `null` there when nothing is due AND no `extraChips` (Need Data,
+ *      Flagged) carry a count - an always-visible portfolio banner would just be permanent
+ *      green noise (unlike the per-asset case, where showing "all clear" for one specific
+ *      asset is reassuring, not noise). With only chips to show, the zero date pills and the
+ *      Show button stay hidden too.
  *
  * `hideIfEmpty` is deliberately NOT the default and must be opted into per call site - do not
  * flip its default, or the per-asset usage will start disappearing on clean assets.
  */
-export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty }) {
+export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, title = 'Critical Items', extraChips = [] }) {
   const [open, setOpen] = useState(false);
   // Per-asset view starts on "All" (nothing to triage away); portfolio view starts on "Next 90
   // days" (lead with what's actually urgent across the whole portfolio).
   const [windowSel, setWindowSel] = useState(only ? 'all' : '90');
   const [cat, setCat] = useState('');
+  const [showAll, setShowAll] = useState(false);
 
   let all = collectCriticalDates(store);
   if (only) all = all.filter((x) => x.id === only);
 
+  // Exclusive buckets, so the three pills add up instead of reading as twelve
+  // when they are two, two and eight.
   const overdueCount = all.filter((x) => x.days < 0).length;
   const due30Count = all.filter((x) => x.days >= 0 && x.days <= 30).length;
-  const due90Count = all.filter((x) => x.days >= 0 && x.days <= 90).length;
+  const due90Count = all.filter((x) => x.days > 30 && x.days <= 90).length;
 
   // Portfolio banner usage: nothing due at all -> render nothing. Per-asset usage never sets
   // hideIfEmpty, so it always falls through and renders (even all-zero, for context).
-  if (hideIfEmpty && !overdueCount && !due30Count && !due90Count) return null;
+  const extras = extraChips.filter((c) => c && c.count > 0);
+  const nothingDue = !overdueCount && !due30Count && !due90Count;
+  if (hideIfEmpty && nothingDue && !extras.length) return null;
+  const chipsOnly = hideIfEmpty && nothingDue && extras.length > 0;
 
   const categories = [...new Set(all.map((x) => x.cat))].sort();
 
@@ -145,14 +157,22 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty })
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <span style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-          Critical Items
+          {title}
         </span>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <CountPill count={overdueCount} label="Overdue" color="red" />
-          <CountPill count={due30Count} label="Due ≤30d" color="orange" />
-          <CountPill count={due90Count} label="Due ≤90d" color="gold" />
+          {!chipsOnly && <CountPill count={overdueCount} label="Overdue" color="red" />}
+          {!chipsOnly && <CountPill count={due30Count} label="Due in 30d" color="orange" />}
+          {!chipsOnly && <CountPill count={due90Count} label="Due in 31-90d" color="gold" />}
+          {extras.map((c) => (
+            <button key={c.label} type="button" onClick={c.onClick} title={c.title} aria-expanded={c.expanded}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+                color: `hsl(var(--color-${c.color || 'orange'}))`, backgroundColor: `hsla(var(--color-${c.color || 'orange'}), 0.12)` }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: `hsl(var(--color-${c.color || 'orange'}))` }} />
+              {c.count} {c.label}
+            </button>
+          ))}
         </div>
-        <button
+        {!chipsOnly && <button
           onClick={() => setOpen((o) => !o)}
           style={{
             marginLeft: 'auto',
@@ -167,10 +187,10 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty })
           }}
         >
           {open ? 'Hide' : 'Show'}
-        </button>
+        </button>}
       </div>
 
-      {open && (
+      {open && !chipsOnly && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
             <WindowChip value="overdue" label="Overdue" active={windowSel === 'overdue'} onSelect={setWindowSel} />
@@ -202,16 +222,23 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty })
                 borderRadius: 8,
               }}
             >
-              {rows.map((item, i) => (
-                <div
+              {(showAll ? rows : rows.slice(0, ROW_CAP)).map((item, i) => (
+                <button
+                  type="button"
                   key={item.id + '|' + item.cat + '|' + i}
                   onClick={() => handleRowClick(item)}
+                  aria-label={`${item.name}: ${rowLabel(item)}, ${dueText(item.days)}`}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: 12,
+                    width: '100%',
+                    textAlign: 'left',
                     padding: '10px 12px',
                     cursor: 'pointer',
+                    border: 'none',
+                    background: 'none',
+                    fontFamily: 'inherit',
                     borderTop: i ? '1px solid var(--border-color)' : 'none',
                   }}
                 >
@@ -253,7 +280,7 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty })
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {item.cat} · {item.label}
+                      {rowLabel(item)}
                       {item.detail ? ' - ' + item.detail : ''}
                     </div>
                   </div>
@@ -268,8 +295,14 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty })
                   >
                     {formatDate(item.date)}
                   </span>
-                </div>
+                </button>
               ))}
+              {rows.length > ROW_CAP && (
+                <button type="button" className="secondary-btn" onClick={() => setShowAll((v) => !v)}
+                  style={{ display: 'block', width: '100%', borderRadius: 0, border: 'none', borderTop: '1px solid var(--border-color)', padding: '9px 12px', fontSize: '0.8rem' }}>
+                  {showAll ? 'Show Fewer' : `Show All (${rows.length})`}
+                </button>
+              )}
             </div>
           ) : (
             <div

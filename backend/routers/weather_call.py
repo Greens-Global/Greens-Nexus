@@ -59,7 +59,7 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
 .card{{max-width:480px;margin:48px auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:28px 24px}}
 h1{{font-size:20px;margin:0 0 10px}} p{{font-size:15px;line-height:1.55;color:#374151;margin:0}}
 .ok{{display:inline-block;width:40px;height:40px;border-radius:50%;background:#dcfce7;color:#15803d;text-align:center;line-height:40px;font-size:22px;margin-bottom:12px}}
-button{{margin-top:18px;border:none;border-radius:8px;background:#248f4b;color:#fff;font:600 15px 'Segoe UI',Arial,sans-serif;padding:12px 26px;cursor:pointer}}</style></head>
+button{{margin-top:18px;border:none;border-radius:8px;background:#1f7a40;color:#fff;font:600 15px 'Segoe UI',Arial,sans-serif;padding:12px 26px;cursor:pointer}}</style></head>
 <body><div class="card">{mark}<h1>{title}</h1><p>{text}</p>{form}</div></body></html>"""
 
 

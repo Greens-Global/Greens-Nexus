@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MapPin, ChevronDown } from 'lucide-react';
+import { MapPin, ChevronDown, X } from 'lucide-react';
 import { Card } from '../shared/Card.jsx';
 import { snapMap } from '../../lib/format.js';
 
@@ -103,10 +103,17 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
 
   return (
     <Card>
-      <div
+      <button
+        type="button"
         onClick={() => setOpen((o) => !o)}
         title={open ? 'Collapse' : 'Expand'}
+        aria-expanded={open}
         style={{
+          width: '100%',
+          border: 'none',
+          background: 'none',
+          fontFamily: 'inherit',
+          textAlign: 'left',
           display: 'flex',
           alignItems: 'center',
           gap: 9,
@@ -126,7 +133,6 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontFamily: "'Plus Jakarta Sans', sans-serif",
               fontSize: '0.72rem',
               fontWeight: 700,
               color: '#fff',
@@ -136,11 +142,11 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
             {number}
           </span>
         )}
-        <strong style={{ fontSize: '0.95rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Map</strong>
+        <strong style={{ fontSize: '0.95rem' }}>Map</strong>
         {customLink && open && (
           <span
             style={{
-              fontSize: '0.66rem',
+              fontSize: '0.7rem',
               fontWeight: 700,
               color: 'hsl(var(--color-green))',
               backgroundColor: 'hsl(var(--color-green) / 0.12)',
@@ -160,7 +166,7 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
             transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
           }}
         />
-      </div>
+      </button>
 
       {open && onSave && (
         <input
@@ -205,7 +211,7 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
               <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                 {customLink
                   ? 'Showing the area - paste a full maps.google.com link (with the @lat,lng) to drop the pin exactly; your link still powers Open in Google Maps'
-                  : 'Tip: paste a Google Maps link in Project Details for a 100% accurate pin'}
+                  : 'Paste a Google Maps link above to drop the pin exactly.'}
               </span>
             )}
           </div>
@@ -257,7 +263,7 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
                 onClick={() => setFullscreen(false)}
                 style={{ border: 'none', background: 'rgba(255,255,255,0.18)', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: '0.85rem' }}
               >
-                Close ✕
+                Close <X size={14} style={{ verticalAlign: '-2px' }} />
               </button>
             </div>
           </div>

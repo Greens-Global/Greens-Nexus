@@ -52,6 +52,7 @@ PROTECTED_BUCKETS = frozenset({
     "task-files",       # task and ticket attachments, inbound email attachments, inline images
     "ir-documents",     # investor relations documents and signed commitments
     "construction-media",  # jobsite daily-log photos, video and voice notes (+ thumbnails)
+    "asset-files",      # Asset Management photos and record documents (warranties, invoices, plans)
 })
 # Still public on purpose: `avatars` and company logos (shown to everyone,
 # embedded in email), `agent-dist` (installer downloads), and

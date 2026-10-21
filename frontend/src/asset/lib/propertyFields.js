@@ -200,7 +200,7 @@ export const PT = [
     group: 'Existing Improvements',
     fields: [
       { label: 'Existing Structures' },
-      { label: 'Existing Building SF', key: 'nrsf' },
+      { label: 'Existing Building SF', type: 'num', key: 'nrsf' },
       { label: 'Year Built', key: 'yearBuilt' },
       { label: 'Occupancy (Vacant/Tenant)' },
       { label: 'Demo Needed', dev: true },

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Flag, X } from 'lucide-react';
 import { normLabel } from '../../lib/format.js';
 
 /**
@@ -17,7 +18,7 @@ function FlagRow({ flag, onOpen, onClearFlag, onPushFix }) {
     <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 7 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{
-          fontSize: '0.64rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+          fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999,
           color: 'hsl(var(--color-orange))', backgroundColor: 'hsla(var(--color-orange), 0.14)', whiteSpace: 'nowrap',
         }}>
           {flag.reason || 'Needs review'}
@@ -73,7 +74,7 @@ function FlagRow({ flag, onOpen, onClearFlag, onPushFix }) {
  *
  * props: { props (all live assets), onClearFlag(id, group, field), onOpen(id), onPushFix(id, group, field, value) }
  */
-export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix }) {
+export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix, onClose }) {
   const flags = [];
   (assets || []).forEach((asset) => {
     (asset.reviewFlags || []).forEach((flag) => {
@@ -94,8 +95,8 @@ export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix
   return (
     <div style={{ marginBottom: 18, border: '1px solid var(--border-color)', borderRadius: 12, backgroundColor: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-        <span style={{ color: 'hsl(var(--color-orange))', fontSize: '1rem' }}>⚑</span>
-        <strong style={{ fontSize: '0.95rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Flagged for Review</strong>
+        <Flag size={16} style={{ color: 'hsl(var(--color-orange))' }} />
+        <strong style={{ fontSize: '0.95rem' }}>Flagged for Review</strong>
         <span style={{
           marginLeft: 'auto', fontSize: '0.72rem', fontWeight: 700,
           color: flags.length ? 'hsl(var(--color-orange))' : 'var(--text-muted)',
@@ -104,6 +105,9 @@ export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix
         }}>
           {flags.length}
         </span>
+        {onClose && (
+          <button type="button" className="secondary-btn" onClick={onClose} aria-label="Close Flagged for Review" style={{ padding: 6 }}><X size={15} /></button>
+        )}
       </div>
 
       {flags.length ? (
@@ -114,7 +118,7 @@ export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix
         </div>
       ) : (
         <div style={{ padding: '18px 16px', fontSize: '0.82rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
-          No fields flagged for review. On any asset's overview, use the ⚐ beside a field to flag it and pick a reason - it will appear here, editable and ready to push a fix.
+          No fields flagged for review. On any asset's overview, use the flag beside a field to flag it and pick a reason - it will appear here, editable and ready to push a fix.
         </div>
       )}
     </div>

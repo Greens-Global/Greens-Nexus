@@ -5,12 +5,13 @@
 // Timeline" tabs, alongside SimpleRowModal for add/edit and, for Timeline only,
 // ../asset/TimelineStatusModal.jsx for the Status column's chip button.
 
+import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Card } from './Card.jsx';
 import { EmptyState } from './EmptyState.jsx';
 import { StatusBadge } from './StatusBadge.jsx';
 
-const LABEL_STYLE = { fontSize: '0.64rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
+const LABEL_STYLE = { fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
 
 /** Loose status-text -> badge tone classifier, specific to this table's free-text Status column
  *  (Permits/Timeline status values aren't a fixed enum handled elsewhere like RECORD_TYPES chips are). */
@@ -40,12 +41,15 @@ function rowIdentity(row, cols) {
  * @param query           free-text filter string
  * @param highlightItem   a row-identity string to scroll to + highlight
  * @param onAdd           () => void
+ * @param emptyText       the empty state's line (default "No <title> yet.")
+ * @param emptyAction     the empty state's button label (default "Add the First Row")
  * @param onEdit          (index) => void
  * @param onDelete        (index) => void, or omit to hide the Delete button
  * @param onStatusClick   (index, currentStatus) => void - if provided, the "status" column
  *                        renders as a clickable chip button instead of a plain badge
  */
-export function SimpleRecordTable({ title, subtitle, rows, cols, query, highlightItem, onAdd, onEdit, onDelete, onStatusClick }) {
+export function SimpleRecordTable({ title, subtitle, rows, cols, query, highlightItem, onAdd, onEdit, onDelete, onStatusClick, emptyText, emptyAction }) {
+  const [confirmIdx, setConfirmIdx] = useState(null);   // the row whose Delete is awaiting a Yes
   const allRows = rows || [];
   const columns = cols || (() => {
     const keys = [];
@@ -69,7 +73,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{title}</strong>
+        <strong style={{ fontSize: '1rem' }}>{title}</strong>
         {subtitle && <span style={LABEL_STYLE}>{subtitle}</span>}
         <span style={{ ...LABEL_STYLE, marginLeft: 'auto' }}>
           {visible.length} row{visible.length === 1 ? '' : 's'}
@@ -150,10 +154,17 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
                       >
                         Edit
                       </button>
-                      {onDelete && (
+                      {onDelete && confirmIdx === idx && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 600 }}>Delete this row?</span>
+                          <button className="secondary-btn" onClick={() => setConfirmIdx(null)} style={{ padding: '5px 11px', fontSize: '0.74rem' }}>Keep</button>
+                          <button className="primary-btn" onClick={() => { setConfirmIdx(null); onDelete(idx); }} style={{ padding: '5px 11px', fontSize: '0.74rem', backgroundColor: 'hsl(var(--color-red))' }}>Delete</button>
+                        </span>
+                      )}
+                      {onDelete && confirmIdx !== idx && (
                         <button
                           className="secondary-btn"
-                          onClick={() => { if (window.confirm('Delete this row?')) onDelete(idx); }}
+                          onClick={() => setConfirmIdx(idx)}
                           style={{ padding: '5px 11px', fontSize: '0.74rem', color: 'hsl(var(--color-red))' }}
                         >
                           Delete
@@ -167,7 +178,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
           </table>
         </div>
       ) : (
-        <EmptyState>No {title.toLowerCase()} data yet - use "Add row" to add one.</EmptyState>
+        <EmptyState action={emptyAction || 'Add the First Row'} onAction={onAdd}>{emptyText || `No ${title.toLowerCase()} yet.`}</EmptyState>
       )}
     </Card>
   );

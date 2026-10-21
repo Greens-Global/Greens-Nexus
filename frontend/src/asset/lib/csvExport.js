@@ -8,6 +8,7 @@
 import { RECORD_TYPES } from './recordTypes.jsx';
 import { formatNumber, formatMoney, formatDate, daysUntil, currentUser, toNumber, acresOf } from './format.js';
 import { formatDateLong } from '../../lib/datetime';
+import { pushToast } from '../components/shared/ToastHost.jsx';
 
 /** Escape a single CSV field: wraps in quotes (doubling any embedded quotes) if it contains a
  *  comma, quote, or newline. */
@@ -128,7 +129,7 @@ export function exportAssetCsv(asset, store, extra = null) {
     a.download = (asset.name || 'asset') + '.csv';
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    if (typeof window !== 'undefined' && window.__pushToast) window.__pushToast('CSV exported', 'ok');
+    pushToast?.('CSV exported', 'ok');
   } catch (e) {
     // Swallow - e.g. Blob/URL unsupported in this environment.
   }
@@ -356,7 +357,7 @@ ${(() => { const t = dataTable('vendors', [['company', 'Vendor'], ['category', '
 
   const win = window.open('', '_blank');
   if (!win) {
-    alert('Allow pop-ups to export the PDF report.');
+    pushToast?.('Allow pop-ups for this site to export the PDF report.', 'bad');
     return;
   }
   win.document.open();
