@@ -605,6 +605,82 @@ async def _inactive_vendors() -> set[str]:
     return out
 
 
+# ── The grid's payments in a few grouped reads (Oct 22) ───────────────────────
+# Opening MRE read the ledger once per (entity, vendor) pair - ~179 reads on
+# prod at about two a second, past the browser's 18 s wait, so the screen
+# showed "Can't reach Nexus" (Urmi, Vinod, Neil: "the Nexus screens is
+# lagging a lot"). The accounting app's party-months op answers every
+# entity x vendor x account x month at once (~1.2 s for a year of every
+# entity); a pair it does not answer falls back to the one-pair read.
+_PARTY_CAP = 400    # vendor ids ride in the URL; past this many, read every vendor and keep ours
+
+
+async def _subtrees(codes: list[str]) -> dict[str, set]:
+    """Each entity with every entity under it - what the accounting app's
+    entity filter covers (`_rpt_location_codes`: the parent chain plus
+    Intacct's "15001-1" child codes). A one-pair read of a parent counts its
+    children's lines; a party-months row names the line's own entity."""
+    data = await accounting._acct_get("/api/internal/reports/locations", {})
+    ents = [(str(e.get("code") or ""), str(e.get("parent_code") or "")) for e in data.get("entities") or []]
+    out = {}
+    for c in codes:
+        tree, grew = {c}, True
+        while grew:
+            grew = False
+            for code, parent in ents:
+                if code and code not in tree and (parent in tree or any(code.startswith(f"{t}-") for t in tree)):
+                    tree.add(code)
+                    grew = True
+        out[c] = tree
+    return out
+
+
+async def _grid_payments(scope: dict, pairs: list[tuple[str, str]], year: int) -> tuple[dict, list[tuple[str, str]]]:
+    """({(entity, vendor): {'YYYY-MM': {gl: debit - credit}}}, the pairs it could not answer).
+    Same book (accrual), same accounts (all) and same entity cover as the
+    one-pair buckets read in `_vendor_months`."""
+    if not pairs or not acct_scan.aggregate_available():
+        return {}, list(pairs)
+    codes = sorted({e for e, _ in pairs})
+    vendors = sorted({v for _, v in pairs})
+    await _limit(scope, None, ",".join(codes))
+    try:
+        trees = await _subtrees(codes)
+    except Exception as e:  # noqa: BLE001 - the one-pair reads stand in
+        print(f"[mre] grid: entity list unavailable ({type(e).__name__}); one read per line")
+        return {}, list(pairs)
+    owners_of: dict[str, list[str]] = defaultdict(list)    # a line's entity -> the picked entities that cover it
+    for c, tree in trees.items():
+        for t in tree:
+            owners_of[t].append(c)
+    out: dict[tuple, dict] = {p: {} for p in pairs}
+    answered: set[str] = set()
+    for i in range(0, len(codes), _AGG_CHUNK):
+        chunk = codes[i:i + _AGG_CHUNK]
+        mine = set(chunk)
+        try:
+            async with _sem():
+                rows = await acct_scan.party_months(chunk, f"{year}-01-01", f"{year}-12-31", "vendor", sections=[],
+                                                    parties=vendors if len(vendors) <= _PARTY_CAP else None)
+        except Exception as e:  # noqa: BLE001 - the one-pair reads stand in
+            print(f"[mre] grid: grouped read failed ({type(e).__name__}); one read per line")
+            rows = None
+        if rows is None:
+            continue
+        answered.update(chunk)
+        for r in rows:
+            vendor, gl, month = r["party"], r["account_no"], r["month"]
+            if not (vendor and gl and month):
+                continue
+            for c in owners_of.get(r["entity"], ()):
+                cell = out.get((c, vendor)) if c in mine else None
+                if cell is not None:
+                    m = cell.setdefault(month, {})
+                    m[gl] = _r2(m.get(gl, 0) + _spent(r))
+    missing = [p for p in pairs if p[0] not in answered]
+    return {p: v for p, v in out.items() if p[0] in answered}, missing
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 @router.get("/grid")
 async def get_grid(year: Optional[int] = None, entities: Optional[str] = None, ids: Optional[str] = None, scope: dict = Depends(entity_scope)):
@@ -626,10 +702,11 @@ async def get_grid(year: Optional[int] = None, entities: Optional[str] = None, i
     live = [l for l in lines if not (l["endDate"] and l["endDate"][:7] < first) and not (l["startDate"] and l["startDate"][:7] > last)
             and not (l["status"] == "ended" and not l["endDate"])]
     pairs = sorted({(l["entityCode"], l["vendorId"]) for l in live})
-    parts, notes = await gather_tolerant([(lambda p=p: _vendor_months(scope, p[0], p[1], f"{year}-01-01", f"{year}-12-31")) for p in pairs],
-                                         [f"{v} at {e}" for e, v in pairs], lambda: None)
-    payments = {p: part for p, part in zip(pairs, parts) if part is not None}
-    unread = {p for p, part in zip(pairs, parts) if part is None}
+    payments, slow = await _grid_payments(scope, pairs, year)
+    parts, notes = await gather_tolerant([(lambda p=p: _vendor_months(scope, p[0], p[1], f"{year}-01-01", f"{year}-12-31")) for p in slow],
+                                         [f"{v} at {e}" for e, v in slow], lambda: None)
+    payments.update({p: part for p, part in zip(slow, parts) if part is not None})
+    unread = {p for p, part in zip(slow, parts) if part is None}
     out = grid(lines, payments, year, today, unread)
     inactive = await _inactive_vendors() if lines else set()
     for r in out["rows"]:

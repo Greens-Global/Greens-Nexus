@@ -84,6 +84,15 @@ def _as(email):
     os.environ["NEXUS_DEV_EMAIL"] = email
 
 
+def _cover(code):
+    """`code` and every entity under it, like the accounting app's entity filter."""
+    out = {code}
+    for e in ENTITIES:
+        if e["parent_code"] in out or e["code"].startswith(f"{code}-"):
+            out.add(e["code"])
+    return out
+
+
 def _in(m, from_, to):
     return from_[:7] <= m <= to[:7]
 
@@ -195,7 +204,8 @@ class EndpointTests(unittest.TestCase):
         self.postings = {k: dict(v) for k, v in POSTINGS.items()}
         self.fail_codes: set = set()     # Oct 7: entities whose reads fail
         self.slow_codes: set = set()     # entities whose reads hang
-        self.aggregate = False           # whether the accounting app answers the aggregate op
+        self.aggregate = False           # whether the accounting app answers the aggregate op ("broken": it errors)
+        self.aggregate_reads = 0
         acct_scan._AGG_DOWN.clear()
         self._ceilings = (acct_scan.READ_CEILING, acct_scan.SCAN_CEILING)
 
@@ -207,12 +217,20 @@ class EndpointTests(unittest.TestCase):
             if path.endswith("/reports/party-months"):
                 if not self.aggregate:
                     return {"ok": True}          # an older accounting app: no rows, so not there
+                if self.aggregate == "broken":
+                    raise HTTPException(status_code=424, detail="Accounting service: busy")
+                self.aggregate_reads += 1
                 rows = []
-                for ent in ([clean["location"]] if clean.get("location") else clean["locations"].split(",")):
+                secs = clean["sections"].split(",") if clean.get("sections") else list(acct_scan.SECTIONS)
+                parties = set(clean["parties"].split(",")) if clean.get("parties") else None
+                asked = [clean["location"]] if clean.get("location") else clean["locations"].split(",")
+                for ent in sorted({c for a in asked for c in _cover(a)}):     # an entity brings its children
                     for vendor, months in self.postings.get(ent, {}).items():
+                        if parties is not None and vendor not in parties:
+                            continue
                         for m, cell in months.items():
                             for acct, v in cell.items():
-                                if _in(m, clean["from"], clean["to"]) and TITLES[acct][0] in clean["sections"].split(","):
+                                if _in(m, clean["from"], clean["to"]) and TITLES[acct][0] in secs:
                                     rows.append({"location": ent, "gl_code": acct, "title": TITLES[acct][1], "section": TITLES[acct][0], "party": vendor,
                                                  "month": m, "debit": v, "credit": 0, "lines": 1})
                 return {"ok": True, "kind": clean["kind"], "rows": rows}
@@ -228,7 +246,7 @@ class EndpointTests(unittest.TestCase):
                 return {"ok": True, "sections": [{"key": k, "accounts": v} for k, v in sections.items()]}
             if path.endswith("/reports/buckets"):
                 rows = []
-                for vendor, months in self.postings.get(loc, {}).items():
+                for vendor, months in [vm for c in _cover(loc) for vm in self.postings.get(c, {}).items()]:
                     if clean.get("vendor") and vendor != clean["vendor"]:
                         continue
                     for m, cell in months.items():
@@ -377,6 +395,44 @@ class EndpointTests(unittest.TestCase):
         d = self.client.get("/accounting/mre/grid").json()
         self.assertIn("could not be read", d["warning"])
         self.assertTrue(d["rows"][0]["unread"])
+
+    def _paid(self, year):
+        d = self.client.get(f"/accounting/mre/grid?year={year}").json()
+        return {(r["line"]["entityCode"], r["line"]["vendorId"]): {c["month"]: c.get("paid") for c in r["months"]} for r in d["rows"]}, d
+
+    def test_grid_reads_every_line_in_one_grouped_read(self):
+        # Oct 22 (Urmi, Vinod, Neil): one ledger read per line took MRE past the
+        # browser's wait ("Can't reach Nexus"). The grouped read must give the
+        # same paid amounts as the one-line reads, a parent with its children.
+        _as(EDITOR)
+        self.postings["12027"] = {}      # lines carry their own entity; the parent has none of its own
+        self._line()
+        self._line(vendorId="V-STATE", expenseAccounts=["62500"], category="insurance", frequency="quarterly", expectedAmount=1200)
+        self._line(entityCode="56000", vendorId="V-MSFT", expenseAccounts=["65000"], category="software", expectedAmount=99)
+        self._line(entityCode="12027", vendorId="V-EDISON", expenseAccounts=["62100"], expectedAmount=250)
+        year = int(LAST[:4])
+        slow, _ = self._paid(year)                       # the accounting app without the grouped op
+        self.assertEqual(len([c for c in self.calls if c[0].endswith("/reports/buckets")]), 4)
+        self.calls.clear()
+        acct_scan._AGG_DOWN.clear()
+        self.aggregate = True
+        fast, d = self._paid(year)
+        self.assertEqual(fast, slow)
+        self.assertNotIn("warning", d)
+        self.assertEqual((self.aggregate_reads, [c for c in self.calls if c[0].endswith("/reports/buckets")]), (1, []))
+        self.assertEqual(fast[("12027", "V-EDISON")][LAST], 250.0)      # the child's line counts on the parent
+        self.assertEqual(fast[("15000", "V-SDGE")][LAST], 410.0)
+
+    def test_grid_falls_back_to_one_read_per_line(self):
+        _as(EDITOR)
+        self._line()
+        self.aggregate = "broken"
+        year = int(LAST[:4])
+        paid, d = self._paid(year)
+        self.assertEqual(paid[("15000", "V-SDGE")][LAST], 410.0)
+        self.assertNotIn("warning", d)
+        reads = [c[1] for c in self.calls if c[0].endswith("/reports/buckets")]
+        self.assertEqual([(c["location"], c["vendor"]) for c in reads], [("15000", "V-SDGE")])
 
     def test_levels_notes_end_and_delete(self):
         _as(VIEWER)
