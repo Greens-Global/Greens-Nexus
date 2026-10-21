@@ -3539,6 +3539,13 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(asset_files_migration_loop()))
         except Exception as e:
             print(f"[startup] asset-files migration skipped: {e}")
+        try:
+            # Asset Management map points (Oct 21 2026): each asset's address looked
+            # up once, server-side, paced; the browser no longer calls Nominatim.
+            from asset_geocode import geocode_loop
+            _tasks.append(_a.create_task(geocode_loop()))
+        except Exception as e:
+            print(f"[startup] asset geocode loop skipped: {e}")
         # Task trash (Aug 27): permanently purges tasks soft-deleted 90+ days
         # ago. Sync-worker gated for the same reason as the screenshot
         # retention sweep above - a laptop must never permanently delete live

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { idbGet, idbSet } from './idb.js';
-import { STORAGE_KEY, serverGet, pickBest, markHydrated, isHydrated, setLastKnown, queueOps, wireBackgroundSync } from './sync.js';
-import { diffStore } from './diff.js';
+import { STORAGE_KEY, serverGet, pickBest, markHydrated, isHydrated, setLastKnown, queueOps, wireBackgroundSync, setRevHandler } from './sync.js';
+import { diffStore, ROW_COLLECTIONS } from './diff.js';
 import { VNORM } from './dataNormalization.js';
 
 /** Empty store shape. The original app booted from a large hardcoded seed array of starter
@@ -113,13 +113,29 @@ export function useNexusStore() {
   // 3. Once on mount: wire the background poll/flush/visibility/focus/pagehide/online lifecycle.
   //    A newer server copy is normalized and applied directly (bypassing the setState-updater
   //    form since it doesn't depend on prior state).
-  useEffect(() => wireBackgroundSync((serverState) => {
-    serverEcho.current = true;
-    const normalized = VNORM(serverState);
-    prevStore.current = normalized;
-    setStore(normalized);
-    setServerOk(true);
-  }), []);
+  useEffect(() => {
+    // A save's response carries each written row's new `_rev`; patch it in
+    // without queuing anything (only `_rev` changes, which no diff sends alone).
+    setRevHandler((revs) => {
+      serverEcho.current = true;
+      setStore((s) => {
+        const next = { ...s };
+        for (const coll of ROW_COLLECTIONS) {
+          next[coll] = (s[coll] || []).map((r) => (r && revs[r.id] ? { ...r, _rev: revs[r.id] } : r));
+        }
+        prevStore.current = next;
+        return next;
+      });
+    });
+    const stop = wireBackgroundSync((serverState) => {
+      serverEcho.current = true;
+      const normalized = VNORM(serverState);
+      prevStore.current = normalized;
+      setStore(normalized);
+      setServerOk(true);
+    });
+    return () => { setRevHandler(null); stop(); };
+  }, []);
 
   return [store, setStore, loading, serverOk];
 }

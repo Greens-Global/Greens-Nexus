@@ -166,6 +166,9 @@ class MigrationTests(unittest.TestCase):
         self.assertTrue(payload["images"][0].startswith("https://x/"))
         self.assertTrue(payload["images"][1].endswith("kept.jpg"))
         self.assertFalse(M._migrate_row({"image": "https://x/already.jpg"}, M.PROPERTY_FILE_FIELDS, "photos", "a"))
+        none_image = {"image": None, "images": ["data:image/png;base64,QUJD"]}
+        self.assertTrue(M._migrate_row(none_image, M.PROPERTY_FILE_FIELDS, "photos", "a"))   # a null image does not crash
+        self.assertTrue(none_image["image"].startswith("https://"))
 
 
 class RowSaveTests(unittest.TestCase):
@@ -198,6 +201,7 @@ class RowSaveTests(unittest.TestCase):
                             logs={"append": [{"id": "l1", "propertyId": "a", "ts": "2026-10-21T10:00:00Z", "action": "added"}]})
         self.assertEqual(out["conflicts"], [])
         self.assertGreater(out["_ts"], 0)
+        self.assertEqual(set(out["revs"]), {"a", "b", "w1"})
         self._changes(properties={"upsert": [{"id": "b", "name": "B2"}]})     # touching B leaves A alone
         ws = self._get()
         self.assertEqual({p["id"]: p["name"] for p in ws["properties"]}, {"a": "A", "b": "B2"})
@@ -209,10 +213,13 @@ class RowSaveTests(unittest.TestCase):
     def test_a_stale_row_is_reported_not_overwritten(self):
         self._changes(properties={"upsert": [{"id": "a", "name": "A"}]})
         rev = self._get()["properties"][0]["_rev"]
-        self._changes(properties={"upsert": [{"id": "a", "name": "A by Neil", "_rev": rev}]})
+        out1 = self._changes(properties={"upsert": [{"id": "a", "name": "A by Neil", "_rev": rev}]})
+        # the same tab's next edit carries the rev it was just handed, and lands
+        self._changes(properties={"upsert": [{"id": "a", "name": "A by Neil, again", "_rev": out1["revs"]["a"]}]})
+        self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A by Neil, again")
         out = self._changes(properties={"upsert": [{"id": "a", "name": "A by an old tab", "_rev": rev}]})
         self.assertEqual(out["conflicts"], ["a"])
-        self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A by Neil")
+        self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A by Neil, again")
         self._changes(properties={"upsert": [{"id": "a", "name": "A again"}]})   # no rev = not checked
         self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A again")
 
@@ -264,6 +271,63 @@ class RowSaveTests(unittest.TestCase):
         self.assertEqual(self.db.query(models.PropertyRecord).count(), 0)
         self.assertEqual(self.db.query(models.PropertyActivityLog).count(), 0)
         self.assertIsNone(self.db.get(models.PropertyAsset, "a"))
+
+
+class GeocodeTests(unittest.TestCase):
+    """asset_geocode: one lookup per address, a miss remembered, a private asset
+    never sent out, a changed address looked up again."""
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        for m in (models.PropertyAsset, models.PropertyRecord, models.PropertyActivityLog, models.PropertyWorkspaceMeta):
+            self.db.query(m).delete()
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.close()
+
+    def test_addresses_get_a_point_once(self):
+        import asset_geocode as G
+        PA.post_changes(PA.Changes(properties={"upsert": [
+            {"id": "a", "name": "A", "address": "25260 N Centre City Pkwy", "city": "Escondido", "state": "CA"},
+            {"id": "nowhere", "name": "N", "address": "1 Nowhere Rd", "city": "Atlantis"},
+            {"id": "home", "name": "Residence", "address": "1 Private Ln", "city": "San Clemente", "private": True},
+            {"id": "noaddr", "name": "No address"},
+        ]}), db=self.db, user=ADMIN)
+        asked = []
+        def fetch(q):
+            asked.append(q)
+            return (33.17, -117.09) if q.startswith("25260") else None
+        n = G.geocode_pending(self.db, fetch=fetch, pace=lambda: None)
+        self.assertEqual(n, 2)
+        self.assertEqual(asked, ["25260 N Centre City Pkwy, Escondido, CA", "1 Nowhere Rd, Atlantis"])   # never the private one
+        a = self.db.get(models.PropertyAsset, "a").payload["geo"]
+        self.assertEqual((a["lat"], a["lng"], a["for"]), (33.17, -117.09, "25260 N Centre City Pkwy, Escondido, CA"))
+        self.assertIsNone(self.db.get(models.PropertyAsset, "nowhere").payload["geo"]["lat"])
+        self.assertNotIn("geo", self.db.get(models.PropertyAsset, "home").payload)
+        self.assertGreater(self.db.get(models.PropertyWorkspaceMeta, 1).ts, 0)
+        # a second pass asks nothing: the hit is kept, the miss is remembered
+        asked.clear()
+        self.assertEqual(G.geocode_pending(self.db, fetch=fetch, pace=lambda: None), 0)
+        self.assertEqual(asked, [])
+        # the address changes -> looked up again
+        row = self.db.get(models.PropertyAsset, "a")
+        row.payload = {**row.payload, "address": "100 Main St"}
+        self.db.commit()
+        self.assertEqual(G.geocode_pending(self.db, fetch=fetch, pace=lambda: None), 1)
+        self.assertEqual(asked, ["100 Main St, Escondido, CA"])
+
+    def test_a_service_error_stops_the_pass_not_the_loop(self):
+        import asset_geocode as G
+        PA.post_changes(PA.Changes(properties={"upsert": [{"id": "a", "name": "A", "address": "1 Main St", "city": "Austin", "state": "TX"}]}), db=self.db, user=ADMIN)
+        def fetch(q):
+            raise RuntimeError("nominatim 429")
+        self.assertEqual(G.geocode_pending(self.db, fetch=fetch, pace=lambda: None), 0)
+        self.assertNotIn("geo", self.db.get(models.PropertyAsset, "a").payload)
 
 
 if __name__ == "__main__":

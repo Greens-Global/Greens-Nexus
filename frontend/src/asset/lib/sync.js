@@ -72,6 +72,9 @@ let softNotified = false;
 let lastTs = 0;
 let lastLogCount = 0;
 let applyServer = null;
+/** Hands the store the `_rev` every written row now carries (useNexusStore). */
+let applyRevs = null;
+export function setRevHandler(fn) { applyRevs = fn; }
 
 export function markHydrated() { hydrated = true; }
 export function isHydrated() { return hydrated; }
@@ -126,6 +129,9 @@ export function flush() {
       retryCount = 0;
       softNotified = false;
       if (r && r._ts) lastTs = r._ts;
+      // Without this the tab's next edit of the same row would carry the rev it
+      // was READ with, and the server would call the tab's own row stale.
+      if (r && r.revs && applyRevs && Object.keys(r.revs).length) { try { applyRevs(r.revs); } catch { /* best-effort */ } }
       if (r && r.conflicts && r.conflicts.length) {
         notifyConflicts(r.conflicts);
         serverGet().then((server) => {

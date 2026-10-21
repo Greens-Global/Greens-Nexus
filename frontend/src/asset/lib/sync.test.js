@@ -34,6 +34,17 @@ describe('sync queue', () => {
     expect(sync.getLastTs()).toBe(5);
   });
 
+  it('hands the store the revs every written row now carries', async () => {
+    saveImpl = async () => ({ ok: true, _ts: 5, conflicts: [], revs: { a: '2026-10-21T10:00:00Z' } });
+    const got = [];
+    sync.setRevHandler((revs) => got.push(revs));
+    sync.queueOps({ properties: { upsert: [{ id: 'a', name: 'A', _rev: 'old' }], delete: [] } });
+    await vi.advanceTimersByTimeAsync(900);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(got).toEqual([{ a: '2026-10-21T10:00:00Z' }]);
+    sync.setRevHandler(null);
+  });
+
   it('keeps the batch on a network failure and folds later edits into it', async () => {
     saveImpl = async () => { const e = new Error('net'); e.status = 0; throw e; };
     sync.queueOps({ properties: { upsert: [{ id: 'a', name: 'A1' }], delete: [] } });
