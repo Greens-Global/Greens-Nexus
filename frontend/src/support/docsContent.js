@@ -1676,7 +1676,7 @@ export const DOCS = [
     tips: [],
   },
   {
-    id: 'business-intelligence', name: 'Insights', group: 'Modules', icon: 'Gauge', view: 'bi',
+    id: 'business-intelligence', name: 'Insights', group: 'Modules', icon: 'InsightsChart', view: 'bi',
     tagline: 'Company-wide numbers from every module, with what needs attention first.',
     where: 'Left menu > Insights',
     access: 'Supervisors and above with the Insights grant',
