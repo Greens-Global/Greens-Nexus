@@ -1207,7 +1207,87 @@ def punch(body: PunchIn, request: Request,
             _d.active_session_id = ""
     db.commit()
     return {"punch": _serialize(row), "allowed": _allowed_kinds(body.kind),
-            "firstInToday": first_in_today, "promptEod": prompt_eod}
+            "firstInToday": first_in_today, "promptEod": prompt_eod,
+            # A clock-in with no location raises the red Needs Attention bar
+            # (Turn On / Skip, components/LocationNoticeBar.jsx). People exempt
+            # from screen monitoring are exempt from it too.
+            "locationAsk": (body.kind == "in" and not _has_coords(body.lat, body.lng)
+                            and not _is_monitoring_exempt(db, email))}
+
+
+# The clock-in a Turn On / Skip on the location bar answers: the person's
+# latest live clock-in with no coordinates. Turn On places a fix on it only
+# while it is fresh (a fix hours later is not where they punched); Skip
+# answers it any time during the shift.
+LOCATION_FIX_WINDOW = timedelta(minutes=15)
+
+
+def _unlocated_clock_in(db: Session, email: str, window: timedelta):
+    last = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == email, TimePunch.voided == 0, TimePunch.kind == "in")
+            .order_by(TimePunch.at.desc()).first())
+    t = _parse_iso(last.at) if last else None
+    if t is None or _has_coords(last.lat, last.lng):
+        return None
+    t = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    return last if datetime.now(timezone.utc) - t <= window else None
+
+
+class PunchLocationIn(BaseModel):
+    lat: str
+    lng: str
+    accuracy_m: Optional[int] = 0
+
+
+@router.post("/punch-location")
+def punch_location(body: PunchLocationIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Turn On: the person allowed location right after a clock-in that had
+    none - the fix goes on that punch, checked against the geofence."""
+    email = user["email"]
+    if not _has_coords(body.lat, body.lng):
+        raise HTTPException(400, "A location is required.")
+    _lock_person(db, email)
+    row = _unlocated_clock_in(db, email, LOCATION_FIX_WINDOW)
+    if row is None:
+        return {"updated": False}
+    geo = _geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
+    row.lat, row.lng = body.lat.strip()[:24], body.lng.strip()[:24]
+    row.accuracy_m = max(0, int(body.accuracy_m or 0))
+    for k, v in geo.items():
+        setattr(row, k, v)
+    if geo["geo_status"] == "out_of_fence":
+        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+        if emp and emp.manager_email:
+            _notify_out_of_fence(db, emp, row, geo)
+    db.commit()
+    return {"updated": True, "punch": _serialize(row)}
+
+
+@router.post("/punch-location/skip")
+def punch_location_skip(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Skip: the person chose not to turn location on. The clock-in reads
+    Location Off on the Time Sheet and their manager gets one notice for the
+    day, so they can follow up with a call (Neil, Oct 21 2026)."""
+    email = user["email"]
+    if _is_monitoring_exempt(db, email):
+        return {"skipped": False}
+    _lock_person(db, email)
+    row = _unlocated_clock_in(db, email, timedelta(hours=16))
+    if row is None:
+        return {"skipped": False}
+    row.geo_status = "location_off"
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+    if emp and emp.manager_email:
+        from notify_rollup import upsert_rollup
+        who = f"{emp.first_name} {emp.last_name}".strip() or emp.work_email
+        upsert_rollup(
+            db, recipient=emp.manager_email, key=f"locoff:{email.lower()}:{row.local_date}",
+            title=f"Location Off - {who}",
+            line=f"Clocked in at {_fmt_local(row.at, row.tz_offset_min or 0)} and chose not to turn on location.",
+            action=_timecard_action(db, email, row.local_date),
+            company=notification_company(db, emp.manager_email))
+    db.commit()
+    return {"skipped": True}
 
 
 class SelfPunchIn(BaseModel):

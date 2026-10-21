@@ -1512,6 +1512,9 @@ export const api = {
   // still reaches the server - the browser keeps the request alive past unload.
   // Body is tiny, well under the 64KB keepalive cap.
   timePunch:         (data)      => req('/timeclock/punch', { method: 'POST', body: JSON.stringify(data), keepalive: true }),
+  // The red location bar after a clock-in with none: Turn On puts the fix on that punch, Skip tells the manager.
+  timePunchLocation:     (pos) => req('/timeclock/punch-location', { method: 'POST', body: JSON.stringify(pos) }),
+  timePunchLocationSkip: ()    => req('/timeclock/punch-location/skip', { method: 'POST', body: '{}' }),
   timeExceptions:    (start, end) => req(`/timeclock/exceptions?start=${start || ''}&end=${end || ''}`),
   // Shared-PC: mint a one-time nonce the local agent claims (over localhost) so
   // clock-in can bind this employee to the physical PC. No agent = no nonce used.
