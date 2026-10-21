@@ -725,8 +725,6 @@ async def put_settings(body: SettingsBody, who: dict = Depends(caller)):
     reach = await _reach(who)
     for ent, emails in (body.accountants or {}).items():
         ent = (ent or "").strip()[:40]
-        if ent == "" and limited:
-            raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities; set the accountants of those entities.")
         if ent and not _in(reach, ent):
             raise HTTPException(status_code=403, detail=f"Your accounting access does not include entity {ent}.")
         clean = []
@@ -737,6 +735,16 @@ async def put_settings(body: SettingsBody, who: dict = Depends(caller)):
             if e not in clean:
                 clean.append(e)
         per_entity[ent] = clean
+    if limited and "" in per_entity:
+        # '' (every entity) takes unlimited access. Neil's review (Oct 20): the
+        # screen sent it back unchanged (or as []) with every save, which
+        # locked a limited editor out of saving their own entities - an
+        # unchanged or empty '' entry is ignored (never applied); a real
+        # change to it is still refused.
+        stored = (await asyncio.to_thread(_load_settings))["accountants"].get("", [])
+        if per_entity[""] and set(per_entity[""]) != set(stored):
+            raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities; set the accountants of those entities.")
+        per_entity.pop("")
     me = who["email"]
 
     def work():

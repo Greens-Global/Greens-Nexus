@@ -214,6 +214,34 @@ class EndpointTests(unittest.TestCase):
         _as(LIMITED)
         self.assertNotIn("15000", self.client.get("/accounting/ask/settings").json()["accountants"])
 
+    def test_limited_editor_saves_with_an_every_entity_default_in_place(self):
+        """Neil's review (Oct 20): once an Every Entity ('') accountant existed,
+        an editor limited to certain entities could not save at all - the
+        screen re-sends '' (unchanged, or as []) and that was a 403. An
+        unchanged or empty '' entry is now ignored, never applied; a real
+        change to it is still refused."""
+        _as(EDITOR)
+        self.assertEqual(self.client.put("/accounting/ask/settings", json={"accountants": {"": [ACCT]}}).status_code, 200)
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroupMember(group_id="grp-ask-test-e", email=LIMITED))     # LIMITED becomes an editor, still 56000 only
+            db.commit()
+        finally:
+            db.close()
+        cache.module_grants.invalidate()
+        _as(LIMITED)
+        for default in ([ACCT], []):
+            r = self.client.put("/accounting/ask/settings", json={"accountants": {"": default, "56000": [VIEWER]}})
+            self.assertEqual(r.status_code, 200, (default, r.text))
+            s = r.json()
+            self.assertEqual([p["email"] for p in s["accountants"]["56000"]], [VIEWER])
+            self.assertEqual([p["email"] for p in s["accountants"][""]], [ACCT], "the default is untouched")
+        r = self.client.put("/accounting/ask/settings", json={"accountants": {"": [VIEWER], "56000": [VIEWER]}})
+        self.assertEqual(r.status_code, 403, "a real change to the default still takes unlimited access")
+        self.assertEqual(self.client.put("/accounting/ask/settings", json={"accountants": {"15000": [VIEWER]}}).status_code, 403)
+        _as(EDITOR)
+        self.assertEqual([p["email"] for p in self.client.get("/accounting/ask/settings").json()["accountants"][""]], [ACCT])
+
     # ── Questions ──
     def test_ask_reply_resolve_with_notifications_in_place(self):
         _as(VIEWER)
