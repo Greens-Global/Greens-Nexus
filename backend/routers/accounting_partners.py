@@ -29,10 +29,11 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import models
-from auth import company_of, get_current_user, require_module_grant
+from auth import company_of, require_module_grant
 from database import get_db
 from routers import accounting as acct
 from routers.accounting import _display_name, _with_children, entity_scope
@@ -274,25 +275,85 @@ def _deciders(db: Session) -> list[str]:
     return sorted(e for e, lvl in level.items() if lvl >= full or e in managers)
 
 
+async def _visible_partners(scope: dict, kinds: tuple[str, ...]) -> set[tuple[str, str]] | None:
+    """The (kind, partner id) pairs a change request may concern for this
+    caller - the same reach list_partners gives: partners of their entities
+    (and sub-entities) and partners with no entity. None = no limit (Neil's
+    review, Oct 20: the requests list and export carried every entity's
+    from/to values - tax ID, address, email - to any Accounting viewer).
+    While the accounting app cannot serve the records (501) nothing is known
+    about a partner's entity, so a limited caller sees none - the same
+    answer the ledger fallback gives them."""
+    if scope["allowed"] is None:
+        return None
+    reach = await _with_children(scope["allowed"]) if scope["allowed"] else set()
+    out: set[tuple[str, str]] = set()
+    for k in kinds:
+        try:
+            raw = await _get({"kind": k})
+        except HTTPException as e:
+            if e.status_code != 501:
+                raise
+            continue
+        for p in raw:
+            if not isinstance(p, dict):
+                continue
+            rec = _record(p)
+            if rec["id"] and (not rec["entity"] or rec["entity"] in reach):
+                out.add((rec["kind"] or k, rec["id"]))
+    return out
+
+
+def _within(rows: list, visible: set[tuple[str, str]] | None) -> list:
+    if visible is None:
+        return rows
+    return [r for r in rows if (r.kind, r.partner_id) in visible]
+
+
 @router.get("/changes")
-def list_changes(status: str = "", kind: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Change requests, newest first; `status` and `kind` narrow them."""
-    q = db.query(models.AccountingPartnerChange)
-    if status:
-        if status not in _STATUSES:
-            raise HTTPException(status_code=400, detail="status must be pending, approved or declined")
-        q = q.filter(models.AccountingPartnerChange.status == status)
-    if kind:
-        q = q.filter(models.AccountingPartnerChange.kind == _kind(kind))
-    rows = q.order_by(models.AccountingPartnerChange.requested_at.desc()).limit(500).all()
-    return {"changes": [_out(r, db) for r in rows]}
+async def list_changes(status: str = "", kind: str = "", scope: dict = Depends(entity_scope), db: Session = Depends(get_db)):
+    """Change requests, newest first; `status` and `kind` narrow them. A
+    caller limited to certain entities sees only the requests about partners
+    within their reach."""
+    if status and status not in _STATUSES:
+        raise HTTPException(status_code=400, detail="status must be pending, approved or declined")
+    k = _kind(kind) if kind else ""
+    visible = await _visible_partners(scope, (k,) if k else _KINDS)
+
+    def _read() -> dict:
+        q = db.query(models.AccountingPartnerChange)
+        if status:
+            q = q.filter(models.AccountingPartnerChange.status == status)
+        if k:
+            q = q.filter(models.AccountingPartnerChange.kind == k)
+        q = q.order_by(models.AccountingPartnerChange.requested_at.desc())
+        rows = q.limit(500).all() if visible is None else _within(q.all(), visible)[:500]
+        return {"changes": [_out(r, db) for r in rows]}
+    return await asyncio.to_thread(_read)
+
+
+# Two-int-form advisory lock namespace for "one pending request per record"
+# (its own keyspace; daily_briefing and the others use different ones).
+_PENDING_LOCK_NS = 517309284
+
+
+def _lock_partner(db: Session, kind: str, pid: str) -> None:
+    """Serialize creates for one record until this transaction ends, so two
+    concurrent posts cannot both pass the one-pending-request check - a row
+    lock alone cannot cover a row that does not exist yet. CAST as in
+    daily_briefing._acquire_employee_lock. No-op on SQLite (one writer)."""
+    if db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(CAST(:ns AS integer), hashtext(:key))"),
+                   {"ns": _PENDING_LOCK_NS, "key": f"{kind}:{pid}"})
 
 
 @router.post("/changes", status_code=201)
-def create_change(body: ChangeRequestBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def create_change(body: ChangeRequestBody, scope: dict = Depends(entity_scope), db: Session = Depends(get_db)):
     """An edit becomes a request: only the fields that differ, each with the
     value Intacct has and the value asked for. One pending request per
-    record at a time."""
+    record at a time. A caller limited to certain entities may only ask
+    about a partner within their reach (403 otherwise)."""
+    user = scope["user"]
     kind = _kind(body.kind)
     pid = (body.partnerId or "").strip()[:60]
     if not pid:
@@ -307,27 +368,34 @@ def create_change(body: ChangeRequestBody, user: dict = Depends(get_current_user
             changes[field] = {"from": frm, "to": to}
     if not changes:
         raise HTTPException(status_code=400, detail="Nothing changed.")
-    open_row = (db.query(models.AccountingPartnerChange)
-                .filter(models.AccountingPartnerChange.kind == kind, models.AccountingPartnerChange.partner_id == pid,
-                        models.AccountingPartnerChange.status == "pending").first())
-    if open_row:
-        raise HTTPException(status_code=409, detail="A change for this record is already waiting for approval.")
-    row = models.AccountingPartnerChange(
-        id=str(uuid.uuid4()), kind=kind, partner_id=pid, partner_name=(body.partnerName or "").strip()[:200], changes=changes,
-        status="pending", requested_by=user["email"], requested_at=_now(), note=(body.note or "").strip()[:_NOTE_MAX],
-    )
-    db.add(row)
-    who = _display_name(user["email"], db)
-    label = "Vendor" if kind == "vendor" else "Customer"
-    fields = ", ".join(changes.keys())
-    for em in _deciders(db):
-        if em == user["email"].lower():
-            continue
-        _notify(db, type="acct_partner_change", recipient=em, title=f"{label} Change to Approve: {row.partner_name or pid}",
-                body=f"{who} asked to change {fields}. Approve or decline it under Accounting > Vendors & Customers.",
-                ref_id=row.id, requested_by=user["email"])
-    db.commit()
-    return _out(row, db)
+    visible = await _visible_partners(scope, (kind,))
+    if visible is not None and (kind, pid) not in visible:
+        raise HTTPException(status_code=403, detail="Your accounting access does not include this vendor or customer's entity.")
+
+    def _write() -> dict:
+        _lock_partner(db, kind, pid)
+        open_row = (db.query(models.AccountingPartnerChange)
+                    .filter(models.AccountingPartnerChange.kind == kind, models.AccountingPartnerChange.partner_id == pid,
+                            models.AccountingPartnerChange.status == "pending").with_for_update().first())
+        if open_row:
+            raise HTTPException(status_code=409, detail="A change for this record is already waiting for approval.")
+        row = models.AccountingPartnerChange(
+            id=str(uuid.uuid4()), kind=kind, partner_id=pid, partner_name=(body.partnerName or "").strip()[:200], changes=changes,
+            status="pending", requested_by=user["email"], requested_at=_now(), note=(body.note or "").strip()[:_NOTE_MAX],
+        )
+        db.add(row)
+        who = _display_name(user["email"], db)
+        label = "Vendor" if kind == "vendor" else "Customer"
+        fields = ", ".join(changes.keys())
+        for em in _deciders(db):
+            if em == user["email"].lower():
+                continue
+            _notify(db, type="acct_partner_change", recipient=em, title=f"{label} Change to Approve: {row.partner_name or pid}",
+                    body=f"{who} asked to change {fields}. Approve or decline it under Accounting > Vendors & Customers.",
+                    ref_id=row.id, requested_by=user["email"])
+        db.commit()
+        return _out(row, db)
+    return await asyncio.to_thread(_write)
 
 
 def _decide_row(db: Session, change_id: str, status: str, note: str, user: dict) -> dict:
@@ -364,15 +432,22 @@ def decline_change(change_id: str, body: DecisionBody, user: dict = Depends(_dec
 
 
 @router.get("/changes/export.csv")
-def export_changes(status: str = Query("approved"), kind: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def export_changes(status: str = Query("approved"), kind: str = "", scope: dict = Depends(entity_scope), db: Session = Depends(get_db)):
     """The approved changes as a CSV, one row per field, for keying into
-    Intacct. Dates are MM/DD/YYYY."""
+    Intacct. Dates are MM/DD/YYYY. Held to the caller's entity reach, like
+    the list."""
     if status not in _STATUSES:
         raise HTTPException(status_code=400, detail="status must be pending, approved or declined")
+    k = _kind(kind) if kind else ""
+    visible = await _visible_partners(scope, (k,) if k else _KINDS)
+    return await asyncio.to_thread(_export_csv, db, status, k, visible)
+
+
+def _export_csv(db: Session, status: str, kind: str, visible: set[tuple[str, str]] | None) -> StreamingResponse:
     q = db.query(models.AccountingPartnerChange).filter(models.AccountingPartnerChange.status == status)
     if kind:
-        q = q.filter(models.AccountingPartnerChange.kind == _kind(kind))
-    rows = q.order_by(models.AccountingPartnerChange.decided_at.asc(), models.AccountingPartnerChange.requested_at.asc()).all()
+        q = q.filter(models.AccountingPartnerChange.kind == kind)
+    rows = _within(q.order_by(models.AccountingPartnerChange.decided_at.asc(), models.AccountingPartnerChange.requested_at.asc()).all(), visible)
 
     def _mdy(iso: str) -> str:
         s = (iso or "")[:10]

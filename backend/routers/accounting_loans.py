@@ -202,6 +202,23 @@ class ScanJob:
 
 _JOBS: dict[tuple, ScanJob] = {}
 _INTERRUPTED = "The ledger scan was interrupted - open again to start it over."
+# Neil's review (Oct 20): a job (with its whole scan result) was dropped only
+# when the same user asked the same scan again, so results per user x as-of x
+# entity pick piled up. Expired jobs go whenever a job starts, and at most
+# this many are kept - the oldest finished (or failed) first; a running scan
+# is never dropped.
+_JOBS_MAX = 200
+
+
+def _sweep_jobs(now: float) -> None:
+    for k in [k for k, j in _JOBS.items() if j.expired(now)]:
+        _JOBS.pop(k, None)
+    if len(_JOBS) < _JOBS_MAX:
+        return
+    for k in [k for k, j in _JOBS.items() if j.result is not None or j.failed()]:
+        if len(_JOBS) < _JOBS_MAX:
+            break
+        _JOBS.pop(k, None)
 
 
 def scan_job(key: tuple, run: Callable[[ScanJob], Any]) -> ScanJob:
@@ -232,6 +249,7 @@ def scan_job(key: tuple, run: Callable[[ScanJob], Any]) -> ScanJob:
                 job.status = 503
 
     job.task = asyncio.create_task(runner())
+    _sweep_jobs(now)
     _JOBS[key] = job
     return job
 
@@ -680,6 +698,37 @@ def _clear_tables_cache() -> None:
         accounting_dashboard._CACHE.pop(k, None)
 
 
+# Two-int-form advisory lock namespace for one loan's Change Loan save (its
+# own keyspace; daily_briefing and accounting_partners use others).
+_LOAN_EDIT_LOCK_NS = 517309285
+
+
+def _save_loan_fresh_sync(loan_id: str, period: str, apply: Callable[[dict], tuple[dict, bool]], by: str) -> tuple[dict, dict]:
+    """Save one fin_loans row from a FRESH read: the row lives in the
+    accounting app, so the lock is a transaction-scoped Postgres advisory lock
+    per loan, held while the row is read (bypassing the tables cache), the
+    request's fields are laid over it and the row-save is sent - two edits to
+    different fields of one loan both survive, whichever worker they reach.
+    No lock on SQLite (local, one process). Returns (the save's answer, the
+    row sent)."""
+    db = database.SessionLocal()
+    try:
+        if db.bind.dialect.name == "postgresql":
+            from sqlalchemy import text
+            db.execute(text("SELECT pg_advisory_xact_lock(CAST(:ns AS integer), hashtext(:key))"), {"ns": _LOAN_EDIT_LOCK_NS, "key": loan_id})
+        data = accounting_dashboard._get_sync({"op": "tables", "period": period})
+        loans = (data.get("tables") or data).get("loans") or [] if isinstance(data, dict) else []
+        fresh = next((r for r in loans if isinstance(r, dict) and str(r.get("id")) == loan_id), None)
+        if not fresh:
+            raise HTTPException(status_code=404, detail="Loan not found - it may have just been removed.")
+        row, _ = apply(fresh)
+        saved = accounting_dashboard._post_sync({"op": "row-save", "table": "fin_loans", "row": row, "by": by})
+        db.commit()        # releases the lock
+        return saved, row
+    finally:
+        db.close()
+
+
 # ── What Nexus keeps per loan (accounting_loan_settings) ────────────────────
 _SETTING_FIELDS = ("interest_account", "original_principal", "internal", "docs_path", "statements_path", "loan_type", "stress_excluded")
 LOAN_TYPES = ("term", "line_of_credit")
@@ -927,7 +976,7 @@ async def create_from_ledger(body: CreateBody, user: dict = Depends(_edit), scop
     have = {_set_up_key(r) for r in existing}
     by_key = {(p["entityCode"], p["glAccount"]): p for p in scan["proposals"]}
     accounting_dashboard._require_configured()
-    by = accounting_dashboard._display_name(db, user["email"])
+    by = await asyncio.to_thread(accounting_dashboard._display_name, db, user["email"])
     for it in body.items:
         if it.loanType and it.loanType not in LOAN_TYPES:
             raise HTTPException(status_code=400, detail="Loan type is Term Loan or Line of Credit.")
@@ -1008,7 +1057,7 @@ async def create_manual(body: ManualBody, user: dict = Depends(_edit), scope: di
         if v is not None and v < 0:
             raise HTTPException(status_code=400, detail=f"The {what} cannot be negative.")
     accounting_dashboard._require_configured()
-    by = accounting_dashboard._display_name(db, user["email"])
+    by = await asyncio.to_thread(accounting_dashboard._display_name, db, user["email"])
     row = {"id": str(uuid.uuid4()), "loan_no": body.loanNo.strip()[:40], "kind": "intercompany" if body.internal else "external", "lender": lender, "entity_code": entity,
            "gl_account": "", "balance_source": "manual", "balance": _r2(body.balance), "rate_pct": body.ratePct or 0, "rate_type": body.rateType, "maturity": maturity,
            "monthly_pi": body.monthlyPayment or 0, "dscr": None, "covenant_min": None, "is_active": True, "notes": body.notes.strip()[:200] or "Added by hand in Nexus (not in Intacct)"}
@@ -1395,33 +1444,44 @@ async def edit_loan(loan_id: str, body: LoanEdit, month: Optional[str] = None, u
             raise HTTPException(status_code=400, detail="Loan type is Term Loan or Line of Credit.")
         setting_patch["loan_type"] = body.loanType or ""
 
-    row = {k: v for k, v in cur.items() if k not in ("ledger_balance", "ledger_asof")}
-    changed = False
-    for field, col in _EDIT_MAP.items():
-        v = getattr(body, field)
-        if v is None:
-            continue
-        if field == "balance" and (row.get("balance_source") or "manual") == "ledger" and not ("glAccount" in sent and not gl):
-            continue            # a ledger loan's balance is read, never typed
-        if isinstance(v, str):
-            v = v.strip()[:200 if field != "loanNo" else 40]
-        if field == "maturity" and v == "":
-            v = None            # an empty date clears the maturity
-        if field == "covenantMin" and v == 0:
-            v = None            # 0 = back to the 1.35 default
-        row[col] = v
-        changed = True
-    if "glAccount" in sent:
-        # Wiring the principal account makes the balance the ledger's; taking
-        # it off keeps the loan, kept by hand from here.
-        row["gl_account"] = gl
-        row["balance_source"] = "ledger" if gl else "manual"
-        changed = True
-    by = accounting_dashboard._display_name(db, user["email"])
+    def apply(base: dict) -> tuple[dict, bool]:
+        """`base` with only the fields this request sent laid over it."""
+        row = {k: v for k, v in base.items() if k not in ("ledger_balance", "ledger_asof")}
+        changed = False
+        for field, col in _EDIT_MAP.items():
+            v = getattr(body, field, None)
+            if v is None:
+                continue
+            if field == "balance" and (row.get("balance_source") or "manual") == "ledger" and not ("glAccount" in sent and not gl):
+                continue            # a ledger loan's balance is read, never typed
+            if isinstance(v, str):
+                v = v.strip()[:200 if field != "loanNo" else 40]
+            if field == "maturity" and v == "":
+                v = None            # an empty date clears the maturity
+            if field == "covenantMin" and v == 0:
+                v = None            # 0 = back to the 1.35 default
+            row[col] = v
+            changed = True
+        if "glAccount" in sent:
+            # Wiring the principal account makes the balance the ledger's; taking
+            # it off keeps the loan, kept by hand from here.
+            row["gl_account"] = gl
+            row["balance_source"] = "ledger" if gl else "manual"
+            changed = True
+        return row, changed
+
+    by = await asyncio.to_thread(accounting_dashboard._display_name, db, user["email"])
+    row, changed = apply(cur)
     data: dict = {}
     if changed:
         accounting_dashboard._require_configured()
-        data = await asyncio.to_thread(accounting_dashboard._post_sync, {"op": "row-save", "table": "fin_loans", "row": row, "by": by})
+        # Neil's review (Oct 20): the row-save writes the WHOLE fin_loans row,
+        # and `cur` came from a tables read cached for seconds (and cleared
+        # only in the worker that wrote) - a second edit could put back what
+        # the first one changed. The row is read again, fresh, under a per-loan
+        # lock, and only the fields this request sent are laid over it.
+        period = (month and _month(month)) or date.today().isoformat()[:7]
+        data, row = await asyncio.to_thread(_save_loan_fresh_sync, loan_id, period, apply, by)
         _clear_tables_cache()
     if setting_patch:
         await asyncio.to_thread(_save_settings_sync, loan_id, str(cur.get("entity_code") or ""), setting_patch, user["email"])
@@ -1476,7 +1536,7 @@ async def delete_loan(loan_id: str, user: dict = Depends(_edit), scope: dict = D
         raise HTTPException(status_code=404, detail="Loan not found in your entities.")
     await _limit(scope, str(cur.get("entity_code") or "") or None, None)
     accounting_dashboard._require_configured()
-    by = accounting_dashboard._display_name(db, user["email"])
+    by = await asyncio.to_thread(accounting_dashboard._display_name, db, user["email"])
     await asyncio.to_thread(accounting_dashboard._post_sync, {"op": "row-delete", "table": "fin_loans", "match": {"id": loan_id}, "by": by})
     _clear_tables_cache()
     dismiss = (cur.get("balance_source") or "manual") == "ledger" and bool(str(cur.get("gl_account") or "").strip())

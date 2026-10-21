@@ -225,7 +225,12 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
   const [chart, setChart] = useState(null);
   const [auto, setAuto] = useState(!settings?.configured?.length);
   const [picked, setPicked] = useState(() => new Set(settings?.configured || []));
-  const [rows, setRows] = useState(() => Object.entries(settings?.accountants || {}).flatMap(([entity, list]) => list.map((p) => ({ entity, email: p.email }))));
+  // A person limited to certain entities edits only those entities' accountants;
+  // the Every Entity ('') default is shown, read-only, and never sent back
+  // (Neil's review, Oct 20: re-sending it locked them out of saving at all).
+  const mine = (entity) => !limited || entity !== '';
+  const [rows, setRows] = useState(() => Object.entries(settings?.accountants || {}).filter(([entity]) => mine(entity)).flatMap(([entity, list]) => list.map((p) => ({ entity, email: p.email }))));
+  const everyEntity = limited ? (settings?.accountants?.[''] || []) : [];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [text, setText] = useState('');
@@ -241,8 +246,8 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
   const save = (e) => {
     e.preventDefault();
     const accountants = {};
-    rows.filter((r) => r.email).forEach((r) => { (accountants[r.entity] ||= []).push(r.email); });
-    Object.keys(settings?.accountants || {}).forEach((k) => { accountants[k] ||= []; });
+    rows.filter((r) => r.email && mine(r.entity)).forEach((r) => { (accountants[r.entity] ||= []).push(r.email); });
+    Object.keys(settings?.accountants || {}).filter(mine).forEach((k) => { accountants[k] ||= []; });
     if (!auto && !picked.size) { setError('Pick at least one account, or find them by title.'); return; }
     setBusy(true);
     setError('');
@@ -278,6 +283,11 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
       <div>
         <span style={fieldLabel}>Accountants</span>
         <div style={{ display: 'grid', gap: 6 }}>
+          {everyEntity.length > 0 && (
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+              Every Entity: {everyEntity.map((p) => p.name || p.email).join(', ')} - set by someone with access to every entity.
+            </div>
+          )}
           {rows.map((r, i) => (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) auto', gap: 6, alignItems: 'center' }}>
               <EntityPicker entities={entities} value={r.entity} onChange={(code) => setRows((x) => x.map((y, j) => (j === i ? { ...y, entity: code } : y)))}

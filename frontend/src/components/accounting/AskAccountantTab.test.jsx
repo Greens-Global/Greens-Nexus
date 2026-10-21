@@ -45,7 +45,7 @@ vi.mock('../../api', () => ({
   },
 }));
 
-import AskAccountantTab, { exportTable, visibleRows } from './AskAccountantTab';
+import AskAccountantTab, { SettingsDialog, exportTable, visibleRows } from './AskAccountantTab';
 import { api } from '../../api';
 import { resetAccountingPrefs } from './prefs';
 
@@ -148,5 +148,30 @@ describe('AskAccountantTab', () => {
     fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
     expect(await screen.findByRole('dialog', { name: 'AMA Settings' })).toBeTruthy();
     expect(screen.getByText(/Find them by title/)).toBeTruthy();
+  });
+
+  // Neil's review (Oct 20): a person limited to certain entities could not save
+  // AMA Settings once an Every Entity accountant existed - the dialog re-sent
+  // the '' key, which only unlimited editors may set.
+  const OTHER = 'other.acct@greensglobal.com';
+  const settingsWith = () => ({ configured: ['99999'], accountants: { '': [{ email: ACCT, name: 'Ann Accountant' }], '15000': [{ email: OTHER, name: 'Otto Other' }] } });
+  const ents = [{ code: '15000', name: 'Greens Escondido, LLC.' }];
+
+  it('a limited editor saves only the entities they may edit', async () => {
+    render(<SettingsDialog settings={settingsWith()} entities={ents} limited onClose={() => {}} onSaved={() => {}} />);
+    expect(screen.getByText(/Every Entity: Ann Accountant/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.saveAskSettings).toHaveBeenCalled());
+    const body = api.saveAskSettings.mock.calls[0][0];
+    expect(body).toEqual({ accountants: { '15000': [OTHER] } });
+    expect('' in body.accountants).toBe(false);
+  });
+
+  it('an unlimited editor still saves the Every Entity accountants and the accounts', async () => {
+    render(<SettingsDialog settings={settingsWith()} entities={ents} limited={false} onClose={() => {}} onSaved={() => {}} />);
+    expect(screen.queryByText(/Every Entity: Ann Accountant/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.saveAskSettings).toHaveBeenCalled());
+    expect(api.saveAskSettings.mock.calls[0][0]).toEqual({ accounts: ['99999'], accountants: { '': [ACCT], '15000': [OTHER] } });
   });
 });

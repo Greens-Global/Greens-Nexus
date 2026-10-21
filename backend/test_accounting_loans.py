@@ -274,6 +274,78 @@ class ArithmeticTests(unittest.TestCase):
         self.assertEqual((rows["A"]["interestAccount"], rows["A"]["interestSource"], rows["A"]["interestPaid"]), ("71200", "wired", 500.0))
 
 
+class CacheBoundTests(unittest.TestCase):
+    """Neil's review (Oct 20): the accounting read cache and the scan jobs
+    only ever grew. Expired entries go on insert, and both are capped."""
+
+    def test_acct_cache_evicts_expired_and_caps_least_recently_used(self):
+        store = {}
+        accounting.cache_put(store, "old", 1, now=0.0, ttl=300.0, cap=3)
+        accounting.cache_put(store, "a", 2, now=200.0, ttl=300.0, cap=3)
+        accounting.cache_put(store, "b", 3, now=301.0, ttl=300.0, cap=3)
+        self.assertEqual(list(store), ["a", "b"], "the expired entry went on insert")
+        accounting.cache_put(store, "c", 4, now=302.0, ttl=300.0, cap=3)
+        store["a"] = store.pop("a")                  # a hit moves it to the back
+        accounting.cache_put(store, "d", 5, now=303.0, ttl=300.0, cap=3)
+        self.assertEqual(list(store), ["c", "a", "d"], "the least recently used went first")
+        for i in range(50):
+            accounting.cache_put(store, f"q={i}", i, now=304.0, ttl=300.0, cap=3)
+        self.assertEqual(len(store), 3)
+
+    def test_acct_get_keeps_the_cache_bounded(self):
+        calls = []
+        real = (accounting._acct_get_sync, accounting._ACCT_BASE, accounting._ACCT_KEY, accounting._ACCT_CACHE_MAX)
+        accounting._acct_get_sync = lambda path, params: calls.append(params) or {"ok": True, "q": params.get("q")}
+        accounting._ACCT_BASE, accounting._ACCT_KEY, accounting._ACCT_CACHE_MAX = "http://accounting.invalid", "k", 5
+        accounting._ACCT_CACHE.clear()
+        try:
+            async def run():
+                for i in range(20):
+                    await accounting._acct_get("/api/internal/search", {"q": f"free text {i}"})
+                await accounting._acct_get("/api/internal/search", {"q": "free text 19"})
+            asyncio.run(run())
+            self.assertEqual(len(accounting._ACCT_CACHE), 5)
+            self.assertEqual(len(calls), 20, "the last one was still a hit")
+        finally:
+            accounting._acct_get_sync, accounting._ACCT_BASE, accounting._ACCT_KEY, accounting._ACCT_CACHE_MAX = real
+            accounting._ACCT_CACHE.clear()
+
+    def test_scan_jobs_evict_expired_and_cap_finished_never_running(self):
+        class Job:
+            def __init__(self, finished_at=None, running=False):
+                self.result = None if running else {"ok": True}
+                self.finished = finished_at
+                self.running = running
+
+            def expired(self, now):
+                return self.result is not None and now - self.finished >= accounting_loans._RESULT_TTL
+
+            def failed(self):
+                return False
+        real_max = accounting_loans._JOBS_MAX
+        accounting_loans._JOBS.clear()
+        accounting_loans._JOBS_MAX = 4
+        try:
+            jobs = accounting_loans._JOBS
+            jobs[("a", "loans", "old")] = Job(finished_at=0.0)
+            jobs[("a", "loans", "run1")] = Job(running=True)
+            jobs[("a", "loans", "f1")] = Job(finished_at=1700.0)
+            accounting_loans._sweep_jobs(1900.0)
+            self.assertNotIn(("a", "loans", "old"), jobs, "expired")
+            jobs[("b", "loans", "run2")] = Job(running=True)
+            jobs[("b", "loans", "f2")] = Job(finished_at=1800.0)
+            accounting_loans._sweep_jobs(1900.0)
+            self.assertEqual(len(jobs), 3)
+            self.assertEqual(sorted(k[2] for k in jobs), ["f2", "run1", "run2"], "the oldest finished went; running scans stay")
+            for i in range(10):
+                jobs[("c", "loans", f"run{i + 3}")] = Job(running=True)
+            accounting_loans._sweep_jobs(1900.0)
+            self.assertTrue(all(j.running for j in jobs.values()), "only finished jobs are dropped for room")
+        finally:
+            accounting_loans._JOBS.clear()
+            accounting_loans._JOBS_MAX = real_max
+
+
 class EndpointTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -330,8 +402,14 @@ class EndpointTests(unittest.TestCase):
                 return _search(clean)
             return {"ok": True, "echo": clean}
 
+        self.stale_loans = None          # what a stale cached tables read (another worker) still says
+
         async def fake_dash(op, params, fresh_by=None):
             self.calls.append(("dash", {"op": op, **params}))
+            return {"ok": True, "loans": [dict(l) for l in (self.stale_loans if self.stale_loans is not None else self.loans)]}
+
+        def fake_dash_sync(params):      # the uncached read Change Loan saves from
+            self.calls.append(("dash-fresh", dict(params)))
             return {"ok": True, "loans": [dict(l) for l in self.loans]}
 
         def fake_post(body):
@@ -347,6 +425,7 @@ class EndpointTests(unittest.TestCase):
         self._get, accounting._acct_get = accounting._acct_get, fake_get
         self._dash, accounting_dashboard._get = accounting_dashboard._get, fake_dash
         self._post, accounting_dashboard._post_sync = accounting_dashboard._post_sync, fake_post
+        self._dsync, accounting_dashboard._get_sync = accounting_dashboard._get_sync, fake_dash_sync
         self._base, self._key = accounting._ACCT_BASE, accounting._ACCT_KEY
         self._dbase, self._dkey = accounting_dashboard._BASE, accounting_dashboard._KEY
         accounting._ACCT_BASE, accounting._ACCT_KEY = "http://accounting.invalid", "test-key"
@@ -355,6 +434,7 @@ class EndpointTests(unittest.TestCase):
     def tearDown(self):
         self.gate.set()
         accounting._acct_get, accounting_dashboard._get, accounting_dashboard._post_sync = self._get, self._dash, self._post
+        accounting_dashboard._get_sync = self._dsync
         accounting._ACCT_BASE, accounting._ACCT_KEY = self._base, self._key
         accounting_dashboard._BASE, accounting_dashboard._KEY = self._dbase, self._dkey
         accounting_loans._SCAN.clear()
@@ -567,6 +647,53 @@ class EndpointTests(unittest.TestCase):
         self.client.put("/accounting/loans/FL1", json={"glAccount": "27200"})
         [row] = self._review()["loans"]
         self.assertEqual((row["glAccount"], row["balance"], row["principalPaid"]), ("27200", 249000.0, 1000.0))
+
+    def test_two_edits_to_different_fields_both_survive(self):
+        """Neil's review (Oct 20): Change Loan re-saved the whole fin_loans row
+        from a tables read cached for seconds, so a second edit served from a
+        stale cache put back what the first one changed. The save now reads
+        the row fresh and lays only the sent fields over it."""
+        _as(EDITOR)
+        self.stale_loans = [dict(l) for l in self.loans]      # the other worker's cached copy
+        self.assertEqual(self.client.put("/accounting/loans/FL1", json={"ratePct": 7.5}).status_code, 200)
+        r = self.client.put("/accounting/loans/FL1", json={"lender": "F&M Bank - Escondido"})
+        self.assertEqual(r.status_code, 200, r.text)
+        [loan] = self.loans
+        self.assertEqual((loan["rate_pct"], loan["lender"]), (7.5, "F&M Bank - Escondido"), "both edits survive")
+        self.assertEqual(self.saves[-1]["row"]["rate_pct"], 7.5)
+        self.assertEqual(r.json()["row"]["rate_pct"], 7.5)
+        self.assertTrue(any(c[0] == "dash-fresh" for c in self.calls), "the save read the row fresh")
+        # Removed meanwhile (fresh read has no such row): 404, nothing saved.
+        self.loans = []
+        n = len(self.saves)
+        self.assertEqual(self.client.put("/accounting/loans/FL1", json={"ratePct": 8}).status_code, 404)
+        self.assertEqual(len(self.saves), n)
+
+    def test_display_name_lookups_run_off_the_event_loop(self):
+        """Neil's review (Oct 20): the async loan routes looked the editor's
+        name up in the database on the event loop. It runs in a thread now."""
+        def on_loop() -> bool:
+            try:
+                asyncio.get_running_loop()
+                return True
+            except RuntimeError:
+                return False
+        seen = []
+        real = accounting_dashboard._display_name
+
+        def name(db, email):
+            seen.append(on_loop())
+            return "Test Editor"
+        accounting_dashboard._display_name = name
+        try:
+            _as(EDITOR)
+            self.assertEqual(self.client.put("/accounting/loans/FL1", json={"ratePct": 6.5}).status_code, 200)
+            self.assertEqual(self.client.post("/accounting/loans/manual", json={"lender": "Off Loop Lender", "entityCode": "12000"}).status_code, 201)
+            self.assertEqual(self.client.delete("/accounting/loans/FL1").status_code, 200)
+        finally:
+            accounting_dashboard._display_name = real
+        self.assertEqual(seen, [False, False, False])
+        self.assertTrue(all(s.get("by") == "Test Editor" for s in self.saves))
 
     def test_edit_validation(self):
         _as(EDITOR)
