@@ -268,11 +268,11 @@ class CompanyWallsTests(unittest.TestCase):
         self._mk_kb("kb-walls-b", BEMP)      # owner in company B
         self._mk_kb("kb-walls-shared", "")   # no owner -> shared org-wide
         self._arm(True)
-        a = self._get_ids("/knowledge-base/documents", AEMP)
+        a = self._get_ids("/kb/pages", AEMP)
         self.assertIn("kb-walls-a", a)
         self.assertIn("kb-walls-shared", a)          # shared_when_blank
         self.assertNotIn("kb-walls-b", a)            # company B's private SOP is walled
-        g = self._get_ids("/knowledge-base/documents", GLOBAL)
+        g = self._get_ids("/kb/pages", GLOBAL)
         self.assertTrue({"kb-walls-a", "kb-walls-b", "kb-walls-shared"} <= g)
 
     def test_per_id_fetch_across_wall_is_404(self):
@@ -281,9 +281,9 @@ class CompanyWallsTests(unittest.TestCase):
         self._mk_kb("kb-walls-b", BEMP)
         self._arm(True)
         os.environ["NEXUS_DEV_EMAIL"] = AEMP
-        self.assertEqual(self.client.get("/knowledge-base/documents/kb-walls-b").status_code, 404)
+        self.assertEqual(self.client.get("/kb/pages/kb-walls-b").status_code, 404)
         os.environ["NEXUS_DEV_EMAIL"] = GLOBAL
-        self.assertEqual(self.client.get("/knowledge-base/documents/kb-walls-b").status_code, 200)
+        self.assertEqual(self.client.get("/kb/pages/kb-walls-b").status_code, 200)
 
     def test_sub_resource_reads_are_walled(self):
         # A task's comments/attachments/activity must 404 across the wall, not just

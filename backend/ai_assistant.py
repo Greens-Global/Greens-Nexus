@@ -306,14 +306,20 @@ def _get_my_items(user: dict, db: Session, **_args) -> dict:
 
 
 def _search_knowledge_base(user: dict, db: Session, query: str = "", **_args) -> dict:
-    from routers import knowledge_base
+    # Oct 2026 rebuild: the Knowledge Base's own ranking, inside the caller's
+    # company wall, published pages only.
+    import kb_access
+    import kb_search
     if not query.strip():
         return {"results": []}
-    docs = knowledge_base._rank_docs(query, db)
+    pages = kb_access.wall_rows(db.query(models.KbDocument).filter(models.KbDocument.status == "approved").all(), user, db)
+    by_id = {d.id: d for d in pages}
+    hits = kb_search.search(db, pages, query, limit=3)["results"]
     return {
         "results": [
-            {"doc_code": d.doc_code, "title": d.title, "summary": knowledge_base._doc_context(d)}
-            for d in docs
+            {"doc_code": by_id[h["id"]].doc_code, "title": by_id[h["id"]].title,
+             "summary": (by_id[h["id"]].summary or "") + ("\n" + h["snippet"] if h["snippet"] else "")}
+            for h in hits if h["id"] in by_id
         ]
     }
 

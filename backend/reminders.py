@@ -696,6 +696,13 @@ async def reminders_loop():
             await asyncio.to_thread(credvault.run_daily_rotation_reminders)
         except Exception as e:
             print(f"[reminders] credential vault loop error: {e}")
+        # Knowledge Base (Oct 2026): assignment rules, renewals, training and
+        # sign-off reminders, the Monday manager / owner digests (kb_daily.py).
+        try:
+            import kb_daily
+            await asyncio.to_thread(kb_daily.run_daily)
+        except Exception as e:
+            print(f"[reminders] knowledge base loop error: {e}")
         now = datetime.now(timezone.utc)
         nxt = now.replace(hour=_SCAN_HOUR_UTC, minute=0, second=0, microsecond=0)
         if nxt <= now:
