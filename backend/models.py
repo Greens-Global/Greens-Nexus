@@ -7512,3 +7512,20 @@ class OpsCmaEvent(Base):
     unit_type   = Column(String, default="")                        # "" = the whole facility
     text        = Column(String, default="")
     by          = Column(String, default="")
+
+
+class OpsCustomerPoint(Base):
+    """Operations > Customer Map (Neil, Oct 21 2026, ops_customer_geo.py): where
+    one current customer of one facility sits on the map, rounded to about
+    100 m (3 decimals). NO address, name, phone or email - only the point,
+    how it was placed, and a fingerprint that says whether Cubby's address
+    changed since. New table - explicit RLS line in main.py."""
+    __tablename__ = "ops_customer_points"
+    id          = Column(String, primary_key=True)                 # "<facility_id>:<customer_id>"
+    facility_id = Column(String, index=True, nullable=False)
+    customer_id = Column(String, default="")
+    lat         = Column(Float)                                    # rounded to 3 decimals; None = missing
+    lng         = Column(Float)
+    precision   = Column(String, default="missing")                # street | zip | missing
+    fingerprint = Column(String, default="")                       # sha256 of the normalized address
+    geocoded_at = Column(String, default="")                       # UTC iso
