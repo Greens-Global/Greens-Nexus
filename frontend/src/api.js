@@ -2175,6 +2175,13 @@ export const api = {
   getMreVendor:        (vendorId) => req(`/accounting/mre/vendors/${encodeURIComponent(vendorId)}`),
   getMreProposals:     (min = 3, entities = []) => req(`/accounting/mre/from-ledger/proposals?min=${min}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}`),
   createMreFromLedger: (body)     => req('/accounting/mre/from-ledger/create', { method: 'POST', body: JSON.stringify(body) }),
+  // Oct 22: one line's row (the in-place refresh after a save), the shared
+  // MRI / MRE settings, the Possibly Ended check, and a vendor's Egnyte folder.
+  getMreGridRows:      (year, ids = []) => req(`/accounting/mre/grid?year=${year}&ids=${encodeURIComponent(ids.join(','))}`),
+  getRecurringSettings:  () => req('/accounting/mre/settings'),
+  saveRecurringSettings: (body) => req('/accounting/mre/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  runRecurringStaleCheck: () => req('/accounting/mre/stale-check', { method: 'POST' }),
+  suggestMreEgnyteFolder: (vendor) => req(`/accounting/mre/egnyte-suggest?vendor=${encodeURIComponent(vendor)}`),
 
   // PFS file lock + Affiliated Entities + an executive profile per borrower
   // (Charmi, 10/04). routers/pfs_access.py, routers/pfs_affiliates.py.

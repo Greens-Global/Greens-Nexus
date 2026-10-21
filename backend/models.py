@@ -5116,6 +5116,19 @@ class Lease(Base):
     # None for month to month, N for custom.
     term_type        = Column(String, default="")
     term_months      = Column(Integer, nullable=True)
+    # Oct 22 (Priyanka, Charmi): how often the income falls due - '' or
+    # monthly (every row before Oct 22 is monthly and computes exactly as
+    # before) | quarterly | semi_annual | annual | custom (every N months,
+    # frequency_months), counted from the lease start month like MRE.
+    frequency        = Column(String, default="")
+    frequency_months = Column(Integer, default=0)
+    # Oct 22 (Neil, staleness check): set by the daily recurring_stale scan
+    # only - the day the source was flagged Possibly Ended ('' = not), the
+    # last month anything posted ('' = nothing in twelve months), and the one
+    # accounting task opened for it.
+    stale_since      = Column(String, default="")
+    stale_last_paid  = Column(String, default="")
+    stale_task_id    = Column(String, default="")
 
 
 class LeaseRate(Base):
@@ -5411,6 +5424,13 @@ class RecurringExpense(Base):
     account_number   = Column(String, default="")                # the account number with the vendor (e.g. utility account)
     account_details  = Column(String, default="")
     contact_info     = Column(String, default="")                # name / phone / email
+    # Oct 22 (Neil): the vendor's contract / document folder in Egnyte
+    # ('' = not wired), and the staleness flags the daily recurring_stale
+    # scan sets (see Lease.stale_*).
+    egnyte_folder    = Column(String, default="")
+    stale_since      = Column(String, default="")
+    stale_last_paid  = Column(String, default="")
+    stale_task_id    = Column(String, default="")
 
 
 class PfsAffiliate(Base):

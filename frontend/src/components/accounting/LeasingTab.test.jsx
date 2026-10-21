@@ -24,6 +24,13 @@ const roll = {
   summary: { leases: 2, behind: 1, owed: 3600, expectedToDate: 25355, receivedToDate: 21755 },
 };
 
+// Oct 22: the lease dates are the Nexus date picker (MM/DD/YYYY whatever the
+// browser's language). Its calendar has its own tests; here it is a plain
+// input carrying the picker's title, so the form's flow can be driven.
+vi.mock('../../tasks/components', () => ({
+  DateField: ({ value, onChange, title }) => <input aria-label={title} value={value || ''} onChange={(e) => onChange(e.target.value)} />,
+}));
+
 vi.mock('../../api', () => ({
   api: {
     getLeasingRentRollFor: vi.fn(async () => roll),
@@ -623,6 +630,9 @@ describe('LeasingTab shared controls', () => {
     const table = within(dialog).getByRole('table', { name: 'Rent Changes' });
     const heads = within(table).getAllByRole('columnheader').map((h) => h.textContent);
     expect(heads.slice(0, 5)).toEqual(['Effective Date', 'Rent', 'CAM', 'Other', 'Note']);
+    // Oct 22 (Charmi: "still not very clear" - the labels stacked on the left):
+    // a header cell is a table cell, never a block.
+    within(table).getAllByRole('columnheader').forEach((h) => expect(h.style.display).not.toBe('block'));
     // The header row is above the inputs, one label per input column.
     const [headRow, firstRow] = within(table).getAllByRole('row');
     expect(headRow.closest('thead')).toBeTruthy();
