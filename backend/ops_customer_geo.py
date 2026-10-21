@@ -39,7 +39,7 @@ import asyncio
 import hashlib
 import math
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Callable, Optional
 
 BATCH = 300                  # addresses looked at per pass (each 1-2 Nominatim calls)
@@ -132,24 +132,36 @@ def _paced_fetch(query: str) -> Optional[tuple]:
 
 # ── Current customers (from the synced Cubby tables) ──────────────────────────
 
-def current_customers(db) -> dict[str, set]:
-    """{facility_id: {customer_id}} - customers on a RENTED rent-roll line of
-    an enabled facility; Unit Classes' switched-off records do not count."""
+def _rented_lines(db, fids=None):
+    """(facility_id, customer_id, rentRoll dict) for every RENTED rent-roll line
+    of an enabled facility (or of `fids`); Unit Classes' switched-off records
+    are left out. The one walk both the geocode job and the map read."""
     import cubby
     import models as m
     import ops_unit_classes as uc
     rules = cubby._rules()
-    fids = [f.facility_id for f in db.query(m.CubbyFacility).filter(m.CubbyFacility.enabled.is_(True)).all()]
-    out: dict[str, set] = {fid: set() for fid in fids}
+    if fids is None:
+        fids = [f.facility_id for f in db.query(m.CubbyFacility).filter(m.CubbyFacility.enabled.is_(True)).all()]
+    fids = list(fids)
     if not fids:
-        return out
+        return
     for u in (db.query(m.CubbyUnit)
               .filter(m.CubbyUnit.facility_id.in_(fids), m.CubbyUnit.status == "RENTED", m.CubbyUnit.customer_id != "")
               .all()):
-        group = ((u.data or {}).get("rentRoll") or {}).get("pricingGroupName")
-        if uc.unit_class(group, rules) == uc.EXCLUDED:
+        rr = (u.data or {}).get("rentRoll") or {}
+        if uc.unit_class(rr.get("pricingGroupName"), rules) == uc.EXCLUDED:
             continue
-        out[u.facility_id].add(u.customer_id)
+        yield u.facility_id, u.customer_id, rr
+
+
+def current_customers(db) -> dict[str, set]:
+    """{facility_id: {customer_id}} - customers on a RENTED rent-roll line of
+    an enabled facility; Unit Classes' switched-off records do not count."""
+    import models as m
+    fids = [f.facility_id for f in db.query(m.CubbyFacility).filter(m.CubbyFacility.enabled.is_(True)).all()]
+    out: dict[str, set] = {fid: set() for fid in fids}
+    for fid, cid, _rr in _rented_lines(db, fids):
+        out[fid].add(cid)
     return out
 
 
@@ -277,6 +289,24 @@ async def customer_geo_loop():
 
 
 # ── The map (read side, for routers/ops_customer_map.py) ──────────────────────
+#
+# Trade area analysis (Visesh, Oct 22 2026, Phase 1): the payload is the
+# customers AGGREGATED by (facility, rounded point, precision, unit kind,
+# tenure bucket, rent band) with a count and a rent sum - never a customer id,
+# name or address. Distances, percentiles, the distance distribution, the
+# Outside 50 Miles card, competitor counts and the overlap between Greens
+# stores are computed here, on the filtered set, so the map and the numbers
+# beside it always agree (the screen only sums groups for a hover).
+
+KINDS = ("storage", "vehicle")
+TENURES = ("under90d", "under1y", "1to3y", "over3y", "unknown")
+TENURE_DAYS = (90, 365, 3 * 365)
+BUCKETS = ((0, 1), (1, 2), (2, 3), (3, 5), (5, 10), (10, 50), (50, None))
+PERCENTILES = (50, 80, 90)
+COMPETITOR_RINGS = (3, 5, 10)
+COMPETITOR_REACH = 50        # competitors drawn within this many miles of a shown facility
+POINT_COLS = ("lat", "lng", "facility", "zip", "kind", "tenure", "band", "count", "rent", "miles", "closer")
+
 
 def miles_between(a_lat, a_lng, b_lat, b_lng) -> float:
     p1, p2 = math.radians(a_lat), math.radians(b_lat)
@@ -285,24 +315,163 @@ def miles_between(a_lat, a_lng, b_lat, b_lng) -> float:
     return 2 * EARTH_MILES * math.asin(min(1.0, math.sqrt(h)))
 
 
+def kind_of(groups: list) -> str:
+    """A customer renting only parking spaces (pricing group name contains
+    "Parking" - ops_budget_cubby.segment_of's rule) is a vehicle / RV
+    customer; anyone with a storage unit (or a mailbox) is storage."""
+    names = [str(g or "").lower() for g in groups]
+    return "vehicle" if names and all("parking" in n for n in names) else "storage"
+
+
+def tenure_of(move_in: str, today: date) -> str:
+    try:
+        d = date.fromisoformat(str(move_in or "")[:10])
+    except ValueError:
+        return "unknown"
+    days = (today - d).days
+    for key, limit in zip(TENURES, TENURE_DAYS):
+        if days < limit:
+            return key
+    return "over3y"
+
+
+def percentile(sorted_values: list, p: float) -> Optional[float]:
+    """Nearest-rank percentile of an ascending list: the smallest value with at
+    least p% of the values at or below it. None for an empty list."""
+    if not sorted_values:
+        return None
+    k = max(0, math.ceil(p / 100 * len(sorted_values)) - 1)
+    return sorted_values[min(k, len(sorted_values) - 1)]
+
+
+def median(sorted_values: list) -> Optional[float]:
+    n = len(sorted_values)
+    if not n:
+        return None
+    mid = n // 2
+    return sorted_values[mid] if n % 2 else (sorted_values[mid - 1] + sorted_values[mid]) / 2
+
+
+def _r2(v):
+    return None if v is None else round(v, 2)
+
+
 def ring_counts(distances: list) -> dict:
     """{"rings": [{"miles", "count"}] (within, cumulative), "beyond": n, "placed": n}."""
     return {"rings": [{"miles": r, "count": sum(1 for d in distances if d <= r)} for r in RINGS],
             "beyond": sum(1 for d in distances if d > RINGS[-1]), "placed": len(distances)}
 
 
-def build_map(db, facility: str = "all", state: str = "") -> Optional[dict]:
-    """What the screen draws. None when `facility` is not a Greens facility."""
+def trade_stats(distances: list) -> dict:
+    """The Trade Area Statistics for one set of customer distances (miles):
+    50 / 80 / 90% radii, median and average, the distance distribution
+    (each bucket includes its upper edge, like the rings: 0-1 holds exactly
+    1 mile) and the ring counts."""
+    d = sorted(distances)
+    buckets = []
+    for lo, hi in BUCKETS:
+        c = sum(1 for x in d if (x > lo or lo == 0) and (hi is None or x <= hi))
+        buckets.append({"min": lo, "max": hi, "count": c})
+    return {
+        "radii": {str(p): _r2(percentile(d, p)) for p in PERCENTILES},
+        "median": _r2(median(d)),
+        "mean": _r2(sum(d) / len(d)) if d else None,
+        "buckets": buckets,
+        **ring_counts(d),
+    }
+
+
+def rent_bands(rents: list) -> list:
+    """Quartile bands of monthly rent (dollars): [{"band", "min", "max"}];
+    band 0 is up to the 25th percentile, band 3 above the 75th."""
+    r = sorted(rents)
+    if not r:
+        return []
+    cuts = [percentile(r, p) for p in (25, 50, 75)]
+    edges = [r[0], *cuts, r[-1]]
+    return [{"band": i, "min": round(edges[i], 2), "max": round(edges[i + 1], 2)} for i in range(4)]
+
+
+def band_of(rent: float, bands: list) -> int:
+    for b in bands[:3]:
+        if rent <= b["max"]:
+            return b["band"]
+    return 3 if bands else 0
+
+
+def _profiles(db, fids: list, today: date) -> dict:
+    """{(facility_id, customer_id): {"kind", "tenure", "rent"}} from the synced
+    rent roll: every rented line the customer has at that facility (rent is
+    their total monthly rent in dollars, tenure counts from their earliest
+    move-in there)."""
+    lines: dict[tuple, dict] = {}
+    for fid, cid, rr in _rented_lines(db, fids):
+        p = lines.setdefault((fid, cid), {"groups": [], "rent": 0.0, "moveIn": ""})
+        p["groups"].append(rr.get("pricingGroupName"))
+        try:
+            p["rent"] += float(rr.get("monthlyRentalAmount") or 0)
+        except (TypeError, ValueError):
+            pass
+        mi = str(rr.get("moveInDate") or "")[:10]
+        if mi and (not p["moveIn"] or mi < p["moveIn"]):
+            p["moveIn"] = mi
+    return {k: {"kind": kind_of(p["groups"]), "tenure": tenure_of(p["moveIn"], today), "rent": p["rent"] / 100}
+            for k, p in lines.items()}
+
+
+def _competitors(db, shown: list) -> list:
+    """Active, open comp-set competitors with a map position, once each (the
+    same store can be on two facilities' lists), within COMPETITOR_REACH of a
+    shown facility: [{"name", "lat", "lng", "miles", "near": {facility_id: miles}}]."""
+    import models as m
+    if not shown:
+        return []
+    seen, out = set(), []
+    rows = (db.query(m.OpsCompetitor)
+            .filter(m.OpsCompetitor.active.is_(True), m.OpsCompetitor.lat.isnot(None), m.OpsCompetitor.lng.isnot(None))
+            .all())
+    for c in rows:
+        if c.closed:
+            continue
+        key = c.stortrack_key or f"{(c.name or '').strip().lower()}|{round(c.lat, 3)}|{round(c.lng, 3)}"
+        if key in seen:
+            continue
+        seen.add(key)
+        near = {f["id"]: miles_between(f["lat"], f["lng"], c.lat, c.lng) for f in shown}
+        if min(near.values()) > COMPETITOR_REACH:
+            continue
+        out.append({"name": c.name or "Competitor", "lat": round(c.lat, 4), "lng": round(c.lng, 4),
+                    "miles": _r2(min(near.values())), "near": near})
+    out.sort(key=lambda c: (c["miles"], c["name"]))
+    return out
+
+
+def _within(competitors: list, fid: Optional[str] = None) -> dict:
+    """{"3": n, "5": n, "10": n} - competitors within each distance of one
+    facility, or of the nearest shown facility when `fid` is None."""
+    def dist(c):
+        return c["near"].get(fid) if fid else min(c["near"].values())
+    return {str(r): sum(1 for c in competitors if dist(c) is not None and dist(c) <= r) for r in COMPETITOR_RINGS}
+
+
+def build_map(db, facility: str = "all", state: str = "", kind: str = "all", since: str = "all",
+              band: str = "all", today: Optional[date] = None) -> Optional[dict]:
+    """What the screen draws. None when `facility` is not a Greens facility.
+    kind: all | storage | vehicle; since: all | 90 | 365 (moved in within that
+    many days); band: all | 0-3 (rent quartile of the customers on the map,
+    before the filters, so a band means the same thing whatever else is on)."""
     import cubby
     import models as m
     from ops_portfolio import _state as state_of
-    facs = []
+    today = today or datetime.now(timezone.utc).date()
+    greens = []
     for f in db.query(m.CubbyFacility).filter(m.CubbyFacility.enabled.is_(True)).all():
         d = {**(f.data or {}), "facilityId": f.facility_id, "name": f.name or (f.data or {}).get("name") or ""}
-        facs.append({"id": f.facility_id, "name": d["name"], "shortName": cubby._short(d),
-                     "lat": cubby._coord(d.get("latitude"), 90), "lng": cubby._coord(d.get("longitude"), 180),
-                     "state": state_of(d)})
-    facs.sort(key=lambda f: f["shortName"])
+        greens.append({"id": f.facility_id, "name": d["name"], "shortName": cubby._short(d),
+                       "lat": cubby._coord(d.get("latitude"), 90), "lng": cubby._coord(d.get("longitude"), 180),
+                       "state": state_of(d)})
+    greens.sort(key=lambda f: (f["shortName"], f["id"]))
+    facs = greens
     if state:
         facs = [f for f in facs if f["state"] == state.upper()]
     if facility and facility != "all":
@@ -310,15 +479,19 @@ def build_map(db, facility: str = "all", state: str = "") -> Optional[dict]:
         if not facs:
             return None
     ids = {f["id"] for f in facs}
+    index = {f["id"]: i for i, f in enumerate(greens)}
+    by_id = {f["id"]: f for f in greens}
+    pinned = [f for f in greens if f["lat"] is not None and f["lng"] is not None]
+    shown = [f for f in facs if f["lat"] is not None and f["lng"] is not None]
+    shown_ids = {f["id"] for f in shown}
     current = {fid: c for fid, c in current_customers(db).items() if fid in ids}
-    by_id = {f["id"]: f for f in facs}
+    profiles = _profiles(db, sorted(ids), today) if ids else {}
 
     P = m.OpsCustomerPoint
-    groups: dict[tuple, int] = {}
     coverage = {fid: {"current": len(current.get(fid, ())), "placed": 0, "zipOnly": 0, "missing": 0, "pending": 0}
                 for fid in ids}
     seen = {fid: 0 for fid in ids}
-    distances = []
+    placed = []                                     # (row, profile) for every customer on the map
     for r in db.query(P).filter(P.facility_id.in_(ids)).all() if ids else []:
         if r.customer_id not in current.get(r.facility_id, ()):
             continue                                # left since the last pass
@@ -329,19 +502,93 @@ def build_map(db, facility: str = "all", state: str = "") -> Optional[dict]:
             continue
         cov["placed"] += 1
         cov["zipOnly"] += r.precision == ZIP
-        key = (r.facility_id, r.lat, r.lng, r.precision)
-        groups[key] = groups.get(key, 0) + 1
-        f = by_id[r.facility_id]
-        if f["lat"] is not None and f["lng"] is not None:
-            distances.append(miles_between(f["lat"], f["lng"], r.lat, r.lng))
+        prof = profiles.get((r.facility_id, r.customer_id)) or {"kind": "storage", "tenure": "unknown", "rent": 0.0}
+        placed.append((r.facility_id, r.lat, r.lng, r.precision == ZIP, prof))
     for fid, cov in coverage.items():
         cov["pending"] = max(0, cov["current"] - seen[fid])
     total = {k: sum(c[k] for c in coverage.values()) for k in ("current", "placed", "zipOnly", "missing", "pending")}
+
+    bands = rent_bands([p["rent"] for *_, p in placed])
+    want_kind = kind if kind in KINDS else "all"
+    want_tenures = {"90": TENURES[:1], "365": TENURES[:2]}.get(str(since))
+    want_band = int(band) if str(band) in ("0", "1", "2", "3") else None
+
+    groups: dict[tuple, list] = {}                  # key -> [count, rent]
+    for fid, lat, lng, is_zip, p in placed:
+        if want_kind != "all" and p["kind"] != want_kind:
+            continue
+        if want_tenures and p["tenure"] not in want_tenures:
+            continue
+        b = band_of(p["rent"], bands)
+        if want_band is not None and b != want_band:
+            continue
+        key = (fid, lat, lng, is_zip, KINDS.index(p["kind"]), TENURES.index(p["tenure"]), b)
+        g = groups.setdefault(key, [0, 0.0])
+        g[0] += 1
+        g[1] += p["rent"]
+
+    # Distances (to the customer's own facility) and the nearest Greens store.
+    nearest: dict[tuple, tuple] = {}
+    distances: list = []
+    per_fac: dict[str, list] = {fid: [] for fid in ids}
+    customers = {fid: 0 for fid in ids}
+    vehicles = {fid: 0 for fid in ids}
+    closer: dict[str, dict] = {fid: {} for fid in ids}
+    outside: dict[str, int] = {}
+    rows = []
+    for key in sorted(groups, key=lambda k: (index[k[0]], k[1], k[2], k[3:])):
+        fid, lat, lng, is_zip, k, t, b = key
+        count, rent = groups[key]
+        f = by_id[fid]
+        customers[fid] += count
+        vehicles[fid] += count if k == 1 else 0
+        miles = closer_idx = None
+        if fid in shown_ids:
+            miles = miles_between(f["lat"], f["lng"], lat, lng)
+            if (fid, lat, lng) not in nearest:
+                best = min(pinned, key=lambda o: miles_between(o["lat"], o["lng"], lat, lng))
+                nearest[(fid, lat, lng)] = (best["id"], miles_between(best["lat"], best["lng"], lat, lng))
+            best_id, best_miles = nearest[(fid, lat, lng)]
+            if best_id != fid and best_miles < miles:
+                closer_idx = index[best_id]
+                closer[fid][best_id] = closer[fid].get(best_id, 0) + count
+            distances.extend([miles] * count)
+            per_fac[fid].extend([miles] * count)
+            if miles > RINGS[-1]:
+                region = state_of({"latitude": lat, "longitude": lng}) or "Other"
+                outside[region] = outside.get(region, 0) + count
+        rows.append([lat, lng, index[fid], int(is_zip), k, t, b, count, round(rent, 2), _r2(miles), closer_idx])
+
+    competitors = _competitors(db, shown)
+    by_facility = {}
+    for fid in sorted(ids, key=lambda i: index[i]):
+        n = customers[fid]
+        by_facility[fid] = {
+            **trade_stats(per_fac[fid]),
+            "customers": n,
+            "vehiclePct": round(100 * vehicles[fid] / n, 1) if n else None,
+            "closer": sorted(({"facilityId": o, "shortName": by_id[o]["shortName"], "count": c}
+                              for o, c in closer[fid].items()), key=lambda x: (-x["count"], x["shortName"])),
+            "competitorsWithin": _within(competitors, fid) if fid in shown_ids else None,
+        }
+    regions = sorted(({"state": s, "count": c} for s, c in outside.items()), key=lambda x: (-x["count"], x["state"]))
     return {
         "facilities": facs,
-        "points": [{"lat": lat, "lng": lng, "facilityId": fid, "count": n, "precision": prec}
-                   for (fid, lat, lng, prec), n in sorted(groups.items(), key=lambda kv: kv[0][:3])],
+        "greens": [{"id": f["id"], "shortName": f["shortName"], "lat": f["lat"], "lng": f["lng"]} for f in greens],
+        "pointCols": list(POINT_COLS),
+        "points": rows,
+        "kinds": list(KINDS),
+        "tenures": list(TENURES),
+        "rentBands": bands,
+        "filters": {"kind": want_kind, "since": str(since) if want_tenures else "all",
+                    "band": "all" if want_band is None else str(want_band)},
         "coverage": coverage,
         "total": total,
-        **ring_counts(distances),
+        "stats": {**trade_stats(distances),
+                  "customers": sum(customers.values()),
+                  "outside50": {"count": sum(outside.values()), "regions": regions[:5]},
+                  "overlap": sum(sum(c.values()) for c in closer.values()),
+                  "competitorsWithin": _within(competitors) if shown else None},
+        "byFacility": by_facility,
+        "competitors": [{"name": c["name"], "lat": c["lat"], "lng": c["lng"], "miles": c["miles"]} for c in competitors],
     }
