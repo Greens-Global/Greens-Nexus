@@ -1,9 +1,7 @@
-// Opening one Knowledge Base document or course from outside the Knowledge
-// Base (the Help widget's search results). Same two-part handoff as
-// openDoc.js / the bell's tickets: the event serves a Knowledge Base view that
-// is already mounted, the pending note serves one that is still loading.
-import { setPendingOpen } from '../lib/pendingOpen';
-
+// Opening one Knowledge Base page or course from outside the Knowledge Base
+// (the Help widget's search results, bells). Since the Oct 2026 rebuild a
+// page and a course each have an address (/sop/page:<id>, /sop/course:<id>),
+// so this is one navigate - no pending note, no second event.
 export const KB_OPEN_EVENT = 'nexus:kb-open';
 export const PENDING_KB_KIND = 'kb';
 
@@ -14,15 +12,15 @@ export function decodeKbTarget(value) {
   if (i < 1) return null;
   const kind = value.slice(0, i);
   const id = value.slice(i + 1);
-  return (kind === 'doc' || kind === 'course') && id ? { kind, id } : null;
+  return (kind === 'doc' || kind === 'page' || kind === 'course') && id ? { kind: kind === 'doc' ? 'page' : kind, id } : null;
 }
 
-/** Go to the Knowledge Base and open document or course `id`. */
+/** Go to the Knowledge Base and open page or course `id`. */
 export function openKb(kind, id) {
-  if (!id || (kind !== 'doc' && kind !== 'course')) return;
-  setPendingOpen(PENDING_KB_KIND, `${kind}:${id}`);
+  if (!id) return;
+  const k = kind === 'doc' ? 'page' : kind;
+  if (k !== 'page' && k !== 'course') return;
   window.dispatchEvent(new CustomEvent('nexus:navigate', {
-    detail: { view: 'sop', sub: kind === 'course' ? 'lms' : 'index' },
+    detail: { view: 'sop', sub: `${k}:${encodeURIComponent(id)}` },
   }));
-  setTimeout(() => window.dispatchEvent(new CustomEvent(KB_OPEN_EVENT, { detail: { kind, id } })), 0);
 }

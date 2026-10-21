@@ -303,7 +303,7 @@ MODULE_API_PREFIXES = {
     "tasks":              ("/task",),        # /tasks, /task-tickets, /task-projects, /task-* family
     "tickets":            ("/task",),
     "support":            ("/task",),        # Support raises/reads the caller's own tickets
-    "sop":                ("/knowledge-base", "/sop-updates", "/lms-"),
+    "sop":                ("/kb", "/knowledge-base", "/sop-updates", "/lms-"),
     "it":                 ("/unifi",),
     "ops":                ("/construction",),
     "operations":         ("/ops-projects", "/dev-projects", "/facility-ops"),

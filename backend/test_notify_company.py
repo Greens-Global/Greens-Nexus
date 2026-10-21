@@ -25,7 +25,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 import database
 import models
 from notify_company import notification_company
-from routers import credvault, investor_relations, knowledge_base, requisitions
+from routers import credvault, investor_relations, kb_training, requisitions
 
 
 def _assert_isolated():
@@ -114,13 +114,19 @@ class NotifyCompanyTests(unittest.TestCase):
         e.manager_email = ACME
         self.db.commit()
         self.db.add(models.KbCourse(
-            id="course-1", course_code="LRN-001", title="Ladder Safety", status="published",
-            lessons=json.dumps([{"_id": "l1", "type": "reading", "title": "Read", "body": "x"}]),
+            id="course-1", course_code="LRN-001", title="Ladder Safety", status="published", major=1,
+            lessons=json.dumps([{"_id": "l1", "type": "text", "title": "Read", "blocks": {"type": "doc", "content": []}}]),
             quiz=json.dumps({"passPct": 80, "questions": [
-                {"_id": "q1", "q": "Three points of contact?", "options": ["Yes", "No"], "answer": 0}]})))
+                {"_id": "q1", "type": "single", "q": "Three points of contact?", "options": ["Yes", "No"], "answer": [0]}]})))
+        self.db.add(models.KbCourseProgress(id="prg-1", course_id="course-1", user_email=GLOBEX, lessons_done=json.dumps(["l1"]),
+                                            started_at="2026-10-01T00:00:00+00:00", course_major=1))
         self.db.commit()
-        out = knowledge_base.submit_quiz("course-1", knowledge_base.QuizSubmitIn(answers={"q1": 0}),
-                                         user={"email": GLOBEX, "level": 1}, db=self.db)
+        learner = {"email": GLOBEX, "level": 1}
+        started = kb_training.quiz_start("course-1", user=learner, db=self.db)
+        # the options are shuffled; answer in SHOWN positions, the server maps them back
+        pos = started["questions"][0]["options"].index("Yes")
+        out = kb_training.quiz_submit(started["attempt_id"], kb_training.QuizSubmitIn(answers={"q1": [pos]}),
+                                      user=learner, db=self.db)
         self.assertTrue(out["passed"])
         row = self._only("kb_course_complete")
         self.assertEqual(row.recipient, ACME)

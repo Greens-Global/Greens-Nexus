@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users } from 'lucide-react';
+import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users, BookOpen } from 'lucide-react';
 import { useRole } from '../../contexts/RoleContext';
 import { useInventory } from '../../contexts/InventoryContext';
 import { useRequisitions } from '../../contexts/RequisitionContext';
@@ -116,7 +116,21 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     return () => { live = false; clearTimeout(id); };
   }, [term, wantContent]);
   const hits = wantContent && answer.term === term ? answer.data : EMPTY_HITS;
-  const searching = wantContent && answer.term !== term;
+  // Knowledge Base pages (Oct 2026 rebuild): the server's own ranking over
+  // published pages, same debounce, same "answer travels with its term" rule.
+  const [kbAnswer, setKbAnswer] = useState({ term: '', rows: [] });
+  useEffect(() => {
+    if (!wantContent) return undefined;
+    let live = true;
+    const id = setTimeout(() => {
+      api.kbSearch(term, { limit: 5 })
+        .then((r) => { if (live) setKbAnswer({ term, rows: r?.results || [] }); })
+        .catch(() => { if (live) setKbAnswer({ term, rows: [] }); });
+    }, 180);
+    return () => { live = false; clearTimeout(id); };
+  }, [term, wantContent]);
+  const kbRows = wantContent && kbAnswer.term === term ? kbAnswer.rows : [];
+  const searching = wantContent && (answer.term !== term || kbAnswer.term !== term);
 
   const groups = useMemo(() => {
     if (!live) return [];
@@ -198,12 +212,18 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     }
     add('requests', 'Purchase Requests', reqRows);
 
+    add('kb', 'Knowledge Base', kbRows.map((p) => ({
+      key: `kb:${p.id}`, Icon: BookOpen, title: p.title,
+      detail: [p.type_label, p.code, (p.collection || []).map((c) => c.name).join(' / ')].filter(Boolean).join(' · '),
+      run: () => navigate('sop', `page:${encodeURIComponent(p.id)}`),
+    })));
+
     add('pages', 'Pages', screens.filter(s => match(s.label, s.context, s.view)).slice(0, 6).map(s => ({
       key: `page:${s.view}:${s.sub || ''}`, Icon: LayoutDashboard, title: s.label, detail: s.context,
       run: () => navigate(s.view, s.sub),
     })));
     return out;
-  }, [live, q, query, screens, hits, items, checkouts, requisitions, isManager, myEmail, canTasks]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [live, q, query, screens, hits, kbRows, items, checkouts, requisitions, isManager, myEmail, canTasks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo(() => groups.flatMap(g => g.rows), [groups]);
   return { groups, rows, searching, count: rows.length };

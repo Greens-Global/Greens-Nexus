@@ -46,7 +46,7 @@ const Tickets             = lazy(() => import("./views/Tickets"));
 // in the sidebar swaps children under the SAME provider instance instead of
 // unmounting/remounting it - no refetch of everything on every switch.
 const TasksProvider = lazy(() => import("./tasks/TasksContext").then(m => ({ default: m.TasksProvider })));
-const SOP                 = lazy(() => import("./views/SOP"));
+const SOP                 = lazy(() => import("./kb/KnowledgeBase"));   // Knowledge Base rebuild (Oct 2026); the view id stays "sop"
 const IT                  = lazy(() => import("./views/IT"));
 const Accounting          = lazy(() => import("./views/Accounting"));
 // /sso/accounting - "Login via Nexus" landing for the accounting app (full-screen

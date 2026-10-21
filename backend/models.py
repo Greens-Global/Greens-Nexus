@@ -1163,6 +1163,21 @@ class KbDocument(Base):
     original_content = Column(Text, default="")                # raw extracted source text as first imported, before
                                                                  # any AI formatting - set once, never overwritten, so a
                                                                  # bad AI import can always be diffed against the true source
+    # Knowledge Base rebuild (Oct 2026, kb_*.py + routers/kb.py). Columns are
+    # ADDED, never changed: `body` / `doc_type` / `version` / `revision_history`
+    # stay exactly as the old module wrote them, so nothing is lost and the
+    # migration report (kb_migrate.py) can always diff old against new.
+    page_type        = Column(String, default="")              # how_to | sop | policy | reference ("" = not migrated yet)
+    collection_id    = Column(String, default="", index=True)  # KbCollection.id
+    summary          = Column(String, default="")              # one line under the title (search results, cards)
+    blocks           = Column(Text, default="")                # the page as the one editor stores it: TipTap JSON (kb_blocks.py)
+    major            = Column(Integer, default=0)              # version = f"{major}.{minor}"; 0.x = never published
+    minor            = Column(Integer, default=0)
+    published_at     = Column(String, default="")              # last time a version went live (ISO)
+    audience         = Column(Text, default="")                # policies: who must sign (kb_audience.py JSON), "" = everyone
+    signing          = Column(String, default="in_page")       # in_page | nexus_sign
+    translations     = Column(Text, default="")                # JSON {lang: {title, blocks, version, at}} - version != current = outdated
+    migrated_at      = Column(String, default="")              # set once by kb_migrate.apply; "" = still only the old body
 
 
 class KbService(Base):
@@ -1284,6 +1299,13 @@ class KbCourse(Base):
     quiz        = Column(String, default="{}")          # JSON {passPct,questions:[{_id,q,options,answer}]}
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+    # Rebuild (Oct 2026): `lessons` / `quiz` are the LIVE version learners take;
+    # edits go to `draft` until Publish copies them over and bumps `major`
+    # (kb_course_versions keeps every published copy).
+    major        = Column(Integer, default=0)          # 0 = never published
+    draft        = Column(Text, default="")            # JSON {title, description, overview, est_minutes, lessons, quiz, recert_months, departments}
+    published_at = Column(String, default="")
+    published_by = Column(String, default="")
 
 
 class KbCourseProgress(Base):
@@ -1297,6 +1319,9 @@ class KbCourseProgress(Base):
     passed       = Column(Boolean, default=False)
     started_at   = Column(String, default="")
     completed_at = Column(String, default="")
+    course_major = Column(Integer, default=0)          # the course version this progress belongs to (a renewal starts over)
+    unlock_rounds = Column(Integer, default=0)         # manager unlocks: tries allowed = max_tries * (1 + unlock_rounds)
+    certificate_id = Column(String, default="")        # KbCertificate.id issued for this completion
 
 
 class KbPin(Base):
@@ -1319,6 +1344,9 @@ class KbCourseAssignment(Base):
     due_date    = Column(String, default="")          # YYYY-MM-DD ("" = no due date)
     assigned_by = Column(String, default="")
     created_at  = Column(String, default="")
+    source      = Column(String, default="manual")    # manual | rule | plan | renewal (rebuild, Oct 2026)
+    rule_id     = Column(String, default="")          # KbAssignmentRule.id that made it
+    plan_id     = Column(String, default="")          # KbTrainingPlan.id it belongs to
 
 
 class KbQuizAttempt(Base):
@@ -1335,6 +1363,16 @@ class KbQuizAttempt(Base):
     passed      = Column(Boolean, default=False)
     missed      = Column(String, default="[]")         # JSON: [{q, your, correct, explanation}]
     created_at  = Column(String, default="")
+    # Rebuild (Oct 2026): the quiz is drawn and graded on the server. An attempt
+    # is opened with the questions it drew (and the order each one's options
+    # were shown in), then graded once; `missed` on new rows holds
+    # [{id, q, lesson_id, lesson_title}] - never the right answer.
+    status       = Column(String, default="graded")   # open | graded
+    course_major = Column(Integer, default=0)
+    question_ids = Column(Text, default="")           # JSON [qid]
+    option_order = Column(Text, default="")           # JSON {qid: [original option index per shown position]}
+    answers      = Column(Text, default="")           # JSON {qid: [shown positions picked]}
+    graded_at    = Column(String, default="")
 
 
 class PageHelp(Base):
@@ -7607,3 +7645,300 @@ class ContractorInvoice(Base):
     sent_at           = Column(String, default="")
     sent_to           = Column(JSON, default=list)
     egnyte_path       = Column(String, default="")
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Base rebuild (Oct 2026). New tables beside the old kb_* ones; the
+# old rows are never changed or dropped (kb_migrate.py converts and reports).
+# create_all makes these with RLS OFF - main.py's Postgres migration list
+# carries the ENABLE ROW LEVEL SECURITY line for each one.
+# ---------------------------------------------------------------------------
+
+class KbCollection(Base):
+    """A shelf in the Library: top level = a People department, one level of
+    sub-collections under it (the old kb_services). Each has an owner who keeps
+    it current and a review cycle its pages inherit. `reading_order` is an
+    ordered list of page ids for a collection read like a manual."""
+    __tablename__ = "kb_collections"
+    id                  = Column(String, primary_key=True)   # col_ + hex
+    name                = Column(String, nullable=False)
+    parent_id           = Column(String, default="", index=True)
+    department          = Column(String, default="")        # the People department name for a top-level collection
+    description         = Column(String, default="")
+    owner_email         = Column(String, default="")
+    owner_name          = Column(String, default="")
+    review_every_months = Column(Integer, default=12)
+    reading_order       = Column(Text, default="")          # JSON [doc_id]
+    sort_order          = Column(Integer, default=0)
+    active              = Column(Boolean, default=True)
+    created_by          = Column(String, default="")
+    created_at          = Column(String, default="")
+    updated_at          = Column(String, default="")
+    legacy_service_id   = Column(String, default="")        # KbService.id it was made from (migration)
+
+
+class KbRevision(Base):
+    """A revision draft of a PUBLISHED page. Readers keep seeing the live copy
+    until the revision is approved; then its blocks become the page and the
+    version bumps (minor for a small fix, major for a real change). One open
+    revision per page."""
+    __tablename__ = "kb_revisions"
+    id           = Column(String, primary_key=True)   # rev_ + hex
+    doc_id       = Column(String, nullable=False, index=True)
+    base_version = Column(String, default="")         # the live version it started from, e.g. "2.0"
+    title        = Column(String, default="")
+    summary      = Column(String, default="")
+    blocks       = Column(Text, default="")           # TipTap JSON
+    change_kind  = Column(String, default="minor")    # minor | major
+    change_note  = Column(String, default="")         # what changed, shown in the version list and in a policy's re-sign banner
+    status       = Column(String, default="draft")    # draft | in_review | changes_requested | merged | discarded
+    author_email = Column(String, default="")
+    author_name  = Column(String, default="")
+    reviewer_email = Column(String, default="")
+    review_note  = Column(String, default="")
+    created_at   = Column(String, default="")
+    updated_at   = Column(String, default="")
+    submitted_at = Column(String, default="")
+    decided_at   = Column(String, default="")
+    decided_by   = Column(String, default="")
+
+
+class KbPageVersion(Base):
+    """Every published version of a page, exactly as it read: the version
+    list, the compare view, what a signature or a course lesson is pinned to.
+    Migration turns the old kb_snapshots into these (order fixed)."""
+    __tablename__ = "kb_page_versions"
+    id            = Column(String, primary_key=True)   # ver_ + hex
+    doc_id        = Column(String, nullable=False, index=True)
+    major         = Column(Integer, default=0)
+    minor         = Column(Integer, default=0)
+    version       = Column(String, default="")         # "2.1"
+    title         = Column(String, default="")
+    summary       = Column(String, default="")
+    blocks        = Column(Text, default="")
+    content_text  = Column(Text, default="")
+    change_kind   = Column(String, default="")         # minor | major | import | migrated
+    change_note   = Column(String, default="")
+    author_email  = Column(String, default="")
+    approved_by   = Column(String, default="")
+    published_at  = Column(String, default="")
+    legacy_snapshot_id = Column(String, default="")   # KbSnapshot.id it came from
+
+
+class KbEvent(Base):
+    """The page's activity log, append-only: created, submitted, approved,
+    published, archived, restored, verified, flagged, signed, translated..."""
+    __tablename__ = "kb_events"
+    id         = Column(String, primary_key=True)   # evt_ + hex
+    doc_id     = Column(String, default="", index=True)
+    course_id  = Column(String, default="", index=True)
+    kind       = Column(String, nullable=False)
+    version    = Column(String, default="")
+    actor_email = Column(String, default="")
+    actor_name = Column(String, default="")
+    note       = Column(String, default="")
+    created_at = Column(String, default="", index=True)
+
+
+class KbSignature(Base):
+    """A policy signature: the typed name, the time, the version and the text
+    as it read at that moment. A signature counts while the page's MAJOR
+    version is the one signed; a new major version asks everyone again."""
+    __tablename__ = "kb_signatures"
+    id           = Column(String, primary_key=True)   # sig_ + hex
+    doc_id       = Column(String, nullable=False, index=True)
+    version      = Column(String, default="")
+    major        = Column(Integer, default=0)
+    user_email   = Column(String, nullable=False, index=True)
+    user_name    = Column(String, default="")
+    typed_name   = Column(String, default="")
+    signed_at    = Column(String, default="")
+    content_text = Column(Text, default="")           # the page as read, flattened
+    content_hash = Column(String, default="")         # sha256 of content_text
+    method       = Column(String, default="in_page")  # in_page | nexus_sign | legacy
+    legacy_ack_id = Column(String, default="")        # KbAcknowledgement.id it was converted from
+
+
+class KbFlag(Base):
+    """Report a Problem on a page - goes to the owner as a flagged item in
+    Manage > Health until it is resolved."""
+    __tablename__ = "kb_flags"
+    id          = Column(String, primary_key=True)   # flg_ + hex
+    doc_id      = Column(String, nullable=False, index=True)
+    version     = Column(String, default="")
+    user_email  = Column(String, default="")
+    user_name   = Column(String, default="")
+    text        = Column(String, default="")
+    status      = Column(String, default="open")     # open | resolved
+    created_at  = Column(String, default="")
+    resolved_at = Column(String, default="")
+    resolved_by = Column(String, default="")
+    resolution  = Column(String, default="")
+
+
+class KbView(Base):
+    """One row per person per page per day - the only thing a page open writes."""
+    __tablename__ = "kb_views"
+    id         = Column(String, primary_key=True)
+    doc_id     = Column(String, nullable=False, index=True)
+    user_email = Column(String, default="")
+    day        = Column(String, default="", index=True)   # YYYY-MM-DD
+    count      = Column(Integer, default=1)
+
+
+class KbSearchLog(Base):
+    """Searches that found nothing good - the Health screen's "we need a page
+    for this" list. One row per query per day."""
+    __tablename__ = "kb_search_log"
+    id         = Column(String, primary_key=True)
+    query      = Column(String, nullable=False)
+    day        = Column(String, default="", index=True)
+    count      = Column(Integer, default=1)
+    results    = Column(Integer, default=0)          # best result count seen that day
+    last_user  = Column(String, default="")
+
+
+class KbPageRequest(Base):
+    """A reader asked for a page that does not exist - notifies the collection
+    owner (or the Knowledge Base managers) and sits in Manage > Health."""
+    __tablename__ = "kb_page_requests"
+    id            = Column(String, primary_key=True)   # req_ + hex
+    query         = Column(String, default="")
+    note          = Column(String, default="")
+    collection_id = Column(String, default="")
+    user_email    = Column(String, default="")
+    user_name     = Column(String, default="")
+    status        = Column(String, default="open")     # open | done | declined
+    doc_id        = Column(String, default="")         # the page written in answer
+    created_at    = Column(String, default="")
+    closed_at     = Column(String, default="")
+    closed_by     = Column(String, default="")
+
+
+class KbJob(Base):
+    """A background AI job (import, course generation, translation) the screen
+    polls for progress. Result is JSON."""
+    __tablename__ = "kb_jobs"
+    id         = Column(String, primary_key=True)   # job_ + hex
+    kind       = Column(String, nullable=False)      # import | course | translate
+    status     = Column(String, default="queued")    # queued | running | done | failed
+    progress   = Column(Integer, default=0)
+    total      = Column(Integer, default=0)
+    doc_id     = Column(String, default="")
+    course_id  = Column(String, default="")
+    input      = Column(Text, default="")            # JSON (kept for retry)
+    result     = Column(Text, default="")            # JSON
+    error      = Column(String, default="")
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
+
+
+class KbTaskLink(Base):
+    """An SOP started as a task: which task, from which version."""
+    __tablename__ = "kb_task_links"
+    id         = Column(String, primary_key=True)
+    doc_id     = Column(String, nullable=False, index=True)
+    version    = Column(String, default="")
+    task_id    = Column(String, nullable=False, index=True)
+    recurring  = Column(Boolean, default=False)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class KbCourseVersion(Base):
+    """Every published version of a course, so people mid-course finish the
+    version they started and a certificate names the version it was for."""
+    __tablename__ = "kb_course_versions"
+    id           = Column(String, primary_key=True)   # cv_ + hex
+    course_id    = Column(String, nullable=False, index=True)
+    major        = Column(Integer, default=1)
+    title        = Column(String, default="")
+    description  = Column(String, default="")
+    overview     = Column(Text, default="")           # JSON [str]
+    est_minutes  = Column(Integer, default=15)
+    lessons      = Column(Text, default="")           # JSON
+    quiz         = Column(Text, default="")           # JSON (answers included - never sent to learners)
+    published_at = Column(String, default="")
+    published_by = Column(String, default="")
+    change_note  = Column(String, default="")
+
+
+class KbCertificate(Base):
+    """A stored training certificate with a serial number, downloadable at any
+    time and checkable by anyone signed in."""
+    __tablename__ = "kb_certificates"
+    id            = Column(String, primary_key=True)   # cert_ + hex
+    serial        = Column(String, nullable=False, unique=True, index=True)   # CERT-2026-00417
+    course_id     = Column(String, nullable=False, index=True)
+    course_code   = Column(String, default="")
+    course_title  = Column(String, default="")
+    course_major  = Column(Integer, default=0)
+    user_email    = Column(String, nullable=False, index=True)
+    user_name     = Column(String, default="")
+    score         = Column(Integer, default=0)
+    issued_at     = Column(String, default="")
+    expires_at    = Column(String, default="")         # "" = never
+    assignment_id = Column(String, default="")
+    revoked_at    = Column(String, default="")
+    legacy        = Column(Boolean, default=False)     # issued by the migration for an old completion
+
+
+class KbAssignmentRule(Base):
+    """Who takes a course (or a plan) automatically: an audience, a due window
+    counted from the person's start date (or the rule's creation), and an
+    optional renewal. The daily scan creates the assignments."""
+    __tablename__ = "kb_assignment_rules"
+    id           = Column(String, primary_key=True)   # rule_ + hex
+    kind         = Column(String, default="course")   # course | plan
+    target_id    = Column(String, nullable=False, index=True)
+    audience     = Column(Text, default="")           # kb_audience.py JSON
+    due_days     = Column(Integer, default=14)
+    renew_months = Column(Integer, default=0)
+    active       = Column(Boolean, default=True)
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    updated_at   = Column(String, default="")
+    last_run_at  = Column(String, default="")
+
+
+class KbTrainingPlan(Base):
+    """A bundle of courses and policies for a role ("New Hire: Site Manager"),
+    tracked as one checklist in My Training."""
+    __tablename__ = "kb_training_plans"
+    id          = Column(String, primary_key=True)   # plan_ + hex
+    name        = Column(String, nullable=False)
+    description = Column(String, default="")
+    items       = Column(Text, default="")           # JSON [{kind: course|policy, id, order}]
+    due_days    = Column(Integer, default=30)
+    audience    = Column(Text, default="")           # JSON, "" = assigned by name only
+    active      = Column(Boolean, default=True)
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class KbPlanAssignment(Base):
+    """A plan given to one person (by rule or by hand)."""
+    __tablename__ = "kb_plan_assignments"
+    id          = Column(String, primary_key=True)
+    plan_id     = Column(String, nullable=False, index=True)
+    user_email  = Column(String, nullable=False, index=True)
+    user_name   = Column(String, default="")
+    due_date    = Column(String, default="")
+    source      = Column(String, default="manual")   # manual | rule
+    assigned_by = Column(String, default="")
+    created_at  = Column(String, default="")
+    completed_at = Column(String, default="")
+
+
+class KbReminderLog(Base):
+    """One row per reminder actually sent (bell or email), so the daily scan
+    never repeats one: (kind, ref, recipient, day) is the key."""
+    __tablename__ = "kb_reminder_log"
+    id         = Column(String, primary_key=True)
+    kind       = Column(String, nullable=False)
+    ref_id     = Column(String, default="", index=True)
+    recipient  = Column(String, default="", index=True)
+    day        = Column(String, default="")
+    created_at = Column(String, default="")

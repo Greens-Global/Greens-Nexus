@@ -17,11 +17,12 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
+from routers import tasks, purchases, reviews, marketing, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
 from routers import directory as directory_router  # Contact Directory (Support, Oct 2026)
+from routers import kb as kb_router, kb_training as kb_training_router  # Knowledge Base rebuild (Oct 2026) - replaces knowledge_base + sop
 from routers import site_models as site_models_router  # 3D property site models + markup pins (Neil, Oct 11 2026)
 from routers import github_webhook  # PR/push merged to dev/main -> admin notification + What's New drafts (Sep 2026)
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
@@ -503,6 +504,34 @@ def _run_migrations():
             "ALTER TABLE kb_documents ADD COLUMN service VARCHAR DEFAULT ''",
             "ALTER TABLE kb_documents ADD COLUMN original_title VARCHAR DEFAULT ''",
             "ALTER TABLE kb_documents ADD COLUMN original_content TEXT DEFAULT ''",
+            # Knowledge Base rebuild (Oct 2026): added columns; the old ones stay as they are
+            "ALTER TABLE kb_documents ADD COLUMN page_type VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN collection_id VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN summary VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN blocks TEXT DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN major INTEGER DEFAULT 0",
+            "ALTER TABLE kb_documents ADD COLUMN minor INTEGER DEFAULT 0",
+            "ALTER TABLE kb_documents ADD COLUMN published_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN audience TEXT DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN signing VARCHAR DEFAULT 'in_page'",
+            "ALTER TABLE kb_documents ADD COLUMN translations TEXT DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN migrated_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN major INTEGER DEFAULT 0",
+            "ALTER TABLE kb_courses ADD COLUMN draft TEXT DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN published_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN published_by VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_course_progress ADD COLUMN course_major INTEGER DEFAULT 0",
+            "ALTER TABLE kb_course_progress ADD COLUMN unlock_rounds INTEGER DEFAULT 0",
+            "ALTER TABLE kb_course_progress ADD COLUMN certificate_id VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_course_assignments ADD COLUMN source VARCHAR DEFAULT 'manual'",
+            "ALTER TABLE kb_course_assignments ADD COLUMN rule_id VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_course_assignments ADD COLUMN plan_id VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN status VARCHAR DEFAULT 'graded'",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN course_major INTEGER DEFAULT 0",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN question_ids TEXT DEFAULT ''",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN option_order TEXT DEFAULT ''",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN answers TEXT DEFAULT ''",
+            "ALTER TABLE kb_quiz_attempts ADD COLUMN graded_at VARCHAR DEFAULT ''",
             # External Links directory rebuild (Aug 2026) - department scoping,
             # icon key, admin ordering/pin, and who/when for the audit trail.
             "ALTER TABLE external_links ADD COLUMN department VARCHAR DEFAULT ''",
@@ -1794,6 +1823,64 @@ def _run_migrations():
         # gap CLAUDE.md records; idempotent, runs every boot on dev and prod.
         "ALTER TABLE kb_services ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE kb_tags ENABLE ROW LEVEL SECURITY",
+        # Knowledge Base rebuild (Oct 2026): added columns on the old tables (nothing
+        # dropped, nothing renamed) and RLS on every new table create_all makes.
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS page_type VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS collection_id VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS summary VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS blocks TEXT DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS major INTEGER DEFAULT 0",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS minor INTEGER DEFAULT 0",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS published_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS audience TEXT DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS signing VARCHAR DEFAULT 'in_page'",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS translations TEXT DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS migrated_at VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_kb_documents_collection_id ON kb_documents (collection_id)",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS major INTEGER DEFAULT 0",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS draft TEXT DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS published_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS published_by VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_course_progress ADD COLUMN IF NOT EXISTS course_major INTEGER DEFAULT 0",
+        "ALTER TABLE kb_course_progress ADD COLUMN IF NOT EXISTS unlock_rounds INTEGER DEFAULT 0",
+        "ALTER TABLE kb_course_progress ADD COLUMN IF NOT EXISTS certificate_id VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_course_assignments ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'manual'",
+        "ALTER TABLE kb_course_assignments ADD COLUMN IF NOT EXISTS rule_id VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_course_assignments ADD COLUMN IF NOT EXISTS plan_id VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'graded'",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS course_major INTEGER DEFAULT 0",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS question_ids TEXT DEFAULT ''",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS option_order TEXT DEFAULT ''",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS answers TEXT DEFAULT ''",
+        "ALTER TABLE kb_quiz_attempts ADD COLUMN IF NOT EXISTS graded_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_collections ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_revisions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_page_versions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_events ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_signatures ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_flags ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_views ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_search_log ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_page_requests ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_jobs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_task_links ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_course_versions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_certificates ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_assignment_rules ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_training_plans ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_plan_assignments ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_reminder_log ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_documents ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_feedback ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_runs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_acknowledgements ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_comments ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_snapshots ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_courses ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_course_progress ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_pins ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_course_assignments ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_quiz_attempts ENABLE ROW LEVEL SECURITY",
         # External Links directory rebuild (Aug 2026) - department scoping,
         # icon key, admin ordering/pin, and who/when for the audit trail.
         "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
@@ -4111,7 +4198,6 @@ app.include_router(tasks.router)
 app.include_router(purchases.router)
 app.include_router(reviews.router)
 app.include_router(marketing.router)
-app.include_router(sop.router)
 app.include_router(external_links.router) # External Links: registered BEFORE assets.router so its real
                                            # GET/POST/click routes win the match over assets.py's leftover
                                            # /external-links stub (Starlette matches in registration order,
@@ -4146,7 +4232,8 @@ app.include_router(qa.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
 app.include_router(hr_life_events_router.router)
-app.include_router(knowledge_base.router)
+app.include_router(kb_router.router)
+app.include_router(kb_training_router.router)
 app.include_router(help_router.router)
 app.include_router(esign.router)
 app.include_router(documents_router.router)
