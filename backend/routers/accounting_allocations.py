@@ -379,7 +379,7 @@ def export_run_xlsx(run_id: str, user: dict = Depends(get_current_user), _su: di
 
 
 @router.delete("/runs/{run_id}", status_code=204)
-def delete_run(run_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_run(run_id: str, user: dict = Depends(get_current_user), _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """A run kept by mistake can be removed; the Intacct side is untouched
     because nothing was ever posted."""
     row = _run(db, run_id)

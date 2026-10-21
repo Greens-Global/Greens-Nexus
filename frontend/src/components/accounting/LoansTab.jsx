@@ -95,19 +95,29 @@ import LoanPlanning from './LoanPlanning';
 //   - + Add > From the Ledger reads active entities only and no longer
 //     follows Customize > Show Historical Entities (a Reports preference);
 //     the scan window has its own Include Historical Entities box, off.
+//
+// Oct 22 (Charmi):
+//   - "These are GL codes, Loan # will be different": GL Code is its own
+//     column (the principal account); Loan # is the loan's real number, typed
+//     under Change Loan ("-" until it is). A loan set up from the ledger had
+//     its account stored as its number - that no longer shows as Loan #.
+//   - No "Interest Shared" tag under the lender; the Interest Paid hover says
+//     how the figure was read, and why when it is negative.
+//   - Vendor wiring: a loan wired to its lender's vendor counts only that
+//     vendor's lines (Change Loan > Vendor; shown in the row detail).
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 // The narrowest a column gets while nobody has dragged its width (Oct 14):
 // figures never wrap, names wrap inside a sensible band.
-const MIN_WIDTH = { monthly: 112, original: 124, balance: 136, principal: 112, interest: 112, ds: 112, rate: 96, maturity: 96, dscr: 72 };
+const MIN_WIDTH = { glCode: 76, monthly: 112, original: 124, balance: 136, principal: 112, interest: 112, ds: 112, rate: 96, maturity: 96, dscr: 72 };
 const NAME_BAND = { lender: [180, 300], entity: [160, 260] };
 const dash = <span style={{ color: 'var(--text-muted)' }}>-</span>;
 const KIND = { external: 'External', intercompany: 'Intercompany', given: 'Loan Given' };
 // The loans table's columns: [key (saved widths), header, figure].
 const LOAN_COLUMNS = [
-  ['lender', 'Lender'], ['loanNo', 'Loan #'], ['entity', 'Entity'], ['monthly', 'Monthly Payment', true], ['original', 'Original Principal', true], ['balance', 'Balance', true],
+  ['lender', 'Lender'], ['loanNo', 'Loan #'], ['glCode', 'GL Code'], ['entity', 'Entity'], ['monthly', 'Monthly Payment', true], ['original', 'Original Principal', true], ['balance', 'Balance', true],
   ['principal', 'Principal Paid', true], ['interest', 'Interest Paid', true], ['ds', 'Debt Service', true], ['rate', 'Rate'], ['maturity', 'Maturity'], ['dscr', 'DSCR', true], ['type', 'Type'], ['egnyte', 'Egnyte'],
 ];
 
@@ -115,6 +125,16 @@ const TYPES = [['all', 'All Types'], ['external', 'External'], ['internal', 'Int
 const dscrText = (v) => (v == null ? '-' : `${v.toFixed(2)}x`);
 const rateText = (r) => (r.ratePct == null ? '' : `${Number(r.ratePct).toFixed(2)}%${r.rateType ? ` ${r.rateType === 'variable' ? 'variable' : 'fixed'}` : ''}`);
 const sumOf = (rows, k) => Math.round(rows.reduce((s, r) => s + (Number(r[k]) || 0), 0) * 100) / 100;
+/** How a row's Interest Paid was read, for its hover (Oct 22: the "Interest
+ *  Shared" tag is gone, the hover still says it; a negative figure says why). */
+export function interestTitle(r) {
+  if (!r.interestAccounts?.length) return 'No interest account - wire one under Change Loan';
+  const how = `GL ${r.interestAccounts.map((a) => `${a.code} ${a.title}`).join(', ')} - ${INTEREST_SOURCE[r.interestSource] || ''}`;
+  const shared = r.interestSource === 'shared' ? ` (with ${r.interestSharedWith || 'other'} more loans, by balance - wire the loan's vendor or its own interest account under Change Loan)` : '';
+  const vendor = r.interestSource === 'vendor' && r.vendorId ? ` (${r.vendorName || r.vendorId})` : '';
+  const negative = Number(r.interestPaid) < -0.005 ? '. Negative: more was credited to the interest account than debited in the period (a reversal or a reclass to principal) - open the lines to check' : '';
+  return `${how}${shared}${vendor}${negative}`;
+}
 /** Not configured on this environment: the accounting service is not connected (503 from the API). */
 export const notAvailable = (e) => e?.status === 503 || /not configured|not available/i.test(e?.message || '');
 
@@ -132,7 +152,7 @@ export function visibleLoans(loans, { type = 'all', text = '', showClosed = fals
   const q = text.trim().toLowerCase();
   return loans.filter((r) => (showClosed || !r.closed)
     && (type === 'all' || (type === 'internal') === !!r.internal)
-    && (!q || [r.lender, r.loanNo, r.entityName, r.entityCode, r.glAccount, r.notes].some((v) => String(v || '').toLowerCase().includes(q))));
+    && (!q || [r.lender, r.loanNo, r.entityName, r.entityCode, r.glAccount, r.vendorName, r.vendorId, r.notes].some((v) => String(v || '').toLowerCase().includes(q))));
 }
 
 /** Totals by lender or by entity over the loans shown. */
@@ -153,11 +173,11 @@ export function groupTotals(rows, key, labelKey) {
 // The loans on screen as a table for linesFile (Excel / CSV / PDF and the
 // Email / Save to Files dialog) - the Reports tab's export path.
 const EXPORT_COLUMNS = [
-  { label: 'Lender', width: 200 }, { label: 'Loan #', width: 90 }, { label: 'Entity', width: 200 }, { label: 'Monthly Payment', num: true, width: 110 },
+  { label: 'Lender', width: 200 }, { label: 'Loan #', width: 90 }, { label: 'GL Code', width: 80 }, { label: 'Entity', width: 200 }, { label: 'Monthly Payment', num: true, width: 110 },
   { label: 'Original Principal', num: true, width: 120 }, { label: 'Balance', num: true, width: 120 }, { label: 'Principal Paid', num: true, width: 110 },
   { label: 'Interest Paid', num: true, width: 110 }, { label: 'Debt Service', num: true, width: 110 }, { label: 'Rate', width: 90 }, { label: 'Maturity', width: 90 },
   { label: 'DSCR', width: 70 }, { label: 'Type', width: 80 }, { label: 'Principal Account', width: 90 }, { label: 'Interest Account', width: 90 },
-  { label: 'Loan Type', width: 90 }, { label: 'Draws', num: true, width: 100 }, { label: 'Documents Folder', width: 160 }, { label: 'Statements Folder', width: 160 },
+  { label: 'Loan Type', width: 90 }, { label: 'Vendor', width: 140 }, { label: 'Draws', num: true, width: 100 }, { label: 'Documents Folder', width: 160 }, { label: 'Statements Folder', width: 160 },
 ];
 export function loansTable(rows, { from, to, entityLabel }) {
   const n = (v) => (v == null ? '' : v);
@@ -166,11 +186,11 @@ export function loansTable(rows, { from, to, entityLabel }) {
     period: `${formatDate(from)} - ${formatDate(to)}`.replace(/\//g, '-'),
     subtitle: `${entityLabel} · ${formatDate(from)} - ${formatDate(to)} · balances as of ${formatDate(to)}`,
     columns: EXPORT_COLUMNS,
-    rows: rows.map((r) => [r.lender, r.loanNo, r.entityName, n(r.monthlyPayment), n(r.originalPrincipal), r.balance, n(r.principalPaid), n(r.interestPaid), n(r.debtService),
+    rows: rows.map((r) => [r.lender, r.loanNo, r.glCode ?? r.glAccount ?? '', r.entityName, n(r.monthlyPayment), n(r.originalPrincipal), r.balance, n(r.principalPaid), n(r.interestPaid), n(r.debtService),
       rateText(r), r.maturity ? formatDate(r.maturity) : '', dscrText(r.dscr), r.internal ? 'Internal' : 'External', r.glAccount || '', r.interestAccount || '',
-      loanTypeLabel(r.loanType), r.lineOfCredit ? n(r.draws) : '', r.docsPath || '', r.statementsPath || '']),
-    totals: ['Total', '', '', sumOf(rows, 'monthlyPayment'), sumOf(rows, 'originalPrincipal'), sumOf(rows, 'balance'), sumOf(rows, 'principalPaid'), sumOf(rows, 'interestPaid'), sumOf(rows, 'debtService'), '', '', '', '', '', '',
-      '', sumOf(rows.filter((r) => r.lineOfCredit), 'draws'), '', ''],
+      loanTypeLabel(r.loanType), r.vendorId ? `${r.vendorName || r.vendorId} (${r.vendorId})` : '', r.lineOfCredit ? n(r.draws) : '', r.docsPath || '', r.statementsPath || '']),
+    totals: ['Total', '', '', '', sumOf(rows, 'monthlyPayment'), sumOf(rows, 'originalPrincipal'), sumOf(rows, 'balance'), sumOf(rows, 'principalPaid'), sumOf(rows, 'interestPaid'), sumOf(rows, 'debtService'), '', '', '', '', '', '',
+      '', '', sumOf(rows.filter((r) => r.lineOfCredit), 'draws'), '', ''],
   };
 }
 
@@ -238,7 +258,7 @@ function Maturities({ month, rows }) {
           {strip.map((m) => {
             const cell = by.get(m);
             return (
-              <div key={m} title={cell ? cell.loans.map((l) => `${l.lender} #${l.loanNo} (${l.entityName}) ${formatAmount(l.balance)}`).join('\n') : ''}
+              <div key={m} title={cell ? cell.loans.map((l) => `${l.lender}${l.loanNo ? ` #${l.loanNo}` : ''} (${l.entityName}) ${formatAmount(l.balance)}`).join('\n') : ''}
                 style={{ minWidth: 86, flex: '0 0 auto', border: `1px solid ${cell ? '#b45309' : 'var(--border-color)'}`, borderRadius: 8, padding: '4px 8px', background: cell ? 'rgba(180,83,9,0.10)' : 'var(--bg-secondary)', fontSize: '0.7rem' }}>
                 <div style={{ fontWeight: 700 }}>{monthLabel(m)}</div>
                 <div style={{ fontVariantNumeric: 'tabular-nums' }}>{cell ? <><Amount value={cell.balance} /><div style={{ color: 'var(--text-muted)' }}>{cell.loans.map((l) => l.lender || l.loanNo).join(', ')}</div></> : dash}</div>
@@ -431,7 +451,7 @@ export default function LoansTab({ canEdit = false }) {
     }
   };
 
-  const cols = 15 + (canEdit ? 1 : 0);
+  const cols = 16 + (canEdit ? 1 : 0);
   const totals = { monthly: sumOf(rows, 'monthlyPayment'), original: sumOf(rows, 'originalPrincipal'), balance: sumOf(rows, 'balance'), principal: sumOf(rows, 'principalPaid'), interest: sumOf(rows, 'interestPaid'), ds: sumOf(rows, 'debtService') };
 
   return (
@@ -563,10 +583,11 @@ export default function LoansTab({ canEdit = false }) {
                         {r.wiring === 'missing' && <> <Chip tone="wait" title={`GL ${r.glAccount} has no lines in this entity on the ledger - check the principal account under Change Loan.`}>Check Wiring</Chip></>}
                         {/* Oct 14 (Charmi): interest paid must come from the loan's OWN interest expense account - say so when it is not wired or matched. */}
                         {r.wiring === 'ok' && !r.closed && r.interestSource === 'none' && <> <Chip tone="wait" title="No interest expense account is linked - pick it under Change Loan (pencil) so Interest Paid is read from the ledger.">Link Interest Account</Chip></>}
-                        {r.wiring === 'ok' && !r.closed && r.interestSource === 'shared' && <> <Chip tone="wait" title={`Interest Paid is a share (by balance) of the entity's interest accounts no loan matched${r.interestAccounts?.length ? ` (GL ${r.interestAccounts.map((a) => a.code).join(', ')})` : ''} - pick this loan's own interest account under Change Loan.`}>Interest Shared</Chip></>}
+                        {/* Oct 22 (Charmi): no "Interest Shared" tag - the Interest Paid hover says how it was read. */}
                         {r.closed && <> <Chip tone="muted">Closed</Chip></>}
                       </td>
-                      <td style={cell('loanNo', false)}>{r.loanNo || dash}</td>
+                      <td style={cell('loanNo', false)} title={r.loanNo ? undefined : 'No loan number yet - type it under Change Loan'}>{r.loanNo || dash}</td>
+                      <td style={cell('glCode', false)} title={r.glTitle || undefined}>{r.glCode || r.glAccount || dash}</td>
                       <td className={cw.width('entity') ? undefined : 'loan-name'} style={cell('entity', false)} title={cw.width('entity') ? r.entityName : undefined}>{r.entityName}</td>
                       <td style={cell('monthly', true)}><TermCell loan={r} field="monthlyPayment" {...term}>{r.monthlyPayment == null ? dash : <Amount value={r.monthlyPayment} />}</TermCell></td>
                       <td style={cell('original', true)} title={r.originalPrincipalEdited ? `Typed over the ledger${r.originalPrincipalLedger != null ? `'s ${formatAmount(r.originalPrincipalLedger)}` : ''}` : r.originalPrincipalDate ? `The first credit on the account, ${formatDate(r.originalPrincipalDate)}` : undefined}>
@@ -583,7 +604,7 @@ export default function LoansTab({ canEdit = false }) {
                           ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the principal paid on ${r.lender || r.loanNo}`} onClick={(e) => drill(e, r.glAccount, r.glTitle || r.lender, r.entityCode, true)}><Amount value={r.principalPaid} zero="dash" /></button>
                           : <Amount value={r.principalPaid} zero="dash" />}
                       </td>
-                      <td style={cell('interest', true)} title={r.interestAccounts?.length ? `GL ${r.interestAccounts.map((a) => `${a.code} ${a.title}`).join(', ')} - ${INTEREST_SOURCE[r.interestSource] || ''}${r.interestSharedWith ? ` (with ${r.interestSharedWith} more)` : ''}` : 'No interest account - wire one under Change Loan'}>
+                      <td style={cell('interest', true)} title={interestTitle(r)}>
                         {r.interestPaid == null ? dash : r.interestAccounts?.length === 1 && Math.abs(Number(r.interestPaid) || 0) > 0.005
                           ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the interest paid on ${r.lender || r.loanNo}`} onClick={(e) => drill(e, r.interestAccounts[0].code, r.interestAccounts[0].title, r.entityCode, true)}><Amount value={r.interestPaid} zero="dash" /></button>
                           : <Amount value={r.interestPaid} zero="dash" />}
@@ -617,10 +638,10 @@ export default function LoansTab({ canEdit = false }) {
               {!loading && rows.length > 0 && (
                 <tfoot>
                   <tr style={{ fontWeight: 700 }}>
-                    <td /><td>Total</td><td /><td />
+                    <td /><td>Total</td><td /><td /><td />
                     <td style={num}><Amount value={totals.monthly} zero="dash" /></td><td style={num}><Amount value={totals.original} zero="dash" /></td><td style={num}><Amount value={totals.balance} /></td>
                     <td style={num}><Amount value={totals.principal} zero="dash" /></td><td style={num}><Amount value={totals.interest} zero="dash" /></td><td style={num}><Amount value={totals.ds} zero="dash" /></td>
-                    <td colSpan={cols - 10} style={{ fontWeight: 400, fontSize: '0.74rem', color: 'var(--text-muted)' }}>{hiddenClosed ? `${hiddenClosed} closed ${hiddenClosed === 1 ? 'loan' : 'loans'} hidden` : ''}</td>
+                    <td colSpan={cols - 11} style={{ fontWeight: 400, fontSize: '0.74rem', color: 'var(--text-muted)' }}>{hiddenClosed ? `${hiddenClosed} closed ${hiddenClosed === 1 ? 'loan' : 'loans'} hidden` : ''}</td>
                   </tr>
                 </tfoot>
               )}
@@ -662,4 +683,4 @@ export function SetupDialog({ month, asof, onClose, onCreated, pollMs = POLL_MS 
   return <LoanSetupDialog asof={date} onClose={onClose} onCreated={onCreated} pollMs={pollMs} />;
 }
 
-export const _test = { dscrText, visibleLoans, groupTotals, loansTable, termBody };
+export const _test = { dscrText, visibleLoans, groupTotals, loansTable, termBody, interestTitle };

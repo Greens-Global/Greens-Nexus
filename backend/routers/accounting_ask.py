@@ -33,6 +33,7 @@ to certain entities never sees another entity's thread - 404, as if it did
 not exist.
 """
 import asyncio
+import json
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -54,6 +55,12 @@ router = APIRouter(prefix="/accounting/ask", tags=["Accounting"], dependencies=[
 STATUSES = ("Open", "Answered", "Resolved")
 NOTIFY_TYPE = "acct_ama"
 NOTIFY_ACTION = '{"view": "accounting", "sub": "ama", "label": "Open AMA"}'
+
+
+def _action(thread_id: str) -> str:
+    """Where the bell takes the person: the AMA tab, with this question open
+    (Priyanka, 10/15: "Open AMA" left her nowhere)."""
+    return json.dumps({"view": "accounting", "sub": "ama", "label": "Open AMA", "amaThreadId": thread_id})
 TITLE_HINTS = ("ask my accountant", "ask accountant", "suspense")
 LINE_CAP = 3000              # AMA lines read per account and period
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -117,10 +124,29 @@ def effective_accounts(configured: list, chart: list[dict]) -> list[dict]:
 
 
 # ── Ledger lines (pure) ─────────────────────────────────────────────────────
+def _numbered(code, name) -> str:
+    """'V00412 Home Depot': the number first (Charmi, 10/14), else whichever is there."""
+    code, name = str(code or "").strip(), str(name or "").strip()
+    return f"{code} {name}" if code and name and code != name else (name or code)
+
+
+def line_dims(r: dict) -> dict:
+    """The columns Intacct's own AMA report carries beside the memo (Priyanka,
+    10/15): Department, Vendor and Custom. Custom is the custom dimension the
+    accounting app serves for the line - `custom` when it sends one, else the
+    class / project dimension it files under Project-Job."""
+    return {
+        "department": _numbered(r.get("department"), r.get("department_name")),
+        "vendor": _numbered(r.get("vendor_id"), r.get("vendor_name")),
+        "custom": _numbered(r.get("custom_id") or r.get("custom"), r.get("custom_name")) or _numbered(r.get("project_id"), r.get("project_name")),
+    }
+
+
 def line_out(r: dict) -> dict:
     debit, credit = _r2(r.get("debit")), _r2(r.get("credit"))
     party = r.get("vendor_name") or r.get("vendor_id") or r.get("customer_name") or r.get("customer_id") or r.get("employee_name") or r.get("employee_id") or ""
     return {
+        **line_dims(r),
         "lineId": str(r.get("line_id") or ""), "entryId": str(r.get("entry_id") or ""), "entryNo": str(r.get("entry_no") or ""),
         "lineNo": str(r.get("line_no") or ""), "date": str(r.get("entry_date") or "")[:10],
         "entityCode": str(r.get("location") or ""), "entityName": r.get("location_name") or "",
@@ -156,6 +182,35 @@ def reclassed(t: dict, read: dict) -> Optional[bool]:
     return thread_key(t) not in read["keys"]
 
 
+def split_period(threads: list[dict], from_: str, to: str) -> tuple[list[dict], dict]:
+    """The questions whose line is dated in the period, and a count of the
+    rest: {count, open (not Resolved), earliest, latest}. A question whose
+    line has no date stays in (it cannot be placed)."""
+    inside, out = [], []
+    for t in threads:
+        day = str(t.get("date") or "")[:10]
+        (out if day and not (from_ <= day <= to) else inside).append(t)
+    days = sorted(str(t["date"])[:10] for t in out)
+    return inside, {"count": len(out), "open": sum(1 for t in out if t.get("status") != "Resolved"),
+                    "earliest": days[0] if days else "", "latest": days[-1] if days else ""}
+
+
+def fill_from_lines(threads: list[dict], lines: list[dict]) -> None:
+    """A question on an AMA-account line read in this call takes the line's
+    memo, Department, Vendor and Custom when its own snapshot lacks them
+    (questions asked before those were kept). On screen only - the stored
+    question is not changed."""
+    by_id = {ln["lineId"]: ln for ln in lines if ln.get("lineId")}
+    by_key = {line_key(ln["entryNo"], ln["accountNo"], ln["amount"], ln["date"]): ln for ln in lines}
+    for t in threads:
+        ln = (t.get("lineId") and by_id.get(t["lineId"])) or by_key.get(thread_key(t))
+        if not ln:
+            continue
+        for f in ("memo", "department", "vendor", "custom"):
+            if not t.get(f) and ln.get(f):
+                t[f] = ln[f]
+
+
 # ── Shapes ──────────────────────────────────────────────────────────────────
 def _names(db: Session, emails) -> dict:
     keys = {(e or "").lower() for e in emails if e}
@@ -176,6 +231,7 @@ def _out(t: models.AccountingAmaThread, names: dict, replies: int = 0) -> dict:
         "lineId": t.line_id or "", "lineNo": t.line_no or "", "accountNo": t.account_no or "", "accountTitle": t.account_title or "",
         "date": t.entry_date or "", "debit": debit, "credit": credit, "amount": _r2(debit - credit),
         "description": t.description or "", "memo": t.memo or "", "party": t.party or "", "journal": t.journal or "",
+        "department": getattr(t, "department", "") or "", "vendor": getattr(t, "vendor", "") or "", "custom": getattr(t, "custom", "") or "",
         "source": t.source or "question", "question": t.question or "",
         "askedBy": t.asked_by or "", "askedByName": names.get((t.asked_by or "").lower(), ""), "askedAt": t.asked_at or "",
         "accountant": t.accountant_email or "", "accountantName": names.get((t.accountant_email or "").lower(), ""),
@@ -214,11 +270,11 @@ def _notify(db: Session, t: models.AccountingAmaThread, recipient: str, title: s
     now = _now()
     if row:
         row.title, row.body, row.requested_by, row.created_at = title, body, by, now
-        row.read_by, row.closed_by, row.actioned, row.action = "", "", False, NOTIFY_ACTION
+        row.read_by, row.closed_by, row.actioned, row.action = "", "", False, _action(t.id)
         return
     db.add(models.NexusNotification(
         id=str(uuid.uuid4()), type=NOTIFY_TYPE, recipient=recipient, title=title, body=body, ref_id=t.id,
-        item_name=_line_label(t), requested_by=by, action=NOTIFY_ACTION, actioned=False, read_by="",
+        item_name=_line_label(t), requested_by=by, action=_action(t.id), actioned=False, read_by="",
         company=company_of(recipient, db), created_at=now,
     ))
 
@@ -381,6 +437,9 @@ class AskBody(BaseModel):
     memo: Optional[str] = ""
     party: Optional[str] = ""
     journal: Optional[str] = ""
+    department: Optional[str] = ""
+    vendor: Optional[str] = ""
+    custom: Optional[str] = ""
 
 
 class ReplyBody(BaseModel):
@@ -409,10 +468,17 @@ def _text(s: Optional[str], n: int) -> str:
 @router.get("/items")
 async def list_items(entity: Optional[str] = None, from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
                      who: dict = Depends(caller)):
-    """The AMA screen: every question the caller may see (any date) and every
-    line on the AMA account(s) in the period that has no question yet, with
-    the counts per status. `from` / `to` default to the last 12 months. A
-    ledger read that fails still answers the questions, with `ledgerError`."""
+    """The AMA screen: every question the caller may see on a line dated in
+    the period and every line on the AMA account(s) in the period that has no
+    question yet, with the counts per status. `from` / `to` default to the
+    last 12 months. A ledger read that fails still answers the questions,
+    with `ledgerError`.
+
+    Oct 22 (Urmi: 09/01-09/30/2026 still listed lines from 2025): questions
+    used to show whatever their line's date, so the period only narrowed the
+    AMA-account lines. Now the period is the line's date for both; the
+    questions it leaves out are counted in `outside` (open ones too) so none
+    is lost from sight."""
     today = date.today()
     to = to or today.isoformat()
     from_ = from_ or (today - timedelta(days=365)).isoformat()
@@ -425,6 +491,7 @@ async def list_items(entity: Optional[str] = None, from_: Optional[str] = Query(
     threads = await asyncio.to_thread(_threads, reach)
     if within is not None:
         threads = [t for t in threads if t["entityCode"] in within]
+    threads, outside = split_period(threads, from_, to)
 
     settings = await asyncio.to_thread(_load_settings)
     accounts, ledger_error = await _accounts(who, settings["accounts"])
@@ -454,6 +521,7 @@ async def list_items(entity: Optional[str] = None, from_: Optional[str] = Query(
         t["reclassed"] = state
     await asyncio.to_thread(_mark_reclassed, changes)
 
+    fill_from_lines(threads, lines)
     asked_ids = {t["lineId"] for t in threads if t["lineId"]}
     asked_keys = {thread_key(t) for t in threads}
     rows = list(threads)
@@ -467,7 +535,7 @@ async def list_items(entity: Optional[str] = None, from_: Optional[str] = Query(
     counts = {s: sum(1 for r in rows if r["status"] == s) for s in STATUSES}
     counts["All"] = len(rows)
     return {"from": from_, "to": to, "entity": entity or "", "accounts": accounts, "autoDetected": not settings["accounts"],
-            "ledgerError": ledger_error, "rows": rows, "counts": counts, "canEdit": who["editor"], "me": who["email"]}
+            "ledgerError": ledger_error, "rows": rows, "counts": counts, "outside": outside, "canEdit": who["editor"], "me": who["email"]}
 
 
 def _csv(v: Optional[str]) -> list[str]:
@@ -526,6 +594,7 @@ async def ask(body: AskBody, who: dict = Depends(caller)):
                     line_id=line_id, line_no=_text(body.lineNo, 40), account_no=_text(body.accountNo, 40), account_title=_text(body.accountTitle, 200),
                     entry_date=_text(body.date, 10), debit=_r2(body.debit), credit=_r2(body.credit), description=_text(body.description, 1000),
                     memo=_text(body.memo, 1000), party=_text(body.party, 200), journal=_text(body.journal, 24),
+                    department=_text(body.department, 200), vendor=_text(body.vendor, 200), custom=_text(body.custom, 200),
                     source="ama" if _text(body.accountNo, 40) in ama_codes else "question",
                     question=question, asked_by=me, asked_at=now, accountant_email=accountant, status="Open", updated_at=now,
                 )
@@ -725,8 +794,6 @@ async def put_settings(body: SettingsBody, who: dict = Depends(caller)):
     reach = await _reach(who)
     for ent, emails in (body.accountants or {}).items():
         ent = (ent or "").strip()[:40]
-        if ent == "" and limited:
-            raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities; set the accountants of those entities.")
         if ent and not _in(reach, ent):
             raise HTTPException(status_code=403, detail=f"Your accounting access does not include entity {ent}.")
         clean = []
@@ -737,6 +804,16 @@ async def put_settings(body: SettingsBody, who: dict = Depends(caller)):
             if e not in clean:
                 clean.append(e)
         per_entity[ent] = clean
+    if limited and "" in per_entity:
+        # '' (every entity) takes unlimited access. Neil's review (Oct 20): the
+        # screen sent it back unchanged (or as []) with every save, which
+        # locked a limited editor out of saving their own entities - an
+        # unchanged or empty '' entry is ignored (never applied); a real
+        # change to it is still refused.
+        stored = (await asyncio.to_thread(_load_settings))["accountants"].get("", [])
+        if per_entity[""] and set(per_entity[""]) != set(stored):
+            raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities; set the accountants of those entities.")
+        per_entity.pop("")
     me = who["email"]
 
     def work():

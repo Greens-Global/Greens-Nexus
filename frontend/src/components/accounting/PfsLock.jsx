@@ -174,7 +174,7 @@ export function PfsAccessLog({ files = [], initialFileId = '', onClose }) {
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ padding: '12px 24px 18px', display: 'grid', gap: 10 }}>
+        <div style={{ padding: '12px 24px 18px', display: 'grid', gap: 10, alignContent: 'start', flex: 1, minHeight: 0, overflowY: 'auto' }}>
           <select value={fileId} onChange={(e) => { setRows(null); setError(''); setFileId(e.target.value); }} aria-label="File" style={{ ...control, maxWidth: 320 }}>
             <option value="">Every File</option>
             {files.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}

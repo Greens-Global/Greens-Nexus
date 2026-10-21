@@ -192,6 +192,18 @@ describe('PfsTab', () => {
     expect(screen.getByRole('button', { name: 'Access Log' })).toBeTruthy();
   });
 
+  // Oct 22 (Urmi, Oct 7; Charmi, Oct 15: "not done"): the Access Log is a
+  // button on the top bar, in the same group as Export - not a link by the tabs.
+  it('puts the Access Log button beside Export', async () => {
+    render(<PfsTab canEdit />);
+    await loaded();
+    const log = screen.getByRole('button', { name: 'Access Log' });
+    expect(log.className).toBe('secondary-btn');
+    expect(log.closest('.scroll-tabs')).toBeNull();
+    const exportBtn = screen.getByRole('button', { name: /Export/ });
+    expect(log.parentElement.parentElement.contains(exportBtn)).toBe(true);   // the same top row
+  });
+
   it('picks a guarantor from a dropdown that shows both names and the lock', async () => {
     render(<PfsTab canEdit />);
     await loaded();

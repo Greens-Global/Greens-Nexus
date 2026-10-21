@@ -59,6 +59,7 @@ from auth import require_module_grant
 from database import SessionLocal
 from routers import accounting
 from routers.accounting import entity_scope
+from routers.accounting_mre import CUSTOM_MAX_MONTHS, FREQUENCIES
 
 router = APIRouter(prefix="/leasing", tags=["Leasing"], dependencies=[Depends(require_module_grant("accounting", "viewer"))])
 _edit = require_module_grant("accounting", "editor")
@@ -173,6 +174,34 @@ def _clean_term(body) -> dict:
     return {"term_type": kind, "term_months": int(n)}
 
 
+def lease_step(lease: dict) -> int:
+    """How many months apart a source falls due (Oct 22, Priyanka: Semi-Annual
+    in MRI like MRE): 1 for '' / monthly - every row saved before Oct 22 - 3
+    quarterly, 6 semi-annual, 12 annual, N for Custom (every N months; a
+    Custom source with no period reads as monthly). MRE's step_months."""
+    freq = lease.get("frequency") or "monthly"
+    if freq == "custom":
+        try:
+            n = int(lease.get("frequencyMonths") or 0)
+        except (TypeError, ValueError):
+            n = 0
+        return n if 1 <= n <= CUSTOM_MAX_MONTHS else 1
+    return FREQUENCIES.get(freq) or 1
+
+
+def _frequency_out(l: models.Lease) -> dict:
+    freq = getattr(l, "frequency", "") or "monthly"
+    if freq not in FREQUENCIES:
+        freq = "monthly"
+    return {"frequency": freq, "frequencyMonths": int(getattr(l, "frequency_months", 0) or 0) if freq == "custom" else 0}
+
+
+def _stale_out(row) -> Optional[dict]:
+    """The Possibly Ended flag the daily recurring_stale scan sets, or None."""
+    since = getattr(row, "stale_since", "") or ""
+    return {"since": since, "lastPaid": getattr(row, "stale_last_paid", "") or "", "taskId": getattr(row, "stale_task_id", "") or ""} if since else None
+
+
 def _rate_out(r: models.LeaseRate) -> dict:
     return {"id": r.id, "startDate": r.start_date, "rent": _r2(r.rent), "cam": _r2(r.cam), "other": _r2(r.other), "note": r.note or ""}
 
@@ -193,6 +222,8 @@ def _lease_out(l: models.Lease, rates: list[models.LeaseRate], names: Optional[d
         "linkSource": getattr(l, "link_source", "") or "",
         "incomeType": (getattr(l, "income_type", "") or "lease") if (getattr(l, "income_type", "") or "lease") in INCOME_TYPES else "lease",
         **_term_out(l),
+        **_frequency_out(l),
+        "possiblyEnded": _stale_out(l),
     }
 
 
@@ -230,6 +261,9 @@ class LeaseBody(BaseModel):
     incomeType: Optional[str] = "lease"
     termType: Optional[str] = ""
     termMonths: Optional[float] = None   # checked to be a whole number in _clean_term
+    # Oct 22: None (an older screen that does not send it) keeps what is saved.
+    frequency: Optional[str] = None
+    frequencyMonths: Optional[int] = None
 
 
 def _clean(body: LeaseBody) -> dict:
@@ -259,7 +293,22 @@ def _clean(body: LeaseBody) -> dict:
         "due_day": due, "grace_days": max(0, min(int(body.graceDays if body.graceDays is not None else 5), 60)),
         "status": status, "notes": (body.notes or "")[:1000], "income_type": kind,
         **_clean_term(body),
+        **_clean_frequency(body),
     }
+
+
+def _clean_frequency(body) -> dict:
+    """'' is stored for monthly, the value every row had before Oct 22, so a
+    monthly source saves exactly as it always did."""
+    if body.frequency is None:
+        return {}
+    freq = (body.frequency or "").strip() or "monthly"
+    if freq not in FREQUENCIES:
+        raise HTTPException(status_code=400, detail="Frequency is monthly, quarterly, semi-annual, annual or custom.")
+    months = int(body.frequencyMonths or 0)
+    if freq == "custom" and not 1 <= months <= CUSTOM_MAX_MONTHS:
+        raise HTTPException(status_code=400, detail=f"A custom frequency needs its period: every 1 to {CUSTOM_MAX_MONTHS} months.")
+    return {"frequency": "" if freq == "monthly" else freq, "frequency_months": months if freq == "custom" else 0}
 
 
 def _clean_rates(rates: Optional[list[RateBody]]) -> list[dict]:
@@ -483,6 +532,8 @@ def expected_for_month(lease: dict, year: int, month: int) -> Optional[float]:
     rates = lease["rates"]
     if not rates:
         return None
+    if lease_step(lease) > 1:
+        return _expected_periodic(lease, year, month, start, end)
     days = calendar.monthrange(year, month)[1]
     total, in_force = 0.0, 0
     for day in range(1, days + 1):
@@ -500,6 +551,90 @@ def expected_for_month(lease: dict, year: int, month: int) -> Optional[float]:
         in_force += 1
         total += (rate["rent"] + rate["cam"] + rate["other"]) / days
     return _r2(total) if in_force else None
+
+
+def due_this_month(lease: dict, year: int, month: int) -> bool:
+    """Whether a source that is not monthly falls due this month: every
+    lease_step months counted from the lease start month (else the first
+    rent's month), like MRE's due_in_month. A monthly source is always due."""
+    step = lease_step(lease)
+    if step == 1:
+        return True
+    anchor = (lease.get("leaseStart") or (lease["rates"][0]["startDate"] if lease.get("rates") else "") or "")[:7]
+    if not _MONTH.match(anchor):
+        return True
+    gap = (year * 12 + month - 1) - (int(anchor[:4]) * 12 + int(anchor[5:7]) - 1)
+    return gap >= 0 and gap % step == 0
+
+
+def _expected_periodic(lease: dict, year: int, month: int, start: Optional[date], end: Optional[date]) -> Optional[float]:
+    """A quarterly / semi-annual / annual / custom source (Oct 22): None when
+    it is not in force any day of the month, 0 in a month it does not fall
+    due, else the whole amount in force on its first day in force that month
+    (an amount per occurrence - not pro-rated)."""
+    rates = lease["rates"]
+    days = calendar.monthrange(year, month)[1]
+    for day in range(1, days + 1):
+        today = date(year, month, day)
+        if (start and today < start) or (end and today > end):
+            continue
+        rate = None
+        for r in rates:
+            if r["startDate"] <= today.isoformat():
+                rate = r
+        if rate is None and start:
+            rate = rates[0]
+        if rate is None:
+            continue
+        if not due_this_month(lease, year, month):
+            return 0.0
+        return _r2(rate["rent"] + rate["cam"] + rate["other"])
+    return None
+
+
+_OPEN = ("short", "unpaid", "late", "due")
+
+
+def apply_credits(cells: list[dict]) -> None:
+    """A payment that covers more than one month (Oct 22, Charmi: 47385 RCR
+    paid 7,025 in May - "It was paid for 2 months" - and March stayed a red 0
+    with a 3,440 balance). What a month received above what it expected is a
+    credit, and credits settle the OLDEST open month first (short, unpaid,
+    late, still due), then the months ahead (prepaid). Only how each month
+    reads changes: a month settled in full is 'covered' (coveredBy names the
+    months whose payment settled it), a month part-settled keeps its status
+    with `covered` showing how much. The stored receipts, each month's
+    expected / received / balance, and so every Balance and total, are
+    untouched - expected less received is the same sum either way. A row
+    with no month paid over expected is left exactly as it was."""
+    def counted(c):
+        return c.get("inForce") and not c.get("outside") and c.get("status") not in ("upcoming", "unknown")
+    sources = [[c, -c["balance"]] for c in cells if counted(c) and c.get("balance", 0) < -_PAID_WITHIN]
+    if not sources:
+        return
+    past = [c for c in cells if counted(c) and c.get("status") in _OPEN and c.get("balance", 0) > _PAID_WITHIN]
+    ahead = [c for c in cells if c.get("inForce") and not c.get("outside") and c.get("status") == "upcoming" and c.get("balance", 0) > _PAID_WITHIN]
+    for c in past + ahead:
+        need, got, by = c["balance"], 0.0, []
+        for src in sources:
+            if need - got <= 0.005:
+                break
+            if src[1] <= 0.005:
+                continue
+            t = _r2(min(src[1], need - got))
+            src[1] = _r2(src[1] - t)
+            got = _r2(got + t)
+            by.append(src[0]["month"])
+            src[0]["appliedTo"] = [*src[0].get("appliedTo", []), c["month"]]
+            src[0]["applied"] = _r2(src[0].get("applied", 0) + t)
+        if not got:
+            break
+        c["covered"], c["coveredBy"] = got, by
+        if got >= need - _PAID_WITHIN:
+            if c["status"] == "upcoming":
+                c["prepaid"] = True
+            else:
+                c["status"], c["lateFee"] = "covered", 0
 
 
 def month_status(expected: float, received: float, lease: dict, year: int, month: int, today: date) -> str:
@@ -556,12 +691,16 @@ def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today
                 to_date = _r2(to_date + balance)
                 totals[m - 1]["expected"] = _r2(totals[m - 1]["expected"] + expected)
                 totals[m - 1]["received"] = _r2(totals[m - 1]["received"] + received)
-            cells.append({"month": key, "inForce": True, "expected": expected, "received": received, "byAccount": by_account, "balance": balance, "status": status,
-                          "adjustment": extra["adjustment"], "note": extra["note"],
-                          "lateFee": _r2(lease["lateFee"]) if status in ("late", "short", "unpaid") and lease["lateFee"] else 0})
+            cell = {"month": key, "inForce": True, "expected": expected, "received": received, "byAccount": by_account, "balance": balance, "status": status,
+                    "adjustment": extra["adjustment"], "note": extra["note"],
+                    "lateFee": _r2(lease["lateFee"]) if status in ("late", "short", "unpaid") and lease["lateFee"] else 0}
+            if lease_step(lease) > 1 and not due_this_month(lease, year, m):
+                cell["offCycle"] = True       # Oct 22: in force, but not a month it falls due
+            cells.append(cell)
+        apply_credits(cells)
         behind = [c for c in cells if c.get("status") in ("late", "short", "unpaid")]
         rows.append({"lease": lease, "months": cells, "balanceToDate": to_date, "monthsBehind": len(behind),
-                     "owed": _r2(sum(c["balance"] for c in behind)), "lateFees": _r2(sum(c["lateFee"] for c in behind)),
+                     "owed": _r2(sum(c["balance"] - c.get("covered", 0) for c in behind)), "lateFees": _r2(sum(c["lateFee"] for c in behind)),
                      "outsideLease": {"months": [o["month"] for o in outside], "received": _r2(sum(o["received"] for o in outside))}})
     return {"year": year, "asOf": today.isoformat(), "rows": rows, "totals": totals,
             "summary": {"leases": len([r for r in rows if r["lease"]["status"] == "active"]),

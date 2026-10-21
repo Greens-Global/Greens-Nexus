@@ -500,7 +500,14 @@ export default function NotificationBell({ onNavigate }) {
   // tasks and tickets (lib/pendingOpen.js).
   // Punch-fix requests name their row (Neil, 10/02): the same helper the
   // priority bar uses opens the request, else the timecard.
+  // An AMA question opens itself on the AMA tab (Priyanka, 10/15: "Open AMA"
+  // reached nothing). Older rows carry no amaThreadId; their refId is the
+  // question's id (accounting_ask._notify).
   function openTimecardFor(n) {
+    if (n.type === 'acct_ama' && (n.action?.amaThreadId || n.refId)) {
+      openNotificationTarget({ amaThreadId: n.action?.amaThreadId || n.refId });
+      return;
+    }
     if (!n.action?.timecard && !n.action?.punchRequestId) return;
     openNotificationTarget(n.action);
   }
