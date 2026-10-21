@@ -330,6 +330,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
     email = (user or {}).get("email", "")
     sees_private, allowed = _reach(db, user)
     conflicts: List[str] = []
+    revs: Dict[str, str] = {}      # id -> the updated_at every written row now carries
 
     def guard(pid: str, existing, payload=None) -> None:
         """403 for an asset outside the caller's reach: a private one they cannot
@@ -365,6 +366,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             conflicts.append(pid)
             continue
         payload = _strip_rev(row)
+        revs[pid] = now
         if existing is None:
             db.add(PropertyAsset(id=pid, name=str(payload.get("name") or ""), manager=str(payload.get("manager") or ""),
                                  asset_type=str(payload.get("assetType") or ""), parent_id=str(payload.get("parentId") or ""),
@@ -400,6 +402,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
                 conflicts.append(rid)
                 continue
             payload = _strip_rev(row)
+            revs[rid] = now
             if existing is None:
                 db.add(PropertyRecord(id=rid, property_id=pid, collection=c, payload=payload, updated_at=now))
             else:
@@ -431,7 +434,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
     meta.updated_by = email
     meta.updated_at = now
     db.commit()
-    return {"ok": True, "_ts": ts_ms, "conflicts": conflicts}
+    return {"ok": True, "_ts": ts_ms, "conflicts": conflicts, "revs": revs}
 
 
 def _parse_ymd(s):

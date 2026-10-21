@@ -22,6 +22,9 @@ from routers.property_assets import PROPERTY_FILE_FIELDS, RECORD_FILE_FIELDS
 
 _BUCKET = "asset-files"
 _BATCH = 20
+# Rows whose move failed this process: logged once, skipped, so one bad row never
+# stalls the rest (and never re-uploads the files before it on every retry).
+_SKIP: set = set()
 _DATA_URL = re.compile(r"^data:([^;,]+)?(;base64)?,(.*)$", re.S)
 _EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "application/pdf": "pdf",
         "text/plain": "txt", "text/csv": "csv", "application/msword": "doc",
@@ -82,7 +85,7 @@ def _migrate_row(payload: dict, keys, folder: str, owner: str) -> bool:
                 out.append(v)
         if changed:
             payload["images"] = out
-            if payload.get("image", "").startswith("data:") or (out and payload.get("image") in (None, "")):
+            if str(payload.get("image") or "").startswith("data:") or (out and not payload.get("image")):
                 payload["image"] = out[0] if out else ""
     return changed
 
@@ -93,18 +96,32 @@ def _batch() -> int:
     done = 0
     try:
         for p in db.query(PropertyAsset).all():
-            if done >= _BATCH:
-                break
+            if done >= _BATCH or p.id in _SKIP:
+                continue
             payload = dict(p.payload or {})
-            if _migrate_row(payload, PROPERTY_FILE_FIELDS, "photos", p.id):
+            try:
+                moved = _migrate_row(payload, PROPERTY_FILE_FIELDS, "photos", p.id)
+            except Exception as e:  # noqa: BLE001 - one row's bad file must not stall the rest
+                print(f"[asset-files] {p.id}: {e} - skipped")
+                _SKIP.add(p.id)
+                continue
+            if moved:
                 p.payload = payload
+                db.commit()                      # each row lands on its own
                 done += 1
         for r in db.query(PropertyRecord).all():
-            if done >= _BATCH:
-                break
+            if done >= _BATCH or r.id in _SKIP:
+                continue
             payload = dict(r.payload or {})
-            if _migrate_row(payload, RECORD_FILE_FIELDS, "documents", r.property_id or "unfiled"):
+            try:
+                moved = _migrate_row(payload, RECORD_FILE_FIELDS, "documents", r.property_id or "unfiled")
+            except Exception as e:  # noqa: BLE001
+                print(f"[asset-files] record {r.id}: {e} - skipped")
+                _SKIP.add(r.id)
+                continue
+            if moved:
                 r.payload = payload
+                db.commit()
                 done += 1
         if done:
             meta = db.get(PropertyWorkspaceMeta, 1)
