@@ -21,6 +21,7 @@ import {
   Map as MapIcon,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
+import InsightsChart from "./icons/InsightsChart";
 import { useActionCounts, moduleCount } from "../lib/useActionCounts";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
@@ -190,7 +191,7 @@ export const NAV = [
   },
   // BI board (Neil, Sep 14): cross-module KPIs, sortable/filterable, reusing
   // the same widget-grid engine as Dashboard - see dashboard/useDashboards.js.
-  { view: "bi", code: "INS", label: "Insights", icon: Gauge, minRole: 'supervisor' },
+  { view: "bi", code: "INS", label: "Insights", icon: InsightsChart, minRole: 'supervisor' },
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
   { divider: true },
   // Help Center (Neil, Oct 13 2026; was Support): Submit a Ticket,
