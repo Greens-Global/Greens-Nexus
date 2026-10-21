@@ -376,7 +376,10 @@ def trade_stats(distances: list) -> dict:
     return {
         "radii": {str(p): _r2(percentile(d, p)) for p in PERCENTILES},
         "median": _r2(median(d)),
-        "mean": _r2(sum(d) / len(d)) if d else None,
+        # Average over customers within the outer ring: a few far-away
+        # addresses (moved, billing) dragged it to ~80 mi (Oct 22).
+        "mean": _r2(sum(x for x in d if x <= RINGS[-1]) / n50) if (n50 := sum(1 for x in d if x <= RINGS[-1])) else None,
+        "meanAll": _r2(sum(d) / len(d)) if d else None,
         "buckets": buckets,
         **ring_counts(d),
     }
@@ -390,7 +393,14 @@ def rent_bands(rents: list) -> list:
         return []
     cuts = [percentile(r, p) for p in (25, 50, 75)]
     edges = [r[0], *cuts, r[-1]]
-    return [{"band": i, "min": round(edges[i], 2), "max": round(edges[i + 1], 2)} for i in range(4)]
+    out = []
+    for i in range(4):
+        inside = [x for x in r if edges[i] <= x <= edges[i + 1]] if i else [x for x in r if x <= edges[1]]
+        # The band's median stands in for a group too small to carry its own
+        # rent (privacy, Oct 22) - shared by a quarter of all customers.
+        out.append({"band": i, "min": round(edges[i], 2), "max": round(edges[i + 1], 2),
+                    "median": round(median(inside), 2) if inside else None})
+    return out
 
 
 def band_of(rent: float, bands: list) -> int:

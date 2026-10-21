@@ -151,8 +151,11 @@ export function drawHexes(layer, map, points) {
 }
 
 // ── Facilities, rings, competitors ────────────────────────────────────────────
+// Ring labels sit on the north-east edge (45 degrees): straight north stacked
+// the six labels on top of each other near the pin (Oct 22).
 function north(lat, lng, miles) {
-  return [lat + miles / 69.05, lng];
+  const d = miles / Math.SQRT2;
+  return [lat + d / 69.05, lng + d / (69.05 * Math.cos((lat * Math.PI) / 180))];
 }
 
 /**
