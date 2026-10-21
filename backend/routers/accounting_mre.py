@@ -290,7 +290,15 @@ def _line_out(r: models.RecurringExpense) -> dict:
         "expectedAmount": _r2(r.expected_amount), "startDate": r.start_date or "", "endDate": r.end_date or "",
         "status": r.status or "active", "notes": r.notes or "", "source": r.source or "manual",
         "updatedBy": r.updated_by or "", "updatedAt": r.updated_at or "",
+        "egnyteFolder": getattr(r, "egnyte_folder", "") or "", "egnyteUrl": _egnyte_url(getattr(r, "egnyte_folder", "") or ""),
+        "possiblyEnded": ({"since": r.stale_since, "lastPaid": r.stale_last_paid or "", "taskId": r.stale_task_id or ""}
+                          if getattr(r, "stale_since", "") else None),
     }
+
+
+def _egnyte_url(path: str) -> Optional[str]:
+    from routers.accounting_loans import _egnyte_web
+    return _egnyte_web(path)
 
 
 class LineBody(BaseModel):
@@ -311,6 +319,8 @@ class LineBody(BaseModel):
     accountNumber: Optional[str] = ""
     accountDetails: Optional[str] = ""
     contactInfo: Optional[str] = ""
+    # Oct 22 (Neil): the vendor's Egnyte folder. None (an older screen) keeps what is saved.
+    egnyteFolder: Optional[str] = None
 
 
 def _clean(body: LineBody) -> dict:
@@ -348,7 +358,13 @@ def _clean(body: LineBody) -> dict:
         "frequency_months": months if body.frequency == "custom" else 0, "variance_pct": variance,
         "account_number": (body.accountNumber or "").strip()[:100], "account_details": (body.accountDetails or "").strip()[:1000],
         "contact_info": (body.contactInfo or "").strip()[:1000],
+        **({} if body.egnyteFolder is None else {"egnyte_folder": _folder(body.egnyteFolder)}),
     }
+
+
+def _folder(value: str) -> str:
+    from routers.accounting_loans import egnyte_folder
+    return egnyte_folder(value)
 
 
 def _load_all() -> list[dict]:
@@ -591,16 +607,20 @@ async def _inactive_vendors() -> set[str]:
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 @router.get("/grid")
-async def get_grid(year: Optional[int] = None, entities: Optional[str] = None, scope: dict = Depends(entity_scope)):
-    """Expected against paid, every recurring expense, every month of a year."""
+async def get_grid(year: Optional[int] = None, entities: Optional[str] = None, ids: Optional[str] = None, scope: dict = Depends(entity_scope)):
+    """Expected against paid, every recurring expense, every month of a year.
+    `ids` (Oct 22, Urmi: adding a manual expense was slow - the whole grid
+    re-read the ledger, one read per line): only those lines, so a saved line
+    refreshes its own row with one ledger read."""
     today = date.today()
     year = year or today.year
     if not 2000 <= year <= today.year + 1:
         raise HTTPException(status_code=400, detail="Pick a year up to next year.")
     picked = await _picked(scope, entities)
     reach = await _reach(scope)
+    only = set(_csv(ids))
     lines = [l for l in await asyncio.to_thread(_load_all)
-             if (reach is None or l["entityCode"] in reach) and (picked is None or l["entityCode"] in picked)]
+             if (reach is None or l["entityCode"] in reach) and (picked is None or l["entityCode"] in picked) and (not only or l["id"] in only)]
     # The ledger is read only for lines in force some time this year.
     first, last = f"{year}-01", f"{year}-12"
     live = [l for l in lines if not (l["endDate"] and l["endDate"][:7] < first) and not (l["startDate"] and l["startDate"][:7] > last)
@@ -794,3 +814,116 @@ async def create_from_ledger(body: CreateBody, user: dict = Depends(_edit), scop
         created.append({**p, "lineId": line["id"]})
     forget_jobs(user["email"], "mre")
     return {"created": created, "skipped": skipped}
+
+
+# ── Settings, the Possibly Ended check, Egnyte vendor folders (Oct 22) ──────
+class SettingsBody(BaseModel):
+    staleMonths: Optional[int] = None
+    egnyteRoot: Optional[str] = None
+
+
+@router.get("/settings")
+async def get_settings():
+    """MRI and MRE's shared settings: after how many months with nothing
+    posted a line is flagged Possibly Ended, and the Egnyte folder the vendor
+    folders are looked for under."""
+    import recurring_stale
+    return await asyncio.to_thread(recurring_stale.load_settings)
+
+
+@router.put("/settings")
+async def put_settings(body: SettingsBody, user: dict = Depends(_full)):
+    import recurring_stale
+    patch: dict = {}
+    if body.staleMonths is not None:
+        if not recurring_stale.STALE_MIN <= int(body.staleMonths) <= recurring_stale.STALE_MAX:
+            raise HTTPException(status_code=400, detail=f"Possibly Ended after {recurring_stale.STALE_MIN} to {recurring_stale.STALE_MAX} months.")
+        patch["staleMonths"] = int(body.staleMonths)
+    if body.egnyteRoot is not None:
+        patch["egnyteRoot"] = _folder(body.egnyteRoot)
+    return await asyncio.to_thread(recurring_stale.save_settings, patch, user["email"])
+
+
+@router.post("/stale-check")
+async def stale_check(user: dict = Depends(_full)):
+    """Run the daily Possibly Ended check now (MRI and MRE). It only sets the
+    flags and opens / closes the tasks - never changes a line."""
+    import recurring_stale
+    return await recurring_stale.check()
+
+
+def _norm_words(s: str) -> list[str]:
+    from routers.leasing import norm_name
+    return norm_name(s).split()
+
+
+def folder_score(vendor: str, folder_name: str) -> float:
+    """How well a folder's name matches the vendor's: 1 the same name
+    (case, punctuation and Inc. / LLC aside), 0.85 one inside the other,
+    else the share of words in common."""
+    a, b = _norm_words(vendor), _norm_words(folder_name)
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    ja, jb = " ".join(a), " ".join(b)
+    if f" {ja} " in f" {jb} " or f" {jb} " in f" {ja} ":
+        return 0.85
+    common = set(a) & set(b)
+    return round(len(common) / len(set(a) | set(b)), 2)
+
+
+def rank_folders(vendor: str, folders: list[dict], limit: int = 5) -> list[dict]:
+    """The best-named folders first, one per path, those sharing at least a
+    third of their words."""
+    seen, out = set(), []
+    for f in folders:
+        p = f.get("path") or ""
+        if not p or p.lower() in seen:
+            continue
+        seen.add(p.lower())
+        sc = folder_score(vendor, f.get("name") or p.rstrip("/").rsplit("/", 1)[-1])
+        if sc >= 0.34:
+            out.append({"path": p, "name": f.get("name") or p.rstrip("/").rsplit("/", 1)[-1], "score": sc})
+    return sorted(out, key=lambda x: (-x["score"], len(x["path"])))[:limit]
+
+
+@router.get("/egnyte-suggest")
+async def egnyte_suggest(vendor: str, user: dict = Depends(_edit)):
+    """The Egnyte folder a vendor's contracts most likely live in (Neil, Oct
+    21: "each vendor linked to its contract / document folder; auto-find it,
+    allow change"): the folders under the configured root (the settings'
+    egnyteRoot) and Egnyte's own search for the vendor's name, ranked by how
+    well the folder's name matches. Read as the caller's own Egnyte identity
+    (routers/egnyte._browse_token), so nobody sees a folder they cannot open.
+    Only proposes - nothing is saved until the person picks one."""
+    import recurring_stale
+    from routers import egnyte as eg
+    from services import egnyte as svc
+    name = (vendor or "").strip()[:200]
+    if not name:
+        return {"root": "", "suggestions": []}
+    settings = await asyncio.to_thread(recurring_stale.load_settings)
+    root = settings["egnyteRoot"]
+
+    def work():
+        db = SessionLocal()
+        try:
+            tok = eg._browse_token(user, db)
+        finally:
+            db.close()
+        found: list[dict] = []
+        if root:
+            try:
+                found += eg._call(svc.list_folder, root, token=tok).get("folders") or []
+            except HTTPException as e:
+                if e.status_code != 404:
+                    raise
+        for r in eg._call(svc.search, name, root, 25, token=tok):
+            if r.get("isFolder"):
+                found.append({"name": r.get("name"), "path": r.get("path")})
+            elif r.get("path"):
+                parent = r["path"].rsplit("/", 1)[0]
+                found.append({"name": parent.rsplit("/", 1)[-1], "path": parent})
+        return rank_folders(name, found)
+    return {"root": root, "suggestions": await asyncio.to_thread(work)}

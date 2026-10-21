@@ -1194,6 +1194,16 @@ def _run_migrations():
             # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
             "ALTER TABLE hr_checklist_items ADD COLUMN owner_emails VARCHAR DEFAULT ''",
             "ALTER TABLE hr_checklist_items ADD COLUMN comments JSON DEFAULT '[]'",
+            # MRI / MRE feedback (Oct 22): MRI frequency, MRE Egnyte folder, Possibly Ended flags. models.Lease / RecurringExpense.
+            "ALTER TABLE leases ADD COLUMN frequency VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN frequency_months INTEGER DEFAULT 0",
+            "ALTER TABLE leases ADD COLUMN stale_since VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN stale_last_paid VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN stale_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN stale_since VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN stale_last_paid VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN stale_task_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2723,6 +2733,17 @@ def _run_migrations():
         # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
         "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS owner_emails VARCHAR DEFAULT ''",
         "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'",
+        # MRI / MRE feedback (Oct 22): MRI frequency (''/monthly = as before), MRE Egnyte folder,
+        # Possibly Ended flags set by recurring_stale. Additive only. models.Lease / RecurringExpense.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS frequency VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS frequency_months INTEGER DEFAULT 0",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS stale_since VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS stale_last_paid VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS stale_task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS egnyte_folder VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_since VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_last_paid VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_task_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3469,6 +3490,15 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(leasing_sync_loop()))
         except Exception as e:
             print(f"[startup] leasing sync skipped: {e}")
+        # MRI / MRE Possibly Ended check (Neil, Oct 21): once a day, flags
+        # active lines with nothing posted for N months and opens one
+        # accounting task each. Deployed-worker gated inside; reads async,
+        # writes in a thread (recurring_stale.py).
+        try:
+            from recurring_stale import recurring_stale_loop
+            _tasks.append(_a.create_task(recurring_stale_loop()))
+        except Exception as e:
+            print(f"[startup] recurring stale check skipped: {e}")
         try:
             # Pay period close alerts (Oct 19 2026): every half hour, in a
             # thread - one notice per approver per closed period listing the
