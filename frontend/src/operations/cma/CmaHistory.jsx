@@ -12,7 +12,7 @@ import { Download } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner, LoadingState } from '../../components/AsyncState';
 import { formatDate } from '../../lib/datetime';
-import { DateField } from '../../tasks/components';
+import { DateField, SearchSelect } from '../../tasks/components';
 import { count } from '../model';
 import { dash, exportRows, pctText, signedUsd, sizeOf, usd } from './cmaModel';
 
@@ -138,7 +138,20 @@ export default function CmaHistory({ facility, view, onSection }) {
       { header: 'Market High', get: (p) => usd(p.marketHigh) }, { header: 'Comps', get: (p) => p.comps },
       { header: 'Occupied', get: (p) => (p.occupied == null ? '' : p.occupied) }],
   }).catch((err) => console.error('Operations: history export failed', err));
-  const pills = useMemo(() => types.filter((r) => r.total), [types]);
+  // Unit types as one searchable dropdown, grouped Self-Storage / Vehicle
+  // Storage (Visesh, Oct 21: the chip rows were crammed, and two parking types
+  // of one size read the same as chips). The full Cubby name tells them apart.
+  const unitOptions = useMemo(() => {
+    const live = types.filter((r) => r.total);
+    const out = [];
+    for (const [title, test] of [['Self-Storage', (r) => r.category !== 'Vehicle Storage'], ['Vehicle Storage', (r) => r.category === 'Vehicle Storage']]) {
+      const list = live.filter(test);
+      if (!list.length) continue;
+      out.push({ id: `__${title}`, header: true, label: title });
+      list.forEach((r) => out.push({ id: r.name, label: r.name, keywords: `${sizeOf(r)} ${r.category || ''}` }));
+    }
+    return out;
+  }, [types]);
 
   return (
     <>
@@ -150,33 +163,38 @@ export default function CmaHistory({ facility, view, onSection }) {
             <div className="cma-sub">Our rates from Cubby&apos;s rate changes and daily snapshots, and from Hummingbird month-ends before Cubby · competitor rates from each website read and manual survey.</div>
           </div>
         </div>
-        <div className="cma-range" role="group" aria-label="Date range">
-          <label className="ops-period">
-            <span>Period</span>
-            <select value={period.key} onChange={(e) => setPeriod(e.target.value === 'custom'
-              ? { key: 'custom', start: start || (d?.span?.first || ''), end: end || '' } : { key: e.target.value })}>
-              {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-            </select>
-          </label>
-          {period.key === 'custom' && (
-            <>
-              <span className="cma-range-field"><span>From</span><DateField value={period.start || ''} onChange={(v) => setPeriod({ ...period, start: v || '' })} placeholder="Start" /></span>
-              <span className="cma-range-field"><span>To</span><DateField value={period.end || ''} onChange={(v) => setPeriod({ ...period, end: v || '' })} placeholder="Today" /></span>
-            </>
-          )}
+        <div className="cma-toolbar">
+          <div className="cma-toolbar-group">
+            <span className="cma-field">
+              <span className="cma-field-label" id="rh-unit-label">Unit Type</span>
+              <span aria-labelledby="rh-unit-label" className="cma-unit-select">
+                <SearchSelect options={unitOptions} value={unit} onPick={(v) => v && !String(v).startsWith('__') && setUnit(v)}
+                  placeholder="Pick a unit type" searchPlaceholder="Search sizes or types..." menuMinWidth={340} />
+              </span>
+            </span>
+            <span className="cma-field" role="group" aria-label="Date range">
+              <label className="cma-field-label" htmlFor="rh-period">Period</label>
+              <select id="rh-period" className="cma-select" value={period.key} onChange={(e) => setPeriod(e.target.value === 'custom'
+                ? { key: 'custom', start: start || (d?.span?.first || ''), end: end || '' } : { key: e.target.value })}>
+                {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+              {period.key === 'custom' && (
+                <span className="cma-range-dates">
+                  <DateField value={period.start || ''} onChange={(v) => setPeriod({ ...period, start: v || '' })} placeholder="From" title="From" />
+                  <span aria-hidden="true">-</span>
+                  <DateField value={period.end || ''} onChange={(v) => setPeriod({ ...period, end: v || '' })} placeholder="Today" title="To" />
+                </span>
+              )}
+            </span>
+          </div>
           {d?.span?.first && (
-            <span className="cma-sub" style={{ margin: 0 }}>
-              History on record: {formatDate(d.span.first)} - {formatDate(d.span.last)}
-              {d.hummingbird?.first ? ` · Hummingbird ${formatDate(`${d.hummingbird.first}-01`)} on` : ''}
+            <span className="cma-record">
+              History on record {formatDate(d.span.first)} - {formatDate(d.span.last)}
+              {d.hummingbird?.first ? <span className="cma-record-hb">Hummingbird from {formatDate(`${d.hummingbird.first}-01`)}</span> : null}
             </span>
           )}
         </div>
-        {badRange && <p className="ops-note" role="alert" style={{ margin: '6px 0 0' }}>The From date is after the To date.</p>}
-        <div className="cma-pills" role="group" aria-label="Unit type" style={{ marginTop: 10 }}>
-          {pills.map((r) => (
-            <button key={r.name} type="button" className="cma-pill" aria-pressed={unit === r.name} onClick={() => setUnit(r.name)} title={r.name}>{sizeOf(r)}{r.parking ? ' P' : ''}</button>
-          ))}
-        </div>
+        {badRange && <p className="ops-note" role="alert" style={{ margin: '8px 0 0' }}>The From date is after the To date.</p>}
       </div>
       {loading && <LoadingState size="section" label="Loading rate history" minHeight={240} />}
       {!loading && state.status === 'error' && <ErrorBanner message="Couldn't load the rate history." onRetry={() => setNonce((n) => n + 1)} />}

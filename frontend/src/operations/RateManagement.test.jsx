@@ -20,6 +20,14 @@ vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
 vi.mock('../tasks/components', () => ({
   Modal: ({ title, children, footer }) => <div role="dialog" aria-label={title}>{children}<div>{footer}</div></div>,
+  // Stand-ins for the searchable dropdown and the date picker: a plain select / input.
+  SearchSelect: ({ options, value, onPick, placeholder }) => (
+    <select aria-label="Unit Type" value={value} onChange={(e) => onPick(e.target.value)}>
+      <option value="">{placeholder}</option>
+      {options.map((o) => (o.header ? <option key={o.id} value={o.id} disabled>{`-- ${o.label} --`}</option> : <option key={o.id} value={o.id}>{o.label}</option>))}
+    </select>
+  ),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} value={value} onChange={(e) => onChange(e.target.value)} />,
 }));
 const exportMock = vi.hoisted(() => ({ exportExcel: vi.fn(), exportPdf: vi.fn() }));
 vi.mock('../tasks/exporting', () => exportMock);
@@ -213,6 +221,22 @@ describe('Rate History', () => {
   });
 });
 
+describe('Rate History - unit type dropdown', () => {
+  it('lists unit types by full name under Self-Storage / Vehicle Storage, no chips, and switches the history', async () => {
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    apiMock.getOpsCmaHistory.mockResolvedValue({ unitType: "8' x 10'", asOf: '2026-10-20', points: [], cards: { comps: 0, asOf: '2026-10-20', occupiedNow: 0, total: 0 }, log: [] });
+    const { container } = render(<RateManagement facility={FAC} section="history" onSection={() => {}} />);
+    const pick = await screen.findByRole('combobox', { name: 'Unit Type' });
+    const labels = [...pick.querySelectorAll('option')].map((o) => o.textContent);
+    expect(labels).toContain('-- Self-Storage --');
+    expect(labels.some((l) => /Parking/.test(l))).toBe(true);
+    expect(container.querySelector('.cma-pill')).toBeNull();                      // the chip rows are gone
+    const other = [...pick.querySelectorAll('option')].find((o) => !o.disabled && o.value && o.value !== pick.value);
+    fireEvent.change(pick, { target: { value: other.value } });
+    await waitFor(() => expect(apiMock.getOpsCmaHistory).toHaveBeenLastCalledWith('fac_f', other.value, expect.any(Object)));
+  });
+});
+
 describe('Rate History - period filter', () => {
   it('works out each period from today', async () => {
     const { periodBounds } = await import('./cma/CmaHistory');
@@ -234,7 +258,8 @@ describe('Rate History - period filter', () => {
       log: [], span: { first: '2023-12-31', last: '2026-10-20' }, hummingbird: { first: '2023-12', last: '2026-08' },
     });
     render(<RateManagement facility={FAC} section="history" onSection={() => {}} />);
-    expect(await screen.findByText(/History on record: 12\/31\/2023 - 10\/20\/2026/)).toBeTruthy();
+    expect(await screen.findByText(/History on record 12\/31\/2023 - 10\/20\/2026/)).toBeTruthy();
+    expect(screen.getByText('Hummingbird from 12/01/2023')).toBeTruthy();
     fireEvent.change(screen.getByRole('combobox', { name: 'Period' }), { target: { value: '24m' } });
     await waitFor(() => expect(apiMock.getOpsCmaHistory).toHaveBeenLastCalledWith('fac_f', "8' x 10'", expect.objectContaining({ end: '' })));
     const { start } = apiMock.getOpsCmaHistory.mock.calls.at(-1)[2];
