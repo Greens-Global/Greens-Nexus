@@ -100,7 +100,8 @@ def _moves_for(payload: dict, keys, folder: str, owner: str) -> dict:
         if isinstance(v, str) and v.startswith("data:") and v not in moves:
             n += 1
             moves[v] = _move(v, folder, owner, n)
-    for v in payload.get("images") or []:
+    images = payload.get("images")
+    for v in images if isinstance(images, list) else []:
         if isinstance(v, str) and v.startswith("data:") and v not in moves:
             n += 1
             moves[v] = _move(v, folder, owner, n)
@@ -160,8 +161,13 @@ def _batch() -> int:
                 print(f"[asset-files] {p.id}: {e} - skipped")
                 _SKIP.add(p.id)
                 continue
-            if moves and _commit_moves(db, p, PROPERTY_FILE_FIELDS, moves):
-                done += 1
+            try:
+                if moves and _commit_moves(db, p, PROPERTY_FILE_FIELDS, moves):
+                    done += 1
+            except Exception as e:  # noqa: BLE001 - a row deleted mid-upload, a lock error
+                db.rollback()
+                print(f"[asset-files] {p.id}: {e} - skipped")
+                _SKIP.add(p.id)
         for r in db.query(PropertyRecord).all():
             if done >= _BATCH or r.id in _SKIP:
                 continue
@@ -171,8 +177,13 @@ def _batch() -> int:
                 print(f"[asset-files] record {r.id}: {e} - skipped")
                 _SKIP.add(r.id)
                 continue
-            if moves and _commit_moves(db, r, RECORD_FILE_FIELDS, moves):
-                done += 1
+            try:
+                if moves and _commit_moves(db, r, RECORD_FILE_FIELDS, moves):
+                    done += 1
+            except Exception as e:  # noqa: BLE001
+                db.rollback()
+                print(f"[asset-files] record {r.id}: {e} - skipped")
+                _SKIP.add(r.id)
         return done
     finally:
         db.close()
@@ -183,7 +194,8 @@ def _remaining() -> int:
     try:
         n = 0
         for p in db.query(PropertyAsset).all():
-            n += sum(1 for v in [(p.payload or {}).get(k) for k in PROPERTY_FILE_FIELDS] + list((p.payload or {}).get("images") or [])
+            imgs = (p.payload or {}).get("images")
+            n += sum(1 for v in [(p.payload or {}).get(k) for k in PROPERTY_FILE_FIELDS] + (imgs if isinstance(imgs, list) else [])
                      if isinstance(v, str) and v.startswith("data:"))
         for r in db.query(PropertyRecord).all():
             n += sum(1 for k in RECORD_FILE_FIELDS if str((r.payload or {}).get(k) or "").startswith("data:"))

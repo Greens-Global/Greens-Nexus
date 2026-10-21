@@ -3,7 +3,7 @@ import { Flag, ChevronDown, ChevronUp } from 'lucide-react';
 import AnchoredMenu from '../../../components/AnchoredMenu';
 import { PT } from '../../lib/propertyFields.js';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
-import { normLabel, formatFieldValue, formatNumber } from '../../lib/format.js';
+import { normLabel, formatFieldValue } from '../../lib/format.js';
 import { STAGE_FORM, baseStage } from '../../lib/stages.js';
 import { editGuard } from '../../lib/editGuard.js';
 import { deriveType } from '../../lib/portfolioCards.js';
@@ -396,12 +396,6 @@ function buildSections(asset, isProperty, editing) {
     const key = normLabel(f.label);
     if (snapshotValues[key] === undefined || snapshotValues[key] === '') snapshotValues[key] = f.value;
   }));
-  // "119929" reads as "119,929" on the sheet; the raw value is what edit mode shows.
-  const numText = (field, v) => {
-    if (field.type !== 'num' || v === '' || v == null) return v;
-    const n = Number(String(v).replace(/[,\s]/g, ''));
-    return Number.isFinite(n) ? formatNumber(n) : v;
-  };
   const resolveValue = (field) => {
     if (field.type === 'stage') return asset.devStage || snapshotValues[normLabel(field.label)] || '';
     if (field.key && asset[field.key] != null && String(asset[field.key]).trim() !== '') return String(asset[field.key]);
@@ -444,6 +438,6 @@ function buildSections(asset, isProperty, editing) {
       title: group.group,
       fields: group.fields
         .filter((f) => (editing || !(stabilized && f.dev) || hasValue(f)) && classAllowed(f.cls) && f.key !== 'mapUrl' && !f.hidden)
-        .map((f) => ({ l: f.label, raw: editing ? resolveValue(f) : numText(f, resolveValue(f)), t: f.type, contact: f.contact, key: f.key, options: f.options, ...withUnit(f) })),
+        .map((f) => ({ l: f.label, raw: resolveValue(f), t: f.type, contact: f.contact, key: f.key, options: f.options, ...withUnit(f) })),
     }));
 }

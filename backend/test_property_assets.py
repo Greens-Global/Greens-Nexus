@@ -308,6 +308,47 @@ class RowSaveTests(unittest.TestCase):
         finally:
             PA._FILES_PREFIX = saved
 
+    def test_the_whole_portfolio_replace_is_off_on_a_deployed_api(self):
+        import os
+        import unittest.mock
+        with unittest.mock.patch.object(PA, "_SUPABASE_URL", "https://proj.supabase.co"), \
+             unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NEXUS_ASSET_SEED_PUT", None)
+            with self.assertRaises(HTTPException) as cm:
+                PA.put_workspace(ws([{"id": "a", "name": "A"}]), db=self.db, user=ADMIN)
+            self.assertEqual(cm.exception.status_code, 403)
+            os.environ["NEXUS_ASSET_SEED_PUT"] = "1"
+            self.assertTrue(PA.put_workspace(ws([{"id": "a", "name": "A"}]), db=self.db, user=ADMIN)["ok"])
+
+    def test_an_edit_during_the_upload_is_never_reverted(self):
+        import asset_files_migrate as M
+        M._upload = lambda path, raw, ct: f"https://x/storage/v1/object/public/asset-files/{path}"
+        saved = PA._FILES_PREFIX
+        PA._FILES_PREFIX = ""
+        try:
+            self._changes(properties={"upsert": [{"id": "a", "name": "A", "image": "data:image/png;base64,QUJD",
+                                                  "images": ["data:image/png;base64,QUJD", "data:image/png;base64,REVG"]}]})
+        finally:
+            PA._FILES_PREFIX = saved
+        row = self.db.get(models.PropertyAsset, "a")
+        moves = M._moves_for(dict(row.payload), M.PROPERTY_FILE_FIELDS, "photos", "a")      # phase 1: the uploads
+        row.payload = {**row.payload, "name": "A2", "images": ["data:image/png;base64,REVG", "https://x/new.jpg"],
+                       "image": "https://x/new.jpg"}                                       # a colleague replaced the first photo
+        self.db.commit()
+        self.assertTrue(M._commit_moves(self.db, row, M.PROPERTY_FILE_FIELDS, moves))       # phase 2
+        got = self.db.get(models.PropertyAsset, "a").payload
+        self.assertEqual(got["name"], "A2")
+        self.assertEqual(got["image"], "https://x/new.jpg")                                   # the edit stands
+        self.assertTrue(got["images"][0].startswith("https://x/storage/"))                   # the value still held moved
+        self.assertEqual(got["images"][1], "https://x/new.jpg")
+        self.assertFalse(M._commit_moves(self.db, row, M.PROPERTY_FILE_FIELDS, moves))      # nothing left: the rollback path
+
+    def test_delete_forever_on_a_live_asset_reports_it_as_trashed(self):
+        out = self._changes(properties={"upsert": [{"id": "a", "name": "A"}]})
+        out = self._changes(properties={"delete": ["a"], "deleteRevs": {"a": out["revs"]["a"]}})
+        self.assertEqual(out["trashed"], ["a"])
+        self.assertEqual(out["conflicts"], [])
+
     def test_a_viewer_cannot_save_rows(self):
         from fastapi import Request
         viewer = {"email": "vic@greensglobal.com", "role": "employee", "level": 1}

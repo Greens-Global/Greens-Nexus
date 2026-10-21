@@ -56,7 +56,8 @@ def _file_values(payload: Dict[str, Any], keys) -> List[str]:
         v = payload.get(k)
         if isinstance(v, str) and v:
             out.append(v)
-    for v in payload.get("images") or []:
+    images = payload.get("images")
+    for v in images if isinstance(images, list) else []:
         if isinstance(v, str) and v:
             out.append(v)
     return out
@@ -373,6 +374,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
     email = (user or {}).get("email", "")
     sees_private, allowed = _reach(db, user)
     conflicts: List[str] = []
+    trashed: List[str] = []        # live assets a Delete Forever only moved to the Trash
     revs: Dict[str, str] = {}      # id -> the updated_at every written row now carries
 
     def guard(pid: str, existing, payload=None) -> None:
@@ -388,16 +390,6 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             if bool(payload.get("private")) != was:
                 raise HTTPException(status_code=403, detail="Only an officer can mark an asset private or public.")
 
-    for r in ch.properties.upsert:
-        cur = db.get(PropertyAsset, str(r.get("id") or "")) if r.get("id") else None
-        _carry_over(r, (cur.payload or {}) if cur is not None else {}, PROPERTY_FILE_FIELDS)
-    for c in COLLECTIONS:
-        for r in getattr(ch, c).upsert:
-            cur = db.get(PropertyRecord, str(r.get("id") or "")) if r.get("id") else None
-            _carry_over(r, (cur.payload or {}) if cur is not None else {}, RECORD_FILE_FIELDS)
-    rows = [("property", r, PROPERTY_FILE_FIELDS) for r in ch.properties.upsert]
-    rows += [(c, r, RECORD_FILE_FIELDS) for c in COLLECTIONS for r in getattr(ch, c).upsert]
-    _check_file_rows(rows, db)
 
     meta = db.query(PropertyWorkspaceMeta).filter(PropertyWorkspaceMeta.id == 1).with_for_update().first()
     if meta is None:
@@ -414,6 +406,18 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
     # rows as they are under it: a colleague's write landing in between would
     # pass the _rev check against a stale updated_at.
     db.expire_all()
+    # Read under the lock, like the stale check: a migration commit landing in
+    # between would make a data: value the tab still holds look new.
+    for r in ch.properties.upsert:
+        cur = db.get(PropertyAsset, str(r.get("id") or "")) if r.get("id") else None
+        _carry_over(r, (cur.payload or {}) if cur is not None else {}, PROPERTY_FILE_FIELDS)
+    for c in COLLECTIONS:
+        for r in getattr(ch, c).upsert:
+            cur = db.get(PropertyRecord, str(r.get("id") or "")) if r.get("id") else None
+            _carry_over(r, (cur.payload or {}) if cur is not None else {}, RECORD_FILE_FIELDS)
+    rows = [("property", r, PROPERTY_FILE_FIELDS) for r in ch.properties.upsert]
+    rows += [(c, r, RECORD_FILE_FIELDS) for c in COLLECTIONS for r in getattr(ch, c).upsert]
+    _check_file_rows(rows, db)
 
     for row in ch.properties.upsert:
         pid = str(row.get("id") or "").strip()
@@ -454,6 +458,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             existing.updated_at = now
             existing.updated_by = email
             revs[existing.id] = now
+            trashed.append(existing.id)
             continue
         db.query(PropertyRecord).filter(PropertyRecord.property_id == existing.id).delete()
         db.delete(existing)
@@ -514,7 +519,7 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
     meta.updated_by = email
     meta.updated_at = now
     db.commit()
-    return {"ok": True, "_ts": ts_ms, "conflicts": conflicts, "revs": revs}
+    return {"ok": True, "_ts": ts_ms, "conflicts": conflicts, "trashed": trashed, "revs": revs}
 
 
 @router.get("/property-assets/metrics")

@@ -20,8 +20,9 @@ export const STORAGE_KEY = 'nexus_asset_neil_v2';
 let storageUser = '';
 export function setStorageUser(email) { storageUser = String(email || '').trim().toLowerCase(); }
 export function storageKey() { return storageUser ? `${STORAGE_KEY}:${storageUser}` : STORAGE_KEY; }
-// A row the server kept someone else's version of: the tab's own version is
-// kept here (newest first, 50 at most) so nothing typed is simply gone.
+// A row the server did not take - someone else's version won, or the batch
+// was refused - keeps the tab's own version here (newest first, 50 at most)
+// so nothing typed is simply gone.
 export const CONFLICTS_KEY = 'nexus_asset_conflicts';
 function keepConflicts(rows) {
   if (!rows.length || typeof sessionStorage === 'undefined') return;
@@ -158,24 +159,27 @@ export function flush() {
         // was read with; it takes the new one or the server would call it stale.
         if (pending) {
           for (const coll of ROW_COLLECTIONS) {
-            if (pending[coll]) pending[coll].upsert = pending[coll].upsert.map((row) => (r.revs[row.id] ? { ...row, _rev: r.revs[row.id] } : row));
+            if (!pending[coll]) continue;
+            pending[coll].upsert = pending[coll].upsert.map((row) => (r.revs[row.id] ? { ...row, _rev: r.revs[row.id] } : row));
+            pending[coll].deleteRevs = pending[coll].deleteRevs || {};
+            for (const id of pending[coll].delete || []) if (r.revs[id]) pending[coll].deleteRevs[id] = r.revs[id];
           }
         }
       }
-      if (r && r.conflicts && r.conflicts.length) {
-        notifyConflicts(r.conflicts, batch);
-        serverGet().then((server) => {
-          if (!server) return;
-          lastTs = server._ts || lastTs;
-          lastLogCount = (server.logs && server.logs.length) || 0;
-          if (applyServer) { try { applyServer(server); } catch { /* best-effort */ } }
-        });
-      }
+      const conflicts = (r && r.conflicts) || [];
+      const trashed = (r && r.trashed) || [];
+      if (conflicts.length) notifyConflicts(conflicts, batch);
+      // A conflict (the server kept someone else's row) or a live asset a Delete
+      // Forever only moved to the Trash: the tab takes the server's copy.
+      if (conflicts.length || trashed.length) pullAfterFlush = true;
       if (!opsEmpty(pending)) pushTimer = setTimeout(flush, 200);
       else if (pullAfterFlush) {
         pullAfterFlush = false;
         serverGet().then((server) => {
           if (!server) return;
+          // An edit queued while the GET was out would be painted over by the
+          // older copy; wait for it to land and pull again then.
+          if (hasPending()) { pullAfterFlush = true; return; }
           lastTs = Math.max(lastTs, server._ts || 0);
           lastLogCount = (server.logs && server.logs.length) || 0;
           if (applyServer) { try { applyServer(server); } catch { /* best-effort */ } }
@@ -192,6 +196,9 @@ export function flush() {
       // serving during a deploy (the frontend lands minutes before the backend), a 401 is a
       // session being renewed, a 429 is the rate limiter.
       if ([400, 403, 413, 422].includes(status)) {
+        const rows = [];
+        for (const coll of ROW_COLLECTIONS) for (const row of (batch[coll] && batch[coll].upsert) || []) rows.push({ coll, ...row });
+        keepConflicts(rows);
         retryCount = 0;
         softNotified = false;
         notifySaveFailed(status, message, false);
@@ -242,6 +249,7 @@ export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
       // and recovery states where the log count went DOWN. The log-count check
       // stays as a fallback for a server that predates _ts (deploy skew).
       if (ts > lastTs || logs > lastLogCount) {
+        if (hasPending()) { pullAfterFlush = true; return; }
         lastLogCount = logs;
         lastTs = Math.max(ts, lastTs);
         onServerNewer(serverState);
