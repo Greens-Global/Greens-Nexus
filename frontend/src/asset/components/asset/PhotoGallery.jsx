@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { ChevronDown, Upload, X } from 'lucide-react';
 import { Card } from '../shared/Card.jsx';
-import { resizeImageToDataUrl } from '../../lib/format.js';
+import { storeAssetImage } from '../../lib/upload.js';
 
 const THUMB_STYLE = {
   width: 132,
@@ -49,7 +49,7 @@ export function PhotoGallery({ p, n, onSave }) {
     for (const file of files) {
       if (file.type.startsWith('image/')) {
         try {
-          resized.push(await resizeImageToDataUrl(file));
+          resized.push(await storeAssetImage(file, p.id));
         } catch {
           skipped += 1; // unreadable/unsupported image - counted, never silent
         }

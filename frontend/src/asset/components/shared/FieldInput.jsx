@@ -1,6 +1,6 @@
 import { useState, useEffect, useId } from 'react';
 import { Upload, FileText, Plus, X } from 'lucide-react';
-import { fileToDataUrl } from '../../lib/format.js';
+import { storeAssetDocument } from '../../lib/upload.js';
 
 // Format free typing into mm/dd/yyyy as the user goes; validate the final shape.
 // A native <input type="date"> was rejected here: its displayed format follows the
@@ -80,9 +80,12 @@ export function MultiDateInput({ value, onChange, readOnly }) {
  *
  * `value` is the current value for this field; `onChange(key, newValue)` commits it.
  */
-/** One form field. `error` (a short string) marks the control invalid and prints under it. */
-export function FieldInput({ f, value, onChange, error }) {
+/** One form field. `error` (a short string) marks the control invalid and prints under it;
+ *  `propertyId` files an uploaded document under its asset. */
+export function FieldInput({ f, value, onChange, error, propertyId = '' }) {
   const id = useId();
+  const [uploadError, setUploadError] = useState('');
+  const [uploading, setUploading] = useState(false);
   const baseProps = {
     id,
     'data-field': f.k,
@@ -107,18 +110,18 @@ export function FieldInput({ f, value, onChange, error }) {
   );
   const errorLine = error ? <div id={id + '-err'} role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{error}</div> : null;
 
-  // File upload: stores the file as a base64 data URL directly on the record (f.k), plus the
-  // original filename on a sibling key (f.nameKey) so the table/summary can show a filename
-  // without decoding the data URL.
+  // File upload: the file goes to the private asset-files bucket and the record
+  // keeps its URL (f.k), plus the original filename on a sibling key (f.nameKey)
+  // so the table/summary can show a name without fetching anything.
   if (f.type === 'file') {
     const applyFile = async (file) => {
-      try {
-        const dataUrl = await fileToDataUrl(file);
-        onChange(f.k, dataUrl);
-        if (f.nameKey) onChange(f.nameKey, file.name);
-      } catch {
-        // unreadable file - silently ignore, field stays unchanged
-      }
+      setUploadError('');
+      setUploading(true);
+      const { url, error } = await storeAssetDocument(file, propertyId);
+      setUploading(false);
+      if (error) { setUploadError(error); return; }
+      onChange(f.k, url);
+      if (f.nameKey) onChange(f.nameKey, file.name);
     };
     // Image on the clipboard → store it exactly like a chosen file; anything else
     // (text etc.) falls through to the browser's default paste behaviour.
@@ -140,7 +143,7 @@ export function FieldInput({ f, value, onChange, error }) {
         {label}
         <div id={id} data-field={f.k} onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', outline: 'none' }}>
           <label className="secondary-btn" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0 }}>
-            <Upload size={14} /> {value ? 'Replace File' : 'Upload File'}
+            <Upload size={14} /> {uploading ? 'Uploading…' : value ? 'Replace File' : 'Upload File'}
             <input
               type="file"
               style={{ display: 'none' }}
@@ -170,6 +173,7 @@ export function FieldInput({ f, value, onChange, error }) {
             </button>
           )}
         </div>
+        {uploadError && <div role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{uploadError}</div>}
         {errorLine}
       </div>
     );

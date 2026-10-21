@@ -94,5 +94,78 @@ class WorkspaceSaveTests(unittest.TestCase):
         self.assertEqual(self.db.query(models.PropertyActivityLog).filter(models.PropertyActivityLog.property_id == "b").count(), 1)
 
 
+
+class FileUrlTests(unittest.TestCase):
+    """With storage configured, a photo or document must be an asset-files URL;
+    a data: URL the server already holds is tolerated (still migrating), a new
+    one is refused; with no storage configured anything goes."""
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        for m in (models.PropertyAsset, models.PropertyRecord, models.PropertyActivityLog, models.PropertyWorkspaceMeta):
+            self.db.query(m).delete()
+        self.db.commit()
+        self._prefix = PA._FILES_PREFIX
+        PA._FILES_PREFIX = "https://proj.supabase.co/storage/v1/object/public/asset-files/"
+
+    def tearDown(self):
+        PA._FILES_PREFIX = self._prefix
+        self.db.rollback()
+        self.db.close()
+
+    def _save(self, props, records=None, base_ts=None):
+        w = PA.Workspace(properties=props, warranties=records or [], baseTs=base_ts)
+        return PA.put_workspace(w, db=self.db, user=ADMIN)
+
+    def test_a_bucket_url_is_accepted(self):
+        self._save([{"id": "a", "name": "A", "image": PA._FILES_PREFIX + "photos/a/1.jpg", "images": [PA._FILES_PREFIX + "photos/a/1.jpg"]}],
+                   [{"id": "w1", "propertyId": "a", "docFile": PA._FILES_PREFIX + "documents/a/2.pdf"}])
+        self.assertEqual(self.db.query(models.PropertyRecord).count(), 1)
+
+    def test_a_new_data_url_is_refused(self):
+        with self.assertRaises(HTTPException) as cm:
+            self._save([{"id": "a", "name": "A", "image": "data:image/png;base64,AAAA"}])
+        self.assertEqual(cm.exception.status_code, 400)
+        self.assertIn("A", cm.exception.detail)
+        with self.assertRaises(HTTPException):
+            self._save([{"id": "a", "name": "A"}], [{"id": "w1", "propertyId": "a", "docFile": "data:application/pdf;base64,AAAA"}])
+
+    def test_a_data_url_the_server_already_holds_is_tolerated(self):
+        PA._FILES_PREFIX = ""                                   # stored before storage existed
+        ts = self._save([{"id": "a", "name": "A", "image": "data:image/png;base64,OLD"}])["_ts"]
+        PA._FILES_PREFIX = "https://proj.supabase.co/storage/v1/object/public/asset-files/"
+        self._save([{"id": "a", "name": "A renamed", "image": "data:image/png;base64,OLD"}], base_ts=ts)
+        self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A renamed")
+
+    def test_a_foreign_url_is_refused(self):
+        with self.assertRaises(HTTPException) as cm:
+            self._save([{"id": "a", "name": "A", "image": "https://evil.example.com/x.jpg"}])
+        self.assertEqual(cm.exception.status_code, 400)
+
+    def test_without_storage_anything_goes(self):
+        PA._FILES_PREFIX = ""
+        self._save([{"id": "a", "name": "A", "image": "data:image/png;base64,AAAA"}])
+        self.assertEqual(self.db.query(models.PropertyAsset).count(), 1)
+
+
+class MigrationTests(unittest.TestCase):
+    """asset_files_migrate moves every data: URL and leaves the rest alone."""
+    def test_rows_move_and_the_image_pointer_follows(self):
+        import asset_files_migrate as M
+        uploaded = []
+        M._upload = lambda path, raw, ct: (uploaded.append((path, raw, ct)) or f"https://x/storage/v1/object/public/asset-files/{path}")
+        payload = {"image": "data:image/png;base64,QUJD", "images": ["data:image/png;base64,QUJD", "https://x/storage/v1/object/public/asset-files/photos/a/kept.jpg"]}
+        self.assertTrue(M._migrate_row(payload, M.PROPERTY_FILE_FIELDS, "photos", "a"))
+        self.assertEqual(len(uploaded), 2)
+        self.assertEqual(uploaded[0][1], b"ABC")
+        self.assertTrue(payload["image"].startswith("https://x/storage/v1/object/public/asset-files/photos/a/migrated-"))
+        self.assertTrue(payload["images"][0].startswith("https://x/"))
+        self.assertTrue(payload["images"][1].endswith("kept.jpg"))
+        self.assertFalse(M._migrate_row({"image": "https://x/already.jpg"}, M.PROPERTY_FILE_FIELDS, "photos", "a"))
+
+
 if __name__ == "__main__":
     unittest.main()

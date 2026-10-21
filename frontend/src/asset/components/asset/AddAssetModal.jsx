@@ -18,7 +18,8 @@ import { pushToast } from '../shared/ToastHost.jsx';
 import { PROPERTY_WIZARD_FIELDS } from '../../lib/propertyFields.js';
 import { VEHICLE_FIELDS, EQUIPMENT_FIELDS, ASSET_SCHEMAS, inferAssetKind, buildAssetSnapshot } from '../../lib/vehicleFields.js';
 import { nexusCsvEsc, nexusCsvParse } from '../../lib/csvExport.js';
-import { normLabel, resizeImageToDataUrl } from '../../lib/format.js';
+import { normLabel } from '../../lib/format.js';
+import { storeAssetImage } from '../../lib/upload.js';
 
 // Full ASSET_SCHEMAS lookup including the property wizard schema - vehicleFields.js's
 // ASSET_SCHEMAS only covers vehicle/equipment since property has no single "the" schema outside
@@ -111,7 +112,7 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
     const file = e.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
       try {
-        setField('image', await resizeImageToDataUrl(file));
+        setField('image', await storeAssetImage(file, row?.id || ''));
       } catch {
         // unreadable image - leave field unchanged
       }
@@ -127,7 +128,7 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
         if (blob) {
           e.preventDefault();
           const file = blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' });
-          resizeImageToDataUrl(file)
+          storeAssetImage(file, row?.id || '')
             .then((url) => setField('image', url))
             .catch(() => {
               // unreadable image - leave field unchanged

@@ -88,7 +88,7 @@ keep the diff minimal.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,
-  `ir-documents` have `public = false` on dev and prod (`document-images`
+  `ir-documents`, `construction-media`, `asset-files` have `public = false` on dev and prod (`document-images`
   stays public: e-sign signers load it with no login). The database still stores the canonical
   `.../object/public/<bucket>/<path>` URL; browsers open it only through
   `GET /files/view?u=<url>` (`routers/files.py`, signed-URL redirect, login

@@ -172,6 +172,7 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
             value={isWarranty && f.k === 'termMonths' ? warrantyTermMonths(values.startDate, values.expiration) : values[f.k]}
             onChange={(k, v) => { handleChange(k, v); if (errors[k]) setErrors((e) => { const n = { ...e }; delete n[k]; return n; }); }}
             error={errors[f.k]}
+            propertyId={active?.id || ''}
           />
         ))}
       </div>

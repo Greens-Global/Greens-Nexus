@@ -14,6 +14,7 @@ dataset is tiny (~24 properties + a few hundred child rows), so a whole-blob
 GET / replace-all PUT is the pragmatic, low-risk shape. Later phases can promote
 warranty/inspection date columns for expiry notifications.
 """
+import os
 import time
 from datetime import datetime, timezone, date
 from typing import Any, Dict, List, Optional
@@ -35,6 +36,48 @@ require_asset_write = require_module_grant("property-asset", "editor")
 
 # Activity-log rows kept per asset (newest first); the rest are dropped on save.
 LOG_CAP_PER_ASSET = 500
+
+# Files live in the PRIVATE asset-files bucket (routers/files.py PROTECTED_BUCKETS);
+# a record keeps the canonical URL. Only that bucket's URLs are accepted for a
+# photo or document - a data: URL is 20 lines of base64 in every save and load.
+# Existing data: URLs are tolerated until asset_files_migrate moves them; a NEW
+# one is refused. With no storage configured (a local backend) anything goes.
+_SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+_FILES_PREFIX = f"{_SUPABASE_URL}/storage/v1/object/public/asset-files/" if _SUPABASE_URL else ""
+PROPERTY_FILE_FIELDS = ("image",)
+RECORD_FILE_FIELDS = ("docFile",)
+
+
+def _file_values(payload: Dict[str, Any], keys) -> List[str]:
+    out = []
+    for k in keys:
+        v = payload.get(k)
+        if isinstance(v, str) and v:
+            out.append(v)
+    for v in payload.get("images") or []:
+        if isinstance(v, str) and v:
+            out.append(v)
+    return out
+
+
+def _check_files(ws: "Workspace", db: Session) -> None:
+    """400 on a file URL from outside the asset-files bucket, or a data: URL the
+    server has not seen before (one it already holds is still migrating)."""
+    if not _FILES_PREFIX:
+        return
+    known: set = set()
+    for p in db.query(PropertyAsset).all():
+        known.update(v for v in _file_values(p.payload or {}, PROPERTY_FILE_FIELDS) if v.startswith("data:"))
+    for r in db.query(PropertyRecord).all():
+        known.update(v for v in _file_values(r.payload or {}, RECORD_FILE_FIELDS) if v.startswith("data:"))
+    rows = [("property", p, PROPERTY_FILE_FIELDS) for p in ws.properties]
+    rows += [(c, r, RECORD_FILE_FIELDS) for c in COLLECTIONS for r in (getattr(ws, c) or [])]
+    for what, row, keys in rows:
+        for v in _file_values(row, keys):
+            if v.startswith(_FILES_PREFIX) or v in known:
+                continue
+            name = row.get("name") or row.get("id") or what
+            raise HTTPException(status_code=400, detail=f"A photo or document on {name} is not stored in Nexus storage. Upload it again.")
 
 # The flat child collections the module persists alongside properties + logs.
 # vservice/odometer are the vehicle & equipment service/maintenance + odometer logs.
@@ -127,6 +170,8 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
     # drops the write and re-pulls instead of retrying forever.
     if not ws.properties and db.query(PropertyAsset).count() > 1:
         raise HTTPException(status_code=409, detail="Refusing to replace a populated portfolio with an empty one")
+
+    _check_files(ws, db)
 
     db.query(PropertyRecord).delete()
     db.query(PropertyActivityLog).delete()
