@@ -13,6 +13,9 @@ export function openNotificationTarget(action) {
   const fire = (name, detail) => setTimeout(() => window.dispatchEvent(new CustomEvent(name, { detail })), 0);
   if (action.taskId) { setPendingOpen('task', action.taskId); fire('nexus:open-task', { taskId: action.taskId }); }
   if (action.ticketId) { setPendingOpen('ticket', action.ticketId); fire('nexus:open-ticket', { ticketId: action.ticketId }); }
+  // An Ask My Accountant question (Priyanka, 10/15): Accounting > AMA opens
+  // with that question's panel (AskAccountantTab drains the note on mount).
+  if (action.amaThreadId) { setPendingOpen('amaThread', action.amaThreadId); fire('nexus:open-ama-thread', { id: action.amaThreadId }); }
   // A punch-fix request names its row: People > Time > Punch requests, with
   // that request highlighted (Neil, 10/02). It wins over the timecard keys
   // the same action carries for older clients.

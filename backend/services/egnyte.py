@@ -49,6 +49,11 @@ _SEARCH = "/pubapi/v1/search"
 _TOKEN = "/puboauth/token"   # POST only - a GET here answers "Incorrect request type"
 
 TIMEOUT_META = 20
+# A folder listing is what a browser waits on, and the app gives up on a
+# request at 18 seconds (api.js FETCH_TIMEOUT_MS) - a 20-second wait here
+# meant a slow Egnyte never got its "did not answer in time" back to the
+# screen, only "Can't reach Nexus right now" (Oct 22).
+TIMEOUT_LIST = 15
 TIMEOUT_BYTES = 120          # as-builts and scans are large; 60 was tight
 
 # nexus_settings keys. Values are Fernet-encrypted (secret_box, NEXUS_VAULT_KEY),
@@ -309,7 +314,7 @@ def _raise(resp: httpx.Response, what: str) -> None:
 def list_folder(path: str = "", token: str | None = None) -> dict[str, Any]:
     """Folder listing. Returns folders + files with the fields the UI needs."""
     target = norm(path)
-    resp = _send("GET", f"{base_url()}{_FS}{_url_path(target)}", token, timeout=TIMEOUT_META)
+    resp = _send("GET", f"{base_url()}{_FS}{_url_path(target)}", token, timeout=TIMEOUT_LIST)
     _raise(resp, "Could not browse Egnyte")
     data = resp.json()
     return {

@@ -47,7 +47,7 @@ export function DayStrip({ days, value, onChange, countOf, noteOn, hoursOf }) {
 // column is a share of the row, not a fixed 124px (Oct 17: "Darshana K..."
 // was cut beside an empty right half), and a long name wraps to two lines.
 const CLAMP2 = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' };
-export function PhoneRow({ avatar, name, sub, sub2, isMe = false, onTap, children, style, ...rest }) {
+export function PhoneRow({ avatar, name, sub, sub2, extra = null, isMe = false, onTap, children, style, ...rest }) {
   return (
     <div {...rest} onClick={onTap} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 46%) minmax(0, 1fr)', gap: 8, alignItems: 'center', padding: '7px 10px', borderBottom: '1px solid var(--line)',
       background: isMe ? 'var(--wk-brand-tint)' : undefined, cursor: onTap ? 'pointer' : 'default', ...style }}>
@@ -57,6 +57,7 @@ export function PhoneRow({ avatar, name, sub, sub2, isMe = false, onTap, childre
           <div title={typeof name === 'string' ? name : undefined} style={{ fontSize: 12.5, fontWeight: isMe ? 800 : 700, color: isMe ? 'var(--wk-brand)' : 'var(--ink)', lineHeight: 1.25, ...CLAMP2 }}>{name}</div>
           {sub && <div style={{ fontSize: 10.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{sub}</div>}
           {sub2 && <div style={{ fontSize: 10.5, color: 'var(--muted)', ...CLAMP2 }}>{sub2}</div>}
+          {extra && <div style={{ marginTop: 2 }}>{extra}</div>}
         </span>
       </div>
       <div style={{ minWidth: 0 }}>{children}</div>

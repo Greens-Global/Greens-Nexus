@@ -3,14 +3,15 @@ import { MessageCircleQuestion, Plus, Search, Settings, Trash2, X } from 'lucide
 import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import Amount from './Amount';
-import { CustomizeButton, DENSITIES, EntityPicker, ExportMenu, Pager, control } from './reportControls';
+import { CustomizeButton, DENSITIES, EntityPicker, ExportMenu, OpFilter, Pager, control } from './reportControls';
 import { useCustomizePrefs, usePaged } from './tableHooks';
 import { Chip } from './LoanSetupDialog';
 import { Dialog } from './LoanDialogs';
 import { notAvailable } from './LoansTab';
-import { downloadBlob, iso } from './reportModel';
+import { downloadBlob, iso, numberFilterHit } from './reportModel';
 import { linesFile } from './linesExport';
 import EntryDetail from './EntryDetail';
+import { takePendingOpen } from '../../lib/pendingOpen';
 import AskAccountantDialog, { LineFacts, PersonSelect, amountText, usePeople } from './AskAccountantDialog';
 
 // Accounting -> Reporting -> AMA, Ask My Accountant (Neil, 10/15: "AMA means
@@ -39,30 +40,75 @@ const dash = <span style={muted}>-</span>;
 
 export const STATUS_FILTERS = ['Open', 'Answered', 'Resolved', 'All'];
 const TONE = { Open: 'wait', Answered: 'brand', Resolved: 'ok' };
-export const COLUMNS = ['Date', 'Entity', 'Entry', 'Account', 'Description', 'Amount', 'Question', 'Asked By', 'Accountant', 'Status', 'Last Reply'];
 
 const yearAgo = () => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return iso(d); };
 const person = (name, email) => name || email || '';
+const statusText = (r) => (r.reclassed && r.status !== 'Resolved' ? `${r.status} (Reclassed)` : r.status || '');
+
+/** What a line says: the ledger LINE memo first (Priyanka, 10/15 - Intacct's
+ *  AMA report shows "Charge Card Transaction - GG - Amex - 1009: ... AMAZON
+ *  MARKETPLACE", not the batch title "Credit card transactions(...): Batch
+ *  Summary Entry"), else the entry's description. */
+export const lineText = (r) => r.memo || r.description || '';
+
+// The grid's columns (Oct 22): each with its text for the cell, the filter
+// box under its header (Neil: "a search box at the top of every column,
+// critical") and the export. `num` columns filter with =, >, <, >=, <=,
+// Between (OpFilter, as in Ledger Search).
+export const GRID_COLUMNS = [
+  { key: 'date', label: 'Date', text: (r) => (r.date ? formatDate(r.date) : ''), placeholder: 'MM/DD/YYYY' },
+  { key: 'entity', label: 'Entity', text: (r) => r.entityCode || '' },
+  { key: 'entry', label: 'Entry', text: (r) => r.entryNo || '' },
+  { key: 'account', label: 'Account', text: (r) => `${r.accountNo || ''} ${r.accountTitle || ''}`.trim(), width: 200 },
+  { key: 'description', label: 'Description', text: lineText, width: 280 },
+  { key: 'department', label: 'Department', text: (r) => r.department || '', width: 150 },
+  { key: 'vendor', label: 'Vendor', text: (r) => r.vendor || '', width: 170 },
+  { key: 'custom', label: 'Custom', text: (r) => r.custom || '', width: 150 },
+  { key: 'amount', label: 'Amount', num: true, text: (r) => Number(r.amount) || 0 },
+  { key: 'question', label: 'Question', text: (r) => r.question || '', width: 240 },
+  { key: 'askedBy', label: 'Asked By', text: (r) => person(r.askedByName, r.askedBy) },
+  { key: 'accountant', label: 'Accountant', text: (r) => person(r.accountantName, r.accountant) },
+  { key: 'status', label: 'Status', text: statusText },
+  { key: 'lastReply', label: 'Last Reply', text: (r) => (r.lastReplyAt ? formatDateTime(r.lastReplyAt) : '') },
+];
+export const COLUMNS = GRID_COLUMNS.map((c) => c.label);
 
 /** The rows a status, a "mine" choice and the filter box let through. */
 export function visibleRows(rows, { status = 'Open', mine = 'all', me = '', text = '' } = {}) {
   const q = text.trim().toLowerCase();
   return (rows || []).filter((r) => (status === 'All' || r.status === status)
     && (mine === 'all' || (mine === 'assigned' ? r.accountant === me : r.askedBy === me))
-    && (!q || [r.entityCode, r.entryNo, r.accountNo, r.accountTitle, r.description, r.memo, r.party, r.question, r.askedByName, r.askedBy, r.accountantName, r.accountant, String(r.amount)]
+    && (!q || [r.entityCode, r.entryNo, r.accountNo, r.accountTitle, r.description, r.memo, r.party, r.department, r.vendor, r.custom, r.question, r.askedByName, r.askedBy, r.accountantName, r.accountant, String(r.amount)]
       .some((v) => String(v || '').toLowerCase().includes(q))));
 }
 
-/** The grid as an export table (linesExport). */
+const opSet = (f) => !!f && typeof f === 'object' && !!(String(f.a ?? '').trim() || String(f.b ?? '').trim());
+const textSet = (v) => typeof v === 'string' && !!v.trim();
+/** Whether any column filter is typed. */
+export const columnFiltering = (typed) => GRID_COLUMNS.some((c) => (c.num ? opSet(typed?.[c.key]) : textSet(typed?.[c.key])));
+
+/** The rows every typed column filter lets through: a text column holds the
+ *  words typed (each must appear, any case), an amount column compares. They
+ *  stack. */
+export function columnFilter(rows, typed = {}) {
+  const active = GRID_COLUMNS.filter((c) => (c.num ? opSet(typed[c.key]) : textSet(typed[c.key])));
+  if (!active.length) return rows || [];
+  return (rows || []).filter((r) => active.every((c) => {
+    if (c.num) return numberFilterHit(c.text(r), typed[c.key]);
+    const hay = String(c.text(r) || '').toLowerCase();
+    return typed[c.key].trim().toLowerCase().split(/\s+/).every((w) => hay.includes(w));
+  }));
+}
+
+/** The grid as an export table (linesExport): the line memo as Description,
+ *  with Department, Vendor and Custom beside it, as Intacct's AMA report. */
 export function exportTable(rows, { from, to }) {
   return {
     title: 'Ask My Accountant',
     period: `${formatDate(from)} - ${formatDate(to)}`.replace(/\//g, '-'),
     subtitle: `${rows.length} ${rows.length === 1 ? 'line' : 'lines'} · ${formatDate(from)} - ${formatDate(to)}`,
-    columns: COLUMNS.map((label) => ({ label, num: label === 'Amount', width: label === 'Question' || label === 'Description' ? 260 : 120 })),
-    rows: rows.map((r) => [formatDate(r.date), r.entityCode, r.entryNo, `${r.accountNo} ${r.accountTitle || ''}`.trim(), r.description || r.memo || '',
-      Number(r.amount) || 0, r.question || '', person(r.askedByName, r.askedBy), person(r.accountantName, r.accountant),
-      r.reclassed && r.status !== 'Resolved' ? `${r.status} (Reclassed)` : r.status, r.lastReplyAt ? formatDateTime(r.lastReplyAt) : '']),
+    columns: GRID_COLUMNS.map((c) => ({ label: c.label, num: !!c.num, width: c.key === 'question' || c.key === 'description' ? 260 : 120 })),
+    rows: rows.map((r) => GRID_COLUMNS.map((c) => c.text(r))),
     totals: null,
   };
 }
@@ -225,7 +271,12 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
   const [chart, setChart] = useState(null);
   const [auto, setAuto] = useState(!settings?.configured?.length);
   const [picked, setPicked] = useState(() => new Set(settings?.configured || []));
-  const [rows, setRows] = useState(() => Object.entries(settings?.accountants || {}).flatMap(([entity, list]) => list.map((p) => ({ entity, email: p.email }))));
+  // A person limited to certain entities edits only those entities' accountants;
+  // the Every Entity ('') default is shown, read-only, and never sent back
+  // (Neil's review, Oct 20: re-sending it locked them out of saving at all).
+  const mine = (entity) => !limited || entity !== '';
+  const [rows, setRows] = useState(() => Object.entries(settings?.accountants || {}).filter(([entity]) => mine(entity)).flatMap(([entity, list]) => list.map((p) => ({ entity, email: p.email }))));
+  const everyEntity = limited ? (settings?.accountants?.[''] || []) : [];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [text, setText] = useState('');
@@ -241,8 +292,8 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
   const save = (e) => {
     e.preventDefault();
     const accountants = {};
-    rows.filter((r) => r.email).forEach((r) => { (accountants[r.entity] ||= []).push(r.email); });
-    Object.keys(settings?.accountants || {}).forEach((k) => { accountants[k] ||= []; });
+    rows.filter((r) => r.email && mine(r.entity)).forEach((r) => { (accountants[r.entity] ||= []).push(r.email); });
+    Object.keys(settings?.accountants || {}).filter(mine).forEach((k) => { accountants[k] ||= []; });
     if (!auto && !picked.size) { setError('Pick at least one account, or find them by title.'); return; }
     setBusy(true);
     setError('');
@@ -278,6 +329,11 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
       <div>
         <span style={fieldLabel}>Accountants</span>
         <div style={{ display: 'grid', gap: 6 }}>
+          {everyEntity.length > 0 && (
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+              Every Entity: {everyEntity.map((p) => p.name || p.email).join(', ')} - set by someone with access to every entity.
+            </div>
+          )}
           {rows.map((r, i) => (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) auto', gap: 6, alignItems: 'center' }}>
               <EntityPicker entities={entities} value={r.entity} onChange={(code) => setRows((x) => x.map((y, j) => (j === i ? { ...y, entity: code } : y)))}
@@ -298,6 +354,16 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
 }
 
 // ── The screen ──────────────────────────────────────────────────────────────
+// The column filter row under the headers (Oct 22), styled like Ledger Search's.
+const GRID_CSS = `.acct-ask tbody > tr > td { padding-top: var(--ask-py, 5px); padding-bottom: var(--ask-py, 5px); } .acct-ask tbody > tr { cursor: pointer; }
+.acct-ask .acct-filter-row td { padding: 3px 4px 4px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
+.acct-ask .acct-filter-row input, .acct-ask .acct-filter-row select { width: 100%; min-width: 0; box-sizing: border-box; height: 24px; padding: 0 6px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; font-size: 12px; background: var(--bg-card); color: var(--text-primary); }
+.acct-ask .acct-filter-row input::placeholder { color: var(--text-muted); opacity: .7; }
+.acct-ask .acct-filter-row input:not(:placeholder-shown) { border-color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
+.acct-ask .acct-op-filter { display: flex; gap: 3px; align-items: center; min-width: 150px; }
+.acct-ask .acct-op-filter select { width: auto; flex: 0 0 auto; padding: 0 2px; }
+.acct-ask .acct-op-filter input { flex: 1 1 auto; min-width: 48px; text-align: right; }`;
+
 export default function AskAccountantTab({ canEdit = false, limited = false }) {
   const custom = useCustomizePrefs(['density', 'pageSize', 'historicalEntities']);
   const py = DENSITIES.find((x) => x.key === custom.density)?.py || '5px';
@@ -308,15 +374,26 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
   const [status, setStatus] = useState('Open');
   const [mine, setMine] = useState('all');
   const [text, setText] = useState('');
+  const [typed, setTyped] = useState({});        // the column filters (Oct 22)
   const [reloads, setReloads] = useState(0);
   const [res, setRes] = useState({ key: null, data: null, error: null });
-  const [open, setOpen] = useState(null);       // the row in the side panel
+  // The row in the side panel. The bell's "Open AMA" names a question
+  // (Priyanka, 10/15): it opens here whether or not its line is in the period.
+  const [open, setOpen] = useState(() => {
+    const id = takePendingOpen('amaThread');
+    return id ? { id, kind: 'thread', status: '' } : null;
+  });
   const [asking, setAsking] = useState(null);   // the line in the Ask dialog
   const [settings, setSettings] = useState(null);
   const [busy, setBusy] = useState('');
 
   useEffect(() => {
     api.getAccountingLocations?.().then((x) => setEntities(x?.entities || [])).catch(() => setEntities([]));
+  }, []);
+  useEffect(() => {
+    const onOpen = (e) => { const id = e.detail?.id; if (id) { takePendingOpen('amaThread'); setOpen({ id, kind: 'thread', status: '' }); } };
+    window.addEventListener('nexus:open-ama-thread', onOpen);
+    return () => window.removeEventListener('nexus:open-ama-thread', onOpen);
   }, []);
   const key = JSON.stringify([entity, from, to, reloads]);
   useEffect(() => {
@@ -333,9 +410,19 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
   const error = loading ? null : res.error;
   const me = data?.me || '';
   const all = useMemo(() => data?.rows || [], [data]);
-  const rows = useMemo(() => visibleRows(all, { status, mine, me, text }).sort((a, b) => String(b.date).localeCompare(String(a.date))), [all, status, mine, me, text]);
-  const paged = usePaged(rows, custom.pageSize, [status, mine, text, entity, from, to]);
-  const counts = data?.counts || {};
+  // Whose, the filter box and the column filters narrow the rows; the status
+  // tabs count what they leave, so a count is always what its tab shows.
+  const narrowed = useMemo(() => columnFilter(visibleRows(all, { status: 'All', mine, me, text }), typed), [all, mine, me, text, typed]);
+  const rows = useMemo(() => narrowed.filter((r) => status === 'All' || r.status === status).sort((a, b) => String(b.date).localeCompare(String(a.date))), [narrowed, status]);
+  const paged = usePaged(rows, custom.pageSize, [status, mine, text, entity, from, to, typed]);
+  const counts = useMemo(() => {
+    if (!data) return {};
+    const c = Object.fromEntries(STATUS_FILTERS.map((st) => [st, 0]));
+    narrowed.forEach((r) => { if (r.status in c) c[r.status] += 1; c.All += 1; });
+    return c;
+  }, [data, narrowed]);
+  const filtering = columnFiltering(typed);
+  const outside = data?.outside?.count ? data.outside : null;
   const editor = canEdit || !!data?.canEdit;
   const accountsText = (data?.accounts || []).map((a) => `${a.code}${a.title ? ` ${a.title}` : ''}`).join(', ');
 
@@ -349,10 +436,11 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
     }
   };
   const openSettings = () => api.getAskSettings().then(setSettings).catch(() => setSettings({}));
+  const setFilter = (k, v) => setTyped((t) => ({ ...t, [k]: v }));
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      <style>{`.acct-ask tbody > tr > td { padding-top: var(--ask-py, 5px); padding-bottom: var(--ask-py, 5px); } .acct-ask tbody > tr { cursor: pointer; }`}</style>
+      <style>{GRID_CSS}</style>
       <div>
         <h3 style={{ margin: 0, fontSize: '1rem' }}>Ask My Accountant</h3>
         <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -370,8 +458,8 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
           ))}
         </div>
         <EntityPicker entities={entities} value={entity} onChange={setEntity} noneLabel={limited ? 'My Entities' : 'All Entities'} showHistorical={custom.showHistorical} ariaLabel="Entity" />
-        <input type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} aria-label="From" style={control} />
-        <input type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label="To" style={control} />
+        <input type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} aria-label="From" title="Lines dated from" style={control} />
+        <input type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label="To" title="Lines dated to" style={control} />
         <select value={mine} onChange={(e) => setMine(e.target.value)} aria-label="Whose" style={control}>
           <option value="all">Everyone</option>
           <option value="assigned">Assigned To Me</option>
@@ -401,6 +489,18 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
           {data.ledgerError && <span style={{ color: 'var(--bad-fg, #dc2626)' }}> · The ledger could not be read: {data.ledgerError}</span>}
         </div>
       )}
+      {outside && (
+        <div role="note" style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+          <span>
+            {outside.count.toLocaleString('en-US')} {outside.count === 1 ? 'question is' : 'questions are'} on lines dated outside {formatDate(from)} - {formatDate(to)}
+            {outside.open ? ` (${outside.open.toLocaleString('en-US')} not resolved)` : ''}.
+          </span>
+          <button type="button" className="acct-drill" style={{ fontSize: '0.76rem' }}
+            onClick={() => { if (outside.earliest && outside.earliest < from) setFrom(outside.earliest); if (outside.latest && outside.latest > to) setTo(outside.latest); }}>
+            Include Them
+          </button>
+        </div>
+      )}
 
       {error && (notAvailable(error) ? (
         <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
@@ -413,28 +513,51 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         </div>
       ))}
 
-      {!error && !loading && !rows.length && (
-        <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
-          {all.length ? 'Nothing here matches - try another status or clear the filter.' : 'Nothing to ask about. Use the question mark on any line in Ledger Search or a journal entry to ask your accountant.'}
+      {filtering && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+          <span>Column filters on - {rows.length.toLocaleString('en-US')} {rows.length === 1 ? 'line matches' : 'lines match'}.</span>
+          <button type="button" onClick={() => setTyped({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
         </div>
       )}
 
-      {!error && (loading || rows.length > 0) && (
+      {!error && !loading && !all.length && (
+        <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+          Nothing to ask about in this period. Use the question mark on any line in Ledger Search or a journal entry to ask your accountant.
+        </div>
+      )}
+
+      {!error && (loading || all.length > 0) && (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }} aria-busy={loading}>
           <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
             <table className="req-table acct-ask" style={{ fontVariantNumeric: 'tabular-nums', '--ask-py': py }}>
-              <thead><tr>{COLUMNS.map((c) => <th key={c} style={c === 'Amount' ? num : undefined}>{c}</th>)}</tr></thead>
+              <thead>
+                <tr>{GRID_COLUMNS.map((c) => <th key={c.key} style={c.num ? num : undefined}>{c.label}</th>)}</tr>
+                <tr className="acct-filter-row">
+                  {GRID_COLUMNS.map((c) => (
+                    <td key={c.key} style={c.width ? { minWidth: Math.min(c.width, 180) } : undefined}>
+                      {c.num
+                        ? <OpFilter label={c.label} value={typed[c.key]} onChange={(v) => setFilter(c.key, v)} />
+                        : <input type="text" value={typed[c.key] || ''} onChange={(e) => setFilter(c.key, e.target.value)} aria-label={`Filter ${c.label}`} placeholder={c.placeholder || 'contains'} />}
+                    </td>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
                 {loading && !data ? Array.from({ length: 5 }, (_x, i) => (
-                  <tr key={`sk${i}`} aria-hidden="true">{COLUMNS.map((c) => <td key={c}><div className="nx-skel" style={{ height: 12, borderRadius: 4, width: '70%' }} /></td>)}</tr>
-                )) : paged.rows.map((r) => (
+                  <tr key={`sk${i}`} aria-hidden="true">{GRID_COLUMNS.map((c) => <td key={c.key}><div className="nx-skel" style={{ height: 12, borderRadius: 4, width: '70%' }} /></td>)}</tr>
+                )) : !rows.length ? (
+                  <tr><td colSpan={GRID_COLUMNS.length} style={{ padding: 18, textAlign: 'center', color: 'var(--text-secondary)', cursor: 'default' }}>Nothing here matches - try another status or clear the filters.</td></tr>
+                ) : paged.rows.map((r) => (
                   <tr key={r.id} onClick={() => setOpen(r)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(r); }} aria-label={`Open ${r.entryNo || r.accountNo} ${amountText(r)}`}
                     style={loading ? { opacity: 0.6 } : undefined}>
                     <td style={{ whiteSpace: 'nowrap' }}>{r.date ? formatDate(r.date) : dash}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{r.entityCode || dash}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{r.entryNo || dash}</td>
                     <td style={ellipsis} title={`${r.accountNo} ${r.accountTitle}`}><span className="acct-code">{r.accountNo}</span>{r.accountTitle}</td>
-                    <td style={ellipsis} title={r.description || r.memo}>{r.description || r.memo || dash}</td>
+                    <td style={ellipsis} title={[lineText(r), r.memo && r.description && r.description !== r.memo ? `Entry: ${r.description}` : ''].filter(Boolean).join('\n')}>{lineText(r) || dash}</td>
+                    <td style={ellipsis} title={r.department || undefined}>{r.department || dash}</td>
+                    <td style={ellipsis} title={r.vendor || undefined}>{r.vendor || dash}</td>
+                    <td style={ellipsis} title={r.custom || undefined}>{r.custom || dash}</td>
                     <td style={num}><Amount value={r.amount} /></td>
                     <td style={ellipsis} title={r.question}>{r.question || <span style={muted}>Not Asked Yet</span>}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{person(r.askedByName, r.askedBy) || dash}</td>

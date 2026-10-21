@@ -141,6 +141,39 @@ class DashboardProxyTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self.posts[0]["op"], "view-delete")
 
+    def test_action_db_lookups_run_off_the_event_loop(self):
+        """Neil's review (Oct 20): the editor-grant check and the display-name
+        lookup are sync DB work inside an async route - they run in a thread
+        now, never on the event loop."""
+        import asyncio
+
+        def on_loop() -> bool:
+            try:
+                asyncio.get_running_loop()
+                return True
+            except RuntimeError:
+                return False
+        seen = []
+        real_grant, real_name = dash.require_module_grant, dash._display_name
+
+        def grant(module, level, **kw):
+            def check(user, db):
+                seen.append(("grant", level, on_loop()))
+                return user
+            return check
+
+        def name(db, email):
+            seen.append(("name", email, on_loop()))
+            return "Test Person"
+        dash.require_module_grant, dash._display_name = grant, name
+        try:
+            r = self.client.post("/accounting/dashboard/action", json={"op": "row-save", "payload": {"table": "fin_loans", "row": {"id": "x"}}})
+        finally:
+            dash.require_module_grant, dash._display_name = real_grant, real_name
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(seen, [("grant", "editor", False), ("name", ME, False)])
+        self.assertEqual(self.posts[0]["by"], "Test Person")
+
 
 if __name__ == "__main__":
     unittest.main()

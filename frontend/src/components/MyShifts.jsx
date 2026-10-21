@@ -257,6 +257,27 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
     if (!team || !thisWeek) return [];
     return teamRows.filter((r) => r.days.some((d) => !dayFullyOff(d.off) && d.shifts.some((s) => shiftPhase(s, d.key, clockOf(s)) === 'on')));
   }, [team, teamRows, clockOf, thisWeek]);
+  // Live status (Miranda, Oct 21): who in the group is working, on a break
+  // or clocked out, from today's punches. This week only, again every
+  // minute while the tab is in view. A failed call keeps the last map, and
+  // the schedule never waits on it.
+  const [liveMap, setLiveMap] = useState(null);
+  const hasTeam = !!team;
+  useEffect(() => {
+    if (mine || !thisWeek || !hasTeam) return undefined;
+    let alive = true;
+    const pull = () => {
+      if (document.visibilityState === 'hidden') return;
+      Promise.resolve().then(() => api.timeMyScheduleLive())
+        .then((r) => { if (alive && r?.people && typeof r.people === 'object') setLiveMap(r.people); })
+        .catch(() => {});
+    };
+    pull();
+    const t = setInterval(pull, 60000);
+    document.addEventListener('visibilitychange', pull);
+    window.addEventListener('nexus:timeclock-changed', pull);   // my own punch shows at once
+    return () => { alive = false; clearInterval(t); document.removeEventListener('visibilitychange', pull); window.removeEventListener('nexus:timeclock-changed', pull); };
+  }, [mine, thisWeek, hasTeam]);
   const teamZone = data?.timeZone || '';
   const teamZoneLabel = teamZone ? zoneOptionLabel(teamZone) : '';
   const cfg = reqs?.settings || {};
@@ -401,7 +422,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
 
       {mine ? null : data && team ? (
         <TeamShiftGrid teams={teams} team={team} onPickTeam={setTeamId} days={days} rows={teamRows} onNow={onNow}
-          openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek}
+          openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek} live={thisWeek ? liveMap : null}
           timeZoneLabel={teamZoneLabel} teamZone={teamZone} />
       ) : data && teamZoneLabel ? (
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>

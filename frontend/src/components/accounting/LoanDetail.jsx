@@ -37,12 +37,17 @@ export const INTEREST_SOURCE = {
   wired: 'wired on this loan',
   matched: 'matched by the account titles',
   shared: 'the entity\'s interest accounts no loan matched, shared by balance',
+  vendor: 'the lender\'s vendor lines only',
   none: 'no interest account found',
 };
 
+// Oct 22 (Charmi): a loan wired to its lender's vendor id counts only that
+// vendor's lines - here too, so the entries add up to the row's figures.
+
 /** The lines of the principal and interest accounts as one row per entry, newest first.
- *  `owedAtEnd` (optional): the balance owed at the window's end, for the balance after each entry. */
-export function paymentRows(history, { given = false, owedAtEnd = null, interestShare = 1 } = {}) {
+ *  `owedAtEnd` (optional): the balance owed at the window's end, for the balance after each entry.
+ *  `vendorId` (optional): only the lines of that vendor count as paid (the balance still walks every line). */
+export function paymentRows(history, { given = false, owedAtEnd = null, interestShare = 1, vendorId = '' } = {}) {
   const by = new Map();
   const key = (l) => l.entryId || l.entryNo || `${l.date}|${l.description}`;
   const take = (l) => {
@@ -54,22 +59,26 @@ export function paymentRows(history, { given = false, owedAtEnd = null, interest
     if (l.date > r.date) r.date = l.date;
     return r;
   };
+  const theirs = (l) => !vendorId || l.vendorId === vendorId;
   (history?.principal?.lines || []).forEach((l) => {
     const r = take(l);
-    r.principal += given ? l.credit : l.debit;
-    r.draw += given ? l.debit : l.credit;
+    if (theirs(l)) r.mine = true;
+    if (theirs(l)) r.principal += given ? l.credit : l.debit;
+    else r.other = (r.other || 0) + (given ? l.credit - l.debit : l.debit - l.credit);
+    r.draw += theirs(l) ? (given ? l.debit : l.credit) : 0;
   });
-  (history?.interest || []).forEach((acct) => (acct.lines || []).forEach((l) => {
+  (history?.interest || []).forEach((acct) => (acct.lines || []).filter(theirs).forEach((l) => {
     const r = take(l);
+    r.mine = true;
     r.interest += (given ? l.credit - l.debit : l.debit - l.credit) * interestShare;
   }));
   if (interestShare !== 1) by.forEach((r) => { r.interest = Math.round(r.interest * 100) / 100; });
   const rows = [...by.values()].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : String(b.entryNo).localeCompare(String(a.entryNo), 'en-US', { numeric: true })));
   if (owedAtEnd != null && !history?.principal?.truncated) {
     let owed = owedAtEnd;
-    rows.forEach((r) => { r.balanceAfter = Math.round(owed * 100) / 100; owed += r.principal - r.draw; });
+    rows.forEach((r) => { r.balanceAfter = Math.round(owed * 100) / 100; owed += r.principal - r.draw + (r.other || 0); });
   }
-  return rows;
+  return vendorId ? rows.filter((r) => r.mine) : rows;
 }
 
 function PaymentsTable({ rows, showBalance, showDraws = true, shareNote = '', onOpenEntry, empty }) {
@@ -136,7 +145,8 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null
     setPicking(null);
     setFolderBusy(true);
     setFolderError('');
-    api.updateLoan(loan.id, '', which === 'docs' ? { docsPath: path } : { statementsPath: path })
+    (api.updateLoanSlow ? api.updateLoanSlow(loan.id, which === 'docs' ? { docsPath: path } : { statementsPath: path })
+      : api.updateLoan(loan.id, '', which === 'docs' ? { docsPath: path } : { statementsPath: path }))
       .then(() => onSaved?.())
       .catch((e) => setFolderError(e?.message || 'Could not save the folder.'))
       .finally(() => setFolderBusy(false));
@@ -157,8 +167,9 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null
   const others = loan.interestSharedWith || 0;
   const shareNote = share < 1 ? `GL ${(loan.interestAccounts || []).map((a) => a.code).join(', ')} is shared with ${others || 'other'} other ${others === 1 ? 'loan' : 'loans'} by balance: this loan's share is ${(share * 100).toFixed(1)}%.` : '';
   const loc = !!loan.lineOfCredit;
-  const periodRows = useMemo(() => paymentRows(period.data, { given, interestShare: share }), [period.data, given, share]);
-  const allRows = useMemo(() => paymentRows(all.data, { given, interestShare: share, owedAtEnd: loan.wiring === 'ok' ? loan.owed : null }), [all.data, given, share, loan.wiring, loan.owed]);
+  const vendorId = loan.interestSource === 'vendor' ? loan.vendorId || '' : '';
+  const periodRows = useMemo(() => paymentRows(period.data, { given, interestShare: share, vendorId }), [period.data, given, share, vendorId]);
+  const allRows = useMemo(() => paymentRows(all.data, { given, interestShare: share, vendorId, owedAtEnd: loan.wiring === 'ok' ? loan.owed : null }), [all.data, given, share, vendorId, loan.wiring, loan.owed]);
   const interestText = loan.interestAccounts?.length
     ? loan.interestAccounts.map((a) => `GL ${a.code}${a.title ? ` ${a.title}` : ''}`).join(', ')
     : 'None';
@@ -183,6 +194,8 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 24px' }}>
         {fact('Principal Account', loan.wiring === 'ok' ? accountLink(loan.glAccount, loan.glTitle, principalText) : principalText, loan.wiring === 'missing' ? 'This account has no lines in this entity on the ledger - check the wiring under Change Loan.' : undefined)}
         {fact('Interest Account', interestValue, INTEREST_SOURCE[loan.interestSource] ? `From ${INTEREST_SOURCE[loan.interestSource]}.` : undefined)}
+        {fact('Vendor', loan.vendorId ? `${loan.vendorName || loan.vendorId}${loan.vendorName ? ` (${loan.vendorId})` : ''}` : 'None - every line on the accounts',
+          loan.vendorId ? (loan.vendorUnread ? 'The vendor\'s lines could not be read this time - the figures are every line on the accounts.' : 'Principal and interest paid count only this vendor\'s lines.') : 'Wire the lender\'s vendor under Change Loan to count only its lines.')}
 
         {fact('Original Principal', loan.originalPrincipal == null ? '-' : `${formatAmount(loan.originalPrincipal)}${loan.originalPrincipalEdited ? ' (edited)' : loan.originalPrincipalDate ? ` on ${formatDate(loan.originalPrincipalDate)}` : ''}`)}
         {loc && fact('Draws in Period', loan.draws == null ? '-' : formatAmount(loan.draws), 'Credits to the principal account in the period: new money borrowed, not payments.')}

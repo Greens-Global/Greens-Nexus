@@ -13,6 +13,7 @@ import { formatDate } from '../lib/datetime';
 import { DAY_MS, localKey, nextDay, weekday, monthDay, hm, t12, cap, BREAKS, TYPES, TONE, dayNote, planText } from '../lib/addTime';
 import { inputToUtcTz, tzOffsetForInput, formatTimeTz, useDisplayTz, currentTzOption } from '../lib/displayTz';
 import { Spinner } from './AsyncState';
+import ChoicePills from './ChoicePills';
 
 const MAX_DAYS = 31;   // the server's cap (_ADD_TIME_MAX_DAYS)
 const field = { border: '1px solid var(--line)', borderRadius: 8, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit', background: 'var(--card)', color: 'var(--ink)' };
@@ -213,8 +214,8 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
                   <label style={{ display: 'block' }}><span style={lab}>Clock Out</span><input type="time" value={outT} disabled={perDay} onChange={(e) => { setOutT(e.target.value); touch(); }} style={field} /></label>
                   <label style={{ display: 'block' }}><span style={lab}>Unpaid Break</span>
                     <select value={brk} onChange={(e) => { setBrk(Number(e.target.value)); touch(); }} style={field}>{BREAKS.map((b) => <option key={b} value={b}>{b ? `${b} min` : 'None'}</option>)}</select></label>
-                  <label style={{ display: 'block' }}><span style={lab}>Type</span>
-                    <select value={type} onChange={(e) => { setType(e.target.value); touch(); }} style={field}>{TYPES.map((t) => <option key={t}>{t}</option>)}</select></label>
+                  <div><span style={lab}>Type</span>
+                    <ChoicePills label="Type" value={type} options={TYPES} onChange={(t) => { setType(t); touch(); }} /></div>
                   {shiftHours && !perDay && (
                     <button type="button" className="secondary-btn" onClick={() => { setInT(shiftHours.start); setOutT(shiftHours.end); setBrk(BREAKS.includes(shiftHours.breakMin) ? shiftHours.breakMin : 0); touch(); }}
                       title={`${t12(shiftHours.start)} - ${t12(shiftHours.end)}`} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>

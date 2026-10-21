@@ -89,7 +89,7 @@ export function Dialog({ title, sub, onClose, onSubmit, busy, submitLabel, error
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '70vh', overflowY: 'auto' }}>
+        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, alignContent: 'start', flex: 1, minHeight: 0, overflowY: 'auto' }}>
           {error && <div style={bad}>{error}</div>}
           {children}
         </div>
@@ -104,20 +104,47 @@ export function Dialog({ title, sub, onClose, onSubmit, busy, submitLabel, error
   return typeof document === 'undefined' ? body : createPortal(body, document.body);
 }
 
+/** What to tell a person before the folder picker opens (Oct 22): Egnyte not
+ *  set up on Nexus at all, or set up with per-person sign-in they have not
+ *  done yet. '' = go ahead (also when the status itself could not be read). */
+export function egnyteNotReady(status) {
+  if (!status) return '';
+  if (!status.configured) return 'Egnyte is not connected to Nexus yet, so folders cannot be browsed here. Paste the folder\'s path (/Shared/...) or its Egnyte link instead.';
+  if (status.oauth?.mustConnect) return 'Your Egnyte account is not connected to Nexus yet. Connect it once under Files (Connect Egnyte), or paste the folder\'s path or Egnyte link here.';
+  return '';
+}
+
 // An Egnyte folder: typed or pasted (path or link), or picked with Browse in
 // the Files picker (the one Save to Files uses); Clear unwires it.
+//
+// Oct 22 (Charmi: "Can't reach Nexus right now" connecting a folder): Browse
+// asks first whether Egnyte is connected for this person and says so in place
+// instead of opening a picker that can only fail; the save behind it no longer
+// rewrites the whole loan row (see editBody).
 export function EgnyteField({ id, labelText, value, url, onChange }) {
   const [browsing, setBrowsing] = useState(false);
+  const [note, setNote] = useState('');
+  const [checking, setChecking] = useState(false);
+  const browse = () => {
+    setNote('');
+    if (!api.egnyteStatus) { setBrowsing(true); return; }
+    setChecking(true);
+    api.egnyteStatus()
+      .then((s) => { const why = egnyteNotReady(s); if (why) setNote(why); else setBrowsing(true); })
+      .catch(() => setBrowsing(true))
+      .finally(() => setChecking(false));
+  };
   return (
     <div>
       <label style={label} htmlFor={id}>{labelText}</label>
       <div style={{ display: 'flex', gap: 6 }}>
         <input id={id} type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder="/Shared/... or an Egnyte folder link" style={{ ...control, flex: 1, minWidth: 0 }} />
-        <button type="button" className="secondary-btn" onClick={() => setBrowsing(true)} aria-haspopup="dialog" aria-label={`Browse for ${labelText}`}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}><Folder size={14} /> Browse</button>
+        <button type="button" className="secondary-btn" onClick={browse} disabled={checking} aria-haspopup="dialog" aria-label={`Browse for ${labelText}`}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}><Folder size={14} /> {checking ? 'Checking...' : 'Browse'}</button>
         {value && <button type="button" className="secondary-btn" onClick={() => onChange('')} aria-label={`Clear ${labelText}`} style={{ fontSize: '0.78rem', height: 30, padding: '0 10px' }}>Clear</button>}
         {url && <a href={url} target="_blank" rel="noreferrer" aria-label={`Open ${labelText} in Egnyte`} title="Open in Egnyte" style={{ ...control, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, padding: 0, color: 'var(--text-secondary)' }}><ExternalLink size={14} /></a>}
       </div>
+      {note && <div role="status" style={{ ...hint, color: '#92400e' }}>{note}</div>}
       {browsing && createPortal(
         <FolderPickModal startPath={value && value.startsWith('/') ? value : '/Shared'} showTree title={`${labelText} - Pick a Folder`}
           hint='Click through to the folder, then press "Use This Folder".'
@@ -135,9 +162,10 @@ const typeOptions = (
   </>
 );
 
-export function EditLoanDialog({ loan, to, onClose, onSaved }) {
-  const [d, setD] = useState(() => ({
-    lender: loan.lender || '', loanNo: loan.loanNo || '', glAccount: loan.glAccount || '',
+/** Change Loan's fields as the dialog opens on a loan. */
+export function editStart(loan) {
+  return {
+    lender: loan.lender || '', loanNumber: loan.loanNo || '', glAccount: loan.glAccount || '',
     interestAccount: loan.interestSource === 'wired' ? loan.interestAccount : '',
     originalPrincipal: loan.originalPrincipalEdited ? loan.originalPrincipal : null,
     balance: loan.wiring === 'manual' ? loan.balance : null,
@@ -145,8 +173,57 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
     covenantMin: loan.covenantTyped ? loan.covenantMin : '', type: loan.internal ? 'internal' : 'external',
     loanType: loan.loanTypeGuessed === false ? loan.loanType || '' : '',
     docsPath: loan.docsPath || '', statementsPath: loan.statementsPath || '', notes: loan.notes || '', isActive: loan.isActive !== false,
-  }));
+    vendorId: loan.vendorId || '', vendorName: loan.vendorName || '',
+  };
+}
+
+const numOr = (v, empty) => (v === '' || v == null ? empty : Number(v));
+
+/**
+ * The PUT body for Change Loan: ONLY the fields changed since the dialog
+ * opened (Oct 22). It used to send every field, so wiring a folder - kept by
+ * Nexus - also re-saved the whole fin_loans row through the accounting app;
+ * a slow accounting app then ran the save past the browser's limit and the
+ * person read "Can't reach Nexus right now". {} = nothing changed.
+ */
+export function editBody(loan, start, d) {
+  const body = {};
+  const changed = (k) => d[k] !== start[k];
+  if (changed('lender')) body.lender = d.lender.trim();
+  if (changed('loanNumber')) {
+    body.loanNumber = d.loanNumber.trim();
+    // Cleared, and the number shown came from the loan row itself (Data >
+    // Loans, a manual loan): clear it there too, or it would show again.
+    const stored = String(loan.loanNoStored || '').trim();
+    if (!body.loanNumber && stored && stored !== (loan.glAccount || '')) body.loanNo = '';
+  }
+  if (changed('ratePct')) body.ratePct = numOr(d.ratePct, 0);
+  if (changed('rateType')) body.rateType = d.rateType;
+  if (changed('maturity')) body.maturity = d.maturity || '';
+  if (changed('monthlyPayment')) body.monthlyPayment = numOr(d.monthlyPayment, 0);
+  if (changed('covenantMin')) body.covenantMin = numOr(d.covenantMin, 0);
+  if (changed('notes')) body.notes = d.notes;
+  if (changed('isActive')) body.isActive = d.isActive;
+  if (changed('interestAccount')) body.interestAccount = d.interestAccount || null;
+  if (changed('originalPrincipal')) body.originalPrincipal = d.originalPrincipal == null ? null : Number(d.originalPrincipal);
+  if (d.docsPath.trim() !== start.docsPath) body.docsPath = d.docsPath.trim();
+  if (d.statementsPath.trim() !== start.statementsPath) body.statementsPath = d.statementsPath.trim();
+  if (changed('type')) body.internal = d.type === 'internal';
+  if (changed('glAccount')) body.glAccount = d.glAccount;
+  if (!d.glAccount && d.balance != null && (changed('balance') || changed('glAccount'))) body.balance = Number(d.balance);
+  if (changed('loanType')) body.loanType = d.loanType;
+  if (d.vendorId.trim() !== start.vendorId) {
+    body.vendorId = d.vendorId.trim();
+    body.vendorName = body.vendorId ? d.vendorName : '';
+  }
+  return body;
+}
+
+export function EditLoanDialog({ loan, to, onClose, onSaved }) {
+  const [start] = useState(() => editStart(loan));
+  const [d, setD] = useState(start);
   const [accounts, setAccounts] = useState(null);   // { principal: [], interest: [] } | null while loading
+  const [vendors, setVendors] = useState(null);     // [{ code, name, lines }] | null while loading
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (patch) => setD((x) => ({ ...x, ...patch }));
@@ -159,6 +236,22 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
       .catch(() => { if (alive) setAccounts({ principal: [], interest: [], failed: true }); });
     return () => { alive = false; };
   }, [loan.entityCode, to]);
+  // The vendors on the loan's principal account and the entity's interest
+  // accounts (Oct 22: "use the vendor code") - read once the accounts are in.
+  useEffect(() => {
+    let alive = true;
+    if (!loan.entityCode || !accounts || !api.getLoanVendors) return undefined;
+    const codes = [loan.glAccount, ...(loan.interestAccounts || []).map((a) => a.code), ...(accounts.interest || []).filter((a) => a.interest).map((a) => a.code)];
+    api.getLoanVendors(loan.entityCode, [...new Set(codes.filter(Boolean))].slice(0, 8), to)
+      .then((v) => { if (alive) setVendors(v?.vendors || []); })
+      .catch(() => { if (alive) setVendors([]); });
+    return () => { alive = false; };
+  }, [loan.entityCode, loan.glAccount, loan.interestAccounts, accounts, to]);
+  const pickVendor = (text) => {
+    const code = text.trim();
+    const hit = (vendors || []).find((v) => v.code === code);
+    set({ vendorId: text, vendorName: hit ? hit.name : code === start.vendorId ? start.vendorName : '' });
+  };
   const principalList = useMemo(() => {
     const list = (accounts?.principal || []).filter((a) => (loan.kind === 'given' ? a.section === 'asset' : a.section === 'liability'));
     return d.glAccount && !list.some((a) => a.code === d.glAccount) ? [{ code: d.glAccount, title: loan.glTitle || '(not on this entity\'s ledger)' }, ...list] : list;
@@ -175,20 +268,12 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
   const save = (e) => {
     e.preventDefault();
     if (!d.lender.trim()) { setError('The loan needs a name.'); return; }
+    const body = editBody(loan, start, d);
+    if (!Object.keys(body).length) { onClose(); return; }
     setBusy(true);
     setError('');
-    const body = {
-      lender: d.lender.trim(), loanNo: d.loanNo.trim(), ratePct: d.ratePct === '' ? 0 : Number(d.ratePct), rateType: d.rateType, maturity: d.maturity || '',
-      monthlyPayment: d.monthlyPayment == null ? 0 : Number(d.monthlyPayment), covenantMin: d.covenantMin === '' ? 0 : Number(d.covenantMin), notes: d.notes, isActive: d.isActive,
-      interestAccount: d.interestAccount || null, originalPrincipal: d.originalPrincipal == null ? null : Number(d.originalPrincipal),
-      docsPath: d.docsPath.trim(), statementsPath: d.statementsPath.trim(),
-    };
-    if ((d.type === 'internal') !== !!loan.internal) body.internal = d.type === 'internal';
-    if (d.glAccount !== (loan.glAccount || '')) body.glAccount = d.glAccount;
-    if (!d.glAccount && d.balance != null) body.balance = Number(d.balance);
-    if (d.loanType !== (loan.loanTypeGuessed === false ? loan.loanType || '' : '')) body.loanType = d.loanType;
-    api.updateLoan(loan.id, '', body)
-      .then(onSaved).catch((err) => { setError(err?.message || 'Could not save.'); setBusy(false); });
+    const call = api.updateLoanSlow ? api.updateLoanSlow(loan.id, body) : api.updateLoan(loan.id, '', body);
+    call.then(onSaved).catch((err) => { setError(err?.message || 'Could not save.'); setBusy(false); });
   };
 
   return (
@@ -196,7 +281,11 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
       sub={<>{loan.entityName} ({loan.entityCode}) · balance <Amount value={loan.balance} /> as of {formatDate(to)}. The same loan as Accounting &gt; Data &gt; Loans.</>}>
       <div style={grid}>
         <div><label style={label} htmlFor="loan-lender">Loan Name (Lender)</label><input id="loan-lender" type="text" value={d.lender} maxLength={120} onChange={(e) => set({ lender: e.target.value })} style={full} /></div>
-        <div><label style={label} htmlFor="loan-no">Loan #</label><input id="loan-no" type="text" value={d.loanNo} maxLength={40} onChange={(e) => set({ loanNo: e.target.value })} style={full} /></div>
+        <div>
+          <label style={label} htmlFor="loan-no">Loan #</label>
+          <input id="loan-no" type="text" value={d.loanNumber} maxLength={60} placeholder="The lender's loan number" onChange={(e) => set({ loanNumber: e.target.value })} style={full} />
+          <div style={hint}>{loan.glAccount ? `Not the GL code - that is GL ${loan.glAccount}.` : 'The number on the lender\'s statements.'}</div>
+        </div>
         <div><label style={label} htmlFor="loan-type">Internal or External</label><select id="loan-type" value={d.type} onChange={(e) => set({ type: e.target.value })} style={full}>{typeOptions}</select></div>
         <div>
           <label style={label} htmlFor="loan-kind">Loan Type</label>
@@ -225,6 +314,17 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
             {interestList.map((a) => <option key={a.code} value={a.code}>{a.code}{a.title ? ` ${a.title}` : ''}{a.interest ? '' : ' (not titled Interest)'}</option>)}
           </select>
           <div style={hint}>Interest paid is the net debits to this account in the period.</div>
+        </div>
+        <div>
+          <label style={label} htmlFor="loan-vendor">Vendor (Lender)</label>
+          <input id="loan-vendor" type="text" list="loan-vendor-list" value={d.vendorId} maxLength={60} onChange={(e) => pickVendor(e.target.value)} disabled={!loan.entityCode}
+            placeholder={vendors === null && loan.entityCode ? 'Reading the vendors...' : 'None - every line on the accounts'} style={full} />
+          <datalist id="loan-vendor-list">
+            {(vendors || []).map((v) => <option key={v.code} value={v.code}>{`${v.name || v.code} - ${v.lines} ${v.lines === 1 ? 'line' : 'lines'}`}</option>)}
+          </datalist>
+          <div style={hint}>{d.vendorId.trim()
+            ? `${d.vendorName || 'Vendor'}: Interest Paid and Principal Paid count only this vendor's lines.`
+            : vendors && !vendors.length ? 'No vendor on the loan\'s accounts yet - type the Intacct vendor id.' : 'Pick the lender\'s vendor to count only its lines (an account shared by several loans).'}</div>
         </div>
         <div>
           <label style={label} htmlFor="loan-original">Original Principal</label>
