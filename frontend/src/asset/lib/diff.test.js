@@ -15,6 +15,9 @@ describe('diffStore', () => {
     expect(ops.logs).toEqual({ append: [{ id: 'l2' }] });
     expect(ops.inspections).toBeUndefined();
   });
+  it('ignores a rev-only refresh', () => {
+    expect(diffStore(base, { ...base, properties: [{ ...base.properties[0], _rev: 'r2' }, base.properties[1]] })).toBeNull();
+  });
   it('sees a new row as an upsert', () => {
     const ops = diffStore(base, { ...base, inspections: [{ id: 'i1', propertyId: 'a' }] });
     expect(ops.inspections.upsert).toHaveLength(1);

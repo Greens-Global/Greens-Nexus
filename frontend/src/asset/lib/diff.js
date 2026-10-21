@@ -8,7 +8,10 @@
 export const ROW_COLLECTIONS = ['properties', 'warranties', 'inspections', 'documents', 'ahj', 'utilities',
   'vendors', 'vservice', 'odometer', 'vdocs', 'maintenance'];
 
-const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
+// `_rev` is the server's stamp, not content: a row whose rev was just refreshed
+// after a save is not an edit (so the refresh queues nothing).
+const strip = (r) => { if (!r || typeof r !== 'object' || !('_rev' in r)) return r; const { _rev, ...rest } = r; return rest; };
+const same = (a, b) => a === b || JSON.stringify(strip(a)) === JSON.stringify(strip(b));
 
 /** `{ properties: { upsert, delete }, ..., logs: { append } }`, or null when nothing changed. */
 export function diffStore(prev, next) {

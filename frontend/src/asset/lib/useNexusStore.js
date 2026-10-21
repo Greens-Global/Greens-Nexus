@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { idbGet, idbSet } from './idb.js';
-import { STORAGE_KEY, serverGet, pickBest, markHydrated, isHydrated, setLastKnown, queueOps, wireBackgroundSync, setRevHandler } from './sync.js';
+import { STORAGE_KEY, serverGet, pickBest, markHydrated, isHydrated, setLastKnown, queueOps, wireBackgroundSync, setRevHandler, hasPending, pullWhenIdle } from './sync.js';
 import { diffStore, ROW_COLLECTIONS } from './diff.js';
 import { VNORM } from './dataNormalization.js';
 
@@ -67,12 +67,16 @@ export function useNexusStore() {
       .then(([idbJson, serverState]) => {
         if (!alive) return;
         if (serverState) {
-          serverEcho.current = true;
           setLastKnown(serverState._ts || 0, (serverState.logs && serverState.logs.length) || 0);
+          setServerOk(true);
+          // An edit made on the cached copy while the server answered is queued
+          // already; replacing the store now would show the pre-edit server copy.
+          // Keep the local copy and pull once the save has landed.
+          if (hasPending()) { pullWhenIdle(); return; }
+          serverEcho.current = true;
           const normalized = VNORM(serverState);
           prevStore.current = normalized;
           setStore(normalized);
-          setServerOk(true);
           return;
         }
         let local = null;
@@ -117,7 +121,7 @@ export function useNexusStore() {
     // A save's response carries each written row's new `_rev`; patch it in
     // without queuing anything (only `_rev` changes, which no diff sends alone).
     setRevHandler((revs) => {
-      serverEcho.current = true;
+      // A rev-only change is not an edit (lib/diff.js strips _rev), so no echo flag.
       setStore((s) => {
         const next = { ...s };
         for (const coll of ROW_COLLECTIONS) {

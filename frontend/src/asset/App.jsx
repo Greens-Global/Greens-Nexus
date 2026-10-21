@@ -627,7 +627,14 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     });
   };
 
-  const purgeAsset = (id) => setStore((s) => ({ ...s, properties: s.properties.filter((p) => p.id !== id) }));
+  /** Delete Forever: the asset and everything under it, here as on the server. */
+  const purgeAsset = (id) => setStore((s) => {
+    const next = { ...s, properties: s.properties.filter((p) => p.id !== id), logs: (s.logs || []).filter((l) => l.propertyId !== id) };
+    for (const coll of ['warranties', 'inspections', 'documents', 'ahj', 'utilities', 'vendors', 'vservice', 'odometer', 'vdocs', 'maintenance']) {
+      next[coll] = (s[coll] || []).filter((r) => r.propertyId !== id);
+    }
+    return next;
+  });
 
   /** Reverts a single Activity Log entry (added -> soft-delete, removed -> recover, edited ->
    *  restore prior field values via UNDOABLE_FIELD_KEYS). Only fields with a mapped top-level

@@ -3532,20 +3532,23 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(attachment_migration_loop()))
         except Exception as e:
             print(f"[startup] attachment backlog migration skipped: {e}")
+        # Both touch the shared world (live Supabase storage, Nominatim) - the
+        # deployed worker only, never a laptop that happens to win the lease.
         try:
-            # One-shot (Oct 21 2026): Asset Management photos and documents stored
-            # as data: URLs inside the workspace JSON move to the asset-files bucket.
-            from asset_files_migrate import asset_files_migration_loop
-            _tasks.append(_a.create_task(asset_files_migration_loop()))
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                # One-shot (Oct 21 2026): Asset Management photos and documents stored
+                # as data: URLs inside the workspace JSON move to the asset-files bucket.
+                from asset_files_migrate import asset_files_migration_loop
+                _tasks.append(_a.create_task(asset_files_migration_loop()))
+                # Asset Management map points (Oct 21 2026): each asset's address looked
+                # up once, server-side, paced; the browser no longer calls Nominatim.
+                from asset_geocode import geocode_loop
+                _tasks.append(_a.create_task(geocode_loop()))
+            else:
+                print("[startup] asset-files migration and geocode loops skipped (not the deployed worker)")
         except Exception as e:
-            print(f"[startup] asset-files migration skipped: {e}")
-        try:
-            # Asset Management map points (Oct 21 2026): each asset's address looked
-            # up once, server-side, paced; the browser no longer calls Nominatim.
-            from asset_geocode import geocode_loop
-            _tasks.append(_a.create_task(geocode_loop()))
-        except Exception as e:
-            print(f"[startup] asset geocode loop skipped: {e}")
+            print(f"[startup] asset loops skipped: {e}")
         # Task trash (Aug 27): permanently purges tasks soft-deleted 90+ days
         # ago. Sync-worker gated for the same reason as the screenshot
         # retention sweep above - a laptop must never permanently delete live

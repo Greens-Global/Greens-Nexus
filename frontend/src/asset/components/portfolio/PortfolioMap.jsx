@@ -22,6 +22,10 @@ export function PortfolioMap({ assets, openProperty }) {
   const list = (assets || []).filter((a) => !a.deleted);
   const placed = list.map((a) => [a, pinFor(a)]).filter(([, p]) => p);
   const unplaced = list.filter((a) => !pinFor(a));
+  // The map is rebuilt only when the pins change, not on every render of the
+  // portfolio (a search keystroke, a background pull) - that snapped the view
+  // back and lost the person's pan and zoom.
+  const pinKey = placed.map(([a, p]) => a.id + ':' + p.join(',')).join('|');
 
   useEffect(() => {
     let map;
@@ -56,7 +60,7 @@ export function PortfolioMap({ assets, openProperty }) {
       try { mapRef.current && mapRef.current.remove(); } catch { /* already removed */ }
       mapRef.current = null;
     };
-  }, [assets]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pinKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div>

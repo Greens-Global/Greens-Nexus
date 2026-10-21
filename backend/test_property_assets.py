@@ -257,6 +257,25 @@ class RowSaveTests(unittest.TestCase):
         self._changes(STAFF, properties={"upsert": [{"id": "a", "name": "A!"}]})
         self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A!")
 
+    def test_a_viewer_cannot_save_rows(self):
+        from fastapi import Request
+        viewer = {"email": "vic@greensglobal.com", "role": "employee", "level": 1}
+        from auth import require_module_grant
+        with self.assertRaises(HTTPException) as cm:
+            require_module_grant("property-asset", "editor")(user=viewer, db=self.db)   # the route's dependency
+        self.assertEqual(cm.exception.status_code, 403)
+        del Request
+
+    def test_a_record_cannot_be_moved_off_an_asset_outside_reach(self):
+        import uuid
+        self._changes(properties={"upsert": [{"id": "a", "name": "A"}, {"id": "b", "name": "B"}]},
+                      warranties={"upsert": [{"id": "w1", "propertyId": "b", "item": "Roof"}]})
+        self.db.add(models.NexusAccessScope(id=str(uuid.uuid4()), email=STAFF["email"], module_id="property-asset", scope_type="property", scope_id="a"))
+        self.db.commit()
+        with self.assertRaises(HTTPException) as cm:
+            self._changes(STAFF, warranties={"upsert": [{"id": "w1", "propertyId": "a", "item": "Roof (taken)"}]})
+        self.assertEqual(cm.exception.status_code, 403)
+
     def test_the_whole_portfolio_replace_is_an_officers_tool(self):
         with self.assertRaises(HTTPException) as cm:
             PA.put_workspace(PA.Workspace(properties=[{"id": "a", "name": "A"}]), db=self.db, user=STAFF)

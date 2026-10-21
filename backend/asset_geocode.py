@@ -89,16 +89,23 @@ def geocode_pending(db, fetch=None, limit: int = BATCH, pace=None) -> int:
         except Exception as e:  # noqa: BLE001 - one bad lookup must not stop the pass
             print(f"[asset-geocode] {p.id}: {e}")
             break                                   # the service is unhappy; try again next pass
+        # The lookup took a second or more; someone may have saved this asset
+        # meanwhile. Write the point onto the row as it is NOW, and only if the
+        # address is still the one looked up.
+        db.refresh(p)
+        payload = dict(p.payload or {})
+        if address_of(payload) != addr:
+            pace()
+            continue
         payload["geo"] = {"lat": hit[0] if hit else None, "lng": hit[1] if hit else None,
                           "for": addr, "at": now.isoformat()}
         p.payload = payload
-        done += 1
-        pace()
-    if done:
         meta = db.get(PropertyWorkspaceMeta, 1)
         if meta is not None:
             meta.ts = int(time.time() * 1000)
         db.commit()
+        done += 1
+        pace()
     return done
 
 

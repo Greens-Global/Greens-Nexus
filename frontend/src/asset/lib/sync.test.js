@@ -45,6 +45,19 @@ describe('sync queue', () => {
     sync.setRevHandler(null);
   });
 
+  it('gives an edit queued during a save the rev that save returned', async () => {
+    let resolveFirst;
+    saveImpl = () => new Promise((res) => { resolveFirst = res; });
+    sync.queueOps({ properties: { upsert: [{ id: 'a', name: 'A1', _rev: 'r0' }], delete: [] } });
+    await vi.advanceTimersByTimeAsync(900);                       // first save in flight
+    sync.queueOps({ properties: { upsert: [{ id: 'a', name: 'A2', _rev: 'r0' }], delete: [] } });
+    resolveFirst({ ok: true, _ts: 5, conflicts: [], revs: { a: 'r1' } });
+    saveImpl = async () => ({ ok: true, _ts: 6, conflicts: [], revs: { a: 'r2' } });
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(calls.save).toHaveLength(2);
+    expect(calls.save[1].properties.upsert[0]).toEqual({ id: 'a', name: 'A2', _rev: 'r1' });
+  });
+
   it('keeps the batch on a network failure and folds later edits into it', async () => {
     saveImpl = async () => { const e = new Error('net'); e.status = 0; throw e; };
     sync.queueOps({ properties: { upsert: [{ id: 'a', name: 'A1' }], delete: [] } });

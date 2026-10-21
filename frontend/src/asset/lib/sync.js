@@ -59,7 +59,7 @@ export function pickBest(candidates) {
 // ---------------------------------------------------------------------------------------------
 // Pending-save queue (module-level: one store per app, and the page-hide handler needs it).
 // ---------------------------------------------------------------------------------------------
-import { mergeOps, opsEmpty } from './diff.js';
+import { mergeOps, opsEmpty, ROW_COLLECTIONS } from './diff.js';
 
 export let hydrated = false;
 /** Row ops that still have to reach the server (lib/diff.js shape), or null. */
@@ -72,6 +72,9 @@ let softNotified = false;
 let lastTs = 0;
 let lastLogCount = 0;
 let applyServer = null;
+/** A full pull wanted as soon as nothing is pending (a hydrate skipped over an in-flight edit). */
+let pullAfterFlush = false;
+export function pullWhenIdle() { pullAfterFlush = true; }
 /** Hands the store the `_rev` every written row now carries (useNexusStore). */
 let applyRevs = null;
 export function setRevHandler(fn) { applyRevs = fn; }
@@ -131,7 +134,16 @@ export function flush() {
       if (r && r._ts) lastTs = r._ts;
       // Without this the tab's next edit of the same row would carry the rev it
       // was READ with, and the server would call the tab's own row stale.
-      if (r && r.revs && applyRevs && Object.keys(r.revs).length) { try { applyRevs(r.revs); } catch { /* best-effort */ } }
+      if (r && r.revs && Object.keys(r.revs).length) {
+        if (applyRevs) { try { applyRevs(r.revs); } catch { /* best-effort */ } }
+        // An edit queued while this save was in flight still holds the rev the row
+        // was read with; it takes the new one or the server would call it stale.
+        if (pending) {
+          for (const coll of ROW_COLLECTIONS) {
+            if (pending[coll]) pending[coll].upsert = pending[coll].upsert.map((row) => (r.revs[row.id] ? { ...row, _rev: r.revs[row.id] } : row));
+          }
+        }
+      }
       if (r && r.conflicts && r.conflicts.length) {
         notifyConflicts(r.conflicts);
         serverGet().then((server) => {
@@ -142,6 +154,15 @@ export function flush() {
         });
       }
       if (!opsEmpty(pending)) pushTimer = setTimeout(flush, 200);
+      else if (pullAfterFlush) {
+        pullAfterFlush = false;
+        serverGet().then((server) => {
+          if (!server) return;
+          lastTs = Math.max(lastTs, server._ts || 0);
+          lastLogCount = (server.logs && server.logs.length) || 0;
+          if (applyServer) { try { applyServer(server); } catch { /* best-effort */ } }
+        });
+      }
     })
     .catch((e) => {
       inFlight = false;

@@ -20,6 +20,7 @@ from datetime import datetime, timezone, date
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -351,8 +352,19 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
 
     meta = db.query(PropertyWorkspaceMeta).filter(PropertyWorkspaceMeta.id == 1).with_for_update().first()
     if meta is None:
-        meta = PropertyWorkspaceMeta(id=1)
-        db.add(meta)
+        # First save ever: the row the lock needs does not exist yet. Two first
+        # saves can race to insert it; the loser retakes the lock on the winner's.
+        try:
+            with db.begin_nested():
+                meta = PropertyWorkspaceMeta(id=1)
+                db.add(meta)
+                db.flush()
+        except IntegrityError:
+            meta = db.query(PropertyWorkspaceMeta).filter(PropertyWorkspaceMeta.id == 1).with_for_update().first()
+    # Rows loaded before the lock (the file check) must not stand in for the
+    # rows as they are under it: a colleague's write landing in between would
+    # pass the _rev check against a stale updated_at.
+    db.expire_all()
 
     touched_logs: set = set()
     for row in ch.properties.upsert:
@@ -397,6 +409,9 @@ def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(requir
             pid = str(row.get("propertyId") or "")
             guard(pid, db.get(PropertyAsset, pid) if pid else None)
             existing = db.get(PropertyRecord, rid)
+            # Moving a record also needs reach over the asset it is leaving.
+            if existing is not None and existing.property_id and existing.property_id != pid:
+                guard(existing.property_id, db.get(PropertyAsset, existing.property_id))
             rev = row.get("_rev")
             if existing is not None and rev is not None and existing.updated_at and str(rev) != existing.updated_at:
                 conflicts.append(rid)
