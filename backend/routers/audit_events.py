@@ -737,6 +737,14 @@ def _request_events(db: Session, rows: list, names: dict, full: bool = False) ->
     prim = {}
     for r in rows:
         ch = by_req.get(r.request_id or "", []) if r.request_id else []
+        # A row that names its own record (e.g. one row per person from the
+        # Intacct code Apply, Oct 21) is about THAT record only - not the
+        # request's first change, which titled all 33 rows "Ricky Cotton".
+        rid = str(r.resource_id or "")
+        if rid and len(ch) > 1:
+            own = [c for c in ch if str(c.record_id) == rid]
+            if own:
+                ch = own
         mod = r.module or module_for_resource(r.resource_type, r.action)
         p = _primary(ch, mod)
         prim[r.id] = (ch, p, mod)

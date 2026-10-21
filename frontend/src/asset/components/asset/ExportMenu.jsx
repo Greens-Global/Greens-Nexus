@@ -6,7 +6,7 @@
 //   <ExportMenu onPdf={() => exportAssetPdf(asset, store)} onCsv={() => exportAssetCsv(asset, store)} />
 
 import { useState } from 'react';
-import { Download } from 'lucide-react';
+import { Download, ChevronDown } from 'lucide-react';
 
 export function ExportMenu({ onPdf, onCsv }) {
   const [open, setOpen] = useState(false);
@@ -23,7 +23,7 @@ export function ExportMenu({ onPdf, onCsv }) {
         onClick={() => setOpen((o) => !o)}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
       >
-        <Download size={14} /> Export <span style={{ fontSize: '0.62rem', opacity: 0.7 }}>▼</span>
+        <Download size={14} /> Export <ChevronDown size={13} style={{ opacity: 0.7 }} />
       </button>
 
       {open && (

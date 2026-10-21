@@ -26,6 +26,7 @@ function isLongTextField(key) {
  * @param onClose   () => void
  */
 export function SimpleRowModal({ title, fields, row, onSave, onDelete, onClose }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const cols = fields || [];
   const [values, setValues] = useState(() => {
     const initial = {};
@@ -39,17 +40,24 @@ export function SimpleRowModal({ title, fields, row, onSave, onDelete, onClose }
 
   return (
     <Modal
-      title={(row ? 'Edit ' : 'Add ') + title.toLowerCase()}
+      title={(row ? 'Edit ' : 'Add ') + title}
       wide
       onClose={onClose}
       isDirty={dirty}
       onSave={() => onSave(values)}
       footer={
         <>
-          {row && onDelete && (
+          {row && onDelete && confirmDelete && (
+            <span style={{ marginRight: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '0.84rem', fontWeight: 600 }}>Delete this row?</span>
+              <button className="secondary-btn" onClick={() => setConfirmDelete(false)}>Keep</button>
+              <button className="primary-btn" onClick={onDelete} style={{ backgroundColor: 'hsl(var(--color-red))' }}>Delete</button>
+            </span>
+          )}
+          {row && onDelete && !confirmDelete && (
             <button
               className="secondary-btn"
-              onClick={() => { if (window.confirm('Delete this row?')) onDelete(); }}
+              onClick={() => setConfirmDelete(true)}
               style={{ marginRight: 'auto', color: 'hsl(var(--color-red))' }}
             >
               Delete

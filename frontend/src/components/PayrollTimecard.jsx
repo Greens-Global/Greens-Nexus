@@ -220,7 +220,13 @@ export const workStretches = (seg, punchMeta = {}) => {
   for (let i = 0; i < pts.length; i += 2) {
     const a = pts[i], b = pts[i + 1];
     const first = i === 0, last = i + 2 >= pts.length && !open;
+    // A break punch's own pending edit / change note (punchMeta): without it an
+    // employee's proposed time on a break start or end was saved but never
+    // showed, so "nothing happened" (Miranda, Oct 20).
+    const ma = first ? null : punchMeta[a.id], mb = last ? null : punchMeta[b.id];
     work.push({ ...seg, ...(first ? {} : _IN_ONLY), ...(last ? {} : _OUT_ONLY),
+      ...(ma ? { inPendingAt: ma.pendingAt || '', inEditStatus: ma.editStatus || '', inEditReason: ma.editReason || '', inAdjustNote: ma.adjustNote || '' } : {}),
+      ...(mb ? { outPendingAt: mb.pendingAt || '', outEditStatus: mb.editStatus || '', outEditReason: mb.editReason || '', outAdjustNote: mb.adjustNote || '' } : {}),
       in: a.at, inR: a.atR || a.at, inId: a.id, out: b.at, outR: b.atR || b.at, outId: b.id,
       // the shift's pay figures ride on the shift, never on a row
       otMin: 0, dtMin: 0, amount: 0, deductedMin: 0, breaks: [],
@@ -2297,7 +2303,7 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
       // Employee edit: goes to the approver, and does NOT change pay until approved.
       // A confirmed long shift needs the reason (the server refuses it without one).
       const reason = await dialog.prompt('', {
-        title: `Change Your ${k === 'in' ? 'Clock-In' : 'Clock-Out'} Time`,
+        title: `Change Your ${{ break_start: 'Break Start', break_end: 'Break End' }[meta?.kind] || (k === 'in' ? 'Clock-In' : 'Clock-Out')} Time`,
         message: confirmLong ? 'Say why the shift is this long - your approver reads it. Your pay is unchanged until they approve it.'
           : 'This is sent to your approver. Your pay is unchanged until they approve it.',
         placeholder: confirmLong ? 'Reason (required)' : 'Reason (optional)', confirmText: 'Send for Approval', required: confirmLong,

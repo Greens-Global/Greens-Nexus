@@ -41,7 +41,7 @@
 // underlying group-first data model.)
 
 import { useState } from 'react';
-import { Link2 } from 'lucide-react';
+import { Link2, Copy, ChevronUp, ChevronDown, Star } from 'lucide-react';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
 import { groupAnchorOf, groupMembersOf, parcelAcres, parcelLot, parcelReveal } from '../../lib/parcelGrouping.js';
 
@@ -140,7 +140,7 @@ export function ParcelManager({
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{
-              fontSize: '0.62rem',
+              fontSize: '0.68rem',
               fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: '0.06em',
@@ -211,8 +211,8 @@ export function ParcelManager({
             {members.map((m, i) => (
               <option key={m.id} value={m.id}>
                 {i + 1}.  {m.name}
-                {m.primary ? '   ★ Primary' : ''}
-                {m.id === active.id ? '   • viewing' : ''}
+                {m.primary ? '   (Primary)' : ''}
+                {m.id === active.id ? '   (Viewing)' : ''}
               </option>
             ))}
           </select>
@@ -234,11 +234,11 @@ export function ParcelManager({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               <label
                 style={{
-                  fontSize: '0.66rem',
+                  fontSize: '0.7rem',
                   fontWeight: 700,
                   textTransform: 'uppercase',
                   letterSpacing: '0.04em',
-                  color: 'var(--text-muted)',
+                  color: 'var(--text-secondary)',
                 }}
               >
                 Group Name
@@ -297,11 +297,11 @@ export function ParcelManager({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span
               style={{
-                fontSize: '0.66rem',
+                fontSize: '0.7rem',
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em',
-                color: 'var(--text-muted)',
+                color: 'var(--text-secondary)',
               }}
             >
               {grouped ? 'Add a parcel' : 'Link with another parcel'}
@@ -343,14 +343,14 @@ export function ParcelManager({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             <span
               style={{
-                fontSize: '0.66rem',
+                fontSize: '0.7rem',
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em',
-                color: 'var(--text-muted)',
+                color: 'var(--text-secondary)',
               }}
             >
-              Quick start
+              Quick Start
             </span>
             <button
               onClick={() => onDuplicate && onDuplicate()}
@@ -369,9 +369,9 @@ export function ParcelManager({
                 color: 'hsl(var(--color-purple))',
               }}
             >
-              {'⧉ Duplicate this parcel'}
+              <Copy size={13} /> Duplicate This Parcel
             </button>
-            <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
               Copies this parcel's details into a new linked parcel - records start empty, ready to edit.
             </span>
           </div>
@@ -380,14 +380,14 @@ export function ParcelManager({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <span
                 style={{
-                  fontSize: '0.66rem',
+                  fontSize: '0.7rem',
                   fontWeight: 700,
                   textTransform: 'uppercase',
                   letterSpacing: '0.04em',
-                  color: 'var(--text-muted)',
+                  color: 'var(--text-secondary)',
                 }}
               >
-                Parcels ({members.length}) - drag order with arrows, {'★'} marks primary
+                Parcels ({members.length}) - reorder with the arrows; the star marks the primary parcel
               </span>
               {members.map((m, i) => {
                 const isCurrent = m.id === active.id;
@@ -407,10 +407,10 @@ export function ParcelManager({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <div style={{ display: 'inline-flex', flexDirection: 'column', flexShrink: 0 }}>
                         <ReorderArrow disabled={i === 0} onClick={() => onMove(m.id, -1)}>
-                          {'▲'}
+                          <ChevronUp size={13} />
                         </ReorderArrow>
                         <ReorderArrow disabled={i === members.length - 1} onClick={() => onMove(m.id, 1)}>
-                          {'▼'}
+                          <ChevronDown size={13} />
                         </ReorderArrow>
                       </div>
                       <span
@@ -462,8 +462,8 @@ export function ParcelManager({
                           {m.name}
                         </span>
                         {isCurrent ? (
-                          <span style={{ flexShrink: 0, fontSize: '0.6rem', fontWeight: 700, color: 'hsl(var(--color-purple))' }}>
-                            {'• VIEWING'}
+                          <span style={{ flexShrink: 0, fontSize: '0.68rem', fontWeight: 700, color: 'hsl(var(--color-purple))' }}>
+                            VIEWING
                           </span>
                         ) : null}
                       </button>
@@ -494,7 +494,7 @@ export function ParcelManager({
                           color: m.primary ? 'hsl(var(--color-purple))' : 'var(--text-muted)',
                         }}
                       >
-                        {m.primary ? '★' : '☆'} Primary
+                        <Star size={12} fill={m.primary ? 'currentColor' : 'none'} /> Primary
                       </button>
                       <button
                         onClick={() => onUnlink(m.id)}

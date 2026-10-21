@@ -1,9 +1,7 @@
 // Tab navigation config for the asset detail page.
 //
-// TAB_LIST order matters: it's the literal left-to-right tab order. Property-only tabs
-// (maintenance, inspections, warranties, documents, utilities, ahj, vendors, permit, timeline)
-// and vehicle/equipment-only tabs (vservice, odometer, vdocs) are filtered per-asset-kind at
-// render time - see visibleTabsFor() below.
+// TAB_LIST is the label lookup for every view key the detail page can hold; the
+// strip itself is stripTabsFor() and the record collections RECORD_VIEWS below.
 export const TAB_LIST = [
   ['portfolio', 'Portfolio'],
   ['property', 'Overview'],
@@ -21,13 +19,32 @@ export const TAB_LIST = [
   ['timeline', 'Timeline'],
 ];
 
-const VEHICLE_ONLY_TABS = ['vservice', 'odometer', 'vdocs'];
+// The detail page's strip (Neil, Oct 21 2026): Overview, Maintenance, Records,
+// Timeline for a property; Overview, Records for a vehicle or equipment. The
+// record collections - seven identical tables for a property, three for a
+// vehicle - live under ONE Records tab with a segmented control; `view` still
+// holds the collection key, so every deep link (bells, Critical Items, the
+// Activity Log's "Go to") lands on the right table unchanged.
+export const RECORD_VIEWS = {
+  property: ['warranties', 'inspections', 'documents', 'utilities', 'ahj', 'vendors', 'permit'],
+  vehicle: ['vservice', 'odometer', 'vdocs'],
+};
+export function recordViewsFor(assetKind) {
+  return assetKind === 'property' ? RECORD_VIEWS.property : RECORD_VIEWS.vehicle;
+}
+export function stripTabsFor(assetKind) {
+  return assetKind === 'property'
+    ? [['property', 'Overview'], ['maintenance', 'Maintenance'], ['records', 'Records'], ['timeline', 'Timeline']]
+    : [['property', 'Overview'], ['records', 'Records']];
+}
+/** A record collection's segment label: short, Title Case. */
+/** A one-line explanation under a record segment whose name is an initialism. */
+export function recordHint(key) {
+  return { ahj: 'Authority Having Jurisdiction' }[key] || '';
+}
 
-/** Real-estate assets see every tab except the vehicle-only ones (and vice versa). */
-export function visibleTabsFor(assetKind) {
-  return TAB_LIST.filter(([key]) => key !== 'portfolio' && (
-    assetKind === 'property' ? !VEHICLE_ONLY_TABS.includes(key) : VEHICLE_ONLY_TABS.concat('property').includes(key)
-  ));
+export function recordLabel(key) {
+  return { vservice: 'Service', vdocs: 'Documents', permit: 'Permits' }[key] || (TAB_LIST.find(([k]) => k === key) || [])[1] || key;
 }
 
 /** Which tabs share ONE search/filter box (e.g. timeline+permit are two views of one query). */
@@ -45,6 +62,10 @@ export const LOG_SECTION_TO_TAB = {
   Timeline: 'timeline',
   Permit: 'permit',
   Linking: 'property',
+  Maintenance: 'maintenance',
+  'Service & Maintenance': 'vservice',
+  'Odometer Log': 'odometer',
+  Documents: 'vdocs',
 };
 
 /** Undo support: maps a spec-sheet field LABEL back to its top-level record KEY, so an
@@ -90,4 +111,25 @@ export function wordStatusTone(status) {
   if (s.includes('progress')) return 'blue';
   if (s.includes('pending')) return 'gold';
   return 'mut';
+}
+
+// The shell's default segment for /property-asset (its DEFAULT_SUBS): the portfolio.
+export const PORTFOLIO_SUB = 'asset-portfolio';
+
+// Deep links (Oct 2026): an open asset is one URL segment under /property-asset,
+// "a:<id>:<view>" - the view is a strip tab or a record collection key. The
+// portfolio has no segment. Ids are URL-encoded so the shell's one-segment
+// path survives whatever an import used as an id.
+// A fourth part, "a:<id>:<view>:<row>", is a record to highlight (bells link to
+// the inspection or warranty they are about); the module drops it from the
+// address once it has landed.
+const enc = (v) => encodeURIComponent(String(v)).replace(/:/g, '%3A');
+const dec = (v) => { try { return decodeURIComponent(v); } catch { return v; } };
+export function assetSub(id, view) {
+  return id ? `a:${enc(id)}:${view || 'property'}` : null;
+}
+export function parseAssetSub(sub) {
+  const m = /^a:([^:]+)(?::([^:]+))?(?::([^:]+))?$/.exec(sub || '');
+  if (!m) return null;
+  return { id: dec(m[1]), view: m[2] || 'property', item: m[3] ? dec(m[3]) : '' };
 }

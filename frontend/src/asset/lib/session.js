@@ -10,6 +10,7 @@ import { useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useRole, ROLES } from '../../contexts/RoleContext.jsx';
 import { setCurrentUser } from './format.js';
+import { setStorageUser } from './sync.js';
 
 export function useSession() {
   const role = useRole();
@@ -17,6 +18,7 @@ export function useSession() {
 
   const acct = accounts?.[0];
   const displayName = acct?.name || (acct?.username || '').split('@')[0] || 'You';
+  setStorageUser(acct?.username || '');      // before the store hook reads its cache (idempotent)
   useEffect(() => { setCurrentUser(displayName); }, [displayName]);
 
   const myRole = role?.myRole || 'employee';

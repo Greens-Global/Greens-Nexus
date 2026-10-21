@@ -135,6 +135,28 @@ describe('a shift with a break on the Time Sheet', () => {
     expect(breakStart.querySelector('span').style.fontWeight).not.toBe('800');
   }, 20000);
 
+  // Miranda, Oct 20: she proposed a new break-end time, it saved, and the card
+  // showed nothing - the row after a break blanked every pending field.
+  it('shows a pending edit on a break punch, on the employee and the manager card', async () => {
+    const meta = { 'p-be': { kind: 'break_end', at: at('20:23'), pendingAt: at('20:40'), editStatus: 'pending', editReason: 'clocked in too soon' },
+      'p-bs': { kind: 'break_start', at: at('20:08'), pendingAt: at('20:05'), editStatus: 'pending', editReason: 'started earlier' } };
+    for (const self of [true, false]) {
+      const c = card([ONE_BREAK], { meta }); if (self) c.email = 'hr@x.com';
+      const { worked } = await open(c, { self });
+      const breakEnd = worked[1].querySelector('td:nth-child(3)');
+      expect(breakEnd.textContent).toContain(t('20:40'));
+      expect(breakEnd.textContent).toContain('pending');
+      expect(breakEnd.querySelector('[title*="clocked in too soon"]')).toBeTruthy();
+      const breakStart = worked[0].querySelector('td:nth-child(4)');
+      expect(breakStart.textContent).toContain(t('20:05'));
+      // ...and the clock-in / clock-out, which have none, show none.
+      expect(worked[0].querySelector('td:nth-child(3)').textContent).not.toContain('pending');
+      expect(worked[1].querySelector('td:nth-child(4)').textContent).not.toContain('pending');
+      if (!self) expect(breakEnd.querySelector('[aria-label="Approve this edited time"]')).toBeTruthy();
+      cleanup();
+    }
+  }, 30000);
+
   it('splits a shift with two breaks into three rows and two break lines', async () => {
     const seg = { ...ONE_BREAK, workedMin: 447, breaks: [
       ONE_BREAK.breaks[0],

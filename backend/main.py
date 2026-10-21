@@ -1150,6 +1150,22 @@ def _run_migrations():
             "ALTER TABLE site_model_markups ADD COLUMN lng FLOAT",
             "ALTER TABLE site_model_markups ADD COLUMN place VARCHAR DEFAULT ''",
             "ALTER TABLE site_model_markups ADD COLUMN updated_at VARCHAR DEFAULT ''",
+            # Links departments (Neil, Oct 21 2026): "Storage" is "Operations" -
+            # the picker row, every link tagged with it (the JSON list and the
+            # legacy singular column), Personal Links and saved Link View
+            # filters - plus Human Resources and Marketing as departments.
+            # Idempotent: each statement finds nothing to do once applied.
+            # Postgres twin at the end of the list below - keep in step.
+            "UPDATE external_link_taxonomy SET name = 'Operations' WHERE kind = 'department' AND lower(name) = 'storage' AND NOT EXISTS (SELECT 1 FROM external_link_taxonomy t2 WHERE t2.kind = 'department' AND lower(t2.name) = 'operations')",
+            "DELETE FROM external_link_taxonomy WHERE kind = 'department' AND lower(name) = 'storage'",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-human-resources','department','Human Resources',5,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND lower(name)='human resources')",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-marketing','department','Marketing',6,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND lower(name)='marketing')",
+            "UPDATE external_links SET departments = (SELECT json_group_array(DISTINCT CASE WHEN lower(value) = 'storage' THEN 'Operations' ELSE value END) FROM json_each(external_links.departments)) WHERE EXISTS (SELECT 1 FROM json_each(external_links.departments) WHERE lower(value) = 'storage')",
+            "UPDATE external_links SET department = 'Operations' WHERE lower(department) = 'storage'",
+            "UPDATE personal_links SET department = 'Operations' WHERE lower(department) = 'storage'",
+            "UPDATE link_layout_views SET layout = json_set(layout, '$.filters.department', 'Operations') WHERE lower(json_extract(layout, '$.filters.department')) = 'storage'",
+            # Tasks Home > Updates: when the card was last looked at. models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN updates_seen_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2611,6 +2627,20 @@ def _run_migrations():
         "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS lng FLOAT",
         "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS place VARCHAR DEFAULT ''",
         "ALTER TABLE site_model_markups ADD COLUMN IF NOT EXISTS updated_at VARCHAR DEFAULT ''",
+        # Links departments (Neil, Oct 21 2026) - see the matching sqlite
+        # migration: Storage -> Operations everywhere, plus Human Resources
+        # and Marketing. The JSON list is rebuilt element by element (jsonb
+        # casts, so the column's json/jsonb history does not matter).
+        "UPDATE external_link_taxonomy SET name = 'Operations' WHERE kind = 'department' AND lower(name) = 'storage' AND NOT EXISTS (SELECT 1 FROM external_link_taxonomy t2 WHERE t2.kind = 'department' AND lower(t2.name) = 'operations')",
+        "DELETE FROM external_link_taxonomy WHERE kind = 'department' AND lower(name) = 'storage'",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-human-resources','department','Human Resources',5,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND lower(name)='human resources')",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-marketing','department','Marketing',6,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND lower(name)='marketing')",
+        "UPDATE external_links SET departments = (SELECT COALESCE(jsonb_agg(DISTINCT CASE WHEN lower(e) = 'storage' THEN 'Operations' ELSE e END), '[]'::jsonb) FROM jsonb_array_elements_text(external_links.departments::jsonb) AS e) WHERE CASE WHEN jsonb_typeof(external_links.departments::jsonb) = 'array' THEN EXISTS (SELECT 1 FROM jsonb_array_elements_text(external_links.departments::jsonb) AS e WHERE lower(e) = 'storage') ELSE false END",
+        "UPDATE external_links SET department = 'Operations' WHERE lower(department) = 'storage'",
+        "UPDATE personal_links SET department = 'Operations' WHERE lower(department) = 'storage'",
+        "UPDATE link_layout_views SET layout = jsonb_set(layout::jsonb, '{filters,department}', '\"Operations\"'::jsonb) WHERE lower(layout::jsonb #>> '{filters,department}') = 'storage'",
+        # Tasks Home > Updates: when the card was last looked at. models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS updates_seen_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3532,6 +3562,23 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(attachment_migration_loop()))
         except Exception as e:
             print(f"[startup] attachment backlog migration skipped: {e}")
+        # Both touch the shared world (live Supabase storage, Nominatim) - the
+        # deployed worker only, never a laptop that happens to win the lease.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                # One-shot (Oct 21 2026): Asset Management photos and documents stored
+                # as data: URLs inside the workspace JSON move to the asset-files bucket.
+                from asset_files_migrate import asset_files_migration_loop
+                _tasks.append(_a.create_task(asset_files_migration_loop()))
+                # Asset Management map points (Oct 21 2026): each asset's address looked
+                # up once, server-side, paced; the browser no longer calls Nominatim.
+                from asset_geocode import geocode_loop
+                _tasks.append(_a.create_task(geocode_loop()))
+            else:
+                print("[startup] asset-files migration and geocode loops skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] asset loops skipped: {e}")
         # Task trash (Aug 27): permanently purges tasks soft-deleted 90+ days
         # ago. Sync-worker gated for the same reason as the screenshot
         # retention sweep above - a laptop must never permanently delete live

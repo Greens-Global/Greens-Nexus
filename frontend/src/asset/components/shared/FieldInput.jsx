@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { Upload, FileText, Plus, X } from 'lucide-react';
-import { fileToDataUrl } from '../../lib/format.js';
+import { storeAssetDocument } from '../../lib/upload.js';
 
 // Format free typing into mm/dd/yyyy as the user goes; validate the final shape.
 // A native <input type="date"> was rejected here: its displayed format follows the
@@ -66,7 +66,7 @@ export function MultiDateInput({ value, onChange, readOnly }) {
       {!readOnly && (
         <button type="button" className="secondary-btn" onClick={addRow}
           style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', fontSize: '0.78rem' }}>
-          <Plus size={13} /> Add date
+          <Plus size={13} /> Add Date
         </button>
       )}
     </div>
@@ -80,37 +80,49 @@ export function MultiDateInput({ value, onChange, readOnly }) {
  *
  * `value` is the current value for this field; `onChange(key, newValue)` commits it.
  */
-export function FieldInput({ f, value, onChange }) {
+/** One form field. `error` (a short string) marks the control invalid and prints under it;
+ *  `propertyId` files an uploaded document under its asset. */
+export function FieldInput({ f, value, onChange, error, propertyId = '' }) {
+  const id = useId();
+  const [uploadError, setUploadError] = useState('');
+  const [uploading, setUploading] = useState(false);
   const baseProps = {
+    id,
+    'data-field': f.k,
     className: 'form-input',
     value: value ?? '',
     onChange: (e) => onChange(f.k, e.target.value),
     readOnly: f.readOnly,
+    'aria-invalid': error ? true : undefined,
+    'aria-describedby': error ? id + '-err' : undefined,
+    placeholder: f.placeholder || undefined,
     style: {
       fontSize: '0.85rem',
+      ...(error ? { borderColor: 'hsl(var(--color-red))' } : {}),
       ...(f.readOnly ? { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'not-allowed' } : {}),
     },
   };
 
   const label = (
-    <label>
+    <label htmlFor={id}>
       {f.label}
       {f.req ? <span style={{ color: 'hsl(var(--color-red))' }}> *</span> : ''}
     </label>
   );
+  const errorLine = error ? <div id={id + '-err'} role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{error}</div> : null;
 
-  // File upload: stores the file as a base64 data URL directly on the record (f.k), plus the
-  // original filename on a sibling key (f.nameKey) so the table/summary can show a filename
-  // without decoding the data URL.
+  // File upload: the file goes to the private asset-files bucket and the record
+  // keeps its URL (f.k), plus the original filename on a sibling key (f.nameKey)
+  // so the table/summary can show a name without fetching anything.
   if (f.type === 'file') {
     const applyFile = async (file) => {
-      try {
-        const dataUrl = await fileToDataUrl(file);
-        onChange(f.k, dataUrl);
-        if (f.nameKey) onChange(f.nameKey, file.name);
-      } catch {
-        // unreadable file - silently ignore, field stays unchanged
-      }
+      setUploadError('');
+      setUploading(true);
+      const { url, error } = await storeAssetDocument(file, propertyId);
+      setUploading(false);
+      if (error) { setUploadError(error); return; }
+      onChange(f.k, url);
+      if (f.nameKey) onChange(f.nameKey, file.name);
     };
     // Image on the clipboard → store it exactly like a chosen file; anything else
     // (text etc.) falls through to the browser's default paste behaviour.
@@ -130,9 +142,9 @@ export function FieldInput({ f, value, onChange }) {
     return (
       <div className={f.full ? 'form-group form-group-full' : 'form-group'}>
         {label}
-        <div onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', outline: 'none' }}>
+        <div id={id} data-field={f.k} onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', outline: 'none' }}>
           <label className="secondary-btn" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0 }}>
-            <Upload size={14} /> {value ? 'Replace File' : 'Upload File'}
+            <Upload size={14} /> {uploading ? 'Uploading…' : value ? 'Replace File' : 'Upload File'}
             <input
               type="file"
               style={{ display: 'none' }}
@@ -162,6 +174,8 @@ export function FieldInput({ f, value, onChange }) {
             </button>
           )}
         </div>
+        {uploadError && <div role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{uploadError}</div>}
+        {errorLine}
       </div>
     );
   }
@@ -199,6 +213,18 @@ export function FieldInput({ f, value, onChange }) {
     <div className={f.full ? 'form-group form-group-full' : 'form-group'}>
       {label}
       {control}
+      {errorLine}
     </div>
   );
+}
+
+/** Which required fields are empty - { key: 'Required' } - and focuses the first one. */
+export function requiredErrors(fields, values) {
+  const errors = {};
+  for (const f of fields) {
+    if (f.req && !f.sec && !String(values[f.k] ?? '').trim()) errors[f.k] = 'Required';
+  }
+  const first = Object.keys(errors)[0];
+  if (first) setTimeout(() => document.querySelector(`[data-field="${first}"]`)?.focus?.(), 0);
+  return errors;
 }

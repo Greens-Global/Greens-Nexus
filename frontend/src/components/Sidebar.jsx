@@ -1,4 +1,5 @@
 import { forwardRef, useState, useEffect } from "react";
+import { orderNav } from './navOrder';
 import { useRole } from "../contexts/RoleContext";
 import { api } from "../api";
 import { useIsMobile } from "../lib/useIsMobile";
@@ -210,6 +211,7 @@ export const NAV = [
   { view: "admin-console", code: "ADM", label: "Settings",       icon: Settings,     minRole: 'supervisor' },
 ];
 
+
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
   const { can, myGrantedModules, isExternal } = useRole();
   const counts = useActionCounts();
@@ -324,7 +326,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               // no baseline screens (Dashboard/Time Clock/My HR are internal-only).
               // Mirrors the server's path allowlist in auth.apply_external_policy.
               // `grants` (a list) = any one of them opens the item; else the single grant/view key.
-              const visible = NAV.filter(item => isNavItemVisible(item, { isExternal, can, myGrantedModules, qaEnabled }));
+              const visible = orderNav(NAV).filter(item => isNavItemVisible(item, { isExternal, can, myGrantedModules, qaEnabled }));
               const out = [];
               if (!collapsed && visible.length && !visible[0].divider) {
                 out.push(<li key="k0" className="nav-kicker">{KICKERS[0]}</li>);

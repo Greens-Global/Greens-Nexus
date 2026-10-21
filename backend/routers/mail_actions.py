@@ -321,14 +321,14 @@ def _page(title: str, inner: str) -> HTMLResponse:
 <body style="margin:0;background:#f4f5f7;font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#1f2937">
 <div style="max-width:560px;margin:32px auto;padding:0 16px">
 <div style="background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden">
-<div style="background:#248f4b;padding:16px 24px;color:#fff;font-weight:700;letter-spacing:3px">GREENS GLOBAL</div>
+<div style="background:#1f7a40;padding:16px 24px;color:#fff;font-weight:700;letter-spacing:3px">GREENS GLOBAL</div>
 <div style="padding:22px 24px">{inner}</div></div></div></body></html>""")
 
 
 def _task_header(t) -> str:
     return (f"<h2 style='margin:0 0 4px;font-size:18px'>{escape(t.title or 'Task')}</h2>"
             f"<p style='margin:0 0 16px;font-size:13px;color:#6b7280'>"
-            f"<a href='{escape(app_url())}/tasks/mine?task={escape(t.id)}' style='color:#248f4b;font-weight:600'>Open in Nexus</a></p>")
+            f"<a href='{escape(app_url())}/tasks/mine?task={escape(t.id)}' style='color:#1f7a40;font-weight:600'>Open in Nexus</a></p>")
 
 
 _RECENT_COMMENTS = 5
@@ -362,7 +362,7 @@ def _recent_comments_html(db, t) -> str:
             + "".join(items) + "</div>")
 
 
-_BTN = ("display:inline-block;border:none;border-radius:8px;background:#248f4b;color:#fff;"
+_BTN = ("display:inline-block;border:none;border-radius:8px;background:#1f7a40;color:#fff;"
         "font-size:14px;font-weight:700;padding:10px 22px;cursor:pointer")
 
 
@@ -462,7 +462,7 @@ def _action_page_submit_sync(request: Request, form: dict):
                                text=str(form.get("text") or ""), bt=bt)
         except HTTPException as e:
             return _page("Could Not Save", header + f"<p style='color:#b91c1c'>{escape(str(e.detail))}</p>")
-        resp = _page("Done", header + f"<p style='font-size:15px;font-weight:600;color:#248f4b'>{escape(outcome)}.</p>"
+        resp = _page("Done", header + f"<p style='font-size:15px;font-weight:600;color:#1f7a40'>{escape(outcome)}.</p>"
                      "<p style='font-size:13px;color:#6b7280'>You can close this page.</p>")
         resp.background = bt
         return resp

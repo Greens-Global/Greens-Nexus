@@ -15,7 +15,7 @@ import { snapMap } from './assetMetrics.js';
  *     name  - the owning asset's display name (siteName, falling back to name)
  *     cat   - category, e.g. "Insurance" | "Property Tax" | "Loan" | "Registration" | "Service" |
  *             "Warranty" | "Inspection" | "Contract" | "COI" | "Permit / AHJ" | "Maintenance"
- *     label - human label for the specific date, e.g. "Policy expiration"
+ *     label - human label for the specific date, e.g. "Policy Expiration" (Title Case: it is a status word)
  *     detail- extra context (vendor/company/scope/type name), may be ''
  *     date  - the raw date value this entry was computed from
  *     days  - signed days-from-today (see daysUntil in format.js); negative = overdue
@@ -73,37 +73,37 @@ export function collectCriticalDates(store) {
 
     // Insurance policy expiration applies to every asset kind - top-level field first
     // (vehicles/equipment store it flat), falling back to the property snapshot's field.
-    push(p.id, 'Insurance', 'Policy expiration', p.insExpiration || snap['policy expiration']);
+    push(p.id, 'Insurance', 'Policy Expiration', p.insExpiration || snap['policy expiration']);
 
     if (isProperty) {
-      push(p.id, 'Property Tax', 'Tax payment due', p.taxDue);
-      push(p.id, 'Loan', 'Loan maturity', snap['maturity date']);
+      push(p.id, 'Property Tax', 'Tax Payment Due', p.taxDue);
+      push(p.id, 'Loan', 'Loan Maturity', snap['maturity date']);
     } else {
       // Vehicles/equipment: registration + next-service-due instead of tax/loan.
-      push(p.id, 'Registration', 'Registration expiration', snap['registration expiration']);
-      push(p.id, 'Service', 'Next service due', p.nextServiceDate || snap['next service due']);
+      push(p.id, 'Registration', 'Registration Expiration', snap['registration expiration']);
+      push(p.id, 'Service', 'Next Service Due', p.nextServiceDate || snap['next service due']);
     }
   });
 
   // Collection records - each carries a propertyId FK pointing at any asset.
   (store.warranties || []).forEach((x) =>
-    push(x.propertyId, 'Warranty', 'Warranty expiration', x.expiration, x.scope || x.party || x.kind)
+    push(x.propertyId, 'Warranty', 'Warranty Expiration', x.expiration, x.scope || x.party || x.kind)
   );
   (store.inspections || []).forEach((x) =>
-    push(x.propertyId, 'Inspection', 'Inspection due', x.nextDue, x.type)
+    push(x.propertyId, 'Inspection', 'Inspection Due', x.nextDue, x.type)
   );
   (store.vendors || []).forEach((x) => {
-    push(x.propertyId, 'Contract', 'Contract end', x.contractEnd, x.company || x.category);
-    push(x.propertyId, 'COI', 'Insurance cert expiration', x.coiExpiration, x.company || x.category);
+    push(x.propertyId, 'Contract', 'Contract End', x.contractEnd, x.company || x.category);
+    push(x.propertyId, 'COI', 'Insurance Cert Expiration', x.coiExpiration, x.company || x.category);
   });
   (store.ahj || []).forEach((x) =>
-    push(x.propertyId, 'Permit / AHJ', 'Renewal due', x.renewalDate, x.authority || x.jurisdiction)
+    push(x.propertyId, 'Permit / AHJ', 'Renewal Due', x.renewalDate, x.authority || x.jurisdiction)
   );
   (store.maintenance || []).forEach((x) =>
-    push(x.propertyId, 'Maintenance', 'Follow-up due', x.nextDue, x.system || x.description)
+    push(x.propertyId, 'Maintenance', 'Follow-up Due', x.nextDue, x.system || x.description)
   );
   (store.vservice || []).forEach((x) =>
-    push(x.propertyId, 'Service', 'Service due', x.nextDue, x.type)
+    push(x.propertyId, 'Service', 'Service Due', x.nextDue, x.type)
   );
 
   out.sort((a, b) => a.days - b.days);

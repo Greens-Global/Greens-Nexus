@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutGrid, List, MapPin, Flag, Shapes, Search } from 'lucide-react';
+import { LayoutGrid, List, MapPin, Search, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { CATEGORIES, TYPES, deriveCategory, deriveType, cityRegion, typeLabel, stateAbbrev, stateSearchHaystack, assetRank } from '../../lib/portfolioCards.js';
 import { STAGE_FILTER_OPTIONS, baseStage } from '../../lib/stages.js';
 import { EmptyState } from '../shared/EmptyState.jsx';
@@ -19,19 +19,9 @@ import { ListTable } from './ListTable.jsx';
 // Portfolio.jsx doesn't need to reach into ListTable's internals for display text.
 const SORT_COLUMN_LABELS = ['Asset', 'Type', 'Location', 'Stage', 'Owner', 'Asset Manager', 'Size'];
 
-// Icon-label span style, shared by the little Category/Stage/Type/Region glyphs that sit
-// directly to the left of each filter <select>.
-const filterIconLabelStyle = {
-  fontSize: '0.64rem',
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: '0.04em',
-  color: 'var(--text-secondary)',
-  display: 'inline-flex',
-  alignItems: 'center',
-};
-
-const selectStyle = { width: '140px', minWidth: 0, maxWidth: '160px', padding: '0 10px', fontSize: '0.8rem', height: 40, boxSizing: 'border-box' };
+// Each select gives way before the row wraps (with the sidebar open at 1440 the
+// fixed 140px selects pushed "All Regions" onto its own line).
+const selectStyle = { flex: '1 1 120px', width: 'auto', minWidth: 110, maxWidth: 170, padding: '0 10px', fontSize: '0.8rem', height: 40, boxSizing: 'border-box' };
 
 // Both the "Clear Filters" button and the "Sorted: X" chip share this exact pill shape - this
 // was a real fix (they used to render with different border-radius/background/font-size before
@@ -65,7 +55,7 @@ const VIEW_TABS = [
  * intentional (lets you see full-portfolio breakdowns while narrowing your view) rather than a
  * bug, but flagging it here since it's easy to "fix" by accident while touching this code.
  */
-export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serverOk }) {
+export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serverOk, metrics = {} }) {
   const [stageFilter, setStageFilter] = useState('');
   const [regionFilter, setRegionFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -86,7 +76,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
             <span>Couldn't reach the server to load the portfolio - retrying automatically…</span>
             <button className="secondary-btn" onClick={() => window.location.reload()} style={{ padding: '8px 18px' }}>
-              Reload now
+              Reload Now
             </button>
           </div>
         </EmptyState>
@@ -169,14 +159,14 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
   const renderTiles = () =>
     topLevelAssets.map((asset) => {
       const secondaries = childrenOf(asset.id);
-      return <TileCard key={asset.id} pr={asset} openProperty={openProperty} secondaries={secondaries} />;
+      return <TileCard key={asset.id} pr={asset} openProperty={openProperty} secondaries={secondaries} metric={metrics[asset.id]} />;
     });
 
   return (
     <>
       <div className="gt-filters" style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'nowrap', marginBottom: 20 }}>
         <div className="gt-fmain" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flex: '1 1 auto', minWidth: 0 }}>
-          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
+          <div style={{ position: 'relative', flex: '2 1 220px', minWidth: 200 }}>
             <Search size={17} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
             <input
               className="form-input"
@@ -187,12 +177,10 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
             />
           </div>
 
-          <span title="Category" style={{ ...filterIconLabelStyle, color: 'var(--pine)' }}>
-            <LayoutGrid size={15} />
-          </span>
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
+            aria-label="Category"
             className="form-input"
             style={{ ...selectStyle, borderColor: categoryFilter ? 'var(--pine)' : undefined }}
           >
@@ -204,30 +192,21 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
 
           <span style={{ width: 1, height: 22, backgroundColor: 'var(--border-color)' }} />
 
-          <span title="Stage" style={filterIconLabelStyle}>
-            <Flag size={15} />
-          </span>
-          <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className="form-input" style={selectStyle}>
+          <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} aria-label="Stage" className="form-input" style={selectStyle}>
             <option value="">All Stages</option>
             {STAGE_FILTER_OPTIONS.map((stage) => (
               <option key={stage} value={stage}>{`${stage} (${stageCount(stage)})`}</option>
             ))}
           </select>
 
-          <span title="Asset type" style={filterIconLabelStyle}>
-            <Shapes size={15} />
-          </span>
-          <select value={typeFilter} onChange={(e) => setTypeFilter && setTypeFilter(e.target.value)} className="form-input" style={selectStyle}>
+          <select value={typeFilter} onChange={(e) => setTypeFilter && setTypeFilter(e.target.value)} aria-label="Asset Type" className="form-input" style={selectStyle}>
             <option value="">All Types</option>
             {availableTypes.map((type) => (
               <option key={type} value={type}>{`${type} (${typeCounts[type]})`}</option>
             ))}
           </select>
 
-          <span title="Region" style={filterIconLabelStyle}>
-            <MapPin size={15} />
-          </span>
-          <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="form-input" style={selectStyle}>
+          <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} aria-label="Region" className="form-input" style={selectStyle}>
             <option value="">All Regions</option>
             {availableRegions.map((region) => (
               <option key={region} value={region}>{`${region} (${regionCounts[region]})`}</option>
@@ -242,20 +221,20 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
           {hasAnyFilter && (
             <button onClick={clearFilters} style={{ ...filterPillStyle, cursor: 'pointer' }}>
-              Clear Filters ✕
+              Clear Filters <X size={13} />
             </button>
           )}
           {viewMode === 'list' && sortCol != null && (
             <div style={filterPillStyle}>
               {'Sorted: '}
               <strong style={{ color: 'var(--text-primary)' }}>{SORT_COLUMN_LABELS[sortCol]}</strong>
-              {sortDir > 0 ? ' ↑' : ' ↓'}
+              {sortDir > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
               <button
                 onClick={() => setSortCol(null)}
                 title="Reset sort"
                 style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, marginLeft: 2, color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1 }}
               >
-                ✕
+                <X size={13} />
               </button>
             </div>
           )}
@@ -263,8 +242,11 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
       )}
 
       {topLevelAssets.length === 0 ? (
-        <EmptyState>
-          No properties match the current filters{categoryFilter ? ` (${categoryFilter})` : ''}.
+        <EmptyState
+          action={hasAnyFilter ? 'Clear Filters' : undefined}
+          onAction={clearFilters}
+        >
+          {hasAnyFilter ? 'No assets match the current filters.' : 'No assets yet - Add Asset starts the portfolio.'}
         </EmptyState>
       ) : viewMode === 'map' ? (
         <PortfolioMap assets={topLevelAssets} openProperty={openProperty} />

@@ -152,7 +152,7 @@ function CommentRow({ c, isReply, nameOf, myEmail, people, attachments = [], onP
     <button key={title} onClick={onClick} title={title} aria-label={title} style={{ ...btn('ghost'), padding: 4, color }}><Icon size={12} /></button>
   );
   return (
-    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+    <div data-comment-id={c.id} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{ display: 'flex', gap: 10, padding: 8, borderRadius: 10,
         background: c.pinned ? 'rgba(217,119,6,0.14)' : assignedToMe && !resolved ? `${NX.blue}0d` : 'transparent',
         marginLeft: isReply ? 28 : 0, borderLeft: isReply ? `2px solid ${NX.border}` : 'none' }}>

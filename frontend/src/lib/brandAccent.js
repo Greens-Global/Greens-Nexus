@@ -25,8 +25,10 @@ import { api } from '../api';
 // Presets. `login` is LoginPage's three-stop hero palette for the same choice.
 export const ACCENT_VARS = {
   // hover is the same hue a shade darker, matching how the cobalt pair is built
-  green: { brand: 'hsl(var(--color-green))', hov: 'hsl(142,60%,27%)', tint: 'hsla(var(--color-green),0.12)',
-           login: { light: 'hsl(142,55%,42%)', base: 'hsl(142,60%,35%)', dark: 'hsl(142,65%,25%)', tint: 'hsla(142,60%,35%,0.14)', shadow: 'hsla(142,60%,35%,.28)' } },
+  // 30% lightness, not the 35% of --color-green: white button text on the
+  // lighter shade was 4.1:1, under the 4.5:1 floor (Oct 21 2026).
+  green: { brand: 'hsl(142,60%,30%)', hov: 'hsl(142,60%,24%)', tint: 'hsla(var(--color-green),0.12)',
+           login: { light: 'hsl(142,55%,38%)', base: 'hsl(142,60%,30%)', dark: 'hsl(142,65%,22%)', tint: 'hsla(142,60%,30%,0.14)', shadow: 'hsla(142,60%,30%,.28)' } },
   blue:  { brand: '#2b45e1', hov: '#1f36c7', tint: '#e8ecfd',
            login: { light: '#3a52e6', base: '#2b45e1', dark: '#1f36c7', tint: '#e8ecfd', shadow: 'rgba(43,69,225,.28)' } },
 };

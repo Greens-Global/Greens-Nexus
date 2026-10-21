@@ -60,6 +60,14 @@ _LEGACY_LEAD = {
 _BORROWER_ACTION = {"label": "Open My Items", "view": "inventory", "sub": "active-checkouts"}
 _OWNER_ACTION = {"label": "Open Checkouts", "view": "inventory", "sub": "checkouts"}
 _ASSET_ACTION = {"label": "Open Asset Portfolio", "view": "property-asset", "sub": "asset-portfolio"}
+
+
+def _asset_action(pid: str, view: str = "property", row_id: str = "") -> dict:
+    """Open THE asset (Oct 2026 deep links: /property-asset/a:<id>:<view>[:<row>]),
+    the record highlighted when a row id is given."""
+    from urllib.parse import quote
+    sub = f"a:{quote(str(pid), safe='')}:{view}" + (f":{quote(str(row_id), safe='')}" if row_id else "")
+    return {"label": "Open Asset", "view": "property-asset", "sub": sub}
 _ITEM_ACTION = {"label": "Open Items", "view": "inventory", "sub": "catalog"}
 
 
@@ -370,7 +378,8 @@ def run_asset_alerts(db, cfg: dict = None) -> int:
             title = f"Inspection {'Overdue' if past else 'Due'}: {itype}"
             body = f"{nm}: \"{itype}\" {when(due, 'was due', 'is due')}."
         sent += _alert(db, kind=kind, cfg=cfg, ntype=ntype, ref_id=r.id, due=due, title=title,
-                       body=body, item_name=nm, recipients=who, action=_ASSET_ACTION)
+                       body=body, item_name=nm, recipients=who,
+                       action=_asset_action(r.property_id, r.collection, r.id))
 
     for pid, prop in props.items():
         pl = prop.payload or {}
@@ -391,7 +400,7 @@ def run_asset_alerts(db, cfg: dict = None) -> int:
                 title=f"{label} {'Overdue' if past else 'Due Soon'}: {prop.name}",
                 body=f"{prop.name}: {label.lower()} {when(due, *verb)}.", item_name=prop.name,
                 recipients=route(asset_manager_email(prop, props, people), f"{prop.name} {label.lower()}"),
-                action=_ASSET_ACTION)
+                action=_asset_action(pid))
 
     # Item warranties: a date custom field whose key mentions "warranty".
     if cfg["warranty"].get("enabled"):

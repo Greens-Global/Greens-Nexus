@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Modal } from './Modal.jsx';
-import { FieldInput } from './FieldInput.jsx';
+import { FieldInput, requiredErrors } from './FieldInput.jsx';
 import { RECORD_TYPES } from '../../lib/recordTypes.jsx';
 import { warrantyTermMonths } from '../../lib/warrantyTerm.js';
 
@@ -65,13 +65,13 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
       return next;
     });
 
+  const [errors, setErrors] = useState({});
+  const [removeError, setRemoveError] = useState('');
+  const missing = Object.keys(errors).length;
   const handleSave = () => {
-    for (const f of fields) {
-      if (f.req && !String(values[f.k] || '').trim()) {
-        alert('Please fill: ' + f.label);
-        return;
-      }
-    }
+    const next = requiredErrors(fields, values);
+    setErrors(next);
+    if (Object.keys(next).length) return;
     onSave(isWarranty ? { ...values, termMonths: warrantyTermMonths(values.startDate, values.expiration) } : values);
   };
 
@@ -89,8 +89,8 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
       <button
         className="primary-btn"
         onClick={() => {
-          if (!removeReason.trim()) {
-            alert('Please give a reason for removing this ' + recordType.title.toLowerCase() + '.');
+          if (requireReason && !removeReason.trim()) {
+            setRemoveError('A reason is required.');
             return;
           }
           onDelete(removeReason.trim());
@@ -106,16 +106,17 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
         <button
           className="secondary-btn"
           onClick={() => {
-            if (requireReason) {
-              setConfirmingRemove(true);
-            } else if (window.confirm(`Remove this ${recordType.title.toLowerCase()}?`)) {
-              onDelete();
-            }
+            setConfirmingRemove(true);
           }}
           style={{ marginRight: 'auto', color: 'hsl(var(--color-red))' }}
         >
           Remove
         </button>
+      )}
+      {missing > 0 && (
+        <span role="status" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginRight: row && canDelete ? undefined : 'auto' }}>
+          {missing} required {missing === 1 ? 'field' : 'fields'} missing
+        </span>
       )}
       <button className="secondary-btn" onClick={onClose}>
         Cancel
@@ -127,7 +128,7 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
   );
 
   return (
-    <Modal title={(row ? 'Edit ' : 'Add ') + recordType.title.toLowerCase()} onClose={onClose} footer={footer}
+    <Modal title={(row ? 'Edit ' : 'Add ') + recordType.title} onClose={onClose} footer={footer}
       isDirty={dirty && !confirmingRemove} onSave={handleSave}>
       {confirmingRemove && (
         <div
@@ -139,17 +140,28 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
             backgroundColor: 'hsla(var(--color-red), 0.08)',
           }}
         >
-          <label style={{ fontSize: '0.64rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
-            Reason for removing this {recordType.title.toLowerCase()} <span style={{ color: 'hsl(var(--color-red))' }}>*</span>
-          </label>
-          <textarea
-            className="form-input"
-            rows={2}
-            value={removeReason}
-            onChange={(e) => setRemoveReason(e.target.value)}
-            placeholder={`Why is this ${recordType.title.toLowerCase()} being removed?`}
-            style={{ fontSize: '0.85rem' }}
-          />
+          <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: requireReason ? 8 : 0 }}>
+            Remove this {recordType.title.toLowerCase()}?{requireReason ? '' : ' It leaves the record for good.'}
+          </div>
+          {requireReason && (
+            <>
+              <label htmlFor="record-remove-reason" style={{ fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                Reason for removing this {recordType.title.toLowerCase()} <span style={{ color: 'hsl(var(--color-red))' }}>*</span>
+              </label>
+              <textarea
+                id="record-remove-reason"
+                className="form-input"
+                rows={2}
+                autoFocus
+                value={removeReason}
+                onChange={(e) => { setRemoveReason(e.target.value); if (removeError) setRemoveError(''); }}
+                placeholder={`Why is this ${recordType.title.toLowerCase()} being removed?`}
+                aria-invalid={removeError ? true : undefined}
+                style={{ fontSize: '0.85rem', ...(removeError ? { borderColor: 'hsl(var(--color-red))' } : {}) }}
+              />
+              {removeError && <div role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{removeError}</div>}
+            </>
+          )}
         </div>
       )}
       <div className="form-grid">
@@ -158,7 +170,9 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
             key={f.k}
             f={f}
             value={isWarranty && f.k === 'termMonths' ? warrantyTermMonths(values.startDate, values.expiration) : values[f.k]}
-            onChange={handleChange}
+            onChange={(k, v) => { handleChange(k, v); if (errors[k]) setErrors((e) => { const n = { ...e }; delete n[k]; return n; }); }}
+            error={errors[f.k]}
+            propertyId={active?.id || ''}
           />
         ))}
       </div>

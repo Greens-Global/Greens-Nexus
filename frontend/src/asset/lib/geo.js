@@ -1,165 +1,30 @@
-// Geocoding + map-link helpers shared by PortfolioMap (portfolio-wide pin map) and
-// PropertyMapLink (per-asset embedded map preview).
+// Map helpers for the portfolio map and the per-asset map card.
 //
-// Geocoding uses Nominatim, OpenStreetMap's free geocoding API. Nominatim's usage policy
-// caps unauthenticated callers at ~1 request/second and asks that callers not hammer it -
-// see https://operations.osmfoundation.org/policies/nominatim/. That's the reason for the
-// cache + the serialized/delayed request queue below. Do NOT remove or shorten the delay,
-// and do NOT parallelize geocode() calls, or the app risks getting IP-blocked by Nominatim.
+// Geocoding moved to the server on Oct 21 2026 (backend/asset_geocode.py):
+// each asset's address is looked up once there and the point lives on the
+// asset as `geo: { lat, lng, for }`. The browser no longer calls Nominatim -
+// it was a policy violation and sent the portfolio's addresses from every
+// viewer's machine. What is left here is pure: a point from a pasted Google
+// Maps link, and the one rule for where an asset's pin comes from.
 
-const GEOCODE_CACHE_KEY = 'nexus_geo_v1';
-const GEOCODE_REQUEST_DELAY_MS = 1150; // keeps us under Nominatim's ~1 req/sec fair-use limit
-
-function readGeocodeCache() {
-  try {
-    return JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
-
-function writeGeocodeCacheEntry(query, coord) {
-  try {
-    const cache = readGeocodeCache();
-    // Cache miss/no-result is stored as the literal string 'null' (not JSON null) so that
-    // `query in cache` still reliably distinguishes "never looked up" from "looked up, no match".
-    cache[query] = coord || 'null';
-    localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // localStorage full/unavailable - cache write is best-effort only.
-  }
-}
-
-// Module-level promise chain: every geocode() call tacks itself onto the tail of this chain,
-// so requests to Nominatim always run one-at-a-time, each waiting GEOCODE_REQUEST_DELAY_MS
-// after the previous one settles before firing. This is what actually enforces the rate
-// limit - it's shared across every caller/component instance in the app, not per-component.
-let geocodeQueueTail = Promise.resolve();
+import { snapMap } from './format.js';
 
 /**
- * Geocode a free-text address via Nominatim, returning `[lat, lng]` or `null` if no match.
- * Results are cached in localStorage (key: "nexus_geo_v1", `{ [query]: [lat,lng] | 'null' }')
- * forever - repeat lookups for the same query string return instantly from cache and never
- * hit the network. Cache misses are queued and rate-limited (see module comment above).
+ * Where an asset's pin comes from: a coordinate in its Google Maps link first
+ * (exact, the person chose it), else the server's geocoded point, else null.
+ * `[lat, lng]`.
  */
-export function geocode(query) {
-  const cache = readGeocodeCache();
-  if (query in cache) {
-    return Promise.resolve(cache[query] === 'null' ? null : cache[query]);
-  }
-
-  const request = geocodeQueueTail
-    .then(() => new Promise((resolve) => setTimeout(resolve, GEOCODE_REQUEST_DELAY_MS)))
-    .then(() =>
-      fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(query), {
-        headers: { Accept: 'application/json' },
-      })
-        .then((r) => r.json())
-        .then((results) => {
-          const coord = results && results[0] ? [+results[0].lat, +results[0].lon] : null;
-          writeGeocodeCacheEntry(query, coord);
-          return coord;
-        })
-        .catch(() => null)
-    );
-
-  // Chain the *next* request off this one regardless of success/failure, so one failed
-  // lookup can't wedge the whole queue.
-  geocodeQueueTail = request.catch(() => {});
-  return request;
+export function pinFor(asset) {
+  const linked = coordFromUrl(asset?.mapUrl || snapMap(asset || {})['google maps link']);
+  if (linked) return linked;
+  const geo = asset?.geo;
+  if (geo && typeof geo.lat === 'number' && typeof geo.lng === 'number') return [geo.lat, geo.lng];
+  return null;
 }
 
-/**
- * Free-text search via Nominatim, returning `{ coord: [lat,lng], address }` for the top
- * match, or `null`. Unlike geocode(), this keeps the result's own `display_name` instead of
- * discarding it - used by LocationPickerMap's search box, where a typed query should resolve
- * to a real address string in one round trip rather than a second reverse-geocode call.
- * Shares the same cache + rate-limited queue as geocode() (same fair-use constraint).
- */
-const ADDRESS_ABBREVIATIONS = [
-  [/\bhwy\b\.?/gi, 'Highway'], [/\bblvd\b\.?/gi, 'Boulevard'], [/\bpkwy\b\.?/gi, 'Parkway'],
-  [/\bave\b\.?/gi, 'Avenue'], [/\bst\b\.?(?=\s*,|$)/gi, 'Street'], [/\brd\b\.?/gi, 'Road'],
-  [/\bdr\b\.?/gi, 'Drive'], [/\bln\b\.?/gi, 'Lane'], [/\bct\b\.?/gi, 'Court'],
-];
-
-// OpenStreetMap often spells the street out ("Highway", not "Hwy") and files a
-// rural address under a hamlet rather than the mailing city (469 Bohemian Hwy,
-// "Sebastopol" is "Freestone" in OSM), so one exact string can return nothing
-// while a slightly looser one hits. Try the query as typed, then with street
-// suffixes expanded, then with the city dropped (street + state/ZIP only).
-function searchVariants(query) {
-  const expanded = ADDRESS_ABBREVIATIONS.reduce((s, [re, full]) => s.replace(re, full), query);
-  const parts = expanded.split(',').map((p) => p.trim()).filter(Boolean);
-  const noCity = parts.length >= 3 ? [parts[0], ...parts.slice(2)].join(', ') : '';
-  return [...new Set([query, expanded, noCity].filter(Boolean))];
-}
-
-function nominatimSearchOnce(query) {
-  return geocodeQueueTail
-    .then(() => new Promise((resolve) => setTimeout(resolve, GEOCODE_REQUEST_DELAY_MS)))
-    .then(() =>
-      fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(query), {
-        headers: { Accept: 'application/json' },
-      })
-        .then((r) => r.json())
-        .then((results) => {
-          const hit = results && results[0];
-          return hit ? { coord: [+hit.lat, +hit.lon], address: hit.display_name } : null;
-        })
-    );
-}
-
-export function geocodeSearch(query) {
-  const cacheKey = `full2:${query}`;   // full2: skips misses cached before the fallback variants existed
-  const cache = readGeocodeCache();
-  if (cacheKey in cache) {
-    return Promise.resolve(cache[cacheKey] === 'null' ? null : cache[cacheKey]);
-  }
-
-  // Sequential on the shared queue (Nominatim fair use), stopping at the first hit.
-  const request = (async () => {
-    for (const variant of searchVariants(query)) {
-      const step = nominatimSearchOnce(variant);
-      geocodeQueueTail = step.catch(() => {});
-      let result = null;
-      try { result = await step; } catch { return null; }   // network error: don't cache a miss
-      if (result) { writeGeocodeCacheEntry(cacheKey, result); return result; }
-    }
-    writeGeocodeCacheEntry(cacheKey, null);
-    return null;
-  })();
-  return request;
-}
-
-/**
- * Reverse-geocode `[lat, lng]` into a human address string via Nominatim, or `null` if no
- * match. Shares the same cache + rate-limited queue as geocode() above (same fair-use
- * constraint applies - see the module comment).
- */
-export function reverseGeocode(lat, lng) {
-  const query = `rev:${lat.toFixed(6)},${lng.toFixed(6)}`;
-  const cache = readGeocodeCache();
-  if (query in cache) {
-    return Promise.resolve(cache[query] === 'null' ? null : cache[query]);
-  }
-
-  const request = geocodeQueueTail
-    .then(() => new Promise((resolve) => setTimeout(resolve, GEOCODE_REQUEST_DELAY_MS)))
-    .then(() =>
-      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, {
-        headers: { Accept: 'application/json' },
-      })
-        .then((r) => r.json())
-        .then((result) => {
-          const address = (result && result.display_name) || null;
-          writeGeocodeCacheEntry(query, address);
-          return address;
-        })
-        .catch(() => null)
-    );
-
-  geocodeQueueTail = request.catch(() => {});
-  return request;
+/** Does the asset have anything the server could place (a street or a city)? */
+export function hasAddress(asset) {
+  return !!(asset?.address || asset?.city);
 }
 
 /**
