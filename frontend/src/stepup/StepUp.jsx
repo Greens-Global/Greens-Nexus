@@ -141,7 +141,7 @@ export function StepUpOverlay() {
   const card = (children) => (
     <div style={{ position: 'fixed', inset: 0, zIndex: 3000, display: 'grid', placeItems: 'center',
       background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(3px)', animation: 'suFade .15s ease' }}>
-      <div style={{ width: 'min(92vw, 380px)', background: 'var(--card)', border: '1px solid var(--line)',
+      <div className="nx-popup" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--card)', border: '1px solid var(--line)',
         borderRadius: 16, padding: '26px 24px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', textAlign: 'center',
         fontFamily: 'Inter,sans-serif', animation: 'suPop .2s cubic-bezier(.22,1,.36,1)' }}>{children}</div>
     </div>

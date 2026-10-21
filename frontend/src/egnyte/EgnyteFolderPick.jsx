@@ -41,7 +41,7 @@ export default function FolderPickModal({ startPath = '', title = 'Pick a Folder
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(15,18,24,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
     >
-      <div style={{ ...CARD, width: showTree ? 'min(1180px, 100%)' : 'min(860px, 100%)', maxHeight: showTree ? '90vh' : '86vh', overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="nx-popup" style={{ ...CARD, width: showTree ? 'max(60vw, min(1180px, 100%))' : undefined, maxHeight: showTree ? '90vh' : undefined, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ ...HEADING, fontSize: 14.5, display: 'flex', alignItems: 'center', gap: 8 }}>
             <FolderSearch size={16} /> {title}

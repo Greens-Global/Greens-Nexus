@@ -510,7 +510,7 @@ function Dialog({ title, subtitle, onClose, children, width = 980 }) {
   const backdrop = useBackdropClose(onClose);
   return (
     <div className="modal-overlay" role="presentation" {...backdrop}>
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={title} style={{ maxWidth: width, width: '100%' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={title} style={{ width: `max(60vw, min(${width}px, 100%))` }}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>{title}</h3>

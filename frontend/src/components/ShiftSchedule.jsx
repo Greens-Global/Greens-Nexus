@@ -1156,7 +1156,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       )}
       {cellHistory && (
         <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && setCellHistory(null)}>
-          <div role="dialog" aria-label="Cell History" style={{ ...MODAL_CARD, maxWidth: 440 }}>
+          <div role="dialog" aria-label="Cell History" className="nx-popup" style={MODAL_CARD}>
             <DialogHead title="History" onClose={() => setCellHistory(null)} />
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>{nameOf(cellHistory.email)} · {formatDate(cellHistory.date)}. Shifts that were on this day and are not anymore.</div>
             <HistoryList rows={cellHistory.entries} nameOf={nameOf} groupNameOf={(id) => groups.find((g) => g.id === id)?.name || ''} />
@@ -1202,7 +1202,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       )}
       {keysOpen && (
         <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && setKeysOpen(false)} onKeyDown={(e) => { if (e.key === 'Escape') setKeysOpen(false); }}>
-          <div role="dialog" aria-label="Keyboard Shortcuts" className="m-menu" style={{ ...MODAL_CARD, maxWidth: 440 }}>
+          <div role="dialog" aria-label="Keyboard Shortcuts" className="m-menu nx-popup" style={MODAL_CARD}>
             <DialogHead title="Keyboard Shortcuts" onClose={() => setKeysOpen(false)} />
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 14px', marginTop: 10, alignItems: 'center' }}>
               {SHORTCUTS.map(([k, what]) => [

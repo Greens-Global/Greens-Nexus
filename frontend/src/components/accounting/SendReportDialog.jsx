@@ -153,7 +153,7 @@ export default function SendReportDialog({ mode, result, entities, title, config
   );
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <form className="modal-content" role="dialog" aria-modal="true" aria-label={TITLES[mode]} onClick={(e) => e.stopPropagation()} onSubmit={send} style={{ maxWidth: 560 }}>
+      <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={TITLES[mode]} onClick={(e) => e.stopPropagation()} onSubmit={send}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>{TITLES[mode]}</h3>

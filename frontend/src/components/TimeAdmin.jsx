@@ -1131,7 +1131,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
             onClick={e => e.target === e.currentTarget && setPerson(null)}>
-            <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 780, maxHeight: 'min(92dvh, 720px)', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
+            <div className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
               <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--wk-brand)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
                   {p.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}
@@ -1229,7 +1229,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {edit && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={e => e.target === e.currentTarget && editGuard.requestClose()}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(430px, 60vw, 700px)', boxShadow: 'var(--shadow-lg)' }}>
+          <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Clock size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Adjust punch - {KIND_LABEL[edit.kind]}</h3>
@@ -1275,7 +1275,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {obo && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={e => e.target === e.currentTarget && oboGuard.requestClose()}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(430px, 60vw, 700px)', boxShadow: 'var(--shadow-lg)' }}>
+          <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><CalendarOff size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Request Time Off on Behalf</h3>
@@ -1332,7 +1332,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {addFor && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={e => e.target === e.currentTarget && addGuard.requestClose()}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(430px, 60vw, 700px)', boxShadow: 'var(--shadow-lg)' }}>
+          <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Plus size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Add punch - {addFor}</h3>

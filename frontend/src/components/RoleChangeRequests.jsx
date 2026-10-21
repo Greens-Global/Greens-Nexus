@@ -155,8 +155,8 @@ export function RoleChangeDecisionModal({ requestId, onClose, onDecided, toastOk
   return (
     <div onClick={ev => ev.target === ev.currentTarget && onClose()}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div role="dialog" aria-modal="true" aria-label="Role change request"
-        style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: 'min(92dvh, 720px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+      <div role="dialog" aria-modal="true" aria-label="Role change request" className="nx-popup"
+        style={{ background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <Shield size={17} style={{ color: 'var(--pine)' }} />
           <div style={{ flex: 1, fontWeight: 800, fontSize: 15.5 }}>Role Change{r ? ` - ${r.employeeName}` : ''}</div>

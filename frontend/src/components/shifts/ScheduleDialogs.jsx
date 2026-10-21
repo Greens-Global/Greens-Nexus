@@ -51,7 +51,7 @@ export function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onC
 
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Copy Week" style={MODAL_CARD}>
+      <div role="dialog" aria-label="Copy Week" className="nx-popup" style={MODAL_CARD}>
         <DialogHead title="Copy Week" onClose={onClose} />
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>Copy these dates forward as drafts. Nothing changes for the team until you share.</div>
         <div style={{ display: 'grid', gap: 14 }}>
@@ -106,7 +106,7 @@ export function ClearModal({ groups, defaultStart, defaultEnd, busy, onApply, on
   }
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Clear Week" style={MODAL_CARD}>
+      <div role="dialog" aria-label="Clear Week" className="nx-popup" style={MODAL_CARD}>
         <DialogHead title="Clear Week" onClose={onClose} />
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
           Remove every shift in these dates. Drafts are deleted. Shared shifts are marked for removal and stay on the team's schedule until you share - Discard Changes brings them back.
@@ -159,7 +159,7 @@ export function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd,
 
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && guard.requestClose()}>
-      <div role="dialog" aria-label="Fill From Usual Hours" style={MODAL_CARD}>
+      <div role="dialog" aria-label="Fill From Usual Hours" className="nx-popup" style={MODAL_CARD}>
         <DialogHead title="Fill From Usual Hours" onClose={guard.requestClose} />
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>Place a shift type on a whole group across a date range in one go.</div>
         {shifts.length === 0 ? (

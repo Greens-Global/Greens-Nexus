@@ -1678,7 +1678,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {parked && lostModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1440, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div role="alertdialog" aria-modal="true" aria-label="Your punch did not record"
-            style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 480, boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
+            className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
             <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
               <span className="wkc-chip" style={{ color: 'hsl(var(--color-red))' }}><AlertTriangle size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Your Punch Did Not Record</h3>
@@ -1701,7 +1701,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 </div>
               )}
             </div>
-            <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 'auto' }}>
               <button className="secondary-btn" onClick={() => setLostModal(false)}>
                 {parked.held ? 'OK, Keep Trying' : 'Close'}
               </button>
@@ -1718,7 +1718,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           acknowledges before the first in-punch is recorded. */}
       {monGate && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1440, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: 'min(90dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
+          <div className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
             <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
               <span className="wkc-chip"><Monitor size={14} /></span>
               <div style={{ flex: 1 }}>

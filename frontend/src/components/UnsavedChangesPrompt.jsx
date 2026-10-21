@@ -14,14 +14,14 @@ export default function UnsavedChangesPrompt({ onKeepEditing, onDiscard, onSave,
       style={{ zIndex: 6000 }}
       onClick={(e) => { if (e.target === e.currentTarget) onKeepEditing(); }}
     >
-      <div className="modal-content" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content nx-popup" style={{ display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: '20px 22px 4px' }}>
           <div id="nx-unsaved-title" style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>Discard unsaved changes?</div>
           <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
             You have unsaved changes in this window. If you leave now, they will be lost.
           </div>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 22px 20px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 22px 20px', flexWrap: 'wrap', marginTop: 'auto' }}>
           <button className="secondary-btn" style={{ color: 'hsl(var(--color-red))' }} onClick={onDiscard}>Discard Changes</button>
           <button className={onSave ? 'secondary-btn' : 'primary-btn'} onClick={onKeepEditing} autoFocus>Keep Editing</button>
           {onSave && (

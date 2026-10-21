@@ -578,7 +578,7 @@ function DuplicateTaskModal({ task, subtasks, onClose, onDuplicate }) {
     </div>
   );
   return (
-    <Modal title="Duplicate Task" onClose={onClose} footer={footer} width="min(520px, 100vw)">
+    <Modal title="Duplicate Task" onClose={onClose} footer={footer}>
       <div style={{ display: 'grid', gap: 16, fontFamily: FONT, fontSize: 13 }}>
         <label style={{ display: 'grid', gap: 5 }}>
           <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Task Name</span>
@@ -658,7 +658,7 @@ function SaveTemplateModal({ task, subtasks, onClose }) {
     </div>
   );
   return (
-    <Modal title="Save as Template" onClose={onClose} footer={footer} width="min(520px, 100vw)">
+    <Modal title="Save as Template" onClose={onClose} footer={footer}>
       <div style={{ display: 'grid', gap: 16, fontFamily: FONT, fontSize: 13 }}>
         <label style={{ display: 'grid', gap: 5 }}>
           <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Template Name</span>
@@ -838,7 +838,7 @@ function ShareModal({ task, people, nameOf, patch, onClose }) {
   ];
   return createPortal(
     <div className="nx-tasks-portal" onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 5000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '9vh 16px', fontFamily: FONT }}>
-      <div style={{ background: NX.surface, borderRadius: 14, width: 520, maxWidth: '100%', boxShadow: '0 24px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+      <div className="nx-popup" style={{ background: NX.surface, borderRadius: 14, boxShadow: '0 24px 60px rgba(0,0,0,0.28)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 20px', borderBottom: `1px solid ${NX.border}` }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>Share “{task.title}”</div>
           <button onClick={onClose} style={{ ...btn('ghost'), padding: 6 }}><X size={18} /></button>

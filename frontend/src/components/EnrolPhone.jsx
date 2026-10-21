@@ -66,12 +66,12 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
   };
   const card = {
     background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16,
-    width: 'min(clamp(520px, 60vw, 900px), 100%)', padding: 22, fontFamily: 'Inter,sans-serif',
+    padding: 22, fontFamily: 'Inter,sans-serif',
   };
 
   return (
     <div style={overlay} onMouseDown={e => { if (e.target === e.currentTarget) guard.requestClose(); }}>
-      <div style={card}>
+      <div className="nx-popup" style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <Smartphone size={18} style={{ color: 'var(--pine)' }} />
           <strong style={{ fontSize: 16 }}>Enroll a Phone</strong>
