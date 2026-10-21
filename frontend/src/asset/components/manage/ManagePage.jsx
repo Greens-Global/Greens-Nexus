@@ -344,11 +344,14 @@ export function ManagePage({
                       <button
                         onClick={() => setDeleteTarget(p)}
                         title={'Delete ' + p.name}
+                        aria-label={'Delete ' + p.name}
                         style={{
-                          flexShrink: 0, width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border-color)',
-                          background: 'transparent', color: 'hsl(var(--color-red))', cursor: 'pointer',
+                          flexShrink: 0, width: 32, height: 32, borderRadius: 8, border: 'none',
+                          background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer',
                           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                         }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = 'hsl(var(--color-red))'; e.currentTarget.style.background = 'hsla(var(--color-red), 0.1)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'transparent'; }}
                       >
                         <Trash2 size={15} />
                       </button>

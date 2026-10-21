@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { Settings2, ArrowLeft, Pencil, Search, Lock, Unlock, Copy, MoreHorizontal, FileText, Download } from 'lucide-react';
+import { Settings2, ArrowLeft, Pencil, Search, Lock, Unlock, Copy, MoreHorizontal, FileText, Download, Plus } from 'lucide-react';
 
 import { PT } from './lib/propertyFields.js';
 import { ASSET_SCHEMAS, inferAssetKind } from './lib/vehicleFields.js';
@@ -690,10 +690,16 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
             <h2 style={{ fontFamily: 'var(--wk-font)' }}>Asset Management</h2>
             <p>{loading && !visibleProperties.length ? 'Loading the portfolio…' : `${pulse.assets} ${pulse.assets === 1 ? 'asset' : 'assets'} in the portfolio`}</p>
           </div>
-          <button className="secondary-btn" onClick={() => navigate('manage')} style={{ position: 'relative' }}>
-            <Settings2 size={14} /> Manage
-            {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button className="secondary-btn" onClick={() => navigate('manage')} style={{ position: 'relative' }}>
+              <Settings2 size={14} /> Manage
+              {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
+            </button>
+            {/* Adding an asset is the portfolio's own first action, not two clicks away under Manage. */}
+            <button className="primary-btn" onClick={() => setModal({ type: 'property', id: null })}>
+              <Plus size={14} /> Add Asset
+            </button>
+          </div>
         </div>
       )}
 
