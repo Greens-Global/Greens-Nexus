@@ -184,7 +184,7 @@ export const RECORD_TYPES = {
       { label: 'Scope', main: (r) => r.scope || (r.party ? r.party : 'Incomplete warranty'), sub: (r) => (r.scope ? r.kind : warrantyMissing(r)) },
       { label: 'Party', main: (r) => r.party || '-', sub: (r) => [r.contactName, r.phone].filter(Boolean).join(' · ') },
       { label: 'Expires', mono: (r) => (r.expiration ? formatDate(r.expiration) : '') },
-      { label: 'Status', chip: (r) => (r.expiration ? expirationStatus(daysUntil(r.expiration)) : { label: 'Incomplete', tone: 'mut' }) },
+      { label: 'Status', chip: (r) => (r.expiration ? expirationStatus(daysUntil(r.expiration)) : <StatusBadge tone="mut">Incomplete</StatusBadge>) },
     ],
     sort: (a, b) => (a.expiration || '9999') < (b.expiration || '9999') ? -1 : 1,
     summary: (rows) => [
