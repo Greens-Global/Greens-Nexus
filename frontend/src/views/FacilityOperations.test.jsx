@@ -21,7 +21,9 @@ const updateOpsCompetitor = vi.fn();
 const getCubbySync = vi.fn();
 const startCubbySync = vi.fn();
 const opsRevenueTenants = vi.fn();
+const getOpsCmaCompset = vi.fn();
 vi.mock('../api', () => ({ api: {
+  getOpsCmaCompset: (...a) => getOpsCmaCompset(...a),
   opsRevenueTenants: (...a) => opsRevenueTenants(...a),
   opsRevenueStrategies: () => Promise.resolve({ strategies: [] }),
   opsRevenueBatches: () => Promise.resolve({ batches: [] }),
@@ -59,17 +61,22 @@ vi.mock('../components/ModuleTabs', () => ({
 
 const FacilityOperations = (await import('./FacilityOperations')).default;
 
-// Rate Management (Oct 20 2026) is the market tab now: its facility is the page's one
-// Facility dropdown (opening on the first facility), and the competitor set and manual
-// entry (the Market screen) open from Comp Set & Manual Entry.
+// Rate Management is Miranda's CMA (Oct 21 2026): four Pricing menu items
+// (market, market-comps, market-history, market-review). Its facility is the
+// page's one Facility dropdown (opening on the first facility). The website
+// reader and the nearby list (the Market screen) open from Comp Set & Manual
+// Entry > Website Reading & Nearby.
 const RATES_VIEW = { facilityId: 'fac_a', facility: 'Temecula', name: 'Greens Storage Temecula', asOf: '2026-10-13', address: '', billingCycle: 'MONTHLY',
   lastSurvey: '', cubbyGroups: { ok: true, count: 0, error: '' }, compSet: { active: 0, web: 0, stortrack: 0, manual: 0, closed: 0 },
   kpis: { vsMarket: null, rateable: 0, belowMarket: 0, occupancy: 0, units: 0, rented: 0, offline: 0, ready: 0, readyDelta: 0 },
   attention: [], rows: [], competitors: [], freshDays: 120, minCompetitors: 2, pushes: [], canEdit: true, canMark: true };
+const COMPSET = { facilityId: 'fac_a', facility: 'Temecula', name: 'Greens Storage Temecula', asOf: '2026-10-13', lockDays: 30,
+  methods: { phone: 'Phone Call' }, storageAccess: [], parkingAccess: [], unitTypes: [], competitors: [],
+  counts: { active: 0, website: 0, manual: 0, closed: 0 } };
 async function openCompSet(id = 'fac_a') {
-  getOpsRates.mockResolvedValue({ ...RATES_VIEW, facilityId: id });
+  getOpsCmaCompset.mockResolvedValue({ ...COMPSET, facilityId: id });
   fireEvent.change(await screen.findByLabelText('Facility'), { target: { value: id } });
-  fireEvent.click(await screen.findByRole('button', { name: /Comp Set & Manual Entry/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Website Reading & Nearby/ }));
 }
 const { default: SyncStatus } = await import('../operations/SyncStatus');
 const { syncDelayed } = await import('../operations/sync');
@@ -113,6 +120,7 @@ beforeEach(() => {
   getFacilityOps.mockReset().mockResolvedValue(PAYLOAD);
   getOpsNearby.mockReset().mockResolvedValue(NO_NEARBY);
   getOpsRates.mockReset().mockResolvedValue(RATES_VIEW);
+  getOpsCmaCompset.mockReset().mockResolvedValue(COMPSET);
   opsRevenueTenants.mockReset().mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', unitTypes: [], defaults: {}, tenants: [] });
   localStorage.removeItem('nexus.ops.facility');   // the remembered facility
 });
@@ -305,8 +313,13 @@ describe('Operations module', () => {
   it('exports a list from the screen and a report from Cubby', async () => {
     facilityOpsReport.mockResolvedValue({ title: 'Rent Roll', asOf: '2026-10-13', columns: ['Unit'], rows: [['A12']] });
     render(<FacilityOperations activeSub="reports-exports" onSubChange={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
-    await waitFor(() => expect(downloadCsv).toHaveBeenCalledTimes(1));   // the lazy Quick Exports chunk can land a tick late in CI
+    await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' });
+    // The lazy Quick Exports chunk can land a tick late in CI and re-render the
+    // list under the first click; click the button that is on screen until it takes.
+    await waitFor(() => {
+      if (!downloadCsv.mock.calls.length) fireEvent.click(screen.getByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
+      expect(downloadCsv).toHaveBeenCalledTimes(1);
+    });
     expect(downloadCsv.mock.calls[0][0]).toBe('Tenants Past Due - All Facilities - 10-13-2026.csv');
     expect(downloadCsv.mock.calls[0][2]).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'Download Rent Roll as a spreadsheet' }));
@@ -321,7 +334,7 @@ describe('Operations module', () => {
       suggested: 20500, why: '70% occupied: some vacancy, so sit just under the market to fill it.', change: 500, monthlyImpact: 15000 };
     getOpsMarket.mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', freshDays: 120, minCompetitors: 2, rows: [row],
       competitors: [{ id: 'c1', name: 'StorQuest', distanceMiles: 1.2, rates: [{ observedOn: '2026-10-01' }] }] });
-    render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
+    render(<FacilityOperations activeSub="market-comps" onSubChange={() => {}} />);
     await openCompSet();
     expect(await screen.findByText('9% Below')).toBeTruthy();                 // $200 against a $220 median
     expect(screen.getByText('$205')).toBeTruthy();
@@ -344,7 +357,7 @@ describe('Operations module', () => {
       { osmId: 'way/2', name: 'Sample Self Storage', address: '100 Main St, Sampletown, CA 90000', website: 'https://sample.example.org', lat: 33.505, lng: -117.15, distanceMiles: 0.3 }] });
     addOpsCompetitor.mockResolvedValue({ ...market, competitors: [competitor, blocked] });
     checkOpsCompetitor.mockResolvedValue({ ...market, competitors: [{ ...competitor, lastDetail: 'Read 7 rates' }, blocked] });
-    render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
+    render(<FacilityOperations activeSub="market-comps" onSubChange={() => {}} />);
     await openCompSet();
 
     // The move: $129 to $145, up 12.4%, seen 10/13.
@@ -380,7 +393,7 @@ describe('Operations module', () => {
       competitors: [], moves: [], engine: { connected: false, everyHours: 24 } });
     getOpsNearby.mockRejectedValue(Object.assign(new Error('boom'), { status: 424 }));
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
+    render(<FacilityOperations activeSub="market-comps" onSubChange={() => {}} />);
     await openCompSet();
     expect(await screen.findByText(/The nearby list could not be loaded just now/)).toBeTruthy();
     expect(screen.getByText('Our Rates Against the Market')).toBeTruthy();

@@ -1267,6 +1267,23 @@ export const api = {
   getOpsRateComps: (facilityId, unitType) => req(`/facility-ops/rates/comps?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
   // Push to Cubby (Oct 21 2026): only when Settings > Global Settings > Operations > Push to Cubby is on; the server refuses otherwise.
   pushOpsRates: (facilityId, unitTypes) => req("/facility-ops/rates/push", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, confirm: true }), timeoutMs: 180_000 }),
+  // Rate Management as a CMA (Miranda, Oct 21 2026): comp set, surveys, overrides, import, history, review & push.
+  getOpsCmaCompset: (facilityId) => req(`/facility-ops/cma/compset?facility_id=${encodeURIComponent(facilityId)}`),
+  addOpsCmaCompetitor: (data) => req("/facility-ops/cma/competitors", { method: "POST", body: JSON.stringify(data) }),
+  updateOpsCmaCompetitor: (id, data) => req(`/facility-ops/cma/competitors/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  closeOpsCmaCompetitor: (id, closed, note = '') => req(`/facility-ops/cma/competitors/${encodeURIComponent(id)}/close`, { method: "POST", body: JSON.stringify({ closed, note }) }),
+  saveOpsCmaSurvey: (data) => req("/facility-ops/cma/surveys", { method: "POST", body: JSON.stringify(data) }),
+  saveOpsCmaOverride: (data) => req("/facility-ops/cma/overrides", { method: "POST", body: JSON.stringify(data) }),
+  importOpsCmaRates: (facilityId, rows, commit = false) => req("/facility-ops/cma/import", { method: "POST", body: JSON.stringify({ facility_id: facilityId, rows, commit }), timeoutMs: 60_000 }),
+  getOpsCmaHistory: (facilityId, unitType) => req(`/facility-ops/cma/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  getOpsCmaReview: (facilityId) => req(`/facility-ops/cma/review?facility_id=${encodeURIComponent(facilityId)}`),
+  proposeOpsCmaPromo: (data) => req("/facility-ops/cma/promos", { method: "POST", body: JSON.stringify(data) }),
+  withdrawOpsCmaPromo: (id) => req(`/facility-ops/cma/promos/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  applyOpsCmaReview: (data) => req("/facility-ops/cma/review/apply", { method: "POST", body: JSON.stringify(data), timeoutMs: 180_000 }),
+  rejectOpsCmaReview: (data) => req("/facility-ops/cma/review/reject", { method: "POST", body: JSON.stringify(data) }),
+  markOpsCmaEntered: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/entered`, { method: "POST" }),
+  retryOpsCmaChange: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/retry`, { method: "POST", timeoutMs: 120_000 }),
+  revertOpsCmaChange: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/revert`, { method: "POST", timeoutMs: 120_000 }),
   getOpsSettings: () => req("/facility-ops/settings"),
   saveOpsSettings: (data) => req("/facility-ops/settings", { method: "PUT", body: JSON.stringify(data) }),
   // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.

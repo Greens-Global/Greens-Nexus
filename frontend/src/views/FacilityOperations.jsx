@@ -55,7 +55,11 @@ const TABS = [
   // Ranked insights from Cubby's pricing, the rent roll and the market (Visesh,
   // Oct 20) - same door as Rate Management - one menu item per section.
   { key: 'pricing-menu', label: 'Pricing', Icon: Scale, items: [
-    { key: 'market',              label: 'Rate Management',     Icon: Scale },
+    // Rate Management as Miranda's CMA: four digestible screens (Oct 21).
+    { key: 'market',              label: 'CMA Overview',        Icon: Scale },
+    { key: 'market-comps',        label: 'Comp Set & Manual Entry', Icon: Users },
+    { key: 'market-history',      label: 'Rate History',        Icon: LineChart },
+    { key: 'market-review',       label: 'Review & Push',       Icon: ArrowUpRight },
     { key: 'pricing',             label: 'Pricing Insights',    Icon: Lightbulb },
     { key: 'pricing-competitive', label: 'Competitive Pricing', Icon: Users },
     { key: 'pricing-trends',      label: 'Trends',              Icon: LineChart },
@@ -82,6 +86,7 @@ const SCREEN_VIEWS = {
   pricing: { prefix: 'pricing', first: 'overview' },
   revenue: { prefix: 'revenue', first: 'tenants' },
   reports: { prefix: 'reports', first: 'reports' },
+  market: { prefix: 'market', first: 'overview' },
 };
 const screenOf = (key) => {
   for (const [screen, { prefix, first }] of Object.entries(SCREEN_VIEWS)) {
@@ -318,7 +323,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {screen === 'units' && <Units data={data} many={many} focus={focus} go={go}
             unitClasses={state.data.unitClasses} canEditClasses={canSeeKeyHint} onClassesSaved={() => load(true)} />}
           {screen === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
-          {screen === 'market' && <RateManagement facility={single} />}
+          {screen === 'market' && <RateManagement facility={single && !isThirdParty(single) ? single : null} section={view} onSection={onView('market')} />}
           {screen === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} section={view} onSection={onView('reports')} />}
           {screen === 'revenue' && (canRevenue
             ? <Revenue facility={single} section={view} onSection={onView('revenue')} />
