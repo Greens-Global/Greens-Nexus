@@ -40,6 +40,32 @@ export function filterAndSortTimeoff(rows, filter, sort) {
     .map(([r]) => r);
 }
 
+// Year / Month filters (Neil, Oct 21). Dates are ISO strings, so string
+// comparison is date order; a missing endDate means a one-day request.
+const span = (r) => [r.startDate || r.endDate || '', r.endDate || r.startDate || ''];
+
+// Every year any request touches, newest first.
+export function yearsOf(rows) {
+  const ys = new Set();
+  rows.forEach(r => { const [s, e] = span(r); if (s) ys.add(s.slice(0, 4)); if (e) ys.add(e.slice(0, 4)); });
+  return [...ys].sort().reverse();
+}
+
+// True when startDate..endDate overlaps the year, the month of that year, or
+// (month alone) that month of any year the request touches.
+export function inPeriod(r, year, month) {
+  if (!year && !month) return true;
+  const [s, e] = span(r);
+  if (!s) return false;
+  if (!year) {
+    for (let y = +s.slice(0, 4); y <= +e.slice(0, 4); y++) if (inPeriod(r, String(y), month)) return true;
+    return false;
+  }
+  const from = month ? `${year}-${month}-01` : `${year}-01-01`;
+  const to = month ? `${year}-${month}-31` : `${year}-12-31`;
+  return s <= to && e >= from;
+}
+
 // Click a header: a new column sorts ascending, the same column flips.
 export function nextSort(sort, key) {
   if (sort?.key === key) return { key, dir: sort.dir === 'asc' ? 'desc' : 'asc' };

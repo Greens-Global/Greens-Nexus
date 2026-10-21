@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
@@ -19,7 +19,7 @@ import GeofencePunchModal from './GeofencePunchModal';
 import AddTimeModal from './AddTimeModal';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
-import { Modal } from '../tasks/components';
+import { Modal, DateField } from '../tasks/components';
 import EmployeeCombobox from './EmployeeCombobox';
 import { downloadBlob } from './accounting/reportModel';
 import { formatDistance } from '../lib/distance';
@@ -54,6 +54,7 @@ const LEGACY_FINALIZE = false;
 const ANCHOR = Date.UTC(2024, 0, 14);  // a Sunday on SwipeClock's period series
 const DAY = 86400000;
 const isoDate = (d) => new Date(d).toISOString().slice(0, 10);
+const monthName = (d) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });   // "October 2026"
 const hhmm = (min) => `${Math.floor((min || 0) / 60)}:${String((min || 0) % 60).padStart(2, '0')}`;
 const dec = (min) => ((min || 0) / 60).toFixed(2);
 const money = (n, cur = 'USD') => `${moneyPrefix(cur)}${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -278,6 +279,49 @@ function periodStartFor(date) {
   // could never reach Aug 3-7 to fix a missed clock-out).
   const d = new Date(date);
   return snapPeriodUTC(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+}
+
+// Pay period finder (Neil, Oct 21 2026) - SwipeClock's "Select Other Periods".
+// The period label is the button; `periods` is newest first ({ key, label,
+// current, open, pick }) and `goTo(iso)` jumps to the period holding a date.
+// The backend only reads whole periods, so there is no custom range.
+function PeriodFinder({ label, minWidth, periods, goTo }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    // The Go to Date calendar is a portal (data-nx-calendar) - a click in it is not outside.
+    const onDoc = (e) => { if (!ref.current?.contains(e.target) && !e.target.closest?.('[data-nx-calendar]')) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" aria-label="Pick a pay period" aria-expanded={open} onClick={() => setOpen(o => !o)}
+        style={{ fontSize: 12.5, fontWeight: 700, minWidth, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 3, padding: '4px 6px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', color: 'var(--ink)' }}>
+        {label}<ChevronDown size={14} />
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: 'var(--wk-shadow)', zIndex: 50, padding: 10, minWidth: 260 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', marginBottom: 6 }}>Select a Pay Period</div>
+          <div role="radiogroup" aria-label="Pay periods" style={{ maxHeight: 280, overflowY: 'auto' }}>
+            {periods.map(p => (
+              <button key={p.key} type="button" role="radio" aria-checked={p.open} onClick={() => { p.pick(); setOpen(false); }}
+                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 8px', border: 'none', borderRadius: 8, fontSize: 12.5, fontFamily: 'var(--wk-font)', cursor: 'pointer', whiteSpace: 'nowrap', background: p.open ? 'var(--wk-brand-tint)' : 'transparent', color: p.open ? 'var(--wk-brand)' : 'var(--ink)', fontWeight: p.open ? 700 : 500 }}>
+                {p.label}{p.current ? ' (current)' : ''}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+            <span style={{ fontWeight: 700 }}>Go to Date</span>
+            <DateField value="" onChange={(iso) => { if (iso) { goTo(iso); setOpen(false); } }} placeholder="MM/DD/YYYY" title="Go to Date"
+              style={{ flex: 1, border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '4px 8px' }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Location cell - the punch's work site + an at-site/off-site pin (SwipeClock "Loc").
@@ -724,9 +768,27 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // UTC midnight shows the previous (Saturday) date to any viewer west of UTC.
   const label = `${formatDate(start)} – ${formatDate(end)}`;
   // The period as the employee sees it - a month for fixed, the bi-weekly range for hourly.
-  const periodLabel = isFixed && data?.periodStart
-    ? new Date(data.periodStart + 'T00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-    : label;
+  const periodLabel = isFixed && data?.periodStart ? monthName(new Date(data.periodStart + 'T00:00')) : label;
+  // The period list for the finder: hourly = one ahead, the current, 12 back
+  // on the UTC series (as `shift` steps); fixed = this month and 12 back (as
+  // `shiftMonth` steps). Picks set pStart exactly as the arrows would.
+  const finderPeriods = () => {
+    const today = new Date();
+    if (isFixed) {
+      const base = data?.periodStart ? new Date(data.periodStart + 'T00:00') : pStart;
+      return Array.from({ length: 13 }, (_, i) => {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 15);
+        return { key: monthName(d), label: monthName(d), current: i === 0, open: d.getFullYear() === base.getFullYear() && d.getMonth() === base.getMonth(), pick: () => setPStart(d) };
+      });
+    }
+    const curStart = periodStartFor(today).getTime();
+    return Array.from({ length: 14 }, (_, i) => {
+      const s = curStart + (1 - i) * 14 * DAY, k = isoDate(s);
+      return { key: k, label: `${formatDate(k)} - ${formatDate(isoDate(s + 13 * DAY))}`, current: i === 1, open: k === start, pick: () => setPStart(new Date(s)) };
+    });
+  };
+  const periodFinder = <PeriodFinder label={periodLabel} minWidth={isFixed ? 130 : 175} periods={finderPeriods()}
+    goTo={(iso) => setPStart(anchorForStart(iso, isFixed ? 'fixed' : 'hourly'))} />;
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
   const ownCard = !self && !!myEmail && (data?.email || email || '').toLowerCase() === myEmail.toLowerCase();
@@ -1258,7 +1320,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const companies = [...new Set(people.map(p => p.company).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const depts = [...new Set(people.filter(p => !company || p.company === company).map(p => p.department).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const pickable = people.filter(p => inFilter(p.email));
-  const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 }))).filter(p => inFilter(p.email));
+  const [onlyMissing, setOnlyMissing] = useState(false);   // sidebar: only people with missing punches
+  const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 }))).filter(p => inFilter(p.email) && (!onlyMissing || p.missing > 0));
   const filterSel = (value, onChange, label, options) => options.length > 1 && (
     <select className="form-input" value={value} onChange={e => onChange(e.target.value)} aria-label={label}
       style={{ fontSize: 12, padding: '4px 6px', width: '100%' }}>
@@ -1289,6 +1352,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           )}
         </div>
       )}
+      {exceptions.length > 0 && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', fontSize: 11.5, fontWeight: 500, color: 'var(--ink)', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={onlyMissing} onChange={e => setOnlyMissing(e.target.checked)} /> Only People With Missing Punches
+        </label>
+      )}
       <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex' }}>
         <span style={{ flex: 1 }}>Employee</span><span title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
       </div>
@@ -1316,7 +1384,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       <FixedTimecard data={data} self={self} email={email} people={people} setEmail={setEmail}
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
-        onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
+        onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)} periodFinder={periodFinder}
         onFinalize={finalize} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
         setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard} />
@@ -1375,7 +1443,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`} />}
         <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="icon-btn" onClick={() => shift(-1)} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
-          <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 175, textAlign: 'center' }}>{label}</span>
+          {periodFinder}
           <button className="icon-btn" onClick={() => shift(1)} style={{ padding: 6 }}><ChevronRight size={16} /></button>
         </div>
         {!self && (
@@ -1847,7 +1915,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false }) {
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, periodFinder, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false }) {
   const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
@@ -1870,7 +1938,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   const fixedSplit = (data.rateSplits || []).length > 1
     ? data.rateSplits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmtM(s.monthlySalary)}/mo` : `From ${formatDate(s.from)} at ${fmtM(s.monthlySalary)}/mo`).join(' · ')
     : '';
-  const monthLabel = data.periodStart ? new Date(data.periodStart + 'T00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '';
+  const monthLabel = data.periodStart ? monthName(new Date(data.periodStart + 'T00:00')) : '';
   // Always US month/day (Oct 16): [] took the browser's locale, so an India-locale
   // browser read 'Sun 11/10' for October 11.
   const dow = (ds) => `${new Date(ds + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' })} ${formatMonthDayNumeric(ds, true)}`;
@@ -1927,7 +1995,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : ''}`} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="icon-btn" onClick={onPrev} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
-          <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 130, textAlign: 'center' }}>{monthLabel}</span>
+          {periodFinder}
           <button className="icon-btn" onClick={onNext} style={{ padding: 6 }}><ChevronRight size={16} /></button>
         </div>
         {!fin && (

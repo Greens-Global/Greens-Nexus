@@ -18,7 +18,7 @@ import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner, Spinner } from './AsyncState';
 import { formatDate, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
 import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
-import { TIMEOFF_FILTERS, countByStatus, filterAndSortTimeoff, nextSort } from '../lib/timeOffFilter';
+import { TIMEOFF_FILTERS, countByStatus, filterAndSortTimeoff, nextSort, yearsOf, inPeriod } from '../lib/timeOffFilter';
 import { takePendingOpen } from '../lib/pendingOpen';
 import TimesheetsToReview from './TimesheetsToReview';
 import { Avatar } from '../tasks/components';
@@ -513,6 +513,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     try { localStorage.setItem(timeoffFilterKey, f); } catch { /* private window */ }
   };
   const [timeoffSort, setTimeoffSort] = useState(null);   // null = server order (newest first)
+  const [timeoffYear, setTimeoffYear] = useState('');     // '' = all years (Neil, Oct 21)
+  const [timeoffMonth, setTimeoffMonth] = useState('');   // '01'..'12', '' = all months
   const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
 
   // Unsaved-changes guards for the edit/on-behalf/add-punch modals: an
@@ -1017,8 +1019,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {view === 'timeoff' && (
         <>
         {(() => {
-          const counts = countByStatus(timeoff);
-          const shownRows = filterAndSortTimeoff(timeoff, timeoffFilter, timeoffSort);
+          const inRange = timeoff.filter(r => inPeriod(r, timeoffYear, timeoffMonth));
+          const counts = countByStatus(inRange);
+          const shownRows = filterAndSortTimeoff(inRange, timeoffFilter, timeoffSort);
+          const periodSel = { fontSize: 12, padding: '4px 6px' };
           const chips = TIMEOFF_FILTERS.filter(([k]) => k !== 'cancelled' || counts.cancelled > 0 || timeoffFilter === 'cancelled');
           const sortHead = (key, label, style) => {
             const on = timeoffSort?.key === key;
@@ -1048,6 +1052,15 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
               );
             })}
           </div>
+          <select className="form-input" aria-label="Year" value={timeoffYear} onChange={e => setTimeoffYear(e.target.value)} style={periodSel}>
+            <option value="">All Years</option>
+            {yearsOf(timeoff).map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <select className="form-input" aria-label="Month" value={timeoffMonth} onChange={e => setTimeoffMonth(e.target.value)} style={periodSel}>
+            <option value="">All Months</option>
+            {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+              .map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
+          </select>
           <button className="primary-btn" onClick={() => setObo({ email: '', type: 'vacation', start: '', end: '', note: '', confidential: false })}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}>
             <Plus size={13} /> Request on Behalf
@@ -1063,10 +1076,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           ) : shownRows.length === 0 && (
             <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
               {timeoff.length === 0 ? 'No time-off requests yet.'
+                : timeoffYear || timeoffMonth ? 'No requests in that period.'
                 : timeoffFilter === 'pending' ? 'No requests are waiting for a decision.'
                 : `No ${timeoffFilter} requests.`}
               {timeoff.length > 0 && (
-                <button type="button" className="secondary-btn" onClick={() => setTimeoffFilter('all')}
+                <button type="button" className="secondary-btn" onClick={() => { setTimeoffFilter('all'); setTimeoffYear(''); setTimeoffMonth(''); }}
                   style={{ fontSize: 12, padding: '4px 10px', marginLeft: 8 }}>Show All</button>
               )}
             </div>
