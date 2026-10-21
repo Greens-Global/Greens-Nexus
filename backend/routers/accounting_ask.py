@@ -38,7 +38,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -407,7 +407,7 @@ def _text(s: Optional[str], n: int) -> str:
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
 @router.get("/items")
-async def list_items(entity: Optional[str] = None, from_: Optional[str] = None, to: Optional[str] = None,
+async def list_items(entity: Optional[str] = None, from_: Optional[str] = Query(None, alias="from"), to: Optional[str] = None,
                      who: dict = Depends(caller)):
     """The AMA screen: every question the caller may see (any date) and every
     line on the AMA account(s) in the period that has no question yet, with
