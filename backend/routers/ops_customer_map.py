@@ -5,8 +5,11 @@ ops_customer_geo.py's loop; this only reads them.
 Managers and above, or an Operations grant at Full - the ECRI Management
 door (routers/ops_revenue.py). Everyone else gets 403.
 
-The payload carries no customer id, name or address: points are grouped by
-identical rounded coordinate (about 100 m) and carry only a count.
+The payload carries no customer id, name or address: customers are grouped
+by rounded coordinate (about 100 m), facility, unit kind, tenure bucket and
+rent band, and each group carries only a count and a rent sum. The trade area
+figures (radii, distance distribution, competitors, overlap) are computed on
+the server for the filtered set (ops_customer_geo.build_map).
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -30,9 +33,13 @@ router = APIRouter(
 
 
 @router.get("")
-def customer_map(facility: str = "all", state: str = "", db: Session = Depends(get_db)):
-    """Sync def: FastAPI runs it in its threadpool, never on the event loop."""
-    out = geo.build_map(db, facility=facility or "all", state=(state or "").strip()[:2])
+def customer_map(facility: str = "all", state: str = "", kind: str = "all", since: str = "all",
+                 band: str = "all", db: Session = Depends(get_db)):
+    """Sync def: FastAPI runs it in its threadpool, never on the event loop.
+    kind: all | storage | vehicle; since: all | 90 | 365; band: all | 0-3.
+    Anything else reads as "all"."""
+    out = geo.build_map(db, facility=facility or "all", state=(state or "").strip()[:2],
+                        kind=(kind or "all")[:10], since=(since or "all")[:5], band=(band or "all")[:5])
     if out is None:
         raise HTTPException(status_code=404, detail="Facility not found")
     return out

@@ -25,9 +25,11 @@ ADDR = {"address": "41000 Main St", "address2": "Apt 4", "city": "Temecula", "st
 SECRET_BITS = ("41000", "Main St", "Temecula", "92590", "Apt 4", "Jane", "Doe", "555", "@")
 
 
-def _unit(fid, uid, cid, status="RENTED", group="10x10"):
+def _unit(fid, uid, cid, status="RENTED", group="10x10", rent=10000, move_in="2020-01-01"):
     return models.CubbyUnit(id=f"{fid}:{uid}", facility_id=fid, unit_id=uid, status=status, customer_id=cid,
-                            data={"rentRoll": {"unitId": uid, "status": status, "customerId": cid, "pricingGroupName": group}})
+                            data={"rentRoll": {"unitId": uid, "status": status, "customerId": cid, "pricingGroupName": group,
+                                               "monthlyRentalAmount": rent, "moveInDate": move_in,
+                                               "customerName": "Jane Doe"}})
 
 
 @pytest.fixture
@@ -39,7 +41,7 @@ def db(monkeypatch):
     monkeypatch.setattr(httpx, "Client", boom)
     geo._zip_cache.clear()
     s = SessionLocal()
-    for t in (models.OpsCustomerPoint, models.CubbyUnit, models.CubbyFacility):
+    for t in (models.OpsCustomerPoint, models.CubbyUnit, models.CubbyFacility, models.OpsCompetitor):
         s.query(t).delete()
     s.add(models.CubbyFacility(facility_id=FAC, name="Greens Storage Temecula", enabled=True,
                                data={"latitude": "33.5000", "longitude": "-117.1500"}))
@@ -192,6 +194,17 @@ def _seed_points(db):
     db.commit()
 
 
+def _rows(body):
+    cols = body["pointCols"]
+    return [dict(zip(cols, r)) for r in body["points"]]
+
+
+def _no_personal_bits(text):
+    for bit in ("c1", "c2", "c3", "customerId", "customer_id", "fingerprint", "Jane", "Doe", "customerName",
+                *(b for b in SECRET_BITS if b != "Temecula")):     # the facility's own name says Temecula
+        assert bit not in text, bit
+
+
 def test_api_aggregates_counts_rings_and_coverage(client, db):
     _seed_points(db)
     r = client.get(f"/facility-ops/customer-map?facility={FAC}")
@@ -199,21 +212,161 @@ def test_api_aggregates_counts_rings_and_coverage(client, db):
     body = r.json()
     assert [f["shortName"] for f in body["facilities"]] == ["Temecula"]
     assert body["facilities"][0]["lat"] == 33.5
-    pts = sorted(body["points"], key=lambda p: p["lat"])
-    assert pts == [{"lat": 33.51, "lng": -117.15, "facilityId": FAC, "count": 2, "precision": "street"},
-                   {"lat": 33.9, "lng": -117.15, "facilityId": FAC, "count": 1, "precision": "zip"}]
+    assert [g["shortName"] for g in body["greens"]] == ["Escondido", "Temecula"]
+    tem = 1                                          # Temecula's index in `greens`
+    pts = sorted(_rows(body), key=lambda p: p["lat"])
+    assert [(p["lat"], p["lng"], p["facility"], p["zip"], p["count"]) for p in pts] == [
+        (33.51, -117.15, tem, 0, 2), (33.9, -117.15, tem, 1, 1)]
+    assert 0.6 < pts[0]["miles"] < 0.75 and 27 < pts[1]["miles"] < 28
     assert body["coverage"][FAC] == {"current": 3, "placed": 3, "zipOnly": 1, "missing": 0, "pending": 0}
-    assert [x["count"] for x in body["rings"]] == [2, 2, 2, 2, 2, 3] and body["beyond"] == 0
+    st = body["stats"]
+    assert [x["count"] for x in st["rings"]] == [2, 2, 2, 2, 2, 3] and st["beyond"] == 0 and st["placed"] == 3
+    assert body["byFacility"][FAC]["rings"] == st["rings"]
     # Every facility; c1 at Escondido is still pending.
     allb = client.get("/facility-ops/customer-map").json()
     assert {f["id"] for f in allb["facilities"]} == {FAC, FAC2}
     assert allb["coverage"][FAC2]["pending"] == 1 and allb["total"]["current"] == 4
     assert client.get("/facility-ops/customer-map?facility=nope").status_code == 404
     # Nothing personal in the payload: no customer id, no name, no address.
-    text = r.text + client.get("/facility-ops/customer-map").text
-    for bit in ("c1", "c2", "c3", "customerId", "customer_id", "fingerprint",
-                *(b for b in SECRET_BITS if b != "Temecula")):     # the facility's own name says Temecula
-        assert bit not in text, bit
+    _no_personal_bits(r.text + client.get("/facility-ops/customer-map").text)
+
+
+def test_trade_stats_on_a_known_set():
+    d = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0, 20.0, 80.0]
+    s = geo.trade_stats(d)
+    # Nearest rank: 50% -> 5th value, 80% -> 8th, 90% -> 9th.
+    assert s["radii"] == {"50": 2.5, "80": 6.0, "90": 20.0}
+    assert s["median"] == 2.75 and s["mean"] == 12.05
+    assert [(b["min"], b["max"], b["count"]) for b in s["buckets"]] == [
+        (0, 1, 2), (1, 2, 2), (2, 3, 2), (3, 5, 1), (5, 10, 1), (10, 50, 1), (50, None, 1)]
+    assert sum(b["count"] for b in s["buckets"]) == len(d)
+    assert s["beyond"] == 1 and s["placed"] == 10
+    empty = geo.trade_stats([])
+    assert empty["radii"] == {"50": None, "80": None, "90": None} and empty["median"] is None and empty["mean"] is None
+    assert geo.percentile([7.0], 90) == 7.0
+
+
+def test_kind_tenure_and_rent_buckets():
+    today = geo.date(2026, 10, 22)
+    assert geo.kind_of(["Parking - RV, Uncovered"]) == "vehicle"
+    assert geo.kind_of(["Parking - RV", "10' x 10' Storage"]) == "storage"     # a storage unit makes them storage
+    assert geo.kind_of(["0' x 3' mailbox"]) == "storage"
+    assert geo.tenure_of("2026-09-01", today) == "under90d"
+    assert geo.tenure_of("2026-07-24", today) == "under1y"                     # 90 days ago
+    assert geo.tenure_of("2025-10-23", today) == "under1y"
+    assert geo.tenure_of("2024-01-01", today) == "1to3y"
+    assert geo.tenure_of("2019-05-01", today) == "over3y"
+    assert geo.tenure_of("", today) == "unknown"
+    bands = geo.rent_bands([50, 100, 150, 200, 250, 300, 350, 400])
+    assert [(b["min"], b["max"]) for b in bands] == [(50, 100), (100, 200), (200, 300), (300, 400)]
+    assert [geo.band_of(x, bands) for x in (50, 100, 101, 200, 300, 301, 400)] == [0, 0, 1, 1, 2, 3, 3]
+
+
+def _trade_area_seed(db):
+    """Temecula: c1 storage (moved in this month, $100), c2 RV parking ($300,
+    2 years), c3 storage + parking ($50 + $250, 5 years) placed 100+ miles
+    away; Escondido: c1, who lives next to Temecula."""
+    for u in db.query(models.CubbyUnit).all():
+        db.delete(u)
+    db.commit()
+    db.add_all([
+        _unit(FAC, "u1", "c1", group="10' x 10' Storage", rent=10000, move_in="2026-10-01"),
+        _unit(FAC, "u2", "c2", group="Parking - RV, Uncovered", rent=30000, move_in="2024-06-01"),
+        _unit(FAC, "u3", "c3", group="5' x 5' Storage", rent=5000, move_in="2021-01-01"),
+        _unit(FAC, "u3b", "c3", group="Parking - Asphalt", rent=25000, move_in="2022-01-01"),
+        _unit(FAC2, "e1", "c1", group="10' x 10' Storage", rent=20000, move_in="2026-08-01"),
+    ])
+    P = models.OpsCustomerPoint
+    db.add_all([
+        P(id=f"{FAC}:c1", facility_id=FAC, customer_id="c1", lat=33.51, lng=-117.15, precision="street", fingerprint="x"),
+        P(id=f"{FAC}:c2", facility_id=FAC, customer_id="c2", lat=33.55, lng=-117.15, precision="street", fingerprint="x"),
+        P(id=f"{FAC}:c3", facility_id=FAC, customer_id="c3", lat=35.0, lng=-115.5, precision="zip", fingerprint="x"),
+        P(id=f"{FAC2}:c1", facility_id=FAC2, customer_id="c1", lat=33.51, lng=-117.15, precision="street", fingerprint="x"),
+    ])
+    db.commit()
+
+
+def test_build_map_buckets_filters_outside_and_overlap(db):
+    _trade_area_seed(db)
+    today = geo.date(2026, 10, 22)
+    body = geo.build_map(db, facility=FAC, today=today)
+    rows = sorted(_rows(body), key=lambda p: p["lat"])
+    k, t = body["kinds"], body["tenures"]
+    assert [(k[p["kind"]], t[p["tenure"]], p["rent"], p["count"]) for p in rows] == [
+        ("storage", "under90d", None, 1), ("vehicle", "1to3y", None, 1), ("storage", "over3y", None, 1)]   # 1-person groups: no rent
+    assert [b["max"] for b in body["rentBands"]] == [100.0, 300.0, 300.0, 300.0]
+    assert [p["band"] for p in rows] == [0, 1, 1]
+    st = body["stats"]
+    assert st["customers"] == 3 and st["placed"] == 3
+    assert st["outside50"] == {"count": 1, "regions": [{"state": "CA", "count": 1}]}
+    assert body["byFacility"][FAC]["vehiclePct"] == 33.3
+    # Overlap: nobody at Temecula lives closer to Escondido...
+    assert body["byFacility"][FAC]["closer"] == [] and st["overlap"] == 0
+    # ...but Escondido's c1 lives next to Temecula.
+    esc = geo.build_map(db, facility=FAC2, today=today)
+    assert esc["byFacility"][FAC2]["closer"] == [{"facilityId": FAC, "shortName": "Temecula", "count": 1}]
+    assert esc["stats"]["overlap"] == 1
+    assert esc["greens"][_rows(esc)[0]["closer"]]["id"] == FAC
+    # Filters change the points AND the numbers together.
+    veh = geo.build_map(db, facility=FAC, kind="vehicle", today=today)
+    assert [r["count"] for r in _rows(veh)] == [1] and veh["stats"]["customers"] == 1
+    assert veh["filters"] == {"kind": "vehicle", "since": "all", "band": "all"}
+    new = geo.build_map(db, facility=FAC, since="90", today=today)
+    assert [(r["count"], r["rent"]) for r in _rows(new)] == [(1, None)] and new["stats"]["outside50"]["count"] == 0
+    year = geo.build_map(db, since="365", today=today)
+    assert year["stats"]["customers"] == 2                       # Temecula c1 + Escondido c1
+    top = geo.build_map(db, facility=FAC, band="1", today=today)
+    assert [r["band"] for r in _rows(top)] == [1, 1] and top["stats"]["customers"] == 2   # the $300 band only
+    junk = geo.build_map(db, facility=FAC, kind="boats", since="7", band="9", today=today)
+    assert junk["filters"] == {"kind": "all", "since": "all", "band": "all"} and junk["stats"]["customers"] == 3
+    # All facilities: one comparison row each; each customer measured from their own store.
+    allb = geo.build_map(db, today=today)
+    assert set(allb["byFacility"]) == {FAC, FAC2}
+    assert allb["byFacility"][FAC2]["customers"] == 1 and allb["byFacility"][FAC2]["radii"]["50"] > 25
+    assert allb["stats"]["customers"] == 4
+
+
+def test_competitors_deduped_counted_and_named(db):
+    _trade_area_seed(db)
+    C = models.OpsCompetitor
+    db.add_all([
+        C(id="k1", facility_id=FAC, name="Public Storage", lat=33.52, lng=-117.15, active=True),      # ~1.4 mi
+        C(id="k1b", facility_id=FAC2, name="Public Storage", lat=33.52, lng=-117.15, active=True),    # same store, other list
+        C(id="k2", facility_id=FAC, name="Extra Space", lat=33.56, lng=-117.15, active=True),         # ~4.1 mi
+        C(id="k3", facility_id=FAC, name="CubeSmart", lat=33.62, lng=-117.15, active=True),           # ~8.3 mi
+        C(id="k4", facility_id=FAC, name="Closed Co", lat=33.5, lng=-117.151, active=False, closed=True),
+        C(id="k5", facility_id=FAC, name="No Pin", active=True),
+        C(id="k6", facility_id=FAC, name="Far Away", lat=40.0, lng=-110.0, active=True),
+    ])
+    db.commit()
+    body = geo.build_map(db, facility=FAC)
+    assert [c["name"] for c in body["competitors"]] == ["Public Storage", "Extra Space", "CubeSmart"]
+    assert set(body["competitors"][0]) == {"name", "lat", "lng", "miles"}
+    assert body["stats"]["competitorsWithin"] == {"3": 1, "5": 2, "10": 3}
+    assert body["byFacility"][FAC]["competitorsWithin"] == {"3": 1, "5": 2, "10": 3}
+    # From Escondido (~27 mi south) none are within 10 miles; All counts the nearest shown store.
+    allb = geo.build_map(db)
+    assert allb["byFacility"][FAC2]["competitorsWithin"] == {"3": 0, "5": 0, "10": 0}
+    assert allb["stats"]["competitorsWithin"] == {"3": 1, "5": 2, "10": 3}
+
+
+def test_api_filters_and_privacy(client, db):
+    _trade_area_seed(db)
+    r = client.get(f"/facility-ops/customer-map?facility={FAC}&kind=vehicle&since=all&band=all")
+    assert r.status_code == 200 and r.json()["stats"]["customers"] == 1
+    texts = [r.text] + [client.get(f"/facility-ops/customer-map?{q}").text
+                        for q in ("", f"facility={FAC2}", "since=90", "band=3")]
+    _no_personal_bits("".join(texts))
+    body = client.get("/facility-ops/customer-map").json()
+    # Every point row is numbers only - nothing a person can be found by.
+    assert body["pointCols"] == ["lat", "lng", "facility", "zip", "kind", "tenure", "band", "count", "rent", "miles", "closer"]
+    for row in body["points"]:
+        assert all(v is None or isinstance(v, (int, float)) for v in row)
+    # A group under 3 customers carries no rent - one person's rent at a ~100 m point is too close (Oct 22).
+    ci, ri = body["pointCols"].index("count"), body["pointCols"].index("rent")
+    assert any(row[ci] < 3 for row in body["points"])
+    for row in body["points"]:
+        assert (row[ri] is None) == (row[ci] < 3)
 
 
 def test_access_managers_and_ops_full_only(client, monkeypatch):
