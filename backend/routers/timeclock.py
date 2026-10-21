@@ -10198,7 +10198,13 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "adjustedBy": _who(p.adjusted_by), "adjustedAt": p.adjusted_at or "",
                          "adjustNote": p.adjust_note or "",
                          "clock": not p.adjusted_at and (p.source or "") not in ("manual", "self_manual", "auto_eod", "projection"),
-                         "byHr": _by_hr(p)} for p in punches}
+                         "byHr": _by_hr(p),
+                         # An employee's proposed time on THIS punch. The card's
+                         # segment fields only carry the clock-in's and clock-out's,
+                         # so a pending edit on a break punch was saved but never
+                         # shown (Miranda, Oct 20).
+                         "pendingAt": p.pending_at or "", "editStatus": p.edit_status or "",
+                         "editReason": p.edit_reason or ""} for p in punches}
 
     # Shift differentials + call-back pay (pay_premiums.py) - off by default
     # per company; while off nothing below changes.

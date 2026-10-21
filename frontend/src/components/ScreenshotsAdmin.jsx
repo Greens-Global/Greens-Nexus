@@ -50,9 +50,9 @@ export default function ScreenshotsAdmin({ onClose, onBack, embedded = false, in
   };
 
   const body = (
-      <div style={embedded
+      <div className={embedded ? undefined : 'nx-popup'} style={embedded
         ? { display: 'flex', flexDirection: 'column', fontFamily: 'Inter,sans-serif' }
-        : { background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 900, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+        : { background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: embedded ? '0 0 12px' : '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           {who && (
             <button onClick={goBack} title={deepLinked ? 'Back to Coverage' : 'Back'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>

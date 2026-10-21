@@ -14,6 +14,7 @@ import { canPreview } from '../egnyte/lib';
 import { MyChecklistSteps } from '../components/HrChecklists';
 import MyShifts from '../components/MyShifts';
 import ReimbursementsTile from '../components/Reimbursements';
+import { PurchaseRequestTile } from '../components/PurchaseRequests';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -115,7 +116,7 @@ function Stat({ label, value, hint, color, Icon, hero, title, onClick }) {
     : <div className={cls} style={{ cursor: 'default' }} title={title}>{body}</div>;
 }
 
-export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null, focusConfirm = '', openReimbursements = false }) {
+export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, clock = null, focusConfirm = '', openReimbursements = false }) {
   // A "confirm your schedule" bell or email (Shifts Phase 3a) lands here:
   // My Schedule shows that share's banner - bring the card into view.
   useEffect(() => {
@@ -466,7 +467,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null, foc
             {/* Styled as the place to go (Pranshu, Oct 15 2026): a soft tint of
                 the hero's blue-to-green, a solid badge and an Ask a Question
                 pill - wd-askhr in TimeClock.jsx's Workday styles. */}
-            {/* Ask HR and Reimbursements share the last cell as two compact rows (Oct 18 2026). */}
+            {/* Ask HR, Reimbursements and Purchase Request share the last cell as compact rows (Oct 18 / Oct 22 2026). */}
             <div className="wd-actions">
             <button type="button" className="dk-stat wd-stat wd-askhr" onClick={openAskPanel}
               aria-label={askUnseen ? `Ask HR, ${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR` : 'Ask HR'}>
@@ -486,6 +487,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null, foc
             </button>
             {/* Reimbursements (Neil, Oct 18 2026): beside Ask HR, a panel - not a new tab. */}
             <ReimbursementsTile autoOpen={openReimbursements} flash={flash} />
+            {/* Purchase Request (Neil, Oct 22 2026): moved here from Item Management - opens the Purchase Requests tab. */}
+            <PurchaseRequestTile onOpen={onOpenPurchase || (() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'purchase' } })))} />
             </div>
           </div>
         </>

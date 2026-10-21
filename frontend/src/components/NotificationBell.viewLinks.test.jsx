@@ -39,7 +39,7 @@ vi.mock('../contexts/RoleContext', () => ({
 vi.mock('../api', () => ({ api: new Proxy({}, { get: () => vi.fn(async () => []) }) }));
 
 import { takePendingOpen, __clearPendingOpen } from '../lib/pendingOpen';
-import NotificationBell from './NotificationBell';
+import NotificationBell, { destinationFor } from './NotificationBell';
 
 const TASK_ID = 'e116aa36-e81b-4726-b945-088e02acdd9a';
 const taskNotification = (over = {}) => ({
@@ -244,5 +244,16 @@ describe('a module that is still loading when the notification is clicked', () =
 
     expect(takePendingOpen('task')).toBeNull();
     expect(takePendingOpen('ticket')).toBeNull();
+  });
+});
+
+// Purchase Requisition moved to Workday (Neil, Oct 22 2026): every requisition
+// bell - the approver's, the fulfiller's and the requester's - opens Workday >
+// Purchase Requests, never the retired Purchase view or Item Management tab.
+describe('purchase requisition bells', () => {
+  it('open Workday > Purchase Requests', () => {
+    for (const type of ['req_pending', 'req_fulfill', 'req_update', 'req_approved', 'req_rejected']) {
+      expect(destinationFor({ type })).toEqual(['myhr', 'purchase']);
+    }
   });
 });

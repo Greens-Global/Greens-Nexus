@@ -70,7 +70,7 @@ export default function LeasingFromLedger({ onClose, onCreated, pollMs = POLL_MS
   const read = data ? (data.entitiesRead ?? (data.entitiesScanned ?? 0) - failed.length) : 0;
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Set up leases from the ledger" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 980 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Set up leases from the ledger" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Set Up From the Ledger</h3>

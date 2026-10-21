@@ -166,7 +166,7 @@ export function PfsAccessLog({ files = [], initialFileId = '', onClose }) {
   };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Access log" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 860 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Access log" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}><History size={18} /> Access Log</h3>

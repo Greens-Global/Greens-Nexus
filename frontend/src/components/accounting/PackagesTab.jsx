@@ -301,7 +301,7 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
   const ctl = { ...control, height: 26, fontSize: '0.76rem' };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Adjustments" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'min(1040px, 96vw)', maxHeight: '92vh' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Adjustments" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'max(60vw, min(1040px, 96vw))', maxHeight: '92vh' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>Adjustments - {item.title || report.name}</h3>

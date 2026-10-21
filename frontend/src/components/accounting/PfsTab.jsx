@@ -1551,7 +1551,7 @@ function LineEditor({ line, profileId, categories, asOf, onClose, onSave }) {
   };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={line.id ? `Change ${line.label}` : 'Add a line'} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 680 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={line.id ? `Change ${line.label}` : 'Add a line'} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{line.id ? 'Change Line' : `Add to ${categories.find((c) => c.key === l.category)?.label || 'the Statement'}`}</h3>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -1689,7 +1689,7 @@ function NewGuarantor({ onClose, onCreate }) {
   );
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <form className="modal-content" role="dialog" aria-modal="true" aria-label="New guarantor" onClick={(e) => e.stopPropagation()} onSubmit={save} style={{ maxWidth: 520 }}>
+      <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="New guarantor" onClick={(e) => e.stopPropagation()} onSubmit={save}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>New Guarantor</h3>

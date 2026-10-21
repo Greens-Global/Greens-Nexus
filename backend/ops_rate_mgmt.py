@@ -7,11 +7,11 @@ HAND and marks them entered here; each mark is a row in `ops_rate_pushes`
 (status "entered") - the history of OUR rates. (Rows from before Oct 20 2026
 carry the old ok / failed / skipped statuses; they stay as history.)
 
-Nexus NEVER writes to Cubby (Visesh, Oct 20 2026: "we don't want anything to
-push to cubby"). This module only READS Cubby's pricing groups
-(`pricing-groups/search`). Do not add a call to `pricing-groups/change-rates`
-or any other Cubby write: staff change rates in Cubby, using the review and
-the printable checklist.
+This module only READS Cubby's pricing groups (`pricing-groups/search`);
+`_call` refuses any other path. The one write (`pricing-groups/change-rates`)
+lives in ops_cubby_push.py behind the Operations "Push to Cubby" switch, OFF
+by default (Visesh, Oct 20-21 2026). While it is off, staff change rates in
+Cubby by hand, using the review and the printable checklist.
 
 Words on the screen, in Cubby's terms:
   Set     the pricing group's standardRate (the in-store rate)
@@ -104,89 +104,116 @@ def plan(old_set: int | None, old_sell: int, proposed: int, proposed_set: int | 
     return {"newSell": proposed, "newSet": max(new_set, 0)}
 
 
-def build_rows(unit_types: list[dict], market_rows: list[dict], idx: dict, drafts: dict[str, dict]) -> list[dict]:
-    """One row per unit type, in the screen's order (category, then size)."""
+def build_rows(unit_types: list[dict], market_rows: list[dict], idx: dict, drafts: dict[str, dict],
+               cma: dict[str, dict] | None = None, vacancy: dict[str, dict] | None = None) -> list[dict]:
+    """One row per unit type, in the screen's order (category, then size).
+
+    `cma` is {unit type: ops_cma.pick_comps(...)} - the CMA market set (low /
+    high / AVG from one set, closed competitors out, nearest size, staff
+    matches, locked overrides). Variance, the suggestion (the briefing's rule,
+    ops_cma.suggest) and the revenue delta (x OCCUPIED units) all come from
+    it. `market_rows` (ops_market.compare) still gives the median for
+    reference. `vacancy` is ops_cma.days_vacant."""
+    import ops_cma
+    cma = cma or {}
+    vacancy = vacancy or {}
     by_name = {r["name"]: r for r in market_rows}
     rows = []
     for t in unit_types:
         g = idx.get(t["name"])
         m = by_name.get(t["name"]) or {}
+        c = cma.get(t["name"]) or {"comps": [], "low": None, "high": None, "avg": None, "count": 0, "nearest": ""}
         sell = sell_of(g)
         if sell is None:
             sell = t.get("street") or 0
         total = t.get("total") or 0
-        median = m.get("marketMedian")
+        rented = t.get("rented") or 0
+        avg = c["avg"]
         d = drafts.get(t["name"])
         proposed = d["proposed"] if d else None
         p = plan(g.get("standardRate") if g else None, sell, proposed, d.get("proposedSet")) if d else None
-        variance = sell - median if (median is not None and sell) else None
+        variance = sell - avg if (avg is not None and sell) else None
         offline_only = bool(total) and (t.get("unavailable") or 0) == total
-        suggested, why = m.get("suggested"), m.get("why") or "No competitor rate on file for this size."
-        if offline_only:
-            suggested, why = None, "Every unit of this type is offline - nothing to price."
-        elif suggested is not None and sell <= ODD_CENTS:
-            suggested, why = None, "Our Sell rate looks like a placeholder. Fix it in Cubby first, then compare."
-        rows.append({
+        occupancy = round(rented / total, 4) if total else 0
+        suggested, why, move = ops_cma.suggest(sell, avg, occupancy, c["count"], total, offline_only)
+        if suggested is not None and sell <= ODD_CENTS:
+            suggested, why, move = None, "Our Sell rate looks like a placeholder. Fix it in Cubby first, then compare.", "none"
+        comps = c["comps"]
+        promos = [x for x in comps if x.get("promo")]
+        fees = sorted(x["adminFee"] for x in comps if x.get("adminFee"))
+        vac = vacancy.get(t["name"]) or {}
+        row = {
             "name": t["name"], "category": category(t, g),
             "groupId": (g or {}).get("pricingGroupId") or "",
             "ambiguous": t["name"] in idx and idx[t["name"]] is None,
             "width": t.get("width") or 0, "depth": t.get("depth") or 0, "parking": bool(t.get("parking")),
-            "total": total, "rented": t.get("rented") or 0, "vacant": t.get("vacant") or 0,
+            "total": total, "rented": rented, "vacant": t.get("vacant") or 0,
             "offline": t.get("unavailable") or 0,
-            "occupancy": round((t.get("rented") or 0) / total, 4) if total else 0,
+            "occupancy": occupancy,
+            "avgDaysVacant": vac.get("avg"), "daysVacantKnown": vac.get("known", 0),
+            "avgRent": round((t.get("rentSum") or 0) / rented) if rented else None,
             "set": g.get("standardRate") if g else (t.get("street") or 0),
             "sell": sell,
+            "webRate": g.get("webRate") if g else None,
             "walkIn": g.get("walkInRate") if g else None,
             "valuePricing": (g or {}).get("valuePricingStatus") or "",
-            "competitors": m.get("competitors", 0),
-            "marketLow": m.get("marketLow"), "marketHigh": m.get("marketHigh"), "marketMedian": median,
-            "lowestBy": m.get("lowestBy", ""), "newestObservation": m.get("newestObservation", ""),
-            "sources": m.get("sources", []),
+            "competitors": c["count"],
+            "marketLow": c["low"], "marketHigh": c["high"], "marketAvg": avg,
+            "marketMedian": m.get("marketMedian"),
+            "nearestSize": c["nearest"],
+            "lowestBy": min(comps, key=lambda x: x["rate"])["competitor"] if comps else "",
+            "newestObservation": max((x["observedOn"] for x in comps), default=""),
+            "sources": sorted({x["source"] for x in comps}),
+            "promoCount": len(promos), "promoBy": [x["competitor"] for x in promos],
+            "adminFeeLow": fees[0] if fees else None, "adminFeeHigh": fees[-1] if fees else None,
             "variance": variance,
-            "variancePct": round(variance / median, 4) if variance is not None and median else None,
-            "suggested": suggested, "why": why,
+            "variancePct": round(variance / avg, 4) if variance is not None and avg else None,
+            "suggested": suggested, "why": why, "move": move,
             "offlineOnly": offline_only,
             "hasWeb": bool(g and g.get("webRate") is not None),
             "hasWalkIn": bool(g and g.get("walkInRate") is not None),
             "draft": d,
             "proposed": proposed,
             "proposedSet": p["newSet"] if p else None,
-            "revDelta": (proposed - sell) * (t.get("vacant") or 0) if proposed is not None else 0,
+            "revDelta": (proposed - sell) * rented if proposed is not None else 0,
             "ready": bool(d and (g or {}).get("pricingGroupId") and (proposed != sell or p["newSet"] != (g or {}).get("standardRate"))),
-        })
+        }
+        row["algorithmWebRate"] = ops_cma.algorithm_web_rate(row)
+        rows.append(row)
     for r in rows:
         r["position"] = position(r)
         r["reason"], r["held"] = reason(r)
-        r["suggestedDelta"] = (r["suggested"] - r["sell"]) * r["vacant"] if r["suggested"] is not None else 0
+        r["suggestedDelta"] = (r["suggested"] - r["sell"]) * r["rented"] if r["suggested"] is not None else 0
     order = {c: i for i, c in enumerate(CATEGORIES)}
     rows.sort(key=lambda r: (order.get(r["category"], 9), r["width"] * r["depth"] or 1e9, r["name"]))
     return rows
 
 
 def position(row: dict) -> str:
-    """Where our Sell rate sits: below | at | above the market median, none
+    """Where our Sell rate sits: below | at | above the market AVERAGE, none
     (no market rate for the size) or offline (nothing to price)."""
     if row.get("offlineOnly"):
         return "offline"
     if row.get("variancePct") is None:
         return "none"
-    if abs(row["variancePct"]) <= AT_MARKET:
+    if abs(row["variancePct"]) <= ops_cma_at():
         return "at"
     return "below" if row["variancePct"] < 0 else "above"
 
 
+def ops_cma_at() -> float:
+    import ops_cma
+    return ops_cma.AT_MARKET
+
+
 def reason(row: dict) -> tuple[str, bool]:
-    """(short reason for the suggestion, whether the 10% step held it back):
-    the occupancy band in a word or two and which way the suggestion moves,
-    e.g. "Nearly Full: Raise". The full sentence stays in `why`."""
-    if row.get("suggested") is None:
+    """(short reason chip, False): "Raise", "Lower" or "Hold" from the CMA
+    rule (ops_cma.suggest). The full sentence stays in `why`. The second
+    value is kept for the screen (the old 10% step no longer applies)."""
+    move = row.get("move")
+    if row.get("suggested") is None or move not in ("raise", "lower", "hold"):
         return "", False
-    rentable = (row.get("rented") or 0) + (row.get("vacant") or 0)
-    occ = (row.get("rented") or 0) / rentable if rentable else 0.0
-    band = next(w for floor, w in _BAND_WORDS if occ >= floor)
-    move = row["suggested"] - (row.get("sell") or 0)
-    verb = "Raise" if move > 0 else "Lower" if move < 0 else "Hold"
-    return f"{band}: {verb}", "Held to a" in (row.get("why") or "")
+    return {"raise": "Raise", "lower": "Lower", "hold": "Hold"}[move], False
 
 
 def distance_miles(stored, origin: tuple | None, lat, lng) -> float | None:
@@ -234,8 +261,8 @@ def size_comps(unit_type: dict, observations: list[dict], competitors: dict[str,
 
 def headline(rows: list[dict]) -> dict:
     """The summary's numbers: how many unit types sit below / at / above the
-    market, and what taking every Suggested rate is worth a month (on vacant
-    units at the new rate - the same rule as Change per Month)."""
+    market, and what taking every Suggested rate is worth a month (x occupied
+    units - the same rule as Rev. Change / Mo)."""
     pos = [r["position"] for r in rows]
     raises = sum(r["suggestedDelta"] for r in rows if r["suggestedDelta"] > 0)
     cuts = sum(r["suggestedDelta"] for r in rows if r["suggestedDelta"] < 0)
@@ -304,15 +331,15 @@ def gaps(rows: list[dict], comps_by_name: dict[str, list[dict]], groups_ok: bool
 
 def kpis(rows: list[dict]) -> dict:
     """The four cards above the table (the competitive set card is the router's)."""
-    rateable = [r for r in rows if r["marketMedian"] and r["sell"]]
+    rateable = [r for r in rows if r["marketAvg"] and r["sell"] and not r.get("offlineOnly")]
     sell_sum = sum(r["sell"] for r in rateable)
-    med_sum = sum(r["marketMedian"] for r in rateable)
+    med_sum = sum(r["marketAvg"] for r in rateable)
     total = sum(r["total"] for r in rows)
     rented = sum(r["rented"] for r in rows)
     return {
         "vsMarket": round(sell_sum / med_sum - 1, 4) if med_sum else None,
         "rateable": len(rateable),
-        "belowMarket": sum(1 for r in rateable if r["sell"] < r["marketMedian"]),
+        "belowMarket": sum(1 for r in rateable if r["sell"] < r["marketAvg"]),
         "occupancy": round(rented / total, 4) if total else 0,
         "units": total, "rented": rented, "offline": sum(r["offline"] for r in rows),
         "ready": sum(1 for r in rows if r["ready"]),
@@ -343,8 +370,8 @@ def attention(rows: list[dict], groups_error: str = "") -> list[str]:
 # ── Cubby (blocking I/O) ──────────────────────────────────────────────────────
 
 def _call(path: str, body: dict) -> dict:
-    """One Cubby READ (a `*/search`), with the body as given. Nexus never
-    writes to Cubby - do not route a write through here."""
+    """One Cubby READ (a `*/search`), with the body as given. Never route a
+    write through here - writes go through ops_cubby_push (behind the switch)."""
     if not path.endswith("/search"):
         raise ValueError(f"Nexus only reads from Cubby; {path} is not a search")
     try:

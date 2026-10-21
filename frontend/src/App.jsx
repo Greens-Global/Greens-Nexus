@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { PATH_TO_VIEW, VIEW_TO_PATH } from './lib/routes';
+import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect } from './lib/routes';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 import { loginRequest } from "./authConfig";
@@ -46,7 +46,6 @@ const Tickets             = lazy(() => import("./views/Tickets"));
 // in the sidebar swaps children under the SAME provider instance instead of
 // unmounting/remounting it - no refetch of everything on every switch.
 const TasksProvider = lazy(() => import("./tasks/TasksContext").then(m => ({ default: m.TasksProvider })));
-const Purchase            = lazy(() => import("./views/Purchase"));
 const SOP                 = lazy(() => import("./views/SOP"));
 const IT                  = lazy(() => import("./views/IT"));
 const Accounting          = lazy(() => import("./views/Accounting"));
@@ -365,7 +364,6 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "dashboard":          return <Dashboard onNavigate={onNavigate} activeSub={activeSub} onSubChange={onSubChange} />;
     case "tasks":              return <TasksProvider><Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} /></TasksProvider>;
     case "tickets":            return <TasksProvider><Tickets /></TasksProvider>;
-    case "purchase":           return <Purchase activeSub={activeSub} />;
     case "sop":                return <SOP activeSub={activeSub} onSubChange={onSubChange} />;
     case "it":                 return <IT activeSub={activeSub} onSubChange={onSubChange} />;
     case "ops":                return <Operations activeSub={activeSub} onSubChange={onSubChange} />;
@@ -446,6 +444,11 @@ function parsePath() {
   // and /shifts/mine links (bells, emails, bookmarks) land there.
   if (raw === 'directory') return { view: 'shifts', sub: 'contact' };
   const view = PATH_TO_VIEW[raw] || raw;
+  // Purchase Requisition moved to Workday (Neil, Oct 22 2026): the old
+  // /purchase page and Item Management's Purchase Requests tab land on
+  // Workday > Purchase Requests (/purchase/new opens the form).
+  const moved = purchaseRedirect(view, segs[1] || null);
+  if (moved) return moved;
   // ...and a "confirm your schedule" link (Shifts Phase 3a: the email's
   // ?confirm=<id>, the bell's mine:confirm:<id>) opens My Schedule on it.
   if (view === 'shifts' && /^mine(:|$)/.test(segs[1] || '')) {
@@ -699,6 +702,9 @@ function MainApp() {
     if (view === 'admin') { view = 'admin-console'; sub = 'access'; }
     // Contact Directory -> Team > Contact, My Shifts -> Workday (see parsePath).
     if (view === 'directory') { view = 'shifts'; sub = 'contact'; }
+    // Purchase Requisition -> Workday > Purchase Requests (see parsePath).
+    const moved = purchaseRedirect(view, sub);
+    if (moved) ({ view, sub } = moved);
     if (view === 'shifts' && /^mine(:|$)/.test(sub || '')) {
       const confirm = ((sub || '').match(/^mine:confirm:(.+)$/) || [])[1] || '';
       view = 'myhr'; sub = confirm ? `shifts:confirm:${confirm}` : 'shifts';

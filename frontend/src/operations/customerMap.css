@@ -1,0 +1,37 @@
+/* Operations > Customer Map (Oct 21 2026). Phones: the map full width, the ring card below. */
+.cm-root { display: flex; flex-direction: column; gap: 14px; }
+.cm-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 18px; }
+.cm-rings { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cm-label { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-right: 4px; }
+.cm-chip {
+  font: inherit; font-size: 12.5px; font-weight: 500; padding: 5px 11px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--muted);
+}
+.cm-chip.on { border-color: #0f766e; background: rgba(15, 118, 110, 0.1); color: var(--text-primary, inherit); font-weight: 600; }
+.cm-chip:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.cm-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.cm-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cm-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.cm-key-fac { background: #0f766e; border: 2px solid #fff; box-shadow: 0 0 0 1px #0f766e; border-radius: 3px !important; }
+.cm-key-dot { background: rgba(15, 118, 110, 0.55); }
+.cm-key-zip { border: 1.5px dashed #0f766e; background: rgba(15, 118, 110, 0.12); }
+.cm-coverage { margin: 0; }
+.cm-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .cm-grid { grid-template-columns: minmax(0, 1fr); } }
+.cm-map-card { padding: 0; overflow: hidden; }
+.cm-map-wrap { position: relative; }
+.cm-map { width: 100%; height: min(70vh, 620px); background: var(--bg-secondary, #eef1f4); }
+.cm-map-failed { position: absolute; top: 10px; left: 10px; z-index: 500; margin: 0; font-size: 12.5px; font-weight: 600; color: #b91c1c; }
+.cm-placing { padding: 80px 20px; }
+.cm-fac-icon span { display: block; width: 18px; height: 18px; border-radius: 4px; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45); box-sizing: border-box; }
+.cm-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; margin-top: 8px; }
+.cm-table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.cm-table td { padding: 7px 4px; border-bottom: 1px solid var(--line); }
+.cm-table th:not(:first-child), .cm-table td:not(:first-child) { text-align: right; }
+.cm-table tr.on td:first-child { font-weight: 600; }
+.cm-hint { font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+.cm-facs { list-style: none; padding: 0; margin: 14px 0 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.cm-facs li { display: flex; align-items: center; gap: 8px; }
+.cm-facs i { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.cm-facs .cm-num { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cm-privacy { font-size: 12px; color: var(--muted); margin: 0; }

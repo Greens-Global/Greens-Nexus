@@ -1,0 +1,259 @@
+{
+  "asset/components/asset/TimelineStatusModal.jsx": {
+    "type=\"date\"": 1
+  },
+  "asset/components/maintenance/MaintenanceLogFilters.jsx": {
+    "type=\"date\"": 2
+  },
+  "asset/components/maintenance/MaintenanceReview.jsx": {
+    "type=\"date\"": 1
+  },
+  "asset/components/manage/ActivityLog.jsx": {
+    "type=\"date\"": 2
+  },
+  "asset/components/shared/CollectionTable.jsx": {
+    "type=\"date\"": 1
+  },
+  "asset/components/shared/FieldInput.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/accounting/AskAccountantTab.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/accounting/dashboard/DataTab.jsx": {
+    "type=\"date\"": 1
+  },
+  "components/accounting/LeasingTab.jsx": {
+    "type=\"date\"": 4
+  },
+  "components/accounting/LoanAmortization.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/accounting/LoanDialogs.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/accounting/LoanPlanning.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/accounting/ManagementFeesTab.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/accounting/MreTab.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/accounting/PayrollImport.jsx": {
+    "type=\"date\"": 1
+  },
+  "components/accounting/PfsTab.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/accounting/ProfitabilityReport.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/accounting/reportControls.jsx": {
+    "type=\"date\"": 3
+  },
+  "components/AddTimeModal.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/audit/AuditLog.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/BodModal.jsx": {
+    "toLocaleDateString(": 2
+  },
+  "components/DayTimeline.jsx": {
+    "toLocaleTimeString(": 2
+  },
+  "components/DefineMergeFieldModal.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/DelegateApprovals.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/ESign.jsx": {
+    "type=\"date\"": 1,
+    "toLocaleDateString(": 1
+  },
+  "components/GeofencePunchModal.jsx": {
+    "toLocaleDateString(": 1
+  },
+  "components/HrPersonActions.jsx": {
+    "type=\"date\"": 1
+  },
+  "components/ImageLightbox.jsx": {
+    "toLocaleTimeString(": 1
+  },
+  "components/LeaveBalances.jsx": {
+    "type=\"date\"": 1
+  },
+  "components/LiveCrewMap.jsx": {
+    "type=\"date\"": 1
+  },
+  "components/MyAvailability.jsx": {
+    "type=\"date\"": 1
+  },
+  "components/PayrollTimecard.jsx": {
+    "toLocaleDateString(": 6
+  },
+  "components/Reimbursements.jsx": {
+    "type=\"date\"": 1
+  },
+  "components/RetroPayReport.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/ScreenshotsAdmin.jsx": {
+    "type=\"date\"": 1,
+    "toLocaleTimeString(": 1
+  },
+  "components/shifts/ScheduleDialogs.jsx": {
+    "type=\"date\"": 7
+  },
+  "components/shifts/ScheduleToolbar.jsx": {
+    "type=\"date\"": 3
+  },
+  "components/shifts/ShiftPanel.jsx": {
+    "type=\"date\"": 2
+  },
+  "components/TimeAdmin.jsx": {
+    "type=\"date\"": 4,
+    "toLocaleDateString(": 4
+  },
+  "components/TimeInsights.jsx": {
+    "toLocaleTimeString(": 1
+  },
+  "components/TimeTrackingAdmin.jsx": {
+    "type=\"date\"": 1
+  },
+  "components/TypedFieldInput.jsx": {
+    "type=\"date\"": 1
+  },
+  "credvault/CredentialForm.jsx": {
+    "type=\"date\"": 1
+  },
+  "credvault/CredentialVaultApp.jsx": {
+    "type=\"date\"": 2
+  },
+  "dashboard/essentials/Announcements.jsx": {
+    "type=\"date\"": 1
+  },
+  "dashboard/panels.jsx": {
+    "Intl.DateTimeFormat(": 1
+  },
+  "directory/lib.js": {
+    "Intl.DateTimeFormat(": 4
+  },
+  "investor/CapitalCallsTab.jsx": {
+    "type=\"date\"": 3
+  },
+  "investor/CommitmentsTab.jsx": {
+    "type=\"date\"": 1
+  },
+  "investor/DistributionsTab.jsx": {
+    "type=\"date\"": 2
+  },
+  "investor/FundsTab.jsx": {
+    "type=\"date\"": 3
+  },
+  "lib/addTime.js": {
+    "toLocaleDateString(": 1
+  },
+  "lib/worldClockZones.js": {
+    "Intl.DateTimeFormat(": 5
+  },
+  "m365.js": {
+    "Intl.DateTimeFormat(": 1
+  },
+  "marketing/gbp/GoogleListingsPanel.jsx": {
+    "type=\"date\"": 1
+  },
+  "marketing/reputation/CreatePostModal.jsx": {
+    "type=\"date\"": 1
+  },
+  "marketing/reputation/ReviewCard.jsx": {
+    "toLocaleTimeString(": 1
+  },
+  "marketing/shared/DateRangePicker.jsx": {
+    "type=\"date\"": 1
+  },
+  "marketing/shared/utils.js": {
+    "toLocaleDateString(": 1
+  },
+  "operations/cma/CmaCompSet.jsx": {
+    "type=\"date\"": 1
+  },
+  "operations/cma/CmaReview.jsx": {
+    "type=\"date\"": 3
+  },
+  "operations/cma/ManualRateModal.jsx": {
+    "type=\"date\"": 1
+  },
+  "operations/Market.jsx": {
+    "type=\"date\"": 1
+  },
+  "operations/ReportBuilder.jsx": {
+    "type=\"date\"": 2
+  },
+  "operations/reportFields.jsx": {
+    "type=\"date\"": 3
+  },
+  "operations/Revenue.jsx": {
+    "type=\"date\"": 1
+  },
+  "operations/ThirdPartyUpload.jsx": {
+    "type=\"date\"": 1
+  },
+  "tasks/components.jsx": {
+    "type=\"date\"": 2
+  },
+  "tasks/HomeView.jsx": {
+    "type=\"date\"": 1,
+    "toLocaleDateString(": 3
+  },
+  "tasks/ManageView.jsx": {
+    "type=\"date\"": 2
+  },
+  "tasks/ProjectsView.jsx": {
+    "type=\"date\"": 1
+  },
+  "tasks/TemplatesView.jsx": {
+    "type=\"date\"": 1
+  },
+  "tasks/TimeTracking.jsx": {
+    "type=\"date\"": 1
+  },
+  "tasks/views/richlist.jsx": {
+    "type=\"date\"": 2,
+    "toLocaleDateString(": 1
+  },
+  "tickets/TicketReports.jsx": {
+    "type=\"date\"": 2
+  },
+  "views/ExternalUsersPanel.jsx": {
+    "type=\"date\"": 1
+  },
+  "views/HR.jsx": {
+    "type=\"date\"": 11,
+    "toLocaleDateString(": 1
+  },
+  "views/InventoryManagement.jsx": {
+    "type=\"date\"": 5,
+    "toLocaleDateString(": 3,
+    "toLocaleTimeString(": 1
+  },
+  "views/IT.jsx": {
+    "toLocaleTimeString(": 2
+  },
+  "views/Locations.jsx": {
+    "toLocaleTimeString(": 1
+  },
+  "views/SOP.jsx": {
+    "type=\"date\"": 2
+  },
+  "views/Testing.jsx": {
+    "type=\"date\"": 1
+  },
+  "views/TimeClock.jsx": {
+    "type=\"date\"": 2
+  }
+}

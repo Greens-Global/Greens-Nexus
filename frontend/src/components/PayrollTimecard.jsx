@@ -220,7 +220,13 @@ export const workStretches = (seg, punchMeta = {}) => {
   for (let i = 0; i < pts.length; i += 2) {
     const a = pts[i], b = pts[i + 1];
     const first = i === 0, last = i + 2 >= pts.length && !open;
+    // A break punch's own pending edit / change note (punchMeta): without it an
+    // employee's proposed time on a break start or end was saved but never
+    // showed, so "nothing happened" (Miranda, Oct 20).
+    const ma = first ? null : punchMeta[a.id], mb = last ? null : punchMeta[b.id];
     work.push({ ...seg, ...(first ? {} : _IN_ONLY), ...(last ? {} : _OUT_ONLY),
+      ...(ma ? { inPendingAt: ma.pendingAt || '', inEditStatus: ma.editStatus || '', inEditReason: ma.editReason || '', inAdjustNote: ma.adjustNote || '' } : {}),
+      ...(mb ? { outPendingAt: mb.pendingAt || '', outEditStatus: mb.editStatus || '', outEditReason: mb.editReason || '', outAdjustNote: mb.adjustNote || '' } : {}),
       in: a.at, inR: a.atR || a.at, inId: a.id, out: b.at, outR: b.atR || b.at, outId: b.id,
       // the shift's pay figures ride on the shift, never on a row
       otMin: 0, dtMin: 0, amount: 0, deductedMin: 0, breaks: [],
@@ -474,6 +480,9 @@ function EmployeeNoteLine({ note }) {
 // survives the component unmounting between tabs. Reopening the Time Sheet paints the
 // cached card instantly and refreshes in the background - no loader flash, no snap.
 const _timecardCache = new Map();
+// Tests render several cards for the same person and period: clear between them,
+// or a test briefly sees the previous test's card from this cache (a CI flake).
+export const clearTimecardCache = () => _timecardCache.clear();
 const _tcKey = (self, email, start, end) => self ? `self:${start}` : (email ? `${email}:${start}:${end}` : '');
 // A reload lands back on the same card (Charmi, Oct 16: "it took me back to
 // Aarav Mehta's time card"): the last employee and period opened, kept for
@@ -2298,7 +2307,7 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
       // Employee edit: goes to the approver, and does NOT change pay until approved.
       // A confirmed long shift needs the reason (the server refuses it without one).
       const reason = await dialog.prompt('', {
-        title: `Change Your ${k === 'in' ? 'Clock-In' : 'Clock-Out'} Time`,
+        title: `Change Your ${{ break_start: 'Break Start', break_end: 'Break End' }[meta?.kind] || (k === 'in' ? 'Clock-In' : 'Clock-Out')} Time`,
         message: confirmLong ? 'Say why the shift is this long - your approver reads it. Your pay is unchanged until they approve it.'
           : 'This is sent to your approver. Your pay is unchanged until they approve it.',
         placeholder: confirmLong ? 'Reason (required)' : 'Reason (optional)', confirmText: 'Send for Approval', required: confirmLong,
@@ -2528,7 +2537,7 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div role="dialog" aria-modal="true" aria-label={isDelete ? (self ? 'Ask to remove a break' : 'Delete a break') : self ? 'Request a missing break punch' : kind === 'both' ? 'Add a break' : 'Fix a break punch'}
-        style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 'clamp(400px, 50vw, 560px)', padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
+        className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{isDelete ? (self ? 'Ask to Remove a Break' : 'Delete a Break') : self ? 'Request a Missing Break Punch' : kind === 'both' ? 'Add a Break' : 'Fix a Break Punch'}</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
@@ -2802,7 +2811,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div role="dialog" aria-modal="true" aria-label={self ? 'Request a missing punch' : seg ? 'Edit punch' : isBreak ? 'Add break' : 'Add punch'}
-        style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 'clamp(400px, 60vw, 680px)', padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
+        className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{self ? 'Request a Missing Punch' : seg ? 'Edit Punch' : isBreak ? 'Add Break' : 'Add Punch'}</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>

@@ -244,7 +244,7 @@ export function RaiseNotice({ onClose, myEmail }) {
   const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <form className="modal-content" role="dialog" aria-modal="true" aria-label="Raise a priority notice" onClick={(e) => e.stopPropagation()} onSubmit={send} style={{ maxWidth: 520 }}>
+      <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Raise a priority notice" onClick={(e) => e.stopPropagation()} onSubmit={send}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Raise a Priority Notice</h3>

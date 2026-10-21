@@ -33,7 +33,7 @@ const SIGN_STATUS = {
 };
 
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
-const cardStyle = (maxWidth) => ({ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth, boxShadow: 'var(--shadow-lg)' });
+const cardStyle = { background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)' };
 
 function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
   const [title, setTitle] = useState('');
@@ -147,7 +147,7 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
 
   return (
     <div style={overlayStyle} onClick={onClose}>
-      <div style={cardStyle(420)} onClick={e => e.stopPropagation()}>
+      <div className="nx-popup" style={cardStyle} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700 }}>New Document</div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
@@ -242,7 +242,7 @@ function NewFolderModal({ onClose, onCreated, toastErr }) {
 
   return (
     <div style={overlayStyle} onClick={onClose}>
-      <div style={cardStyle(400)} onClick={e => e.stopPropagation()}>
+      <div className="nx-popup" style={cardStyle} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700 }}>New Folder</div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Folder name</label>
@@ -298,7 +298,7 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
 
   return (
     <div style={overlayStyle} onClick={onClose}>
-      <div style={cardStyle(440)} onClick={e => e.stopPropagation()}>
+      <div className="nx-popup" style={cardStyle} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           Folder and Tags
         </div>

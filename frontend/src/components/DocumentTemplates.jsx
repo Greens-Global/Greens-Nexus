@@ -22,7 +22,7 @@ const CATEGORIES = [
 ];
 
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
-const cardStyle = (maxWidth) => ({ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth, boxShadow: 'var(--shadow-lg)' });
+const cardStyle = { background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)' };
 
 function CreateTemplateModal({ letterheads, onClose, onCreated, toastErr }) {
   const [name, setName] = useState('');
@@ -44,7 +44,7 @@ function CreateTemplateModal({ letterheads, onClose, onCreated, toastErr }) {
 
   return (
     <div style={overlayStyle} onClick={onClose}>
-      <div style={cardStyle(420)} onClick={e => e.stopPropagation()}>
+      <div className="nx-popup" style={cardStyle} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700 }}>New Template</div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>

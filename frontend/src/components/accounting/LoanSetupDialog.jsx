@@ -99,7 +99,7 @@ function FoldersDialog({ row, value, onSave, onClose }) {
   const backdrop = useBackdropClose(onClose);
   return createPortal(
     <div className="modal-overlay" role="presentation" {...backdrop} style={{ zIndex: 520 }}>
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Loan Folders" style={{ maxWidth: 640 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Loan Folders">
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Loan Folders</h3>

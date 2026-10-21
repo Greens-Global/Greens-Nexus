@@ -231,7 +231,7 @@ class PacketDocsTests(unittest.TestCase):
             s.flow = [{"key": "company", "role": "payroll", "action": "sign"},
                       {"key": "employee", "role": "employee", "action": "sign"}]
             _parties, _remap, problems = hpd.build_parties(db, s, self._ctx(db))
-            self.assertTrue(any("No Payroll owner" in x for x in problems), problems)
+            self.assertTrue(any("No Accounting owner" in x for x in problems), problems)    # Payroll became Accounting (Oct 19)
             s.flow = [{"key": "company", "role": "signatory", "action": "sign"},
                       {"key": "employee", "role": "employee", "action": "sign"}]
             ent.signatory_email = ""

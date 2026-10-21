@@ -136,12 +136,12 @@ export function DialogHost() {
         <div
           role="dialog"
           aria-modal="true"
-          className="nx-panel"
+          className="nx-panel nx-popup"
           onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setConfirmingDiscard(false); } }}
           style={{
             background: 'var(--card, var(--paper, #fff))',
             border: '1px solid var(--line, #e6e8e2)',
-            borderRadius: 16, padding: '24px 24px 20px', width: '100%', maxWidth: 380,
+            borderRadius: 16, padding: '24px 24px 20px', display: 'flex', flexDirection: 'column',
             boxShadow: '0 12px 40px rgba(0,0,0,.22)', fontFamily: 'Inter, sans-serif',
           }}
         >
@@ -149,7 +149,7 @@ export function DialogHost() {
           <div style={{ fontSize: 14, color: 'var(--muted, #5b675f)', lineHeight: 1.55 }}>
             You have unsaved changes. Closing now will discard them.
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9, marginTop: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9, marginTop: 'auto', paddingTop: 20, flexWrap: 'wrap' }}>
             <button type="button" onClick={() => setConfirmingDiscard(false)}
               style={{ ...btnBase, background: 'transparent', color: 'var(--ink, #17211c)', borderColor: 'var(--line, #e6e8e2)' }}>Keep Editing</button>
             <button type="button" onClick={cancelResult}
@@ -179,12 +179,12 @@ export function DialogHost() {
       <div
         role="dialog"
         aria-modal="true"
-        className="nx-panel"
+        className="nx-panel nx-popup"
         onKeyDown={onKeyDown}
         style={{
           background: 'var(--card, var(--paper, #fff))',
           border: '1px solid var(--line, #e6e8e2)',
-          borderRadius: 16, padding: '24px 24px 20px', width: '100%', maxWidth: 430,
+          borderRadius: 16, padding: '24px 24px 20px', display: 'flex', flexDirection: 'column',
           boxShadow: '0 12px 40px rgba(0,0,0,.22)', fontFamily: 'Inter, sans-serif',
         }}
       >
@@ -230,7 +230,7 @@ export function DialogHost() {
           )
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9, marginTop: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9, marginTop: 'auto', paddingTop: 20 }}>
           {!isAlert && (
             <button
               type="button"
