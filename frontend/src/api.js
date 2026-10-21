@@ -2679,6 +2679,8 @@ export const api = {
   getOpsBudgetLoads: (facility = '') => req(`/ops-budget/loads?${new URLSearchParams({ facility })}`),
   getOpsBudgetLoadFile: (id) => reqBlob(`/ops-budget/loads/${encodeURIComponent(id)}/file`),
   runOpsBudgetSnapshot: () => req('/ops-budget/snapshot', { method: 'POST', timeoutMs: 120_000 }),
+  // Ops Budget > Hummingbird History (Oct 21 2026): what the last HB export load holds, per site (admins only).
+  getOpsHummingbird: () => req('/ops-budget/hummingbird'),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

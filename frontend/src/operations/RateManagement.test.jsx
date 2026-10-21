@@ -194,7 +194,7 @@ describe('Comp Set & Manual Entry', () => {
 });
 
 describe('Rate History', () => {
-  it('draws the chart, the side cards, the change log and the off workbook upload', async () => {
+  it('draws the chart, the side cards and the change log - no workbook seed', async () => {
     apiMock.getOpsRates.mockResolvedValue(VIEW());
     apiMock.getOpsCmaHistory.mockResolvedValue({
       unitType: "12' x 32' Parking", asOf: '2026-10-20',
@@ -202,15 +202,37 @@ describe('Rate History', () => {
         { date: '2026-10-20', sell: 11450, avgRent: 12274, marketAvg: 12467, marketLow: 11000, marketHigh: 15400, comps: 3, occupied: 92, total: 114 }],
       cards: { gap: -1017, gapPct: -0.0816, comps: 3, asOf: '2026-10-20', avgRent: 12274, sell: 11450, rentVsSell: 824, occupiedThen: 93, occupiedFrom: '2026-08-15', occupiedNow: 92, total: 114 },
       log: [{ at: '2026-10-15T18:00:00Z', date: '2026-10-15', text: 'StorQuest marked closed - removed from averages', source: 'comp_set', by: 'JW' }],
-      workbookImport: { available: false, why: 'Needs a sample workbook.' },
     });
     render(<RateManagement facility={FAC} section="history" onSection={() => {}} />);
     expect(await screen.findByTestId('history-chart')).toBeTruthy();
     expect(screen.getByText('-$10.17 · -8.2%')).toBeTruthy();
     expect(screen.getByText('Existing tenants pay more than new move-ins')).toBeTruthy();
     expect(within(screen.getByTestId('change-log')).getByText('Comp Set')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Upload Workbooks/ })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /Upload Workbooks/ })).toBeNull();   // the old Excel CMAs are not wanted (Neil, Oct 21)
     expect(apiMock.getOpsCmaHistory).toHaveBeenCalledWith('fac_f', "8' x 10'");   // the first unit type with comps
+  });
+});
+
+describe('Rate History - Hummingbird months', () => {
+  it('labels the months before Cubby as Hummingbird in the table and the change log', async () => {
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    apiMock.getOpsCmaHistory.mockResolvedValue({
+      unitType: "12' x 32' Parking", asOf: '2026-10-20',
+      points: [{ date: '2025-11-30', sell: 11000, avgRent: 10500, marketAvg: null, marketLow: null, marketHigh: null, comps: 0, occupied: 80, total: 113, source: 'hummingbird' },
+        { date: '2026-10-20', sell: 11450, avgRent: 12274, marketAvg: 12467, marketLow: 11000, marketHigh: 15400, comps: 3, occupied: 92, total: 114 }],
+      cards: { gap: -1017, gapPct: -0.0816, comps: 3, asOf: '2026-10-20', avgRent: 12274, sell: 11450, rentVsSell: 824, occupiedThen: 80, occupiedFrom: '2025-11-30', occupiedNow: 92, total: 114 },
+      log: [{ at: '2026-01-01', date: '2026-01-01', text: 'Sell rate $110.00 -> $114.50', source: 'hummingbird', by: '' }],
+      hummingbird: { first: '2025-11', last: '2026-01' },
+    });
+    render(<RateManagement facility={FAC} section="history" onSection={() => {}} />);
+    const log = await screen.findByTestId('change-log');
+    expect(within(log).getByText('Hummingbird')).toBeTruthy();
+    expect(within(log).getByText('Sell rate $110.00 -> $114.50')).toBeTruthy();
+    expect(within(log).getByText('01/01/2026')).toBeTruthy();
+    const chart = screen.getByTestId('history-chart');
+    expect(chart.textContent).toContain('11/30/2025');                       // the axis reaches back, in US format
+    expect(screen.getAllByText('Hummingbird').length).toBeGreaterThan(1);    // the table's Source column too
+    expect(screen.getByText('80 → 92')).toBeTruthy();
   });
 });
 

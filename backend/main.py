@@ -2679,6 +2679,17 @@ def _run_migrations():
         "ALTER TABLE ops_cma_changes ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_cma_snapshots ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_cma_events ENABLE ROW LEVEL SECURITY",
+        # Hummingbird history (Oct 21 2026, hb_models.py / hb_load.py): the HB
+        # export mirror - nine new tables, explicit RLS.
+        "ALTER TABLE hb_loads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_properties ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_units ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_leases ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_lease_months ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_leads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_report_rows ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_reports ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_rate_months ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
