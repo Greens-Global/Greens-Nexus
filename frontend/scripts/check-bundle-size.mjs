@@ -249,13 +249,14 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // commit, so the dev Cloudflare Pages build failed and left dev serving the
 // previous frontend while its backend had moved on. App code only, no new
 // dependency. Deliberate (Visesh).
-// Oct 22, 2026: 13700 -> 13900. dev itself measured ~13700 KB on CI after the
-// Oct 22 bundle (Customer Map trade area, Hummingbird history, Rate History,
-// the accounting feedback batch, purchase requisition); #735 (pay period
-// finder, Time Off filters, Review All Clean, popup fills) measured 13702 and
-// #737 (contractor invoice engine) 13704. All app code, no new dependency.
-// Deliberate.
-const TOTAL_KB     = 13900;
+// Oct 22, 2026: 13700 -> 13950. The Customer Map trade area (#736: heat map,
+// hex grid, clusters and the statistics panel - its own lazy chunk, ~27 KB)
+// on top of the Oct 21-22 batches (CMA, Ops Budget, Workday Purchase
+// Requests, Hummingbird, Rate History, the accounting batch). CI measured
+// 13712 KB (a clean local build reads ~13505 - CI's clean install runs about
+// 200 KB higher, see above). No new dependency: the heat map and hexes are
+// drawn by hand. Deliberate (Visesh).
+const TOTAL_KB     = 13950;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

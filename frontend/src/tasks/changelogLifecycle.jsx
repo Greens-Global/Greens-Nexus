@@ -89,7 +89,7 @@ export function MyRequestsDialog({ onClose, onOpenEntry }) {
     } catch (e) { setError(e?.message || 'Could not send the request.'); } finally { setSending(false); }
   };
   return (
-    <Modal title="My Requests" onClose={onClose} isDirty={!!note.trim()}>
+    <Modal title="Feature Request" onClose={onClose} isDirty={!!note.trim()}>
       <div style={{ ...card, padding: 14, marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: NX.ink }}><Lightbulb size={14} />Request a Feature</div>
         <p style={{ margin: '4px 0 10px', fontSize: 12, color: NX.dim }}>Tell the Nexus team what would make your work easier. You will see its status here, and your bell rings when it changes.</p>

@@ -172,7 +172,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
           </div>
         ) : (
           <>
-            <div style={{ padding: '14px 18px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ padding: '14px 18px', overflow: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
               {/* Days */}
               <div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -266,7 +266,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
               </div>
 
               {/* Reason */}
-              <label style={{ display: 'block' }}>
+              <label className="nx-fill">
                 <span style={lab}>Reason</span>
                 <textarea value={reason} onChange={(e) => { setReason(e.target.value); touch(); }} rows={2} maxLength={300} placeholder="Why this time is being added - it goes on every punch, e.g. forgot to clock in, no signal at the site"
                   style={{ ...field, width: '100%', boxSizing: 'border-box', resize: 'vertical' }} />

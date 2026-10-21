@@ -154,12 +154,12 @@ function ShareDialog({ report, onClose, onShared }) {
           <h3 style={{ margin: 0, fontSize: 18, flex: 1 }}>Share {report.name}</h3>
           <button type="button" className="ops-x" aria-label="Close" onClick={onClose}><X size={18} /></button>
         </div>
-        <div className="ops-drill-body ops-form" style={{ borderTop: 'none', marginTop: 0 }}>
+        <div className="ops-drill-body ops-form" style={{ borderTop: 'none', marginTop: 0, display: 'flex', flexDirection: 'column' }}>
           <label style={{ gridColumn: '1 / -1' }}>Person
             <input className="form-input" list="ops-rb-share-people" value={who} required placeholder="Name or email from Nexus People" onChange={(e) => setWho(e.target.value)} />
           </label>
           <datalist id="ops-rb-share-people">{people.map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}</datalist>
-          <label style={{ gridColumn: '1 / -1' }}>Note (Optional)
+          <label className="nx-fill" style={{ gridColumn: '1 / -1' }}>Note (Optional)
             <textarea className="form-input" rows={3} maxLength={600} value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
           <p className="ops-note" style={{ gridColumn: '1 / -1', margin: 0 }}>The report becomes visible to the Operations team; this person is told on their bell.</p>

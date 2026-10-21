@@ -85,7 +85,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
         </div>
       )}
       {mode === 'resolve' && (<>
-        <div style={field}>
+        <div className="nx-fill" style={field}>
           <label style={label}>Resolution <span style={{ color: NX.red }}>*</span></label>
           <textarea autoFocus value={note} onChange={(e) => setNote(e.target.value)} rows={4} maxLength={2000}
             placeholder="What was done to fix it? e.g. Replaced the ballast in the front office light."
@@ -117,7 +117,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
         </>)}
       </>)}
       {mode === 'self_resolve' && (
-        <div style={field}>
+        <div className="nx-fill" style={field}>
           <label style={label}>What fixed it? (optional)</label>
           <textarea autoFocus value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
             placeholder="e.g. A colleague showed me how to reconnect the printer."
@@ -146,14 +146,14 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
             <b style={{ color: NX.ink }}>Resolution:</b> {ticket.resolutionNote}
           </div>
         )}
-        <div style={field}>
+        <div className="nx-fill" style={field}>
           <label style={label}>Anything you would like to tell the team? (optional)</label>
           <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
             placeholder="Anything the team should know?" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
         </div>
       </>)}
       {mode === 'reopen' && (
-        <div style={field}>
+        <div className="nx-fill" style={field}>
           <label style={label}>Why are you reopening it? <span style={{ color: NX.red }}>*</span></label>
           <textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000}
             placeholder="e.g. The light went out again this morning."

@@ -159,7 +159,7 @@ function EmailModal({ onClose }) {
             <Label>Subject</Label>
             <input className="form-input" value={subject} onChange={(e) => setSubject(e.target.value)} style={{ width: '100%' }} />
           </div>
-          <div>
+          <div className="nx-fill">
             <Label>Message</Label>
             <textarea className="form-input" value={body} onChange={(e) => setBody(e.target.value)} rows={7}
               style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />
@@ -234,7 +234,7 @@ function EventModal({ onClose }) {
             <input className="form-input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Room, site, or Teams" style={{ width: '100%' }} />
           </div>
           <PeoplePicker value={attendees} onChange={setAttendees} people={people} label="Attendees" placeholder="Add an attendee..." />
-          <div>
+          <div className="nx-fill">
             <Label>Notes</Label>
             <textarea className="form-input" value={body} onChange={(e) => setBody(e.target.value)} rows={4}
               style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />

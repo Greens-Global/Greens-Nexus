@@ -1024,7 +1024,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Provision accounts - {fullName(e)}</h3>
           <button onClick={onClose} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'flex', flexDirection: 'column' }}>
           {!result ? (<>
             <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.55 }}>
               Creates the Microsoft 365 account (with a temp password shown once to you), assigns the license - which
@@ -1040,7 +1040,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
             </select>
             <label style={FL}>LICENSES{picked.size > 0 ? ` (${picked.size} selected)` : ' - none selected: no mailbox'}</label>
             {skus === null ? <Spinner size={16} /> : (
-              <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 220, overflowY: 'auto' }}>
+              <div className="nx-fill" style={{ border: '1px solid var(--line)', borderRadius: 10, overflowY: 'auto' }}>
                 {skus.map((s, i) => {
                   const out = s.available <= 0;
                   return (
@@ -1405,17 +1405,19 @@ const _accLabel = { fontSize: 10.5, fontWeight: 800, letterSpacing: '.08em', tex
 function AccessPicker({ title, items, onPick, onClose, renderItem }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 1200, padding: 18 }}>
-      <div onClick={ev => ev.stopPropagation()} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', overflow: 'auto', padding: 18 }}>
+      <div onClick={ev => ev.stopPropagation()} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', padding: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
           <h3 style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{title}</h3>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
+        <div className="nx-fill" style={{ overflowY: 'auto' }}>
         {items.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 14, textAlign: 'center' }}>Nothing to add.</div>
           : items.map(it => (
-            <button key={it.id} onClick={() => onPick(it)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: 'pointer' }}>
+            <button key={it.id} onClick={() => onPick(it)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: 'pointer', flexShrink: 0 }}>
               {renderItem(it)}
             </button>
           ))}
+        </div>
       </div>
     </div>
   );
@@ -3185,7 +3187,7 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>New Leave Request</h3>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: 'auto auto auto 1fr', gap: 14 }}>
           <div style={{ gridColumn: '1 / -1' }}><label style={FL}>EMPLOYEE *</label>
             <select className="form-input" style={{ width: '100%' }} value={f.employee_id} onChange={e => set('employee_id', e.target.value)}>
               <option value="">- pick a person -</option>
@@ -3201,7 +3203,7 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
             <input className="form-input" type="date" style={{ width: '100%' }} value={f.start_date} onChange={e => set('start_date', e.target.value)} /></div>
           <div><label style={FL}>TO</label>
             <input className="form-input" type="date" style={{ width: '100%' }} value={f.end_date} onChange={e => set('end_date', e.target.value)} /></div>
-          <div style={{ gridColumn: '1 / -1' }}><label style={FL}>REASON</label>
+          <div className="nx-fill" style={{ gridColumn: '1 / -1' }}><label style={FL}>REASON</label>
             <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.reason} onChange={e => set('reason', e.target.value)} /></div>
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
@@ -4899,7 +4901,7 @@ function HolidayPolicyEditorModal({ policy, onClose, onSaved, toastOk, toastErr 
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }} onClick={onClose}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 22, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 22, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <input className="form-input" style={{ flex: 1, fontSize: 14, fontWeight: 700 }} value={name} onChange={e => setName(e.target.value)} />
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
@@ -4941,8 +4943,8 @@ function HolidayPolicyEditorModal({ policy, onClose, onSaved, toastOk, toastErr 
           </div>
         </div>
 
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Holidays in this policy ({draft.length})</div>
+        <div className="nx-fill" style={{ marginBottom: 18, overflowY: 'auto' }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6, flexShrink: 0 }}>Holidays in this policy ({draft.length})</div>
           {draft.length === 0 ? <p style={{ fontSize: 12, color: 'var(--muted)' }}>None yet.</p> : draft.map((h, i) => {
             const tm = HOLIDAY_TYPE_META[h.type] || HOLIDAY_TYPE_META.mandatory;
             return (
@@ -5149,14 +5151,14 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Change status - {fullName(employee)}</h3>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ padding: '18px 24px', display: 'grid', gap: 14, overflowY: 'auto', flex: 1 }}>
+        <div style={{ padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1 }}>
           <div><label style={FL}>NEW STATUS</label>
             <select className="form-input" style={{ width: '100%' }} value={status} onChange={e => setStatus(e.target.value)}>
               {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
             </select>
           </div>
           <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></div>
-          <div><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
+          <div className="nx-fill"><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
 
           {offerChecklist && (
             <div style={{ border: '1px solid var(--wk-brand)', borderRadius: 12, padding: '12px 14px', background: 'var(--wk-brand-tint)', display: 'grid', gap: 10 }}>

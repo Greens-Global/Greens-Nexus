@@ -145,7 +145,12 @@ keep the diff minimal.
   body scrolling). Never a small fixed-width box that floats mid-page with
   empty space around it. Phones keep the full-screen sheet. The shared
   `Modal` in `tasks/components.jsx` is already 60vw wide; match it in any
-  hand-rolled overlay.
+  hand-rolled overlay. **The 60% is for content, not blank space** (Pranshu,
+  Oct 21 2026): the popup body is a flex column and the one part that should
+  take the remaining height - the notes textarea's wrapper, the list, the
+  table, the preview - carries `className="nx-fill"` (style.css) so it grows
+  into the space; never leave a short form floating over an empty bottom
+  half.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 

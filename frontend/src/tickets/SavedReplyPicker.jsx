@@ -65,7 +65,7 @@ export default function SavedReplyPicker({ ticket, agentEmail, nameOf, onInsert,
 
   return (
     <Modal title="Saved Replies" onClose={onClose} footer={footer} minHeight="60vh">
-      <div data-testid="saved-reply-picker" style={{ fontFamily: FONT, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+      <div data-testid="saved-reply-picker" className="nx-fill" style={{ fontFamily: FONT, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
         <div style={{ position: 'relative' }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
           <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search saved replies…"
@@ -78,7 +78,7 @@ export default function SavedReplyPicker({ ticket, agentEmail, nameOf, onInsert,
                 {query ? 'No saved replies match your search.' : 'No saved replies yet. Click Manage to add one.'}
               </div>
             ) : (
-              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <div className="nx-fill" style={{ display: 'flex', flexDirection: 'row', gap: 14, flexWrap: 'wrap', alignItems: 'stretch' }}>
                 <div role="listbox" aria-label="Saved replies" style={{ flex: '1 1 240px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: '48vh', overflowY: 'auto' }}>
                   {ranked.map((r) => {
                     const on = sel && r.id === sel.id;
@@ -99,14 +99,14 @@ export default function SavedReplyPicker({ ticket, agentEmail, nameOf, onInsert,
                   })}
                 </div>
                 {sel && (
-                  <div style={{ flex: '2 1 320px', minWidth: 0 }}>
+                  <div className="nx-fill" style={{ flex: '2 1 320px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                       <MessageSquareText size={14} style={{ color: NX.dim }} />
                       <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{sel.title}</span>
                       <span style={{ fontSize: 11.5, color: NX.faint }}>{sel.shared ? 'Shared' : 'Personal'}{sel.helpTopic ? ` · ${sel.helpTopic}` : ''}</span>
                     </div>
                     <div className="nx-rich-body" data-testid="saved-reply-preview"
-                      style={{ fontSize: 13, color: NX.ink, border: `1px solid ${NX.border2}`, borderRadius: 10, padding: '10px 12px', background: NX.surface2 }}
+                      style={{ flex: 1, fontSize: 13, color: NX.ink, border: `1px solid ${NX.border2}`, borderRadius: 10, padding: '10px 12px', background: NX.surface2 }}
                       dangerouslySetInnerHTML={{ __html: richBodyHtml(filled, nameOf) }} />
                   </div>
                 )}

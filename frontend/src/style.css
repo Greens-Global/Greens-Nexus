@@ -1224,6 +1224,13 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 @media (max-width: 640px) {
   .nx-popup.nx-popup { width: 100%; min-width: 0; min-height: 0; max-height: 92vh; }
 }
+/* The 60% is for the content, not for blank space under it (Pranshu, Oct 21
+   2026). A popup body is a flex column; put .nx-fill on the one part that
+   should take the rest of the height - the notes textarea, the list, the
+   table, the preview - and it grows into the space the floor reserved.
+   A textarea inside grows with it (and still resizes by hand). */
+.nx-fill { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.nx-fill > textarea, .nx-fill > label > textarea, .nx-fill > div > textarea { flex: 1 1 auto; min-height: 96px; resize: vertical; }
 
 /* AnchoredMenu: grows out of its trigger corner and shrinks back into it. */
 .nx-anchored { animation: nx-menu-in var(--dur-sm) var(--ease-out); transform-origin: top left; }

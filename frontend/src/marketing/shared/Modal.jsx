@@ -65,6 +65,8 @@ export default function Modal({ title, onClose, children, width, isDirty = false
         className="nx-panel nx-popup"
         style={{
           ...(tokenWidth > 900 ? { width: `max(60vw, min(${tokenWidth}px, 100%))` } : null),
+          display: 'flex',
+          flexDirection: 'column',
           borderRadius: 16,
           background: C.white,
           boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
@@ -106,7 +108,7 @@ export default function Modal({ title, onClose, children, width, isDirty = false
             <X size={16} />
           </button>
         </div>
-        <div style={{ padding: 20 }}>{children}</div>
+        <div style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>{children}</div>
       </div>
       {confirming && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: alpha(C.black, 0.2) }}

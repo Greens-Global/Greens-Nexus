@@ -181,12 +181,12 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
           <button onClick={onClose} disabled={!!busy} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
 
-        <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px', display: 'flex', flexDirection: 'column' }}>
           {step === 'upload' && (
             <>
-              <div onClick={() => inputRef.current?.click()} onDragOver={e => e.preventDefault()}
+              <div className="nx-fill" onClick={() => inputRef.current?.click()} onDragOver={e => e.preventDefault()}
                 onDrop={e => { e.preventDefault(); pick(e.dataTransfer.files?.[0]); }}
-                style={{ marginTop: 14, border: '1.5px dashed var(--line)', borderRadius: 14, padding: '26px 16px', textAlign: 'center', cursor: 'pointer', background: 'var(--mist)' }}>
+                style={{ marginTop: 14, border: '1.5px dashed var(--line)', borderRadius: 14, padding: '26px 16px', textAlign: 'center', cursor: 'pointer', background: 'var(--mist)', alignItems: 'center', justifyContent: 'center' }}>
                 <Upload size={22} style={{ color: 'var(--muted)' }} />
                 <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 6 }}>{file ? file.name : 'Drop the Word file here, or click to choose'}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>.docx - the page size, tables and fonts come across as they are.</div>
@@ -243,7 +243,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
               )}
 
               <label style={lbl}>Blanks ({fields.length})</label>
-              <div style={{ border: '1px solid var(--line)', borderRadius: 12, maxHeight: 'min(48dvh, 520px)', overflow: 'auto' }}>
+              <div className="nx-fill" style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead><tr><th style={th}>Blank</th><th style={th}>Where</th><th style={th}>Filled With</th><th style={th}>Variable</th></tr></thead>
                   <tbody>

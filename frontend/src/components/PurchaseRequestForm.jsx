@@ -87,7 +87,7 @@ export default function PurchaseRequestForm({ onSubmitted, onCancel }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} aria-label="New Purchase Request">
+    <form onSubmit={handleSubmit} aria-label="New Purchase Request" className="nx-fill">
       <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 18px' }}>
         Ask for anything the company needs to buy - equipment, materials, software, or something new.
       </p>
@@ -166,7 +166,7 @@ export default function PurchaseRequestForm({ onSubmitted, onCancel }) {
       </div>
 
       {/* Reason */}
-      <div style={{ marginBottom:20 }}>
+      <div className="nx-fill" style={{ marginBottom:20 }}>
         <label style={FL} htmlFor="pr-reason">REASON / JUSTIFICATION <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
         <textarea id="pr-reason" className="form-input" rows={4} required
           placeholder="Give the approver enough detail to say yes - what is it for, why now, any specs that matter…"

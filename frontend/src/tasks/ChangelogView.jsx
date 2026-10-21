@@ -366,7 +366,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {!managing && !isMobile && (
-            <button type="button" onClick={() => setRequesting(true)} style={btn('outline')}><Lightbulb size={15} />My Requests</button>
+            <button type="button" onClick={() => setRequesting(true)} style={btn('outline')}><Lightbulb size={15} />Feature Request</button>
           )}
           {!managing && !isMobile && (
             <FollowButton onClick={() => setFollowing(true)}
@@ -418,7 +418,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
         <div style={{ flex: 1, minHeight: 0 }}>
           {!managing && isMobile && (
             <div style={{ padding: '10px 12px 0', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button type="button" onClick={() => setRequesting(true)} style={btn('outline')}><Lightbulb size={15} />My Requests</button>
+              <button type="button" onClick={() => setRequesting(true)} style={btn('outline')}><Lightbulb size={15} />Feature Request</button>
               <FollowButton onClick={() => setFollowing(true)} following={(me.subscription?.modules?.length || 0) + (me.subscription?.categories?.length || 0) > 0 || me.subscription?.digest} />
             </div>
           )}
