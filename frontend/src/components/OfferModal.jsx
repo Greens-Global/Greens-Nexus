@@ -22,6 +22,7 @@ import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
+import { DateField } from '../tasks/components';
 
 const OTHER_ROLE = '__other__';
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
@@ -139,6 +140,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
       (!person.first_name.trim() || !person.last_name.trim()) && 'Enter their legal first and last name.',
       !f.start_date && 'Pick the start date.',
       !f.offer_expires && 'Pick when the offer expires.',
+      f.offer_expires && f.start_date && f.offer_expires > f.start_date && 'The offer has to expire on or before the start date.',
     ],
     questions: questions.filter(q => q.required && !(q.pay && !canSeePay) && !String(answers[q.token] || '').trim()).map(q => `Answer ${q.label}.`),
   };
@@ -262,10 +264,14 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           <input id="of-first" className="form-input" style={{ width: '100%' }} value={person.first_name} onChange={e => setPerson(p => ({ ...p, first_name: e.target.value }))} /></div>
         <div><label style={lbl} htmlFor="of-last">Legal Last Name</label>
           <input id="of-last" className="form-input" style={{ width: '100%' }} value={person.last_name} onChange={e => setPerson(p => ({ ...p, last_name: e.target.value }))} /></div>
-        <div><label style={lbl} htmlFor="of-start">Start Date</label>
-          <input id="of-start" type="date" className="form-input" style={{ width: '100%' }} value={f.start_date} onChange={e => set('start_date', e.target.value)} /></div>
-        <div><label style={lbl} htmlFor="of-exp">Offer Expires</label>
-          <input id="of-exp" type="date" className="form-input" style={{ width: '100%' }} value={f.offer_expires} max={f.start_date || undefined} onChange={e => set('offer_expires', e.target.value)} />
+        <div><label style={lbl}>Start Date</label>
+          <div id="of-start" className="form-input" style={{ width: '100%', display: 'flex', alignItems: 'center' }}>
+            <DateField value={f.start_date} onChange={x => set('start_date', x || '')} placeholder="MM/DD/YYYY" title="Start date" style={{ width: '100%' }} />
+          </div></div>
+        <div><label style={lbl}>Offer Expires</label>
+          <div id="of-exp" className="form-input" style={{ width: '100%', display: 'flex', alignItems: 'center' }}>
+            <DateField value={f.offer_expires} onChange={x => set('offer_expires', x || '')} placeholder="MM/DD/YYYY" title="Offer expires" style={{ width: '100%' }} />
+          </div>
           <div style={hint}>They can sign through this day.</div></div>
         {prints.has('address') && (
           <div style={{ gridColumn: '1 / -1' }}><label style={lbl} htmlFor="of-addr">Their Address</label>

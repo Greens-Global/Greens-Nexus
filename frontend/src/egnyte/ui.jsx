@@ -226,11 +226,11 @@ export function EgnyteDialog({ title, children, footer, onClose, width = 420, is
         onMouseDown={e => { if (e.target === e.currentTarget) guard.requestClose(); }}
         style={{ position: 'fixed', inset: 0, zIndex: 6500, background: 'rgba(15,18,24,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       >
-        <div className="egx-pop" role="dialog" aria-modal="true" aria-label={title}
-          style={{ ...CARD, width: `min(${width}px, 100%)`, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="egx-pop nx-popup" role="dialog" aria-modal="true" aria-label={title}
+          style={{ ...CARD, width: `max(60vw, ${width}px)`, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ ...HEADING, fontSize: 14.5 }}>{title}</div>
           <div style={{ ...BODY, fontSize: 13 }}>{children}</div>
-          {footer && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>{footer}</div>}
+          {footer && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>{footer}</div>}
         </div>
       </div>
       {guard.confirming && (

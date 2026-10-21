@@ -473,7 +473,7 @@ function LedgerLines({ line, from, to, title, onClose }) {
   const total = (state.lines || []).reduce((s, l) => s + (l.debit || 0) - (l.credit || 0), 0);
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={`${line.vendorName}, ${title}`} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760, width: '100%' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={`${line.vendorName}, ${title}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>{line.vendorName} - {title}</h3>
@@ -726,7 +726,7 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
   const dueMonths = MONTHS.filter((_m, i) => dueInMonth({ ...l, status: 'active' }, thisYear, i + 1));
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={l.id ? 'Edit recurring expense' : 'Add recurring expense'} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={l.id ? 'Edit recurring expense' : 'Add recurring expense'} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{l.id ? 'Edit Recurring Expense' : 'Add Recurring Expense'}</h3>
           <button type="button" onClick={onClose} aria-label="Close" style={icon}><X size={18} /></button>
@@ -887,7 +887,7 @@ export function MreFromLedger({ entities = [], entityLabel = 'All entities', onC
   };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Add recurring expenses from the ledger" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 1080 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Add recurring expenses from the ledger" onClick={(e) => e.stopPropagation()} style={{ width: 'max(60vw, min(100%, 1080px))' }}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Add From the Ledger</h3>

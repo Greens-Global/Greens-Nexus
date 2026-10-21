@@ -6,8 +6,15 @@ import { formatDate } from '../lib/datetime';
 
 export const isThirdParty = (f) => !!f?.thirdParty;
 
-// "CubeSmart Managed" - the tag on the facility picker pill.
-export const managedLabel = (f) => f?.thirdParty?.label || '';
+// "TPM · CubeSmart" - the picker's group heading and the tag beside it. TPM
+// (third-party management) is the industry word and fits any operator (Neil,
+// Oct 21 2026: not "CubeSmart Managed"); the operator's name is the detail.
+export const TPM = 'TPM';
+export function managedLabel(f) {
+  const tp = f?.thirdParty;
+  if (!tp) return '';
+  return tp.sourceLabel ? `${TPM} · ${tp.sourceLabel}` : (tp.label || TPM);
+}
 
 // "Data as of 10/19/2026", so a store whose reports were not uploaded lately is obvious.
 export function dataAsOf(f) {

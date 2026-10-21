@@ -1166,6 +1166,34 @@ def _run_migrations():
             "UPDATE link_layout_views SET layout = json_set(layout, '$.filters.department', 'Operations') WHERE lower(json_extract(layout, '$.filters.department')) = 'storage'",
             # Tasks Home > Updates: when the card was last looked at. models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN updates_seen_at VARCHAR DEFAULT ''",
+            # CMA (Miranda, Oct 21 2026, ops_cma.py) - see the Postgres list. models.OpsCompetitor / OpsCompetitorRate.
+            "ALTER TABLE ops_competitors ADD COLUMN closed BOOLEAN DEFAULT 0",
+            "ALTER TABLE ops_competitors ADD COLUMN closed_note VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN price_source VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN phone VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN property_type VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN survey_id VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN their_size VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN matched_unit_type VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN size_note VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN locked_until VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN override_reason VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_ops_competitor_rates_survey_id ON ops_competitor_rates (survey_id)",
+            # Hiring Decision step (Neil, Oct 19, hiring_decision.py). models.HrCandidate.
+            "ALTER TABLE hr_candidates ADD COLUMN decision_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision_by VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision_note VARCHAR DEFAULT ''",
+            # Checklists by role, and a task per owner (Neil, Oct 19). models.HrChecklistTemplate / HrChecklistItem.
+            "ALTER TABLE hr_checklist_templates ADD COLUMN role_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_checklist_items ADD COLUMN task_id VARCHAR DEFAULT ''",
+            # Payroll / Finance -> Accounting, Equipment -> IT (Neil, Oct 19).
+            "UPDATE hr_checklist_items SET owner_role = 'accounting' WHERE owner_role IN ('payroll', 'finance')",
+            "UPDATE hr_checklist_items SET owner_role = 'it' WHERE owner_role = 'equipment'",
+            # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
+            "ALTER TABLE hr_checklist_items ADD COLUMN owner_emails VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_checklist_items ADD COLUMN comments JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2641,6 +2669,60 @@ def _run_migrations():
         "UPDATE link_layout_views SET layout = jsonb_set(layout::jsonb, '{filters,department}', '\"Operations\"'::jsonb) WHERE lower(layout::jsonb #>> '{filters,department}') = 'storage'",
         # Tasks Home > Updates: when the card was last looked at. models.NexusPersonPref.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS updates_seen_at VARCHAR DEFAULT ''",
+        # Operations > Ops Budget (Oct 21 2026, ops_budget*.py): four new
+        # tables, explicit RLS. ops_budget_models.py.
+        "ALTER TABLE ops_budget_facilities ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_metric_month ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_budget_loads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_budget_lead_marks ENABLE ROW LEVEL SECURITY",
+        # CMA (Miranda, Oct 21 2026, ops_cma.py): closed competitors, price
+        # source, surveys, overrides with a lock. models.OpsCompetitor / OpsCompetitorRate.
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS closed BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS closed_note VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS price_source VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS phone VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS property_type VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS survey_id VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS their_size VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS matched_unit_type VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS size_note VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS locked_until VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS override_reason VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_ops_competitor_rates_survey_id ON ops_competitor_rates (survey_id)",
+        # CMA - four new tables, explicit RLS. models.OpsCmaSurvey / OpsCmaChange / OpsCmaSnapshot / OpsCmaEvent.
+        "ALTER TABLE ops_cma_surveys ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_cma_changes ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_cma_snapshots ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_cma_events ENABLE ROW LEVEL SECURITY",
+        # Operations > Customer Map (Oct 21 2026, ops_customer_geo.py): one new
+        # table, rounded points only, explicit RLS. models.OpsCustomerPoint.
+        "ALTER TABLE ops_customer_points ENABLE ROW LEVEL SECURITY",
+        # Hummingbird history (Oct 21 2026, hb_models.py / hb_load.py): the HB
+        # export mirror - nine new tables, explicit RLS.
+        "ALTER TABLE hb_loads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_properties ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_units ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_leases ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_lease_months ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_leads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_report_rows ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_reports ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_rate_months ENABLE ROW LEVEL SECURITY",
+        # Hiring Decision step (Neil, Oct 19, hiring_decision.py). models.HrCandidate.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_by VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_note VARCHAR DEFAULT ''",
+        # Checklists by role, and a task per owner (Neil, Oct 19). models.HrChecklistTemplate / HrChecklistItem.
+        "ALTER TABLE hr_checklist_templates ADD COLUMN IF NOT EXISTS role_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS task_id VARCHAR DEFAULT ''",
+        # Payroll / Finance -> Accounting, Equipment -> IT (Neil, Oct 19).
+        "UPDATE hr_checklist_items SET owner_role = 'accounting' WHERE owner_role IN ('payroll', 'finance')",
+        "UPDATE hr_checklist_items SET owner_role = 'it' WHERE owner_role = 'equipment'",
+        # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS owner_emails VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3555,6 +3637,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] Market watch loop skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Market watch loop skipped: {e}")
+        # Ops Budget (Operations, Oct 21 2026): the Cubby month-end snapshot -
+        # writes this month's actuals from the synced cubby_* tables every 15
+        # minutes (in a thread). Deployed worker only, like the Cubby sync.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ops_budget_cubby import ops_budget_loop
+                _tasks.append(_a.create_task(ops_budget_loop()))
+            else:
+                print("[startup] Ops Budget snapshot loop skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Ops Budget snapshot loop skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
@@ -3635,6 +3729,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] Ops report schedules skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Ops report schedules skipped: {e}")
+        # CMA queued pushes (Oct 21 2026, routers/ops_cma.py): approved rate
+        # changes go to Cubby on their effective date - only while Push to
+        # Cubby is switched on (OFF by default). Deployed worker only.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from routers.ops_cma import cma_push_loop
+                _tasks.append(_a.create_task(cma_push_loop()))
+            else:
+                print("[startup] CMA queued pushes skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] CMA queued pushes skipped: {e}")
         # Weekly Ticket Report (Oct 2026, ticket_reports.py): Monday 7 AM in
         # each desk supervisor's own zone, one email per person per week
         # (claimed in ticket_report_email_log before the send). Deployed-worker
@@ -3649,6 +3755,19 @@ async def lifespan(app: FastAPI):
                 print("[startup] weekly ticket report skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] weekly ticket report skipped: {e}")
+        # Customer Map (Operations, Oct 21 2026, ops_customer_geo.py): current
+        # customers' points, looked up once per address through the shared
+        # Nominatim pacer (one request a second with the asset geocode loop).
+        # Deployed worker only; every Cubby / DB / Nominatim call in a thread.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ops_customer_geo import customer_geo_loop
+                _tasks.append(_a.create_task(customer_geo_loop()))
+            else:
+                print("[startup] Customer Map geocode loop skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Customer Map geocode loop skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:
@@ -4143,3 +4262,11 @@ from routers import audit_events as audit_events_router  # noqa: E402
 app.include_router(audit_events_router.router)     # Unified Audit Log: one feed, modules, before/after, record history (Oct 20 2026)
 from routers import hr_intacct_codes as hr_intacct_codes_router  # noqa: E402
 app.include_router(hr_intacct_codes_router.router)  # People > Sync Employee Codes From Intacct (Charmi, Oct 21 2026)
+from routers import ops_budget as ops_budget_router  # noqa: E402 - also registers ops_budget_models before create_all
+app.include_router(ops_budget_router.router)       # Operations > Ops Budget: results vs budget and last year, per site (Oct 21 2026)
+from routers import ops_settings as ops_settings_router  # noqa: E402
+app.include_router(ops_settings_router.router)     # Operations settings: the Push to Cubby switch, OFF by default (Visesh, Oct 21 2026)
+from routers import ops_cma as ops_cma_router  # noqa: E402
+app.include_router(ops_cma_router.router)          # Operations > Rate Management CMA: comp set, surveys, history, review & push (Miranda, Oct 21 2026)
+from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
+app.include_router(ops_customer_map_router.router)  # Operations > Customer Map: current customers around each facility, with rings (Neil, Oct 21 2026)

@@ -520,7 +520,7 @@ export function ShiftTypesPanel({ toastOk, toastErr }) {
 
         {form && (
           <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && guard.requestClose()}>
-            <div role="dialog" aria-label={form.id ? 'Edit Shift Type' : 'New Shift Type'} style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 'clamp(420px, 60vw, 700px)', padding: 20, maxHeight: '92dvh', overflowY: 'auto' }}>
+            <div role="dialog" aria-label={form.id ? 'Edit Shift Type' : 'New Shift Type'} className="nx-popup" style={{ background: 'var(--card)', borderRadius: 14, padding: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
                 <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{form.id ? 'Edit Shift Type' : 'New Shift Type'}</span>
                 <button type="button" onClick={guard.requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
@@ -722,7 +722,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
 
         {form && (
           <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && guard.requestClose()}>
-            <div role="dialog" aria-label={form.id ? 'Edit Group' : 'New Group'} style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 'clamp(460px, 60vw, 760px)', padding: 20, maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
+            <div role="dialog" aria-label={form.id ? 'Edit Group' : 'New Group'} className="nx-popup" style={{ background: 'var(--card)', borderRadius: 14, padding: 20, display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
                 <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{form.id ? 'Edit Group' : 'New Group'}</span>
                 <button type="button" onClick={guard.requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>

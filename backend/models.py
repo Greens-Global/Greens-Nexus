@@ -979,7 +979,7 @@ class HrCandidate(Base):
     phone          = Column(String, default="")
     role_title     = Column(String, default="")               # role they applied for
     department     = Column(String, default="")
-    stage          = Column(String, default="applied")        # applied|screening|interview|offer|hired|rejected
+    stage          = Column(String, default="applied")        # applied|screening|interview|decision|offer|hired|rejected
     expected_start = Column(String, default="")               # ISO date
     interview_at   = Column(String, default="")               # ISO datetime of the next interview
     source         = Column(String, default="")               # referral, LinkedIn, ...
@@ -999,6 +999,13 @@ class HrCandidate(Base):
     # The "Screen <name>" task for the department head and up (Oct 14,
     # hiring_screening.py) - its due date follows the interview.
     screen_task_id = Column(String, default="")               # Task.id
+    # The Decision step after the interview (Neil, Oct 19, hiring_decision.py):
+    # the "Decide on <name>" task, and the department head's final call.
+    decision_task_id = Column(String, default="")             # Task.id
+    decision       = Column(String, default="")               # '' | hire | reject
+    decision_by    = Column(String, default="")
+    decision_at    = Column(String, default="")
+    decision_note  = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
@@ -5258,8 +5265,10 @@ class HrChecklistTemplate(Base):
     create_all builds it; RLS must be enabled on dev and prod at release."""
     __tablename__ = "hr_checklist_templates"
     id         = Column(String, primary_key=True)                 # uuid
-    kind       = Column(String, default="onboarding", index=True)  # onboarding | offboarding | inactive
+    kind       = Column(String, default="onboarding", index=True)  # onboarding | promotion | offboarding | inactive
     entity_id  = Column(String, default="", index=True)            # HrEntity.id ('' = every company)
+    # A job role's extra steps (Neil, Oct 19: company, then role) - entity_id ''.
+    role_id    = Column(String, default="", index=True)            # NexusGroup.id ('' = company / library)
     name       = Column(String, default="")
     items      = Column(JSON, default=list)
     updated_by = Column(String, default="")
@@ -5313,6 +5322,13 @@ class HrChecklistItem(Base):
     done_at      = Column(String, default="")
     note         = Column(String, default="")
     sort_order   = Column(Integer, default=0)
+    task_id      = Column(String, default="")   # the owner's task for this checklist (hr_checklists.sync_tasks)
+    # Every owner, comma-separated (owner_email is the first): a role can have
+    # several owners, each on the step's task (Pranshu, Oct 20).
+    owner_emails = Column(String, default="")
+    # Comments made while the step had no subtask; the rest live on the subtask
+    # as task comments, so both sides show the same thread (hr_checklists.comments_for).
+    comments     = Column(JSON, default=list)
 
 
 class AccountingLoanSchedule(Base):
@@ -6087,6 +6103,16 @@ class OpsCompetitor(Base):
     # "name|street|zip" normalized, set on a competitor the feed added or
     # matched, so the next import finds it again.
     stortrack_key   = Column(String, default="", index=True)
+    # CMA (Miranda, Oct 21 2026, ops_cma.py). A CLOSED competitor is kept for
+    # history but counts nowhere: closing sets `active` false too, so every
+    # market figure already leaves it out; `closed` tells it apart from one
+    # that was just removed. `price_source` "manual" = only staff-entered
+    # rates count for it (website / StorTrack reads are ignored).
+    closed          = Column(Boolean, default=False)
+    closed_note     = Column(String, default="")
+    price_source    = Column(String, default="")    # "" = website and manual | "manual" = manual only
+    phone           = Column(String, default="")
+    property_type   = Column(String, default="")    # "Self-Storage & RV Storage"
 
 
 class OpsCompetitorRate(Base):
@@ -6116,6 +6142,15 @@ class OpsCompetitorRate(Base):
     drive_up      = Column(Boolean)
     elevator      = Column(Boolean)
     space_type    = Column(String, default="")
+    # CMA (Oct 21 2026, ops_cma.py): a manual survey row or a locked override.
+    # source "override" = staff replaced a website price; it beats newer
+    # website / StorTrack reads for that size until `locked_until` passes.
+    survey_id         = Column(String, default="", index=True)
+    their_size        = Column(String, default="")    # as quoted: "8 x 10"
+    matched_unit_type = Column(String, default="")    # our unit type (Cubby pricing group) staff matched it to
+    size_note         = Column(String, default="")    # "Nearest size ..."
+    locked_until      = Column(String, default="")    # YYYY-MM-DD
+    override_reason   = Column(String, default="")
 
 
 # ---------------------------------------------------------------------------
@@ -7392,3 +7427,117 @@ class AuditChange(Base):
     summary    = Column(String, default="")                  # the record's label at the time
     source     = Column(String, default="")                  # "PATCH /tasks/1" or the background job
 
+
+# ── Operations > Rate Management / CMA (Miranda, Oct 21 2026, ops_cma.py) ───
+# New tables - create_all builds them; explicit RLS lines in main.py (and
+# enable RLS on dev and prod at release).
+
+class OpsCmaSurvey(Base):
+    """One manual competitor survey (a phone call, drive-by, walk-in / mystery
+    shop, flyer / signage): who, when, how, the special, the admin fee and the
+    insurance. Its rates are OpsCompetitorRate rows with this survey_id."""
+    __tablename__ = "ops_cma_surveys"
+    id              = Column(String, primary_key=True)
+    facility_id     = Column(String, index=True, nullable=False)
+    competitor_id   = Column(String, index=True, nullable=False)
+    survey_date     = Column(String, default="")          # YYYY-MM-DD
+    method          = Column(String, default="")          # phone | drive_by | walk_in | flyer
+    surveyed_by     = Column(String, default="")
+    special         = Column(String, default="")
+    admin_fee_cents = Column(Integer)
+    insurance       = Column(String, default="")          # "$12 / month, required"
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+
+
+class OpsCmaChange(Base):
+    """A change decided in Review & Push (the briefing's rate_change_request):
+    a rate change for one pricing group, or a promotion (Cubby: discount) to
+    add or end. Who proposed and approved it, the guardrail checks, how it
+    reached Cubby (pushed with read-back, or entered by hand) and its revert."""
+    __tablename__ = "ops_cma_changes"
+    id                 = Column(String, primary_key=True)
+    request_id         = Column(String, index=True, default="")   # one Approve click - idempotent
+    facility_id        = Column(String, index=True, nullable=False)
+    kind               = Column(String, default="rate")            # rate | promo_add | promo_end
+    unit_type          = Column(String, default="")                # rate: the pricing group name
+    pricing_group_id   = Column(String, default="")
+    old_web_cents      = Column(Integer)
+    new_web_cents      = Column(Integer)
+    old_standard_cents = Column(Integer)
+    new_standard_cents = Column(Integer)
+    promo              = Column(JSON, default=dict)                # name, calculation, amount, periods, start, end, unitTypes
+    reason             = Column(String, default="")
+    effective_date     = Column(String, default="")                # YYYY-MM-DD
+    affects            = Column(String, default="")
+    status             = Column(String, default="proposed", index=True)  # proposed | approved | pushed | entered | failed | rejected | reverted
+    needs_owner        = Column(Boolean, default=False)
+    guard_notes        = Column(JSON, default=list)
+    proposed_by        = Column(String, default="")
+    proposed_at        = Column(String, default="")
+    approver_role      = Column(String, default="")                # ops_manager | owner
+    approved_by        = Column(String, default="")
+    approved_at        = Column(String, default="")
+    send_mode          = Column(String, default="")                # effective | immediate
+    note               = Column(String, default="")
+    cubby_detail       = Column(String, default="")                # Cubby's answer / the read-back result
+    readback_web_cents      = Column(Integer)
+    readback_standard_cents = Column(Integer)
+    done_by            = Column(String, default="")                # pushed or marked entered by
+    done_at            = Column(String, default="", index=True)
+    revert_of          = Column(String, default="")                # the change this one reverts
+    reverted_by        = Column(String, default="")
+    reverted_at        = Column(String, default="")
+
+
+class OpsCmaSnapshot(Base):
+    """One unit type's CMA figures on one day (the first view of the day
+    writes it): our rates, in-place rent, occupancy and the market - Rate
+    History's trend lines."""
+    __tablename__ = "ops_cma_snapshots"
+    id                = Column(String, primary_key=True)          # "<facility>:<day>:<unit type>"
+    facility_id       = Column(String, index=True, nullable=False)
+    day               = Column(String, default="", index=True)    # facility-local YYYY-MM-DD
+    unit_type         = Column(String, default="")
+    sell_cents        = Column(Integer)
+    standard_cents    = Column(Integer)
+    avg_rent_cents    = Column(Integer)
+    total             = Column(Integer, default=0)
+    occupied          = Column(Integer, default=0)
+    market_low_cents  = Column(Integer)
+    market_high_cents = Column(Integer)
+    market_avg_cents  = Column(Integer)
+    comps             = Column(Integer, default=0)
+    source            = Column(String, default="nexus")           # nexus | workbook
+
+
+class OpsCmaEvent(Base):
+    """Rate History's change log entries Nexus itself makes: a survey saved, a
+    competitor closed or reopened, a price override, an import, a change
+    approved / pushed / entered / reverted. (Cubby rate changes come from
+    cubby_rate_history; website reads from ops_competitor_rates.)"""
+    __tablename__ = "ops_cma_events"
+    id          = Column(String, primary_key=True)
+    facility_id = Column(String, index=True, nullable=False)
+    at          = Column(String, default="", index=True)            # UTC iso
+    kind        = Column(String, default="")                        # manual | comp_set | cubby | website | import
+    unit_type   = Column(String, default="")                        # "" = the whole facility
+    text        = Column(String, default="")
+    by          = Column(String, default="")
+
+
+class OpsCustomerPoint(Base):
+    """Operations > Customer Map (Neil, Oct 21 2026, ops_customer_geo.py): where
+    one current customer of one facility sits on the map, rounded to about
+    100 m (3 decimals). NO address, name, phone or email - only the point,
+    how it was placed, and a fingerprint that says whether Cubby's address
+    changed since. New table - explicit RLS line in main.py."""
+    __tablename__ = "ops_customer_points"
+    id          = Column(String, primary_key=True)                 # "<facility_id>:<customer_id>"
+    facility_id = Column(String, index=True, nullable=False)
+    customer_id = Column(String, default="")
+    lat         = Column(Float)                                    # rounded to 3 decimals; None = missing
+    lng         = Column(Float)
+    precision   = Column(String, default="missing")                # street | zip | missing
+    fingerprint = Column(String, default="")                       # sha256 of the normalized address
+    geocoded_at = Column(String, default="")                       # UTC iso

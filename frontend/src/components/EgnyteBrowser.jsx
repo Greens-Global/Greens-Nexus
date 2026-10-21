@@ -11,7 +11,7 @@ import { Spinner } from './AsyncState';
 // way. Read-only - never writes to Egnyte (that's esign.py's separate,
 // already-existing _egnyte_push() archival feature).
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
-const cardStyle = { background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' };
+const cardStyle = { background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' };
 
 export default function EgnyteBrowser({ onPick, onClose }) {
   const [path, setPath] = useState('');
@@ -45,7 +45,7 @@ export default function EgnyteBrowser({ onPick, onClose }) {
 
   return (
     <div style={overlayStyle} onClick={onClose}>
-      <div style={cardStyle} onClick={e => e.stopPropagation()}>
+      <div className="nx-popup" style={cardStyle} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 14, fontWeight: 700, flex: 1 }}>Browse Egnyte</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={16} /></button>

@@ -81,7 +81,7 @@ export function Dialog({ title, sub, onClose, onSubmit, busy, submitLabel, error
   }, [onClose]);
   const body = (
     <div className="modal-overlay" role="presentation" {...backdrop}>
-      <form className="modal-content" role="dialog" aria-modal="true" aria-label={title} onSubmit={onSubmit} style={{ maxWidth: width }}>
+      <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={title} onSubmit={onSubmit} style={{ width: `max(60vw, ${width}px)` }}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>{title}</h3>

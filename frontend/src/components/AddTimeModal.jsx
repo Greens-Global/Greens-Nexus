@@ -133,8 +133,8 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
 
   return (
     <div onClick={busy ? undefined : onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}>
-      <div role="dialog" aria-modal="true" aria-label={`Add time for ${who || email}`} onClick={(e) => e.stopPropagation()}
-        style={{ background: 'var(--card)', color: 'var(--ink)', borderRadius: 16, width: 'min(760px, 100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+      <div role="dialog" aria-modal="true" aria-label={`Add time for ${who || email}`} onClick={(e) => e.stopPropagation()} className="nx-popup"
+        style={{ background: 'var(--card)', color: 'var(--ink)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
           <CalendarPlus size={18} style={{ color: 'var(--wk-brand, #15803d)' }} />
           <div style={{ flex: 1, minWidth: 0 }}>

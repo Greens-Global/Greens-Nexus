@@ -242,7 +242,14 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // 13165 KB together (dev 12777). The builder, Site Map and public unit map are
 // already lazy chunks; this sums every shipped file regardless. App code only,
 // no new dependency. Deliberate.
-const TOTAL_KB     = 13500;
+// Oct 21, 2026: 13500 -> 13700. The Operations batch (#722, Miranda / Neil
+// 10/21): the five dropdown menus, Rate Management rebuilt as the four CMA
+// screens, the Ops Budget dashboard, the Push to Cubby settings switch, the
+// facility listbox and State filter. CI measured 13589 KB on the merge
+// commit, so the dev Cloudflare Pages build failed and left dev serving the
+// previous frontend while its backend had moved on. App code only, no new
+// dependency. Deliberate (Visesh).
+const TOTAL_KB     = 13700;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

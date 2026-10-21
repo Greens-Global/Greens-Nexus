@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, within, cleanup } from '@testing-library/react';
+import { render, screen, within, cleanup, fireEvent } from '@testing-library/react';
 
 // Company Settings > [company] > Roles: the company's own roles render grouped
 // by department, shared roles render below, and Move is only offered for a
@@ -22,9 +22,16 @@ vi.mock('../api', () => ({
   api: {
     getCompanyJobRoles: vi.fn(() => Promise.resolve(ROLES_FIXTURE)),
     getCompanyDepartments: vi.fn(() => Promise.resolve([{ id: 'd1', name: 'Field' }])),
+    getRoleChecklistRoles: vi.fn(() => Promise.resolve({ isHr: true, roles: [
+      { roleId: 'r-lead', roleName: 'Site Lead', counts: { onboarding: 1, promotion: 0, offboarding: 0, inactive: 0 } }] })),
+    getChecklistMeta: vi.fn(() => Promise.resolve({ kinds: [{ value: 'onboarding', label: 'Onboarding' }, { value: 'promotion', label: 'Promotion' }], roles: [], exitTypes: [], signals: [] })),
+    getRoleChecklist: vi.fn(() => Promise.resolve({ roleId: 'r-lead', roleName: 'Site Lead', department: 'Field', templates: [
+      { kind: 'onboarding', kindLabel: 'Onboarding', entityId: '', inherited: false, updatedAt: 'x',
+        items: [{ key: 'SL-1', phase: 'Site Lead Steps', title: 'Site Safety Walkthrough', owner: 'manager', anchor: 'S', offset: 5, bd: false, applies: {}, signal: '', hint: '' }] },
+    ] })),
   },
 }));
-vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: DIRECTORY }) }));
+vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: DIRECTORY }), useEntities: () => ({ data: [] }) }));
 vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => email => email }));
 
 const CompanyRoles = (await import('./CompanyRoles')).default;
@@ -60,5 +67,23 @@ describe('CompanyRoles', () => {
 
     const local = within(screen.getByTestId('shared-role-r-office'));
     expect(local.getByRole('button', { name: /Move to This Company/ })).toBeEnabled();
+  });
+
+  it("a role's Checklists tab shows its extra steps, and the role card counts them", async () => {
+    renderTab();
+    const card = await screen.findByRole('button', { name: /Site Lead/ });
+    expect(await within(card).findByText('1 step')).toBeInTheDocument();
+    fireEvent.click(card);
+    expect(screen.getByRole('tab', { name: 'Access & People' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: /Checklists/ }));
+    expect(await screen.findByText('Site Safety Walkthrough')).toBeInTheDocument();
+  });
+
+  it("opens a shared role's steps from its Checklists button", async () => {
+    renderTab();
+    const row = within(await screen.findByTestId('shared-role-r-crew'));
+    fireEvent.click(row.getByRole('button', { name: /Checklists/ }));
+    expect(await screen.findByText('Crew Member - Checklist Steps')).toBeInTheDocument();
+    expect(screen.getByText(/apply in every company that uses it/)).toBeInTheDocument();
   });
 });

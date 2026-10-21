@@ -88,7 +88,7 @@ export function agoLabel(ts) {
 }
 
 // away, since that's a deliberate choice.
-export function Modal({ children, onClose, wide, maxWidth, isDirty = false, onSave }) {
+export function Modal({ children, onClose, isDirty = false, onSave }) {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
@@ -105,22 +105,20 @@ export function Modal({ children, onClose, wide, maxWidth, isDirty = false, onSa
   return (
     <div className="cv-modal-overlay">
       <div className="cv-modal-backdrop" onClick={requestClose} />
-      {/* maxWidth: an explicit override for the genuine content forms (Add/Edit/
-          Import/Request Access) to size to ~60% of the viewport - left unset for
-          the small confirm/OTP/lock-gate steps, which stay at the compact
-          430px/660px CSS defaults on purpose. */}
-      <div className={`cv-modal cv-root${wide ? " cv-modal-wide" : ""}`} style={maxWidth ? { maxWidth } : undefined}>
+      {/* 60% of the screen (CLAUDE.md popup rule) via .nx-popup; a caller's `wide` no
+          longer adds .cv-modal-wide (its later, equally specific rule would cap it). */}
+      <div className="cv-modal cv-root nx-popup">
         <button onClick={requestClose} className="cv-modal-close"><X size={19} /></button>
         {children}
       </div>
       {confirming && (
         <div style={{ position: "fixed", inset: 0, zIndex: 1400, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.25)" }}>
-          <div className="cv-modal cv-root" style={{ maxWidth: 340, padding: 20 }}>
+          <div className="cv-modal cv-root nx-popup" style={{ padding: 20, display: "flex", flexDirection: "column" }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Save your changes?</div>
             <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 18 }}>
               You have unsaved changes. Closing now will discard them.
             </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", marginTop: "auto" }}>
               <button className="cv-btn" onClick={() => setConfirming(false)}>Keep Editing</button>
               <button className="cv-btn" onClick={onClose}>Discard</button>
               {onSave && (

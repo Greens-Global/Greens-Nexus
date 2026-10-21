@@ -167,7 +167,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
   return (
     <div onClick={e => e.target === e.currentTarget && !busy && onClose()}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: step === 'review' ? 'clamp(640px, 72vw, 1180px)' : 560, maxHeight: 'min(94dvh, 940px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: step === 'review' ? 'max(60vw, min(100%, 1180px))' : 'max(60vw, min(100%, 420px))', maxWidth: '100%', minHeight: 'min(60vh, 94dvh)', maxHeight: 'min(94dvh, 940px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <FileText size={17} style={{ color: 'var(--pine)' }} />
           <div style={{ flex: 1, minWidth: 0 }}>

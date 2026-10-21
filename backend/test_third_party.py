@@ -130,7 +130,7 @@ def test_the_preview_validates_and_saves_nothing(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["kind"] == "sre" and body["saved"] is False and body["errors"] == []
-    assert body["properties"][0]["shortName"] == "Austin" and body["properties"][0]["managedLabel"] == "CubeSmart Managed"
+    assert body["properties"][0]["shortName"] == "Austin" and body["properties"][0]["managedLabel"] == "TPM · CubeSmart"
     assert len(body["rows"]) == 15 and body["rows"][0]["period"] == "2026-10" and body["rows"][0]["replaces"] is False
     db = SessionLocal()
     assert db.query(ThirdPartySreMonth).count() == 0
@@ -197,7 +197,8 @@ def test_ops_kpis_come_from_the_uploaded_reports(client):
     by = {f["shortName"]: f for f in out["facilities"]}
     assert set(by) == {"Austin", "Sachse", "Georgetown"}
     a = by["Austin"]
-    assert a["id"] == "tp:cubesmart-6992" and a["managedLabel"] == "CubeSmart Managed"
+    assert a["id"] == "tp:cubesmart-6992" and a["managedLabel"] == "TPM · CubeSmart"
+    assert a["state"] == "TX"     # the State filter (Oct 21)
     assert a["units"] == {"total": 2926, "rented": 2491, "vacant": 414, "unavailable": 21}
     assert a["area"] == {"total": 316874, "rented": 290558}
     assert a["moves"]["insMtd"] == 42 and a["moves"]["outsMtd"] == 58

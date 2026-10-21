@@ -481,6 +481,9 @@ function EmployeeNoteLine({ note }) {
 // survives the component unmounting between tabs. Reopening the Time Sheet paints the
 // cached card instantly and refreshes in the background - no loader flash, no snap.
 const _timecardCache = new Map();
+// Tests render several cards for the same person and period: clear between them,
+// or a test briefly sees the previous test's card from this cache (a CI flake).
+export const clearTimecardCache = () => _timecardCache.clear();
 const _tcKey = (self, email, start, end) => self ? `self:${start}` : (email ? `${email}:${start}:${end}` : '');
 // A reload lands back on the same card (Charmi, Oct 16: "it took me back to
 // Aarav Mehta's time card"): the last employee and period opened, kept for
@@ -2534,7 +2537,7 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div role="dialog" aria-modal="true" aria-label={isDelete ? (self ? 'Ask to remove a break' : 'Delete a break') : self ? 'Request a missing break punch' : kind === 'both' ? 'Add a break' : 'Fix a break punch'}
-        style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 'clamp(400px, 50vw, 560px)', padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
+        className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{isDelete ? (self ? 'Ask to Remove a Break' : 'Delete a Break') : self ? 'Request a Missing Break Punch' : kind === 'both' ? 'Add a Break' : 'Fix a Break Punch'}</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
@@ -2808,7 +2811,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div role="dialog" aria-modal="true" aria-label={self ? 'Request a missing punch' : seg ? 'Edit punch' : isBreak ? 'Add break' : 'Add punch'}
-        style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 'clamp(400px, 60vw, 680px)', padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
+        className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{self ? 'Request a Missing Punch' : seg ? 'Edit Punch' : isBreak ? 'Add Break' : 'Add Punch'}</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
