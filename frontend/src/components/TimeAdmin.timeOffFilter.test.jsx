@@ -11,11 +11,12 @@ const ROWS = [
   { id: 'd', email: 'dee@x.com', name: 'Dee Pending', type: 'vacation', status: 'pending', startDate: '2026-10-04', endDate: '2026-10-04' },
   { id: 'e', email: 'eve@x.com', name: 'Eve Approved', type: 'vacation', status: 'approved', startDate: '2026-10-02', endDate: '2026-10-02' },
 ];
+let rowsForTest = ROWS;   // the period describe swaps in its own list
 
 vi.mock('../api', () => ({
   api: {
     timeTeam: () => Promise.resolve({ rows: [] }),
-    timeOffList: () => Promise.resolve(ROWS),
+    timeOffList: () => Promise.resolve(rowsForTest),
     timeMonitoringAlerts: () => Promise.resolve({ alerts: [] }),
     timesheetReviewWaiting: () => Promise.resolve({ reviews: [] }),
     timePunchRequests: () => Promise.resolve([]),
@@ -34,7 +35,7 @@ const shownNames = () => NAMES
   .sort(([, a], [, b]) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
   .map(([n]) => n);
 
-beforeEach(() => { try { localStorage.clear(); } catch { /* none */ } });
+beforeEach(() => { rowsForTest = ROWS; try { localStorage.clear(); } catch { /* none */ } });
 
 describe('People > Time > Time Off status filter', () => {
   it('opens on Pending with the right counts, and shows only pending rows', async () => {
@@ -74,5 +75,39 @@ describe('People > Time > Time Off status filter', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^Period/ }));
     expect(shownNames()).toEqual([...NAMES].reverse());   // oldest start first
+  });
+});
+
+// Year / Month selects (Neil, Oct 21): the chip counts follow the period.
+describe('People > Time > Time Off period filter', () => {
+  it('filters by year and month, counts follow, empty state says so', async () => {
+    rowsForTest = [
+      ...ROWS,
+      { id: 'f', email: 'fay@x.com', name: 'Fay Approved', type: 'vacation', status: 'approved', startDate: '2025-12-29', endDate: '2026-01-02' },
+    ];
+    render(<TimeAdmin toastOk={() => {}} toastErr={() => {}} initialView="timeoff" />);
+    await screen.findByText('Ben Pending');
+    fireEvent.click(screen.getByRole('button', { name: 'All (6)' }));
+    const year = screen.getByRole('combobox', { name: 'Year' });
+    const month = screen.getByRole('combobox', { name: 'Month' });
+    expect([...year.options].map(o => o.textContent)).toEqual(['All Years', '2026', '2025']);
+    expect(month.options.length).toBe(13);
+
+    fireEvent.change(year, { target: { value: '2025' } });
+    expect(screen.getByRole('button', { name: 'All (1)' })).toBeTruthy();   // the straddling row
+    expect(screen.getByText('Fay Approved')).toBeTruthy();
+    expect(screen.queryByText('Ben Pending')).toBeNull();
+
+    fireEvent.change(year, { target: { value: '2026' } });
+    fireEvent.change(month, { target: { value: '01' } });
+    expect(screen.getByRole('button', { name: 'All (1)' })).toBeTruthy();   // Fay spills into Jan 2026
+    fireEvent.change(month, { target: { value: '10' } });
+    expect(screen.getByRole('button', { name: 'Pending (2)' })).toBeTruthy();
+
+    fireEvent.change(month, { target: { value: '03' } });
+    expect(screen.getByText('No requests in that period.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Show All' }));
+    expect(screen.getByRole('button', { name: 'All (6)' })).toBeTruthy();
+    expect(year.value).toBe('');
   });
 });

@@ -152,7 +152,7 @@ function Modal({ title, wide, onClose, children, isDirty = false, onSave }) {
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{title}</h3>
           <button onClick={requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 22px' }}>{children}</div>
+        <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '18px 22px', display: 'flex', flexDirection: 'column' }}>{children}</div>
       </div>
       {confirming && (
         <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', inset: 0, zIndex: 1350, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
@@ -472,7 +472,7 @@ function CaseEditor({ caseObj, onClose, onSaved, toastErr, runId, runName }) {
   return (
     <Modal title={editing ? (caseObj.status === 'draft' ? 'Review AI draft' : 'Edit test case') : 'New test case'} wide onClose={onClose}
       isDirty={dirty} onSave={f.title.trim() ? () => save(false) : undefined}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="nx-fill" style={{ gap: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px', gap: 12 }}>
           <div><label style={FL}>Module</label>
             <select value={f.module} onChange={e => set('module', e.target.value)} style={inputStyle}>{QA_MODULES.map(m => <option key={m}>{m}</option>)}</select></div>
@@ -482,7 +482,7 @@ function CaseEditor({ caseObj, onClose, onSaved, toastErr, runId, runName }) {
         </div>
         <div><label style={FL}>Title</label><input value={f.title} onChange={e => set('title', e.target.value)} style={inputStyle} autoFocus={!editing} /></div>
         <div><label style={FL}>Before you start</label><input value={f.precondition} onChange={e => set('precondition', e.target.value)} style={inputStyle} /></div>
-        <div><label style={FL}>Steps - one per line</label>
+        <div className="nx-fill"><label style={FL}>Steps - one per line</label>
           <textarea value={f.stepsText} onChange={e => set('stepsText', e.target.value)} rows={7} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} /></div>
         <div><label style={FL}>What you should see</label>
           <textarea value={f.expected} onChange={e => set('expected', e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' }} /></div>

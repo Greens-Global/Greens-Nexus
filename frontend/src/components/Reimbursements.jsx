@@ -448,7 +448,7 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
             <button type="button" onClick={() => setOpen(false)} aria-label="Close"
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
           </div>
-          <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '14px 18px 18px' }}>
+          <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '14px 18px 18px', display: 'flex', flexDirection: 'column' }}>
             {form && (
               <ClaimForm key={form === 'new' ? 'new' : form.id} people={people} editing={form === 'new' ? null : form} flash={flash}
                 onDone={(row) => {
@@ -482,6 +482,7 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
                 })}
               </div>
             )}
+            <div className="nx-fill">
             {!data ? <div style={{ padding: 20, textAlign: 'center' }}><Spinner size={16} /></div>
               : list.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0' }}>
@@ -491,6 +492,7 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
                 <ClaimRow key={r.id} r={r} as={tab === 'approve' ? 'approve' : tab === 'hr' ? 'hr' : 'mine'} onChanged={replace} flash={flash}
                   onEdit={(row) => setForm(row)} />
               ))}
+            </div>
           </div>
         </div>
       </div>

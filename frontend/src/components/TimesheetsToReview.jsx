@@ -31,14 +31,16 @@ import { ForChip } from './DelegateApprovals';
 // Approve is the manager's "these hours are accurate" - no signature; it
 // sends the timesheet straight to the employee to sign.
 //
-// Approve All Clean (Neil, Oct 17): one click approves every listed time sheet
+// Review All Clean (Neil, Oct 17, reworded Oct 21): the listed time sheets
 // with nothing to look at - reviewFlag is '' (no agreeBlocker and no exception
 // at all on the card; timesheet_review.review_flag, which the server checks
-// again per item). Flagged rows stay for one-by-one review and say why.
+// again per item) - in one modal. A clean card still needs a review (Neil,
+// Oct 21): the manager ticks each one they looked at and only the ticked ones
+// are approved - no tick-all. Flagged rows stay for one-by-one review and say why.
 
 const rowKey = (r) => r.id || `${r.employeeEmail}|${r.periodStart}`;
-const BULK_MAX = 100;   // per click; sent BULK_CHUNK per request (the server caps a call at 25)
-const BULK_CHUNK = 10;   // per request - see approveAllClean
+const BULK_MAX = 100;   // ticked per click; sent BULK_CHUNK per request (the server caps a call at 25)
+const BULK_CHUNK = 10;   // per request - see approveReviewed
 const isClean = (r) => !r.agreeBlocker && r.reviewFlag === '';
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -60,6 +62,9 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
   const startSign = (partyId) => setSigning(partyId);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [ticked, setTicked] = useState(() => new Set());   // rowKeys the manager has looked over
+  const openBulk = () => { setTicked(new Set()); setBulkOpen(true); };
+  const toggleTicked = (k) => setTicked(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   const load = useCallback(() => {
     api.timesheetReviewWaiting().then(r => {
@@ -89,9 +94,10 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
 
   const clean = rows.filter(isClean);
   const flagged = rows.filter(r => !isClean(r));
-  const going = clean.slice(0, BULK_MAX);
+  const picked = clean.filter(r => ticked.has(rowKey(r)));
+  const going = picked.slice(0, BULK_MAX);
 
-  async function approveAllClean() {
+  async function approveReviewed() {
     setBulkBusy(true);
     try {
       // Sent BULK_CHUNK at a time: each approval builds the PDF and sends the
@@ -144,16 +150,16 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
             <span style={{ fontWeight: 800, fontSize: 13.5 }}>Time Sheets to Review</span>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>{rows.length} waiting on you</span>
             <button type="button" className="secondary-btn" disabled={!clean.length || bulkBusy}
-              title={clean.length ? 'Approve every time sheet with nothing to look at - flagged ones stay here'
-                : 'Every time sheet here needs a look first - the note on each one says why.'}
-              onClick={() => setBulkOpen(true)}
+              title={clean.length ? 'Look over every time sheet with nothing flagged, then approve the ones you have reviewed'
+                : 'Every time sheet here needs a closer look first - the note on each one says why.'}
+              onClick={openBulk}
               style={{ marginLeft: 'auto', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: clean.length ? 1 : 0.55 }}>
-              <CheckCheck size={13} /> Approve All Clean ({clean.length})
+              <CheckCheck size={13} /> Review All Clean ({clean.length})
             </button>
           </div>
           {!clean.length && (
             <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
-              Nothing to approve in one click - every time sheet here needs a look first.
+              Nothing to review in one pass - every time sheet here needs a closer look first.
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -174,7 +180,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
                     </div>
                     {r.note && <div style={{ fontSize: 12, marginTop: 2 }}>"{r.note}"</div>}
                     {r.agreeBlocker && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>{r.agreeBlocker}</div>}
-                    {/* Approve works, but Approve All Clean leaves it: an exception to look at. */}
+                    {/* Approve works, but Review All Clean leaves it: an exception to look at. */}
                     {!r.agreeBlocker && r.reviewFlag && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>{r.reviewFlag}</div>}
                     </div>
                   </div>
@@ -247,26 +253,39 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
         </div>
       )}
       {bulkOpen && (
-        <Modal title="Approve All Clean" onClose={() => setBulkOpen(false)}
+        <Modal title="Review All Clean" onClose={() => setBulkOpen(false)}
           footer={<>
             <button type="button" className="secondary-btn" disabled={bulkBusy} onClick={() => setBulkOpen(false)}>Cancel</button>
-            <button type="button" className="primary-btn" disabled={bulkBusy || !going.length} onClick={approveAllClean}
+            <button type="button" className="primary-btn" disabled={bulkBusy || !going.length} onClick={approveReviewed}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <CheckCircle size={13} /> {bulkBusy ? 'Approving...' : `Approve ${plural(going.length, 'Time Sheet', 'Time Sheets')}`}
+              <CheckCircle size={13} /> {bulkBusy ? 'Approving...' : `Approve Reviewed (${going.length})`}
             </button>
           </>}>
           <div style={{ fontSize: 13, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              {plural(going.length, 'time sheet', 'time sheets')} will be approved and sent to each employee to sign.
-              {clean.length > going.length && ` The first ${BULK_MAX} go now - run it again for the other ${clean.length - going.length}.`}
+              Tick each time sheet once you have looked it over. Only the ticked ones are approved and sent to the employee to sign.
+              {picked.length > going.length && ` The first ${BULK_MAX} go now - run it again for the other ${picked.length - going.length}.`}
             </div>
-            <ul data-bulk="going" style={{ margin: 0, paddingLeft: 18 }}>
-              {going.map(r => (
-                <li key={rowKey(r)} style={{ fontSize: 12.5 }}>
-                  {r.name} - {formatDate(r.periodStart)} - {formatDate(r.periodEnd)} · {hm(r.workedMin)}
-                </li>
+            <div data-bulk="going" style={{ display: 'flex', flexDirection: 'column' }}>
+              {clean.map(r => (
+                <div key={rowKey(r)} style={{ display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--line)', padding: '8px 0' }}>
+                  <Avatar email={r.employeeEmail} name={r.name} size={32} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{r.name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      {formatDate(r.periodStart)} - {formatDate(r.periodEnd)} · {hm(r.workedMin)} · {r.notSubmitted ? 'not submitted - period closed' : `submitted ${formatDate(r.submittedAt)}`}
+                    </div>
+                    {r.note && <div style={{ fontSize: 12, marginTop: 2 }}>"{r.note}"</div>}
+                  </div>
+                  {onOpen && (
+                    <button type="button" className="secondary-btn" onClick={() => { setBulkOpen(false); onOpen(r); }}
+                      style={{ fontSize: 12.5 }}>Open</button>
+                  )}
+                  <input type="checkbox" aria-label={`Reviewed - ${r.name}`} checked={ticked.has(rowKey(r))} disabled={bulkBusy}
+                    onChange={() => toggleTicked(rowKey(r))} style={{ width: 18, height: 18, cursor: 'pointer' }} />
+                </div>
               ))}
-            </ul>
+            </div>
             {flagged.length > 0 && (
               <>
                 <div>{plural(flagged.length, 'time sheet stays', 'time sheets stay')} here for one-by-one review:</div>

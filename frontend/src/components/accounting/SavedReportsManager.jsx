@@ -63,7 +63,7 @@ export default function SavedReportsManager({ reports, activeId, nameOf, onOpen,
   const mine = reports.filter((r) => r.mine).length;
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Saved Reports" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'min(1180px, 96vw)', minHeight: '60vh', maxHeight: '92vh' }}>
+      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Saved Reports" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'min(1180px, 96vw)', minHeight: '60vh', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>Saved Reports</h3>
@@ -79,9 +79,9 @@ export default function SavedReportsManager({ reports, activeId, nameOf, onOpen,
             <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
           </div>
         </div>
-        <div style={{ padding: '6px 18px 14px', overflow: 'auto' }}>
+        <div style={{ padding: '6px 18px 14px', overflow: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem', marginBottom: 8 }}>{error}</div>}
-          <div className="acct-lines-wrap" style={{ maxHeight: 'calc(92vh - 150px)' }}>
+          <div className="acct-lines-wrap nx-fill">
             <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
               <thead>
                 <tr>

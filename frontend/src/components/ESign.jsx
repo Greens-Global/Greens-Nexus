@@ -1666,7 +1666,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)' }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Sign on Paper Instead</h3>
         </div>
-        <div style={{ padding: '18px 24px' }}>
+        <div className="nx-fill" style={{ padding: '18px 24px' }}>
           <p style={{ fontSize: 13, lineHeight: 1.6, margin: '0 0 14px', color: 'var(--muted)' }}>
             Tell the sender you would rather sign on paper and they will arrange it - download a
             copy above, print and sign it, then return the scan to them directly. Nothing is

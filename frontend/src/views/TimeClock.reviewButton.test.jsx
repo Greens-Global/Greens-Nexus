@@ -46,7 +46,7 @@ describe('Time Sheets to Review on the Time Sheet tab', () => {
     expect(screen.queryByRole('button', { name: /Time Sheets to Review/ })).toBeNull();
     // Approve / Send Back for a manager without the HR grant; no Review link.
     expect(screen.getAllByRole('button', { name: /^Approve$/ }).length).toBe(2);
-    expect(screen.queryByRole('button', { name: /^Review/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Review$/ })).toBeNull();
   }, SLOW);
 
   it('offers Review to someone who can open People > Time', async () => {
@@ -55,7 +55,7 @@ describe('Time Sheets to Review on the Time Sheet tab', () => {
     const nav = vi.fn();
     window.addEventListener('nexus:navigate', nav);
     await renderTab();
-    fireEvent.click(await screen.findByRole('button', { name: /^Review/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Review$/ }));
     expect(nav.mock.calls[0][0].detail).toEqual({ view: 'hr', sub: 'hr-time' });
     window.removeEventListener('nexus:navigate', nav);
   }, SLOW);

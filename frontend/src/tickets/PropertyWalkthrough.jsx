@@ -304,7 +304,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   const err = (l, f) => errors[l.key]?.[f];
   const unitsListId = `wt-units-${propertyId || 'none'}`;
   const ticketRows = (tickets, showTopic) => (
-    <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
+    <div className="nx-fill" style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'auto' }}>
       {tickets.map((t) => (
         <div key={t.id} style={{ display: 'flex', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13 }}>
           <b style={{ color: NX.ink, minWidth: 64 }}>{ticketNoShort(t.code)}</b>
