@@ -1,22 +1,25 @@
-// Guided "Add Asset" wizard: a 2-step modal for creating a new property, vehicle, or equipment
-// asset (or editing an existing one, in which case it skips straight to step 1's field form).
+// "Add Asset" - one screen (Oct 2026): pick the class, give the asset a name and an
+// address, choose its type and stage, Create. Everything else is filled on the
+// asset itself (the Overview's Data Gaps card lists what is still empty), so the
+// old two-step wizard with the full forty-field form is gone. Linking a new
+// property under another one is behind "Advanced".
 //
-//   Step 0 (new assets only): pick the asset class (Property / Vehicle / Heavy Equipment), with
-//     an optional "Import from a spreadsheet" bulk-CSV path that bypasses the form entirely.
-//   Step 1: the full field form for the chosen class (PROPERTY_WIZARD_FIELDS /
-//     VEHICLE_FIELDS / EQUIPMENT_FIELDS), plus an image uploader.
+// `mode="import"` (the portfolio's "Import From a Spreadsheet") is the bulk CSV
+// path: the class picker, the template download and the file picker, no form.
 //
-// Editing an existing property additionally guards address changes: if any of
-// address/city/state/zip/county differ from the original, a reason is required before saving
-// (recorded in the activity log).
+// Editing an existing asset no longer goes through this modal - the spec sheet
+// and the Overview edit in place.
 
-import { useState, useRef } from 'react';
+import { useRef, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Modal } from '../shared/Modal.jsx';
-import { FieldInput } from '../shared/FieldInput.jsx';
-import { PROPERTY_WIZARD_FIELDS } from '../../lib/propertyFields.js';
+import { FieldInput, requiredErrors } from '../shared/FieldInput.jsx';
+import { pushToast } from '../shared/ToastHost.jsx';
+import { PROPERTY_WIZARD_FIELDS, ASSET_TYPE_OPTIONS, DEV_STAGE_OPTIONS } from '../../lib/propertyFields.js';
 import { VEHICLE_FIELDS, EQUIPMENT_FIELDS, ASSET_SCHEMAS, inferAssetKind, buildAssetSnapshot } from '../../lib/vehicleFields.js';
 import { nexusCsvEsc, nexusCsvParse } from '../../lib/csvExport.js';
-import { normLabel, resizeImageToDataUrl } from '../../lib/format.js';
+import { normLabel } from '../../lib/format.js';
+import { splitAddress } from '../../lib/dataNormalization.js';
 
 // Full ASSET_SCHEMAS lookup including the property wizard schema - vehicleFields.js's
 // ASSET_SCHEMAS only covers vehicle/equipment since property has no single "the" schema outside
@@ -29,147 +32,97 @@ const ASSET_CLASSES = [
   ['equipment', 'Heavy Equipment'],
 ];
 
-// Address-related fields checked for changes when editing a property (see addressFieldsChanged
-// below) - mirrors PT's Project Details address fields.
-const ADDRESS_FIELDS = [
-  ['address', 'Street address'],
-  ['city', 'City'],
-  ['state', 'State'],
-  ['zip', 'ZIP'],
-  ['county', 'County'],
-];
+// The type list is filtered by class: a property is never a Vehicle or Heavy Equipment.
+const PROPERTY_TYPES = ASSET_TYPE_OPTIONS.filter((t) => t !== 'Vehicle' && t !== 'Heavy Equipment');
 
-const SECTION_LABEL_STYLE = { fontSize: '0.64rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
+// The fields asked on the one screen, per class. The address is ONE field here
+// ("Street, City, ST ZIP"); splitAddress peels the tail into city / state / zip.
+const CREATE_FIELDS = {
+  property: [
+    { k: 'name', label: 'Name', req: true, full: true },
+    { k: 'address', label: 'Address', req: true, full: true, placeholder: 'Street, City, ST ZIP' },
+    { k: 'assetType', label: 'Asset Type', type: 'select', options: PROPERTY_TYPES },
+    { k: 'devStage', label: 'Development Stage', type: 'select', options: DEV_STAGE_OPTIONS },
+  ],
+  vehicle: [
+    { k: 'name', label: 'Asset Name / Unit #', req: true, full: true },
+    { k: 'make', label: 'Make' },
+    { k: 'model', label: 'Model' },
+    { k: 'address', label: 'Home Base / Location', full: true },
+  ],
+  equipment: [
+    { k: 'name', label: 'Asset Name / Unit #', req: true, full: true },
+    { k: 'make', label: 'Make' },
+    { k: 'model', label: 'Model' },
+    { k: 'address', label: 'Home Base / Location', full: true },
+  ],
+};
 
-/** Which address fields differ between the original row and the current draft values. */
-function addressFieldsChanged(row, values) {
-  if (!row) return [];
-  return ADDRESS_FIELDS.filter(([key]) => String(row[key] ?? '') !== String(values[key] ?? ''));
-}
+const SECTION_LABEL_STYLE = { fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--pine)' };
 
 /**
- * @param row          existing asset when editing, null/undefined when adding
- * @param draft        staged values when RE-opening a new (row-less) add wizard, e.g. after
- *                     backing out of the paired Item Management popup for a Heavy Equipment
- *                     asset - unlike `row`, this keeps `isAdding` true (Create Asset/CSV import
- *                     stay available) but still seeds the class + field values and skips to step 1.
- * @param properties   the full asset list (used for the parent-link picker, excluding self)
+ * @param draft        staged values when RE-opening the add screen, e.g. after backing out
+ *                     of the paired Item Management popup for a Heavy Equipment asset -
+ *                     seeds the class + field values.
+ * @param properties   the full asset list (used for the parent-link picker)
+ * @param mode         'add' (default) or 'import' (CSV bulk import only)
  * @param onSave       (payload, addressChangeReason?, linkInfo?, meta?) => void - meta.guided is
- *                     true only for the single-asset wizard save, not the CSV bulk-import loop
- * @param onDelete     () => void (only offered when editing)
+ *                     true only for the single-asset create, not the CSV bulk-import loop
  * @param onClose      () => void
  */
-export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClose }) {
-  const [kind, setKind] = useState(() => draft?.kind || inferAssetKind(row));
-  const [step, setStep] = useState(row || draft ? 1 : 0);
+export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose }) {
+  const importing = mode === 'import';
+  const [kind, setKind] = useState(() => draft?.kind || inferAssetKind(draft) || 'property');
   const importInputRef = useRef(null);
-  const imageInputRef = useRef(null);
 
   const schema = WIZARD_SCHEMAS[kind] || PROPERTY_WIZARD_FIELDS;
   const isNonPropertyAsset = kind !== 'property';
-  const requiredFields = schema.filter((f) => !f.sec);
-  const otherAssets = (properties || []).filter((p) => !row || p.id !== row.id);
+  const createFields = CREATE_FIELDS[kind] || CREATE_FIELDS.property;
+  const otherProperties = (properties || []).filter((p) => inferAssetKind(p) === 'property');
 
-  // Form values, seeded from `row` (or `draft`, when returning to an in-progress add) across
-  // every schema's keys at once (not just the current kind's) so switching the asset-class
-  // picker before saving doesn't silently drop values already typed under a different class.
+  // Form values across every schema's keys at once so switching the class before
+  // saving does not drop what was typed under another class.
   const [values, setValues] = useState(() => {
-    const source = row || draft;
-    const initial = { image: source?.image || '' };
+    const initial = { image: draft?.image || '' };
     PROPERTY_WIZARD_FIELDS.concat(VEHICLE_FIELDS, EQUIPMENT_FIELDS).forEach((f) => {
-      if (!f.sec) initial[f.k] = source ? source[f.k] ?? '' : '';
+      if (!f.sec) initial[f.k] = draft ? draft[f.k] ?? '' : '';
     });
     return initial;
   });
   const [initialValues] = useState(values);
-
-  const [addressChangeReason, setAddressChangeReason] = useState('');
-  const [linkTargetId, setLinkTargetId] = useState(row?.parentId || '');
+  const [errors, setErrors] = useState({});
+  const [advanced, setAdvanced] = useState(!!draft?.parentId);
+  const [linkTargetId, setLinkTargetId] = useState(draft?.parentId || '');
   const [linkRole, setLinkRole] = useState('secondary');
-  const linkTargetName = otherAssets.find((p) => p.id === linkTargetId)?.name || '';
+  const linkTargetName = otherProperties.find((p) => p.id === linkTargetId)?.name || '';
 
-  const setField = (key, val) =>
-    setValues((prev) => {
-      const next = { ...prev, [key]: val };
-      // Storage unit-mix fields auto-sum into unitsTotal as they're edited.
-      const unitKeys = ['unitsClimate', 'unitsNonClimate', 'unitsRV'];
-      if (unitKeys.includes(key)) {
-        const sum = unitKeys.reduce((total, k) => total + (parseInt(String(next[k] ?? '').replace(/[^0-9]/g, ''), 10) || 0), 0);
-        next.unitsTotal = String(sum);
-      }
-      return next;
-    });
-
-  const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      try {
-        setField('image', await resizeImageToDataUrl(file));
-      } catch {
-        // unreadable image - leave field unchanged
-      }
-    }
-    e.target.value = '';
+  const setField = (key, val) => {
+    setValues((prev) => ({ ...prev, [key]: val }));
+    if (errors[key]) setErrors((e) => { const n = { ...e }; delete n[key]; return n; });
   };
 
-  const handleImagePaste = (e) => {
-    const list = e.clipboardData?.items || [];
-    for (const it of list) {
-      if (it.type && it.type.startsWith('image/')) {
-        const blob = it.getAsFile();
-        if (blob) {
-          e.preventDefault();
-          const file = blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' });
-          resizeImageToDataUrl(file)
-            .then((url) => setField('image', url))
-            .catch(() => {
-              // unreadable image - leave field unchanged
-            });
-          return;
-        }
-      }
-    }
-  };
-
-  const changedAddressFields = addressFieldsChanged(row, values);
-  const needsAddressReason = kind === 'property' && changedAddressFields.length > 0;
+  const dirty = !importing && (JSON.stringify(values) !== JSON.stringify(initialValues) || linkTargetId !== (draft?.parentId || ''));
 
   const save = () => {
-    for (const f of requiredFields) {
-      if (f.req && !String(values[f.k] || '').trim()) {
-        alert('Please fill: ' + f.label);
-        return;
-      }
-    }
-    if (needsAddressReason && !addressChangeReason.trim()) {
-      alert('Please give a reason for the address change.');
-      return;
-    }
+    const next = requiredErrors(createFields, values);
+    setErrors(next);
+    if (Object.keys(next).length) return;
 
     const payload = { image: values.image, kind };
     schema.forEach((f) => { if (!f.sec) payload[f.k] = values[f.k] ?? ''; });
-    if (isNonPropertyAsset) {
-      payload.assetType = kind === 'vehicle' ? 'Vehicle' : 'Heavy Equipment';
-    }
-    // Build the grouped snapshot for EVERY asset class, properties included. The
-    // detail view reads any KEYLESS field only from asset.snapshot, so a property
-    // created without one showed its keyless fields (Legal Description, Notes,
-    // Construction Type, Placed-in-service/CO dates, etc.) blank even though the
-    // flat values saved fine - it looked like the wizard "didn't persist." This
-    // mirrors what the edit-details flow rebuilds every save (App.jsx saveDetail).
-    payload.snapshot = buildAssetSnapshot(schema, values);
+    if (isNonPropertyAsset) payload.assetType = kind === 'vehicle' ? 'Vehicle' : 'Heavy Equipment';
+    // The detail view reads any KEYLESS field only from asset.snapshot, so every
+    // class gets one (empty fields included) - mirrors App.jsx saveDetail.
+    const row = kind === 'property' ? splitAddress(payload) : payload;
+    row.snapshot = buildAssetSnapshot(schema, { ...values, address: row.address, city: row.city, state: row.state, zip: row.zip, county: row.county });
 
-    // Link info is only meaningful when creating a brand-new PROPERTY (existing assets keep
-    // their current parent/child relationship, managed instead through ParcelManager).
-    const linkInfo = row || isNonPropertyAsset ? undefined : linkTargetId ? { targetId: linkTargetId, role: linkRole } : { role: 'none' };
-
-    // 4th arg marks this as the guided single-add wizard (vs. the CSV bulk-import loop below,
-    // which calls onSave per row without it) - callers use it to gate flows that only make sense
-    // for one asset at a time, e.g. Heavy Equipment's paired Item Management popup.
-    onSave(payload, needsAddressReason ? addressChangeReason.trim() : undefined, linkInfo, { guided: true });
+    // Link info only means something for a brand-new PROPERTY (vehicles and equipment
+    // never link; existing assets manage links through ParcelManager).
+    const linkInfo = isNonPropertyAsset ? undefined : linkTargetId ? { targetId: linkTargetId, role: linkRole } : { role: 'none' };
+    onSave(row, undefined, linkInfo, { guided: true });
   };
 
-  // ---- CSV bulk-import (step 0 only) -----------------------------------------------------
+  // ---- CSV bulk import (mode="import") ----------------------------------------------------
 
   const downloadTemplate = () => {
     const fields = schema.filter((f) => !f.sec);
@@ -194,7 +147,7 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
       try {
         const rows = nexusCsvParse(String(reader.result || ''));
         if (rows.length < 2) {
-          alert('No data rows found. Put one asset per row under the header line.');
+          pushToast?.('No data rows found. Put one asset per row under the header line.', 'bad');
           return;
         }
         const headerLabels = rows[0].map((h) => normLabel(h));
@@ -218,23 +171,21 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
           if (!String(rowValues.name || '').trim()) { skipped++; continue; }
 
           const payload = { ...rowValues, kind };
-          if (isNonPropertyAsset) {
-            payload.assetType = kind === 'vehicle' ? 'Vehicle' : 'Heavy Equipment';
-            payload.snapshot = buildAssetSnapshot(schema, rowValues);
-          }
-          onSave(payload, undefined, undefined);
+          if (isNonPropertyAsset) payload.assetType = kind === 'vehicle' ? 'Vehicle' : 'Heavy Equipment';
+          payload.snapshot = buildAssetSnapshot(schema, rowValues);
+          onSave(kind === 'property' ? splitAddress(payload) : payload, undefined, undefined);
           created++;
         }
 
         e.target.value = '';
-        alert(
+        pushToast?.(
           `${created} asset${created === 1 ? '' : 's'} imported` +
-          (skipped ? `, ${skipped} row(s) skipped (missing name)` : '') + '.'
+          (skipped ? `, ${skipped} row(s) skipped (missing name)` : '') + '.', 'ok'
         );
         onClose();
       } catch {
         e.target.value = '';
-        alert('Could not read that file. Use the downloaded template and keep the header row.');
+        pushToast?.('Could not read that file. Use the downloaded template and keep the header row.', 'bad');
       }
     };
     reader.readAsText(file);
@@ -242,265 +193,148 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
 
   // ---- render -----------------------------------------------------------------------------
 
-  const isAdding = !row;
-  const showLinking = isAdding && step === 1 && kind === 'property';
-  const showFieldForm = row || step === 1;
-  const classLabel = kind === 'property' ? 'property' : kind === 'vehicle' ? 'vehicle' : 'equipment';
-  // Step 0 is just the class picker + CSV import shortcut - nothing typed yet,
-  // so it never prompts. Once the field form is showing, guard on the values
-  // actually changing (plus the linking picker for a brand-new property).
-  const dirty = showFieldForm && (
-    JSON.stringify(values) !== JSON.stringify(initialValues)
-    || !!addressChangeReason.trim()
-    || linkTargetId !== (row?.parentId || '')
+  const classPicker = (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ ...SECTION_LABEL_STYLE, marginBottom: 10 }}>Asset Class</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {ASSET_CLASSES.map(([classKey, label]) => {
+          const active = kind === classKey;
+          return (
+            <button
+              key={classKey}
+              type="button"
+              onClick={() => setKind(classKey)}
+              aria-pressed={active}
+              style={{
+                flex: '1 1 150px',
+                padding: '10px 12px',
+                borderRadius: 10,
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                fontFamily: 'inherit',
+                border: `1.5px solid ${active ? 'var(--pine)' : 'var(--border-color)'}`,
+                backgroundColor: active ? 'var(--bg-secondary)' : 'var(--bg-card)',
+                color: active ? 'var(--pine)' : 'var(--text-secondary)',
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
+
+  if (importing) {
+    return (
+      <Modal
+        title="Import From a Spreadsheet"
+        onClose={onClose}
+        footer={<button className="secondary-btn" onClick={onClose}>Close</button>}
+      >
+        {classPicker}
+        <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 14 }}>
+          Download the template for this asset class, fill one row per asset, then import it. Rows without a name are skipped.
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="secondary-btn" onClick={downloadTemplate}>Download CSV Template</button>
+          <button type="button" className="primary-btn" onClick={() => importInputRef.current && importInputRef.current.click()}>Import CSV</button>
+          <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importCsv} style={{ display: 'none' }} />
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
-      title={row ? `Edit ${classLabel}` : 'Add Asset'}
-      wide
+      title="Add Asset"
       onClose={onClose}
       isDirty={dirty}
       onSave={save}
       footer={
         <>
-          {row && onDelete && (
-            <button
-              className="secondary-btn"
-              onClick={() => {
-                if (window.confirm(`Delete "${row.name}"? It moves to "Recover Deleted" and can be restored later.`)) onDelete();
-              }}
-              style={{ marginRight: 'auto', color: 'hsl(var(--color-red))' }}
-            >
-              Delete
-            </button>
-          )}
-          <button className="secondary-btn" onClick={isAdding && step === 1 ? () => setStep(0) : onClose}>
-            {isAdding && step === 1 ? 'Back' : 'Cancel'}
-          </button>
-          <button className="primary-btn" onClick={isAdding && step === 0 ? () => setStep(1) : save}>
-            {isAdding && step === 0 ? 'Continue' : row ? 'Save' : 'Create Asset'}
-          </button>
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" onClick={save}>Create Asset</button>
         </>
       }
     >
-      {/* Asset class picker - always visible, even while editing (though changing it mid-edit
-          is unusual; the original leaves this enabled rather than disabling it for edits). */}
-      <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: '1px solid var(--border-color)' }}>
-        <div style={{ ...SECTION_LABEL_STYLE, color: 'var(--pine)', fontSize: '0.7rem', marginBottom: 10 }}>Asset class</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {ASSET_CLASSES.map(([classKey, label]) => {
-            const active = kind === classKey;
-            return (
-              <button
-                key={classKey}
-                type="button"
-                onClick={() => setKind(classKey)}
-                style={{
-                  flex: '1 1 150px',
-                  padding: '10px 12px',
-                  borderRadius: 10,
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: 700,
-                  border: `1.5px solid ${active ? 'var(--pine)' : 'var(--border-color)'}`,
-                  backgroundColor: active ? 'var(--bg-secondary)' : 'var(--bg-card)',
-                  color: active ? 'var(--pine)' : 'var(--text-secondary)',
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
+      {classPicker}
+
+      <div className="form-grid">
+        {createFields.map((f) => (
+          <FieldInput key={f.k} f={f} value={values[f.k]} error={errors[f.k]} onChange={setField} />
+        ))}
+      </div>
+      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 10, lineHeight: 1.5 }}>
+        Everything else - ownership, size, financials, insurance, photos - is filled on the asset. Its Overview lists what is still empty.
       </div>
 
-      {/* Address-change reason banner (editing a property only). */}
-      {needsAddressReason && (
-        <div
-          style={{
-            marginBottom: 14,
-            padding: '12px 14px',
-            borderRadius: 10,
-            border: '1px solid hsla(var(--color-gold), 0.5)',
-            backgroundColor: 'hsla(var(--color-gold), 0.1)',
-          }}
-        >
-          <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'hsl(var(--color-gold))', marginBottom: 6 }}>
-            ⚠ You changed the address - reason required
-          </div>
-          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
-            Changing: <strong style={{ color: 'var(--text-primary)' }}>{changedAddressFields.map(([, label]) => label).join(', ')}</strong>. A reason is recorded in the activity log.
-          </div>
-          <input
-            className="form-input"
-            autoFocus
-            value={addressChangeReason}
-            onChange={(e) => setAddressChangeReason(e.target.value)}
-            placeholder="Why is the address being changed? (required)"
-            style={{ fontSize: '0.85rem' }}
-          />
-        </div>
-      )}
-
-      {/* Step 1, new property only: optional link to another property (primary/secondary). */}
-      {showLinking && (
-        <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: '1px solid var(--border-color)' }}>
-          <div style={{ ...SECTION_LABEL_STYLE, color: 'var(--pine)', fontSize: '0.7rem', marginBottom: 10 }}>
-            Linking <span style={{ textTransform: 'none', fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span>
-          </div>
-          <div className="form-group">
-            <label>Link this property to another</label>
-            <select className="form-input" value={linkTargetId} onChange={(e) => setLinkTargetId(e.target.value)}>
-              <option value="">- Standalone (not linked) -</option>
-              {otherAssets.filter((p) => inferAssetKind(p) === 'property').map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-          {linkTargetId && (
+      {!isNonPropertyAsset && (
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-color)' }}>
+          <button
+            type="button"
+            onClick={() => setAdvanced((a) => !a)}
+            aria-expanded={advanced}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', ...SECTION_LABEL_STYLE }}
+          >
+            {advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Advanced
+            <span style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 0, color: 'var(--text-secondary)' }}>- link this property to another</span>
+          </button>
+          {advanced && (
             <div style={{ marginTop: 12 }}>
-              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
-                Make this property the…
-              </label>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {[
-                  ['secondary', 'Secondary', `linked under "${linkTargetName}"`],
-                  ['primary', 'Primary', `"${linkTargetName}" links under this`],
-                ].map(([roleKey, label, desc]) => {
-                  const active = linkRole === roleKey;
-                  const accentColor = roleKey === 'primary' ? 'var(--pine)' : 'hsl(var(--color-purple))';
-                  return (
-                    <button
-                      key={roleKey}
-                      type="button"
-                      onClick={() => setLinkRole(roleKey)}
-                      style={{
-                        flex: '1 1 200px',
-                        textAlign: 'left',
-                        padding: '11px 13px',
-                        borderRadius: 10,
-                        cursor: 'pointer',
-                        border: `1.5px solid ${active ? accentColor : 'var(--border-color)'}`,
-                        backgroundColor: active ? (roleKey === 'primary' ? 'var(--bg-secondary)' : 'hsla(var(--color-purple), 0.08)') : 'var(--bg-card)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                        <span
+              <div className="form-group">
+                <label htmlFor="add-asset-link">Link this property to another</label>
+                <select id="add-asset-link" className="form-input" value={linkTargetId} onChange={(e) => setLinkTargetId(e.target.value)}>
+                  <option value="">- Standalone (not linked) -</option>
+                  {otherProperties.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              {linkTargetId && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>Make this property the…</div>
+                  <div role="radiogroup" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    {[
+                      ['secondary', 'Secondary', `linked under "${linkTargetName}"`],
+                      ['primary', 'Primary', `"${linkTargetName}" links under this`],
+                    ].map(([roleKey, label, desc]) => {
+                      const active = linkRole === roleKey;
+                      const accentColor = roleKey === 'primary' ? 'var(--pine)' : 'hsl(var(--color-purple))';
+                      return (
+                        <button
+                          key={roleKey}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => setLinkRole(roleKey)}
                           style={{
-                            width: 15,
-                            height: 15,
-                            borderRadius: '50%',
-                            border: `2px solid ${active ? accentColor : 'var(--border-color)'}`,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
+                            flex: '1 1 200px',
+                            textAlign: 'left',
+                            padding: '11px 13px',
+                            borderRadius: 10,
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                            border: `1.5px solid ${active ? accentColor : 'var(--border-color)'}`,
+                            backgroundColor: active ? (roleKey === 'primary' ? 'var(--bg-secondary)' : 'hsla(var(--color-purple), 0.08)') : 'var(--bg-card)',
                           }}
                         >
-                          {active && <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: accentColor }} />}
-                        </span>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: active ? accentColor : 'var(--text-primary)' }}>{label}</span>
-                      </div>
-                      <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 4, marginLeft: 22 }}>{desc}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Step 0: intro copy + bulk CSV import (new assets only). */}
-      {isAdding && step === 0 && (
-        <div style={{ padding: '14px 2px 4px' }}>
-          <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
-            You are adding a {kind === 'property' ? 'Real Estate asset' : kind === 'vehicle' ? 'Vehicle' : 'Heavy Equipment asset'}.
-          </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-            Confirm the asset class above, then tap Continue. We ask only what matters for this type - just a Name{kind === 'property' ? ' and Address are' : ' is'} required to start.
-          </div>
-        </div>
-      )}
-      {isAdding && step === 0 && (
-        <div style={{ marginTop: 4, marginBottom: 18, padding: '13px 14px', borderRadius: 10, border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-          <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>
-            Have several? Import from a spreadsheet
-          </div>
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 10 }}>
-            Download the template for this asset class, fill one row per asset, then import it.
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" className="secondary-btn" onClick={downloadTemplate} style={{ fontSize: '0.8rem', padding: '7px 13px' }}>
-              Download CSV Template
-            </button>
-            <button type="button" className="secondary-btn" onClick={() => importInputRef.current && importInputRef.current.click()} style={{ fontSize: '0.8rem', padding: '7px 13px' }}>
-              Import CSV
-            </button>
-            <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importCsv} style={{ display: 'none' }} />
-          </div>
-        </div>
-      )}
-
-      {/* Step 1 (or editing): the full field form for the selected asset class. */}
-      {showFieldForm && (
-        <div className="form-grid">
-          {schema.filter((f) => f.k !== 'parentId').map((f, i) =>
-            f.sec ? (
-              <div key={'sec' + i} style={{ ...SECTION_LABEL_STYLE, gridColumn: '1 / -1', marginTop: i ? 8 : 0, color: 'var(--pine)', fontSize: '0.7rem' }}>
-                {f.sec}
-              </div>
-            ) : (
-              <FieldInput key={f.k} f={f} value={values[f.k]} onChange={setField} />
-            )
-          )}
-        </div>
-      )}
-
-      {/* Step 1 (or editing): image uploader. */}
-      {showFieldForm && (
-        <div onPaste={handleImagePaste} tabIndex={0} style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-color)', outline: 'none' }}>
-          <div style={{ ...SECTION_LABEL_STYLE, color: 'var(--pine)', fontSize: '0.7rem', marginBottom: 10 }}>Image</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            {values.image ? (
-              <img
-                src={values.image}
-                alt=""
-                style={{ width: 120, height: 78, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border-color)', flexShrink: 0 }}
-              />
-            ) : (
-              <div
-                style={{
-                  width: 120,
-                  height: 78,
-                  borderRadius: 8,
-                  border: '1px dashed var(--border-color)',
-                  backgroundColor: 'var(--bg-secondary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--text-secondary)',
-                  fontSize: '0.72rem',
-                  flexShrink: 0,
-                }}
-              >
-                No image
-              </div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              <button className="secondary-btn" onClick={() => imageInputRef.current?.click()} style={{ fontSize: '0.78rem', padding: '7px 14px' }}>
-                {values.image ? 'Change Image' : 'Upload Image'}
-              </button>
-              {values.image && (
-                <button className="secondary-btn" onClick={() => setField('image', '')} style={{ fontSize: '0.78rem', padding: '7px 14px', color: 'hsl(var(--color-red))' }}>
-                  Remove
-                </button>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <span style={{ width: 15, height: 15, borderRadius: '50%', border: `2px solid ${active ? accentColor : 'var(--border-color)'}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {active && <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: accentColor }} />}
+                            </span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: active ? accentColor : 'var(--text-primary)' }}>{label}</span>
+                          </div>
+                          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 4, marginLeft: 22 }}>{desc}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Shown on the asset card and detail.</span>
             </div>
-            <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
-          </div>
+          )}
         </div>
       )}
     </Modal>

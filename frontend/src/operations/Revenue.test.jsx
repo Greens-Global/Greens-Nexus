@@ -1,16 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
-// Operations > Revenue Management (Oct 20 2026): the tab renders the tenant
+// Operations > ECRI Management (Oct 20 2026; was Revenue Management): the tab renders the tenant
 // table, a strategy can be built, and the preview shows the revenue impact.
 // The numbers come from the server; these tests check the screen draws them.
-// Nexus never writes to Cubby (Oct 20 2026): a row reaches Cubby only when
-// staff mark it Entered in Cubby, and there is no Push button anywhere.
+// Push to Cubby is locked behind the Operations switch (Oct 21 2026): off = a
+// row reaches Cubby only when staff mark it Entered in Cubby and no Push button
+// shows; on (with a key) = a Push to Cubby button per row.
 
 const api = {
   opsRevenueTenants: vi.fn(), opsRevenueStrategies: vi.fn(), opsRevenueBatches: vi.fn(),
   opsRevenueSaveStrategy: vi.fn(), opsRevenuePreview: vi.fn(), opsRevenueCreateBatch: vi.fn(),
-  opsRevenueBatch: vi.fn(), opsRevenueEntered: vi.fn(),
+  opsRevenueBatch: vi.fn(), opsRevenueEntered: vi.fn(), opsRevenuePush: vi.fn(),
 };
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => (...a) => api[k](...a) }) }));
 // The shared Modal pulls in the Tasks module's providers; a plain dialog is enough here.
@@ -18,7 +19,7 @@ vi.mock('../tasks/components', () => ({
   Modal: ({ title, children, footer }) => <div role="dialog" aria-label={title}>{children}<div>{footer}</div></div>,
 }));
 
-const { default: Revenue, filterTenants, defaultEffective, toBody, blankStrategy } = await import('./Revenue');
+const { default: Revenue, filterTenants, defaultEffective, toBody, blankStrategy, overUnderPct, overUnderText } = await import('./Revenue');
 
 const FAC = { id: 'fac_t', shortName: 'Temecula' };
 const tenant = (key, extra = {}) => ({
@@ -45,20 +46,29 @@ beforeEach(() => {
   api.opsRevenueBatches.mockResolvedValue({ batches: [] });
 });
 
-describe('Revenue Management', () => {
+describe('ECRI Management', () => {
   it('points at the page Facility dropdown when none is picked, and has no picker of its own', () => {
     render(<Revenue facility={null} />);
-    expect(screen.getByText(/Pick a facility above to see Revenue Management/)).toBeTruthy();
+    expect(screen.getByText(/Pick a facility above to see ECRI Management/)).toBeTruthy();
     expect(screen.queryByLabelText('Facility')).toBeNull();
   });
 
-  it('renders the tenant table with the gap, balance and last change', async () => {
+  it('renders the tenant table with the over/under percent, balance and last change', async () => {
     render(<Revenue facility={FAC} />);
     expect(await screen.findByText('Tenant a1')).toBeTruthy();
-    expect(screen.getAllByText('$50.00 (33.3%)')).toHaveLength(2);
+    // Cubby's words (Miranda, Oct 21): Current Rate, Current Standard Rate, Over/Under Standard Rate.
+    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads).toEqual(expect.arrayContaining(['Current Rate', 'Current Standard Rate', 'Over/Under Standard Rate']));
+    expect(heads).not.toContain('Rent');
+    expect(heads).not.toContain('Street Rate');
+    // A percent, not dollars: ($100 - $150) / $150. Under the standard rate is red.
+    const under = screen.getAllByText('-33.3%');
+    expect(under).toHaveLength(2);
+    expect(under[0]).toHaveAttribute('data-under', 'true');
+    expect(under[0].style.color).toBe('var(--bad-fg)');
     expect(screen.getByText('$50.00 Past Due')).toBeTruthy();
     expect(screen.getByText('05/01/2026')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('Under street by more than percent'), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText('Under standard rate by more than percent'), { target: { value: '10' } });
     expect(screen.queryByText('Tenant a2')).toBeNull();
   });
 
@@ -91,7 +101,7 @@ describe('Revenue Management', () => {
     expect(within(dialog).getByRole('button', { name: 'Save as Draft' }).disabled).toBe(false);
   });
 
-  it('marks each row Entered in Cubby and has no Push button', async () => {
+  it('marks each row Entered in Cubby and shows no Push button while the switch is off', async () => {
     const change = (id, status) => ({ id, leaseId: `lease_${id}`, tenant: `Tenant ${id}`, unit: id.toUpperCase(), unitType: '10x10',
       rent: 10000, newRent: 10800, increase: 800, status, cubbyChangeDate: '', url: '', pushedBy: '', pushedAt: '' });
     const batch = (statuses) => ({
@@ -105,12 +115,12 @@ describe('Revenue Management', () => {
     api.opsRevenueEntered.mockResolvedValue(batch(['entered', 'pending']));
     render(<Revenue facility={FAC} />);
     await screen.findByText('Tenant a1');
-    fireEvent.click(screen.getByRole('button', { name: 'Rent Changes' }));
+    fireEvent.change(screen.getByLabelText('View'), { target: { value: 'batches' } });
     fireEvent.click(await screen.findByRole('button', { name: '10/20/2026' }));
     const dialog = await screen.findByRole('dialog', { name: 'Unit type 10x10 - Annual 8%' });
     expect(await within(dialog).findByText(/Nexus doesn't change rents in Cubby/)).toBeTruthy();
     expect(within(dialog).queryByRole('button', { name: /push/i })).toBeNull();
-    expect(within(dialog).queryByText(/push|Manager role/i)).toBeNull();
+    expect(within(dialog).queryByText(/Manager role/i)).toBeNull();
     expect(within(dialog).getByRole('button', { name: 'Mark Applied' }).disabled).toBe(true);
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Mark Tenant a1 Entered in Cubby' }));
@@ -122,11 +132,51 @@ describe('Revenue Management', () => {
   });
 });
 
+describe('Revenue push switch', () => {
+  it('pushes one row to Cubby when the switch is on', async () => {
+    const change = (id, status) => ({ id, leaseId: `lease_${id}`, tenant: `Tenant ${id}`, unit: id.toUpperCase(), unitType: '10x10',
+      rent: 10000, newRent: 10800, increase: 800, status, cubbyChangeDate: '', url: '', pushedBy: '', pushedAt: '' });
+    const batch = (s0) => ({
+      id: 'b1', facility: 'Greens Storage Temecula', scopeLabel: 'Unit type 10x10', strategyName: 'Annual 8%',
+      status: 'approved', effectiveDate: '2026-12-01', noticeDate: '2026-11-01', createdAt: '2026-10-20T17:00:00Z', createdBy: 'ops@greensglobal.com',
+      count: 1, monthlyIncrease: 800, annualIncrease: 9600, inCubby: s0 === 'pushed' ? 1 : 0,
+      changes: [change('a1', s0)], audit: [], pushOn: true, writeConfigured: true, pushReady: true,
+    });
+    api.opsRevenueTenants.mockResolvedValue(DATA);
+    api.opsRevenueStrategies.mockResolvedValue({ strategies: [] });
+    api.opsRevenueBatches.mockResolvedValue({ batches: [batch('pending')] });
+    api.opsRevenueBatch.mockResolvedValue(batch('pending'));
+    api.opsRevenuePush.mockResolvedValue(batch('pushed'));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<Revenue facility={FAC} />);
+    await screen.findByText('Tenant a1');
+    fireEvent.change(screen.getByLabelText('View'), { target: { value: 'batches' } });
+    fireEvent.click(await screen.findByRole('button', { name: '10/20/2026' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Unit type 10x10 - Annual 8%' });
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Push Tenant a1 to Cubby' }));
+    await waitFor(() => expect(api.opsRevenuePush).toHaveBeenCalledWith('b1', 'a1'));
+    expect(await within(dialog).findByText('Pushed to Cubby')).toBeTruthy();
+    window.confirm.mockRestore();
+  });
+});
+
 describe('Revenue helpers', () => {
   it('filters tenants', () => {
     expect(filterTenants(DATA.tenants, { unitType: '10x20' }).map((t) => t.key)).toEqual(['b1']);
     expect(filterTenants(DATA.tenants, { stayed: '12' }).map((t) => t.key)).toEqual(['a1', 'b1']);
     expect(filterTenants(DATA.tenants, { noIncrease: '12' }).map((t) => t.key)).toEqual(['a1']);
+    expect(filterTenants(DATA.tenants, { underPct: '10' }).map((t) => t.key)).toEqual(['a1', 'b1']);
+  });
+
+  it('shows over/under the standard rate as a signed percent', () => {
+    expect(overUnderPct({ rent: 10000, street: 15000 })).toBe(-33.3);
+    expect(overUnderPct({ rent: 16000, street: 15000 })).toBe(6.7);
+    expect(overUnderPct({ rent: 15000, street: 15000 })).toBe(0);
+    expect(overUnderPct({ rent: 15000, street: 0 })).toBeNull();
+    expect(overUnderText(-33.3)).toBe('-33.3%');
+    expect(overUnderText(6.7)).toBe('+6.7%');
+    expect(overUnderText(0)).toBe('0.0%');
+    expect(overUnderText(null)).toBe('-');
   });
 
   it('picks the first of the month after the notice period', () => {

@@ -8,13 +8,12 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { formatDistance } from '../lib/distance';
 import { formatDate, formatTime } from '../lib/datetime';
 
-// Location Trail map (Oct 20 2026, backend/routers/location_trail.py).
-//   Team mode (People > Time > Location Trail): live positions of the people
-//   in the viewer's scope who are clocked in and pinged in the last ~15
-//   minutes (web pings from the Time Clock, or the Nexus Fields phone app),
-//   and one person's trail for a chosen day with their punches on it.
-//   Self mode (`self`, from the Time Clock page): only
-//   that person's own trail for a chosen day.
+// Location Trail map (Oct 20 2026, backend/routers/location_trail.py), on
+// Workforce Analytics > Location Trail - managers only (Neil, Oct 21: no
+// employee sees a trail, their own included). Live positions of the people
+// in the viewer's scope who are clocked in and pinged in the last ~15
+// minutes (web pings from the Time Clock, or the Nexus Fields phone app),
+// and one person's trail for a chosen day with their punches on it.
 const STATUS = {
   in_fence:     { color: '#16a34a', label: 'On Site' },
   out_of_fence: { color: '#d97706', label: 'Out of Location' },
@@ -43,13 +42,13 @@ function ago(iso) {
 }
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
 
-export default function LiveCrewMap({ toastErr, employees = [], people = [], self = false, canEnroll = false }) {
+export default function LiveCrewMap({ toastErr, employees = [], people = [], canEnroll = false }) {
   const mapElRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef(null);
   const pathRef = useRef(null);
-  const [crew, setCrew] = useState(self ? [] : null);
-  const [sel, setSel] = useState(self ? 'me' : '');    // email whose trail is drawn ('me' = the viewer)
+  const [crew, setCrew] = useState(null);
+  const [sel, setSel] = useState('');    // email whose trail is drawn
   const [day, setDay] = useState(localDay());
   // The loaded trail, tagged with the person + day it is for: { key, data }.
   const [loaded, setLoaded] = useState({ key: '', data: null });
@@ -74,14 +73,13 @@ export default function LiveCrewMap({ toastErr, employees = [], people = [], sel
   }, []);
 
   const load = useCallback(() => {
-    if (self) return;
     api.locationTrailLive()
       .then(r => { setCrew(r?.crew || []); setUpdated(formatTime(new Date())); })
       .catch(e => { setCrew(c => c || []); toastErr && toastErr(e?.message || 'Could not load live locations.'); });
-  }, [toastErr, self]);
-  useEffect(() => { load(); return self ? undefined : pollWhileVisible(load, REFRESH_MS); }, [load, self]);
+  }, [toastErr]);
+  useEffect(() => { load(); return pollWhileVisible(load, REFRESH_MS); }, [load]);
 
-  // Live markers (team mode, nobody selected).
+  // Live markers (nobody selected).
   useEffect(() => {
     const map = mapRef.current, layer = markersRef.current;
     if (!map || !layer) return;
@@ -106,11 +104,11 @@ export default function LiveCrewMap({ toastErr, employees = [], people = [], sel
     if (!sel || !day) return undefined;
     let live = true;
     const key = `${sel}|${day}`;
-    api.locationTrailDay(self ? '' : sel, day)
+    api.locationTrailDay(sel, day)
       .then(r => { if (live) setLoaded({ key, data: r || { points: [], punches: [] } }); })
       .catch(e => { if (live) { setLoaded({ key, data: { points: [], punches: [] } }); toastErr && toastErr(e?.message || 'Could not load the trail.'); } });
     return () => { live = false; };
-  }, [sel, day, toastErr, self]);
+  }, [sel, day, toastErr]);
   const trail = sel && loaded.key === `${sel}|${day}` ? loaded.data : null;
   const trailBusy = !!sel && !trail;
 
@@ -149,25 +147,21 @@ export default function LiveCrewMap({ toastErr, employees = [], people = [], sel
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)' }}>
-        {!self && (<>
-          <span><strong style={{ color: 'var(--ink)' }}>{list.length}</strong> clocked in and sharing location</span>
-          {updated && <span>- updated {updated}</span>}
-        </>)}
-        {!self && (
-          <select className="form-input" aria-label="Person" value={sel} onChange={e => setSel(e.target.value)}
+        <span><strong style={{ color: 'var(--ink)' }}>{list.length}</strong> clocked in and sharing location</span>
+        {updated && <span>- updated {updated}</span>}
+        <select className="form-input" aria-label="Person" value={sel} onChange={e => setSel(e.target.value)}
             style={{ fontSize: 12, width: 220, maxWidth: '100%' }}>
             <option value="">Everyone Live Now</option>
             {choices.map(c => <option key={c.email} value={c.email}>{c.name}</option>)}
-          </select>
-        )}
+        </select>
         {sel && (
           <input className="form-input" type="date" aria-label="Day" value={day} max={localDay()}
             onChange={e => setDay(e.target.value)} style={{ fontSize: 12, width: 150 }} />
         )}
-        {!self && sel && (
+        {sel && (
           <button className="secondary-btn" onClick={() => setSel('')} style={{ fontSize: 12 }}>Back to Everyone</button>
         )}
-        {canEnroll && !self && (
+        {canEnroll && (
           <button className="secondary-btn" onClick={() => setEnrol(true)} style={{ fontSize: 12 }}>Enroll Phone</button>
         )}
       </div>
@@ -181,7 +175,7 @@ export default function LiveCrewMap({ toastErr, employees = [], people = [], sel
             trailBusy && !trail ? <LoadingState compact /> : (
               <>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
-                  {self ? 'My Trail' : selName} - {formatDate(day)}
+                  {selName} - {formatDate(day)}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                   {pointCount ? `${pointCount} location ${pointCount === 1 ? 'point' : 'points'}` : 'No location points on this day.'}

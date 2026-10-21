@@ -3,7 +3,7 @@
 // its child collections), not off any single asset.
 //
 // Also home to the per-asset compliance-signal helpers that back the Health Status strip
-// (HealthStrip) on each asset detail page: snapMap (free-text snapshot -> label-keyed lookup),
+// (the old HealthStrip) on each asset detail page: snapMap (free-text snapshot -> label-keyed lookup),
 // assetSignals (Insurance/Inspections/Permits/Debt for properties, Insurance/Registration/
 // Service/Odometer for vehicles/equipment), freshTs/freshMeta (last-touched recency),
 // assetCompleteness (Manage-page completeness %), and assetRank (default portfolio sort order).
@@ -106,7 +106,7 @@ export function freshTs(logs, id) {
  * or never-updated = muted grey.
  */
 export function freshMeta(ts) {
-  if (!ts) return { txt: 'Not yet updated', tone: 'mut' };
+  if (!ts) return { txt: 'Not Yet Updated', tone: 'mut' };
   const days = Math.floor((Date.now() - new Date(ts).getTime()) / 864e5);
   const tone = days <= 30 ? 'green' : days <= 120 ? 'gold' : 'mut';
   const rel = days <= 0 ? 'today' : days === 1 ? 'yesterday' : days < 30 ? days + 'd ago' : formatDate(ts);
@@ -143,7 +143,7 @@ export function assetSignals(asset, store) {
     const insDays = daysUntil(insExpiration);
     signals.push(
       insDays == null
-        ? { l: 'Insurance', v: 'Not on file', t: 'mut' }
+        ? { l: 'Insurance', v: 'Not on File', t: 'mut' }
         : insDays < 0
         ? { l: 'Insurance', v: 'Lapsed', t: 'bad' }
         : insDays <= 60
@@ -155,7 +155,7 @@ export function assetSignals(asset, store) {
     const regDays = daysUntil(regExpiration);
     signals.push(
       regDays == null
-        ? { l: 'Registration', v: 'Not on file', t: 'mut' }
+        ? { l: 'Registration', v: 'Not on File', t: 'mut' }
         : regDays < 0
         ? { l: 'Registration', v: 'Expired', t: 'bad' }
         : regDays <= 60
@@ -170,7 +170,7 @@ export function assetSignals(asset, store) {
       serviceDays == null
         ? serviceRecords.length
           ? { l: 'Service', v: serviceRecords.length + ' on file', t: 'info' }
-          : { l: 'Service', v: 'None logged', t: 'mut' }
+          : { l: 'Service', v: 'None Logged', t: 'mut' }
         : serviceDays < 0
         ? { l: 'Service', v: 'Overdue', t: 'bad' }
         : serviceDays <= 30
@@ -185,9 +185,9 @@ export function assetSignals(asset, store) {
       : null;
     signals.push(
       daysSinceReading == null
-        ? { l: 'Odometer', v: 'No reading', t: 'mut' }
+        ? { l: 'Odometer', v: 'No Reading', t: 'mut' }
         : daysSinceReading > 365
-        ? { l: 'Odometer', v: 'Reading due', t: 'warn' } // required once a year
+        ? { l: 'Odometer', v: 'Reading Due', t: 'warn' } // required once a year
         : { l: 'Odometer', v: 'Current', t: 'ok' }
     );
 
@@ -202,7 +202,7 @@ export function assetSignals(asset, store) {
   const insDays = daysUntil(insExpiration);
   signals.push(
     insDays == null
-      ? { l: 'Insurance', v: 'Not on file', t: 'mut' }
+      ? { l: 'Insurance', v: 'Not on File', t: 'mut' }
       : insDays < 0
       ? { l: 'Insurance', v: 'Lapsed', t: 'bad' }
       : insDays <= 90
@@ -215,7 +215,7 @@ export function assetSignals(asset, store) {
   const nearestDue = dueDays.length ? Math.min.apply(null, dueDays) : null;
   signals.push(
     !inspections.length
-      ? { l: 'Inspections', v: 'None scheduled', t: 'mut' }
+      ? { l: 'Inspections', v: 'None Scheduled', t: 'mut' }
       : nearestDue == null
       ? { l: 'Inspections', v: inspections.length + ' on file', t: 'info' }
       : nearestDue < 0
@@ -234,7 +234,7 @@ export function assetSignals(asset, store) {
   ).length;
   signals.push(
     !permits.length
-      ? { l: 'Permits', v: 'None tracked', t: 'mut' }
+      ? { l: 'Permits', v: 'None Tracked', t: 'mut' }
       : inProcessCount
       ? { l: 'Permits', v: inProcessCount + ' in process', t: 'info' }
       : { l: 'Permits', v: permits.length + ' on file', t: 'ok' }
@@ -244,7 +244,7 @@ export function assetSignals(asset, store) {
   const maturityDays = daysUntil(maturityDate);
   signals.push(
     !maturityDate
-      ? { l: 'Debt', v: 'None recorded', t: 'mut' }
+      ? { l: 'Debt', v: 'None Recorded', t: 'mut' }
       : maturityDays < 0
       ? { l: 'Debt', v: 'Matured', t: 'bad' }
       : { l: 'Debt', v: 'Matures ' + formatDate(maturityDate), t: maturityDays <= 180 ? 'warn' : 'ok' }

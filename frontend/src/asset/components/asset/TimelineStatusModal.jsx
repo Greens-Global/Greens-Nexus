@@ -24,18 +24,17 @@ export function TimelineStatusModal({ current, onSave, onClose }) {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [initialDate] = useState(date);
   const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState({});
 
   const handleSave = () => {
-    if (!status) {
-      alert('Please pick a status.');
-      return;
-    }
-    if (!reason.trim()) {
-      alert('Please give a reason for the status change.');
-      return;
-    }
+    const next = {};
+    if (!status) next.status = 'Pick a status.';
+    if (!reason.trim()) next.reason = 'A reason is required.';
+    setErrors(next);
+    if (next.status || next.reason) return;
     onSave(status, date, reason.trim());
   };
+  const errLine = (k) => errors[k] ? <div role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{errors[k]}</div> : null;
   const dirty = status !== (current || '') || date !== initialDate || !!reason.trim();
 
   return (
@@ -53,29 +52,33 @@ export function TimelineStatusModal({ current, onSave, onClose }) {
     >
       <div className="form-grid">
         <div className="form-group">
-          <label>Status</label>
-          <select className="form-input" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <label htmlFor="timeline-status">Status</label>
+          <select id="timeline-status" className="form-input" value={status} aria-invalid={errors.status ? true : undefined} onChange={(e) => { setStatus(e.target.value); setErrors((er) => ({ ...er, status: '' })); }}>
             <option value="">Select…</option>
             {TIMELINE_STATUS_OPTIONS.map((opt) => (
               <option key={opt} value={opt}>{opt}</option>
             ))}
           </select>
+          {errLine('status')}
         </div>
         <div className="form-group">
-          <label>Date</label>
-          <input type="date" className="form-input" value={date} onChange={(e) => setDate(e.target.value)} />
+          <label htmlFor="timeline-date">Date</label>
+          <input id="timeline-date" type="date" className="form-input" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
         <div className="form-group form-group-full">
-          <label>
+          <label htmlFor="timeline-reason">
             Reason <span style={{ color: 'hsl(var(--color-red))' }}>*</span>
           </label>
           <textarea
+            id="timeline-reason"
             className="form-input"
             rows={2}
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            aria-invalid={errors.reason ? true : undefined}
+            onChange={(e) => { setReason(e.target.value); setErrors((er) => ({ ...er, reason: '' })); }}
             placeholder="Why is the status changing?"
           />
+          {errLine('reason')}
         </div>
       </div>
     </Modal>

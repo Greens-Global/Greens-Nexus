@@ -28,7 +28,7 @@ import { dialog } from '../ui/dialog';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
-import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState } from '../components/AsyncState';
+import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
@@ -67,6 +67,8 @@ import { PersonReimbursements } from '../components/Reimbursements';
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
 // A company's Roles tab (Company Settings) - lazy for the same reason.
 const CompanyRoles = lazy(() => import('./CompanyRoles'));
+// Sync Employee Codes From Intacct (Charmi, Oct 21 2026) - HR only, lazy.
+const IntacctEmployeeCodes = lazy(() => import('../components/IntacctEmployeeCodes'));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -1203,7 +1205,12 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
           {row2('freq', 'Frequency', label(PAY_FREQ, data.comp.frequency))}
           {row2('eff', 'Effective', formatDate(data.comp.effectiveDate))}
           {sectionLabel('Time clock')}
-          {row2('otrule', 'Overtime rule', `${label(OT_RULES, data.payroll?.overtimeRule).split(' (')[0] || '-'}${data.comp.overtimeRule ? '' : ' (company default)'}`)}
+          {row2('otrule', 'Overtime rule', `${label(OT_RULES, data.payroll?.overtimeRule).split(' (')[0] || '-'}${data.comp.overtimeRule ? ''
+            : (data.payroll?.defaultOvertimeRule && data.payroll.defaultOvertimeRule !== data.payroll.overtimeRule
+              ? ` (the company default is now ${label(OT_RULES, data.payroll.defaultOvertimeRule).split(' (')[0]} - not applied yet)`
+              : ' (company default)')}`)}
+          {/* Where they work decides the default rule (Charmi, Oct 20): California work state -> California rule. */}
+          {data.payroll?.workState?.byWorkState && row2('workstate', 'Work state', workStateText(data.payroll.workState))}
           {row2('fullday', 'Full day hours', data.payroll?.fullDayHours ? `${data.payroll.fullDayHours} h` : '')}
           {/* Read-only: set on the person's role in Settings > Access, beside the screen-share exemption (Visesh, 10/02). */}
           {row2('tracking', 'Time tracking', timeTrackingText(data.payroll))}
@@ -1885,6 +1892,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                   const r = await api.pushToEntra(e.id);
                   const mgr = r.manager === true ? ' · manager' : '';
                   toastOk(`Pushed ${r.written.length} fields${mgr} to M365.`);
+                  onReload?.();
                 } catch (err) { toastErr(err?.message || 'Could not push to M365.'); }
                 setPushBusy(false);
               }}>
@@ -1915,7 +1923,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         </div>
       )}
       {!teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} />}
-      {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
+      {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
       {roleAction === 'choose' && <RoleChangeModal employee={e} toastErr={toastErr}
         onClose={() => setRoleAction(null)} onPromote={() => setRoleAction('promotion')}
         onChanged={res => {
@@ -1934,7 +1942,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         onClose={() => setOffboardOpen(false)}
         onSent={ev => {
           setOffboardOpen(false); setEventsKey(n => n + 1);
+          // Left now, or scheduled with a checklist started: either way the
+          // whole People page re-reads (tiles, lists, chips) right away.
           if (ev.applyStatus === 'applied') onEmployeeUpdated?.({ ...e, status: 'offboarded' });
+          else onReload?.();
           const m = ev.result?.m365 || {};
           const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.error && `M365 issue: ${m.error}`].filter(Boolean).join(', ');
           toastOk(ev.applyStatus === 'applied'
@@ -1944,10 +1955,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
         }} />}
       {reviewEvent && <PacketReview eventId={reviewEvent} onClose={() => setReviewEvent(null)}
-        onChanged={() => setEventsKey(n => n + 1)} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
+        onChanged={() => { setEventsKey(n => n + 1); onReload?.(); }} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
       <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
         onClose={() => { setSignParty(null); setEventsKey(n => n + 1); }}
-        onDone={() => { setSignParty(null); setEventsKey(n => n + 1); toastOk('Signed.'); }} />
+        onDone={() => { setSignParty(null); setEventsKey(n => n + 1); onReload?.(); toastOk('Signed.'); }} />
       {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
         <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
@@ -5021,7 +5032,6 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
     setBusy(true);
     try {
       const saved = await api.changeEmployeeStatus(employee.id, { status, reason, effectiveDate, offboarding: buildOffboarding() });
-      onSaved(saved);
       if (offerChecklist && startChecklistToo) {
         const todayIso = new Date().toISOString().slice(0, 10);
         try {
@@ -5030,6 +5040,8 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
           toastOk(`${cl.kindLabel} checklist started - ${cl.total - cl.done} steps, ${cl.overdue} already due. Open the Checklist tab to work through them.`);
         } catch (err) { toastErr(`Status saved, but the checklist did not start: ${err?.message || 'unknown error'}`); }
       }
+      // After the checklist starts, so the page's re-read picks up its chip too.
+      onSaved(saved);
       const m = saved.m365;
       const bits = [];
       if (m?.signIn) bits.push(`sign-in ${m.signIn}`);
@@ -5141,8 +5153,8 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
               {isLeft && startChecklistToo && (
                 <div><label style={FL}>EXIT TYPE</label>
                   <select className="form-input" style={{ width: '100%' }} value={exitType} onChange={e => setExitType(e.target.value)}>
-                    <option value="resignation">Resignation</option>
-                    <option value="resignation_no_notice">Resignation Without Notice</option>
+                    <option value="resignation">Voluntary Resignation</option>
+                    <option value="resignation_no_notice">Job Abandonment</option>
                     <option value="termination">Termination</option>
                     <option value="end_of_contract">End Of Contract</option>
                     <option value="retirement">Retirement</option>
@@ -5413,6 +5425,8 @@ const BENEFIT_TYPES = [['health', 'Health'], ['dental', 'Dental'], ['vision', 'V
 // The timecard-only fields live here too since Sep 30 (Charmi: "this should all
 // be linked into their individual people module") - Pay & Benefits is the one
 // writer of PayrollRate; the timecard only reads.
+// "California (Work site: GS Temecula, CA)" - the person's work state and why (work_state.py, Oct 20 2026).
+const workStateText = (w) => (w?.state ? `${w.stateName || w.state} (${w.label})` : `Unknown - ${w?.label || 'no work site'}`);
 const OT_RULES = [['ca', 'California (daily 8h / 12h, 7th day, weekly 40h)'], ['federal', 'Federal (weekly 40h only)'], ['none', 'None (no US overtime premium)']];
 const COMP_DEFAULTS = { base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [],
   overtimeRule: '', fullDayHours: '8' };
@@ -5518,7 +5532,11 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                   <option value="">Company default{payroll.defaultOvertimeRule ? ` (${(OT_RULES.find(([k]) => k === payroll.defaultOvertimeRule) || [])[1]?.split(' (')[0] || payroll.defaultOvertimeRule})` : ''}</option>
                   {OT_RULES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
-                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>The default follows the company's country: US is California, India is None. The time sheet only reads this.</div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>
+                  {payroll.workState?.byWorkState
+                    ? `The default follows where they work: California is the California rule, another US state is Federal, India is None. ${payroll.workState.state ? `Work state: ${workStateText(payroll.workState)}.` : 'Work state unknown - give them a work site, or pick a rule here.'} The time sheet only reads this.`
+                    : "The default follows the company's country: US is California, India is None. The time sheet only reads this."}
+                </div>
               </div>
               <div>
                 <label style={FL}>FULL DAY HOURS</label>
@@ -5832,15 +5850,20 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
   // Total People counts the company's own people; external and guest users
   // (their own list on this screen) read underneath as "+N external" - the
   // ones still active (Neil, Oct 13 - 62 vs 59 active read wrong).
+  // Left and Inactive people are NOT counted (Charmi, Oct 20 2026: after an
+  // offboarding Total still read 51 while the directory's Active tab read
+  // 58) - the tiles now add up to the Active tab: Total = Active + Onboarding,
+  // and Total + external = the Active tab's count.
   const isExt = isExternalPerson;
   const nExternal = externals.filter(e => isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active')).length;
-  const total = employees.filter(e => !isExt(e)).length;
-  const nActive = employees.filter(e => e.status === 'active').length;
-  const nOnboarding = employees.filter(e => e.status === 'onboarding').length;
-  const joined = employees.filter(e => (e.startDate || '').slice(0, 4) === String(new Date().getFullYear())).length;
+  const current = employees.filter(e => !isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active'));
+  const total = current.length;
+  const nActive = current.filter(e => e.status === 'active').length;
+  const nOnboarding = current.filter(e => e.status === 'onboarding').length;
+  const joined = current.filter(e => (e.startDate || '').slice(0, 4) === String(new Date().getFullYear())).length;
   const types = EMP_TYPES
-    .map(([k, label], i) => ({ key: k, label, color: WK_TYPE_COLORS[i % WK_TYPE_COLORS.length], n: employees.filter(e => e.employmentType === k).length }));
-  const depts = [...employees.reduce((m, e) => {
+    .map(([k, label], i) => ({ key: k, label, color: WK_TYPE_COLORS[i % WK_TYPE_COLORS.length], n: current.filter(e => e.employmentType === k).length }));
+  const depts = [...current.reduce((m, e) => {
     if (e.department) m.set(e.department, (m.get(e.department) || 0) + 1);
     return m;
   }, new Map())].sort((a, b) => b[1] - a[1]);
@@ -6001,6 +6024,10 @@ export default function HR({ activeSub, onSubChange }) {
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay
   const isAdmin = can('administrator');   // Roles & Access tab is admin-only
+  // People editors (HR grant at editor, or an administrator) - the server
+  // checks the same thing on /hr/intacct-codes.
+  const canSyncCodes = !hrTeam && canAccessModule('hr', 'administrator', 'editor');
+  const [codesOpen, setCodesOpen] = useState(false);
   // Company-scoped People admin (Neil, Aug 25): hrScope = list of HrEntity ids
   // this admin is limited to (server-enforced; the lists that arrive are
   // already filtered). Non-null hides company-wide actions and shows a chip.
@@ -6073,10 +6100,18 @@ export default function HR({ activeSub, onSubChange }) {
   const loadSites = () => api.getWorkSites().then(setSites).catch(() => setSites([]));
   useEffect(load, []);
   useEffect(() => { loadEntities(); loadSites(); }, []);
+  // Every person action (offboard, hire, status change, remove, restore,
+  // provision, push to M365...) calls refreshPeople, so the tiles, the
+  // directory, its counts, the open profile and the checklist chips all
+  // re-read straight away (Charmi, Oct 20 2026: "this should all refresh
+  // when an action happens"). One re-read, not a polling loop - the api
+  // layer already drops its GET cache on every write, so this reads fresh.
+  const [peopleRev, setPeopleRev] = useState(0);
+  const refreshPeople = () => { load(); setPeopleRev(n => n + 1); };
   useEffect(() => {
     if (hrTeam || (sub !== 'hr-people' && sub !== 'hr-checklists')) return;
     api.getChecklistProgress().then(r => setClProgress(r.progress || {})).catch(() => {});
-  }, [sub, selectedId, hrTeam]);
+  }, [sub, selectedId, hrTeam, peopleRev]);
   useEffect(() => {
     if (sub !== 'hr-people') return;
     api.getRoleChangeRequests()
@@ -6124,6 +6159,19 @@ export default function HR({ activeSub, onSubChange }) {
     for (const e of [...employees, ...extEmployees]) c[INACTIVE_STATUSES.has(e.status || 'active') ? 'inactive' : 'active'] += 1;
     return c;
   }, [employees, extEmployees]);
+  // What each tab count is made of, on hover: the Active tab holds active +
+  // onboarding people AND external users, which is why it reads more than
+  // the Active tile above (Charmi, Oct 20 2026: "Active 47" vs "Active 58").
+  const tabTitles = useMemo(() => {
+    const inside = es => es.filter(e => !INACTIVE_STATUSES.has(e.status || 'active'));
+    const nPeople = inside(employees).length;
+    const nExt = inside(extEmployees).length;
+    const nOnb = employees.filter(e => e.status === 'onboarding').length;
+    return {
+      active: `${nPeople} people${nOnb ? ` (${nOnb} onboarding)` : ''} + ${nExt} external`,
+      inactive: 'People who have Left or are Inactive - their record stays in Nexus',
+    };
+  }, [employees, extEmployees]);
 
   // Pagination over the FILTERED list, so search/filters always reach the whole
   // directory - a match "on page 10" simply becomes page 1 of the results.
@@ -6149,6 +6197,7 @@ export default function HR({ activeSub, onSubChange }) {
     setExtEmployees(prev => prev.filter(e => e.id !== id));
     setDeletedEmployees([]);             // stale now; refetched when Deleted is opened
     setSelectedId(null);
+    refreshPeople();
   };
   const onRestoredToNexus = (restored) => {
     setDeletedEmployees(prev => prev.filter(e => e.id !== restored.id));
@@ -6156,6 +6205,7 @@ export default function HR({ activeSub, onSubChange }) {
       ? prev
       : [...prev, restored].sort((a, b) => fullName(a).localeCompare(fullName(b))));
     setSelectedId(null);
+    refreshPeople();
   };
   const onSaved = saved => {
     const isNew = !employees.some(e => e.id === saved.id) && !extEmployees.some(e => e.id === saved.id);   // add modal shows its own toast
@@ -6171,6 +6221,7 @@ export default function HR({ activeSub, onSubChange }) {
     setEmployees(ext ? drop : upsert);
     setExtEmployees(ext ? upsert : drop);
     setSelectedId(saved.id);
+    refreshPeople();   // the row above is instant; this brings the server's word (counts, chips, side effects)
     // Profile edits auto-mirror to the linked Entra account (backend, best-effort)
     // - tell the user whether M365 actually took the change.
     if (saved.entra) {
@@ -6229,6 +6280,12 @@ export default function HR({ activeSub, onSubChange }) {
             )}
             {/* Sync M365 / Company setup / Work sites moved to the Admin
                 module in full (Pranshu, Sep 9) - no longer buttons here. */}
+            {canSyncCodes && (
+              <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+                onClick={() => setCodesOpen(true)} title="Match People to Intacct employees and update their employee codes">
+                <RefreshCw size={14} /> Sync Employee Codes From Intacct
+              </button>
+            )}
             {/* One Add control (Neil, Aug 24): employee, independent contractor
                 or external partner - all into the same master list. */}
             {!hrTeam && <div>
@@ -6261,9 +6318,15 @@ export default function HR({ activeSub, onSubChange }) {
           the in-page strip (ModuleTabs handles both) */}
       <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} />
 
+      {codesOpen && (
+        <Suspense fallback={<ModalLoading />}>
+          <IntacctEmployeeCodes onClose={() => setCodesOpen(false)} onApplied={refreshPeople} toastOk={toastOk} toastErr={toastErr} />
+        </Suspense>
+      )}
+
       {sub === 'hr-hiring' && (
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}
-          onEmployeeCreated={emp => setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b))))}
+          onEmployeeCreated={emp => { setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b)))); refreshPeople(); }}
           onSendForSignature={c => {
             // E-Sign lives in the Documents module now - stash the offer and jump
             // there; Documents picks up window.__esignPrefill on arrival.
@@ -6317,7 +6380,7 @@ export default function HR({ activeSub, onSubChange }) {
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
             initialTab={openTab} checklists={clProgress[selected.id] || []}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
-            onExternalChanged={load} onReload={load}
+            onExternalChanged={refreshPeople} onReload={refreshPeople}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
             onBack={() => setSelectedId(null)} />
           </>
@@ -6374,6 +6437,7 @@ export default function HR({ activeSub, onSubChange }) {
               <div className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: '0 14px', borderBottom: '1px solid var(--line)' }}>
                 {[['active', 'Active'], ['inactive', 'Inactive']].map(([id, label]) => (
                   <button key={id} onClick={() => { setListTab(id); setSelectedId(null); setPage(1); }}
+                    title={tabTitles[id]}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 12px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${listTab === id ? 'var(--pine)' : 'transparent'}`, color: listTab === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
                     {label}
                     <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: listTab === id ? 'var(--wk-brand-tint)' : 'var(--mist)', color: listTab === id ? 'var(--pine)' : 'var(--muted)' }}>{tabCounts[id]}</span>
@@ -6434,7 +6498,7 @@ export default function HR({ activeSub, onSubChange }) {
                         <td className="ppl-col-secondary">{e.department || '-'}</td>
                         <td>
                           <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
-                          {(clProgress[e.id] || []).map(p => <div key={p.checklistId} style={{ marginTop: 4 }}><ChecklistChip p={p} compact /></div>)}
+                          {(clProgress[e.id] || []).map(p => <div key={p.checklistId} style={{ marginTop: 4 }}><ChecklistChip p={p} compact onClick={() => openChecklistOf(e.id)} /></div>)}
                         </td>
                         <td><ChevronRight size={14} style={{ color: 'var(--wk-faint)' }} /></td>
                       </tr>
@@ -6474,7 +6538,7 @@ export default function HR({ activeSub, onSubChange }) {
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>
                             {(clProgress[e.id] || []).length > 0 && (
                               <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-                                {clProgress[e.id].map(p => <ChecklistChip key={p.checklistId} p={p} compact />)}
+                                {clProgress[e.id].map(p => <ChecklistChip key={p.checklistId} p={p} compact onClick={() => openChecklistOf(e.id)} />)}
                               </div>
                             )}
                           </div>
@@ -6500,7 +6564,7 @@ export default function HR({ activeSub, onSubChange }) {
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
                       initialTab={openTab} checklists={clProgress[selected.id] || []}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
-                      onExternalChanged={load} onReload={load}
+                      onExternalChanged={refreshPeople} onReload={refreshPeople}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                       onBack={() => setSelectedId(null)} />
                   ) : (
@@ -6529,12 +6593,12 @@ export default function HR({ activeSub, onSubChange }) {
           onSaved={(result) => {
             setInviteOpen(false);
             inviteOutcomeToast(result, toastOk, toastErr);
-            load();   // the new external lands in the directory (master list)
+            refreshPeople();   // the new external lands in the directory (master list)
           }} />
       )}
       {roleDecisionId && <RoleChangeDecisionModal requestId={roleDecisionId} toastOk={toastOk} toastErr={toastErr}
         onClose={() => setRoleDecisionId(null)}
-        onDecided={out => { setRoleDecisionId(null); load(); setOpenTab('access'); setSelectedId(out.employeeId); }} />}
+        onDecided={out => { setRoleDecisionId(null); refreshPeople(); setOpenTab('access'); setSelectedId(out.employeeId); }} />}
       {toast && (
         <div role={toast.kind === 'error' ? 'alert' : 'status'}
           onMouseEnter={() => clearTimeout(toastTimer.current)}

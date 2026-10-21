@@ -81,3 +81,6 @@ backend/nexus-seal-test/
 
 # A symlinked venv in a worktree must stay out of git like the directory does
 backend/.venv
+
+# Playwright CLI session snapshots (local browser automation)
+.playwright-cli/

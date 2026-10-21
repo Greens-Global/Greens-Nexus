@@ -12,7 +12,7 @@ export function RecommendedMaintenance({ p: asset }) {
   return (
     <div style={{ marginBottom: 16, border: '1px solid var(--border-color)', borderRadius: 12, backgroundColor: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-        <strong style={{ fontSize: '0.95rem', fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>Recommended Maintenance</strong>
+        <strong style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>Recommended Maintenance</strong>
         <span style={{ marginLeft: 'auto', fontSize: '0.68rem', color: 'var(--text-muted)' }}>Factory schedule · reference only</span>
       </div>
 

@@ -30,7 +30,50 @@ Until the key below is set, nothing runs: the Market Rates tab shows
 
 ## Setup steps
 
-### 1. Create the service account (our Google Cloud project)
+There are two ways in. Both read the same table; pick one.
+
+- **Option A - a signed-in Google account (fastest, no new ask to Cubby).**
+  Cubby already granted warehouse access to our people's Google accounts
+  (Nathaniel, Sep 18 2026). Nexus can use one of them.
+  It acts as that person, so it stops working if their Google account or
+  Cubby access goes away. Move to Option B when convenient.
+- **Option B - a service account (sturdier, needs one more grant from Cubby).**
+
+### Option A - a signed-in Google account
+
+1. **Google Cloud project.** In console.cloud.google.com, signed in with the
+   Google account Cubby granted: create a project, for example "Cubby Data". Enable
+   the **BigQuery API** (APIs & Services > Library). Queries are billed here;
+   typical use is pennies a month. This is Step 1 of Cubby's own guide.
+2. **Consent screen.** APIs & Services > OAuth consent screen: User type
+   **External**, fill in only the required fields, then **Publish App** (status
+   "In production"). Leave it in "Testing" and Google expires the login after
+   7 days. An unverified app is fine for our own use: at sign-in click
+   Advanced > Go to (app).
+3. **OAuth client.** APIs & Services > Credentials > Create Credentials >
+   OAuth client ID > Application type **Desktop app** > Create >
+   **Download JSON**. Keep that file private.
+4. **Sign in once.** On a computer with the repo:
+
+   ```
+   python backend/scripts/cubby_bq_login.py --client <downloaded client JSON> --project <project id>
+   ```
+
+   The browser opens, you sign in with the Google account Cubby granted, and the
+   script saves `cubby-bq-login.json` in your home folder and runs a test
+   query ("Works. StorTrack rows in the last 30 days: ..."). The file is a
+   password: never commit, email or paste it.
+5. **Put it on the API servers.** Set `CUBBY_BQ_CREDENTIALS_JSON` on BOTH
+   `greens-nexus-api-dev` and `greens-nexus-api` to the file's contents (step
+   3 below), for example without printing it:
+
+   ```
+   az webapp config appsettings set -g greens-nexus-rg -n <app> --settings CUBBY_BQ_CREDENTIALS_JSON="$(cat ~/cubby-bq-login.json)" -o none
+   ```
+
+   Then check it as in step 4 below.
+
+### Option B, step 1. Create the service account (our Google Cloud project)
 
 1. Open the Google Cloud console and pick (or create) a Greens project for
    Nexus, for example `greens-nexus`. Enable the **BigQuery API** in it.
@@ -45,7 +88,7 @@ Until the key below is set, nothing runs: the Market Rates tab shows
    file downloads. Treat it like a password: never commit it, never paste it
    in chat or email.
 
-### 2. Ask Cubby to grant access
+### Option B, step 2. Ask Cubby to grant access
 
 Email Cubby (Kristen Brigagliano / Nathaniel) the service account's **email
 address** (never the key) and ask them to grant it read access (BigQuery Data
@@ -53,7 +96,7 @@ Viewer) to `cubby-partner-data`, dataset `analytics`, including the
 `stor_track` table, for the Greens Storage org. Cubby's row filter limits it
 to our facilities.
 
-### 3. Put the key on the API servers
+### 3. Put the key on the API servers (both options)
 
 In Azure Portal > App Services, for BOTH `greens-nexus-api-dev` and
 `greens-nexus-api` > Settings > Environment variables > App settings, add:
@@ -67,7 +110,7 @@ In Azure Portal > App Services, for BOTH `greens-nexus-api-dev` and
 Saving restarts the app. The `google-cloud-bigquery` package is already in
 `backend/requirements.txt`, so a deploy installs it.
 
-### 4. Check it
+### 4. Check it (both options)
 
 1. Open Operations > Market Rates, pick a facility. The StorTrack line should
    change from "StorTrack not connected yet" to "StorTrack has not synced yet".

@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { Settings2, ArrowLeft, Pencil, Search } from 'lucide-react';
+import { ArrowLeft, Pencil, Search, Lock, Unlock, Copy, MoreHorizontal, FileText, Download, Plus, History, Trash2, Upload } from 'lucide-react';
 
 import { PT } from './lib/propertyFields.js';
 import { ASSET_SCHEMAS, inferAssetKind } from './lib/vehicleFields.js';
@@ -8,25 +8,26 @@ import { RECORD_TYPES } from './lib/recordTypes.jsx';
 import { normLabel, genId, toNumber, snapMap } from './lib/format.js';
 import { editGuard } from './lib/editGuard.js';
 import { makeLogEntry, appendLog, diffChanges, recordDisplayName } from './lib/logging.js';
-import { TAB_LIST, visibleTabsFor, SHARED_FILTER_GROUPS, LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS } from './lib/navigation.js';
+import { SHARED_FILTER_GROUPS, LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS, recordViewsFor, stripTabsFor, recordLabel, recordHint, assetSub, parseAssetSub, PORTFOLIO_SUB } from './lib/navigation.js';
 import { TIMELINE_FIELDS, permitColumns } from './lib/timelineFields.js';
 import { useNexusStore } from './lib/useNexusStore.js';
-import { portfolioStats } from './lib/assetMetrics.js';
+import { portfolioStats, assetCompleteness } from './lib/assetMetrics.js';
+import { typeLabel } from './lib/portfolioCards.js';
+import AnchoredMenu from '../components/AnchoredMenu';
+import { StatusLabel } from '../components/StatusLabel.jsx';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 
-import { CopyButton } from './components/shared/CopyButton.jsx';
 import { ToastHost, pushToast } from './components/shared/ToastHost.jsx';
 import { SyncStatus } from './components/shared/SyncStatus.jsx';
-import { ScrollTopFab } from './components/shared/ScrollTopFab.jsx';
 import { CollectionTable } from './components/shared/CollectionTable.jsx';
 import { RecordModal } from './components/shared/RecordModal.jsx';
 
 import { Portfolio } from './components/portfolio/Portfolio.jsx';
-import { HealthStrip } from './components/asset/HealthStrip.jsx';
+import { AssetOverview } from './components/asset/AssetOverview.jsx';
 import { CriticalDates } from './components/asset/CriticalDates.jsx';
 import { AssetDetailForm } from './components/asset/AssetDetailForm.jsx';
 import { ParcelManager } from './components/asset/ParcelManager.jsx';
 import { AssemblageParcels } from './components/asset/AssemblageParcels.jsx';
-import { ExportMenu } from './components/asset/ExportMenu.jsx';
 import { AddAssetModal } from './components/asset/AddAssetModal.jsx';
 import { TimelineTracker } from './components/asset/TimelineTracker.jsx';
 import { SimpleRecordTable } from './components/shared/SimpleRecordTable.jsx';
@@ -36,7 +37,10 @@ import { TimelineStatusModal } from './components/asset/TimelineStatusModal.jsx'
 import { VserviceSection } from './components/maintenance/VserviceSection.jsx';
 import { PropertyMaintenanceSection } from './components/maintenance/PropertyMaintenanceSection.jsx';
 
-import { ManagePage } from './components/manage/ManagePage.jsx';
+import { ReviewFlagsPanel } from './components/manage/ReviewFlagsPanel.jsx';
+import { ActivityLog } from './components/manage/ActivityLog.jsx';
+import { DataGapsPanel, TrashPanel } from './components/portfolio/PortfolioPanels.jsx';
+import { MenuRow } from './components/shared/MenuRow.jsx';
 
 import { exportAssetCsvAsFile, exportAssetPdf } from './lib/csvExport.js';
 import { ticketMaintenanceRows } from './lib/propertyTickets.js';
@@ -59,7 +63,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   // `setStore(updater)`; it never touches localStorage/IndexedDB/the network directly.
   const [store, setStore, loading, serverOk] = useNexusStore();
 
-  const [view, setView] = useState('portfolio');       // 'portfolio' | 'manage' | a TAB_LIST key
+  const [view, setView] = useState('portfolio');       // 'portfolio' | a strip tab or record collection key (lib/navigation.js)
   const [activeId, setActiveId] = useState(null);        // currently open asset's id, or null
   const [leaveAsk, setLeaveAsk] = useState(false);        // "unsaved changes" confirm dialog
   const [pendingNav, setPendingNav] = useState(null);     // navigation to run after that dialog resolves
@@ -79,6 +83,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   if (ticketSub && !loading && activeSub !== subSeen) {
     setSubSeen(activeSub);
     if (store.properties.some((p) => p.id === ticketSub[2] && !p.deleted)) {
+      setSubMissing(false);
       setActiveId(ticketSub[2]);
       setView('maintenance');
       setTicketFocus((f) => ({ propertyId: ticketSub[2], ticketId: ticketSub[3] || null, tab: ticketSub[1], at: (f?.at || 0) + 1 }));
@@ -87,11 +92,58 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     }
   }
   useEffect(() => {
-    if (!subSeen || activeSub !== subSeen) return;
-    if (subMissing) pushToast?.('That property is no longer in Asset Management.', 'mut');
+    if (!subSeen || activeSub !== subSeen || !subMissing) return;
+    pushToast?.('That property is no longer in Asset Management.', 'mut');
     onSubChange?.(null);
-  }, [subSeen, activeSub, subMissing, onSubChange]);        // deep-link target set by "Go to" from the Activity Log
+  }, [subSeen, activeSub, subMissing, onSubChange]);
+  // Every open asset is a URL (Oct 2026): "a:<id>:<view>" under /property-asset, so a
+  // tab can be bookmarked, shared, reloaded and walked with the browser's Back. State
+  // writes the segment; a segment arriving from outside (a pasted link, Back) sets the
+  // state - each side skips when the other already matches, so they never ping-pong.
+  // The shell's default segment for this module is PORTFOLIO_SUB, so the portfolio
+  // keeps the address it always had.
+  const wantSub = assetSub(activeId, view === 'portfolio' ? 'property' : view) || PORTFOLIO_SUB;
+  useEffect(() => {
+    if (loading) return;
+    // A ticket link is consumed by the render block above (it sets subSeen); its
+    // state change lands here, where the address is rewritten to the asset's own
+    // URL and subSeen is cleared so the same bell link works again later.
+    if (ticketSub && activeSub !== subSeen) return;
+    if ((activeSub || PORTFOLIO_SUB) !== wantSub) { onSubChange?.(wantSub); if (ticketSub) setSubSeen(null); }
+  }, [wantSub]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (loading || ticketSub) return;
+    const target = parseAssetSub(activeSub);
+    if (target) {
+      if (target.id === activeId && target.view === view) return;
+      if (!store.properties.some((p) => p.id === target.id && !p.deleted)) {
+        if (!store.properties.length) return;   // nothing loaded at all: not a verdict on the link
+        pushToast?.('That asset is no longer in Asset Management.', 'mut');
+        onSubChange?.(PORTFOLIO_SUB);
+        return;
+      }
+      const go = () => { setActiveId(target.id); setView(target.view); if (target.item) setHighlight({ tab: target.view, section: '', field: '', item: target.item, at: Date.now() }); };
+      if (editGuard.dirty) { onSubChange?.(wantSub); setPendingNav(() => go); setLeaveAsk(true); } else go();
+    } else if (activeId && (!activeSub || activeSub === PORTFOLIO_SUB)) {
+      const go = () => { setActiveId(null); setView('portfolio'); };
+      if (editGuard.dirty) { onSubChange?.(wantSub); setPendingNav(() => go); setLeaveAsk(true); } else go();
+    }
+  }, [activeSub, loading]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [typeFilter, setTypeFilter] = useState('');
+  const moreRef = useRef(null);                                // the header's "more actions" button
+  const [moreOpen, setMoreOpen] = useState(false);
+  // The portfolio's own more menu and the panel open under its Needs Attention band
+  // (Data Gaps / Flagged / Activity Log / Trash - the old Manage page, in place).
+  const portfolioMoreRef = useRef(null);
+  const [portfolioMoreOpen, setPortfolioMoreOpen] = useState(false);
+  const [panel, setPanel] = useState(null);
+  const [lastRecord, setLastRecord] = useState(null);         // the Records segment last open, per session
+  // Per-asset numbers for the tiles (occupancy, % complete) - one read, refreshed with the store.
+  const [metrics, setMetrics] = useState({});
+  useEffect(() => { let alive = true; api.getAssetMetrics().then((m) => { if (alive && m) setMetrics(m); }).catch(() => {}); return () => { alive = false; }; }, [store._ts]);
+  // The spec sheet's edit state, for the header's Cancel / Save Changes.
+  const [editState, setEditState] = useState({ editing: false, dirty: false });
+  useEffect(() => editGuard.subscribe(() => setEditState((s) => (s.editing === editGuard.editing && s.dirty === editGuard.dirty) ? s : { editing: editGuard.editing, dirty: editGuard.dirty })), []);
 
   const unseenLogCount = (store.logs || []).filter((l) => l.ts > lastManageVisit).length;
   const markManageSeen = () => {
@@ -99,8 +151,9 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     setLastManageVisit(now);
     try { localStorage.setItem('nexus_manage_seen', now); } catch { /* ignore */ }
   };
-  // Visiting Manage, or any new log arriving while already on Manage, marks everything read.
-  useEffect(() => { if (view === 'manage') markManageSeen(); }, [view, store.logs]);
+  // Opening the Activity Log, or any new log arriving while it is open, marks everything read.
+  useEffect(() => { if (panel === 'activity') markManageSeen(); }, [panel, store.logs]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (recordViews.includes(view)) setLastRecord(view); }, [view]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!highlight) return;
@@ -119,20 +172,30 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         pushToast("Changes aren't syncing yet - retrying. Keep this tab open.", 'mut');
       } else {
         const why = d.status === 403 ? "you don't have edit access to Asset Management"
-          : d.status === 413 ? 'the portfolio is too large to save in one request'
+          : d.status === 400 ? (d.message || 'the server refused the change')
           : d.status === 422 ? 'the server rejected the data shape'
           : `save failed (error ${d.status || 'network'})`;
         pushToast(`Could not save - ${why}. Your last change was not stored.`, 'bad');
       }
     };
+    // A row someone else saved since this tab read it: the server kept theirs,
+    // the workspace was re-pulled; say so rather than overwrite in silence.
+    const onConflict = (e) => {
+      const rows = e?.detail?.rows || [];
+      const names = rows.map((r) => r.name || r.scope || r.type || r.item || r.description || r.id).filter(Boolean).slice(0, 3);
+      const n = (e?.detail?.ids || []).length || 1;
+      const what = names.length ? names.join(', ') + (n > names.length ? ` and ${n - names.length} more` : '') : (n === 1 ? 'One record' : `${n} records`);
+      pushToast?.(`Not saved: ${what} - someone else changed ${n === 1 ? 'it' : 'them'} first. Reloaded with their version; your version is kept on this device for this session.`, 'mut');
+    };
     window.addEventListener('nexus:asset-save-failed', onSaveFailed);
-    return () => window.removeEventListener('nexus:asset-save-failed', onSaveFailed);
+    window.addEventListener('nexus:asset-save-conflict', onConflict);
+    return () => { window.removeEventListener('nexus:asset-save-failed', onSaveFailed); window.removeEventListener('nexus:asset-save-conflict', onConflict); };
   }, []);
 
   // Officers/execs/admins (role check) can see private-flagged assets; everyone else can't.
   const canSeePrivate = session && (session.level >= 5 || /owner|officer|exec|admin/i.test(session.role || ''));
   const visibleProperties = store.properties.filter((p) => !p.deleted && (!p.private || canSeePrivate));
-  const deletedProperties = store.properties.filter((p) => p.deleted);
+  const deletedProperties = store.properties.filter((p) => p.deleted && (!p.private || canSeePrivate));
   const findAsset = (id) => visibleProperties.find((p) => p.id === id);
   const active = activeId ? findAsset(activeId) : null;
   const recordsFor = (coll) => (store[coll] || []).filter((r) => r.propertyId === activeId);
@@ -152,8 +215,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   /** All navigation goes through this - it's what enforces the unsaved-changes guard. */
   const navigate = (nextView) => {
     const go = () => {
+      if (nextView === 'manage') { setActiveId(null); setView('portfolio'); setPanel('activity'); return; }
       setView(nextView);
-      if (nextView === 'manage') { setActiveId(null); markManageSeen(); }
     };
     if (editGuard.dirty) { setPendingNav(() => go); setLeaveAsk(true); }
     else go();
@@ -551,7 +614,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         const row = { id: genId(), parentId: '', siteName: '', ...patch };
         assetId = row.id;
         props.push(row);
-        setTimeout(() => setActiveId(row.id), 0);
+        setTimeout(() => openAsset(row.id, 'property'), 0);
         action = 'added';
         displayName = row.name;
       }
@@ -562,9 +625,13 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
           props = props.map((p) => (p.id === assetId && p.parentId) ? { ...p, parentId: '', siteName: '' } : p);
         } else if (linkOptions.role === 'secondary' && linkOptions.targetId) {
           const anchorId = anchorOf(linkOptions.targetId);
-          const anchor = props.find((p) => p.id === anchorId);
-          const siteName = (anchor?.siteName || anchor?.name || '').trim();
-          props = props.map((p) => p.id === assetId ? { ...p, parentId: anchorId, siteName } : (p.id === anchorId && !p.siteName) ? { ...p, siteName } : p);
+          // Linking under one's own parcel would make the asset its own anchor and
+          // drop the whole group off the portfolio (tiles show parentId-less assets).
+          if (anchorId && anchorId !== assetId) {
+            const anchor = props.find((p) => p.id === anchorId);
+            const siteName = (anchor?.siteName || anchor?.name || '').trim();
+            props = props.map((p) => p.id === assetId ? { ...p, parentId: anchorId, siteName } : (p.id === anchorId && !p.siteName) ? { ...p, siteName } : p);
+          }
         } else if (linkOptions.role === 'primary' && linkOptions.targetId) {
           const anchorId = anchorOf(linkOptions.targetId);
           const self = props.find((p) => p.id === assetId);
@@ -610,7 +677,14 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     });
   };
 
-  const purgeAsset = (id) => setStore((s) => ({ ...s, properties: s.properties.filter((p) => p.id !== id) }));
+  /** Delete Forever: the asset and everything under it, here as on the server. */
+  const purgeAsset = (id) => setStore((s) => {
+    const next = { ...s, properties: s.properties.filter((p) => p.id !== id), logs: (s.logs || []).filter((l) => l.propertyId !== id) };
+    for (const coll of ['warranties', 'inspections', 'documents', 'ahj', 'utilities', 'vendors', 'vservice', 'odometer', 'vdocs', 'maintenance']) {
+      next[coll] = (s[coll] || []).filter((r) => r.propertyId !== id);
+    }
+    return next;
+  });
 
   /** Reverts a single Activity Log entry (added -> soft-delete, removed -> recover, edited ->
    *  restore prior field values via UNDOABLE_FIELD_KEYS). Only fields with a mapped top-level
@@ -645,7 +719,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       const logs = (s.logs || []).map((l) => l.id === entry.id ? { ...l, undone: true } : l);
       return appendLog({ ...s, properties: props, logs }, makeLogEntry(logEntry));
     });
-    if (activeId === entry.propertyId && entry.action === 'added') { setActiveId(null); setView('manage'); }
+    if (activeId === entry.propertyId && entry.action === 'added') { setActiveId(null); setView('portfolio'); }
   };
 
   const canUndo = (entry) => {
@@ -662,11 +736,27 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   // Render
   // ---------------------------------------------------------------------------------------
 
-  const pulse = view !== 'manage' && !active ? portfolioStats(store) : null;
+  const pulse = !active ? portfolioStats(store) : null;
+  const needData = !active ? visibleProperties.filter((p) => assetCompleteness(p).pct < 100).length : 0;
+  const flagCount = !active ? visibleProperties.reduce((n, p) => n + ((p.reviewFlags || []).length), 0) : 0;
   const assetKind = active ? inferAssetKind(active) : null;
-  const tabsForActiveAsset = active ? visibleTabsFor(assetKind) : [];
+  const recordViews = active ? recordViewsFor(assetKind) : [];
+  const stripTabs = active ? stripTabsFor(assetKind) : [];
+  const onRecords = recordViews.includes(view);
+  const tabCount = (key) => !active ? 0
+    : key === 'records' ? recordViews.reduce((n, k) => n + tabCount(k), 0)
+    : key === 'timeline' ? (active.timeline || []).length
+    : key === 'permit' ? (active.permits || []).length
+    : key === 'property' ? 0 : recordsFor(key).length;
+  // Records opens on the segment last used, else the first collection with rows;
+  // clicking it while already there is a no-op.
+  const openRecords = () => {
+    if (onRecords) return;
+    navigate(recordViews.includes(lastRecord) ? lastRecord : (recordViews.find((k) => tabCount(k) > 0) || recordViews[0]));
+  };
+  const backToPortfolio = () => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')));
   const filterKeysForTab = SHARED_FILTER_GROUPS[view] || [view];
-  const showTabSearch = filterKeysForTab.length > 0 || ['timeline', 'permit'].includes(view);
+  const showTabSearch = view !== 'property' && (filterKeysForTab.length > 0 || ['timeline', 'permit'].includes(view));
   const searchValue = filterKeysForTab.length ? (filters[filterKeysForTab[0]] || '') : '';
   const setSearchValue = (text) => setFilters((f) => {
     const next = { ...f };
@@ -679,119 +769,193 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       <ToastHost />
       <SyncStatus />
 
-      {!active && view !== 'manage' && pulse && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Inter', sans-serif", letterSpacing: '-0.03em', color: 'var(--ink)', margin: 0 }}>Asset Management</h1>
-          <span style={{ marginLeft: 'auto', fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-            {loading && !visibleProperties.length ? '…' : `${pulse.assets}${pulse.assets === 1 ? ' Asset' : ' Assets'}`}
-          </span>
-          <button className="primary-btn" onClick={() => navigate('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Settings2 size={14} /> Manage
-            {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
-          </button>
+      {!active && pulse && (
+        <div className="view-header" style={{ alignItems: 'center', marginBottom: 16 }}>
+          <div className="view-title-group" style={{ minWidth: 0 }}>
+            <h2 style={{ fontFamily: 'var(--wk-font)' }}>Asset Management</h2>
+            <p>{loading && !visibleProperties.length ? 'Loading the portfolio…' : `${pulse.assets} ${pulse.assets === 1 ? 'asset' : 'assets'} in the portfolio`}</p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button className="primary-btn" onClick={() => setModal({ type: 'property', id: null })}>
+              <Plus size={14} /> Add Asset
+            </button>
+            <button ref={portfolioMoreRef} type="button" className="secondary-btn" aria-label="More" aria-haspopup="menu" aria-expanded={portfolioMoreOpen} onClick={() => setPortfolioMoreOpen((o) => !o)} style={{ padding: 8, position: 'relative' }}>
+              <MoreHorizontal size={16} />
+              {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
+            </button>
+            <AnchoredMenu anchorRef={portfolioMoreRef} open={portfolioMoreOpen} onClose={() => setPortfolioMoreOpen(false)} align="end" minWidth={220}
+              style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
+              <MenuRow icon={History} onClick={() => { setPortfolioMoreOpen(false); setPanel('activity'); }}>Activity Log{unseenLogCount > 0 ? ` (${unseenLogCount} new)` : ''}</MenuRow>
+              <MenuRow icon={Trash2} onClick={() => { setPortfolioMoreOpen(false); setPanel('trash'); }}>Trash{deletedProperties.length ? ` (${deletedProperties.length})` : ''}</MenuRow>
+              <MenuRow icon={Upload} onClick={() => { setPortfolioMoreOpen(false); setModal({ type: 'property', id: null, mode: 'import' }); }}>Import From a Spreadsheet</MenuRow>
+            </AnchoredMenu>
+          </div>
         </div>
       )}
 
+      {/* One title band, the shape every Nexus module has (Shifts, Support):
+          back, photo, name + place, the health signals as soft labels; the
+          actions on the right, the rare ones (Private, Duplicate, Export)
+          behind one "more" button. The old hero + breadcrumb bar + pill strip
+          put ~300px of chrome before any content (760px on a phone). */}
       {active && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-          {(active.images?.[0] || active.image) && (
-            <img
-              src={active.images?.[0] || active.image}
-              alt={active.name}
-              title={active.name}
-              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-              style={{ width: 170, height: 127, objectFit: 'cover', objectPosition: 'center 30%', borderRadius: 14, border: '1px solid var(--border-color)', flexShrink: 0, boxShadow: 'var(--shadow-sm)' }}
-            />
-          )}
-          <div style={{ minWidth: 0 }}>
-            <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.01em', color: 'var(--text-primary)', margin: 0 }}>{active.name}</h1>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span>{cityRegion(active) || '-'}</span>
-              {assetKind === 'property' && <CopyButton text={cityRegion(active)} />}
+        <div className={editState.editing ? 'view-header asset-head is-editing' : 'view-header asset-head'} style={{ alignItems: 'center', marginBottom: 12 }}>
+          {/* flex-basis 320px: narrower than that (a phone) the action row wraps under
+              the title instead of squeezing the name to one letter a line. Under
+              640px asset-styles keeps the back arrow and the name on one line, hides
+              the thumbnail and lets only the edit-mode actions wrap (.asset-head). */}
+          <div className="asset-head-main" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 320px' }}>
+            <button type="button" className="secondary-btn" onClick={backToPortfolio} title="Back to Portfolio" aria-label="Back to Portfolio" style={{ padding: 8, flexShrink: 0 }}>
+              <ArrowLeft size={16} />
+            </button>
+            {(active.images?.[0] || active.image) && (
+              <img
+                className="asset-head-thumb"
+                src={active.images?.[0] || active.image}
+                alt=""
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                style={{ width: 64, height: 48, objectFit: 'cover', objectPosition: 'center 30%', borderRadius: 8, border: '1px solid var(--border-color)', flexShrink: 0 }}
+              />
+            )}
+            <div className="view-title-group" style={{ minWidth: 0 }}>
+              <h2 style={{ fontFamily: 'var(--wk-font)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{active.name}</span>
+                {active.private && <StatusLabel label="Private" color="hsl(var(--color-red))" size="sm" title="Hidden from everyone but officers" />}
+              </h2>
+              <p>{[cityRegion(active), assetKind === 'property' ? typeLabel(active) : ''].filter(Boolean).join(' · ') || '-'}</p>
             </div>
-            <HealthStrip p={active} store={store} logs={store.logs} />
           </div>
-          <button className="primary-btn" onClick={() => navigate('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>
-            <Settings2 size={14} /> Manage
-            {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
-          </button>
-        </div>
-      )}
-
-      {active && (
-        <div className="gt-crumb" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 51, backgroundColor: 'var(--paper)', padding: '8px 4px 7px', marginBottom: 8 }}>
-          <button onClick={() => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')))} title="Back to portfolio" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 15px', borderRadius: 999, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: 'var(--shadow-sm)' }}>
-            <ArrowLeft size={15} />Back
-          </button>
-          <div className="gt-bc-trail" style={{ display: 'flex', alignItems: 'center', gap: 7, flex: 1, minWidth: 0, fontSize: '0.82rem' }}>
-            <button onClick={() => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')))} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--text-secondary)', fontWeight: 600, cursor: 'pointer', flexShrink: 0, fontSize: '0.82rem' }}>Portfolio</button>
-            <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>›</span>
-            <span style={{ color: 'var(--text-primary)', fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{active.name}</span>
+          <div className="asset-head-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+            {view === 'property' && !editState.editing && (
+              <button className="primary-btn" onClick={() => editGuard.startEdit?.()} disabled={!serverOk}
+                title={serverOk ? undefined : 'Connecting to the server - editing opens once the latest copy is in.'}>
+                <Pencil size={14} /> Edit
+              </button>
+            )}
+            {view === 'property' && editState.editing && (
+              <>
+                <button className="secondary-btn" onClick={() => editGuard.cancel?.()}>Cancel</button>
+                <button className="primary-btn" onClick={() => editGuard.save?.()} disabled={!editState.dirty} title={editState.dirty ? undefined : 'No changes yet'}>Save Changes</button>
+              </>
+            )}
+            <button ref={moreRef} type="button" className="secondary-btn" aria-label="More actions" aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)} style={{ padding: 8 }}>
+              <MoreHorizontal size={16} />
+            </button>
+            <AnchoredMenu anchorRef={moreRef} open={moreOpen} onClose={() => setMoreOpen(false)} align="end" minWidth={220}
+              style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
+              <MenuRow icon={active.private ? Unlock : Lock} onClick={() => { setMoreOpen(false); togglePrivate(active.id); }}>
+                {active.private ? 'Make Public' : 'Mark Private'}
+              </MenuRow>
+              <MenuRow icon={Copy} onClick={() => { setMoreOpen(false); duplicateAsset(false); }}>Duplicate</MenuRow>
+              <MenuRow icon={FileText} onClick={() => { setMoreOpen(false); exportAssetPdf(active, store); }}>Export as PDF</MenuRow>
+              <MenuRow icon={Download} onClick={() => { setMoreOpen(false); exportCsvWithTickets(active); }}>Export as CSV</MenuRow>
+            </AnchoredMenu>
           </div>
-
-          <button
-            onClick={() => togglePrivate(active.id)}
-            title={active.private ? 'Click to make public (visible to all)' : 'Click to mark private (hidden from non-officers)'}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 999, fontSize: '0.76rem', fontWeight: 700, marginLeft: 'auto', border: active.private ? '1px solid transparent' : '1px dashed var(--border-color)', cursor: 'pointer', backgroundColor: active.private ? 'hsla(var(--color-red), 0.12)' : 'transparent', color: active.private ? 'hsl(var(--color-red))' : 'var(--text-muted)' }}
-          >
-            {active.private ? '🔒 Private' : 'Mark Private'}
-          </button>
-          <button className="secondary-btn" onClick={() => duplicateAsset(false)} title="Duplicate this asset as a standalone copy" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>⧉ Duplicate</button>
-          <ExportMenu onPdf={() => exportAssetPdf(active, store)} onCsv={() => exportCsvWithTickets(active)} />
         </div>
       )}
 
       {active && <ParcelManager active={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} onLink={linkParcel} onUnlink={unlinkParcel} onTogglePrimary={togglePrimaryParcel} onMove={moveParcelOrder} onRenameGroup={renameGroup} onDuplicate={() => duplicateAsset(true)} onSetAssembled={setAssembled} />}
 
       {leaveAsk && (
-        <div onClick={() => setLeaveAsk(false)} style={{ position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(8,12,22,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--bg-card)', borderRadius: 16, padding: '20px 20px 16px', maxWidth: 380, width: '100%', boxShadow: '0 20px 50px rgba(0,0,0,0.35)' }}>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>Unsaved changes</div>
-            <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 18 }}>You have unsaved changes on this asset. Save them before you leave?</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              <button className="primary-btn" onClick={() => { editGuard.save?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }} style={{ width: '100%', padding: 12, fontSize: '0.9rem' }}>Save & Leave</button>
-              <button className="secondary-btn" onClick={() => { editGuard.cancel?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }} style={{ width: '100%', padding: 12, fontSize: '0.9rem' }}>Discard & Leave</button>
-              <button onClick={() => { setLeaveAsk(false); setPendingNav(null); }} style={{ width: '100%', padding: 10, background: 'none', border: 'none', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.86rem', cursor: 'pointer' }}>Keep Editing</button>
-            </div>
-          </div>
-        </div>
+        <UnsavedChangesPrompt
+          onKeepEditing={() => { setLeaveAsk(false); setPendingNav(null); }}
+          onDiscard={() => { editGuard.cancel?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }}
+          onSave={() => { editGuard.save?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }}
+        />
       )}
 
+      {/* Underline tabs with a count each - the Shifts strip. Not sticky: Nexus
+          took sticky tab strips out app-wide (style.css, Sep 5). */}
       {active && (
-        <>
-          <div className="gt-tabs" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, padding: '8px 4px', position: 'sticky', top: 46, zIndex: 50, backgroundColor: 'var(--paper)', borderBottom: '1px solid var(--border-color)' }}>
-            {tabsForActiveAsset.map(([key, defaultLabel]) => {
-              const isActive = view === key;
-              const label = (key === 'property' && assetKind !== 'property') ? 'Overview' : (key === 'documents' && assetKind !== 'property') ? 'Documents' : defaultLabel;
+        <div className="gt-tabs" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, borderBottom: '1px solid var(--wk-line)', flexWrap: 'wrap' }}>
+          <div className="scroll-tabs asset-fade-x" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
+            {stripTabs.map(([key, label]) => {
+              const on = key === 'records' ? onRecords : view === key;
+              const n = tabCount(key);
               return (
-                <button key={key} onClick={() => navigate(key)} style={{ position: 'relative', padding: '8px 16px', borderRadius: 999, border: '1px solid', borderColor: isActive ? 'var(--pine)' : 'var(--border-color)', background: isActive ? 'var(--pine)' : 'var(--bg-card)', color: isActive ? '#fff' : 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <button key={key} type="button" role="tab" aria-selected={on} onClick={() => (key === 'records' ? openRecords() : navigate(key))}
+                  aria-label={n ? `${label}, ${n}` : undefined}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 14px', border: 'none', background: 'none',
+                    cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: on ? 700 : 600,
+                    color: on ? 'var(--wk-brand)' : 'var(--muted)', whiteSpace: 'nowrap', marginBottom: -1,
+                    borderBottom: on ? '2.5px solid var(--wk-brand)' : '2.5px solid transparent' }}>
                   {label}
+                  {n > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 700, lineHeight: '16px', padding: '0 6px', borderRadius: 8, background: on ? 'var(--wk-brand-tint)' : 'var(--bg-secondary)', color: on ? 'var(--wk-brand)' : 'var(--muted)' }}>{n}</span>
+                  )}
                 </button>
               );
             })}
-            {view === 'property' && (
-              <button className="primary-btn" onClick={() => editGuard.startEdit?.()} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', padding: '7px 14px' }}>
-                <Pencil size={14} /> Edit
-              </button>
-            )}
-            {showTabSearch && (
-              <div style={{ position: 'relative', width: 220, marginLeft: view === 'property' ? undefined : 'auto' }}>
-                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-                <input className="form-input" placeholder="Search…" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} style={{ width: '100%', fontSize: '0.82rem', padding: '7px 10px 7px 32px' }} />
-              </div>
-            )}
           </div>
-        </>
+          {showTabSearch && (
+            <div style={{ position: 'relative', width: 220, marginLeft: 'auto', padding: '4px 0' }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+              <input className="form-input" placeholder="Search…" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} style={{ width: '100%', fontSize: '0.82rem', padding: '7px 10px 7px 32px' }} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Records: one segment per collection, counts beside the names, the open
+          one lifted on the track - the same control the Maintenance tab uses for
+          its units. Scrolls sideways on a phone: the outer div is the scroller
+          (.scroll-tabs, edge fades under 640px), the inner one the track, so the
+          track grows with its segments instead of clipping them. */}
+      {active && onRecords && (
+        <div className="scroll-tabs asset-fade-x" style={{ marginBottom: 16 }}>
+        <div role="tablist" aria-label="Record type" style={{ display: 'flex', gap: 2, padding: 3, borderRadius: 10, background: 'var(--bg-secondary)', width: 'max-content', maxWidth: 'none' }}>
+          {recordViews.map((key) => {
+            const on = view === key;
+            const n = tabCount(key);
+            return (
+              <button key={key} type="button" role="tab" aria-selected={on} onClick={() => navigate(key)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                  fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                  background: on ? 'var(--bg-card)' : 'transparent', color: on ? 'var(--text-primary)' : 'var(--text-secondary)', boxShadow: on ? 'var(--shadow-sm)' : 'none' }}>
+                {recordLabel(key)}
+                {recordHint(key) && <span style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>{` - ${recordHint(key)}`}</span>}
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: on ? 'var(--text-secondary)' : 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+              </button>
+            );
+          })}
+        </div>
+        </div>
+      )}
+      {active && onRecords && recordHint(view) && (
+        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '-8px 0 12px 2px' }}>{recordLabel(view)} - {recordHint(view)}</div>
       )}
 
       {view === 'portfolio' && !active && loading && !visibleProperties.length && (
         <LoadingState label="Loading assets…" minHeight={320} />
       )}
-      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <CriticalDates store={store} openProperty={openAsset} hideIfEmpty />}
-      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} />}
+      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && (
+        <CriticalDates store={store} openProperty={openAsset} hideIfEmpty title="Needs Attention"
+          extraChips={[
+            { count: needData, label: 'Need Data', color: 'orange', title: 'Assets with key fields to fill', expanded: panel === 'data', onClick: () => setPanel((p) => (p === 'data' ? null : 'data')) },
+            { count: flagCount, label: 'Flagged', color: 'purple', title: 'Fields flagged for review', expanded: panel === 'flags', onClick: () => setPanel((p) => (p === 'flags' ? null : 'flags')) },
+          ]} />
+      )}
+      {view === 'portfolio' && !active && panel === 'data' && (
+        <DataGapsPanel assets={visibleProperties} onOpen={openAsset} onDelete={(id) => deleteAsset(id, true)} serverOk={serverOk} onClose={() => setPanel(null)} />
+      )}
+      {view === 'portfolio' && !active && panel === 'flags' && (
+        <ReviewFlagsPanel props={visibleProperties} onClearFlag={toggleFlag} onOpen={openAsset} onPushFix={pushFieldFix} onClose={() => setPanel(null)} />
+      )}
+      {view === 'portfolio' && !active && panel === 'activity' && (
+        <div style={{ marginBottom: 16 }}>
+          <ActivityLog onClose={() => setPanel(null)} logs={store.logs || []} query="" onOpenProperty={openAsset} activeId={null} activeName="" onGoTo={goToLogEntry} onUndo={undoLogEntry} canUndo={canUndo} assetsForKind={visibleProperties} />
+        </div>
+      )}
+      {view === 'portfolio' && !active && panel === 'trash' && (
+        <TrashPanel deleted={deletedProperties} onRecover={recoverAsset} onPurge={purgeAsset} onClose={() => setPanel(null)} />
+      )}
+      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} metrics={metrics} />}
 
       {view === 'property' && active?.assembled && !active.parentId && <AssemblageParcels lead={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} />}
-      {view === 'property' && active && <CriticalDates store={store} only={active.id} openProperty={openAsset} onTab={navigate} />}
+      {view === 'property' && active && !editState.editing && (
+        <AssetOverview asset={active} store={store} onTab={navigate} onGoTo={goToLogEntry}
+          onEdit={(field) => { if (field) setHighlight({ tab: 'property', section: '', field: String(field).toLowerCase(), item: '', at: Date.now() }); editGuard.startEdit?.(); }} />
+      )}
       {view === 'property' && active && (
         <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} />
       )}
@@ -840,7 +1004,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       )}
       {view === 'permit' && active && (
         <SimpleRecordTable
-          title="Permit Matrix"
+          title="Permits"
           subtitle={active.name}
           rows={active.permits}
           cols={permitColumns(active.permits)}
@@ -849,26 +1013,6 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
           onAdd={() => setModal({ type: 'plist', field: 'permits', index: null, fields: permitColumns(active.permits) })}
           onEdit={(i) => setModal({ type: 'plist', field: 'permits', index: i, fields: permitColumns(active.permits) })}
           onDelete={(i) => deletePropertyListRow('permits', i, permitColumns(active.permits))}
-        />
-      )}
-
-      {view === 'manage' && !active && (
-        <ManagePage
-          props={visibleProperties}
-          logs={store.logs || []}
-          deletedProps={deletedProperties}
-          onBack={() => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')))}
-          onAdd={() => setModal({ type: 'property', id: null })}
-          onDelete={(id) => deleteAsset(id, true)}
-          onRecover={recoverAsset}
-          onPurge={purgeAsset}
-          onOpenProperty={openAsset}
-          onGoTo={goToLogEntry}
-          onUndo={undoLogEntry}
-          canUndo={canUndo}
-          onClearFlag={toggleFlag}
-          onPushFix={pushFieldFix}
-          serverOk={serverOk}
         />
       )}
 
@@ -886,8 +1030,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       )}
       {modal?.type === 'property' && (
         <AddAssetModal
-          row={modal.id ? findAsset(modal.id) : null}
-          draft={modal.id ? null : modal.draft}
+          draft={modal.draft}
+          mode={modal.mode || 'add'}
           properties={visibleProperties}
           onSave={(patch, reason, linkOptions, meta) => {
             // New Heavy Equipment or Vehicle asset from the guided wizard (not CSV bulk-import,
@@ -901,7 +1045,6 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
             }
             saveAsset(modal.id, patch, reason, linkOptions);
           }}
-          onDelete={() => deleteAsset(modal.id)}
           onClose={() => setModal(null)}
         />
       )}
@@ -943,7 +1086,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       )}
       {modal?.type === 'plist' && (
         <SimpleRowModal
-          title={modal.field === 'timeline' ? 'Timeline row' : 'Permit row'}
+          title={modal.field === 'timeline' ? 'Timeline Row' : 'Permit Row'}
           fields={modal.fields}
           row={modal.index != null && active ? active[modal.field][modal.index] : null}
           onSave={(patch) => savePropertyListRow(modal.field, modal.index, patch, modal.fields)}
@@ -955,15 +1098,15 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         <TimelineStatusModal current={modal.current} onSave={(status, date, reason) => savePropertyListRow('timeline', modal.index, { status, statusDate: date }, TIMELINE_FIELDS, reason)} onClose={() => setModal(null)} />
       )}
 
-      <ScrollTopFab />
     </div>
   );
 }
 
 function CountBadge({ n }) {
   return (
-    <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: '0.64rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+    <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
       {n}
     </span>
   );
 }
+

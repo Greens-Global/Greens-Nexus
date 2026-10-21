@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -102,6 +103,34 @@ def _clean_list(values: list[str]) -> list[str]:
     return out
 
 
+# Department names (Neil, Oct 21 2026): "Storage" is "Operations". The
+# picker row, every link tagged with it (the JSON list and the legacy singular
+# column), Personal Links and saved Link View filters were rewritten once at
+# startup (main.py, both engines), and this alias keeps a stray "storage" from
+# coming back through the API: every write path below runs department names
+# through _clean_departments, and /meta reads through canon_department.
+# frontend/src/links/departments.js carries the same table - keep in step.
+DEPARTMENT_RENAMES = {"storage": "Operations"}
+
+
+def canon_department(name: str) -> str:
+    v = (name or "").strip()
+    return DEPARTMENT_RENAMES.get(v.lower(), v)
+
+
+def _clean_departments(values: list[str]) -> list[str]:
+    """_clean_list plus the rename, de-duped without regard to case -
+    "Operations" and "operations" are one department (first spelling wins).
+    Department is picker-only, so a casing variant is never intentional."""
+    seen, out = set(), []
+    for v in values or []:
+        v = canon_department(v)
+        if v and v.lower() not in seen:
+            seen.add(v.lower())
+            out.append(v)
+    return out
+
+
 class ReorderEntry(BaseModel):
     id: int
     sort_order: int
@@ -160,7 +189,7 @@ def external_links_meta(db: Session = Depends(get_db)):
     dedupe across JSON array elements in one query across both engines)."""
     departments, categories = set(), set()
     for (d,) in db.query(models.ExternalLink.departments).all():
-        departments.update(d or [])
+        departments.update(canon_department(x) for x in (d or []) if canon_department(x))
     for (c,) in db.query(models.ExternalLink.categories).all():
         categories.update(c or [])
     return {"departments": sorted(departments), "categories": sorted(categories)}
@@ -198,15 +227,17 @@ class TaxonomyCreate(BaseModel):
 def create_taxonomy(body: TaxonomyCreate, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
     if body.kind not in _TAXONOMY_KINDS:
         raise HTTPException(status_code=422, detail="kind must be 'department' or 'category'.")
-    name = body.name.strip()
+    name = canon_department(body.name) if body.kind == "department" else body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Name can't be empty.")
     if len(name) > 80:
         raise HTTPException(status_code=422, detail="Name must be 80 characters or fewer.")
+    # Case-insensitive: "operations" next to "Operations" would be two picker
+    # rows for one department, and the filter matches names exactly.
     exists = db.query(models.ExternalLinkTaxonomy).filter(
-        models.ExternalLinkTaxonomy.kind == body.kind, models.ExternalLinkTaxonomy.name == name).first()
+        models.ExternalLinkTaxonomy.kind == body.kind, func.lower(models.ExternalLinkTaxonomy.name) == name.lower()).first()
     if exists:
-        raise HTTPException(status_code=409, detail=f'"{name}" already exists.')
+        raise HTTPException(status_code=409, detail=f'"{exists.name}" already exists.')
     max_pos = db.query(models.ExternalLinkTaxonomy).filter(models.ExternalLinkTaxonomy.kind == body.kind).count()
     row = models.ExternalLinkTaxonomy(
         id=str(uuid.uuid4()), kind=body.kind, name=name, sort_order=max_pos, created_at=_now())
@@ -227,16 +258,16 @@ def rename_taxonomy(taxonomy_id: str, body: TaxonomyRename, user: dict = Depends
     row = db.query(models.ExternalLinkTaxonomy).filter(models.ExternalLinkTaxonomy.id == taxonomy_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Not found.")
-    name = body.name.strip()
+    name = canon_department(body.name) if row.kind == "department" else body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Name can't be empty.")
     if len(name) > 80:
         raise HTTPException(status_code=422, detail="Name must be 80 characters or fewer.")
     dupe = db.query(models.ExternalLinkTaxonomy).filter(
-        models.ExternalLinkTaxonomy.kind == row.kind, models.ExternalLinkTaxonomy.name == name,
+        models.ExternalLinkTaxonomy.kind == row.kind, func.lower(models.ExternalLinkTaxonomy.name) == name.lower(),
         models.ExternalLinkTaxonomy.id != taxonomy_id).first()
     if dupe:
-        raise HTTPException(status_code=409, detail=f'"{name}" already exists.')
+        raise HTTPException(status_code=409, detail=f'"{dupe.name}" already exists.')
 
     old_name = row.name
     row.name = name
@@ -431,7 +462,7 @@ def create_external_link(link: ExternalLinkCreate, user: dict = Depends(require_
     # just won't appear under any category filter, same as a link with no
     # department shows for every department.
     categories = _clean_list(link.categories)
-    departments = _clean_list(link.departments)
+    departments = _clean_departments(link.departments)
     companies = _clean_list(link.companies)
     now = _now()
     data = link.model_dump(exclude={"categories", "departments", "companies", "service_area"})
@@ -478,7 +509,7 @@ def update_external_link(link_id: int, patch: ExternalLinkUpdate, user: dict = D
     if "categories" in changes:
         changes["categories"] = _clean_list(changes["categories"])   # optional - see create_external_link
     if "departments" in changes:
-        changes["departments"] = _clean_list(changes["departments"])
+        changes["departments"] = _clean_departments(changes["departments"])
     if "companies" in changes:
         changes["companies"] = _clean_list(changes["companies"])
     if "service_area" in changes:
@@ -824,7 +855,7 @@ def import_external_links(payload: ImportRequest, user: dict = Depends(require_l
         if not re.match(r"^https?://", url, re.I):
             url = f"https://{url}"
         categories = _clean_list(row.categories) or ["Imported"]
-        departments = _clean_list(row.departments)
+        departments = _clean_departments(row.departments)
         company_id = company_by_name.get(row.company.strip().lower(), "")
         db_link = models.ExternalLink(
             name=name, url=url, category=categories[0], description=row.description.strip(),
@@ -939,6 +970,7 @@ def create_personal_link(link: PersonalLinkCreate, user: dict = Depends(get_curr
     now = _now()
     data = link.model_dump()
     data["vault_cred_id"] = _owned_vault_cred_id(data.get("vault_cred_id", ""), user, db)
+    data["department"] = canon_department(data.get("department", ""))
     db_link = models.PersonalLink(**data, owner_email=user["email"], created_at=now, updated_at=now)
     db.add(db_link)
     db.commit()
@@ -968,6 +1000,8 @@ def update_personal_link(link_id: int, patch: PersonalLinkUpdate, user: dict = D
     changes = patch.model_dump(exclude_unset=True)
     if "vault_cred_id" in changes:
         changes["vault_cred_id"] = _owned_vault_cred_id(changes["vault_cred_id"] or "", user, db)
+    if "department" in changes:
+        changes["department"] = canon_department(changes["department"])
     for field, value in changes.items():
         setattr(db_link, field, value)
     db_link.updated_at = _now()

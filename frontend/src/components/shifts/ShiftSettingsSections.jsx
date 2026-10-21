@@ -266,6 +266,10 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
                 <MinutesField label="Still on Break Reminder" aria="Still on break reminder" max={240}
                   value={cfg.breakNudgeMin} fallback={60} onSave={(n) => save({ breakNudgeMin: n })}
                   hint="Minutes on a break that has not ended before the person is asked if they are still on break. Their manager hears at twice this. 0 turns it off." />
+                {/* California meal reminder (Charmi + Neil, Oct 20 2026, meal_watch.py). */}
+                <MinutesField label={`Meal Reminder: Send at ${mealHours(cfg.mealReminderMin ?? 270)}`} aria="Meal reminder" max={295}
+                  value={cfg.mealReminderMin} fallback={270} onSave={(n) => save({ mealReminderMin: n })}
+                  hint="Minutes of work in a day before people who work in California (hourly and salaried, with time tracking) are reminded to take their 30-minute meal break before the 5th hour. Not sent once they have taken a 30-minute meal, are on a break or have clocked out. 0 turns it off." />
               </div>
               <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.noShowOnUsualHours === true} onChange={(e) => save({ noShowOnUsualHours: e.target.checked })} /> Alert for usual hours too</label>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those.</div>
@@ -280,7 +284,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
               </div>
               {/* Location Trail While Clocked In (Oct 20 2026, routers/location_trail.py). */}
               <label style={{ ...CHECK, marginTop: 10 }}><input type="checkbox" checked={cfg.locationTrailOn === true} onChange={(e) => save({ locationTrailOn: e.target.checked })} /> Location Trail While Clocked In</label>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. When on, Nexus shares each person's location about every 5 minutes while they are clocked in, paused on breaks and stopped at clock out, and only when their browser already allows location. The Time Clock page tells them it is on. Managers see live positions and each day's trail in People - Time - Location Trail. A browser cannot share while the phone screen is locked or Nexus is closed, so the trail has gaps then. Points are kept for 90 days.</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. When on, Nexus shares each person's location about every 5 minutes while they are clocked in, paused on breaks and stopped at clock out, and only when their browser already allows location. Only managers see live positions and each day's trail, in Workforce Analytics - Location Trail; employees never see a trail, their own included. Tell staff about it in your own policy. A browser cannot share while the phone screen is locked or Nexus is closed, so the trail has gaps then. Points are kept for 90 days.</div>
             </div>
             <div>
               <div style={LBL}>Rules</div>
@@ -361,6 +365,14 @@ export function CalendarSyncStatus() {
 // A minutes field that saves on blur or Enter, clamped to 0-`max` - the
 // Default Grace idiom (Shifts Phase 1: the attendance thresholds; Phase 2:
 // the rules, in hours or days).
+// 270 -> "4.5 Hours", 240 -> "4 Hours", 0 -> "Off" (the meal reminder's label).
+function mealHours(min) {
+  const n = Number(min) || 0;
+  if (n <= 0) return 'Off';
+  const h = Math.round((n / 60) * 100) / 100;
+  return `${h} ${h === 1 ? 'Hour' : 'Hours'}`;
+}
+
 function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes', hint, onSave }) {
   const [draft, setDraft] = useState(null);   // null = not being typed
   const current = value ?? fallback;

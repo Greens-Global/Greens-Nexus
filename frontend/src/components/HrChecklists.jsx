@@ -59,7 +59,7 @@ const KIND_BLURB = {
   inactive: 'Leave of absence, suspension or garden leave.',
 };
 const EXIT_LABEL = {
-  resignation: 'Resignation', resignation_no_notice: 'Resignation Without Notice', termination: 'Termination',
+  resignation: 'Voluntary Resignation', resignation_no_notice: 'Job Abandonment', termination: 'Termination',
   end_of_contract: 'End Of Contract', retirement: 'Retirement', death: 'Death Of An Employee',
 };
 
@@ -597,24 +597,39 @@ export function ChecklistSection({ employee, canEdit = false, myEmail = '', toas
 
 // --- Small progress chip (profile header, directory rows) ------------------
 
-// p = one /hr/checklists/progress entry: { kind, kindLabel, done, total, overdue }.
+// p = one /hr/checklists/progress entry: { kind, kindLabel, status, done, total, overdue }.
+// The chip names the CHECKLIST, never the person's state (Charmi, Oct 20 2026:
+// a Left person showing "Offboarding 5/26" read like they were still
+// leaving) - "Offboarding Checklist 5/26" in amber while steps are open (red
+// once some are late), green "Offboarding Complete" when every step is done.
 export function ChecklistChip({ p, onClick, compact = false }) {
   if (!p) return null;
   const look = KIND_LOOK[p.kind] || KIND_LOOK.onboarding;
-  const late = p.overdue > 0;
+  const complete = p.status === 'done' || (p.total > 0 && p.done >= p.total);
+  const late = !complete && p.overdue > 0;
+  const text = complete ? `${p.kindLabel} Complete` : `${p.kindLabel} Checklist`;
   const body = (
     <>
-      <look.Icon size={12} aria-hidden="true" />
-      {!compact && <span>{p.kindLabel}</span>}
-      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{p.done}/{p.total}</span>
-      {late && <span style={{ color: 'var(--wk-red)' }}>· {p.overdue} late</span>}
+      {complete ? <CheckCircle2 size={12} aria-hidden="true" /> : <look.Icon size={12} aria-hidden="true" />}
+      <span>{compact ? (complete ? 'Complete' : 'Checklist') : text}</span>
+      {!complete && <span style={{ fontVariantNumeric: 'tabular-nums' }}>{p.done}/{p.total}</span>}
+      {late && <span>· {p.overdue} late</span>}
     </>
   );
+  const [bg, fg] = complete ? ['var(--wk-green-bg)', 'var(--wk-green)']
+    : late ? ['var(--wk-red-bg)', 'var(--wk-red)'] : ['var(--wk-orange-bg)', 'var(--wk-orange)'];
   const style = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 6, fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', fontFamily: FONT,
-    background: late ? 'var(--wk-red-bg)' : 'var(--wk-brand-tint)', color: late ? 'var(--wk-red)' : 'var(--wk-brand)', border: 'none' };
-  const label = `${p.kindLabel} checklist: ${p.done} of ${p.total} done${late ? `, ${p.overdue} overdue` : ''}`;
+    background: bg, color: fg, border: 'none' };
+  const label = complete
+    ? `${p.kindLabel} checklist complete: all ${p.total} steps done`
+    : `${p.kindLabel} checklist: ${p.done} of ${p.total} done${late ? `, ${p.overdue} overdue` : ''}`;
+  // role=button on a span, not a <button>: the directory row it sits in is
+  // already a button, and buttons cannot nest.
+  const open = e => { e.stopPropagation(); onClick(); };
   return onClick
-    ? <button type="button" onClick={e => { e.stopPropagation(); onClick(); }} title={`${label} - open the checklist`} aria-label={label} style={{ ...style, cursor: 'pointer' }}>{body}</button>
+    ? <span role="button" tabIndex={0} onClick={open}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(e); } }}
+        title={`${label} - open the checklist`} aria-label={label} style={{ ...style, cursor: 'pointer' }}>{body}</span>
     : <span title={label} aria-label={label} style={style}>{body}</span>;
 }
 

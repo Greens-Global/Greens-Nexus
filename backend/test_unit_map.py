@@ -179,6 +179,40 @@ def _raw():
     return {"rent_roll": rr, "receivables": recs, "leases": leases, "today": TODAY}
 
 
+def _all_rows():
+    raw = _raw()
+    raw["rent_roll"].append({"unitId": "u3", "unitName": "E100", "status": "RENTED", "customerId": "cust_9", "customerName": "Pat Example",
+                             "monthlyRentalAmount": 9000, "customerPhone": "555-0100"})
+    raw["leases"][0].update({"leaseId": "lease_1", "privatePolicyNumber": "POL-778", "privatePolicyExpirationDate": "2027-01-31",
+                             "coverage": {"coverageType": "PRIVATE_POLICY"}})
+    raw["payments"] = [
+        {"customerId": "cust_9", "createdAt": "2026-08-02T10:00:00", "amount": 18000, "methodType": "CREDIT_CARD", "status": "SUCCEEDED", "reason": "Card 4242"},
+        {"customerId": "cust_9", "createdAt": "2026-10-02T10:00:00", "amount": 18000, "methodType": "CREDIT_CARD", "status": "DECLINED", "reason": "Insufficient funds"},
+        {"customerId": "cust_9", "createdAt": "2026-09-02T10:00:00", "amount": 18000, "methodType": "CREDIT_CARD", "status": "SUCCEEDED"},
+        {"customerId": "cust_9", "createdAt": "2026-07-02T10:00:00", "amount": 18000, "methodType": "CASH", "status": "SUCCEEDED"},
+        {"customerId": "cust_other", "createdAt": "2026-10-10T10:00:00", "amount": 500, "methodType": "CASH", "status": "SUCCEEDED"},
+    ]
+    elsewhere = {"rent_roll": [{"unitId": "x1", "unitName": "A001", "status": "RENTED", "customerId": "cust_9", "customerEmail": "pat@example.com"}],
+                 "payments": [], "leases": [], "receivables": []}
+    return [({"facilityId": FAC, "name": "Greens Storage"}, raw), ({"facilityId": "fac_FF", "name": "Greens Storage Fairfield"}, elsewhere)]
+
+
+class KpiTests(unittest.TestCase):
+    def test_money_line(self):
+        raw = _raw()
+        raw["leases"].append({"unitId": "u9", "moveInDate": "2026-10-05"})
+        raw["leases"].append({"unitId": "u8", "moveInDate": "2026-10-25"})      # not yet
+        k = unit_map.facility_kpis(raw["rent_roll"], raw["receivables"] + [{"unitId": "u7", "totalAmount": 0}], raw["leases"], TODAY)
+        self.assertEqual((k["rentRoll"], k["potential"], k["economicPct"]), (18000, 38800, 46.4))
+        self.assertEqual((k["pastDue"], k["pastDueTenants"]), (14450, 1))
+        self.assertEqual((k["moveIns"], k["moveOuts"]), (1, 0))
+
+    def test_coverage_kinds(self):
+        x = unit_map.tenant_extras("c", FAC, "A1", {"coverage": {"coverageType": "ORGANISATION", "coverageAmount": 500000}}, [])
+        self.assertEqual((x["coverage"]["kind"], x["coverage"]["amount"]), ("facility", 500000))
+        self.assertEqual(unit_map.tenant_extras("c", FAC, "A1", {}, [])["coverage"]["kind"], "none")
+
+
 class UnitDetailTests(unittest.TestCase):
     def test_a_leased_unit_carries_the_name_and_the_lease_facts_only(self):
         raw = _raw()
@@ -212,7 +246,7 @@ class UnitCardEndpointTests(unittest.TestCase):
         import ticket_property_link as L
         self.db = database.SessionLocal()
         for m in (models.TaskTicket, models.PropertyAsset, models.NexusEmployee, models.NexusRole, models.NexusGroup,
-                  models.NexusGroupMember, models.CubbyFacility, models.NexusSetting):
+                  models.NexusGroupMember, models.CubbyFacility, models.NexusSetting, models.OpsReportCache):
             self.db.query(m).execution_options(include_deleted=True).delete()
         for u in (ADMIN, PLAIN, OPS):
             self.db.add(models.NexusEmployee(id=u["email"], first_name=u["email"].split("@")[0], work_email=u["email"],
@@ -232,13 +266,14 @@ class UnitCardEndpointTests(unittest.TestCase):
                                       property_asset_id="esc", property_unit="E465", created_at=now))
         self.db.commit()
         cache.module_grants.invalidate()
-        self._rows, self._models = unit_map._cubby_rows, L._site_models
+        self._rows, self._models, self._all = unit_map._cubby_rows, L._site_models, unit_map._all_rows
         unit_map._cubby_rows = lambda fid: ({"facilityId": FAC}, _raw()) if fid == FAC else (None, None)
+        unit_map._all_rows = _all_rows
         L._site_models = lambda: []
 
     def tearDown(self):
         import ticket_property_link as L
-        unit_map._cubby_rows, L._site_models = self._rows, self._models
+        unit_map._cubby_rows, L._site_models, unit_map._all_rows = self._rows, self._models, self._all
         self.db.close()
 
     def _client(self, user):
@@ -261,6 +296,26 @@ class UnitCardEndpointTests(unittest.TestCase):
         for secret in PII:
             self.assertNotIn(secret, text, secret)
         self.assertNotIn("t-other", text)
+
+    def test_the_tenant_card_extras_and_nothing_private(self):
+        self.db.add(models.OpsReportCache(id=f"compliance:{FAC}:current", kind="compliance", facility_id=FAC, period="current",
+                                          payload={"compliances": [{"leaseId": "lease_1", "documents": [
+                                              {"type": "LEASE_AGREEMENT", "status": "APPROVED"}, {"type": "IDENTITY", "status": "MISSING"}]}]}))
+        self.db.commit()
+        unit_map._cubby_rows = lambda fid: _all_rows()[0]
+        body = self._client(ADMIN).get("/facility-ops/site-map/unit", params={"facility_id": FAC, "unit": "E347"}).json()
+        t = body["tenant"]
+        self.assertEqual(t["customerId"], "cust_9")
+        self.assertEqual([(o["unit"], o["facility"], o["here"]) for o in t["otherUnits"]], [("E100", "Greens Storage", True), ("A001", "Fairfield", False)])
+        self.assertEqual(t["coverage"]["kind"], "private")
+        self.assertTrue(t["coverage"]["policyOnFile"])
+        self.assertEqual(t["compliance"], ["Identity"])
+        self.assertEqual([p["date"] for p in t["payments"]], ["2026-10-02", "2026-09-02", "2026-08-02"])
+        self.assertTrue(t["payments"][0]["failed"])
+        self.assertEqual(t["payments"][1]["method"], "Card")
+        text = json.dumps(body)
+        for secret in PII + ("POL-778", "4242", "Insufficient"):
+            self.assertNotIn(secret, text, secret)
 
     def test_the_unit_card_is_operations_read(self):
         q = {"facility_id": FAC, "unit": "E347"}

@@ -13,6 +13,8 @@ from database import SessionLocal
 import models
 from act_as import resolve_target as _resolve_act_as_target
 from client_ip import client_ip as _client_ip
+import audit_capture
+from audit_modules import is_telemetry, kind_for, module_for_resource, module_for_table
 
 
 def _describe(method: str, path: str, body_fields: dict = None) -> tuple[str, str]:
@@ -370,16 +372,16 @@ async def _read_body_fields(request: Request, resource: str) -> dict:
 
 
 def _write_denied(request: Request, path: str, method: str, resource: str,
-                  status: int, ip: str, stamp: str) -> None:
+                  status: int, ip: str, stamp: str, ctx=None) -> None:
     """The 401/403 security row. Runs in a worker thread (see dispatch): the
     session is opened and closed here, never on the event loop."""
     try:
-        user_email = _extract_email(request)
+        user_email = (ctx.actor if ctx is not None and ctx.actor else "") or _extract_email(request)
         sec_action = "Authentication failed" if status == 401 else "Authorization denied"
         db = SessionLocal()
         try:
             sec_details = {"path": path, "method": method, "status": status}
-            acting_as = _acting_as_target(request, user_email, db)
+            acting_as = (ctx.acting_as if ctx is not None else "") or _acting_as_target(request, user_email, db)
             if acting_as:
                 sec_details["acting_as"] = acting_as
             db.add(models.AuditLog(
@@ -391,6 +393,10 @@ def _write_denied(request: Request, path: str, method: str, resource: str,
                 resource_id="",
                 details=json.dumps(sec_details),
                 ip_address=ip,
+                request_id=ctx.request_id if ctx is not None else "",
+                module="security",
+                kind="denied",
+                acting_as=acting_as or "",
             ))
             db.commit()
         finally:
@@ -401,23 +407,37 @@ def _write_denied(request: Request, path: str, method: str, resource: str,
 
 def _write_change(request: Request, path: str, method: str, resource: str,
                   status: int, created_id: str, body_fields: dict, ip: str,
-                  stamp: str) -> None:
+                  stamp: str, ctx=None) -> None:
     """The ordinary audit row for a successful change. Same threading rule
-    as _write_denied."""
+    as _write_denied. `ctx` is the request's audit_capture context: who
+    auth.get_current_user resolved (real person + Act As target, so no second
+    lookup), the request id that joins audit_changes, and which tables the
+    change capture saw (module / kind)."""
     try:
-        action, resource_id = _describe(method, path, body_fields)
+        if method in ("GET", "HEAD"):
+            # A read that changed something (a PFS view logged, a default row
+            # created on first open) - only reached when the capture saw rows.
+            action, resource_id = f"Viewed {resource.replace('-', ' ') or 'page'}", ""
+        else:
+            action, resource_id = _describe(method, path, body_fields)
         # Create endpoints have no id in the URL - they stamp the new id on the
         # response (X-Created-Id) so the row records WHICH record was added.
         if not resource_id:
             resource_id = created_id
-        user_email = _extract_email(request)
+        user_email = (ctx.actor if ctx is not None and ctx.actor else "") or _extract_email(request)
 
-        details = {"path": path, "status": status}
+        details = {"path": path, "method": method, "status": status}
         details.update(body_fields)
+
+        ops = [(t, op) for t, op, _rid, _label in (ctx.tables if ctx is not None else [])]
+        module = module_for_resource(resource, action)
+        if module == "other" and ops:
+            module = module_for_table(ops[0][0])
+        kind = kind_for(method, resource, action, ops)
 
         db = SessionLocal()
         try:
-            acting_as = _acting_as_target(request, user_email, db)
+            acting_as = (ctx.acting_as if ctx is not None else "") or _acting_as_target(request, user_email, db)
             if acting_as:
                 details["acting_as"] = acting_as
             db.add(models.AuditLog(
@@ -429,8 +449,23 @@ def _write_change(request: Request, path: str, method: str, resource: str,
                 resource_id=resource_id,
                 details=json.dumps(details),
                 ip_address=ip,
+                request_id=ctx.request_id if ctx is not None else "",
+                module=module,
+                kind=kind,
+                acting_as=acting_as or "",
             ))
             db.commit()
+            # A route that never ran get_current_user (public links, cookie
+            # sessions resolved only here) left its change rows nameless.
+            if ctx is not None and ctx.captured and not ctx.actor and user_email:
+                try:
+                    db.execute(models.AuditChange.__table__.update()
+                               .where(models.AuditChange.request_id == ctx.request_id)
+                               .where(models.AuditChange.actor == "")
+                               .values(actor=user_email, acting_as=acting_as or ""))
+                    db.commit()
+                except Exception:
+                    db.rollback()
         finally:
             db.close()
     except Exception:
@@ -442,55 +477,82 @@ class AuditMiddleware(BaseHTTPMiddleware):
         path     = request.url.path
         method   = request.method
         resource = path.split("/")[1] if len(path.split("/")) > 1 else ""
-
-        # Body must be read before call_next consumes the stream - Starlette
-        # caches it internally so the downstream route still sees it intact.
-        body_fields = {}
-        if method not in ("GET", "HEAD", "OPTIONS"):
-            body_fields = await _read_body_fields(request, resource)
-
-        response = await call_next(request)
-
-        if request.method in ("GET", "HEAD", "OPTIONS"):
-            return response
-
-        # The audit-undo endpoint writes its own canonical entries (the reverse
-        # change + marking the original undone) - let it, don't double-log the
-        # POST here (the generic describer would mislabel it "Added item").
-        if path == "/items/audit-undo":
-            return response
+        telemetry = is_telemetry(path)
 
         # Resolve IP once - used for both security logs and normal audit rows.
         # Same helper as the rate limiter (client_ip.py), so both agree.
         ip = _client_ip(request)
 
-        # The write (and the session / Act As lookups that feed it) is blocking
-        # database work, so it runs in a thread - on the loop it froze every
-        # other request on this worker for as long as the database took
-        # (CLAUDE.md). Still awaited, so the row is in before the response
-        # goes out, exactly as before. The timestamp is taken here, on the
-        # loop, so rows keep the order their responses finished in.
-        stamp = datetime.utcnow().isoformat()
+        # The change capture's context for this request (audit_capture.py): the
+        # request id that ties audit_changes to this row, the IP, and a cheap
+        # unverified bearer decode as the actor until auth.get_current_user
+        # names the real one. In-memory only - nothing here touches the DB.
+        ctx, ctx_token = audit_capture.begin_request(
+            path, method, ip, audit_capture.decode_bearer_email(request.headers.get("authorization", "")))
+        try:
+            # Body must be read before call_next consumes the stream - Starlette
+            # caches it internally so the downstream route still sees it intact.
+            body_fields = {}
+            if method not in ("GET", "HEAD", "OPTIONS") and not telemetry:
+                body_fields = await _read_body_fields(request, resource)
 
-        # Log failed auth attempts (401 / 403) as security events so they
-        # appear in the audit trail and can trigger alerts.
-        if response.status_code in (401, 403):
+            response = await call_next(request)
+
+            # Machine telemetry (agent heartbeats, GPS pings, read markers -
+            # audit_modules.TELEMETRY_PATTERNS) is not an audit event. It was
+            # ~99% of audit_logs (Oct 2026) and buried every real change.
+            if telemetry or method == "OPTIONS":
+                return response
+
+            if method in ("GET", "HEAD"):
+                # A read is logged only when it changed something worth keeping
+                # (the capture skips noise tables, so ctx.captured is only set
+                # by a real row - a PFS view logged, a vault reveal).
+                if ctx.captured and response.status_code < 400 and any(
+                        op in ("insert", "delete") for _t, op, _r, _l in ctx.tables):
+                    try:
+                        await asyncio.to_thread(_write_change, request, path, method, resource,
+                                                response.status_code, "", {}, ip,
+                                                datetime.utcnow().isoformat(), ctx)
+                    except Exception:
+                        pass
+                return response
+
+            # The audit-undo endpoint writes its own canonical entries (the reverse
+            # change + marking the original undone) - let it, don't double-log the
+            # POST here (the generic describer would mislabel it "Added item").
+            if path == "/items/audit-undo":
+                return response
+
+            # The write (and the session / Act As lookups that feed it) is blocking
+            # database work, so it runs in a thread - on the loop it froze every
+            # other request on this worker for as long as the database took
+            # (CLAUDE.md). Still awaited, so the row is in before the response
+            # goes out, exactly as before. The timestamp is taken here, on the
+            # loop, so rows keep the order their responses finished in.
+            stamp = datetime.utcnow().isoformat()
+
+            # Log failed auth attempts (401 / 403) as security events so they
+            # appear in the audit trail and can trigger alerts.
+            if response.status_code in (401, 403):
+                try:
+                    await asyncio.to_thread(_write_denied, request, path, method, resource,
+                                            response.status_code, ip, stamp, ctx)
+                except Exception:
+                    pass
+                return response
+
+            if response.status_code >= 400:
+                return response
+
             try:
-                await asyncio.to_thread(_write_denied, request, path, method, resource,
-                                        response.status_code, ip, stamp)
+                await asyncio.to_thread(_write_change, request, path, method, resource,
+                                        response.status_code,
+                                        response.headers.get("x-created-id", ""),
+                                        body_fields, ip, stamp, ctx)
             except Exception:
                 pass
+
             return response
-
-        if response.status_code >= 400:
-            return response
-
-        try:
-            await asyncio.to_thread(_write_change, request, path, method, resource,
-                                    response.status_code,
-                                    response.headers.get("x-created-id", ""),
-                                    body_fields, ip, stamp)
-        except Exception:
-            pass
-
-        return response
+        finally:
+            audit_capture.end_request(ctx_token)

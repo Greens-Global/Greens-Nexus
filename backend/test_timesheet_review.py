@@ -256,7 +256,7 @@ class SigningTests(ReviewCase):
         # Only the employee signs (Oct 16); the approver's Agree is the approval.
         self.assertEqual([(k, p[k].email, p[k].ordinal) for k in p], [("employee", EMP, 1)])
         self.assertEqual(req.current_order, 1)
-        self.assertTrue(all(f["role"] == "employee" for f in tsr._sig_fields(1)))
+        self.assertTrue(all(f["role"] == "employee" for f in tsr._sig_fields({"page": 1, "sign": [0, 0, 0, 0], "date": [0, 0, 0, 0]})))
 
     def test_the_employee_signs_and_the_period_is_finalized(self):
         r = self._to_signing()
@@ -283,13 +283,15 @@ class SigningTests(ReviewCase):
 
     def test_the_document_names_the_approver_instead_of_a_signature_row(self):
         r = self._to_signing()
-        pdf, last = tsr.build_pdf(self.db, r)
+        pdf, spot = tsr.build_pdf(self.db, r)
         from pypdf import PdfReader
         import io
         text = " ".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
-        self.assertIn("Approved by Max Test", text)
+        self.assertIn("Approved by manager\nMax Test", text)
         self.assertNotIn("Manager\nSignature", text)
-        self.assertEqual(len(tsr._sig_fields(last)), 2)   # one signature + one date: the employee's
+        # The employee's signature and date, and the signing date in the history: all theirs.
+        self.assertEqual([(f["role"], f["type"]) for f in tsr._sig_fields(spot)],
+                         [("employee", "sign"), ("employee", "date"), ("employee", "date")])
 
     def test_voiding_the_envelope_returns_it_to_the_manager(self):
         r = self._to_signing()
@@ -299,15 +301,23 @@ class SigningTests(ReviewCase):
         self.db.commit()
         self.assertEqual(self._r().status, "with_manager")
 
-    def test_the_pdf_has_the_signature_page(self):
+    def test_the_card_is_page_one_and_the_signature_page_two(self):
+        """Charmi, Oct 20 2026: the card ends on page 1, page 2 is the
+        signature - and the fields go where its lines were drawn."""
         r = tsr.submit(self.db, EMP, ANCHOR)
         r.agreed_by, r.agreed_at, r.agreed_fingerprint = MGR, tsr._now(), "abc"
-        pdf, last = tsr.build_pdf(self.db, r)
+        pdf, spot = tsr.build_pdf(self.db, r)
         self.assertTrue(pdf.startswith(b"%PDF"))
         from pypdf import PdfReader
         import io
-        self.assertEqual(len(PdfReader(io.BytesIO(pdf)).pages), last + 1)
-        self.assertTrue(all(f["page"] == last for f in tsr._sig_fields(last)))
+        pages = PdfReader(io.BytesIO(pdf)).pages
+        self.assertEqual(len(pages), 2)
+        self.assertIn("MISSING PUNCHES", pages[0].extract_text())
+        fields = tsr._sig_fields(spot)
+        self.assertEqual([(f["id"], f["page"]) for f in fields],
+                         [("employee_sign", 1), ("employee_date", 1), ("employee_history_date", 1)])
+        self.assertTrue(all(0 < f["x"] and f["x"] + f["w"] < 1 and 0 < f["y"] and f["y"] + f["h"] < 1
+                            for f in fields))
 
     def test_the_pdf_logs_who_approved_it_and_when(self):
         """Neil, Oct 16: "manager Sahil approved Jackson's time card on this
@@ -319,33 +329,124 @@ class SigningTests(ReviewCase):
         r.rounds = [dict(e, at=r.agreed_at) if e["action"] == "agreed" else e for e in r.rounds]
         log = tsr.approval_log(self.db, r, 420)      # PDT
         self.assertEqual(log, ['Approved by Max Test (manager) on 10/16/2026 at 2:15 PM - "Checked"'])
-        pdf, last = tsr.build_pdf(self.db, r)
+        pdf, spot = tsr.build_pdf(self.db, r)
         from pypdf import PdfReader
         import io
-        text = PdfReader(io.BytesIO(pdf)).pages[last].extract_text()
-        self.assertIn("Approval log", text)
-        self.assertIn("Approved by Max Test (manager)", text)
+        text = PdfReader(io.BytesIO(pdf)).pages[spot["page"]].extract_text()
+        self.assertIn("Approval History", text)
+        # In the person's own punch time zone (UTC in this test), with the note.
+        self.assertIn("Approved by manager\nMax Test\n10/16/2026 at 9:15 PM\nChecked", text)
+        self.assertIn("Submitted by employee", text)
         self.assertNotIn("Manager\n", text)
 
     def test_the_employee_attests_above_their_signature(self):
         """Charmi, Oct 1: the paper time sheet's statement, boxed just above the
         employee's signature line - and clear of where their signature lands."""
         r = tsr.submit(self.db, EMP, ANCHOR)
-        pdf, last = tsr.build_pdf(self.db, r)
+        pdf, spot = tsr.build_pdf(self.db, r)
         from pypdf import PdfReader
         import io
-        page = PdfReader(io.BytesIO(pdf)).pages[last]
+        page = PdfReader(io.BytesIO(pdf)).pages[spot["page"]]
         found = []
-        page.extract_text(visitor_text=lambda t, cm, tm, fd, fs: found.append((t.strip(), tm[5])) if t.strip() else None)
+        # The page height of each run: its text matrix inside the drawing's own (flowing layout) matrix.
+        page.extract_text(visitor_text=lambda t, cm, tm, fd, fs: found.append(
+            (t.strip(), tm[4] * cm[1] + tm[5] * cm[3] + cm[5])) if t.strip() else None)
         text = " ".join(t for t, _y in found)
         self.assertIn("By execution and signature of this time sheet, I agree I have reviewed this", text)
         self.assertIn("accurate and correct.", text)
         y_of = {t: y for t, y in found}
         height = float(page.mediabox.height)
-        sign_top = height - tsr._SIG_TOP * height                 # top edge of the employee's signature field
-        att_y = min(y for t, y in found if "accurate and correct" in t)
+        sign_top = height - tsr._sig_fields(spot)[0]["y"] * height   # top edge of the employee's signature field
+        # The attestation's first line (pypdf misplaces a wrapped paragraph's later lines).
+        att_y = min(y for t, y in found if t.startswith("By execution and signature"))
         self.assertGreater(att_y, sign_top)                       # above the field: never under the signature
         self.assertGreater(att_y, y_of["Employee"])               # and above the Employee row
+        self.assertNotIn("TOTALS", text)                          # the card is page 1; this is page 2
+
+    def test_the_pdf_is_the_time_sheet_grid_then_the_signature(self):
+        """Charmi, Oct 20 2026: the signed copy reads like the Time Sheet screen
+        (SwipeClock's layout, pay included), landscape, the signature after it."""
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="hourly", currency="USD", hourly_rate=22,
+                                       overtime_rule="federal"))
+        day2 = (datetime.fromisoformat(self.start) + timedelta(days=1)).strftime("%Y-%m-%d")
+        self._punch(day2, "in", "15:00:00")
+        self._punch(day2, "break_start", "19:00:00")
+        self._punch(day2, "break_end", "19:30:00")
+        self._punch(day2, "out", "23:30:00")
+        self.db.flush()
+        p = self.db.get(models.TimePunch, f"p-{day2}-in-15:00:00")
+        p.adjusted_at, p.adjusted_by, p.adjust_note = tsr._now(), HR, "Forgot to clock in"
+        self.db.add(models.TimecardNote(id=f"{EMP}|{day2}", employee_email=EMP, date=day2,
+                                        note="Supervisor only", employee_note="Car trouble"))
+        self.db.commit()
+        r = self._to_signing()
+        pdf, spot = tsr.build_pdf(self.db, r)
+        from pypdf import PdfReader
+        import io
+        pages = PdfReader(io.BytesIO(pdf)).pages
+        first, sig = pages[0], pages[spot["page"]]
+        self.assertGreater(float(first.mediabox.width), float(first.mediabox.height))
+        text = " ".join(" ".join((pg.extract_text() or "").split()) for pg in pages)
+        for s in ("Time Sheet", "Company: Greens Test Co", "Approved by manager Max Test", "Pay Rate", "Wage",
+                  "$22.00/hr", "7:30 PM", "Total hours clocked for week of", "Total Regular hours at $22.00/hr",
+                  "Note by employee: Car trouble", "Forgot to clock in", "TOTAL EDITED PUNCHES",
+                  "4:00 PM", "11:00 PM", "7:00 PM"):
+            self.assertIn(s, text)
+        self.assertNotIn("Supervisor only", text)        # the manager / HR note never reaches the employee
+        self.assertNotIn(EMP, text)                         # no email on it (Charmi, Oct 20)
+        self.assertNotIn("Time Sheet Report", text)
+        self.assertIn("Approval History", sig.extract_text())
+        self.assertNotIn("TOTALS", sig.extract_text())
+        if os.environ.get("TIMESHEET_PDF_OUT"):
+            with open(os.environ["TIMESHEET_PDF_OUT"], "wb") as f:
+                f.write(pdf)
+
+    def test_a_salaried_time_sheet_has_the_monthly_columns(self):
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="fixed", currency="USD", monthly_salary=6000))
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).one().country = "US"
+        self.db.commit()
+        s, e, pt = tsr.period_for(self.db, EMP, ANCHOR)
+        r = models.TimesheetReview(id="fixed-r", employee_email=EMP, period_start=s, period_end=e, pay_type=pt,
+                                   status="with_manager", manager_email=MGR, rounds=[])
+        self.db.add(r)
+        self.db.commit()
+        pdf, _spot = tsr.build_pdf(self.db, r)
+        from pypdf import PdfReader
+        import io
+        pages = PdfReader(io.BytesIO(pdf)).pages
+        text = " ".join(" ".join((pg.extract_text() or "").split()) for pg in pages)
+        for s_ in ("Salaried (monthly)", "Monthly Salary: $6,000.00", "Effect on Pay", "Day",
+                   "NET PAY THIS MONTH", "Signed by employee - finalizes the time sheet"):
+            self.assertIn(s_, text)
+        self.assertNotIn("Hrs/Day", text)
+        # Country or Region US: the meal and rest statement prints for salaried
+        # staff too (Pranshu, Oct 20) - without Report a Missed Break, whose
+        # premium pay only an hourly card pays.
+        self.assertIn(tsr.BREAK_STATEMENT, text)
+        self.assertNotIn("reported instead of signing", text)
+        self.assertTrue(tsr.needs_break_attestation(self.db, r))
+        self.assertFalse(tsr.can_report_breaks(self.db, r))
+        self.assertFalse(tsr.break_attestation_state(self.db, r)["canReport"])
+
+    def test_the_meal_and_rest_statement_follows_country_or_region(self):
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        emp = self.db.query(models.NexusEmployee).filter_by(work_email=EMP).one()
+        from pypdf import PdfReader
+        import io
+
+        def text():
+            return " ".join(" ".join((p.extract_text() or "").split())
+                            for p in PdfReader(io.BytesIO(tsr.build_pdf(self.db, r)[0])).pages)
+        emp.country = "IN"
+        self.db.commit()
+        self.assertFalse(tsr.needs_break_attestation(self.db, r))
+        self.assertNotIn(tsr.BREAK_STATEMENT, text())
+        self.assertIn("By execution and signature of this time sheet", text())      # the attestation always
+        emp.country = ""                         # not set: the company's country decides
+        self.db.query(models.HrEntity).filter_by(id=ENTITY).one().country = "US"
+        self.db.commit()
+        self.assertTrue(tsr.needs_break_attestation(self.db, r))
+        self.assertIn(tsr.BREAK_STATEMENT, text())
 
 
 class StateTests(ReviewCase):
@@ -700,6 +801,73 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertEqual(rows[0]["title"], "Review Erin Test's Time Sheet")
         self.assertIn(f"{tsr.us_date(self.start)} - {tsr.us_date(self.end)} - 7h 00m", rows[0]["detail"])
         self.assertTrue(rows[0]["url"].endswith("/timeclock/timesheet"))
+
+
+class SentByNexusTests(ReviewCase):
+    """Neil, Oct 20: the envelope is created by Nexus, not the approving
+    manager - the manager gets no completion bell, sealed copy or decline bell
+    from Nexus Sign (the review's own bells tell them); the employee still
+    gets their invite and copy. Other envelopes keep their human sender."""
+
+    def setUp(self):
+        super().setUp()
+        self.invites, self.copies = [], []
+        esign._send_sign_email = lambda party, req, sender, custom=None: (
+            self.invites.append((party.email, sender)) or (True, ""))
+        esign._send_sealed_email = lambda name, to, req, *a, **k: self.copies.append(to) or (True, "")
+        self.db.query(models.NexusNotification).delete()
+        self.db.commit()
+
+    def _bells(self, title_start):
+        self.db.expire_all()
+        return [n.recipient for n in self.db.query(models.NexusNotification)
+                if n.title.startswith(title_start)]
+
+    def test_nexus_is_the_sender_and_the_approval_stays_recorded(self):
+        r = self._to_signing()
+        req = self.db.get(models.HrSignRequest, r.sign_request_id)
+        self.assertEqual(req.created_by, esign.SYSTEM_SENDER)
+        self.assertEqual(r.agreed_by, MGR)
+        ((to, sender),) = self.invites
+        self.assertEqual((to, sender["name"], sender["email"]), (EMP, "Greens Nexus", esign._SUPPORT_CONTACT))
+        self.assertEqual(esign._from_display(sender["name"]), "Greens Nexus via Nexus Sign")
+        html = esign._sign_email_html(self._parties(req.id)["employee"], req, sender, "https://x")
+        self.assertIn("<strong>Greens Nexus</strong> has asked you to review and sign", html)
+        self.assertNotIn("Max Test", html)
+
+    def test_on_completion_only_the_employee_hears_from_nexus_sign(self):
+        r = self._to_signing()
+        self._sign(self._parties(r.sign_request_id)["employee"])
+        self.assertEqual(self._r().status, "completed")
+        self.assertEqual(self.copies, [EMP])
+        self.assertEqual(self._bells("Fully Executed"), [EMP])
+
+    def test_a_decline_rings_no_nexus_sign_bell(self):
+        r = self._to_signing()
+        self._decline(self._parties(r.sign_request_id)["employee"], "Friday is wrong")
+        self.assertEqual(self._bells("Signature Declined"), [])
+        self.assertEqual(self._r().status, "with_manager")
+
+    def test_other_envelopes_keep_their_sender(self):
+        import uuid
+        r = self._to_signing()
+        pdf, spot = tsr.build_pdf(self.db, r)
+        path = f"esign/{uuid.uuid4()}/plain.pdf"
+        esign._storage_put(esign._DOC_BUCKET, path, pdf, "application/pdf")
+        out = esign._create_request(
+            self.db, {"email": MGR}, title="Plain Letter", source="pdf", template_id="",
+            employee_id="id-Erin", candidate_id="", entity_id=ENTITY, body_snapshot=[],
+            pdf_storage_path=path, fields=esign._clean_fields(tsr._sig_fields(spot)), message="",
+            expires_on="", parties=[esign.PartyIn(role_key="employee", name="Erin Test", email=EMP,
+                                                  kind="internal", ordinal=1, party_role="signer")],
+            ip="", user_agent="", routing="sequential", excluded_ack=True, document_class="employment")
+        req = self.db.get(models.HrSignRequest, out["id"])
+        self.assertEqual(req.created_by, MGR)
+        self.assertEqual(self.invites[-1][1]["name"], "Max Test")
+        self.copies.clear()
+        self._sign(self._parties(req.id)["employee"])
+        self.assertEqual(sorted(self.copies), sorted([MGR, EMP]))
+        self.assertIn(MGR, self._bells("Fully Executed: Plain Letter"))
 
 
 if __name__ == "__main__":

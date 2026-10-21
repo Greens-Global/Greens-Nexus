@@ -1,0 +1,94 @@
+/* Rate Management / CMA (Miranda, Oct 21 2026). Four screens, one look:
+   the mockup's eyebrow + title, KPI cards, a dark "ready for Cubby" banner,
+   a dense table with group headers and subtotals, and side cards. */
+.cma-eyebrow { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.cma-title { margin: 4px 0 2px; font-size: 22px; font-weight: 700; color: var(--ink); }
+.cma-meta { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12.5px; color: var(--muted); }
+.cma-meta span { white-space: nowrap; }
+.cma-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+.cma-btn { display: inline-flex; align-items: center; gap: 6px; }
+.cma-crumb { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.cma-crumb button { background: none; border: none; padding: 0; color: var(--ops-s1, #2a78d6); cursor: pointer; font: inherit; }
+
+.cma-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.cma-kpi { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: var(--card); min-width: 0; }
+.cma-kpi-label { font-size: 12px; color: var(--muted); font-weight: 600; }
+.cma-kpi-value { font-size: 26px; font-weight: 700; color: var(--ink); margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.cma-kpi-sub { font-size: 12px; color: var(--muted); }
+.cma-kpi-below .cma-kpi-value { color: var(--info-fg); }
+.cma-kpi-attn { background: var(--warn-bg, #fffbeb); border-color: rgba(217, 119, 6, .35); }
+.cma-kpi-attn ul { margin: 6px 0 0; padding-left: 16px; font-size: 12.5px; color: var(--ink); }
+.cma-kpi-attn li { margin: 2px 0; }
+
+.cma-banner { background: #0f172a; color: #fff; border-radius: 12px; padding: 14px 18px; display: flex; flex-wrap: wrap;
+  align-items: center; justify-content: space-between; gap: 12px; }
+.cma-banner-title { font-weight: 700; font-size: 15px; }
+.cma-banner-sub { font-size: 12.5px; opacity: .8; margin-top: 2px; }
+.cma-banner button { background: #fff; color: #0f172a; border: none; border-radius: 8px; padding: 8px 14px; font-weight: 700; cursor: pointer; font-family: inherit; }
+.cma-banner button:disabled { opacity: .55; cursor: default; }
+
+.cma-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.cma-pill { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 5px 12px; font: 600 12.5px 'Inter', sans-serif; cursor: pointer; }
+.cma-pill[aria-pressed="true"] { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.cma-tablebar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+.cma-hint { font-size: 12px; color: var(--muted); }
+
+.cma-table { font-size: 12.5px; }
+.cma-table th { font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+.cma-table td { vertical-align: top; font-variant-numeric: tabular-nums; }
+.cma-table td.num, .cma-table th.num { text-align: right; }
+.cma-row { cursor: pointer; }
+.cma-row-on > td { background: rgba(42, 120, 214, .06); }
+.cma-row-on > td:first-child { box-shadow: inset 3px 0 0 var(--ops-s1, #2a78d6); }
+.cma-type { font-weight: 700; color: var(--ink); white-space: nowrap; }
+.cma-type-sub { font-size: 11.5px; color: var(--muted); font-weight: 400; white-space: nowrap; }
+.cma-group > td { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--muted); background: var(--paper); }
+.cma-subtotal > td { font-weight: 700; background: var(--paper); }
+.cma-below { color: var(--info-fg); }
+.cma-under { color: var(--bad-fg, #b91c1c); }
+.cma-up { color: var(--ok-fg); font-weight: 700; }
+.cma-why { font-size: 11.5px; color: var(--muted); max-width: 220px; white-space: normal; }
+.cma-one { background: var(--warn-bg, #fffbeb); color: var(--warn-fg); border-radius: 999px; padding: 1px 8px; font-weight: 700; }
+.cma-proposed { width: 84px; text-align: right; padding: 5px 7px; }
+
+.cma-panel { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: var(--card); min-width: 0; }
+.cma-panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.cma-h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--ink); }
+.cma-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.cma-struck td { text-decoration: line-through; color: var(--muted); }
+
+.cma-badge { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 11.5px; font-weight: 600; white-space: nowrap; border: 1px solid transparent; }
+.cma-badge-manual { background: #e2e8f0; color: #334155; }
+.cma-badge-website { border-color: #16a34a; color: #15803d; background: transparent; }
+.cma-badge-closed { background: #f1f5f9; color: #64748b; }
+.cma-badge-cubby { background: var(--info-bg); color: var(--info-fg); }
+.cma-badge-comp_set { background: #ede9fe; color: #6d28d9; }
+.cma-badge-import { background: #e2e8f0; color: #334155; }
+
+.cma-split { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.cma-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .cma-split, .cma-side { grid-template-columns: minmax(0, 1fr); } }
+
+.cma-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cma-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--card); cursor: pointer; text-align: left; width: 100%; font-family: inherit; }
+.cma-card[aria-pressed="true"] { border-color: var(--ops-s1, #2a78d6); box-shadow: 0 0 0 1px var(--ops-s1, #2a78d6); }
+.cma-card-name { font-weight: 700; font-size: 13.5px; color: var(--ink); display: flex; justify-content: space-between; gap: 8px; }
+.cma-card-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.cma-card-closed .cma-card-name span:first-child { text-decoration: line-through; color: var(--muted); }
+
+.cma-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 12px; }
+.cma-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--ink); min-width: 0; }
+.cma-form .form-input { width: 100%; box-sizing: border-box; }
+.cma-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.cma-toggle button { border: none; background: var(--card); padding: 6px 12px; font: 600 12.5px 'Inter', sans-serif; cursor: pointer; color: var(--ink); }
+.cma-toggle button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
+.cma-rates-table .form-input { padding: 5px 7px; font-size: 12.5px; min-width: 70px; width: 100%; box-sizing: border-box; }
+.cma-error { color: var(--bad-fg, #b91c1c); font-size: 12.5px; margin: 6px 0 0; }
+.cma-note { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
+.cma-guard { background: var(--warn-bg, #fffbeb); border: 1px solid rgba(217, 119, 6, .35); }
+.cma-guard ul, .cma-after ul { margin: 6px 0 0; padding-left: 16px; font-size: 12.5px; }
+
+.cma-chart { width: 100%; height: auto; display: block; }
+.cma-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.cma-legend i { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
+.cma-cards { display: flex; flex-direction: column; gap: 12px; }

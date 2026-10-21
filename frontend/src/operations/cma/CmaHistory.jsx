@@ -1,0 +1,211 @@
+// Rate History (Miranda's mockup, artboard 3): one unit type over time - our
+// Web (sell) rate, the average in-place rent, the market average and the
+// market low-high band - with the gap to market, rent vs web rate and
+// occupancy cards, and a change log of every Cubby rate change, survey, comp
+// set edit, approval and website sync (GET /facility-ops/cma/history).
+// "Seed history from past CMA workbooks" stays off until we have a sample
+// workbook to read safely (the server says why).
+import { useEffect, useMemo, useState } from 'react';
+import { Download, Upload } from 'lucide-react';
+import { api } from '../../api';
+import { ErrorBanner, LoadingState } from '../../components/AsyncState';
+import { formatDate } from '../../lib/datetime';
+import { count } from '../model';
+import { dash, exportRows, pctText, signedUsd, sizeOf, usd } from './cmaModel';
+
+const SOURCE = { manual: ['manual', 'Manual'], comp_set: ['comp_set', 'Comp Set'], cubby: ['cubby', 'Cubby'], website: ['website', 'Website'], import: ['import', 'Import'] };
+const W = 760; const H = 260; const PAD = { l: 52, r: 16, t: 14, b: 30 };
+const shortDay = (iso) => { const [, m, d] = String(iso).split('-'); return `${Number(m)}/${Number(d)}`; };
+
+function Chart({ points }) {
+  const [hover, setHover] = useState(null);
+  const vals = points.flatMap((p) => [p.sell, p.avgRent, p.marketAvg, p.marketLow, p.marketHigh]).filter((x) => x != null);
+  if (!points.length || !vals.length) return <div className="ops-empty">No history for this unit type yet. It fills in from today.</div>;
+  const lo = Math.min(...vals) * 0.95; const hi = Math.max(...vals) * 1.05;
+  const t0 = new Date(`${points[0].date}T12:00:00`).getTime();
+  const t1 = new Date(`${points[points.length - 1].date}T12:00:00`).getTime();
+  const x = (d) => PAD.l + (t1 === t0 ? (W - PAD.l - PAD.r) / 2 : ((new Date(`${d}T12:00:00`).getTime() - t0) / (t1 - t0)) * (W - PAD.l - PAD.r));
+  const y = (v) => PAD.t + (1 - (v - lo) / (hi - lo || 1)) * (H - PAD.t - PAD.b);
+  const line = (k) => points.filter((p) => p[k] != null).map((p, i) => `${i ? 'L' : 'M'}${x(p.date).toFixed(1)},${y(p[k]).toFixed(1)}`).join(' ');
+  const band = points.filter((p) => p.marketLow != null && p.marketHigh != null);
+  const bandPath = band.length > 1
+    ? `${band.map((p, i) => `${i ? 'L' : 'M'}${x(p.date)},${y(p.marketHigh)}`).join(' ')} ${[...band].reverse().map((p) => `L${x(p.date)},${y(p.marketLow)}`).join(' ')} Z` : '';
+  const ticks = [lo, (lo + hi) / 2, hi];
+  const hp = hover != null ? points[hover] : null;
+  return (
+    <div style={{ position: 'relative' }}>
+      <div className="cma-legend" aria-hidden="true">
+        <span><i style={{ background: 'var(--ok-fg)' }} />Our Web (Sell) Rate</span>
+        <span><i style={{ background: 'repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 7px)' }} />Avg In-Place Rent</span>
+        <span><i style={{ background: 'var(--info-fg)', width: 8, height: 8, borderRadius: '50%' }} />Market Avg (Ex. Us)</span>
+        <span><i style={{ background: 'rgba(42, 120, 214, .2)', height: 10 }} />Market Low-High</span>
+      </div>
+      <svg className="cma-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Rate history chart" data-testid="history-chart"
+        onMouseLeave={() => setHover(null)}>
+        {ticks.map((v) => (
+          <g key={v}>
+            <line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} stroke="var(--line)" strokeWidth="1" />
+            <text x={PAD.l - 6} y={y(v) + 4} textAnchor="end" fontSize="11" fill="var(--muted)">{usd(Math.round(v / 100) * 100)}</text>
+          </g>
+        ))}
+        {bandPath && <path d={bandPath} fill="rgba(42, 120, 214, .14)" stroke="none" />}
+        {band.length === 1 && <rect x={x(band[0].date) - 4} y={y(band[0].marketHigh)} width="8" height={Math.max(2, y(band[0].marketLow) - y(band[0].marketHigh))} rx="4" fill="rgba(42, 120, 214, .2)" />}
+        <path d={line('avgRent')} fill="none" stroke="var(--muted)" strokeWidth="2" strokeDasharray="5 4" />
+        <path d={line('sell')} fill="none" stroke="var(--ok-fg)" strokeWidth="2" />
+        {points.map((p, i) => (
+          <g key={p.date}>
+            {p.sell != null && <circle cx={x(p.date)} cy={y(p.sell)} r="4" fill="var(--ok-fg)" stroke="var(--card)" strokeWidth="2" />}
+            {p.marketAvg != null && <circle cx={x(p.date)} cy={y(p.marketAvg)} r="4.5" fill="var(--info-fg)" stroke="var(--card)" strokeWidth="2" />}
+            <rect x={x(p.date) - 12} y={PAD.t} width="24" height={H - PAD.t - PAD.b} fill="transparent" onMouseEnter={() => setHover(i)} />
+          </g>
+        ))}
+        {hp && <line x1={x(hp.date)} x2={x(hp.date)} y1={PAD.t} y2={H - PAD.b} stroke="var(--muted)" strokeWidth="1" />}
+        {[points[0], points[points.length - 1]].filter((p, i, a) => i === 0 || p.date !== a[0].date).map((p) => (
+          <text key={p.date} x={x(p.date)} y={H - 10} fontSize="11" fill="var(--muted)" textAnchor="middle">{shortDay(p.date)}</text>
+        ))}
+      </svg>
+      {hp && (
+        <div role="status" style={{ position: 'absolute', top: 30, left: `${Math.min(70, (x(hp.date) / W) * 100)}%`, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', fontSize: 12, pointerEvents: 'none', boxShadow: '0 4px 12px rgba(15,23,42,.12)' }}>
+          <strong>{formatDate(hp.date)}</strong>
+          <div>Web Rate {usd(hp.sell)}</div>
+          <div>Market Avg {usd(hp.marketAvg)} ({usd(hp.marketLow)} - {usd(hp.marketHigh)}, {hp.comps} comps)</div>
+          {hp.avgRent != null && <div>Avg In-Place Rent {usd(hp.avgRent)}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function CmaHistory({ facility, view, onSection }) {
+  const types = view.rows;
+  const first = types.find((r) => r.ready) || types.find((r) => r.competitors) || types[0];
+  const [unit, setUnit] = useState(first?.name || '');
+  const [state, setState] = useState({ status: 'loading', data: null, key: '' });
+  const [nonce, setNonce] = useState(0);
+  const key = `${facility.id}|${unit}|${nonce}`;
+  useEffect(() => {
+    if (!unit) return undefined;
+    let live = true;
+    api.getOpsCmaHistory(facility.id, unit)
+      .then((data) => { if (live) setState({ status: 'ready', data, key }); })
+      .catch((err) => { console.error('Operations: rate history failed', err); if (live) setState({ status: 'error', data: null, key }); });
+    return () => { live = false; };
+  }, [facility.id, unit, key]);
+  const row = types.find((r) => r.name === unit);
+  const d = state.key === key ? state.data : null;
+  const loading = state.key !== key;
+  const exportLog = (format) => exportRows(format, {
+    title: `Rate History ${unit}`, facility: view.facility, asOf: view.asOf, rows: d.log,
+    columns: [{ header: 'Date', get: (e) => formatDate(e.date), width: 12 }, { header: 'What Changed', get: (e) => e.text, width: 60 },
+      { header: 'Source', get: (e) => (SOURCE[e.source] || ['', e.source])[1], width: 12 }, { header: 'By', get: (e) => e.by, width: 24 }],
+  }).catch((err) => console.error('Operations: history export failed', err));
+  const exportPoints = (format) => exportRows(format, {
+    title: `Rate History Points ${unit}`, facility: view.facility, asOf: view.asOf, rows: d.points,
+    columns: [{ header: 'Date', get: (p) => formatDate(p.date) }, { header: 'Web Rate', get: (p) => usd(p.sell) },
+      { header: 'Standard Rate', get: (p) => usd(p.standard) }, { header: 'Avg In-Place Rent', get: (p) => usd(p.avgRent) },
+      { header: 'Market Low', get: (p) => usd(p.marketLow) }, { header: 'Market Avg', get: (p) => usd(p.marketAvg) },
+      { header: 'Market High', get: (p) => usd(p.marketHigh) }, { header: 'Comps', get: (p) => p.comps },
+      { header: 'Occupied', get: (p) => (p.occupied == null ? '' : p.occupied) }],
+  }).catch((err) => console.error('Operations: history export failed', err));
+  const pills = useMemo(() => types.filter((r) => r.total), [types]);
+
+  return (
+    <>
+      <div className="dash-card" data-testid="cma-history">
+        <div className="cma-crumb"><button type="button" onClick={() => onSection('overview')}>CMA · {view.facility}</button> / Rate History</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 }}>
+          <div>
+            <h2 className="cma-title">Rate History · {row ? `${sizeOf(row)} ${row.category === 'Vehicle Storage' ? 'parking' : 'storage'}` : unit}</h2>
+            <div className="cma-sub">Our rates from Cubby&apos;s rate changes and daily snapshots · competitor rates from each website read and manual survey.</div>
+          </div>
+        </div>
+        <div className="cma-pills" role="group" aria-label="Unit type" style={{ marginTop: 10 }}>
+          {pills.map((r) => (
+            <button key={r.name} type="button" className="cma-pill" aria-pressed={unit === r.name} onClick={() => setUnit(r.name)} title={r.name}>{sizeOf(r)}{r.parking ? ' P' : ''}</button>
+          ))}
+        </div>
+      </div>
+      {loading && <LoadingState size="section" label="Loading rate history" minHeight={240} />}
+      {!loading && state.status === 'error' && <ErrorBanner message="Couldn't load the rate history." onRetry={() => setNonce((n) => n + 1)} />}
+      {d && (
+        <>
+          <div className="cma-side">
+            <section className="cma-panel" aria-label="Chart">
+              <Chart points={d.points} />
+              <details style={{ marginTop: 8 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}>Show as a Table</summary>
+                <div className="req-table-wrapper">
+                  <table className="req-table stack-table cma-table">
+                    <thead><tr><th>Date</th><th className="num">Web Rate</th><th className="num">Avg In-Place Rent</th><th className="num">Mkt Low</th><th className="num">Mkt Avg</th><th className="num">Mkt High</th><th className="num">Comps</th></tr></thead>
+                    <tbody>{d.points.map((p) => (
+                      <tr key={p.date}><td>{formatDate(p.date)}</td><td className="num">{usd(p.sell)}</td><td className="num">{usd(p.avgRent)}</td>
+                        <td className="num">{usd(p.marketLow)}</td><td className="num">{usd(p.marketAvg)}</td><td className="num">{usd(p.marketHigh)}</td><td className="num">{p.comps}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              </details>
+            </section>
+            <div className="cma-cards">
+              <div className="cma-kpi">
+                <div className="cma-kpi-label">Gap to Market (Web Rate vs Avg)</div>
+                <div className={`cma-kpi-value${d.cards.gap < 0 ? ' cma-below' : ''}`} style={{ fontSize: 20 }}>{d.cards.gap == null ? dash : `${signedUsd(d.cards.gap)} · ${pctText(d.cards.gapPct)}`}</div>
+                <div className="cma-kpi-sub">{formatDate(d.cards.asOf)} · {d.cards.comps} {d.cards.comps === 1 ? 'comp' : 'comps'}</div>
+              </div>
+              <div className="cma-kpi">
+                <div className="cma-kpi-label">Avg In-Place Rent vs Web Rate</div>
+                <div className="cma-kpi-value" style={{ fontSize: 20 }}>{signedUsd(d.cards.rentVsSell)}</div>
+                <div className="cma-kpi-sub">{d.cards.rentVsSell == null ? 'No tenants in this unit type' : d.cards.rentVsSell > 0 ? 'Existing tenants pay more than new move-ins' : 'New move-ins pay more than existing tenants'}</div>
+              </div>
+              <div className="cma-kpi">
+                <div className="cma-kpi-label">Occupancy Trend</div>
+                <div className="cma-kpi-value" style={{ fontSize: 20 }}>{d.cards.occupiedThen == null ? count(d.cards.occupiedNow) : `${count(d.cards.occupiedThen)} → ${count(d.cards.occupiedNow)}`}</div>
+                <div className="cma-kpi-sub">Occupied of {count(d.cards.total)}{d.cards.occupiedFrom ? ` · ${formatDate(d.cards.occupiedFrom)} → ${formatDate(d.cards.asOf)}` : ' today'}</div>
+              </div>
+            </div>
+          </div>
+
+          <section className="cma-panel" aria-label="Change log">
+            <div className="cma-panel-head">
+              <div>
+                <h3 className="cma-h3">Change Log</h3>
+                <div className="cma-sub">Every rate change, sync and manual entry - who, when, and from where.</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="secondary-btn cma-btn" onClick={() => exportLog('csv')}><Download size={14} aria-hidden="true" /> Export CSV</button>
+                <button type="button" className="secondary-btn cma-btn" onClick={() => exportLog('xls')}><Download size={14} aria-hidden="true" /> Export XLS</button>
+                <button type="button" className="secondary-btn cma-btn" onClick={() => exportPoints('xls')}><Download size={14} aria-hidden="true" /> Chart Data XLS</button>
+              </div>
+            </div>
+            {d.log.length === 0 ? <div className="ops-empty">Nothing recorded for this unit type yet.</div> : (
+              <div className="req-table-wrapper">
+                <table className="req-table stack-table cma-table" data-testid="change-log">
+                  <thead><tr><th>Date</th><th>What Changed</th><th>Source</th><th>By</th></tr></thead>
+                  <tbody>
+                    {d.log.map((e, i) => {
+                      const [cls, label] = SOURCE[e.source] || ['manual', e.source];
+                      return (
+                        <tr key={`${e.at}:${i}`}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{formatDate(e.date)}</td>
+                          <td data-th="What Changed">{e.text}</td>
+                          <td data-th="Source"><span className={`cma-badge cma-badge-${cls}`}>{label}</span></td>
+                          <td data-th="By">{e.by || dash}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="cma-panel" aria-label="Seed history from past CMA workbooks">
+            <h3 className="cma-h3">Seed History From Past CMA Workbooks</h3>
+            <p className="cma-note">Upload the monthly Excel CMAs (GSE, GSF, GSM, GST, GSVC) and Nexus reads each Input tab as a dated snapshot, so trends start from your earliest workbook instead of today.</p>
+            <p className="cma-note">{d.workbookImport.why}</p>
+            <button type="button" className="secondary-btn cma-btn" disabled title={d.workbookImport.why}><Upload size={14} aria-hidden="true" /> Upload Workbooks</button>
+          </section>
+        </>
+      )}
+    </>
+  );
+}

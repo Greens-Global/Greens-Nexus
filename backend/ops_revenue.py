@@ -15,10 +15,11 @@ What is here:
   - propose / preview: a strategy (+X% or +$Y, capped at street or street +
     Z%, eligibility rules) applied to those rows. Pure, so the tests feed it
     fixed rows.
-  - NO Cubby writes (Visesh, Oct 20 2026: "we don't want anything to push
-    to cubby"). Staff enter each new rent in Cubby by hand from the
-    checklist export and mark the row Entered in Cubby here. Never add a
-    call to leases/change-rents or any other Cubby write.
+  - NO Cubby writes in this module. The rent push (leases/change-rents) is
+    ops_cubby_push.py, behind the Operations "Push to Cubby" switch - OFF by
+    default (Visesh, Oct 20-21 2026). While it is off, staff enter each new
+    rent in Cubby by hand from the checklist export and mark the row Entered
+    in Cubby here.
   - notice letters (PDF) and a mail-merge export. Nexus never emails a
     tenant (CLAUDE.md); staff print or merge them.
 
@@ -40,9 +41,8 @@ OPEN_BATCH = ("draft", "approved", "notified")
 STATUSES = ("draft", "approved", "notified", "applied", "canceled")
 # What a batch may move to, and from where. Notice comes before Applied: the
 # tenant must have had the letter before the new rent can be live.
-# A change row is in Cubby once it is "entered" (staff typed it there by hand).
-# "pushed" is a status only rows from before Oct 20 2026 can carry; it still
-# counts as in Cubby so old batches read right. Nothing sets it any more.
+# A change row is in Cubby once it is "entered" (staff typed it there by hand)
+# or "pushed" (sent through the API - only with the Push to Cubby switch on).
 IN_CUBBY = ("entered", "pushed")
 NEXT = {
     "approved": ("draft",),

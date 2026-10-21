@@ -326,7 +326,8 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
 // off-boarding package". The last day decides where the paperwork goes
 // (today = personal email, their access ends now; later = work email) and
 // when they become Left (today = now; later = Nexus does it on the day).
-const EXIT_TYPES = [['resignation', 'Resignation'], ['resignation_no_notice', 'Resignation Without Notice'],
+// Labels per Charmi (Oct 20 2026); the stored keys stay as they were.
+const EXIT_TYPES = [['resignation', 'Voluntary Resignation'], ['resignation_no_notice', 'Job Abandonment'],
   ['termination', 'Termination'], ['end_of_contract', 'End Of Contract'], ['retirement', 'Retirement'], ['death', 'Death']];
 
 export function OffboardModal({ employee: e, companyName, onClose, onSent, toastErr }) {

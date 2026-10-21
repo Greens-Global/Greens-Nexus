@@ -1,4 +1,5 @@
 import { forwardRef, useState, useEffect } from "react";
+import { orderNav } from './navOrder';
 import { useRole } from "../contexts/RoleContext";
 import { api } from "../api";
 import { useIsMobile } from "../lib/useIsMobile";
@@ -135,10 +136,10 @@ export const NAV = [
       { subview: "overview",    label: "Overview",        icon: LayoutDashboard },
       { subview: "collections", label: "Collections",     icon: HandCoins },
       { subview: "units",       label: "Units & Pricing", icon: Warehouse },
-      { subview: "worklist",    label: "Worklist",        icon: ListChecks },
+      { subview: "worklist",    label: "Facility Tasks",  icon: ListChecks },
       { subview: "market",      label: "Market Rates",    icon: Scale },
       { subview: "reports",     label: "Reports",         icon: FileSpreadsheet },
-      { subview: "revenue",     label: "Revenue Management", icon: TrendingUp },
+      { subview: "revenue",     label: "ECRI Management", icon: TrendingUp },
       { subview: "portfolio",   label: "Portfolio",       icon: Gauge },
       { subview: "site-map",    label: "Site Map",        icon: MapIcon },
     ],
@@ -209,6 +210,7 @@ export const NAV = [
   // header's AdminPanel modal and the search-only Nexus Access Manager.
   { view: "admin-console", code: "ADM", label: "Settings",       icon: Settings,     minRole: 'supervisor' },
 ];
+
 
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
   const { can, myGrantedModules, isExternal } = useRole();
@@ -324,7 +326,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               // no baseline screens (Dashboard/Time Clock/My HR are internal-only).
               // Mirrors the server's path allowlist in auth.apply_external_policy.
               // `grants` (a list) = any one of them opens the item; else the single grant/view key.
-              const visible = NAV.filter(item => isNavItemVisible(item, { isExternal, can, myGrantedModules, qaEnabled }));
+              const visible = orderNav(NAV).filter(item => isNavItemVisible(item, { isExternal, can, myGrantedModules, qaEnabled }));
               const out = [];
               if (!collapsed && visible.length && !visible[0].divider) {
                 out.push(<li key="k0" className="nav-kicker">{KICKERS[0]}</li>);

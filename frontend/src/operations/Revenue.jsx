@@ -1,4 +1,5 @@
-// Operations > Revenue Management (Neil, Oct 20 2026): rent changes for
+// Operations > ECRI Management (Neil, Oct 20 2026; renamed from Revenue
+// Management to Cubby's words, Miranda, Oct 21 2026): rent changes for
 // EXISTING tenants (in self storage, the existing-customer rate increase).
 //
 // "Does the rate need to go up or down? And what pricing strategy am I
@@ -9,20 +10,41 @@
 // Notified -> Applied). Every number in a preview comes from the server
 // (backend/ops_revenue.py); saving a batch recomputes it there. Nexus never
 // emails a tenant: staff print the notice letters or use the mail-merge
-// export. Nexus never writes to Cubby (Visesh, Oct 20 2026): staff enter each
-// new rent in Cubby by hand and mark the row Entered in Cubby - the only way a
-// row reaches Cubby. Do not add a push.
+// export. Push to Cubby is locked behind the Operations switch (Settings >
+// Global Settings > Operations, OFF by default - Visesh, Oct 21 2026): while it
+// is off staff enter each new rent in Cubby by hand and mark the row Entered in
+// Cubby; with it on (and a Manager-role key) a row can be pushed, one at a time.
 // Street rates for new renters are Market Rates' job, not this tab's.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, FileText, Download, Check, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileText, Download, Send, Check, X } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { Modal } from '../tasks/components';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { money } from './model';
+import SectionPicker from './SectionPicker';
 import { csvName, downloadCsv } from './csv';
 
 const cash = (c) => money(c, { exact: true });
+
+// Over/Under Standard Rate (Miranda, Oct 21 2026: Cubby's words, as a percent):
+// (current rate - current standard rate) / current standard rate. Negative =
+// the tenant pays under the standard rate. null when there is no standard rate.
+export function overUnderPct(t) {
+  if (!t?.street) return null;
+  return Math.round(((t.rent - t.street) / t.street) * 1000) / 10;
+}
+export const overUnderText = (p) => (p == null ? '-' : `${p > 0 ? '+' : ''}${p.toFixed(1)}%`);
+// Under the standard rate reads red; at or over it, the table's own color.
+function OverUnderCell({ t }) {
+  const p = overUnderPct(t);
+  return (
+    <td data-th="Over/Under Standard Rate" className="num" data-under={p != null && p < 0}
+      style={p != null && p < 0 ? { color: 'var(--bad-fg)', fontWeight: 600 } : undefined}>
+      {overUnderText(p)}
+    </td>
+  );
+}
 const signed = (c) => `${c > 0 ? '+' : c < 0 ? '-' : ''}${cash(Math.abs(c))}`;
 const SECTIONS = [
   { key: 'tenants', label: 'Tenants' },
@@ -34,11 +56,11 @@ const STATUS = {
   applied: ['status-approved', 'Applied'], canceled: ['pill-muted', 'Canceled'],
 };
 const ROW_STATUS = {
-  // "pushed" / "failed" only exist on rows from before Oct 20 2026.
-  pending: ['pill-muted', 'Not Yet in Cubby'], pushed: ['status-approved', 'In Cubby'],
-  entered: ['status-approved', 'Entered in Cubby'], failed: ['pill-muted', 'Not Yet in Cubby'], removed: ['pill-muted', 'Removed'],
+  // "pushed" / "failed" come from Push to Cubby (only with the Operations switch on).
+  pending: ['pill-muted', 'Not Yet in Cubby'], pushed: ['status-approved', 'Pushed to Cubby'],
+  entered: ['status-approved', 'Entered in Cubby'], failed: ['status-rejected', 'Push Failed'], removed: ['pill-muted', 'Removed'],
 };
-const CAP_LABEL = { street: 'Capped at street rate', street_plus: 'Capped at street +', none: 'No cap' };
+const CAP_LABEL = { street: 'Capped at standard rate', street_plus: 'Capped at standard rate +', none: 'No cap' };
 
 function stay(months) {
   if (months == null) return '-';
@@ -60,7 +82,10 @@ export function filterTenants(rows, f) {
   return rows.filter((t) => {
     if (f.unitType && t.unitType !== f.unitType) return false;
     if (q && !`${t.tenant} ${t.unit}`.toLowerCase().includes(q)) return false;
-    if (f.underPct !== '' && f.underPct != null && !(t.gapPct != null && t.gapPct > Number(f.underPct))) return false;
+    if (f.underPct !== '' && f.underPct != null) {
+      const p = overUnderPct(t);     // the column's own figure: under by more than X% = below -X%
+      if (!(p != null && -p > Number(f.underPct))) return false;
+    }
     if (f.stayed !== '' && f.stayed != null && !((t.monthsStayed ?? -1) > Number(f.stayed))) return false;
     if (f.noIncrease !== '' && f.noIncrease != null) {
       const since = t.monthsSinceIncrease ?? t.monthsStayed ?? 0;
@@ -145,13 +170,13 @@ function StrategyFields({ f, set }) {
           : <Field label="Increase $"><input className="form-input" type="number" min="0" step="1" value={f.increase_dollars} onChange={up('increase_dollars')} aria-label="Increase dollars" /></Field>}
         <Field label="Cap">
           <select className="form-input" value={f.cap_mode} onChange={up('cap_mode')} aria-label="Cap">
-            <option value="street">At Street Rate</option>
-            <option value="street_plus">At Street Rate + %</option>
+            <option value="street">At Current Standard Rate</option>
+            <option value="street_plus">At Current Standard Rate + %</option>
             <option value="none">No Cap</option>
           </select>
         </Field>
         {f.cap_mode === 'street_plus' && (
-          <Field label="Street + %"><input className="form-input" type="number" min="0" max="100" step="0.5" value={f.cap_pct} onChange={up('cap_pct')} aria-label="Cap percent over street" /></Field>
+          <Field label="Standard Rate + %"><input className="form-input" type="number" min="0" max="100" step="0.5" value={f.cap_pct} onChange={up('cap_pct')} aria-label="Cap percent over standard rate" /></Field>
         )}
       </div>
       <div style={grid}>
@@ -323,17 +348,17 @@ function ApplyModal({ facilityId, data, strategies, selected, onClose, onSaved }
             <div className="req-table-wrapper">
               <table className="req-table stack-table">
                 <thead><tr>
-                  <th>Tenant</th><th>Unit</th><th className="num">Current</th><th className="num">Street</th>
-                  <th className="num">New Rent</th><th className="num">Change</th><th>Why Not</th>
+                  <th>Tenant</th><th>Unit</th><th className="num">Current Rate</th><th className="num">Current Standard Rate</th>
+                  <th className="num">New Rate</th><th className="num">Change</th><th>Why Not</th>
                 </tr></thead>
                 <tbody>
                   {result.rows.map((r) => (
                     <tr key={r.key} style={r.eligible ? undefined : { color: 'var(--muted)' }}>
                       <td>{r.tenant}</td>
                       <td data-th="Unit">{r.unit} <span style={{ color: 'var(--muted)' }}>{r.unitType}</span></td>
-                      <td data-th="Current" className="num">{cash(r.rent)}</td>
-                      <td data-th="Street" className="num">{cash(r.street)}</td>
-                      <td data-th="New Rent" className="num">{r.eligible ? <strong>{cash(r.newRent)}</strong> : '-'}</td>
+                      <td data-th="Current Rate" className="num">{cash(r.rent)}</td>
+                      <td data-th="Current Standard Rate" className="num">{cash(r.street)}</td>
+                      <td data-th="New Rate" className="num">{r.eligible ? <strong>{cash(r.newRent)}</strong> : '-'}</td>
                       <td data-th="Change" className="num">{r.eligible ? `${signed(r.increase)} (${r.increasePct}%)${r.capped ? ' Capped' : ''}` : '-'}</td>
                       <td data-th="Why Not">{r.reasons.join('; ')}</td>
                     </tr>
@@ -366,6 +391,19 @@ function BatchModal({ batchId, onClose, onChanged }) {
   const status = (s, ask) => act(s, async () => {
     if (ask && !window.confirm(ask)) return null;
     return api.opsRevenueSetStatus(batchId, s);
+  });
+  const push = (c) => act(c.id, async () => {
+    if (!window.confirm(`Schedule ${c.tenant}'s new rent in Cubby: ${cash(c.rent)} -> ${cash(c.newRent)}?`)) return null;
+    try {
+      return await api.opsRevenuePush(batchId, c.id);
+    } catch (e) {
+      if (e?.status === 409 && e?.detail?.cubbyDate && window.confirm(`${e.message}
+
+Use Cubby's date?`)) {
+        return api.opsRevenuePush(batchId, c.id, true);
+      }
+      throw e;
+    }
   });
   const letters = () => act('letters', async () => {
     const { blob, filename } = await api.opsRevenueLetters(batchId);
@@ -413,12 +451,16 @@ function BatchModal({ batchId, onClose, onChanged }) {
         )}
         <p className="ops-note" style={{ margin: 0 }}>
           Nexus never emails tenants. Print the notices (address them from Cubby) or use the mail-merge file.
-          {open && " Nexus doesn't change rents in Cubby. Enter each change in Cubby, then mark it entered here. The batch is Applied once every row is marked."}
+          {open && (b.pushReady
+            ? ' Push each change to Cubby, or mark it Entered in Cubby if staff typed it there. The batch is Applied once every row is in Cubby.'
+            : b.pushOn
+              ? " Push to Cubby is on, but this server has no Cubby key with the Manager role yet, so enter each change in Cubby and mark it entered here."
+              : " Nexus doesn't change rents in Cubby. Enter each change in Cubby, then mark it entered here. The batch is Applied once every row is marked.")}
         </p>
         <div className="req-table-wrapper">
           <table className="req-table stack-table">
             <thead><tr>
-              <th>Tenant</th><th>Unit</th><th className="num">Current</th><th className="num">New Rent</th>
+              <th>Tenant</th><th>Unit</th><th className="num">Current Rate</th><th className="num">New Rate</th>
               <th className="num">Change</th><th>Cubby</th><th aria-label="Actions" />
             </tr></thead>
             <tbody>
@@ -426,17 +468,22 @@ function BatchModal({ batchId, onClose, onChanged }) {
                 <tr key={c.id} style={c.status === 'removed' ? { color: 'var(--muted)', textDecoration: 'line-through' } : undefined}>
                   <td>{c.url ? <a href={c.url} target="_blank" rel="noreferrer">{c.tenant}</a> : c.tenant}</td>
                   <td data-th="Unit">{c.unit} <span style={{ color: 'var(--muted)' }}>{c.unitType}</span></td>
-                  <td data-th="Current" className="num">{cash(c.rent)}</td>
-                  <td data-th="New Rent" className="num">{cash(c.newRent)}</td>
+                  <td data-th="Current Rate" className="num">{cash(c.rent)}</td>
+                  <td data-th="New Rate" className="num">{cash(c.newRent)}</td>
                   <td data-th="Change" className="num">{signed(c.increase)}</td>
                   <td data-th="Cubby">
                     <Badge map={ROW_STATUS} value={c.status} />
                     {c.cubbyChangeDate && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Takes effect {formatDate(c.cubbyChangeDate)}</div>}
+                    {c.status === 'failed' && c.pushDetail && <div style={{ fontSize: 12, color: 'var(--bad-fg)' }}>{c.pushDetail}</div>}
                   </td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     {b.status === 'draft' && c.status !== 'removed' && (
                       <button type="button" className="icon-btn" title="Remove from batch" aria-label={`Remove ${c.tenant}`} disabled={!!busy}
                         onClick={() => act(c.id, () => api.opsRevenueRemoveChange(batchId, c.id))}><X size={14} /></button>
+                    )}
+                    {open && ['pending', 'failed'].includes(c.status) && b.pushReady && c.leaseId && (
+                      <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => push(c)} aria-label={`Push ${c.tenant} to Cubby`}
+                        style={{ display: 'inline-flex', gap: 4, alignItems: 'center', marginRight: 6 }}><Send size={13} aria-hidden="true" /> Push to Cubby</button>
                     )}
                     {open && ['pending', 'failed'].includes(c.status) && (
                       <button type="button" className="secondary-btn" disabled={!!busy}
@@ -467,9 +514,13 @@ function BatchModal({ batchId, onClose, onChanged }) {
 // ── The tab ───────────────────────────────────────────────────────────────────
 
 // The facility comes from the page's one Facility dropdown (Oct 20).
-export default function Revenue({ facility }) {
+// Operations' top bar picks the view (ECRI Management menu, Oct 21) through
+// `section` / `onSection`; without them the in-page View dropdown does.
+export default function Revenue({ facility, section: sectionProp, onSection }) {
   const facilityId = facility?.id || '';
-  const [section, setSection] = useState('tenants');
+  const [ownSection, setOwnSection] = useState('tenants');
+  const section = sectionProp || ownSection;
+  const setSection = onSection || setOwnSection;
   const [state, setState] = useState({ status: 'idle', data: null, error: null });
   const [strategies, setStrategies] = useState([]);
   const [batches, setBatches] = useState([]);
@@ -506,7 +557,7 @@ export default function Revenue({ facility }) {
     return (
       <div className="dash-card">
         <div className="dash-card-title">Pick a Facility</div>
-        <div className="dash-card-sub">Pick a facility above to see Revenue Management. Rent changes are planned one facility at a time.</div>
+        <div className="dash-card-sub">Pick a facility above to see ECRI Management. Rent changes are planned one facility at a time.</div>
       </div>
     );
   }
@@ -514,12 +565,11 @@ export default function Revenue({ facility }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div className="ops-pills" role="group" aria-label="Revenue Management section">
-          {SECTIONS.map((s) => (
-            <button type="button" key={s.key} className="ops-pill" aria-pressed={section === s.key} onClick={() => setSection(s.key)}>{s.label}</button>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {!onSection && (
+          <SectionPicker label="View" value={section} onChange={setSection}
+            options={SECTIONS.map((s) => ({ value: s.key, label: s.label }))} />
+        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginLeft: 'auto' }}>
           <button type="button" className="primary-btn" disabled={!data} onClick={() => setModal({ kind: 'apply' })}
             style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
             <Plus size={14} aria-hidden="true" /> Apply Strategy{picked.size ? ` (${picked.size})` : ''}
@@ -535,7 +585,7 @@ export default function Revenue({ facility }) {
           <div className="dash-card-head"><div>
             <div className="dash-card-title">Current Tenants</div>
             <div className="dash-card-sub">
-              Each tenant&apos;s rent against today&apos;s street rate, from Cubby as of {formatDate(data.asOf)}. Tick tenants to apply a strategy to just them.
+              Each tenant&apos;s current rate against today&apos;s current standard rate, from Cubby as of {formatDate(data.asOf)}. Tick tenants to apply a strategy to just them.
             </div>
           </div></div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '4px 0 12px' }}>
@@ -544,8 +594,8 @@ export default function Revenue({ facility }) {
               <option value="">All Unit Types</option>
               {data.unitTypes.map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
-            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Under Street By More Than
-              <input className="form-input" type="number" min="0" value={filters.underPct} onChange={setF('underPct')} aria-label="Under street by more than percent" style={{ width: 70 }} />%</label>
+            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Under Standard Rate By More Than
+              <input className="form-input" type="number" min="0" value={filters.underPct} onChange={setF('underPct')} aria-label="Under standard rate by more than percent" style={{ width: 70 }} />%</label>
             <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Stayed More Than
               <input className="form-input" type="number" min="0" value={filters.stayed} onChange={setF('stayed')} aria-label="Stayed more than months" style={{ width: 70 }} />Months</label>
             <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>No Increase In
@@ -557,8 +607,8 @@ export default function Revenue({ facility }) {
                 <thead><tr>
                   <th><input type="checkbox" aria-label="Select all shown" checked={allPicked}
                     onChange={() => setPicked((s) => { const n = new Set(s); rows.forEach((t) => (allPicked ? n.delete(t.key) : n.add(t.key))); return n; })} /></th>
-                  <th>Tenant</th><th>Unit</th><th>Move-In</th><th className="num">Stay</th><th className="num">Rent</th>
-                  <th className="num">Street Rate</th><th className="num">Under Street</th><th>Last Rent Change</th><th className="num">Balance</th><th>Status</th>
+                  <th>Tenant</th><th>Unit</th><th>Move-In</th><th className="num">Stay</th><th className="num">Current Rate</th>
+                  <th className="num">Current Standard Rate</th><th className="num">Over/Under Standard Rate</th><th>Last Rent Change</th><th className="num">Balance</th><th>Status</th>
                 </tr></thead>
                 <tbody>
                   {rows.map((t) => (
@@ -568,9 +618,9 @@ export default function Revenue({ facility }) {
                       <td data-th="Unit">{t.unit} <span style={{ color: 'var(--muted)' }}>{t.unitType}</span></td>
                       <td data-th="Move-In">{formatDate(t.moveIn, '-')}</td>
                       <td data-th="Stay" className="num">{stay(t.monthsStayed)}</td>
-                      <td data-th="Rent" className="num">{cash(t.rent)}</td>
-                      <td data-th="Street Rate" className="num">{cash(t.street)}</td>
-                      <td data-th="Under Street" className="num">{t.gap > 0 ? `${cash(t.gap)} (${t.gapPct}%)` : t.gap < 0 ? `Over by ${cash(-t.gap)}` : '-'}</td>
+                      <td data-th="Current Rate" className="num">{cash(t.rent)}</td>
+                      <td data-th="Current Standard Rate" className="num">{cash(t.street)}</td>
+                      <OverUnderCell t={t} />
                       <td data-th="Last Rent Change">{t.lastIncrease ? `${formatDate(t.lastIncrease)}${t.lastIncreaseSource === 'nexus' ? ' (Nexus)' : ''}` : 'None'}</td>
                       <td data-th="Balance" className="num" style={t.pastDue ? { color: 'var(--bad-fg)', fontWeight: 600 } : undefined}>
                         {t.balance ? `${cash(t.balance)}${t.pastDue ? ' Past Due' : ''}` : '-'}

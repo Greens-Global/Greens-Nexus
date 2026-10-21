@@ -113,7 +113,7 @@ def meta(user: dict = Depends(get_current_user)):
     return {
         "kinds": [{"value": k, "label": hc.KIND_LABELS[k]} for k in hc.KINDS],
         "roles": [{"value": r, "label": hc.ROLE_LABELS[r]} for r in hc.ROLES],
-        "exitTypes": [{"value": t, "label": t.replace("_", " ").title().replace("No Notice", "Without Notice")}
+        "exitTypes": [{"value": t, "label": hr_checklist_seed.EXIT_TYPE_LABELS[t]}
                       for t in hr_checklist_seed.EXIT_TYPES],
         "signals": [{"value": k, "label": v} for k, v in hc.SIGNAL_LABELS.items()],
     }
@@ -335,6 +335,25 @@ def progress(user: dict = Depends(require_hr_read), db: Session = Depends(get_db
     if scope is not None:
         q = q.filter(HrChecklist.company.in_(scope))
     lists = q.all()
+    # Someone who has left keeps a chip for their FINISHED offboarding (or
+    # leave) checklist too, so People reads "Offboarding Complete" rather than
+    # nothing (Charmi, Oct 20 2026). Their latest one per kind, and only when
+    # no list of that kind is still open.
+    open_keys = {(c.employee_id, c.kind) for c in lists}
+    dq = (db.query(HrChecklist)
+          .join(NexusEmployee, NexusEmployee.id == HrChecklist.employee_id)
+          .filter(HrChecklist.status == "done", HrChecklist.kind.in_(("offboarding", "inactive")),
+                  NexusEmployee.status.in_(("offboarded", "inactive"))))
+    if scope is not None:
+        dq = dq.filter(HrChecklist.company.in_(scope))
+    latest = {}
+    for c in dq.all():
+        key = (c.employee_id, c.kind)
+        if key in open_keys:
+            continue
+        if key not in latest or (c.closed_at or "") > (latest[key].closed_at or ""):
+            latest[key] = c
+    lists += list(latest.values())
     if not lists:
         return {"progress": {}}
     today = hc._today().isoformat()
@@ -348,6 +367,7 @@ def progress(user: dict = Depends(require_hr_read), db: Session = Depends(get_db
         rows = by_cl.get(cl.id, [])
         out.setdefault(cl.employee_id, []).append({
             "checklistId": cl.id, "kind": cl.kind, "kindLabel": hc.KIND_LABELS.get(cl.kind, cl.kind),
+            "status": cl.status,
             "total": len(rows), "done": sum(1 for r in rows if r.status in ("done", "na")),
             "overdue": sum(1 for r in rows if r.status == "open" and r.due_date and r.due_date < today),
         })

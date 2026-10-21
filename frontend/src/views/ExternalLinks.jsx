@@ -20,6 +20,10 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import { PersonalLinkModal, normalizeUrl } from '../links/personalLinkModal.jsx';
 import { readIds, writeIds } from '../links/shortcutStorage';
 import {
+  canonDepartment, canonLink, canonPersonalLink, matchDepartment, sortDepartments,
+  readPickedDepartment, writePickedDepartment,
+} from '../links/departments';
+import {
   Search, Plus, Pencil, Trash2, X, Star, Globe, LayoutGrid, List,
   Settings2, Bookmark, History,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
@@ -166,13 +170,20 @@ export default function ExternalLinks() {
   // /hr/entities endpoint, which is gated to HR viewers and would leave most
   // managers unable to even see the option list when adding a link.
   const [companies, setCompanies] = useState([]);
+  // The viewer's own department, from their People record in that same
+  // directory (one request, already made for the Company list). undefined
+  // until the directory answers; '' when they are not in it or it has no
+  // department for them - the default view then shows every department.
+  const [myDepartment, setMyDepartment] = useState(undefined);
   useEffect(() => {
     api.getPeopleDirectory().then(dir => {
       const map = new Map();
       (dir || []).forEach(p => { if (p.company && !map.has(p.company)) map.set(p.company, p.companyName || p.company); });
       setCompanies([...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
-    }).catch(() => setCompanies([]));
-  }, []);
+      const me = (dir || []).find(p => (p.email || '').toLowerCase() === myEmail);
+      setMyDepartment((me && me.department) || '');
+    }).catch(() => { setCompanies([]); setMyDepartment(''); });
+  }, [myEmail]);
   const companyName = (id) => companies.find(c => c.id === id)?.name || id;
 
   const [modal, setModal] = useState(null); // { mode: 'add'|'edit', form, id }
@@ -192,11 +203,19 @@ export default function ExternalLinks() {
   // name arrays below are what every dropdown/datalist/filter actually maps
   // over.
   const [taxonomy, setTaxonomy] = useState({ departments: [], categories: [] });
+  const [taxonomyLoaded, setTaxonomyLoaded] = useState(false);
   const loadTaxonomy = useCallback(() => {
-    api.getExternalLinksTaxonomy().then(t => setTaxonomy(t || { departments: [], categories: [] })).catch(() => {});
+    api.getExternalLinksTaxonomy().then(t => {
+      // Departments read canonical ("Storage" -> "Operations", see
+      // links/departments.js) and alphabetical, so Manage, every picker
+      // and the filter agree on one list in one order.
+      const departments = (t?.departments || []).map(d => ({ ...d, name: canonDepartment(d.name) }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+      setTaxonomy({ departments, categories: t?.categories || [] });
+    }).catch(() => {}).finally(() => setTaxonomyLoaded(true));
   }, []);
   useEffect(() => { loadTaxonomy(); }, [loadTaxonomy]);
-  const departmentNames = useMemo(() => taxonomy.departments.map(d => d.name), [taxonomy]);
+  const departmentNames = useMemo(() => sortDepartments(taxonomy.departments.map(d => d.name)), [taxonomy]);
   const categoryNames = useMemo(() => taxonomy.categories.map(c => c.name), [taxonomy]);
 
   const addTaxonomy = async (kind, name) => {
@@ -264,7 +283,14 @@ export default function ExternalLinks() {
   // component state - derived from layout.filters, with setters that write
   // straight back through setFilters (always-live, same as favoriting) so
   // switching views restores whichever filters that view had.
-  const department = layout.filters?.department || '';
+  // Canonical on read: a view saved while the department was still called
+  // "Storage" keeps showing its links under Operations instead of none. A
+  // view with no department of its own shows autoDepartment - the viewer's
+  // remembered pick or their own department (see the default effect below)
+  // - without writing anything to the view just for opening the screen.
+  const [autoDepartment, setAutoDepartment] = useState('');
+  const viewDepartment = canonDepartment(layout.filters?.department || '');
+  const department = viewDepartment || autoDepartment;
   const companyFilter = layout.filters?.company || '';
   const category = layout.filters?.category || '';
   const setCategory = (v) => setFilters({ category: v });
@@ -318,11 +344,14 @@ export default function ExternalLinks() {
   const load = useCallback(() => {
     setError(false);
     Promise.all([api.getExternalLinks(), api.getExternalLinksMeta()])
-      .then(([l, m]) => { setLinks(l || []); setMeta(m || { departments: [], categories: [] }); })
+      .then(([l, m]) => {
+        setLinks((l || []).map(canonLink));
+        setMeta({ departments: sortDepartments((m?.departments || []).map(canonDepartment)), categories: m?.categories || [] });
+      })
       .catch(() => { setError(true); });
     // Separate, independent load - a Personal Links hiccup shouldn't block
     // the shared directory from rendering (and vice versa).
-    api.getPersonalLinks().then(p => setPersonalLinks(p || [])).catch(() => setPersonalLinks([]));
+    api.getPersonalLinks().then(p => setPersonalLinks((p || []).map(canonPersonalLink))).catch(() => setPersonalLinks([]));
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -367,14 +396,54 @@ export default function ExternalLinks() {
     },
   });
 
-  // Department/Company filters: "All ..." shows everything, including
-  // company-wide links (field === ''); picking a specific department scopes
-  // strictly to that department - a company-wide link used to also show up
-  // under every single department choice, which made picking one feel like
-  // it barely narrowed anything (Neil/Pranshu, Aug 13 - "shows too many
-  // links"). Company stays independent of department (AND'd).
+  // Every department the filter can offer: the curated picker rows plus any
+  // name a link still carries that the picker no longer lists.
+  const departmentOptions = useMemo(() => sortDepartments([...departmentNames, ...meta.departments]), [departmentNames, meta.departments]);
+  const departmentHasLinks = useCallback((d) => all.some(l => (l.departments || []).some(x => x.toLowerCase() === d.toLowerCase())), [all]);
+
+  // The department chosen in the dropdown: into the active view like any
+  // filter, and remembered per account in this browser so the next visit
+  // opens on it (links/departments.js) - '' = All Departments, on purpose.
+  const pickDepartment = useCallback((d) => {
+    setAutoDepartment('');
+    writePickedDepartment(myEmail, d);
+    setFilters({ department: d, category: '' });
+  }, [myEmail, setFilters]);
+
+  // Default department (Neil, Oct 21 2026): the screen opens on the links
+  // for the department the viewer is in, so what they see is relevant. Once
+  // per visit, after the links, picker, directory and view have all
+  // answered, and only when the view carries no department of its own: the
+  // department they last picked here wins (All Departments included);
+  // otherwise their own HR department, when the picker knows it and it has
+  // at least one link - a department with nothing filed under it, or no
+  // department on record, lands on All Departments rather than an empty
+  // screen.
+  const defaultedRef = useRef(false);
+  useEffect(() => {
+    if (defaultedRef.current) return;
+    if (links === null || layoutLoading || !taxonomyLoaded || myDepartment === undefined) return;
+    defaultedRef.current = true;
+    if (viewDepartment) return;
+    const remembered = readPickedDepartment(myEmail);
+    if (remembered !== null) {
+      setAutoDepartment(departmentOptions.find(d => d.toLowerCase() === remembered.toLowerCase()) || '');
+      return;
+    }
+    const own = matchDepartment(myDepartment, departmentOptions);
+    setAutoDepartment(own && departmentHasLinks(own) ? own : '');
+  }, [links, layoutLoading, taxonomyLoaded, myDepartment, myEmail, viewDepartment, departmentOptions, departmentHasLinks]);
+
+  // Department/Company filters: "All ..." shows everything; a department
+  // shows the links filed under it PLUS the company-wide ones (no
+  // department), since the screen now opens on the viewer's own department
+  // (Oct 21 2026) and Outlook, Teams and the like belong to everyone. (Aug
+  // 13 had excluded company-wide links from a picked department - "shows
+  // too many links" - back when the default was All Departments.) Company
+  // stays independent of department (AND'd).
   const deptFiltered = useMemo(() => all.filter(l => {
-    const deptOk = !department || (l.departments || []).includes(department);
+    const depts = l.departments || [];
+    const deptOk = !department || depts.length === 0 || depts.some(d => d.toLowerCase() === department.toLowerCase());
     const coOk = !companyFilter || !(l.companies || []).length || l.companies.includes(companyFilter);
     return deptOk && coOk;
   }), [all, department, companyFilter]);
@@ -422,7 +491,7 @@ export default function ExternalLinks() {
   const personalFiltered = useMemo(() => {
     const needle = pq.trim().toLowerCase();
     return (personalLinks || []).filter(l => {
-      if (pDepartment && l.department !== pDepartment) return false;
+      if (pDepartment && (l.department || '').toLowerCase() !== pDepartment.toLowerCase()) return false;
       if (pCategory && l.category !== pCategory) return false;
       if (!needle) return true;
       return [l.name, l.description, l.category, l.department].some(v => (v || '').toLowerCase().includes(needle));
@@ -433,7 +502,7 @@ export default function ExternalLinks() {
     [categoryNames, personalLinks]
   );
   const personalDepartmentsAvailable = useMemo(
-    () => [...new Set([...departmentNames, ...(personalLinks || []).map(l => l.department).filter(Boolean)])].sort(),
+    () => sortDepartments([...departmentNames, ...(personalLinks || []).map(l => l.department)]),
     [departmentNames, personalLinks]
   );
   const personalItemsById = useMemo(() => ({
@@ -555,15 +624,16 @@ export default function ExternalLinks() {
     }
   };
 
-  const onImported = (createdLinks) => {
-    if (!createdLinks.length) return;
+  const onImported = (importedLinks) => {
+    if (!importedLinks.length) return;
+    const createdLinks = importedLinks.map(canonLink);
     setLinks(prev => [...(prev || []), ...createdLinks]);
     createdLinks.forEach(l => {
       (l.categories || []).forEach(c => {
         if (!meta.categories.includes(c)) setMeta(m => ({ ...m, categories: [...new Set([...m.categories, c])].sort() }));
       });
       (l.departments || []).forEach(d => {
-        if (!meta.departments.includes(d)) setMeta(m => ({ ...m, departments: [...new Set([...m.departments, d])].sort() }));
+        if (!meta.departments.includes(d)) setMeta(m => ({ ...m, departments: sortDepartments([...m.departments, d]) }));
       });
     });
   };
@@ -617,11 +687,11 @@ export default function ExternalLinks() {
     setSaving(true);
     try {
       if (modal.mode === 'add') {
-        const created = await api.createExternalLink({ ...f, url });
+        const created = canonLink(await api.createExternalLink({ ...f, url }));
         setLinks(prev => [...(prev || []), created]);
         setBanner({ kind: 'ok', text: `"${created.name}" added.` });
       } else {
-        const updated = await api.updateExternalLink(modal.id, { ...f, url });
+        const updated = canonLink(await api.updateExternalLink(modal.id, { ...f, url }));
         setLinks(prev => (prev || []).map(l => (l.id === modal.id ? updated : l)));
         setBanner({ kind: 'ok', text: `"${updated.name}" updated.` });
       }
@@ -988,9 +1058,9 @@ export default function ExternalLinks() {
             />
           </div>
           <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={department}
-            onChange={e => setFilters({ department: e.target.value, category: '' })}>
+            aria-label="Department" onChange={e => pickDepartment(e.target.value)}>
             <option value="">All Departments</option>
-            {[...new Set([...departmentNames, ...meta.departments])].sort().map(d => <option key={d} value={d}>{d}</option>)}
+            {departmentOptions.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
           {companies.length > 0 && (
             <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={companyFilter}
@@ -1018,8 +1088,13 @@ export default function ExternalLinks() {
           emptyContent={
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted)' }}>
               <LayoutGrid size={32} style={{ opacity: 0.4, marginBottom: 10 }} />
-              <p style={{ fontSize: 14 }}>No links match these filters yet.</p>
+              <p style={{ fontSize: 14 }}>{department ? `No links for ${department} yet.` : 'No links match these filters yet.'}</p>
               {canManage && <p style={{ fontSize: 13, marginTop: 4 }}>Use "Manage" to start building this department's directory.</p>}
+              {department && (
+                <button type="button" className="secondary-btn" style={{ marginTop: 12 }} onClick={() => pickDepartment('')}>
+                  Show All Departments
+                </button>
+              )}
             </div>
           }
         >
@@ -1069,7 +1144,7 @@ export default function ExternalLinks() {
       {modal && (
         <LinkModal
           modal={modal} setModal={setModal} save={save} saving={saving}
-          departments={[...new Set([...departmentNames, ...meta.departments])].sort()}
+          departments={departmentOptions}
           categories={[...new Set([...categoryNames, ...meta.categories])].sort()} companies={companies}
           existingLinks={all}
         />

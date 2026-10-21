@@ -390,6 +390,20 @@ describe('Companies', () => {
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ breakNudgeMin: 0 }, ''));
   });
 
+  // California meal reminder (Oct 20 2026, meal_watch.py): default 270 = 4.5 hours, 0 = off, clamped to 295.
+  it('saves the minutes before the California meal reminder', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const mins = await screen.findByLabelText('Meal reminder');
+    expect(mins.value).toBe('270');
+    expect(screen.getByText('Meal Reminder: Send at 4.5 Hours')).toBeTruthy();
+    fireEvent.change(mins, { target: { value: '400' } });
+    fireEvent.blur(mins);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ mealReminderMin: 295 }, ''));
+    fireEvent.change(mins, { target: { value: '0' } });
+    fireEvent.blur(mins);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ mealReminderMin: 0 }, ''));
+  });
+
   it('shows the defaults (10 and 15) when the API sends none, and an unchanged value saves nothing', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
     const noShow = await screen.findByLabelText('No-show alert');

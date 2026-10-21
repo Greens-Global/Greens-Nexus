@@ -111,6 +111,12 @@ class ReviewQueueTests(ReviewCase):
         self.db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
         self.db.add(models.NexusRole(email=HR, role="administrator", assigned_by="test"))
         # The fixture day: 7 h with no break -> a missed meal.
+        # Oct 20 2026: the review checks people who work in California - EMP's
+        # work site is in Temecula, CA (work_state.py).
+        if not self.db.query(models.HrWorkSite).filter_by(id="ws-ca-temecula").first():
+            self.db.add(models.HrWorkSite(id="ws-ca-temecula", name="GS Temecula",
+                                          address="47355, Rainbow Canyon Road, Riverside County, California, 92592, United States"))
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).update({"work_site_ids": '["ws-ca-temecula"]'})
         self.db.commit()
         auth.invalidate_role_cache()
         pr.clear_cache()

@@ -1576,7 +1576,9 @@ def search_documents(q: str = "", user: dict = Depends(get_current_user), db: Se
         party_matches = db.query(HrSignParty.request_id).filter(
             or_(HrSignParty.name.ilike(like), HrSignParty.email.ilike(like)))
         esign_query = db.query(HrSignRequest).filter(
-            or_(HrSignRequest.title.ilike(like), HrSignRequest.id.in_(party_matches)))
+            or_(HrSignRequest.title.ilike(like), HrSignRequest.id.in_(party_matches)),
+            # Signed Time Sheets are not Documents results (Neil, Oct 20 2026).
+            or_(HrSignRequest.link_kind.is_(None), HrSignRequest.link_kind != "timesheet"))
         for r in esign_query.order_by(HrSignRequest.created_at.desc()).limit(20).all():
             results.append({"type": "esign", "id": r.id, "title": r.title,
                             "subtitle": f"sent by {r.created_by}" if r.created_by else "", "updatedAt": r.created_at})

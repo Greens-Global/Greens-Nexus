@@ -516,6 +516,52 @@ class LeasingApiTests(unittest.TestCase):
         _as(LIMITED)
         self.assertEqual(self.client.get("/leasing/rent-roll", params={"entities": "12000"}).status_code, 403)
 
+    def _ledger_by_location(self):
+        """The ledger per entity: 15000 posted 3,000 in January, 12000 posted 1,200 -
+        and the consolidated by-customer report, which adds them up."""
+        yr = date.today().year
+        inner = accounting._acct_get
+
+        async def fake_get(path, params):
+            if path.endswith("/reports/buckets"):
+                self.asked.append((path, {k: v for k, v in params.items() if v is not None}))
+                amount = {"15000": 3000.0, "12000": 1200.0}[params["location"]]
+                return {"ok": True, "rows": [{"bucket": f"{yr}-01", "account_no": "41101", "debit": 0, "credit": amount}]}
+            if path.endswith("/reports/by-customer"):
+                self.asked.append((path, {k: v for k, v in params.items() if v is not None}))
+                return {"ok": True, "rows": [{"customer": "C00498", "account_no": "41101", "month": f"{yr}-01", "debit": 0, "credit": 4200.0}]}
+            return await inner(path, params)
+        accounting._acct_get = fake_get
+
+    def test_a_tenant_on_two_entities_is_read_per_entity(self):
+        """One Intacct customer, two leases on two entities, the same income
+        account: each lease shows ITS entity's rent, not the sum of both."""
+        _as(EDITOR)
+        a = self.client.post("/leasing/leases", json=self._body()).json()
+        b = self.client.post("/leasing/leases", json=self._body(entityCode="12000", propertyName="47385 RCR, Temecula")).json()
+        self._ledger_by_location()
+        _as(VIEWER)
+        rows = {r["lease"]["id"]: r for r in self.client.get("/leasing/rent-roll").json()["rows"] if r["lease"]["region"] == TAG}
+        self.assertEqual(rows[a["id"]]["months"][0]["received"], 3000.0)
+        self.assertEqual(rows[b["id"]]["months"][0]["received"], 1200.0)
+        buckets = [p for (path, p) in self.asked if path.endswith("/reports/buckets")]
+        self.assertEqual(sorted(p["location"] for p in buckets), ["12000", "15000"])
+        self.assertTrue(all(p["customer"] == "C00498" and p["by"] == "month" for p in buckets))
+        self.assertEqual([p for (path, p) in self.asked if path.endswith("/reports/by-customer") and "C00498" in p["customers"]], [])
+
+    def test_a_limited_person_never_reads_the_consolidated_report(self):
+        """Entity-limited: one month read per entity in reach, never the
+        consolidated by-customer report (it carries every entity's postings)."""
+        _as(EDITOR)
+        mine = self.client.post("/leasing/leases", json=self._body()).json()
+        self.client.post("/leasing/leases", json=self._body(entityCode="12000", propertyName="47385 RCR, Temecula"))
+        self._ledger_by_location()
+        _as(LIMITED)
+        rows = [r for r in self.client.get("/leasing/rent-roll").json()["rows"] if r["lease"]["region"] == TAG]
+        self.assertEqual([(r["lease"]["id"], r["months"][0]["received"]) for r in rows], [(mine["id"], 3000.0)])
+        self.assertEqual([p["location"] for (path, p) in self.asked if path.endswith("/reports/buckets")], ["15000"])
+        self.assertEqual([p for (path, p) in self.asked if path.endswith("/reports/by-customer")], [])
+
 
 if __name__ == "__main__":
     unittest.main()

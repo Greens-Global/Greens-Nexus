@@ -50,11 +50,17 @@ def _safe(db: Session, fn) -> int:
 # ── Workday ──────────────────────────────────────────────────────────────────
 
 def _timesheet(db: Session, me: str) -> int:
-    """Time Sheets submitted to me, waiting on my signature, or sent back to me."""
+    """Time Sheets submitted to me, waiting on my signature, or sent back to me.
+    A time-tracking-exempt person has no time sheet of their own, so nothing
+    of theirs is "sent back": a review row left from before they became
+    exempt would otherwise show as a "1" over an empty tab for good
+    (Neil, Oct 21 2026)."""
     import timesheet_review as tsr
-    sent_back = (db.query(func.count(models.TimesheetReview.id))
-                 .filter(models.TimesheetReview.employee_email == me,
-                         models.TimesheetReview.status == "with_employee").scalar())
+    from routers.timeclock import is_time_tracking_exempt
+    sent_back = 0 if is_time_tracking_exempt(db, me) else (
+        db.query(func.count(models.TimesheetReview.id))
+        .filter(models.TimesheetReview.employee_email == me,
+                models.TimesheetReview.status == "with_employee").scalar())
     return len(tsr.waiting_on(db, me)) + len(tsr.to_sign(db, me)) + (sent_back or 0)
 
 

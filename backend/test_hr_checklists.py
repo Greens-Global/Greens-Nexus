@@ -256,6 +256,32 @@ class ChecklistTests(unittest.TestCase):
         cl = self.client.get(f"/hr/checklists/employee/{cl['employeeId']}").json()["checklists"][0]
         self.assertEqual(cl["status"], "done")
 
+    def test_progress_keeps_a_finished_offboarding_for_someone_who_left(self):
+        # Charmi, Oct 20 2026: the chip reads "Offboarding Complete" once a
+        # Left person's checklist is done - an onboarding that finished does not linger.
+        eid = self._person(work_email=NEWBIE)
+        x = (date.today() + timedelta(days=14)).isoformat()
+        off = self._start(eid, "offboarding", anchor_date=x, exit_type="resignation")
+        self.assertEqual(off["exitType"], "resignation")
+        p = self.client.get("/hr/checklists/progress").json()["progress"][eid]
+        self.assertEqual([(c["kind"], c["status"]) for c in p], [("offboarding", "open")])
+        for row in off["items"]:
+            self.client.patch(f"/hr/checklists/items/{row['id']}", json={"status": "na", "note": "test"})
+        self.assertNotIn(eid, self.client.get("/hr/checklists/progress").json()["progress"])  # still onboarding
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusEmployee).filter(models.NexusEmployee.id == eid).update({"status": "offboarded"})
+            db.commit()
+        finally:
+            db.close()
+        p = self.client.get("/hr/checklists/progress").json()["progress"][eid]
+        self.assertEqual([(c["kind"], c["status"], c["done"] == c["total"]) for c in p], [("offboarding", "done", True)])
+
+    def test_meta_reads_the_new_exit_reasons(self):
+        labels = {t["value"]: t["label"] for t in self.client.get("/hr/checklists/meta").json()["exitTypes"]}
+        self.assertEqual(labels["resignation"], "Voluntary Resignation")
+        self.assertEqual(labels["resignation_no_notice"], "Job Abandonment")
+
     def test_daily_reminder_is_one_bell_per_owner_updated_in_place(self):
         eid = self._person(start=(date.today() + timedelta(days=1)).isoformat())
         self._start(eid)

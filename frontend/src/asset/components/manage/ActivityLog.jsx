@@ -1,21 +1,23 @@
 import { useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, ArrowRight, X } from 'lucide-react';
 import { Card } from '../shared/Card.jsx';
 import { EmptyState } from '../shared/EmptyState.jsx';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
 import { formatDate, formatTime } from '../../../lib/datetime';
 
-const MONO_FONT = "ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace";
-
 // Small muted uppercase label style, reused for the "entries" count, date-range labels, and
 // each change line's field name.
-const LABEL_STYLE = { fontSize: '0.64rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
+const LABEL_STYLE = { fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
 
 const DATE_INPUT_STYLE = { padding: '6px 9px', width: 'auto', fontSize: '0.8rem' };
 
-/** yyyy-mm-dd slice of an ISO timestamp, used both for day-bucketing and the date-range filter. */
+/** yyyy-mm-dd of a stamp in LOCAL time (an entry logged at 6 PM Pacific used to
+ *  land under the next day's header), for day-bucketing and the date-range filter. */
 function dateKey(ts) {
-  return (ts || '').slice(0, 10);
+  if (!ts) return '';
+  const d = ts instanceof Date ? ts : new Date(ts);
+  if (isNaN(d)) return String(ts).slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /** "Today" / "Yesterday" / full weekday date, for the day-group headers. */
@@ -24,8 +26,8 @@ function dayLabel(ts) {
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
   const key = dateKey(ts);
-  if (key === dateKey(today.toISOString())) return 'Today';
-  if (key === dateKey(yesterday.toISOString())) return 'Yesterday';
+  if (key === dateKey(today)) return 'Today';
+  if (key === dateKey(yesterday)) return 'Yesterday';
   return formatDate(ts, key);
 }
 
@@ -80,7 +82,7 @@ function looksNumeric(value) {
  *                     vehicle/equipment) so the section pill can say "Vehicle"/"Equipment"
  *                     instead of the generic "Property" section name for non-property assets
  */
-export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName, onGoTo, onUndo, canUndo, assetsForKind }) {
+export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName, onGoTo, onUndo, canUndo, assetsForKind, onClose }) {
   // Map of assetId -> kind, so the section pill on a "Property" section entry can be relabeled
   // "Vehicle" / "Equipment" for non-property assets (the log itself always calls it "Property").
   const kindById = {};
@@ -124,7 +126,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Activity Log</strong>
+        <strong style={{ fontSize: '1rem' }}>Activity Log</strong>
         <span style={LABEL_STYLE}>{filtered.length} entr{filtered.length === 1 ? 'y' : 'ies'}</span>
 
         {activeId && (
@@ -158,6 +160,9 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
               Clear
             </button>
           )}
+          {onClose && (
+            <button type="button" className="secondary-btn" onClick={onClose} aria-label="Close Activity Log" style={{ padding: 6 }}><X size={15} /></button>
+          )}
         </div>
       </div>
 
@@ -190,25 +195,31 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: entry.changes && entry.changes.length ? 7 : 0 }}>
                         <span style={{
-                          fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em',
+                          fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em',
                           padding: '2px 7px', borderRadius: 4, color: `hsl(var(--color-${tone}))`, backgroundColor: `hsla(var(--color-${tone}), 0.12)`,
                         }}>
                           {actionLabel(entry.action)}
                         </span>
-                        {entry.property && (
-                          <span
-                            onClick={() => entry.propertyId && onOpenProperty(entry.propertyId)}
+                        {/* The asset's name opens it: a link-styled button, so the keyboard reaches it. */}
+                        {entry.property && (entry.propertyId ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenProperty(entry.propertyId)}
                             title="Open property"
                             style={{
-                              fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)',
-                              cursor: entry.propertyId ? 'pointer' : 'default', overflow: 'hidden',
-                              textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'inherit',
+                              padding: 0, border: 'none', background: 'none', cursor: 'pointer', overflow: 'hidden',
+                              textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3,
                             }}
                           >
                             {entry.property}
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {entry.property}
                           </span>
-                        )}
-                        <span style={{ fontSize: '0.7rem', fontWeight: 600, padding: '2px 7px', borderRadius: 4, color: 'hsl(var(--color-blue))', backgroundColor: 'hsla(var(--color-blue), 0.1)' }}>
+                        ))}
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '2px 7px', borderRadius: 4, color: 'hsl(var(--color-blue))', backgroundColor: 'hsla(var(--color-blue), 0.1)' }}>
                           {sectionLabel}
                         </span>
                         {entry.item && entry.item !== entry.property && (
@@ -216,7 +227,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                             · {entry.item}
                           </span>
                         )}
-                        <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                           {timeLabel(entry.ts)}
                         </span>
                       </div>
@@ -228,11 +239,11 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                               <span style={LABEL_STYLE}>{change.field}</span>
                               {'  '}
                               <span style={{ color: 'var(--text-secondary)', textDecoration: 'line-through' }}>
-                                {(change.from ?? '') === '' ? '∅' : String(change.from)}
+                                {(change.from ?? '') === '' ? '(empty)' : String(change.from)}
                               </span>
-                              {' → '}
-                              <span style={{ fontWeight: 600, fontFamily: looksNumeric(change.to) ? MONO_FONT : undefined }}>
-                                {(change.to ?? '') === '' ? '∅' : String(change.to)}
+                              <ArrowRight size={12} style={{ margin: '0 5px', verticalAlign: '-2px', color: 'var(--text-muted)' }} />
+                              <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                                {(change.to ?? '') === '' ? '(empty)' : String(change.to)}
                               </span>
                             </div>
                           ))}
@@ -252,18 +263,18 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                         <span title={entry.user} style={{
                           flexShrink: 0, width: 20, height: 20, borderRadius: '50%', display: 'inline-flex',
-                          alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', fontWeight: 700,
+                          alignItems: 'center', justifyContent: 'center', fontSize: '0.68rem', fontWeight: 700,
                           color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.14)',
                         }}>
                           {initials(entry.user)}
                         </span>
-                        <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {entry.user}
                         </span>
 
                         <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                           {entry.undone && (
-                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                               <RotateCcw size={12} /> Undone
                             </span>
                           )}
@@ -273,10 +284,10 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                               style={{
                                 display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 7,
                                 border: '1px solid var(--border-color)', background: 'var(--bg-card)', cursor: 'pointer',
-                                fontSize: '0.72rem', fontWeight: 600, color: 'hsl(var(--color-blue))', whiteSpace: 'nowrap',
+                                fontSize: '0.75rem', fontWeight: 600, color: 'hsl(var(--color-blue))', whiteSpace: 'nowrap',
                               }}
                             >
-                              Go to {entry.action === 'removed' ? entry.section : entry.changes && entry.changes.length ? 'field' : entry.section} →
+                              Go to {entry.action === 'removed' ? entry.section : entry.changes && entry.changes.length ? 'field' : entry.section} <ArrowRight size={12} style={{ verticalAlign: '-2px' }} />
                             </button>
                           )}
                           {onUndo && canUndo && canUndo(entry) && (
@@ -286,7 +297,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                               style={{
                                 display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 7,
                                 border: '1px solid hsl(var(--color-gold) / 0.5)', background: 'hsla(var(--color-gold), 0.1)',
-                                cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, color: 'hsl(var(--color-gold))', whiteSpace: 'nowrap',
+                                cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, color: 'hsl(var(--color-gold))', whiteSpace: 'nowrap',
                               }}
                             >
                               <RotateCcw size={12} /> Undo

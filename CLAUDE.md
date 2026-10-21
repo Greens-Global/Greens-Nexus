@@ -88,7 +88,7 @@ keep the diff minimal.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,
-  `ir-documents` have `public = false` on dev and prod (`document-images`
+  `ir-documents`, `construction-media`, `asset-files` have `public = false` on dev and prod (`document-images`
   stays public: e-sign signers load it with no login). The database still stores the canonical
   `.../object/public/<bucket>/<path>` URL; browsers open it only through
   `GET /files/view?u=<url>` (`routers/files.py`, signed-URL redirect, login
@@ -303,26 +303,62 @@ lists every one and counts the archived rows. The custom-status merge that
 used to live in the sync is `backend/task_status_dedupe.py`; the API's
 public-URL helper is `app_url.public_base`.
 
-## Asset Management module — scope (Neil)
+## Asset Management module (Neil's)
 
-Everything currently on the Property Portfolio screen (`PropertyAsset.jsx`) is
-**hardcoded mock data**. The job is to make it real, in roughly this order:
+`frontend/src/asset/` (the module, mounted by `views/AssetModule.jsx`) and
+`backend/routers/property_assets.py`. The data is real: 24+ properties,
+vehicles and equipment with their records (warranties, inspections, plans,
+utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
 
-1. **Properties** — `properties` table + CRUD endpoints in `assets.py` + the
-   portfolio cards/Add Property modal backed by the API (name, type, address,
-   units, acquisition cost, year completed, asset manager, occupancy).
-2. **Equipment Warranties** — fields live on the existing `items` table
-   (serial number, asset tag, purchase date/cost, warranty end, vendor), NOT a
-   separate system. Expiry list + bell notifications when warranties near expiry.
-3. **As-Built Plans** — document upload per property (Supabase storage, reuse
-   the upload helpers) with list/view/download.
-4. **Annual Inspections** — inspection schedule per property, due-date
-   reminders into the bell (server-side `_notify`, targeted at the property's
-   asset manager).
-5. **Compliance** — requirements checklist per property with status + expiry.
-
-Old `hardware_assets` table (IT module) is legacy — planned to fold into
-`items`; coordinate with Visesh before touching it.
+- **Saves are per row** (Oct 21 2026): `useNexusStore` diffs the store before
+  and after every change (`lib/diff.js`) and `lib/sync.js` POSTs only the rows
+  that changed to `/property-assets/changes`; each row carries the `_rev` it
+  was read with and a row the server changed since comes back in `conflicts`
+  (the tab re-pulls and says so). Never bring back a whole-portfolio save from
+  the client - `PUT /workspace` is an officer's seeding tool only.
+- **Privacy and scope are the server's**: `GET /workspace` returns only the
+  assets the caller may see (`private` assets are officers' alone -
+  `property_links.can_see_private`; `nexus_access_scopes` rows for
+  `property-asset` narrow the rest) and every row write is checked the same
+  way. Only an officer sets or clears Private.
+- **Files are URLs**: photos and documents go browser -> the PRIVATE
+  `asset-files` bucket (`lib/upload.js`) and the record keeps the canonical
+  URL; the save refuses a new data: URL. `asset_files_migrate.py` moves the
+  old inline ones.
+- **Map points come from the server**: `asset_geocode.py` looks each address
+  up once (Nominatim, paced, never a private asset) and keeps `geo` on the
+  asset; the browser never geocodes.
+- The strip is Overview / Maintenance / Records / Timeline; the seven record
+  collections live under Records as a segmented control; `view` still holds
+  the collection key, so deep links from bells, Critical Items and the
+  Activity Log land on the right table.
+- **Every open asset is a URL** (Oct 21 2026): `/property-asset/a:<id>:<view>`
+  (`assetSub` / `parseAssetSub` in `lib/navigation.js`; the portfolio stays
+  `/property-asset/asset-portfolio`, the shell's default sub). The module's
+  state writes the segment and a segment arriving from outside (a pasted
+  link, Back) sets the state - keep both effects; never navigate by setting
+  `activeId` from a URL anywhere else.
+- **The street line is the street**: `splitAddress` (`lib/dataNormalization.js`)
+  peels "City, ST ZIP" off `address` into city / state / zip / county on every
+  load and on create, keeping the original line as `addressRaw`. Add Asset is
+  one screen (class, name, one address line, type, stage); everything else is
+  filled on the asset.
+- **Nothing is deleted by code, ever** (Neil, Oct 21 2026 - the release must
+  lose no data): the activity log is append-only (the GET bounds what a tab
+  sees, the database keeps everything); Delete Forever works only from the
+  Trash, a live asset is moved there instead, and the log stays; a stamped
+  row is written only with the `_rev` it was read with - a save without one
+  (a cached copy, an old tab) is a conflict, never an overwrite, and deletes
+  carry `deleteRevs`; a change the server did not keep leaves no log entry;
+  only a NEW `data:` file URL is refused (a legacy path or outside link is a
+  link); what the migration or geocoder did to a row travels with a tab's
+  next save (`_carry_over`); `PUT /workspace` is refused on a deployed API
+  unless `NEXUS_ASSET_SEED_PUT` is set; the save queue keeps a batch through
+  404 / 405 / 429 / 401 (a deploy window) and drops only 400 / 403 / 413 /
+  422, with a notice. The release runbook with the backups, the bucket and
+  the verify lists: https://claude.ai/artifact/MZR3srrjuzCQQYHTMERgNU .
+- Equipment and vehicles pair with Item Management (`AddItemModal`) - do not
+  build a second warranty/serial system there.
 
 ## Gotchas
 

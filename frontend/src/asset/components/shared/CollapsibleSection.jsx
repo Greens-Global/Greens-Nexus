@@ -24,7 +24,7 @@ export function CollapsibleSection({ title, sub, count, badge, open, onToggle, c
         />
         <span style={{ minWidth: 0, flex: 1 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: '1rem', fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>
+            <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
               {title}
             </span>
             {count != null && (

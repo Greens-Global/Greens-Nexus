@@ -1,3 +1,4 @@
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import { normLabel } from '../../lib/format.js';
 
@@ -61,7 +62,7 @@ export function ContactCell({ name, label, contacts, onSave }) {
         }}
       >
         {name}
-        <span style={{ fontSize: '0.58rem', opacity: 0.65 }}>{open ? '▲' : '▼'}</span>
+        {open ? <ChevronUp size={12} style={{ opacity: 0.65 }} /> : <ChevronDown size={12} style={{ opacity: 0.65 }} />}
       </button>
 
       {open && (
@@ -78,7 +79,7 @@ export function ContactCell({ name, label, contacts, onSave }) {
           }}
         >
           <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: 1 }}>{name}</div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.03em', fontWeight: 700 }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.03em', fontWeight: 700 }}>
             {label}
           </div>
 

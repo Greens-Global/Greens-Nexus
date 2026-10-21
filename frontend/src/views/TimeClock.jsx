@@ -16,7 +16,6 @@ import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
-import LocationTrailNote from '../components/LocationTrailNote';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
@@ -31,8 +30,9 @@ import { formatDistance, formatAccuracy } from '../lib/distance';
 import { LeaveBalanceCard, RequestBalanceHint, useMyLeaveBalance } from '../components/LeaveBalances';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
-import { useActionCounts, withBadges, tabCount } from '../lib/useActionCounts';
+import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import DocumentsToSign from '../components/DocumentsToSign';
+import DelegateApprovalsCard from '../components/DelegateApprovals';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -1331,8 +1331,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       <ModuleTabs
         tabs={withBadges((exempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
-             time off is the only surface that applies. */
-          ? ['overview', ...(toReview > 0 || tabCount(counts, 'myhr', 'timesheet') > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
+             time off is the only surface that applies. The tab appears only
+             for what the tab itself lists (reviews and signatures waiting on
+             a reviewing manager) - never for the badge count alone, which
+             once surfaced a stale "sent back" row of an exempt person's own
+             old time sheet as a "1" over an empty tab (Neil, Oct 21 2026). */
+          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
           : ['overview', 'timesheet', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
@@ -1344,10 +1348,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           {msg.ok ? <CheckCircle size={15} /> : <AlertTriangle size={15} />} {msg.text}
         </div>
       )}
-
-      {/* Location Trail While Clocked In (Oct 20): says plainly that the
-          location is shared while clocked in, when the company has it on. */}
-      {tab === 'overview' && !exempt && <LocationTrailNote status={status} />}
 
       {/* Overview: the Time Clock widget first, then the employee's own HR
           page (profile, hours, documents, time off, Ask HR). */}
@@ -1622,6 +1622,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           );
         })}
       </div>
+      {/* Delegate My Approvals (Neil, Oct 20): here on Time Off, collapsed -
+          it opens up for the days you are off. Renders nothing for someone
+          with nothing to approve. */}
+      <DelegateApprovalsCard toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />
       </>)}
 
       {bodMode && (() => {

@@ -2051,7 +2051,8 @@ export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
             : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
                 gateApi={gateApi} onCleared={() => load().catch(() => {})} uploadApi={uploadApi}
                 historyApi={historyApi}
-                onReportBreak={payload.breakAttestation?.reviewId ? () => setReporting(true) : undefined} />}
+                onReportBreak={payload.breakAttestation?.reviewId && payload.breakAttestation.canReport !== false
+                  ? () => setReporting(true) : undefined} />}
           {/* CA-rule staff: Report a Missed Break instead of signing - the
               time sheet goes back to the manager and signing closes. */}
           {reporting && payload?.breakAttestation && (

@@ -861,6 +861,10 @@ export const api = {
   getPropertyWorkspaceTs: ()  => req("/property-assets/workspace/ts"),
   savePropertyWorkspace: (ws) => req("/property-assets/workspace", { method: "PUT", body: JSON.stringify(ws), timeoutMs: 60_000 }),
   scanPropertyReminders: ()   => req("/property-assets/reminders/scan", { method: "POST" }),
+  // Row saves (Oct 21 2026): { properties: {upsert, delete}, <collection>: {...}, logs: {append} } -> { _ts, conflicts }.
+  saveAssetChanges:      (ops) => req("/property-assets/changes", { method: "POST", body: JSON.stringify(ops), timeoutMs: 60_000 }),
+  // Per-asset tile numbers: { id: { occupancy, units, percentComplete } } for the assets the caller may see.
+  getAssetMetrics:       ()    => req("/property-assets/metrics"),
 
   // Users
   getUsers: () => req("/users"),
@@ -1260,8 +1264,32 @@ export const api = {
   saveOpsRateDraft: (data) => req("/facility-ops/rates/draft", { method: "PUT", body: JSON.stringify(data) }),
   markOpsRatesEntered: (facilityId, unitTypes, seen = {}) => req("/facility-ops/rates/entered", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, seen }) }),
   getOpsRateHistory: (facilityId, unitType) => req(`/facility-ops/rates/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  getOpsRateComps: (facilityId, unitType) => req(`/facility-ops/rates/comps?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  // Push to Cubby (Oct 21 2026): only when Settings > Global Settings > Operations > Push to Cubby is on; the server refuses otherwise.
+  pushOpsRates: (facilityId, unitTypes) => req("/facility-ops/rates/push", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, confirm: true }), timeoutMs: 180_000 }),
+  // Rate Management as a CMA (Miranda, Oct 21 2026): comp set, surveys, overrides, import, history, review & push.
+  getOpsCmaCompset: (facilityId) => req(`/facility-ops/cma/compset?facility_id=${encodeURIComponent(facilityId)}`),
+  addOpsCmaCompetitor: (data) => req("/facility-ops/cma/competitors", { method: "POST", body: JSON.stringify(data) }),
+  updateOpsCmaCompetitor: (id, data) => req(`/facility-ops/cma/competitors/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  closeOpsCmaCompetitor: (id, closed, note = '') => req(`/facility-ops/cma/competitors/${encodeURIComponent(id)}/close`, { method: "POST", body: JSON.stringify({ closed, note }) }),
+  saveOpsCmaSurvey: (data) => req("/facility-ops/cma/surveys", { method: "POST", body: JSON.stringify(data) }),
+  saveOpsCmaOverride: (data) => req("/facility-ops/cma/overrides", { method: "POST", body: JSON.stringify(data) }),
+  importOpsCmaRates: (facilityId, rows, commit = false) => req("/facility-ops/cma/import", { method: "POST", body: JSON.stringify({ facility_id: facilityId, rows, commit }), timeoutMs: 60_000 }),
+  getOpsCmaHistory: (facilityId, unitType) => req(`/facility-ops/cma/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  getOpsCmaReview: (facilityId) => req(`/facility-ops/cma/review?facility_id=${encodeURIComponent(facilityId)}`),
+  proposeOpsCmaPromo: (data) => req("/facility-ops/cma/promos", { method: "POST", body: JSON.stringify(data) }),
+  withdrawOpsCmaPromo: (id) => req(`/facility-ops/cma/promos/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  applyOpsCmaReview: (data) => req("/facility-ops/cma/review/apply", { method: "POST", body: JSON.stringify(data), timeoutMs: 180_000 }),
+  rejectOpsCmaReview: (data) => req("/facility-ops/cma/review/reject", { method: "POST", body: JSON.stringify(data) }),
+  markOpsCmaEntered: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/entered`, { method: "POST" }),
+  retryOpsCmaChange: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/retry`, { method: "POST", timeoutMs: 120_000 }),
+  revertOpsCmaChange: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/revert`, { method: "POST", timeoutMs: 120_000 }),
+  getOpsSettings: () => req("/facility-ops/settings"),
+  saveOpsSettings: (data) => req("/facility-ops/settings", { method: "PUT", body: JSON.stringify(data) }),
   // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
   getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
+  // Operations > Pricing Insights (Oct 20): ranked insights + sections from Cubby's pricing and the market. '' = every facility.
+  getOpsInsights: (facilityId) => req(`/facility-ops/insights?facility_id=${encodeURIComponent(facilityId || "")}`),
 
   // Dev
   getDevProjects: () => req("/dev-projects"),
@@ -1560,7 +1588,7 @@ export const api = {
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   // BOD/EOD location tag (Remote / site / Off-Site Punch) for a position.
-  timeWhere:         (pos)       => req(`/timeclock/where?lat=${encodeURIComponent(pos?.lat || '')}&lng=${encodeURIComponent(pos?.lng || '')}&accuracy_m=${pos?.accuracy_m || 0}`),
+  timeWhere:         (pos, off)  => req(`/timeclock/where?lat=${encodeURIComponent(pos?.lat || '')}&lng=${encodeURIComponent(pos?.lng || '')}&accuracy_m=${pos?.accuracy_m || 0}${off ? '&location_off=true' : ''}`),
   // My Teams chats, listed server-side via the session's Graph token (no MSAL popup).
   timeMyChats:       ()          => req('/timeclock/my-chats', { timeoutMs: 30000 }),
   // Channels of every team the caller is in - binding BOD/EOD to a channel (Oct 6).
@@ -2209,6 +2237,9 @@ export const api = {
   addSiteModelMarkup:     (id, body) => req(`/site-models/${encodeURIComponent(id)}/markups`, { method: 'POST', body: JSON.stringify(body) }),
   updateSiteModelMarkup:  (id, mid, body) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteSiteModelMarkup:  (id, mid) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'DELETE' }),
+  // Mark an Issue on the Map (Oct 20 2026): open tickets marked on a site map (staff), one ticket's spot.
+  getTicketMapSpots:      (modelId) => req(`/ticket-map-spots?model_id=${encodeURIComponent(modelId)}`),
+  getTicketMapSpot:       (ticketId) => req(`/ticket-map-spots/ticket/${encodeURIComponent(ticketId)}`),
   followPropertyTicket:   (id, ticketId) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/follow`, { method: 'POST' }),
   // Maintenance record + recurring services (Pranshu, 10/06).
   addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),
@@ -2399,6 +2430,8 @@ export const api = {
   // Tasks Home > Updates (Oct 14): what other people did lately on the tasks
   // I am assigned to or follow.
   getMyTaskActivity:   ({ limit = 30, days = 14 } = {}) => req(`/tasks/activity/mine?limit=${limit}&days=${days}`),
+  // Oct 21: the card was looked at; answers with the stamp it replaced.
+  markUpdatesSeen:     () => req('/tasks/activity/mine/seen', { method: 'POST' }),
   // Add Time (Oct 14): a manager adds a shift, or a run of them, for someone
   // who did not clock in right - the picker's day states, the batch (dry run
   // = the preview), and the undo of a batch.
@@ -2486,6 +2519,9 @@ export const api = {
   approvalDelegationRevoke:    (id)   => req(`/approval-delegations/${encodeURIComponent(id)}/revoke`, { method: 'POST' }),
   approvalDelegationsAll:      (includePast = false) => req(`/approval-delegations${includePast ? '?include_past=true' : ''}`),
   approvalDelegationCreateFor: (data) => req('/approval-delegations', { method: 'POST', body: JSON.stringify(data) }),
+  // Oct 20: who may cover (up or across only) + the delegator's upcoming
+  // approved time off - the only days a delegation may cover. HR passes whose.
+  approvalDelegationOptions:   (delegatorEmail = '') => req(`/approval-delegations/options${delegatorEmail ? `?delegator_email=${encodeURIComponent(delegatorEmail)}` : ''}`),
   // CA meal and rest breaks (Oct 17): the employee's Yes / No before signing,
   // the manager's premium lines, HR's meal waiver (backend/ca_breaks.py).
   timesheetBreakClaim:   (rid, data) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-claim`, { method: 'POST', body: JSON.stringify(data) }),
@@ -2534,6 +2570,7 @@ export const api = {
   opsRevenueSetStatus:  (id, status, note = '') => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/status`, { method: 'POST', body: JSON.stringify({ status, note }) }),
   opsRevenueRemoveChange: (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}`, { method: 'DELETE' }),
   opsRevenueEntered:    (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/entered`, { method: 'POST' }),
+  opsRevenuePush:       (id, cid, useCubbyDate = false) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/push`, { method: 'POST', body: JSON.stringify({ use_cubby_date: useCubbyDate }), timeoutMs: 60_000 }),
   opsRevenueExport:     (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/export`),
   opsRevenueLetters:    (id) => reqBlob(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/letters.pdf`),
   // Operations: stores another operator runs (CubeSmart, Oct 20 2026). Upload
@@ -2619,6 +2656,38 @@ export const api = {
   updateOpsReportSchedule: (id, data) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteOpsReportSchedule: (id) => req(`/ops-reports/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   sendOpsReportSchedule: (id, toMe = false) => req(`/ops-reports/schedules/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify({ to_me: toMe }) }),
+  // Unified Audit Log (Oct 20, Settings > Logs): every change across Nexus
+  // with who, Act As, and the field-by-field before/after. `params` are the
+  // screen's filters (module, actor, acting_as, action, q, from, to,
+  // include_system, cursor, limit); empty values are left out.
+  auditEvents: (params = {}) => req(`/audit/events?${new URLSearchParams(params).toString()}`),
+  auditEvent: (id) => req(`/audit/events/${encodeURIComponent(id)}`),
+  auditRecordHistory: (type, id) => req(`/audit/records/${encodeURIComponent(type)}/${encodeURIComponent(id)}/history`),
+  auditFacets: (params = {}) => req(`/audit/facets?${new URLSearchParams(params).toString()}`),
+  auditExport: (params = {}) => reqBlob(`/audit/export.csv?${new URLSearchParams(params).toString()}`, { timeoutMs: 120_000 }),
+  // People > Sync Employee Codes From Intacct (Charmi, Oct 21 2026): preview,
+  // apply the ticked rows, and the per-company nightly switch.
+  intacctCodesPreview: () => req('/hr/intacct-codes/preview', { timeoutMs: 60_000 }),
+  intacctCodesApply: (items) => req('/hr/intacct-codes/apply', { method: 'POST', body: JSON.stringify({ items }), timeoutMs: 60_000 }),
+  intacctCodesSettings: () => req('/hr/intacct-codes/settings'),
+  setIntacctCodesNightly: (companyId, nightly) => req('/hr/intacct-codes/settings', { method: 'PUT', body: JSON.stringify({ companyId, nightly }) }),
+  // Operations > Ops Budget (Oct 21 2026, routers/ops_budget.py): results vs
+  // budget and last year per site. Upload commit=false is a preview; true saves.
+  getOpsBudgetFacilities: () => req('/ops-budget/facilities'),
+  getOpsBudget: ({ facility, segment = 'self_storage', month = '', period = 'month' }) =>
+    req(`/ops-budget?${new URLSearchParams({ facility, segment, month, period })}`),
+  getOpsBudgetTrend: ({ facility, segment = 'self_storage', month = '', months = 24 }) =>
+    req(`/ops-budget/trend?${new URLSearchParams({ facility, segment, month, months: String(months) })}`),
+  uploadOpsBudget: (file, { facilityId = '', commit = false } = {}) => {
+    const fd = new FormData();
+    fd.append('file', file); fd.append('facility_id', facilityId); fd.append('commit', commit ? 'true' : 'false');
+    return req('/ops-budget/upload', { method: 'POST', body: fd, timeoutMs: 120_000 });
+  },
+  getOpsBudgetLoads: (facility = '') => req(`/ops-budget/loads?${new URLSearchParams({ facility })}`),
+  getOpsBudgetLoadFile: (id) => reqBlob(`/ops-budget/loads/${encodeURIComponent(id)}/file`),
+  runOpsBudgetSnapshot: () => req('/ops-budget/snapshot', { method: 'POST', timeoutMs: 120_000 }),
+  // Operations > Customer Map (Oct 21 2026, routers/ops_customer_map.py): rounded points, counts only.
+  getOpsCustomerMap: ({ facility = 'all', state = '' } = {}) => req(`/facility-ops/customer-map?${new URLSearchParams({ facility, state })}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

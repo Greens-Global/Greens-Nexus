@@ -7,11 +7,11 @@ HAND and marks them entered here; each mark is a row in `ops_rate_pushes`
 (status "entered") - the history of OUR rates. (Rows from before Oct 20 2026
 carry the old ok / failed / skipped statuses; they stay as history.)
 
-Nexus NEVER writes to Cubby (Visesh, Oct 20 2026: "we don't want anything to
-push to cubby"). This module only READS Cubby's pricing groups
-(`pricing-groups/search`). Do not add a call to `pricing-groups/change-rates`
-or any other Cubby write: staff change rates in Cubby, using the review and
-the printable checklist.
+This module only READS Cubby's pricing groups (`pricing-groups/search`);
+`_call` refuses any other path. The one write (`pricing-groups/change-rates`)
+lives in ops_cubby_push.py behind the Operations "Push to Cubby" switch, OFF
+by default (Visesh, Oct 20-21 2026). While it is off, staff change rates in
+Cubby by hand, using the review and the printable checklist.
 
 Words on the screen, in Cubby's terms:
   Set     the pricing group's standardRate (the in-store rate)
@@ -26,18 +26,31 @@ actually sell at. No second calculation path.
 Pure functions up top (the tests feed them fixed rows); the Cubby read at the
 bottom is the only I/O, and it is blocking - call it in a thread.
 """
+import math
 import re
 import threading
 import time
+from datetime import date
 
 import httpx
 
 import cubby
+import ops_market
 
 GROUPS_TTL = 300.0           # a screen read of the pricing groups is at most 5 minutes old
 VEHICLE = "Vehicle Storage"
 SELF = "Self-Storage"
 CATEGORIES = (SELF, VEHICLE)
+
+# The plain-language summary (Visesh, Oct 20 2026: "which competitor and all
+# that data and what are we lacking").
+STALE_DAYS = 30              # a competitor rate older than this is flagged as old (it still counts until FRESH_DAYS)
+THIN_COMPETITORS = 3         # fewer competitor rates than this for a size and the median can swing on one price
+AT_MARKET = 0.03             # within 3% of the median reads "At Market"
+ODD_CENTS = 100              # a Sell rate of $1 or less is a placeholder, not a price
+ODD_SET_GAP = 0.5            # Sell more than 50% away from Set looks like a typo
+# The occupancy bands of ops_market._BANDS, as short words for the reason chip.
+_BAND_WORDS = ((0.92, "Nearly Full"), (0.85, "Healthy"), (0.70, "Some Vacancy"), (0.0, "Vacancy"))
 
 
 # ── Pure ──────────────────────────────────────────────────────────────────────
@@ -91,63 +104,242 @@ def plan(old_set: int | None, old_sell: int, proposed: int, proposed_set: int | 
     return {"newSell": proposed, "newSet": max(new_set, 0)}
 
 
-def build_rows(unit_types: list[dict], market_rows: list[dict], idx: dict, drafts: dict[str, dict]) -> list[dict]:
-    """One row per unit type, in the screen's order (category, then size)."""
+def build_rows(unit_types: list[dict], market_rows: list[dict], idx: dict, drafts: dict[str, dict],
+               cma: dict[str, dict] | None = None, vacancy: dict[str, dict] | None = None) -> list[dict]:
+    """One row per unit type, in the screen's order (category, then size).
+
+    `cma` is {unit type: ops_cma.pick_comps(...)} - the CMA market set (low /
+    high / AVG from one set, closed competitors out, nearest size, staff
+    matches, locked overrides). Variance, the suggestion (the briefing's rule,
+    ops_cma.suggest) and the revenue delta (x OCCUPIED units) all come from
+    it. `market_rows` (ops_market.compare) still gives the median for
+    reference. `vacancy` is ops_cma.days_vacant."""
+    import ops_cma
+    cma = cma or {}
+    vacancy = vacancy or {}
     by_name = {r["name"]: r for r in market_rows}
     rows = []
     for t in unit_types:
         g = idx.get(t["name"])
         m = by_name.get(t["name"]) or {}
+        c = cma.get(t["name"]) or {"comps": [], "low": None, "high": None, "avg": None, "count": 0, "nearest": ""}
         sell = sell_of(g)
         if sell is None:
             sell = t.get("street") or 0
         total = t.get("total") or 0
-        median = m.get("marketMedian")
+        rented = t.get("rented") or 0
+        avg = c["avg"]
         d = drafts.get(t["name"])
         proposed = d["proposed"] if d else None
         p = plan(g.get("standardRate") if g else None, sell, proposed, d.get("proposedSet")) if d else None
-        variance = sell - median if (median is not None and sell) else None
-        rows.append({
+        variance = sell - avg if (avg is not None and sell) else None
+        offline_only = bool(total) and (t.get("unavailable") or 0) == total
+        occupancy = round(rented / total, 4) if total else 0
+        suggested, why, move = ops_cma.suggest(sell, avg, occupancy, c["count"], total, offline_only)
+        if suggested is not None and sell <= ODD_CENTS:
+            suggested, why, move = None, "Our Sell rate looks like a placeholder. Fix it in Cubby first, then compare.", "none"
+        comps = c["comps"]
+        promos = [x for x in comps if x.get("promo")]
+        fees = sorted(x["adminFee"] for x in comps if x.get("adminFee"))
+        vac = vacancy.get(t["name"]) or {}
+        row = {
             "name": t["name"], "category": category(t, g),
             "groupId": (g or {}).get("pricingGroupId") or "",
             "ambiguous": t["name"] in idx and idx[t["name"]] is None,
             "width": t.get("width") or 0, "depth": t.get("depth") or 0, "parking": bool(t.get("parking")),
-            "total": total, "rented": t.get("rented") or 0, "vacant": t.get("vacant") or 0,
+            "total": total, "rented": rented, "vacant": t.get("vacant") or 0,
             "offline": t.get("unavailable") or 0,
-            "occupancy": round((t.get("rented") or 0) / total, 4) if total else 0,
+            "occupancy": occupancy,
+            "avgDaysVacant": vac.get("avg"), "daysVacantKnown": vac.get("known", 0),
+            "avgRent": round((t.get("rentSum") or 0) / rented) if rented else None,
             "set": g.get("standardRate") if g else (t.get("street") or 0),
             "sell": sell,
+            "webRate": g.get("webRate") if g else None,
             "walkIn": g.get("walkInRate") if g else None,
             "valuePricing": (g or {}).get("valuePricingStatus") or "",
-            "competitors": m.get("competitors", 0),
-            "marketLow": m.get("marketLow"), "marketHigh": m.get("marketHigh"), "marketMedian": median,
-            "lowestBy": m.get("lowestBy", ""), "newestObservation": m.get("newestObservation", ""),
-            "sources": m.get("sources", []),
+            "competitors": c["count"],
+            "marketLow": c["low"], "marketHigh": c["high"], "marketAvg": avg,
+            "marketMedian": m.get("marketMedian"),
+            "nearestSize": c["nearest"],
+            "lowestBy": min(comps, key=lambda x: x["rate"])["competitor"] if comps else "",
+            "newestObservation": max((x["observedOn"] for x in comps), default=""),
+            "sources": sorted({x["source"] for x in comps}),
+            "promoCount": len(promos), "promoBy": [x["competitor"] for x in promos],
+            "adminFeeLow": fees[0] if fees else None, "adminFeeHigh": fees[-1] if fees else None,
             "variance": variance,
-            "variancePct": round(variance / median, 4) if variance is not None and median else None,
-            "suggested": m.get("suggested"), "why": m.get("why") or "No competitor rate on file for this size.",
+            "variancePct": round(variance / avg, 4) if variance is not None and avg else None,
+            "suggested": suggested, "why": why, "move": move,
+            "offlineOnly": offline_only,
+            "hasWeb": bool(g and g.get("webRate") is not None),
+            "hasWalkIn": bool(g and g.get("walkInRate") is not None),
             "draft": d,
             "proposed": proposed,
             "proposedSet": p["newSet"] if p else None,
-            "revDelta": (proposed - sell) * (t.get("vacant") or 0) if proposed is not None else 0,
+            "revDelta": (proposed - sell) * rented if proposed is not None else 0,
             "ready": bool(d and (g or {}).get("pricingGroupId") and (proposed != sell or p["newSet"] != (g or {}).get("standardRate"))),
-        })
+        }
+        row["algorithmWebRate"] = ops_cma.algorithm_web_rate(row)
+        rows.append(row)
+    for r in rows:
+        r["position"] = position(r)
+        r["reason"], r["held"] = reason(r)
+        r["suggestedDelta"] = (r["suggested"] - r["sell"]) * r["rented"] if r["suggested"] is not None else 0
     order = {c: i for i, c in enumerate(CATEGORIES)}
     rows.sort(key=lambda r: (order.get(r["category"], 9), r["width"] * r["depth"] or 1e9, r["name"]))
     return rows
 
 
+def position(row: dict) -> str:
+    """Where our Sell rate sits: below | at | above the market AVERAGE, none
+    (no market rate for the size) or offline (nothing to price)."""
+    if row.get("offlineOnly"):
+        return "offline"
+    if row.get("variancePct") is None:
+        return "none"
+    if abs(row["variancePct"]) <= ops_cma_at():
+        return "at"
+    return "below" if row["variancePct"] < 0 else "above"
+
+
+def ops_cma_at() -> float:
+    import ops_cma
+    return ops_cma.AT_MARKET
+
+
+def reason(row: dict) -> tuple[str, bool]:
+    """(short reason chip, False): "Raise", "Lower" or "Hold" from the CMA
+    rule (ops_cma.suggest). The full sentence stays in `why`. The second
+    value is kept for the screen (the old 10% step no longer applies)."""
+    move = row.get("move")
+    if row.get("suggested") is None or move not in ("raise", "lower", "hold"):
+        return "", False
+    return {"raise": "Raise", "lower": "Lower", "hold": "Hold"}[move], False
+
+
+def distance_miles(stored, origin: tuple | None, lat, lng) -> float | None:
+    """A competitor's distance: the one recorded on it, else straight-line
+    miles from our facility when both points are known, else None."""
+    if stored:
+        return round(float(stored), 1)
+    if not origin or origin[0] is None or origin[1] is None or lat is None or lng is None:
+        return None
+    la1, lo1, la2, lo2 = map(math.radians, (origin[0], origin[1], lat, lng))
+    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
+    return round(3958.8 * 2 * math.asin(math.sqrt(h)), 1)
+
+
+def size_comps(unit_type: dict, observations: list[dict], competitors: dict[str, dict], today: date) -> list[dict]:
+    """Competitor by competitor for one unit type: the same newest-fresh
+    observation per competitor that ops_market.compare takes the low / median
+    / high from (same size key, same climate preference, active competitors
+    only), cheapest first. `competitors` is {id: {"name", "distanceMiles"}}.
+    `observations` carry ops_market's keys plus online_cents / promo_cents /
+    promo / space_type when the source gave them."""
+    if not unit_type.get("width") or not unit_type.get("depth"):
+        return []
+    market = ops_market.latest_rates(observations, today, ops_market.unit_climate(unit_type.get("name")))
+    key = ops_market.size_key(unit_type["width"], unit_type["depth"], bool(unit_type.get("parking")))
+    out = []
+    for cid, o in (market.get(key) or {}).items():
+        c = competitors.get(cid)
+        if not c:
+            continue
+        try:
+            age = (today - date.fromisoformat(o["observed_on"])).days
+        except (TypeError, ValueError):
+            age = None
+        out.append({
+            "competitorId": cid, "competitor": c.get("name") or "", "distanceMiles": c.get("distanceMiles"),
+            "rate": o["rate_cents"], "online": o.get("online_cents"), "promoRate": o.get("promo_cents"),
+            "promo": o.get("promo") or "", "observedOn": o["observed_on"], "ageDays": age,
+            "stale": age is not None and age > STALE_DAYS, "source": o.get("source") or "manual",
+            "climate": o.get("climate"), "spaceType": o.get("space_type") or "",
+        })
+    out.sort(key=lambda x: (x["rate"], x["distanceMiles"] is None, x["distanceMiles"] or 0, x["competitor"]))
+    return out
+
+
+def headline(rows: list[dict]) -> dict:
+    """The summary's numbers: how many unit types sit below / at / above the
+    market, and what taking every Suggested rate is worth a month (x occupied
+    units - the same rule as Rev. Change / Mo)."""
+    pos = [r["position"] for r in rows]
+    raises = sum(r["suggestedDelta"] for r in rows if r["suggestedDelta"] > 0)
+    cuts = sum(r["suggestedDelta"] for r in rows if r["suggestedDelta"] < 0)
+    return {
+        "below": pos.count("below"), "at": pos.count("at"), "above": pos.count("above"),
+        "noMarket": pos.count("none"), "offline": pos.count("offline"),
+        "suggestions": sum(1 for r in rows if r["suggested"] is not None and r["suggested"] != r["sell"]),
+        "upside": raises + cuts, "raises": raises, "cuts": cuts,
+    }
+
+
+def gaps(rows: list[dict], comps_by_name: dict[str, list[dict]], groups_ok: bool = True,
+         competitors: list[dict] | None = None) -> list[dict]:
+    """What the comparison is missing, each with the unit types it touches
+    (in full) and what to do about it. Empty lists are left out."""
+    live = [r for r in rows if not r.get("offlineOnly")]
+    sized = [r for r in live if r.get("width") and r.get("depth")]
+    out = []
+    first = ("odd", "no_market", "thin", "stale", "no_web_walkin", "no_distance", "ambiguous", "no_size", "offline")
+
+    def add(key, title, items, action):
+        if items:
+            out.append({"key": key, "title": title, "count": len(items), "items": items, "action": action})
+
+    add("no_size", "No Size in Cubby", [r["name"] for r in live if not (r.get("width") and r.get("depth"))],
+        "Competitor rates match by size. Give these a width and depth in Cubby, or leave them (mailboxes and the like have no market).")
+    add("no_market", "No Competitor Rate", [r["name"] for r in sized if not r["competitors"]],
+        "Add a competitor rate for these sizes by hand under Manage Competitors, or ask StorTrack to cover them.")
+    add("thin", f"Fewer Than {THIN_COMPETITORS} Competitors",
+        [f"{r['name']} ({r['competitors']})" for r in sized if 0 < r["competitors"] < THIN_COMPETITORS],
+        "One price can swing the median. Record rates from more competitors for these sizes.")
+    stale = []
+    for r in sized:
+        old = [c for c in comps_by_name.get(r["name"], []) if c["stale"]]
+        if old:
+            stale.append(f"{r['name']} ({len(old)} of {len(comps_by_name[r['name']])})")
+    add("stale", f"Competitor Rates Older Than {STALE_DAYS} Days", stale,
+        "Click Refresh Websites, or record newer rates by hand. Old rates still count until they are "
+        f"{ops_market.FRESH_DAYS} days old.")
+    odd = []
+    for r in rows:
+        if not r["total"]:
+            continue
+        sell, set_ = r["sell"] or 0, r.get("set") or 0
+        if sell <= ODD_CENTS:
+            odd.append(f"{r['name']} (Sell ${sell / 100:,.2f})")
+        elif set_ and abs(sell - set_) / set_ > ODD_SET_GAP:
+            odd.append(f"{r['name']} (Sell ${sell / 100:,.2f} vs Set ${set_ / 100:,.2f})")
+    add("odd", "Our Rates That Look Wrong", odd,
+        "Check these pricing groups in Cubby: a $0 or $0.01 rate is a placeholder, and Sell should sit near Set.")
+    if groups_ok:
+        add("no_web_walkin", "No Walk-In or Web Rate",
+            [f"{r['name']} ({' and '.join(x for x, ok in (('Walk-In', r.get('hasWalkIn')), ('Web', r.get('hasWeb'))) if not ok)})"
+             for r in live if r.get("groupId") and not (r.get("hasWalkIn") and r.get("hasWeb"))],
+            "Set the missing rate on these pricing groups in Cubby. Without a Web rate, Sell is the Set rate.")
+    add("no_distance", "Competitors With No Distance",
+        [c["name"] for c in competitors or [] if c.get("distanceMiles") is None],
+        "Add each one's address or distance under Manage Competitors so you can tell which are closest.")
+    add("ambiguous", "Two Cubby Pricing Groups Share a Name", [r["name"] for r in rows if r.get("ambiguous")],
+        "Rename one of them in Cubby so it can be priced here.")
+    add("offline", "Offline Only", [f"{r['name']} ({r['offline']})" for r in rows if r.get("offlineOnly")],
+        "These are offline units - nothing to price.")
+    out.sort(key=lambda g: first.index(g["key"]))
+    return out
+
+
 def kpis(rows: list[dict]) -> dict:
     """The four cards above the table (the competitive set card is the router's)."""
-    rateable = [r for r in rows if r["marketMedian"] and r["sell"]]
+    rateable = [r for r in rows if r["marketAvg"] and r["sell"] and not r.get("offlineOnly")]
     sell_sum = sum(r["sell"] for r in rateable)
-    med_sum = sum(r["marketMedian"] for r in rateable)
+    med_sum = sum(r["marketAvg"] for r in rateable)
     total = sum(r["total"] for r in rows)
     rented = sum(r["rented"] for r in rows)
     return {
         "vsMarket": round(sell_sum / med_sum - 1, 4) if med_sum else None,
         "rateable": len(rateable),
-        "belowMarket": sum(1 for r in rateable if r["sell"] < r["marketMedian"]),
+        "belowMarket": sum(1 for r in rateable if r["sell"] < r["marketAvg"]),
         "occupancy": round(rented / total, 4) if total else 0,
         "units": total, "rented": rented, "offline": sum(r["offline"] for r in rows),
         "ready": sum(1 for r in rows if r["ready"]),
@@ -178,8 +370,8 @@ def attention(rows: list[dict], groups_error: str = "") -> list[str]:
 # ── Cubby (blocking I/O) ──────────────────────────────────────────────────────
 
 def _call(path: str, body: dict) -> dict:
-    """One Cubby READ (a `*/search`), with the body as given. Nexus never
-    writes to Cubby - do not route a write through here."""
+    """One Cubby READ (a `*/search`), with the body as given. Never route a
+    write through here - writes go through ops_cubby_push (behind the switch)."""
     if not path.endswith("/search"):
         raise ValueError(f"Nexus only reads from Cubby; {path} is not a search")
     try:

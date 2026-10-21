@@ -797,6 +797,14 @@ class AuditLog(Base):
     ip_address    = Column(String, default="")
     undone_at     = Column(String, default="")    # set when this change was reverted via the audit-log Undo
     undone_by     = Column(String, default="")    # email of whoever undid it
+    # Unified audit log (Oct 20 2026, audit_capture.py / routers/audit_events.py).
+    # request_id joins the field-level rows in audit_changes; module / kind /
+    # acting_as are filled for new rows so the feed can filter on them with an
+    # index instead of re-deriving them per row ('' on rows from before).
+    request_id    = Column(String, default=lambda: _audit_request_id())
+    module        = Column(String, default="")
+    kind          = Column(String, default="")    # create|update|delete|comment|login|denied|view|other
+    acting_as     = Column(String, default="")    # the Act As target, '' when not acting
 
 
 class NexusEmployee(Base):
@@ -6095,6 +6103,16 @@ class OpsCompetitor(Base):
     # "name|street|zip" normalized, set on a competitor the feed added or
     # matched, so the next import finds it again.
     stortrack_key   = Column(String, default="", index=True)
+    # CMA (Miranda, Oct 21 2026, ops_cma.py). A CLOSED competitor is kept for
+    # history but counts nowhere: closing sets `active` false too, so every
+    # market figure already leaves it out; `closed` tells it apart from one
+    # that was just removed. `price_source` "manual" = only staff-entered
+    # rates count for it (website / StorTrack reads are ignored).
+    closed          = Column(Boolean, default=False)
+    closed_note     = Column(String, default="")
+    price_source    = Column(String, default="")    # "" = website and manual | "manual" = manual only
+    phone           = Column(String, default="")
+    property_type   = Column(String, default="")    # "Self-Storage & RV Storage"
 
 
 class OpsCompetitorRate(Base):
@@ -6124,6 +6142,15 @@ class OpsCompetitorRate(Base):
     drive_up      = Column(Boolean)
     elevator      = Column(Boolean)
     space_type    = Column(String, default="")
+    # CMA (Oct 21 2026, ops_cma.py): a manual survey row or a locked override.
+    # source "override" = staff replaced a website price; it beats newer
+    # website / StorTrack reads for that size until `locked_until` passes.
+    survey_id         = Column(String, default="", index=True)
+    their_size        = Column(String, default="")    # as quoted: "8 x 10"
+    matched_unit_type = Column(String, default="")    # our unit type (Cubby pricing group) staff matched it to
+    size_note         = Column(String, default="")    # "Nearest size ..."
+    locked_until      = Column(String, default="")    # YYYY-MM-DD
+    override_reason   = Column(String, default="")
 
 
 # ---------------------------------------------------------------------------
@@ -6148,6 +6175,16 @@ class SiteModelMarkup(Base):
     ticket_id   = Column(String, default="")
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
+    # Mark an Issue on the Map (Charmi, Oct 20 2026 - ticket_map_spot.py): a
+    # ticket's spot is one of these rows (ticket_id set) - the circle's radius
+    # in meters (0 = a point), the free-hand outline as JSON [[u, v], ...], the
+    # spot on the globe from the model's geo frame, and "Near C214, Building C".
+    radius      = Column(Float, default=0.0)
+    outline     = Column(Text, default="")
+    lat         = Column(Float, nullable=True)
+    lng         = Column(Float, nullable=True)
+    place       = Column(String, default="")
+    updated_at  = Column(String, default="")   # site_models.py has always written it
 
 
 class WeatherOutlook(Base):
@@ -6256,6 +6293,10 @@ class NexusPersonPref(Base):
     # mode's default: on for roster supervisors, off under legacy), 1 = on,
     # 0 = off. No column default on purpose. ALTER lines in main.py.
     ticket_weekly_report = Column(Integer, nullable=True, default=None)
+    # Tasks Home > Updates (Neil, Oct 21 2026): when this person last looked
+    # at the card, so it can mark what arrived since - on the server so a
+    # phone and a desktop agree. ALTER lines in main.py.
+    updates_seen_at = Column(String, default="")
 
 
 class TaskAutomationRun(Base):
@@ -7257,3 +7298,246 @@ class OpsReportSchedule(Base):
     last_error       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+
+
+
+# ── Operations > Pricing Insights (Visesh, Oct 20 2026, cubby_pricing.py / ops_insights.py) ──
+# Cubby's pricing side, copied READ-ONLY on the 15-minute sync. Cubby has no
+# webhooks, so "every time it changes" = each sync compares and keeps a row
+# only when a value moved. New tables - create_all builds them; explicit RLS
+# lines in main.py on top of _enable_rls_everywhere.
+
+class CubbyPricingGroup(Base):
+    """One Cubby pricing group (a unit type) as of the last sync. `active`
+    false = Cubby no longer lists it (its history stays)."""
+    __tablename__ = "cubby_pricing_groups"
+    id                    = Column(String, primary_key=True)          # "<facility_id>:<pricingGroupId>"
+    facility_id           = Column(String, index=True, nullable=False)
+    pricing_group_id      = Column(String, default="")
+    name                  = Column(String, default="")
+    width                 = Column(Float, default=0)
+    depth                 = Column(Float, default=0)
+    area                  = Column(Float, default=0)                  # square feet
+    parking               = Column(Boolean, default=False)
+    vehicle_storage       = Column(Boolean, default=False)
+    climate               = Column(Boolean)                           # from Cubby's features; None = not said
+    standard_cents        = Column(Integer)                           # standardRate (Set / street)
+    web_cents             = Column(Integer)                           # webRate (Sell)
+    walk_in_cents         = Column(Integer)                           # walkInRate
+    strike_cents          = Column(Integer)                           # strikethroughRate
+    value_pricing_id      = Column(String, default="")
+    value_pricing_status  = Column(String, default="")
+    available_units       = Column(Integer, default=0)
+    rentable_units        = Column(Integer, default=0)
+    discount_ids          = Column(JSON, default=list)                # discounts assigned to the group
+    features              = Column(JSON, default=list)
+    active                = Column(Boolean, default=True)
+    first_seen_at         = Column(String, default="")                # UTC iso
+    last_changed_at       = Column(String, default="")                # UTC iso of the last rate change Nexus saw; '' = none since tracking began
+    synced_at             = Column(String, default="")
+
+
+class CubbyDiscount(Base):
+    """A Cubby discount (Pricing > Discount strategies): its terms and the
+    pricing groups it is offered on. Organization-wide in Cubby."""
+    __tablename__ = "cubby_discounts"
+    discount_id          = Column(String, primary_key=True)
+    name                 = Column(String, default="")
+    type                 = Column(String, default="")                 # ONE_TIME | PERIODIC | PERPETUAL
+    status               = Column(String, default="")                 # PUBLISHED | ...
+    active               = Column(Boolean, default=True)
+    application_method   = Column(String, default="")                 # AMOUNT_DEDUCTED | PERCENT_DEDUCTED | ...
+    amount_cents         = Column(Integer)
+    percentage           = Column(Float)
+    start_after_months   = Column(Integer)
+    discounted_months    = Column(Integer)
+    pricing_groups       = Column(JSON, default=list)                 # [{pricingGroupId, name, visibility}]
+    facility_ids         = Column(JSON, default=list)
+    synced_at            = Column(String, default="")
+
+
+class CubbyValuePricingStrategy(Base):
+    """A Cubby value pricing strategy (tiered unit pricing) and its tiers."""
+    __tablename__ = "cubby_value_pricing_strategies"
+    strategy_id = Column(String, primary_key=True)
+    name        = Column(String, default="")
+    tiers       = Column(JSON, default=list)
+    synced_at   = Column(String, default="")
+
+
+class CubbyRateHistory(Base):
+    """One change to one of OUR pricing group rates, seen by the sync. Rows
+    are only ever added - written only when a value moved, so the newest row
+    per group and field is "Last Changed" and the rest is the trend."""
+    __tablename__ = "cubby_rate_history"
+    id               = Column(String, primary_key=True)               # uuid
+    facility_id      = Column(String, index=True, nullable=False)
+    pricing_group_id = Column(String, index=True, default="")
+    group_name       = Column(String, default="")
+    field            = Column(String, default="")                     # standardRate | webRate | walkInRate | strikethroughRate | active
+    old_value        = Column(Integer)                                # cents (active: 1 / 0); None = not set
+    new_value        = Column(Integer)
+    changed_at       = Column(String, default="", index=True)         # UTC iso of the sync that saw it
+    changed_on       = Column(String, default="")                     # facility-local YYYY-MM-DD
+
+
+class CubbyRentChange(Base):
+    """An existing-customer rate increase (ECRI) Cubby has scheduled on a
+    lease, tracked from the first sync that saw it: scheduled -> applied (the
+    date passed) or canceled (it disappeared before the date). Lease, unit and
+    money only - the tenant's name is read from the rent roll when shown."""
+    __tablename__ = "cubby_rent_changes"
+    id               = Column(String, primary_key=True)               # "<facility_id>:<leaseId>:<YYYY-MM-DD>"
+    facility_id      = Column(String, index=True, nullable=False)
+    lease_id         = Column(String, index=True, default="")
+    unit_id          = Column(String, default="")
+    pricing_group_id = Column(String, default="")
+    old_cents        = Column(Integer, default=0)                     # rent when the change was first seen
+    new_cents        = Column(Integer, default=0)
+    effective_date   = Column(String, default="", index=True)         # YYYY-MM-DD
+    status           = Column(String, default="scheduled")            # scheduled | applied | canceled
+    first_seen_at    = Column(String, default="")
+    updated_at       = Column(String, default="")
+# ── Unified audit log (Oct 20 2026) ───────────────────────────────────────────
+def _audit_request_id() -> str:
+    import audit_capture
+    return audit_capture.current_request_id()
+
+
+class AuditChange(Base):
+    """One row per database row a change touched: the table, its primary key
+    and {field: {b: before, a: after}} (inserts carry after only, deletes
+    before only; "bu" marks a before value the ORM never loaded, "r" a value
+    redacted at write time). Written by audit_capture.py's flush listener in
+    the same transaction as the change. request_id joins audit_logs. New
+    table - create_all builds it; RLS line in main.py + the startup sweep, run
+    get_advisors at release."""
+    __tablename__ = "audit_changes"
+    __table_args__ = (Index("ix_audit_changes_record", "table_name", "record_id"),)
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    request_id = Column(String, default="", index=True)
+    at         = Column(String, default="", index=True)      # UTC ISO, ...Z
+    actor      = Column(String, default="", index=True)      # real person, or "system"
+    acting_as  = Column(String, default="")
+    module     = Column(String, default="", index=True)
+    table_name = Column(String, default="")
+    record_id  = Column(String, default="")
+    op         = Column(String, default="")                  # insert|update|delete|bulk_update|bulk_delete|bulk
+    changes    = Column(Text, default="")                    # JSON
+    summary    = Column(String, default="")                  # the record's label at the time
+    source     = Column(String, default="")                  # "PATCH /tasks/1" or the background job
+
+
+# ── Operations > Rate Management / CMA (Miranda, Oct 21 2026, ops_cma.py) ───
+# New tables - create_all builds them; explicit RLS lines in main.py (and
+# enable RLS on dev and prod at release).
+
+class OpsCmaSurvey(Base):
+    """One manual competitor survey (a phone call, drive-by, walk-in / mystery
+    shop, flyer / signage): who, when, how, the special, the admin fee and the
+    insurance. Its rates are OpsCompetitorRate rows with this survey_id."""
+    __tablename__ = "ops_cma_surveys"
+    id              = Column(String, primary_key=True)
+    facility_id     = Column(String, index=True, nullable=False)
+    competitor_id   = Column(String, index=True, nullable=False)
+    survey_date     = Column(String, default="")          # YYYY-MM-DD
+    method          = Column(String, default="")          # phone | drive_by | walk_in | flyer
+    surveyed_by     = Column(String, default="")
+    special         = Column(String, default="")
+    admin_fee_cents = Column(Integer)
+    insurance       = Column(String, default="")          # "$12 / month, required"
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+
+
+class OpsCmaChange(Base):
+    """A change decided in Review & Push (the briefing's rate_change_request):
+    a rate change for one pricing group, or a promotion (Cubby: discount) to
+    add or end. Who proposed and approved it, the guardrail checks, how it
+    reached Cubby (pushed with read-back, or entered by hand) and its revert."""
+    __tablename__ = "ops_cma_changes"
+    id                 = Column(String, primary_key=True)
+    request_id         = Column(String, index=True, default="")   # one Approve click - idempotent
+    facility_id        = Column(String, index=True, nullable=False)
+    kind               = Column(String, default="rate")            # rate | promo_add | promo_end
+    unit_type          = Column(String, default="")                # rate: the pricing group name
+    pricing_group_id   = Column(String, default="")
+    old_web_cents      = Column(Integer)
+    new_web_cents      = Column(Integer)
+    old_standard_cents = Column(Integer)
+    new_standard_cents = Column(Integer)
+    promo              = Column(JSON, default=dict)                # name, calculation, amount, periods, start, end, unitTypes
+    reason             = Column(String, default="")
+    effective_date     = Column(String, default="")                # YYYY-MM-DD
+    affects            = Column(String, default="")
+    status             = Column(String, default="proposed", index=True)  # proposed | approved | pushed | entered | failed | rejected | reverted
+    needs_owner        = Column(Boolean, default=False)
+    guard_notes        = Column(JSON, default=list)
+    proposed_by        = Column(String, default="")
+    proposed_at        = Column(String, default="")
+    approver_role      = Column(String, default="")                # ops_manager | owner
+    approved_by        = Column(String, default="")
+    approved_at        = Column(String, default="")
+    send_mode          = Column(String, default="")                # effective | immediate
+    note               = Column(String, default="")
+    cubby_detail       = Column(String, default="")                # Cubby's answer / the read-back result
+    readback_web_cents      = Column(Integer)
+    readback_standard_cents = Column(Integer)
+    done_by            = Column(String, default="")                # pushed or marked entered by
+    done_at            = Column(String, default="", index=True)
+    revert_of          = Column(String, default="")                # the change this one reverts
+    reverted_by        = Column(String, default="")
+    reverted_at        = Column(String, default="")
+
+
+class OpsCmaSnapshot(Base):
+    """One unit type's CMA figures on one day (the first view of the day
+    writes it): our rates, in-place rent, occupancy and the market - Rate
+    History's trend lines."""
+    __tablename__ = "ops_cma_snapshots"
+    id                = Column(String, primary_key=True)          # "<facility>:<day>:<unit type>"
+    facility_id       = Column(String, index=True, nullable=False)
+    day               = Column(String, default="", index=True)    # facility-local YYYY-MM-DD
+    unit_type         = Column(String, default="")
+    sell_cents        = Column(Integer)
+    standard_cents    = Column(Integer)
+    avg_rent_cents    = Column(Integer)
+    total             = Column(Integer, default=0)
+    occupied          = Column(Integer, default=0)
+    market_low_cents  = Column(Integer)
+    market_high_cents = Column(Integer)
+    market_avg_cents  = Column(Integer)
+    comps             = Column(Integer, default=0)
+    source            = Column(String, default="nexus")           # nexus | workbook
+
+
+class OpsCmaEvent(Base):
+    """Rate History's change log entries Nexus itself makes: a survey saved, a
+    competitor closed or reopened, a price override, an import, a change
+    approved / pushed / entered / reverted. (Cubby rate changes come from
+    cubby_rate_history; website reads from ops_competitor_rates.)"""
+    __tablename__ = "ops_cma_events"
+    id          = Column(String, primary_key=True)
+    facility_id = Column(String, index=True, nullable=False)
+    at          = Column(String, default="", index=True)            # UTC iso
+    kind        = Column(String, default="")                        # manual | comp_set | cubby | website | import
+    unit_type   = Column(String, default="")                        # "" = the whole facility
+    text        = Column(String, default="")
+    by          = Column(String, default="")
+
+
+class OpsCustomerPoint(Base):
+    """Operations > Customer Map (Neil, Oct 21 2026, ops_customer_geo.py): where
+    one current customer of one facility sits on the map, rounded to about
+    100 m (3 decimals). NO address, name, phone or email - only the point,
+    how it was placed, and a fingerprint that says whether Cubby's address
+    changed since. New table - explicit RLS line in main.py."""
+    __tablename__ = "ops_customer_points"
+    id          = Column(String, primary_key=True)                 # "<facility_id>:<customer_id>"
+    facility_id = Column(String, index=True, nullable=False)
+    customer_id = Column(String, default="")
+    lat         = Column(Float)                                    # rounded to 3 decimals; None = missing
+    lng         = Column(Float)
+    precision   = Column(String, default="missing")                # street | zip | missing
+    fingerprint = Column(String, default="")                       # sha256 of the normalized address
+    geocoded_at = Column(String, default="")                       # UTC iso

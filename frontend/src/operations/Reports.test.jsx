@@ -199,7 +199,8 @@ describe('Operations > Reports', () => {
     api.createOpsReportSchedule.mockImplementation((b) => Promise.resolve({ schedule: { id: 's2', ...b } }));
     confirm.mockResolvedValue(true);
     renderReports();
-    fireEvent.click(await screen.findByRole('tab', { name: 'Scheduled (1)' }));
+    await screen.findByRole('option', { name: 'Scheduled (1)' });
+    fireEvent.change(screen.getByLabelText('View'), { target: { value: 'scheduled' } });
     expect(await screen.findByText('Every Monday at 8:00 AM')).toBeTruthy();
     expect(await screen.findByText('Neil Kadakia')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Send Now/ }));
@@ -233,7 +234,8 @@ describe('Operations > Reports', () => {
     api.opsReportSchedules.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }));
     renderReports();
     expect(await screen.findByRole('button', { name: 'Schedule Rent Roll' })).toHaveProperty('disabled', true);
-    fireEvent.click(screen.getByRole('tab', { name: 'Scheduled' }));
+    expect(screen.getByRole('option', { name: 'Scheduled' })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('View'), { target: { value: 'scheduled' } });
     expect(await screen.findByText('Scheduled report emails are not switched on yet.')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
   });
@@ -247,8 +249,8 @@ describe('Operations > Reports', () => {
     });
     api.createOpsSavedReport.mockImplementation((body) => Promise.resolve({ report: { id: 'r1', ...body, mine: true, canEdit: true, owner: 'me' } }));
     renderReports();
-    fireEvent.click(await screen.findByRole('tab', { name: 'Report Builder' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Rent per Occupied Sq Ft' }));     // a starting point
+    fireEvent.change(await screen.findByLabelText('View'), { target: { value: 'builder' } });
+    fireEvent.change(await screen.findByLabelText('Start From'), { target: { value: 'Rent per Occupied Sq Ft' } });     // a starting point
     expect((await screen.findAllByText('$1.17')).length).toBe(2);             // the line and the total
     const spec = api.opsBuilderRun.mock.calls[0][0];
     expect(spec.formulas[0].expr).toBe('rent / occ_sqft');

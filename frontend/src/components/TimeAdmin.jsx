@@ -29,7 +29,8 @@ import { useRole } from '../contexts/RoleContext';
 import PayrollReadiness from './PayrollReadiness';
 import { ForChip } from './DelegateApprovals';
 import CaReview from './CaReview';
-import LiveCrewMap from './LiveCrewMap';
+import LongShiftWarning from './LongShiftWarning';
+import { checkLongShift } from '../lib/longShift';
 
 // Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
 // review and signed in Nexus Sign, so the per-day / per-period Approve
@@ -293,6 +294,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     loadPunchReqs();
     return pollWhileVisible(loadPunchReqs, 60000);
   }, [loadPunchReqs]);
+  // The Type an approver picked for a requested clock-in ({id: 'Sick'}) - sent on approve.
+  const [reqType, setReqType] = useState({});
   // Bulk approve / reject of the selected requests (one note for all rejects).
   async function decideMany(ids, status) {
     if (!ids.length) return;
@@ -324,7 +327,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       const r = byId.get(id);
       if (r && r.status && r.status !== 'pending') { ok += 1; continue; }   // partner already applied by an earlier approval
       try {
-        const res = await api.timeDecidePunchRequest(id, { status, note });
+        const res = await api.timeDecidePunchRequest(id, { status, note, ...(status === 'approved' && reqType[id] ? { category: reqType[id] } : {}) });
         if (res && res.status && res.status !== status) dupes += 1;   // already on the timecard - closed as a duplicate
         else ok += 1;
       } catch (e) {
@@ -351,7 +354,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     // and the refresh run behind it; a failure brings the row back.
     dropPunchReqs([id]);
     try {
-      const res = await api.timeDecidePunchRequest(id, { status, note });
+      const res = await api.timeDecidePunchRequest(id, { status, note, ...(status === 'approved' && reqType[id] ? { category: reqType[id] } : {}) });
       if (res && res.status && res.status !== status) toastOk('That punch is already on the time sheet - closed as a duplicate.');
       // Approving can also set aside a punch the fix replaces - say which (Oct 7).
       else toastOk(status === 'approved' && /Replaced|Also added/.test(res?.decisionNote || '') ? `Approved. ${res.decisionNote}` : `Request ${status}.`);
@@ -444,8 +447,26 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     } catch (e) { toastErr(e?.message || 'Export failed.'); }
   }
 
-  async function saveEdit() {
-    if (busy) return; setBusy(true);
+  // AM / PM guard (Charmi, Oct 21): the person's other punches in this range,
+  // on their clock, to judge a typed time against (lib/longShift.js).
+  const [longWarn, setLongWarn] = useState(null);   // { form: 'edit' | 'add', issue }
+  useEffect(() => { setLongWarn(null); }, [edit?.id, addFor, addP.kind]);
+  const othersOf = (email, skipId) => {
+    const r = (rows || []).find(x => x.email === email);
+    if (!r) return [];
+    return Object.values(r.days || {}).flatMap(d => d.punches || [])
+      .filter(p => !p.voided && p.id !== skipId)
+      .map(p => ({ kind: p.kind, at: utcToInput(p.at, r.timeZone) }));
+  };
+
+  async function saveEdit(opts) {
+    if (busy) return;
+    if (opts?.confirmLong !== true && edit.atInput && !edit.voided) {
+      const issue = checkLongShift(othersOf(edit.email, edit.id), edit.kind, edit.atInput);
+      if (issue) { setLongWarn({ form: 'edit', issue }); return; }
+    }
+    setLongWarn(null);
+    setBusy(true);
     try {
       await api.timeAdjustPunch(edit.id, {
         at: edit.atInput ? zonedInputToUtc(edit.atInput, edit.timeZone) || undefined : undefined,
@@ -457,9 +478,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     setBusy(false);
   }
 
-  async function saveAdd() {
+  async function saveAdd(opts) {
     if (busy) return;
     if (!addP.at) { toastErr('Pick the punch time.'); return; }
+    if (opts?.confirmLong !== true) {
+      const issue = checkLongShift(othersOf(addFor, ''), addP.kind, addP.at);
+      if (issue) { setLongWarn({ form: 'add', issue }); return; }
+    }
+    setLongWarn(null);
     setBusy(true);
     try {
       // Typed on the employee's clock; the offset is their zone's on that
@@ -477,18 +503,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   const totalMin = (rows || []).reduce((a, r) => a + r.workedMin, 0);
   const pendingCount = timeoff.filter(r => r.status === 'pending').length;
   const decidableCount = timeoff.filter(r => r.status === 'pending' && r.canDecide !== false).length;
-  // Timesheets submitted to me and not decided yet - reported by the
-  // TimesheetsToReview list itself so the tile and the list never disagree.
-  // (The old "Approved x/y" tile counted per-day sign-offs that no screen
-  // creates any more - approval moved to submit / agree / Nexus Sign - over
-  // EVERY person in scope, salaried and no-punch people included, so it sat
-  // at 0/59 forever.)
-  const [reviewWaiting, setReviewWaiting] = useState(null);
-  const reviewRef = useRef(null);
-  // The header strip collapses to one line; the choice is remembered per browser.
-  const STRIP_KEY = 'nexus.timeadmin.strip';
-  const [stripOpen, setStripOpen] = useState(() => { try { return localStorage.getItem(STRIP_KEY) !== 'collapsed'; } catch { return true; } });
-  const toggleStrip = () => setStripOpen(o => { const next = !o; try { localStorage.setItem(STRIP_KEY, next ? 'open' : 'collapsed'); } catch { /* private window */ } return next; });
   // Time Off status chips (Charmi, Oct 20): opens on Pending - the requests
   // that still need a decision - and remembers each viewer's last chip.
   const timeoffFilterKey = `nexus.timeadmin.timeoffFilter.${(myEmail || '').toLowerCase()}`;
@@ -500,11 +514,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   };
   const [timeoffSort, setTimeoffSort] = useState(null);   // null = server order (newest first)
   const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
-  function openReviewList() {
-    const el = reviewRef.current;
-    if (reviewWaiting && el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    else setView('payroll');
-  }
 
   // Unsaved-changes guards for the edit/on-behalf/add-punch modals: an
   // overlay click, X, or Escape used to silently discard an in-progress
@@ -527,68 +536,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)' }}>
-      {/* Header strip (Charmi, Sep 30): only Team Hours and Timesheets to Review.
-          The Punch Exceptions and Time Off Pending tiles went - the Missing
-          punches / Time off tabs below already carry those counts as badges,
-          and "screen real estate really matters". The strip collapses to one
-          32px line (remembered per browser) so the lists get the screen. */}
-      {(() => {
-        const tiles = [
-          { key: 'hours', label: 'Team Hours', value: rows === null ? '…' : fmtMin(totalMin), sub: rangeText,
-            cls: 'card-blue', active: view === 'hours',
-            title: `Worked hours of everyone on your team, ${rangeText}, after breaks - click to see them by person and by day`,
-            go: () => setView('hours') },
-          { key: 'review', label: 'Time Sheets to Review', value: reviewWaiting == null ? '-' : String(reviewWaiting),
-            sub: 'Waiting on your review', cls: reviewWaiting ? 'card-orange' : '', active: false,
-            title: reviewWaiting ? 'Time sheets waiting on your review and approval (submitted or not) - click to jump to the list'
-              : 'Nothing is waiting on you - click to open the Payroll time sheets',
-            go: openReviewList },
-        ];
-        const chevron = (
-          <button type="button" onClick={toggleStrip} aria-expanded={stripOpen}
-            title={stripOpen ? 'Collapse the summary strip' : 'Expand the summary strip'}
-            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, border: '1px solid var(--wk-line2)', borderRadius: 8, background: 'var(--card)', cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }}>
-            <ChevronDown size={15} style={{ transform: stripOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
-          </button>
-        );
-        if (!stripOpen) {
-          return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, height: 32, marginBottom: 12, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-              {tiles.map(t => (
-                <button key={t.key} type="button" onClick={t.go} title={t.title}
-                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {t.label} <strong style={{ color: t.cls === 'card-orange' ? '#b45309' : 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{t.value}</strong>
-                </button>
-              ))}
-              <div style={{ flex: 1 }} />
-              {chevron}
-            </div>
-          );
-        }
-        return (
-          <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, marginBottom: 16 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, flex: 1, maxWidth: 520 }}>
-              {tiles.map(t => (
-                <button key={t.key} type="button" className={`kpi-card ${t.cls}`} onClick={t.go} title={t.title}
-                  aria-pressed={t.active || undefined}
-                  style={{ padding: '10px 14px', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit', width: '100%',
-                    border: t.active ? '1.5px solid var(--wk-brand)' : 'none' }}>
-                  <div className="kpi-label">{t.label}</div>
-                  <div className="kpi-value" style={{ fontSize: 20, margin: '2px 0 0' }}>{t.value}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.sub}</div>
-                </button>
-              ))}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'flex-start', paddingTop: 2 }}>{chevron}</div>
-          </div>
-        );
-      })()}
-
+      {/* No summary tiles on top (Neil, Oct 20: "unnecessary clutter, the
+          information is already there") - the Team Hours and Time Sheets to
+          Review tiles went; the list below carries its own count. */}
       {/* Timesheets submitted to me and not decided yet (Sep 29). */}
-      <div ref={reviewRef} style={{ scrollMarginTop: 80 }}>
-        <TimesheetsToReview toastOk={toastOk} toastErr={toastErr} onCount={setReviewWaiting}
-          onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
-      </div>
+      <TimesheetsToReview toastOk={toastOk} toastErr={toastErr}
+        onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
 
       {/* Monitoring alerts live on Workforce Analytics now (Charmi, Sep 25: the
           block listing every person took half this screen). One line stays
@@ -601,9 +554,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
         {[['payroll', 'Payroll', Banknote],
           ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking, true],
-          ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0],
-          // Location Trail While Clocked In (Oct 20): live team positions and a day's trail.
-          ['trail', 'Location Trail', MapPin]].map(([key, label, Icon, badge, waiting]) => {
+          ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0]].map(([key, label, Icon, badge, waiting]) => {
           const on = view === key;
           return (
             <button key={key} onClick={() => setView(key)}
@@ -621,8 +572,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         })}
       </div>
 
-      {/* Range picker - shared by Team Hours and the Action Log's missing punches (both scan a range) */}
-      {(view === 'insights' || view === 'hours' || view === 'actions') && (
+      {/* Range picker - shared by Insights and the Action Log's missing punches (both scan a range) */}
+      {(view === 'insights' || view === 'actions') && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
           const r = weekRange(off);
@@ -753,8 +704,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           <TimeInsights start={start} end={end} people={(rows || []).map(r => ({ email: r.email, name: r.name }))} />
         </div>
       )}
-      {/* 'hours' = the Team Hours tile's destination (no tab of its own). */}
-      {(view === 'insights' || view === 'hours') && (rows === null
+      {view === 'insights' && (rows === null
         ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         : (() => {
           const sorted = rows.filter(r => r.workedMin > 0).sort((a, b) => b.workedMin - a.workedMin);
@@ -882,7 +832,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         };
         const verb = (r) => {
           const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
-          return r.action === 'add' ? `Add a ${kindLabel}` : 'Remove a punch';
+          return r.action === 'add' ? `Add a ${kindLabel}${r.category ? ` as ${r.category}` : ''}` : 'Remove a punch';
         };
         const cb = (checked, onChange, label) => (
           <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} aria-label={label}
@@ -979,6 +929,15 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                         <Plus size={12} /> Add Time
                       </button>
                     )}
+                    {ids.length > 1 && (
+                      // Each day is approved on its own now (Charmi, Oct 21) - this
+                      // still takes every request from this person in one click.
+                      <button className="secondary-btn" disabled={bulkBusy} onClick={() => decideMany(ids, 'approved')}
+                        title={`Approve every request from ${g.name}`}
+                        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <CheckCircle size={12} /> Approve All ({g.rows.length})
+                      </button>
+                    )}
                     {g.email && (
                       <button className="secondary-btn" onClick={() => openTimecard(g.email, '', '')}
                         style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -1006,6 +965,16 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                         )}
                         {r.reason && <span style={{ fontSize: 12, color: 'var(--muted)' }}>"{r.reason}"</span>}
                       </div>
+                      {r.action === 'add' && r.punchKind === 'in' && (
+                        // The approver sets the Type here (Oct 21: "Please use sick time"
+                        // in a note left a Personal block paid as Personal).
+                        <select className="form-input" aria-label="Type" value={reqType[r.id] ?? (r.category || 'Regular')}
+                          onChange={e => setReqType(m => ({ ...m, [r.id]: e.target.value }))}
+                          style={{ fontSize: 12, width: 'auto', padding: '4px 8px' }}>
+                          {['Regular', 'Sick', 'Vacation', 'Personal'].concat(r.category && !['Sick', 'Vacation', 'Personal'].includes(r.category) ? [r.category] : [])
+                            .map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      )}
                       <button className="secondary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'rejected')}
                         style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject</button>
                       <button className="primary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'approved')}
@@ -1045,10 +1014,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       })()}
 
       {/* Time-off register - requests table, pending rows carry the decisions */}
-      {view === 'trail' && (
-        <LiveCrewMap toastErr={toastErr} people={(rows || []).map(r => ({ email: r.email, name: r.name }))} />
-      )}
-
       {view === 'timeoff' && (
         <>
         {(() => {
@@ -1276,7 +1241,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
               )}
               <div><label style={FL}>Time{zoneTag(edit.timeZone) ? ` (${zoneTag(edit.timeZone)}, the employee's clock)` : ''}</label>
                 <input className="form-input" type="datetime-local" value={edit.atInput}
-                  onChange={e => setEdit(x => ({ ...x, atInput: e.target.value }))} style={{ width: '100%' }} /></div>
+                  onChange={e => { setLongWarn(null); setEdit(x => ({ ...x, atInput: e.target.value })); }} style={{ width: '100%' }} /></div>
               <div><label style={FL}>Punch note</label>
                 <input className="form-input" value={edit.note || ''} onChange={e => setEdit(x => ({ ...x, note: e.target.value }))} style={{ width: '100%' }} /></div>
               <div><label style={FL}>Reason for adjustment</label>
@@ -1287,6 +1252,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   style={{ width: 15, height: 15, accentColor: '#b91c1c' }} />
                 <Ban size={13} style={{ color: '#b91c1c' }} /> Void this punch (kept on record, excluded from totals)
               </label>
+              <LongShiftWarning issue={longWarn?.form === 'edit' ? longWarn.issue : null} manager busy={busy}
+                onFix={() => setLongWarn(null)}
+                onUseSuggestion={(w) => { setLongWarn(null); setEdit(x => ({ ...x, atInput: w.suggest })); }}
+                onConfirm={() => saveEdit({ confirmLong: true })} />
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setEdit(null)}>Cancel</button>
@@ -1375,10 +1344,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                 </select></div>
               <div><label style={FL}>{(() => { const t = zoneTag((rows || []).find(x => x.email === addFor)?.timeZone); return t ? `Time (${t}, the employee's clock)` : 'Time'; })()}</label>
-                <input className="form-input" type="datetime-local" value={addP.at} onChange={e => setAddP(p => ({ ...p, at: e.target.value }))} style={{ width: '100%' }} /></div>
+                <input className="form-input" type="datetime-local" value={addP.at} onChange={e => { setLongWarn(null); setAddP(p => ({ ...p, at: e.target.value })); }} style={{ width: '100%' }} /></div>
               <div><label style={FL}>Note</label>
                 <input className="form-input" placeholder="e.g. forgot to punch out" value={addP.note}
                   onChange={e => setAddP(p => ({ ...p, note: e.target.value }))} style={{ width: '100%' }} /></div>
+              <LongShiftWarning issue={longWarn?.form === 'add' ? longWarn.issue : null} manager busy={busy}
+                onFix={() => setLongWarn(null)}
+                onUseSuggestion={(w) => { setLongWarn(null); setAddP(p => ({ ...p, at: w.suggest })); }}
+                onConfirm={() => saveAdd({ confirmLong: true })} />
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setAddFor(null)}>Cancel</button>

@@ -282,7 +282,7 @@ export default function LoginPage() {
           the root so they stay put across every partner step. */}
       <p className="nxl-foot" style={{ "--i": 5 }}>
         <Lock size={13} strokeWidth={2} aria-hidden="true" />
-        Secure Company Workspace
+        Secure Unified Workspace
       </p>
       <p className="nxl-legal" style={{ "--i": 6 }}>
         <a href="/privacy">Privacy Policy</a>

@@ -89,6 +89,9 @@ class CaCase(ReviewCase):
         self.db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
         self.db.add(models.NexusRole(email=HR, role="administrator", assigned_by="test"))
         self.db.query(models.TimePunch).delete()
+        # A Californian: Country or Region US is what puts the meal and rest
+        # statement on their time sheet (Oct 20); the CA rate rule adds the premiums.
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).one().country = "US"
         self.d1 = self.start
         self.d2 = (timeclock.datetime.strptime(self.start, "%Y-%m-%d") + timeclock.timedelta(days=1)).strftime("%Y-%m-%d")
         # Day 1: 8 h, no break (meal missed). Day 2: 8 h with a 30-minute lunch at 4 h (compliant).
@@ -232,8 +235,15 @@ class SigningTests(CaCase):
             "consent": True, "signature_kind": "typed", "signature_data": party.name,
             "format_demonstrated": "pdf_rendered_in_session", "pages_viewed": 2, "pages_total": 2})
 
-    def test_non_ca_signing_is_unchanged(self):
+    def test_non_us_signing_is_unchanged(self):
         self._rate("federal")
+        # In the US on the federal rule: the statement prints (Country or Region,
+        # Oct 20), but no Report a Missed Break - premiums are the CA rule's.
+        probe = models.TimesheetReview(employee_email=EMP, pay_type="hourly")
+        self.assertTrue(tsr.needs_break_attestation(self.db, probe))
+        self.assertFalse(tsr.can_report_breaks(self.db, probe))
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).one().country = "IN"
+        self.db.commit()
         r = self._approve()
         st = tsr.state_for(self.db, EMP, self.start, EMP, False)
         self.assertNotIn("breakAttestation", st)
@@ -253,7 +263,9 @@ class SigningTests(CaCase):
         ba = st["breakAttestation"]
         self.assertEqual((ba["required"], ba["answered"]), (True, False))
         self.assertEqual(ba["statement"], tsr.BREAK_STATEMENT)
-        self.assertEqual([d["date"] for d in ba["flaggedDays"]], [self.d1])
+        # The meal check's flags are HR's only (Charmi, Oct 20): never on the employee's screen.
+        self.assertEqual(ba["flaggedDays"], [])
+        self.assertIn(self.d1, ba["workedDays"])
         self.assertIn("breakAttestation", tsr.to_sign(self.db, EMP)[0])
         self.assertTrue(tsr.statement_printed(self.db, r.sign_request_id))
         # No separate question: the signature goes straight through.
@@ -461,6 +473,7 @@ class ScopeTests(CaCase):
         self.assertFalse(tsr.statement_printed(self.db, req.id))
 
     def test_inr_hourly_with_blank_or_ca_rule_gets_nothing(self):
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).update({"country": "IN"})   # India staff
         for rule in ("", "ca"):
             with self.subTest(rule=rule):
                 self._rate(rule, currency="INR")
@@ -476,6 +489,7 @@ class ScopeTests(CaCase):
 
     def test_company_country_counts_when_the_person_has_none(self):
         self._rate("ca")
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).update({"country": ""})
         self.db.query(models.HrEntity).filter_by(id=ENTITY).update({"country": "IN"})
         self.db.commit()
         self.assertFalse(ca_breaks.is_ca(self.db, EMP))
@@ -576,7 +590,8 @@ class ReviewNitTests(CaCase):
         pdf, _ = tsr.build_pdf(self.db, self._r())
         text = " ".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(pdf)).pages)
         text = " ".join(text.split())
-        self.assertIn("By signing, I confirm that in this pay period I was provided every meal", text)
+        self.assertIn("in this pay period that the hours stated are accurate and correct. I was provided every "
+                      "meal and rest break California law requires.", text)      # one paragraph for US staff
         self.assertIn("A missed meal or rest break is reported instead of signing", text)
         self.assertNotIn("Before signing, the employee is asked", text)
 

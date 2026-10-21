@@ -1,148 +1,270 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
-// Rate Management (Neil / Miranda, Oct 20 2026): the CMA table renders grouped
-// by category with subtotals, the facility is a dropdown (not chips), a typed
-// Proposed rate is saved as a draft, and Review Changes lists old -> new and
-// marks rows Entered in Cubby (per row or all ticked). Nexus never writes to
-// Cubby (Oct 20 2026): there is no Push button anywhere.
+// Rate Management as Miranda's CMA (Oct 21 2026): four screens - Overview,
+// Comp Set & Manual Entry, Rate History, Review & Push. Render-smoke for each
+// and the key flows: a Proposed rate is a draft; "Add Manual Rate" records a
+// rate for THAT pricing group from its competitor panel; a survey and an
+// import preview; Review ends in Mark Entered in Cubby while Push to Cubby is
+// off, and pushes when it is on. Numbers come from the server.
 
 const apiMock = vi.hoisted(() => ({
-  getOpsRates: vi.fn(), saveOpsRateDraft: vi.fn(), markOpsRatesEntered: vi.fn(), getOpsRateHistory: vi.fn(),
-  checkOpsCompetitor: vi.fn(), getOpsMarket: vi.fn(), getOpsNearby: vi.fn(),
+  getOpsRates: vi.fn(), saveOpsRateDraft: vi.fn(), checkOpsCompetitor: vi.fn(), getOpsMarket: vi.fn(), getOpsNearby: vi.fn(),
+  getOpsCmaCompset: vi.fn(), addOpsCmaCompetitor: vi.fn(), updateOpsCmaCompetitor: vi.fn(), closeOpsCmaCompetitor: vi.fn(),
+  saveOpsCmaSurvey: vi.fn(), saveOpsCmaOverride: vi.fn(), importOpsCmaRates: vi.fn(), getOpsCmaHistory: vi.fn(),
+  getOpsCmaReview: vi.fn(), proposeOpsCmaPromo: vi.fn(), withdrawOpsCmaPromo: vi.fn(), applyOpsCmaReview: vi.fn(),
+  rejectOpsCmaReview: vi.fn(), markOpsCmaEntered: vi.fn(), retryOpsCmaChange: vi.fn(), revertOpsCmaChange: vi.fn(),
+  syncOpsStorTrack: vi.fn(),
 }));
 vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
+vi.mock('../tasks/components', () => ({
+  Modal: ({ title, children, footer }) => <div role="dialog" aria-label={title}>{children}<div>{footer}</div></div>,
+}));
+const exportMock = vi.hoisted(() => ({ exportExcel: vi.fn(), exportPdf: vi.fn() }));
+vi.mock('../tasks/exporting', () => exportMock);
+const csvMock = vi.hoisted(() => ({ downloadCsv: vi.fn() }));
+vi.mock('./csv', async (orig) => ({ ...(await orig()), downloadCsv: csvMock.downloadCsv }));
 
-import RateManagement from './RateManagement';
+const { default: RateManagement } = await import('./RateManagement');
 
-const FACILITIES = [{ id: 'fac_f', shortName: 'Fairfield' }, { id: 'fac_t', shortName: 'Temecula' }];
+const FAC = { id: 'fac_f', shortName: 'Fairfield' };
+const comp = (over) => ({ competitorId: 'tri', competitor: 'Tri-City Boat & RV Storage', distanceMiles: 0.2, rate: 11000, online: null,
+  promo: 'Rate locked in for 2 years', adminFee: null, insurance: '', observedOn: '2026-10-15', source: 'manual', locked: false, ...over });
 const row = (over) => ({
-  name: "8' x 10'", category: 'Self-Storage', groupId: 'pg_810', ambiguous: false, width: 8, depth: 10, parking: false,
-  total: 2, rented: 0, vacant: 2, offline: 0, occupancy: 0, set: 11900, sell: 11350, walkIn: 10200, valuePricing: '',
-  competitors: 6, marketLow: 10300, marketHigh: 19900, marketMedian: 13353, lowestBy: 'StorQuest', newestObservation: '2026-10-15',
-  sources: ['web'], variance: -2003, variancePct: -0.15, suggested: 11400, why: '0% occupied: a lot of vacancy.',
-  draft: null, proposed: null, proposedSet: null, revDelta: 0, ready: false, ...over,
-});
-const view = (rows, over) => ({
-  facilityId: 'fac_f', facility: 'Fairfield', name: 'Greens Storage Fairfield', asOf: '2026-10-20',
-  address: '5044 Peabody Road, Fairfield, CA 94533', billingCycle: 'MONTHLY', lastSurvey: '2026-10-15',
-  cubbyGroups: { ok: true, count: 3, error: '' }, compSet: { active: 8, web: 5, stortrack: 0, manual: 3, closed: 1 },
-  kpis: { vsMarket: -0.157, rateable: 6, belowMarket: 5, occupancy: 0.697, units: 307, rented: 214, offline: 13,
-    ready: rows.filter((r) => r.ready).length, readyDelta: rows.reduce((a, r) => a + (r.ready ? r.revDelta : 0), 0) },
-  attention: ["12' x 20' Parking is fully offline (11 units)"], rows,
-  competitors: [], freshDays: 120, minCompetitors: 2, pushes: [], canEdit: true, canMark: true, ...over,
+  name: "12' x 32' Parking", category: 'Vehicle Storage', groupId: 'pg_1232', width: 12, depth: 32, parking: true,
+  total: 114, rented: 92, vacant: 21, offline: 1, occupancy: 0.807, avgDaysVacant: 34, avgRent: 12274,
+  set: 11400, sell: 11450, webRate: 11450, walkIn: 11450, algorithmWebRate: null, competitors: 3,
+  marketLow: 11000, marketHigh: 15400, marketAvg: 12467, nearestSize: '', variance: -1017, variancePct: -0.0816,
+  promoCount: 2, promoBy: ['Tri-City Boat & RV Storage', 'Security Public Storage'], adminFeeLow: null, adminFeeHigh: null,
+  suggested: 11950, why: 'Raise halfway to market: 80%+ occupied, below avg', move: 'raise', offlineOnly: false,
+  draft: null, proposed: null, proposedSet: null, revDelta: 0, ready: false,
+  comps: [comp(), comp({ competitorId: 'sps', competitor: 'Security Public Storage', distanceMiles: 2.1, rate: 15400, source: 'web', promo: '50% off 6 mo.' })],
+  ...over,
 });
 const ROWS = [
+  row({ name: "8' x 10'", category: 'Self-Storage', width: 8, depth: 10, parking: false, total: 2, rented: 0, vacant: 2, offline: 0, occupancy: 0,
+    set: 11900, sell: 11350, webRate: 11350, competitors: 1, marketLow: 10300, marketHigh: 10300, marketAvg: 10300, variance: 1050, variancePct: 0.1,
+    suggested: 11350, why: 'Hold - only 1 comp; add a manual rate before changing', move: 'hold', comps: [comp({ rate: 10300 })], promoCount: 0, promoBy: [] }),
   row(),
-  row({ name: "12' x 30' Parking", category: 'Vehicle Storage', groupId: 'pg_1230', total: 6, rented: 5, vacant: 1, occupancy: 0.833,
-    set: 11900, sell: 13150, marketMedian: 13130, variance: 20, variancePct: 0.002 }),
 ];
+const VIEW = (rows = ROWS, over = {}) => ({
+  facilityId: 'fac_f', facility: 'Fairfield', name: 'Greens Storage Fairfield', asOf: '2026-10-20', address: '5044 Peabody Road, Fairfield, CA 94533',
+  billingCycle: 'MONTHLY', lastSurvey: '2026-10-15', lastSurveyBy: 'JW', cubbyGroups: { ok: true, count: 2, error: '' },
+  compSet: { active: 8, web: 5, stortrack: 0, manual: 3, closed: 1 },
+  kpis: { vsMarket: -0.157, rateable: 6, belowMarket: 5, occupancy: 0.697, units: 307, rented: 214, offline: 13, ready: 0, readyDelta: 0 },
+  attention: ["12' x 20' Parking is fully offline (11 units)"], rows,
+  competitors: [{ id: 'tri', name: 'Tri-City Boat & RV Storage', ratesUrl: '', watch: false }], proposedPromos: 0,
+  canEdit: true, canMark: true, pushOn: false, writeConfigured: false, pushReady: false, canPush: true, ...over,
+});
 
 beforeEach(() => {
   Object.values(apiMock).forEach((f) => f.mockReset());
+  exportMock.exportExcel.mockReset();
+  csvMock.downloadCsv.mockReset();
 });
 
-describe('Rate Management', () => {
-  it('points at the page Facility dropdown, then renders the table grouped by category', async () => {
-    // The facility is the Operations page's one dropdown (Oct 20): no picker of its own.
-    const { rerender } = render(<RateManagement facility={null} />);
-    expect(screen.getByText(/Pick a facility above to see Rate Management/)).toBeTruthy();
-    expect(screen.queryByLabelText('Facility')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Fairfield' })).toBeNull();          // no chips
-
-    apiMock.getOpsRates.mockResolvedValue(view(ROWS));
-    rerender(<RateManagement facility={FACILITIES[0]} />);
-    expect(screen.queryByLabelText('Facility')).toBeNull();
+describe('CMA Overview', () => {
+  it('renders the header, cards, the grouped table and the competitor panel', async () => {
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    render(<RateManagement facility={FAC} />);
     expect(await screen.findByText('Greens Storage Fairfield')).toBeTruthy();
-    expect(apiMock.getOpsRates).toHaveBeenCalledWith('fac_f');
-    expect(screen.getByText('5044 Peabody Road, Fairfield, CA 94533')).toBeTruthy();
+    expect(screen.getByText(/Competitive Market Analysis/)).toBeTruthy();
     expect(screen.getByText('8 active')).toBeTruthy();
     expect(screen.getByText('-15.7%')).toBeTruthy();
-    expect(screen.getByText('Subtotal Self-Storage')).toBeTruthy();
     expect(screen.getByText('Subtotal Vehicle Storage')).toBeTruthy();
-    expect(screen.getByText('-$20.03 - -15.0%')).toBeTruthy();
-    expect(screen.getByText('0 changes ready')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Review Changes' }).disabled).toBe(true);
-    expect(screen.getByText(/Nexus doesn't change rates in Cubby/)).toBeTruthy();
-    expect(screen.queryByText(/push/i)).toBeNull();
+    expect(screen.getByText('Subtotal Self-Storage')).toBeTruthy();
+    for (const h of ['Current Standard Rate', 'Web Rate', 'Avg Days Vacant', 'Comp Promotions', 'Comp Admin Fee', 'Mkt Avg']) {
+      expect(screen.getAllByText(h).length).toBeGreaterThan(0);
+    }
+    const table = screen.getByTestId('rate-table');
+    expect(table.textContent).toContain('-$10.17 · -8.2%');
+    expect(table.textContent).toContain('Raise halfway to market');
+    expect(screen.getByText('0 changes ready for Cubby')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /push/i })).toBeNull();          // the switch is off
+    expect(screen.getByRole('button', { name: /Export CSV/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Export PDF/ })).toBeNull();
+    // A click on a unit type shows its competitors below the table.
+    fireEvent.click(screen.getByRole('button', { name: "Show competitors for 12' x 32' Parking" }));
+    const panel = screen.getByTestId('comp-panel');
+    expect(within(panel).getByText('Security Public Storage')).toBeTruthy();
+    expect(within(panel).getByText('50% off 6 mo.')).toBeTruthy();
+  });
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Vehicle Storage' }));
+  it('filters Self-Storage and Vehicle Storage with pills', async () => {
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    render(<RateManagement facility={FAC} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vehicle Storage' }));
     expect(screen.queryByText('Subtotal Self-Storage')).toBeNull();
     expect(screen.getByText('Subtotal Vehicle Storage')).toBeTruthy();
   });
 
-  it('saves a typed Proposed rate as a draft', async () => {
-    apiMock.getOpsRates.mockResolvedValue(view(ROWS));
-    const saved = view([row({ proposed: 11500, proposedSet: 12050, revDelta: 300, ready: true,
-      draft: { proposed: 11500, proposedSet: null, note: '', updatedBy: 'miranda@greensglobal.com', updatedAt: '2026-10-20T18:00:00Z' } }), ROWS[1]]);
-    apiMock.saveOpsRateDraft.mockResolvedValue(saved);
-    render(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={() => {}} />);
-    // Wait for the rates to load before typing: on a slow CI runner the input can
-    // render, then re-render from the loaded view and drop a value typed too early.
-    await waitFor(() => expect(apiMock.getOpsRates).toHaveBeenCalled());
-    await waitFor(() => {
-      const input = screen.getByLabelText("Proposed rate for 8' x 10'");
-      fireEvent.change(input, { target: { value: '115' } });
-      fireEvent.blur(input);
-      expect(apiMock.saveOpsRateDraft).toHaveBeenCalledWith({ facility_id: 'fac_f', unit_type: "8' x 10'", proposed: 115 });
-    }, { timeout: 4000 });
-    expect(await screen.findByText('1 change ready')).toBeTruthy();
-    expect(screen.getAllByText('+$3').length).toBeGreaterThan(0);
+  it('saves a typed Proposed rate as a draft and shows it ready', async () => {
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    apiMock.saveOpsRateDraft.mockResolvedValue(VIEW([ROWS[0], row({ proposed: 11950, proposedSet: 11900, revDelta: 46000, ready: true, draft: { proposed: 11950 } })]));
+    render(<RateManagement facility={FAC} />);
+    const input = await screen.findByLabelText("Proposed rate for 12' x 32' Parking");
+    fireEvent.change(input, { target: { value: '119.50' } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(apiMock.saveOpsRateDraft).toHaveBeenCalledWith({ facility_id: 'fac_f', unit_type: "12' x 32' Parking", proposed: 119.5 }));
+    expect(await screen.findByText('1 change ready for Cubby')).toBeTruthy();
+    expect(screen.getAllByText('+$460').length).toBeGreaterThan(0);
   });
 
-  it('reviews old to new and marks rows Entered in Cubby, one or all ticked', async () => {
-    const ready = [row({ proposed: 11500, proposedSet: 12050, revDelta: 300, ready: true,
-      draft: { proposed: 11500, proposedSet: null, note: '', updatedBy: 'miranda@greensglobal.com', updatedAt: '2026-10-20T18:00:00Z' } }),
-    { ...ROWS[1], proposed: 13500, proposedSet: 12250, revDelta: 350, ready: true, draft: { proposed: 13500 } }];
-    apiMock.getOpsRates.mockResolvedValue(view(ready));
-    const entered = (unitType) => ({ unitType, status: 'entered', detail: 'Entered in Cubby by hand',
-      pushedBy: 'miranda@greensglobal.com', pushedAt: '2026-10-20T19:00:00Z' });
-    apiMock.markOpsRatesEntered
-      .mockResolvedValueOnce({ batchId: 'b1', view: view([ROWS[0], ready[1]]), results: [entered("8' x 10'")] })
-      .mockResolvedValueOnce({ batchId: 'b2', view: view(ROWS), results: [entered("12' x 30' Parking")] });
-    render(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Review Changes' }));
-    const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).queryByRole('button', { name: /push/i })).toBeNull();
-    expect(within(dialog).getByText(/Nexus doesn't change rates in Cubby/)).toBeTruthy();
-    expect(within(dialog).getByRole('button', { name: /Export Checklist/ })).toBeTruthy();
-    const table = within(dialog).getByTestId('review-table');
-    expect(table.textContent).toContain('$113.50 → $115');
-    expect(table.textContent).toContain('$119 → $120.50');
-    expect(within(dialog).getByText(/2 changes, \+\$6\.50 per month/)).toBeTruthy();
-
-    fireEvent.click(within(dialog).getByLabelText("Include 12' x 30' Parking"));
-    expect(within(dialog).getByText(/1 change, \+\$3 per month/)).toBeTruthy();
-    fireEvent.click(within(dialog).getByLabelText("Include 12' x 30' Parking"));
-
-    // One row on its own: it records the rates the review showed.
-    fireEvent.click(within(dialog).getByRole('button', { name: "Mark 8' x 10' Entered in Cubby" }));
-    await waitFor(() => expect(apiMock.markOpsRatesEntered).toHaveBeenCalledWith('fac_f', ["8' x 10'"],
-      { "8' x 10'": { set: 11900, sell: 11350 } }));
-    expect(await within(dialog).findByText('Entered in Cubby')).toBeTruthy();
-    expect(within(dialog).getByText(/miranda@greensglobal\.com/)).toBeTruthy();
-
-    // Then everything still ticked.
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Mark 1 Entered in Cubby' }));
-    await waitFor(() => expect(apiMock.markOpsRatesEntered).toHaveBeenLastCalledWith('fac_f', ["12' x 30' Parking"],
-      { "12' x 30' Parking": { set: 11900, sell: 13150 } }));
-    await waitFor(() => expect(within(dialog).getAllByText('Entered in Cubby')).toHaveLength(2));
-    expect(within(dialog).getByRole('button', { name: 'Done' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /push/i })).toBeNull();
+  it('adds a manual rate for the pricing group being looked at', async () => {
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    apiMock.saveOpsCmaSurvey.mockResolvedValue({});
+    render(<RateManagement facility={FAC} />);
+    fireEvent.click(await screen.findByRole('button', { name: "Show competitors for 12' x 32' Parking" }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Manual Rate/ }));
+    const dialog = screen.getByRole('dialog', { name: /Add Manual Rate/ });
+    fireEvent.change(within(dialog).getByPlaceholderText('JW'), { target: { value: 'JW' } });
+    fireEvent.change(within(dialog).getByPlaceholderText('110'), { target: { value: '110' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Rate' }));
+    await waitFor(() => expect(apiMock.saveOpsCmaSurvey).toHaveBeenCalled());
+    const body = apiMock.saveOpsCmaSurvey.mock.calls[0][0];
+    expect(body.competitor_id).toBe('tri');
+    expect(body.rates[0]).toMatchObject({ their_size: '12 x 32', kind: 'parking', street: 110, matched_unit_type: "12' x 32' Parking" });
   });
 
-  it('opens the rate history for a unit type', async () => {
-    apiMock.getOpsRates.mockResolvedValue(view(ROWS));
-    apiMock.getOpsRateHistory.mockResolvedValue({ unitType: "8' x 10'", ours: [
-      { id: 'p1', oldSell: 11000, newSell: 11350, oldSet: 11500, newSet: 11900, pushedBy: 'neil@greensglobal.com', pushedAt: '2026-10-01T17:00:00Z', status: 'entered', detail: 'Entered in Cubby by hand' }],
-    competitors: [{ competitorId: 'c1', competitor: 'StorQuest', rate: 10300, observedOn: '2026-10-15', source: 'web', promo: '' }] });
-    render(<RateManagement facility={FACILITIES[0]} facilities={FACILITIES} onPick={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: "8' x 10'" }));
-    const dialog = await screen.findByRole('dialog');
-    expect(await within(dialog).findByText('StorQuest')).toBeTruthy();
-    expect(within(dialog).getByText('$110 → $113.50')).toBeTruthy();
-    expect(within(dialog).getByText('Entered in Cubby')).toBeTruthy();
-    expect(apiMock.getOpsRateHistory).toHaveBeenCalledWith('fac_f', "8' x 10'");
+  it('exports CSV and XLS, never PDF', async () => {
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    render(<RateManagement facility={FAC} />);
+    fireEvent.click(await screen.findByRole('button', { name: /^Export CSV/ }));
+    await waitFor(() => expect(csvMock.downloadCsv).toHaveBeenCalled());
+    const [name, cols] = csvMock.downloadCsv.mock.calls[0];
+    expect(name).toMatch(/^CMA - Fairfield - 10-20-2026\.csv$/);
+    expect(cols).toContain('Current Standard Rate');
+    fireEvent.click(screen.getByRole('button', { name: /^Export XLS/ }));
+    await waitFor(() => expect(exportMock.exportExcel).toHaveBeenCalled());
+    expect(exportMock.exportPdf).not.toHaveBeenCalled();
+  });
+});
+
+const COMPSET = {
+  facilityId: 'fac_f', facility: 'Fairfield', name: 'Greens Storage Fairfield', asOf: '2026-10-20', lockDays: 30,
+  methods: { phone: 'Phone Call', drive_by: 'Drive-By', walk_in: 'Walk-In / Mystery Shop', flyer: 'Flyer / Signage' },
+  storageAccess: ['Drive-Up', 'Interior', 'Climate'], parkingAccess: ['Gravel - Open - Drive-In', 'Covered'],
+  unitTypes: [{ name: "12' x 32' Parking", width: 12, depth: 32, parking: true }, { name: "8' x 10'", width: 8, depth: 10, parking: false }],
+  counts: { active: 2, website: 1, manual: 1, closed: 1 },
+  competitors: [
+    { id: 'almond', name: 'Almond Acres RV & Storage', address: '4535 Olive Ave, Suisun City', phone: '(707) 864-8056', propertyType: 'Self-Storage & RV Storage',
+      distanceMiles: 3.8, closed: false, badge: 'manual', priceSource: 'manual', syncedOn: '', lockedOverrides: 0, lastSurvey: null, rates: [] },
+    { id: 'cube', name: 'CubeSmart', address: '', phone: '', distanceMiles: 0.5, closed: false, badge: 'website', priceSource: 'website',
+      syncedOn: '2026-10-12', lockedOverrides: 1, lastSurvey: null,
+      rates: [{ id: 'r1', theirSize: "10' x 20'", width: 10, depth: 20, parking: true, access: '', street: 16260, online: null, source: 'web', observedOn: '2026-10-12', matchedUnitType: '', note: '' }] },
+    { id: 'sq', name: 'StorQuest', distanceMiles: 13.1, closed: true, closedNote: 'STORE now at this address', badge: 'closed', priceSource: 'website', rates: [], lastSurvey: null },
+  ],
+};
+
+describe('Comp Set & Manual Entry', () => {
+  it('lists competitors with badges and saves a survey matched to our nearest type', async () => {
+    apiMock.getOpsCmaCompset.mockResolvedValue(COMPSET);
+    apiMock.saveOpsCmaSurvey.mockResolvedValue(COMPSET);
+    render(<RateManagement facility={FAC} section="comps" onSection={() => {}} />);
+    expect(await screen.findByText('Fairfield Competitive Set')).toBeTruthy();
+    expect(screen.getAllByText('Closed').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Excluded from averages/)).toBeTruthy();
+    const form = screen.getByTestId('survey-form');
+    fireEvent.change(within(form).getByPlaceholderText('JW'), { target: { value: 'JW' } });
+    fireEvent.change(within(form).getByLabelText('Row 1 their size'), { target: { value: '12 x 30' } });
+    fireEvent.change(within(form).getByLabelText('Row 1 kind'), { target: { value: 'parking' } });
+    fireEvent.change(within(form).getByLabelText('Row 1 street rate'), { target: { value: '110' } });
+    expect(within(form).getByText("Auto: 12' x 32' Parking")).toBeTruthy();
+    fireEvent.click(within(form).getByRole('button', { name: 'Save Survey' }));
+    await waitFor(() => expect(apiMock.saveOpsCmaSurvey).toHaveBeenCalled());
+    expect(apiMock.saveOpsCmaSurvey.mock.calls[0][0]).toMatchObject({ competitor_id: 'almond', method: 'phone', surveyed_by: 'JW',
+      rates: [{ their_size: '12 x 30', kind: 'parking', street: 110 }] });
+  });
+
+  it('switches the price source and offers a locked website override', async () => {
+    apiMock.getOpsCmaCompset.mockResolvedValue(COMPSET);
+    apiMock.updateOpsCmaCompetitor.mockResolvedValue(COMPSET);
+    apiMock.saveOpsCmaOverride.mockResolvedValue(COMPSET);
+    render(<RateManagement facility={FAC} section="comps" onSection={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /CubeSmart/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Manual Only' }));
+    await waitFor(() => expect(apiMock.updateOpsCmaCompetitor).toHaveBeenCalledWith('cube', { price_source: 'manual' }));
+    const card = screen.getByTestId('override-card');
+    fireEvent.change(within(card).getByPlaceholderText('e.g. after a phone quote'), { target: { value: '150' } });
+    fireEvent.change(within(card).getByPlaceholderText('Phone quote lower than site'), { target: { value: 'Phone quote' } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Save Override' }));
+    await waitFor(() => expect(apiMock.saveOpsCmaOverride).toHaveBeenCalledWith({ competitor_id: 'cube', width: 10, depth: 20, parking: true, rate: 150, reason: 'Phone quote', lock: true }));
+  });
+});
+
+describe('Rate History', () => {
+  it('draws the chart, the side cards, the change log and the off workbook upload', async () => {
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    apiMock.getOpsCmaHistory.mockResolvedValue({
+      unitType: "12' x 32' Parking", asOf: '2026-10-20',
+      points: [{ date: '2026-08-15', sell: 11450, avgRent: 12200, marketAvg: 12300, marketLow: 11000, marketHigh: 15400, comps: 3, occupied: 93, total: 114 },
+        { date: '2026-10-20', sell: 11450, avgRent: 12274, marketAvg: 12467, marketLow: 11000, marketHigh: 15400, comps: 3, occupied: 92, total: 114 }],
+      cards: { gap: -1017, gapPct: -0.0816, comps: 3, asOf: '2026-10-20', avgRent: 12274, sell: 11450, rentVsSell: 824, occupiedThen: 93, occupiedFrom: '2026-08-15', occupiedNow: 92, total: 114 },
+      log: [{ at: '2026-10-15T18:00:00Z', date: '2026-10-15', text: 'StorQuest marked closed - removed from averages', source: 'comp_set', by: 'JW' }],
+      workbookImport: { available: false, why: 'Needs a sample workbook.' },
+    });
+    render(<RateManagement facility={FAC} section="history" onSection={() => {}} />);
+    expect(await screen.findByTestId('history-chart')).toBeTruthy();
+    expect(screen.getByText('-$10.17 · -8.2%')).toBeTruthy();
+    expect(screen.getByText('Existing tenants pay more than new move-ins')).toBeTruthy();
+    expect(within(screen.getByTestId('change-log')).getByText('Comp Set')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Upload Workbooks/ })).toBeDisabled();
+    expect(apiMock.getOpsCmaHistory).toHaveBeenCalledWith('fac_f', "8' x 10'");   // the first unit type with comps
+  });
+});
+
+const REVIEW = (over = {}) => ({
+  facilityId: 'fac_f', facility: 'Fairfield', name: 'Greens Storage Fairfield', asOf: '2026-10-20',
+  rates: [{ type: 'rate', key: "rate:12' x 32' Parking", unitType: "12' x 32' Parking", groupId: 'pg_1232', nowWeb: 11450, newWeb: 11950,
+    nowStandard: 11400, newStandard: 11900, why: '81% occupied, 8.2% below market avg ($124.67)', change: 'Rate Increase',
+    effective: '2026-11-01', affects: 'New move-ins - 21 vacant spaces', revDelta: 46000, proposedBy: 'jw@greensglobal.com',
+    needsOwner: false, notes: [], blocks: [] }],
+  promos: [{ id: 'p1', kind: 'promo_add', promo: { name: 'Fall Promo', unitTypes: ["12' x 26' Parking"], start: '2026-11-01', end: '2026-12-31' },
+    promoText: 'First 2 months 50% off', reason: '66% occupied', affects: 'New move-ins only - 47 vacant spaces', proposedBy: 'jw@greensglobal.com' }],
+  decided: [], unitTypes: [{ name: "12' x 32' Parking" }], roles: { ops_manager: true, owner: false },
+  roleLabels: { ops_manager: 'Ops Manager', owner: 'Owner' }, canPropose: true,
+  calculations: { percent: 'Percent Off', fixed: 'Fixed Amount Off', first_month_1: '$1 First Month' },
+  pushOn: false, writeConfigured: false, pushReady: false, ...over,
+});
+
+describe('Review & Push', () => {
+  it('lists rate and promotion changes and ends in Mark Entered while the switch is off', async () => {
+    apiMock.getOpsCmaReview.mockResolvedValue(REVIEW());
+    apiMock.applyOpsCmaReview.mockResolvedValue({ results: [{ key: "rate:12' x 32' Parking", unitType: "12' x 32' Parking", status: 'entered' }], review: REVIEW({ rates: [], promos: [] }) });
+    render(<RateManagement facility={FAC} section="review" onSection={() => {}} />);
+    expect(await screen.findByText('Review & Mark Entered in Cubby')).toBeTruthy();
+    const table = screen.getByTestId('review-table');
+    expect(table.textContent).toContain('81% occupied, 8.2% below market avg ($124.67)');
+    expect(table.textContent).toContain('First 2 months 50% off');
+    expect(table.textContent).toContain('11/01/2026');
+    expect(screen.queryByRole('button', { name: /Approve & Push/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark 2 Entered in Cubby' }));
+    await waitFor(() => expect(apiMock.applyOpsCmaReview).toHaveBeenCalled());
+    const body = apiMock.applyOpsCmaReview.mock.calls[0][0];
+    expect(body).toMatchObject({ facility_id: 'fac_f', mode: 'entered', approver_role: 'ops_manager', rates: ["12' x 32' Parking"], promos: ['p1'] });
+    expect(body.request_id).toBeTruthy();
+    expect(await screen.findByTestId('apply-results')).toBeTruthy();
+  });
+
+  it('pushes when the switch is on and previews what Cubby will show', async () => {
+    apiMock.getOpsCmaReview.mockResolvedValue(REVIEW({ pushOn: true, writeConfigured: true, pushReady: true }));
+    apiMock.applyOpsCmaReview.mockResolvedValue({ results: [], review: REVIEW({ pushOn: true, pushReady: true, rates: [], promos: [] }) });
+    render(<RateManagement facility={FAC} section="review" onSection={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Preview What Cubby Will Show/ }));
+    expect(within(screen.getByTestId('preview-table')).getByText(/was \$114\.50/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Include Fall Promo'));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve & Push 1 Change' }));
+    await waitFor(() => expect(apiMock.applyOpsCmaReview).toHaveBeenCalled());
+    expect(apiMock.applyOpsCmaReview.mock.calls[0][0]).toMatchObject({ mode: 'push', send: 'effective', promos: [] });
+  });
+
+  it('says when a change needs the Owner and leaves blocked rows unticked', async () => {
+    apiMock.getOpsCmaReview.mockResolvedValue(REVIEW({ promos: [], rates: [{ ...REVIEW().rates[0], needsOwner: true, notes: ['Changes the web rate 22% (over 10%) - needs the Owner\'s approval'] },
+      { ...REVIEW().rates[0], key: 'rate:b', unitType: 'B', blocks: ['This pricing group changed on 10/16/2026 - it can\'t change again within 7 days'] }] }));
+    render(<RateManagement facility={FAC} section="review" onSection={() => {}} />);
+    expect(await screen.findByText('A ticked change needs the Owner as approver.')).toBeTruthy();
+    expect(screen.getByLabelText('Include B')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Mark 1 Entered in Cubby' })).toBeTruthy();
   });
 });
