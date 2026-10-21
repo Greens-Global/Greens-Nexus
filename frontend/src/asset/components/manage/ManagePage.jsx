@@ -1,11 +1,9 @@
 import { useState } from 'react';
-import { ArrowLeft, Plus, ArrowRight, Trash2, RotateCcw, Search, Settings } from 'lucide-react';
+import { ArrowLeft, Plus, ArrowRight, Trash2, RotateCcw, Search, Settings, X, Check } from 'lucide-react';
 import { assetCompleteness, assetTypeOf, assetRegionOf, categoryOf, cityRegion, searchHaystack, ASSET_CATEGORIES } from '../../lib/assetMetrics.js';
 import { baseStage } from '../../lib/stages.js';
 import { ReviewFlagsPanel } from './ReviewFlagsPanel.jsx';
 import { ActivityLog } from './ActivityLog.jsx';
-
-const MONO_FONT = "ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace";
 
 const CARD_STYLE = {
   border: '1px solid var(--border-color)',
@@ -114,7 +112,7 @@ export function ManagePage({
 
   const kpi = (label, value, sub, color) => (
     <div style={{ flex: '1 1 150px', border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-card)', padding: '14px 16px' }}>
-      <div style={{ fontSize: '1.5rem', fontWeight: 800, fontFamily: MONO_FONT, color: color ? `hsl(var(--color-${color}))` : 'var(--text-primary)' }}>
+      <div style={{ fontSize: '1.5rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: color ? `hsl(var(--color-${color}))` : 'var(--text-primary)' }}>
         {value}
       </div>
       <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>{label}</div>
@@ -160,7 +158,7 @@ export function ManagePage({
             }}>
               <Settings size={18} />
             </span>
-            <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.02em', margin: 0 }}>
+            <h1 style={{ fontSize: '1.5rem', letterSpacing: '-0.02em', margin: 0 }}>
               Manage
             </h1>
           </div>
@@ -214,7 +212,7 @@ export function ManagePage({
 
       {tab === 'data' && (
         <div style={CARD_STYLE}>
-          <h3 style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", margin: '0 0 2px' }}>Data Completeness</h3>
+          <h3 style={{ fontSize: '1rem', margin: '0 0 2px' }}>Data Completeness</h3>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 13 }}>
             Sorted by least complete first - open an asset to fill the gaps.
           </div>
@@ -244,7 +242,7 @@ export function ManagePage({
             ))}
             {(filterCategory || filterStage || filterType || filterRegion || query) && (
               <button onClick={clearFilters} className="secondary-btn" style={{ fontSize: '0.78rem', padding: '7px 12px' }}>
-                Clear Filters ✕
+                Clear Filters <X size={13} />
               </button>
             )}
           </div>
@@ -299,7 +297,7 @@ export function ManagePage({
                           {p.name}
                         </strong>
                         {p.parentId && (
-                          <span style={{ flexShrink: 0, fontSize: '0.56rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'hsl(var(--color-purple))' }}>
+                          <span style={{ flexShrink: 0, fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'hsl(var(--color-purple))' }}>
                             Linked
                           </span>
                         )}
@@ -322,7 +320,7 @@ export function ManagePage({
                       {c.missing.length ? (
                         c.missing.map((field, i) => (
                           <span key={i} style={{
-                            fontSize: '0.66rem', fontWeight: 600, color: 'hsl(var(--color-orange))',
+                            fontSize: '0.7rem', fontWeight: 600, color: 'hsl(var(--color-orange))',
                             backgroundColor: 'hsla(var(--color-orange), 0.12)', padding: '2px 8px', borderRadius: 999,
                           }}>
                             {field}
@@ -330,7 +328,7 @@ export function ManagePage({
                         ))
                       ) : (
                         <span style={{ fontSize: '0.74rem', color: 'hsl(var(--color-green))', fontWeight: 600 }}>
-                          ✓ All key fields present
+                          <Check size={13} style={{ verticalAlign: '-2px' }} /> All key fields present
                         </span>
                       )}
                     </div>
@@ -381,7 +379,7 @@ export function ManagePage({
 
       {tab === 'trash' && (
         <div style={CARD_STYLE}>
-          <h3 style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", margin: '0 0 2px' }}>Trash</h3>
+          <h3 style={{ fontSize: '1rem', margin: '0 0 2px' }}>Trash</h3>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 13 }}>
             Restore a deleted asset, or remove it permanently.
           </div>

@@ -14,7 +14,7 @@ function toneOf(days) {
 
 function dueText(days) {
   if (days < 0) return Math.abs(days) + 'd overdue';
-  if (days === 0) return 'Due today';
+  if (days === 0) return 'Due Today';
   return 'Due in ' + days + 'd';
 }
 
@@ -149,8 +149,8 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty })
         </span>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <CountPill count={overdueCount} label="Overdue" color="red" />
-          <CountPill count={due30Count} label="Due ≤30d" color="orange" />
-          <CountPill count={due90Count} label="Due ≤90d" color="gold" />
+          <CountPill count={due30Count} label="Due in 30d" color="orange" />
+          <CountPill count={due90Count} label="Due in 90d" color="gold" />
         </div>
         <button
           onClick={() => setOpen((o) => !o)}

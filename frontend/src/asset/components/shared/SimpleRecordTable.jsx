@@ -10,7 +10,7 @@ import { Card } from './Card.jsx';
 import { EmptyState } from './EmptyState.jsx';
 import { StatusBadge } from './StatusBadge.jsx';
 
-const LABEL_STYLE = { fontSize: '0.64rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
+const LABEL_STYLE = { fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
 
 /** Loose status-text -> badge tone classifier, specific to this table's free-text Status column
  *  (Permits/Timeline status values aren't a fixed enum handled elsewhere like RECORD_TYPES chips are). */
@@ -69,7 +69,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{title}</strong>
+        <strong style={{ fontSize: '1rem' }}>{title}</strong>
         {subtitle && <span style={LABEL_STYLE}>{subtitle}</span>}
         <span style={{ ...LABEL_STYLE, marginLeft: 'auto' }}>
           {visible.length} row{visible.length === 1 ? '' : 's'}

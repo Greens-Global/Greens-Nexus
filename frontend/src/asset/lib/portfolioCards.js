@@ -73,12 +73,12 @@ export function typeIcon(asset) {
 // Type -> short generic fallback description, used by typeLabel() when nothing more specific
 // (an explicit `type`, or a Proposed/Current Use snapshot value) is available.
 const TYPE_FALLBACK_DESC = {
-  'Self-Storage': 'Self-storage facility',
-  'Vehicle Storage': 'Vehicle storage facility',
-  Retail: 'Retail building',
-  'Office / Medical': 'Office building',
+  'Self-Storage': 'Self-Storage Facility',
+  'Vehicle Storage': 'Vehicle Storage Facility',
+  Retail: 'Retail Building',
+  'Office / Medical': 'Office Building',
   Residential: 'Residential',
-  'Mixed-Use': 'Mixed-use',
+  'Mixed-Use': 'Mixed-Use',
   Land: 'Land',
   Other: '',
 };

@@ -127,7 +127,7 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
   );
 
   return (
-    <Modal title={(row ? 'Edit ' : 'Add ') + recordType.title.toLowerCase()} onClose={onClose} footer={footer}
+    <Modal title={(row ? 'Edit ' : 'Add ') + recordType.title} onClose={onClose} footer={footer}
       isDirty={dirty && !confirmingRemove} onSave={handleSave}>
       {confirmingRemove && (
         <div
@@ -139,7 +139,7 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
             backgroundColor: 'hsla(var(--color-red), 0.08)',
           }}
         >
-          <label style={{ fontSize: '0.64rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+          <label style={{ fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
             Reason for removing this {recordType.title.toLowerCase()} <span style={{ color: 'hsl(var(--color-red))' }}>*</span>
           </label>
           <textarea

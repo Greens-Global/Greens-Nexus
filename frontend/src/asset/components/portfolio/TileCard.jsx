@@ -11,7 +11,7 @@ const photoPill = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 5,
-  fontSize: '0.66rem',
+  fontSize: '0.7rem',
   fontWeight: 700,
   color: '#fff',
   padding: '4px 10px',
@@ -162,7 +162,7 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
                 {members.length + ' parcels'}
               </span>
             ) : lead.private ? (
-              <span style={{ ...photoPill, fontSize: '0.6rem', padding: '3px 8px', backgroundColor: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}>
+              <span style={{ ...photoPill, fontSize: '0.68rem', padding: '3px 8px', backgroundColor: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}>
                 Private
               </span>
             ) : null}
@@ -174,8 +174,7 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
                 ref={titleRef}
                 title={title}
                 style={{
-                  fontSize: titleFontSize, fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif",
-                  color: '#fff', margin: 0, lineHeight: 1.16, textShadow: '0 1px 3px rgba(0,0,0,.5)',
+                  fontSize: titleFontSize, fontWeight: 800, color: '#fff', margin: 0, lineHeight: 1.16, textShadow: '0 1px 3px rgba(0,0,0,.5)',
                   // Wrap up to two lines rather than ellipsize one - the clamp's own "…" only
                   // appears if a name overflows two lines even at the fit-loop's 10px floor.
                   overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2,
@@ -206,7 +205,7 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
               <div style={{ display: 'grid', gridTemplateColumns: lead.entity && lead.manager ? '1fr 1fr' : '1fr', gap: '2px 16px' }}>
                 {lead.entity && (
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-muted)', marginBottom: 2 }}>Owner</div>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-secondary)', marginBottom: 2 }}>Owner</div>
                     <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {lead.entity}
                     </div>
@@ -214,7 +213,7 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
                 )}
                 {lead.manager && (
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-muted)', marginBottom: 2 }}>Asset Manager</div>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-secondary)', marginBottom: 2 }}>Asset Manager</div>
                     <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {lead.manager}
                     </div>
@@ -235,7 +234,7 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
                   <div style={{ fontSize: valFontSize, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.18, whiteSpace: 'normal', wordBreak: 'break-word' }}>
                     {s.v}
                   </div>
-                  <div style={{ fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginTop: 3, whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginTop: 3, whiteSpace: 'nowrap' }}>
                     {s.l}
                   </div>
                 </div>

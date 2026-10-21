@@ -1,67 +1,54 @@
 import { daysUntil, formatDate } from '../../lib/format.js';
+import { StatusLabel } from '../../../components/StatusLabel.jsx';
 
+// Nexus's one soft status label (components/StatusLabel.jsx): a dot, the words
+// in a deep shade, a faint tint. The module's tone names map onto the shared
+// --color-* triples; 'mut' is the quiet slate every list uses for "nothing yet".
 const TONE_COLOR = {
-  green: 'var(--color-green)',
-  orange: 'var(--color-orange)',
-  red: 'var(--color-red)',
-  blue: 'var(--color-blue)',
+  green: 'hsl(var(--color-green))',
+  orange: 'hsl(var(--color-orange))',
+  red: 'hsl(var(--color-red))',
+  blue: 'hsl(var(--color-blue))',
+  gold: 'hsl(var(--color-gold))',
+  purple: 'hsl(var(--color-purple))',
+  mut: '#64748b',
 };
 
-/** Small rounded pill badge. `tone` is 'mut' (neutral/muted) or one of TONE_COLOR's keys. */
+/** Status label. `tone` is 'mut' (neutral) or one of TONE_COLOR's keys; `onClick` makes it a button. */
 export function StatusBadge({ tone, children, onClick }) {
-  const clickProps = onClick ? { onClick: (e) => { e.stopPropagation(); onClick(); }, title: 'Open' } : {};
-  const clickStyle = onClick ? { cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 } : {};
-  const baseStyle = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 5,
-    fontSize: '0.72rem',
-    fontWeight: 600,
-    padding: '3px 9px',
-    borderRadius: 999,
-    whiteSpace: 'nowrap',
-    ...clickStyle,
-  };
-
-  if (tone === 'mut') {
-    return (
-      <span {...clickProps} style={{ ...baseStyle, color: 'var(--text-secondary)', backgroundColor: 'var(--bg-secondary)' }}>
-        {children}
-      </span>
-    );
-  }
-  const c = TONE_COLOR[tone];
+  const label = <StatusLabel label={children} color={TONE_COLOR[tone] || TONE_COLOR.mut} size="sm" />;
+  if (!onClick) return label;
   return (
-    <span {...clickProps} style={{ ...baseStyle, color: `hsl(${c})`, backgroundColor: `hsla(${c}, 0.12)` }}>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: `hsl(${c})` }} />
-      {children}
-    </span>
+    <button type="button" title="Open" onClick={(e) => { e.stopPropagation(); onClick(); }}
+      style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', display: 'inline-flex' }}>
+      {label}
+    </button>
   );
 }
 
 /** Warranty/expiration-style status: Expired / Expires in Nd / Active. Window: 90 days. */
 export function expirationStatus(days) {
-  if (days == null) return <StatusBadge tone="mut">No date</StatusBadge>;
+  if (days == null) return <StatusBadge tone="mut">No Date</StatusBadge>;
   if (days < 0) return <StatusBadge tone="mut">Expired</StatusBadge>;
   if (days <= 90) return <StatusBadge tone="orange">Expires in {days}d</StatusBadge>;
   return <StatusBadge tone="green">Active</StatusBadge>;
 }
 
-/** Inspection/due-date-style status: Overdue / Due in Nd / Due soon / Current. Window: 30/90 days. */
+/** Inspection/due-date-style status: Overdue / Due in Nd / Due Soon / Current. Window: 30/90 days. */
 export function dueDateStatus(days) {
-  if (days == null) return <StatusBadge tone="mut">No date</StatusBadge>;
+  if (days == null) return <StatusBadge tone="mut">No Date</StatusBadge>;
   if (days < 0) return <StatusBadge tone="red">Overdue {Math.abs(days)}d</StatusBadge>;
   if (days <= 30) return <StatusBadge tone="orange">Due in {days}d</StatusBadge>;
-  if (days <= 90) return <StatusBadge tone="orange">Due soon</StatusBadge>;
+  if (days <= 90) return <StatusBadge tone="orange">Due Soon</StatusBadge>;
   return <StatusBadge tone="green">Current</StatusBadge>;
 }
 
-/** Renewal-style two-line cell: the formatted date on top, a Lapsed/Renews-in/Current badge below.
+/** Renewal-style two-line cell: the formatted date on top, a Lapsed/Renews-in/Current label below.
  *  Window: 60 days. Used for AHJ renewal dates. */
 export function renewalCell(days, dateLabel) {
   return (
-    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 3 }}>
-      <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: '0.78rem' }}>{dateLabel}</span>
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+      <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: '0.8rem' }}>{dateLabel}</span>
       {days == null ? null
         : days < 0 ? <StatusBadge tone="red">Lapsed {Math.abs(days)}d</StatusBadge>
         : days <= 60 ? <StatusBadge tone="orange">Renews in {days}d</StatusBadge>

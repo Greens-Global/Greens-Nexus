@@ -20,11 +20,8 @@
 @media (max-width:860px){
   .nexus-asset-root .gt-toc{display:none!important}
 }
-.nexus-asset-root .scrolltop-fab{position:fixed;bottom:24px;right:24px;z-index:300;width:44px;height:44px;border-radius:50%;border:1px solid var(--border-color);background:var(--pine);color:#fff;cursor:pointer;box-shadow:var(--shadow-lg);display:inline-flex;align-items:center;justify-content:center;animation:fadeIn .2s ease;transition:transform .12s ease,background .12s ease}
-.nexus-asset-root .scrolltop-fab:hover{transform:translateY(-2px);background:var(--fern)}
 @media (max-width:900px){
-  .nexus-asset-root .scrolltop-fab{bottom:84px;right:18px}
-}
+  }
 .nexus-asset-root .save-bar{ padding-bottom: calc(11px + env(safe-area-inset-bottom, 0px)) !important; animation: saveBarUp .18s ease-out; }
 @media (min-width: 641px){
   .nexus-asset-root .save-bar{ padding-left: max(16px, calc((100% - 1160px) / 2)) !important; padding-right: max(16px, calc((100% - 1160px) / 2)) !important; }

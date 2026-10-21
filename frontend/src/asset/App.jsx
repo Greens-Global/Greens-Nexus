@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { Settings2, ArrowLeft, Pencil, Search } from 'lucide-react';
+import { Settings2, ArrowLeft, Pencil, Search, ChevronRight, Lock, Copy } from 'lucide-react';
 
 import { PT } from './lib/propertyFields.js';
 import { ASSET_SCHEMAS, inferAssetKind } from './lib/vehicleFields.js';
@@ -16,7 +16,6 @@ import { portfolioStats } from './lib/assetMetrics.js';
 import { CopyButton } from './components/shared/CopyButton.jsx';
 import { ToastHost, pushToast } from './components/shared/ToastHost.jsx';
 import { SyncStatus } from './components/shared/SyncStatus.jsx';
-import { ScrollTopFab } from './components/shared/ScrollTopFab.jsx';
 import { CollectionTable } from './components/shared/CollectionTable.jsx';
 import { RecordModal } from './components/shared/RecordModal.jsx';
 
@@ -704,7 +703,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
             />
           )}
           <div style={{ minWidth: 0 }}>
-            <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.01em', color: 'var(--text-primary)', margin: 0 }}>{active.name}</h1>
+            <h1 style={{ fontSize: '1.5rem', letterSpacing: '-0.01em', color: 'var(--text-primary)', margin: 0 }}>{active.name}</h1>
             <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <span>{cityRegion(active) || '-'}</span>
               {assetKind === 'property' && <CopyButton text={cityRegion(active)} />}
@@ -725,7 +724,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
           </button>
           <div className="gt-bc-trail" style={{ display: 'flex', alignItems: 'center', gap: 7, flex: 1, minWidth: 0, fontSize: '0.82rem' }}>
             <button onClick={() => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')))} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--text-secondary)', fontWeight: 600, cursor: 'pointer', flexShrink: 0, fontSize: '0.82rem' }}>Portfolio</button>
-            <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>›</span>
+            <ChevronRight size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
             <span style={{ color: 'var(--text-primary)', fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{active.name}</span>
           </div>
 
@@ -734,9 +733,9 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
             title={active.private ? 'Click to make public (visible to all)' : 'Click to mark private (hidden from non-officers)'}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 999, fontSize: '0.76rem', fontWeight: 700, marginLeft: 'auto', border: active.private ? '1px solid transparent' : '1px dashed var(--border-color)', cursor: 'pointer', backgroundColor: active.private ? 'hsla(var(--color-red), 0.12)' : 'transparent', color: active.private ? 'hsl(var(--color-red))' : 'var(--text-muted)' }}
           >
-            {active.private ? '🔒 Private' : 'Mark Private'}
+            {active.private ? <><Lock size={12} /> Private</> : 'Mark Private'}
           </button>
-          <button className="secondary-btn" onClick={() => duplicateAsset(false)} title="Duplicate this asset as a standalone copy" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>⧉ Duplicate</button>
+          <button className="secondary-btn" onClick={() => duplicateAsset(false)} title="Duplicate this asset as a standalone copy" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Copy size={14} /> Duplicate</button>
           <ExportMenu onPdf={() => exportAssetPdf(active, store)} onCsv={() => exportCsvWithTickets(active)} />
         </div>
       )}
@@ -746,7 +745,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       {leaveAsk && (
         <div onClick={() => setLeaveAsk(false)} style={{ position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(8,12,22,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--bg-card)', borderRadius: 16, padding: '20px 20px 16px', maxWidth: 380, width: '100%', boxShadow: '0 20px 50px rgba(0,0,0,0.35)' }}>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>Unsaved changes</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>Unsaved Changes</div>
             <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 18 }}>You have unsaved changes on this asset. Save them before you leave?</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
               <button className="primary-btn" onClick={() => { editGuard.save?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }} style={{ width: '100%', padding: 12, fontSize: '0.9rem' }}>Save & Leave</button>
@@ -955,14 +954,13 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         <TimelineStatusModal current={modal.current} onSave={(status, date, reason) => savePropertyListRow('timeline', modal.index, { status, statusDate: date }, TIMELINE_FIELDS, reason)} onClose={() => setModal(null)} />
       )}
 
-      <ScrollTopFab />
     </div>
   );
 }
 
 function CountBadge({ n }) {
   return (
-    <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: '0.64rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+    <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
       {n}
     </span>
   );

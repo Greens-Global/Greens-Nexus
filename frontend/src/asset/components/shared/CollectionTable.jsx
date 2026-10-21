@@ -1,14 +1,11 @@
 import { useState, useEffect } from 'react';
-import { ChevronDown, Plus } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Download, CornerDownRight } from 'lucide-react';
 import { RECORD_TYPES } from '../../lib/recordTypes.jsx';
 import { Card } from './Card.jsx';
 import { EmptyState } from './EmptyState.jsx';
 
-// Monospace font stack for numeric/date table cells and summary-strip values.
-const MONO_FONT = "ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace";
-
 // Small uppercase label style - shared by column headers and summary-strip labels.
-const LABEL_STYLE = { fontSize: '0.64rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
+const LABEL_STYLE = { fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
 
 // Quick-add config per collection: which field the single text input fills, extra defaults
 // merged into the new record, and the input's placeholder/button copy. Only collections with
@@ -175,7 +172,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
         {collapsible && (
           <ChevronDown size={18} style={{ color: 'var(--text-secondary)', transition: 'transform 0.2s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }} />
         )}
-        <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{recordType.plural}</strong>
+        <strong style={{ fontSize: '1rem' }}>{recordType.plural}</strong>
 
         <div style={{ marginLeft: 'auto', position: 'relative' }}>
           <button
@@ -188,7 +185,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
             title="Export this list"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', fontSize: '0.8rem', opacity: displayRows.length ? 1 : 0.5 }}
           >
-            {'⤓ Export ▾'}
+            <Download size={14} /> Export <ChevronDown size={13} style={{ opacity: 0.7 }} />
           </button>
           {exportOpen && (
             <div
@@ -295,7 +292,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                   key={label}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}
                 >
-                  <span style={{ fontFamily: MONO_FONT, fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{value}</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{value}</span>
                   <span style={LABEL_STYLE}>{label}</span>
                 </div>
               ))}
@@ -324,7 +321,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                       >
                         {col.label}
                         {sortCol === ci ? (
-                          <span style={{ marginLeft: 4, fontSize: '0.7em', color: 'hsl(var(--color-blue))' }}>{sortDir > 0 ? '▲' : '▼'}</span>
+                          <span style={{ marginLeft: 4, color: 'hsl(var(--color-blue))', display: 'inline-flex', verticalAlign: '-2px' }}>{sortDir > 0 ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
                         ) : null}
                       </th>
                     ))}
@@ -358,20 +355,20 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                       >
                         {leadColumn && (
                           <td data-label={leadColumn.label} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', whiteSpace: 'nowrap', ...(row._nested ? { paddingLeft: 30 } : null) }}>
-                            {row._nested && <span style={{ color: 'var(--text-secondary)', marginRight: 5 }}>↳</span>}
+                            {row._nested && <CornerDownRight size={13} style={{ color: 'var(--text-secondary)', marginRight: 5, verticalAlign: '-2px' }} />}
                             {leadColumn.render(row)}
                           </td>
                         )}
                         {recordType.cols.map((col, ci) => (
                           <td key={col.label} data-label={col.label} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', ...(!leadColumn && ci === 0 && row._nested ? { paddingLeft: 28 } : null) }}>
-                            {!leadColumn && ci === 0 && row._nested && <span style={{ color: 'var(--text-secondary)', marginRight: 4 }}>↳</span>}
+                            {!leadColumn && ci === 0 && row._nested && <CornerDownRight size={13} style={{ color: 'var(--text-secondary)', marginRight: 4, verticalAlign: '-2px' }} />}
                             {col.main ? (
                               <>
                                 <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{col.main(row) || '-'}</div>
                                 {col.sub && col.sub(row) ? <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 1 }}>{col.sub(row)}</div> : null}
                               </>
                             ) : col.mono ? (
-                              <span style={{ fontFamily: MONO_FONT, fontSize: '0.78rem' }}>{col.mono(row)}</span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: '0.8rem' }}>{col.mono(row)}</span>
                             ) : col.chip ? (
                               col.chip(row)
                             ) : (

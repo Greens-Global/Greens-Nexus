@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutGrid, List, MapPin, Flag, Shapes, Search } from 'lucide-react';
+import { LayoutGrid, List, MapPin, Flag, Shapes, Search, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { CATEGORIES, TYPES, deriveCategory, deriveType, cityRegion, typeLabel, stateAbbrev, stateSearchHaystack, assetRank } from '../../lib/portfolioCards.js';
 import { STAGE_FILTER_OPTIONS, baseStage } from '../../lib/stages.js';
 import { EmptyState } from '../shared/EmptyState.jsx';
@@ -22,7 +22,7 @@ const SORT_COLUMN_LABELS = ['Asset', 'Type', 'Location', 'Stage', 'Owner', 'Asse
 // Icon-label span style, shared by the little Category/Stage/Type/Region glyphs that sit
 // directly to the left of each filter <select>.
 const filterIconLabelStyle = {
-  fontSize: '0.64rem',
+  fontSize: '0.68rem',
   fontWeight: 600,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
@@ -86,7 +86,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
             <span>Couldn't reach the server to load the portfolio - retrying automatically…</span>
             <button className="secondary-btn" onClick={() => window.location.reload()} style={{ padding: '8px 18px' }}>
-              Reload now
+              Reload Now
             </button>
           </div>
         </EmptyState>
@@ -242,20 +242,20 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
           {hasAnyFilter && (
             <button onClick={clearFilters} style={{ ...filterPillStyle, cursor: 'pointer' }}>
-              Clear Filters ✕
+              Clear Filters <X size={13} />
             </button>
           )}
           {viewMode === 'list' && sortCol != null && (
             <div style={filterPillStyle}>
               {'Sorted: '}
               <strong style={{ color: 'var(--text-primary)' }}>{SORT_COLUMN_LABELS[sortCol]}</strong>
-              {sortDir > 0 ? ' ↑' : ' ↓'}
+              {sortDir > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
               <button
                 onClick={() => setSortCol(null)}
                 title="Reset sort"
                 style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, marginLeft: 2, color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1 }}
               >
-                ✕
+                <X size={13} />
               </button>
             </div>
           )}

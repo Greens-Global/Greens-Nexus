@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { AlertTriangle, Trash2, Check } from 'lucide-react';
 
 // Module-level pub-sub binding: set by the mounted <ToastHost/> instance, called by
 // anything elsewhere in the app that wants to fire a toast (e.g. `pushToast('Saved', 'ok')`).
@@ -58,8 +59,8 @@ export function ToastHost() {
             whiteSpace: 'nowrap',
           }}
         >
-          <span style={{ fontSize: '0.92rem', lineHeight: 1 }}>
-            {it.tone === 'bad' ? '⚠' : it.tone === 'mut' ? '🗑' : '✓'}
+          <span style={{ display: 'inline-flex', lineHeight: 1 }}>
+            {it.tone === 'bad' ? <AlertTriangle size={15} /> : it.tone === 'mut' ? <Trash2 size={15} /> : <Check size={15} />}
           </span>
           {it.msg}
         </div>

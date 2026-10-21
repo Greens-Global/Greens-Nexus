@@ -1,8 +1,5 @@
-// Monospace font stack shared with StatusBadge's renewalCell date text.
-const MONO_FONT = "ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace";
-
 const LABEL_STYLE = {
-  fontSize: '0.64rem',
+  fontSize: '0.68rem',
   fontWeight: 600,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
@@ -30,7 +27,7 @@ export const STAT_TOOLTIPS = {
 export function StatCell({ v, l, big }) {
   return (
     <div title={STAT_TOOLTIPS[l] || l}>
-      <div style={{ fontFamily: MONO_FONT, fontWeight: big ? 700 : 600, fontSize: big ? '1rem' : '0.82rem', color: 'var(--text-primary)' }}>
+      <div style={{ fontVariantNumeric: 'tabular-nums', fontWeight: big ? 700 : 600, fontSize: big ? '1rem' : '0.82rem', color: 'var(--text-primary)' }}>
         {v}
       </div>
       <div style={{ ...LABEL_STYLE, marginTop: 2, cursor: 'help' }}>

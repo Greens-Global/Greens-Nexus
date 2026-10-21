@@ -119,7 +119,6 @@ export function PhotoGallery({ p, n, onSave }) {
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontFamily: "ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace",
               fontSize: '0.72rem',
               fontWeight: 700,
               color: '#fff',
@@ -129,7 +128,7 @@ export function PhotoGallery({ p, n, onSave }) {
             {n}
           </span>
         )}
-        <strong style={{ fontSize: '0.95rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+        <strong style={{ fontSize: '0.95rem' }}>
           Media {images.length > 0 && `(${images.length})`}
         </strong>
         {expanded && !editing && (

@@ -177,8 +177,8 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
         {sections.map((sec, si) => (
           <section key={'sec' + si} id={'gt-sec' + si} style={sectionCardStyle}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-              <strong style={{ fontSize: '0.98rem', fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>{sec.title}</strong>
-              {onFlag && <span style={{ marginLeft: 'auto', fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Flag</span>}
+              <strong style={{ fontSize: '0.98rem', color: 'var(--text-primary)' }}>{sec.title}</strong>
+              {onFlag && <span style={{ marginLeft: 'auto', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Flag</span>}
             </div>
             <div>
               {sec.fields.map((f, fi) => {

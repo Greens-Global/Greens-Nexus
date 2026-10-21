@@ -66,7 +66,7 @@ export function MultiDateInput({ value, onChange, readOnly }) {
       {!readOnly && (
         <button type="button" className="secondary-btn" onClick={addRow}
           style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', fontSize: '0.78rem' }}>
-          <Plus size={13} /> Add date
+          <Plus size={13} /> Add Date
         </button>
       )}
     </div>

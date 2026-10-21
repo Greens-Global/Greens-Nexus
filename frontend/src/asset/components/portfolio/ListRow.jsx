@@ -5,7 +5,7 @@ import { cityRegion, typeLabel, tileStats, typeIcon, stageTone } from '../../lib
 import { STAT_TOOLTIPS } from '../shared/StatCell.jsx';
 
 const tagPill = (text, bg) => (
-  <span style={{ fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 5, color: '#fff', backgroundColor: bg }}>
+  <span style={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 5, color: '#fff', backgroundColor: bg }}>
     {text}
   </span>
 );
@@ -79,11 +79,11 @@ export function ListRow({ pr: asset, openProperty, secondaries = [], expanded, o
           {isGroupLead && tagPill('Primary', 'var(--pine)')}
           {secondary && tagPill('Secondary', 'hsl(var(--color-purple))')}
           <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>{asset.name}</strong>
-          <span style={{ fontSize: '0.62rem', fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: `hsl(var(--color-${tone}))`, backgroundColor: `hsla(var(--color-${tone}), 0.12)` }}>
+          <span style={{ fontSize: '0.68rem', fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: `hsl(var(--color-${tone}))`, backgroundColor: `hsla(var(--color-${tone}), 0.12)` }}>
             {stage}
           </span>
           {isGroupLead && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.64rem', fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.68rem', fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)' }}>
               <Link2 size={10} />
               {secondaries.length} linked
             </span>
@@ -161,7 +161,7 @@ export function ListGroupRow({ pr: lead, secondaries, openProperty }) {
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
             <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>{lead.siteName || lead.name}</strong>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.64rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)' }}>
               <Link2 size={10} /> Linked group
             </span>
           </div>

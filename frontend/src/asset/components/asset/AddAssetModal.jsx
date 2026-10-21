@@ -11,6 +11,7 @@
 // (recorded in the activity log).
 
 import { useState, useRef } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { Modal } from '../shared/Modal.jsx';
 import { FieldInput } from '../shared/FieldInput.jsx';
 import { PROPERTY_WIZARD_FIELDS } from '../../lib/propertyFields.js';
@@ -39,7 +40,7 @@ const ADDRESS_FIELDS = [
   ['county', 'County'],
 ];
 
-const SECTION_LABEL_STYLE = { fontSize: '0.64rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
+const SECTION_LABEL_STYLE = { fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
 
 /** Which address fields differ between the original row and the current draft values. */
 function addressFieldsChanged(row, values) {
@@ -327,7 +328,7 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
           }}
         >
           <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'hsl(var(--color-gold))', marginBottom: 6 }}>
-            ⚠ You changed the address - reason required
+            <AlertTriangle size={14} style={{ verticalAlign: '-2px', marginRight: 4 }} /> You changed the address - reason required
           </div>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
             Changing: <strong style={{ color: 'var(--text-primary)' }}>{changedAddressFields.map(([, label]) => label).join(', ')}</strong>. A reason is recorded in the activity log.
@@ -484,7 +485,7 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
                   flexShrink: 0,
                 }}
               >
-                No image
+                No Image
               </div>
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>

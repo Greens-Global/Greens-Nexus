@@ -10,7 +10,7 @@
 // Writes go through the property ticket endpoints (backend property_tickets.py);
 // nothing here writes the Asset Management workspace.
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, CornerDownRight } from 'lucide-react';
 import { api } from '../../../api.js';
 import { formatDate } from '../../../lib/datetime.js';
 import { filesFromPaste } from '../../../tasks/lib';
@@ -300,7 +300,7 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
                   <tr key={r.id}>
                     <td style={{ ...td, paddingLeft: r.isParent ? 10 : 30 }}>
                       <button type="button" onClick={() => row && onOpen(row)} style={{ border: 'none', background: 'none', padding: 0, cursor: row ? 'pointer' : 'default', color: 'var(--text-primary)', fontFamily: 'inherit', fontSize: 'inherit', textAlign: 'left' }}>
-                        {r.isParent ? '' : '↳ '}<b>{r.codeLabel}</b> {r.isParent ? '(Original)' : ''}
+                        {r.isParent ? null : <CornerDownRight size={12} style={{ marginRight: 4, verticalAlign: '-2px', color: 'var(--text-secondary)' }} />}<b>{r.codeLabel}</b> {r.isParent ? '(Original)' : ''}
                       </button>
                     </td>
                     <td style={td}>{formatDate(r.date) || '-'}</td>

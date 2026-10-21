@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
-import { ChevronDown, Link2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Link2 } from 'lucide-react';
+import { StatusLabel } from '../../../components/StatusLabel.jsx';
 import { cityRegion, typeLabel, tileStats, typeIcon, deriveCategory, stageTone } from '../../lib/portfolioCards.js';
 
 const COLUMNS = ['Asset', 'Type', 'Location', 'Stage', 'Owner', 'Asset Manager', 'Size'];
@@ -34,7 +35,7 @@ const COLUMN_ACCESSORS = [
 ];
 
 const thStyle = {
-  textAlign: 'left', fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase',
+  textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase',
   letterSpacing: '0.05em', color: 'var(--text-muted)', padding: '11px 16px', whiteSpace: 'nowrap',
   overflow: 'hidden', textOverflow: 'ellipsis', borderBottom: '1px solid var(--border-color)',
   backgroundColor: 'var(--bg-secondary)',
@@ -55,16 +56,10 @@ function Cell({ value, dataLabel }) {
   );
 }
 
-/** Stage chip cell - same visual language as the tile/list-row stage chip. */
+/** Stage label cell - the same soft StatusLabel every Nexus list uses. */
 function StageChip({ devStage }) {
   const stage = devStage || 'Active';
-  const tone = stageTone(stage);
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, maxWidth: '100%', fontSize: '0.7rem', fontWeight: 600, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap', overflow: 'hidden', color: `hsl(var(--color-${tone}))`, backgroundColor: `hsla(var(--color-${tone}), 0.12)` }}>
-      <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: '50%', backgroundColor: `hsl(var(--color-${tone}))` }} />
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stage}</span>
-    </span>
-  );
+  return <StatusLabel label={stage} color={`hsl(var(--color-${stageTone(stage)}))`} size="sm" />;
 }
 
 /**
@@ -193,7 +188,7 @@ export function ListTable({ rows, childrenOf, open, sortCol, setSortCol, sortDir
                   {asset.name}
                 </strong>
                 {hasKids && (
-                  <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '0.6rem', fontWeight: 700, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)', padding: '1px 6px', borderRadius: 999 }}>
+                  <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '0.68rem', fontWeight: 700, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)', padding: '1px 6px', borderRadius: 999 }}>
                     <Link2 size={9} />
                     {kids.length}
                   </span>
@@ -229,7 +224,7 @@ export function ListTable({ rows, childrenOf, open, sortCol, setSortCol, sortDir
                 style={{ ...thStyle, width: colWidths[i], position: 'relative', cursor: 'pointer', userSelect: 'none' }}
               >
                 {label}
-                {sortCol === i ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}
+                {sortCol === i ? (sortDir > 0 ? <ChevronUp size={11} style={{ marginLeft: 3, verticalAlign: '-1px' }} /> : <ChevronDown size={11} style={{ marginLeft: 3, verticalAlign: '-1px' }} />) : null}
                 <span
                   onMouseDown={(ev) => onResizeDown(i, ev)}
                   onClick={(ev) => ev.stopPropagation()}

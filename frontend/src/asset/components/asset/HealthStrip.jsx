@@ -78,7 +78,7 @@ export function HealthStrip({ p, store, logs }) {
           >
             <div
               style={{
-                fontSize: '0.6rem',
+                fontSize: '0.68rem',
                 fontWeight: 700,
                 color: 'var(--text-muted)',
                 textTransform: 'uppercase',

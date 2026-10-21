@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { X } from 'lucide-react';
 import { Modal } from '../shared/Modal.jsx';
 import { genId } from '../../lib/format.js';
 
@@ -55,7 +56,7 @@ export function ManageUnitsModal({ units, onSave, onClose }) {
               title="Remove"
               style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1rem', padding: 4 }}
             >
-              {'✕'}
+              <X size={15} />
             </button>
           </div>
         ))}

@@ -174,7 +174,7 @@ export const RECORD_TYPES = {
     sort: (a, b) => (a.expiration || '9999') < (b.expiration || '9999') ? -1 : 1,
     summary: (rows) => [
       ['Active', rows.filter((r) => daysUntil(r.expiration) > 90).length],
-      ['Expiring ≤ 90d', rows.filter((r) => { const d = daysUntil(r.expiration); return d != null && d >= 0 && d <= 90; }).length],
+      ['Expiring in 90d', rows.filter((r) => { const d = daysUntil(r.expiration); return d != null && d >= 0 && d <= 90; }).length],
       ['Expired', rows.filter((r) => daysUntil(r.expiration) != null && daysUntil(r.expiration) < 0).length],
     ],
   },
@@ -204,7 +204,7 @@ export const RECORD_TYPES = {
     sort: (a, b) => (a.nextDue || '9999') < (b.nextDue || '9999') ? -1 : 1,
     summary: (rows) => [
       ['Overdue', rows.filter((r) => daysUntil(r.nextDue) != null && daysUntil(r.nextDue) < 0).length],
-      ['Due ≤ 30d', rows.filter((r) => { const d = daysUntil(r.nextDue); return d != null && d >= 0 && d <= 30; }).length],
+      ['Due in 30d', rows.filter((r) => { const d = daysUntil(r.nextDue); return d != null && d >= 0 && d <= 30; }).length],
       ['Current', rows.filter((r) => daysUntil(r.nextDue) == null || daysUntil(r.nextDue) > 30).length],
     ],
   },
@@ -277,7 +277,7 @@ export const RECORD_TYPES = {
       { label: 'Account #', mono: (r) => r.accountNumber || '-' },
       { label: 'Meter', mono: (r) => r.meterNumber || '-' },
       { label: 'Autopay', plain: (r) => r.autopay || '-' },
-      { label: 'Avg / mo', mono: (r) => formatMoney(r.avgMonthly) },
+      { label: 'Avg / Mo', mono: (r) => formatMoney(r.avgMonthly) },
     ],
     sort: (a, b) => (a.service || '') < (b.service || '') ? -1 : 1,
   },
@@ -301,7 +301,7 @@ export const RECORD_TYPES = {
     cols: [
       { label: 'Vendor', main: (r) => r.company, sub: (r) => r.category },
       { label: 'Contact', main: (r) => r.contactName || '-', sub: (r) => [r.phone, r.email].filter(Boolean).join(' · ') },
-      { label: 'Contract', mono: (r) => formatDate(r.contractStart) + ' → ' + formatDate(r.contractEnd) },
+      { label: 'Contract', mono: (r) => formatDate(r.contractStart) + ' - ' + formatDate(r.contractEnd) },
       { label: 'COI', chip: (r) => r.coiExpiration ? renewalCellFromDate(r.coiExpiration) : <StatusBadge tone="red">Missing</StatusBadge> },
       { label: '$ / mo', mono: (r) => formatMoney(r.monthlyCost) },
     ],

@@ -1,15 +1,13 @@
 import { useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, ArrowRight } from 'lucide-react';
 import { Card } from '../shared/Card.jsx';
 import { EmptyState } from '../shared/EmptyState.jsx';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
 import { formatDate, formatTime } from '../../../lib/datetime';
 
-const MONO_FONT = "ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace";
-
 // Small muted uppercase label style, reused for the "entries" count, date-range labels, and
 // each change line's field name.
-const LABEL_STYLE = { fontSize: '0.64rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
+const LABEL_STYLE = { fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
 
 const DATE_INPUT_STYLE = { padding: '6px 9px', width: 'auto', fontSize: '0.8rem' };
 
@@ -124,7 +122,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Activity Log</strong>
+        <strong style={{ fontSize: '1rem' }}>Activity Log</strong>
         <span style={LABEL_STYLE}>{filtered.length} entr{filtered.length === 1 ? 'y' : 'ies'}</span>
 
         {activeId && (
@@ -228,11 +226,11 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                               <span style={LABEL_STYLE}>{change.field}</span>
                               {'  '}
                               <span style={{ color: 'var(--text-secondary)', textDecoration: 'line-through' }}>
-                                {(change.from ?? '') === '' ? '∅' : String(change.from)}
+                                {(change.from ?? '') === '' ? '(empty)' : String(change.from)}
                               </span>
-                              {' → '}
-                              <span style={{ fontWeight: 600, fontFamily: looksNumeric(change.to) ? MONO_FONT : undefined }}>
-                                {(change.to ?? '') === '' ? '∅' : String(change.to)}
+                              <ArrowRight size={12} style={{ margin: '0 5px', verticalAlign: '-2px', color: 'var(--text-muted)' }} />
+                              <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                                {(change.to ?? '') === '' ? '(empty)' : String(change.to)}
                               </span>
                             </div>
                           ))}
@@ -252,7 +250,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                         <span title={entry.user} style={{
                           flexShrink: 0, width: 20, height: 20, borderRadius: '50%', display: 'inline-flex',
-                          alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', fontWeight: 700,
+                          alignItems: 'center', justifyContent: 'center', fontSize: '0.68rem', fontWeight: 700,
                           color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.14)',
                         }}>
                           {initials(entry.user)}
@@ -276,7 +274,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
                                 fontSize: '0.72rem', fontWeight: 600, color: 'hsl(var(--color-blue))', whiteSpace: 'nowrap',
                               }}
                             >
-                              Go to {entry.action === 'removed' ? entry.section : entry.changes && entry.changes.length ? 'field' : entry.section} →
+                              Go to {entry.action === 'removed' ? entry.section : entry.changes && entry.changes.length ? 'field' : entry.section} <ArrowRight size={12} style={{ verticalAlign: '-2px' }} />
                             </button>
                           )}
                           {onUndo && canUndo && canUndo(entry) && (
