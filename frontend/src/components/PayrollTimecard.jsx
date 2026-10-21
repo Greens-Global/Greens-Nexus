@@ -1628,7 +1628,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                    shift's columns from OT on are merged down across it. */
                 <tr key={i} className="pr-break-line">
                   <td colSpan={2} style={{ ...gc, ...lineCell(r) }}></td>
-                  <td colSpan={2} style={{ ...gc, ...lineCell(r), color: r.line === 'open' ? '#b45309' : 'var(--muted)', fontStyle: 'italic', fontWeight: 600 }}>{hLine(r)}</td>
+                  {/* Left-aligned at one indent: centered, each line started
+                      somewhere else depending on its length (Pranshu, Oct 22). */}
+                  <td colSpan={2} style={{ ...gc, ...lineCell(r), textAlign: 'left', paddingLeft: 28, color: r.line === 'open' ? '#b45309' : 'var(--muted)', fontStyle: 'italic', fontWeight: 600 }}>{hLine(r)}</td>
                   <td style={{ ...gc, ...lineCell(r) }}></td>
                   <td style={{ ...gc, ...lineCell(r) }}></td>
                 </tr>
