@@ -241,6 +241,35 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(self.client.delete(f"/accounting/allocations/runs/{rid}").status_code, 204)
         self.assertEqual(self.client.get("/accounting/allocations/runs").json()["runs"], [])
 
+    def test_delete_run_takes_the_step_up_like_its_siblings(self):
+        """Neil's review (Oct 20): every other run route carries require_stepup;
+        delete_run did not. Without a step-up the delete is refused and the
+        run stays."""
+        from fastapi import HTTPException
+
+        from routers.stepup import require_stepup
+        _as(FULL)
+        db = database.SessionLocal()
+        try:
+            db.add(models.AccountingAllocationRun(id="run-stepup-test", month="2026-09"))
+            db.commit()
+        finally:
+            db.close()
+
+        def refuse():
+            raise HTTPException(status_code=403, detail="Step-up required")
+        main.app.dependency_overrides[require_stepup] = refuse
+        try:
+            self.assertEqual(self.client.delete("/accounting/allocations/runs/run-stepup-test").status_code, 403)
+        finally:
+            main.app.dependency_overrides.pop(require_stepup, None)
+        db = database.SessionLocal()
+        try:
+            self.assertIsNotNone(db.get(models.AccountingAllocationRun, "run-stepup-test"))
+        finally:
+            db.close()
+        self.assertEqual(self.client.delete("/accounting/allocations/runs/run-stepup-test").status_code, 204)
+
     def test_run_is_rebuilt_on_the_server_never_taken_from_the_screen(self):
         """Oct 17 review: last month's preview still on screen while the new
         month loads must not be kept under the new month, and lines sent by the
