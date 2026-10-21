@@ -108,7 +108,7 @@ function ModalShell({ title, sub, onClose, children }) {
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4 }}><X size={18} /></button>
         </div>
-        <div style={{ flex:1, overflowY:'auto', padding:'18px 20px' }}>{children}</div>
+        <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'18px 20px', display:'flex', flexDirection:'column' }}>{children}</div>
       </div>
     </div>
   );

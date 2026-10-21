@@ -346,7 +346,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1420, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => { if (e.target === e.currentTarget && !required) guard.requestClose(); }}>
-      <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+      <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <M.Icon size={17} style={{ color: M.color }} />
           <div style={{ flex: 1 }}>
@@ -356,14 +356,14 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
           <button onClick={() => (required ? onClose() : guard.requestClose())} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
 
-        <div style={{ padding: '16px 22px', display: 'grid', gap: 12 }}>
-          <div>
+        <div style={{ padding: '16px 22px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          <div className={M.reasonOnly ? 'nx-fill' : undefined}>
             <label style={FL}>{M.msgLabel}</label>
             <textarea className="form-input" rows={2} value={message} onChange={e => setMessage(e.target.value)}
               placeholder={M.msgPlaceholder} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
           </div>
           {!M.reasonOnly && (
-            <div>
+            <div className="nx-fill">
               <label style={FL}>{M.tasksLabel}</label>
               <textarea className="form-input" rows={4} value={tasks} onChange={e => setTasks(e.target.value)}
                 placeholder={M.tasksPlaceholder} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
@@ -386,7 +386,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
             </div>
           )}
           {mode === 'eod' && (
-            <div>
+            <div className="nx-fill">
               <label style={FL}>Pending tasks (one per line)</label>
               <textarea className="form-input" rows={3} value={pending} onChange={e => setPending(e.target.value)}
                 placeholder="Anything still open - leave empty to skip this section"

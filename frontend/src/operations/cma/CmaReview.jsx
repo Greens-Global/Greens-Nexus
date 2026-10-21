@@ -67,7 +67,7 @@ function PromoModal({ data, onClose, onSaved }) {
           </>
         )}
         <label>End Date<input className="form-input" type="date" value={f.end} onChange={set('end')} /></label>
-        <label>Why<input className="form-input" value={f.reason} maxLength={300} onChange={set('reason')} placeholder="66% occupied with 47 vacant; rate already below market" /></label>
+        <label className="nx-fill" style={{ gridColumn: '1 / -1' }}>Why<textarea className="form-input" rows={3} value={f.reason} maxLength={300} onChange={set('reason')} placeholder="66% occupied with 47 vacant; rate already below market" /></label>
       </div>
       <fieldset style={{ border: '1px solid var(--line)', borderRadius: 10, marginTop: 12, padding: '8px 12px' }}>
         <legend style={{ fontSize: 12, fontWeight: 600 }}>Pricing Groups</legend>

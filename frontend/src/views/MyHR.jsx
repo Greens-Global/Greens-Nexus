@@ -734,8 +734,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
               <button type="button" onClick={() => { setAskPanel(false); setAskOpen(false); }} aria-label="Close"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
-            <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '14px 18px 18px' }}>
-                    <div style={{ display: 'grid', gap: 16, alignItems: 'start' }}>
+            <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '14px 18px 18px', display: 'flex', flexDirection: 'column' }}>
+                    <div className="nx-fill" style={{ gap: 16 }}>
                       {askOpen && (
                       <div>
                         <label style={{ ...lbl, marginTop: 0 }}>What do you need?</label>
@@ -769,7 +769,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, onOpenPurchase, c
                       </div>
                       )}
 
-                      <div>
+                      <div className="nx-fill">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                           <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>My Requests</span>
                           {asks.length > 0 && (

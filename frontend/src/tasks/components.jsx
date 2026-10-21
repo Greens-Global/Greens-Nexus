@@ -225,7 +225,7 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
         {/* flex:1 + minHeight:0 is what makes THIS the part that scrolls; without
             it a tall body pushes the footer past the panel's clipped edge.
             overscrollBehavior: a swipe past its end stays in the sheet. */}
-        <div className="nx-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, ...(followViewport ? { overscrollBehavior: 'contain' } : null) }}>{children}</div>
+        <div className="nx-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(followViewport ? { overscrollBehavior: 'contain' } : null) }}>{children}</div>
         {/* The action row never scrolls away, and clears the home indicator. */}
         {footer && <div style={{
           padding: isMobile ? '12px 16px calc(12px + env(safe-area-inset-bottom))' : '12px 20px',

@@ -501,14 +501,14 @@ function SignatureZoomModal({ title, html, onClose }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 12, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 12, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{title}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
             <X size={18} />
           </button>
         </div>
-        <div style={{ padding: 20, background: '#fff' }} dangerouslySetInnerHTML={{ __html: html }} />
+        <div className="nx-fill" style={{ padding: 20, background: '#fff', overflow: 'auto' }} dangerouslySetInnerHTML={{ __html: html }} />
       </div>
     </div>
   );

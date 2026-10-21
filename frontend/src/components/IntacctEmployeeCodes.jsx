@@ -157,7 +157,7 @@ export default function IntacctEmployeeCodes({ onClose, onApplied, toastOk, toas
             </div>
           </div>
 
-          <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'auto', maxHeight: '42vh' }}>
+          <div className="nx-fill" style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'Inter,sans-serif' }}>
               <thead>
                 <tr>

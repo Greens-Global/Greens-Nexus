@@ -138,8 +138,9 @@ describe('MyShifts week and group grid', () => {
     const bob = screen.getByText('Bob Brown').closest('[data-member]');
     expect(bob.querySelector('img')).toBeNull();
     expect(bob.textContent).toContain('BB');
-    expect(me.textContent).toContain('7.5 Hrs');
-    expect(bob.textContent).toContain('8 Hrs');
+    // Hours are a manager's number (Pranshu, Oct 21): the team grid shows none.
+    expect(me.textContent).not.toMatch(/Hrs/);
+    expect(bob.textContent).not.toMatch(/Hrs/);
     const block = me.querySelector('[data-shift="mine1"]');
     expect(block.textContent).toBe('9:00a - 5:00pGSTFront Desk');       // one line, the code in color, the label under it
     expect(block.getAttribute('title')).toContain('Lunch 30m');          // the lunch is the hover title
@@ -147,7 +148,7 @@ describe('MyShifts week and group grid', () => {
     expect(block.getAttribute('style')).not.toMatch(/border-left|inset/);          // no colored edge stripe (Neil, Oct 14): the tint carries the color
     expect(block.style.background).toMatch(/rgba|color-mix|#/);
     const grid = screen.getByRole('table', { name: 'Store schedule' });
-    expect(grid.textContent).toContain('Week · 15.5 Hrs');
+    expect(grid.textContent).not.toContain('Hrs');
     expect(grid.textContent).not.toContain('Times in');
     expect(screen.getAllByText(/^Times in /)).toHaveLength(1);           // said once, under the grid
     expect(grid.textContent).toContain('Day Notes');
@@ -197,7 +198,7 @@ describe('MyShifts week and group grid', () => {
     const bob = (await screen.findByText('Bob Brown')).closest('[data-member]');
     expect(bob.querySelector('[data-shift="bob1"]')).toBeTruthy();          // the shift is still there
     expect(bob.querySelector('[data-timeoff="to2"]').textContent).toBe('2:00p - 4:00p Personal');
-    expect(bob.textContent).toContain('8 Hrs');                              // and still counts
+    expect(bob.textContent).not.toMatch(/Hrs/);                              // no hours in the team grid (Oct 21)
     unmount();
     // My own day card (Workday > My Shifts) shows both too, and my hours are not dropped.
     render(<MyShifts />);

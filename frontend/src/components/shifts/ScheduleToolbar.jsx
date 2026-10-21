@@ -507,10 +507,10 @@ export function DayNoteDialog({ date, groups = [], notes = [], busy, onSave, onC
   useEffect(() => { setText(existing?.note || ''); }, [existing?.note, groupId, date]);
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Day Note" className="nx-popup" style={MODAL_CARD}>
+      <div role="dialog" aria-label="Day Note" className="nx-popup" style={{ ...MODAL_CARD, display: 'flex', flexDirection: 'column' }}>
         <DialogHead title="Day Note" onClose={onClose} />
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Everyone on the schedule sees this on the day, here and in My Shifts.</div>
-        <div style={{ display: 'grid', gap: 12 }}>
+        <div className="nx-fill" style={{ gap: 12 }}>
           <label><div style={LBL}>Day</div>
             {onDateChange ? <input type="date" className="form-input" aria-label="Note day" value={date} onChange={(e) => onDateChange(e.target.value)} style={{ width: '100%', fontSize: 13 }} />
               : <div style={{ fontSize: 13, fontWeight: 700 }}>{formatWeekday(date)}, {formatDate(date)}</div>}

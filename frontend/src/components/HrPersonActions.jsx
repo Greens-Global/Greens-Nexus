@@ -83,7 +83,7 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, approval = fal
           <div style={{ flex: 1, fontWeight: 800, fontSize: 15.5 }}>Change Role - {name}</div>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
+        <div className="nx-fill" style={{ overflowY: 'auto', padding: '6px 22px 18px' }}>
           {approval ? (
             <div style={{ ...hint, marginTop: 14 }}>The change goes to their manager and HR. It takes effect when one of them approves.</div>
           ) : choice(plain, Shield, 'var(--pine)', 'Role Change Without Promotion',

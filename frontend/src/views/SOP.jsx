@@ -2537,11 +2537,11 @@ export default function SOP({ activeSub, onSubChange }) {
     if (!reviewDoc) return null;
     return (
       <div className="modal-overlay" style={{ display: 'flex' }}>
-        <div className="modal-content nx-popup">
+        <div className="modal-content nx-popup" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="modal-header"><h3>Review · {reviewDoc.title}</h3><button className="close-btn" onClick={() => setReviewDoc(null)}><X size={18} /></button></div>
-          <div style={{ padding: '4px 0' }}>
+          <div className="nx-fill" style={{ padding: '4px 0' }}>
             <p style={{ fontSize: '0.83rem', color: 'var(--text-secondary)', marginBottom: 14 }}>Approving publishes this version to the library. Requesting changes returns it to the author with your notes.</p>
-            <div className="form-group">
+            <div className="form-group nx-fill">
               <label>Review note <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(required when requesting changes)</span></label>
               <textarea className="form-input" value={reviewNote} onChange={e => setReviewNote(e.target.value)} placeholder="What needs to change, or why you're approving…" style={{ minHeight: 80, resize: 'vertical' }} />
             </div>
