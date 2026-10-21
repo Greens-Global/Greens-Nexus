@@ -10,10 +10,7 @@
 .nexus-asset-root *, .nexus-asset-root :before, .nexus-asset-root :after{box-sizing:border-box}
 .nexus-asset-root input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .nexus-asset-root input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
-.nexus-asset-root input[type=number]{-moz-appearance:textfield}
-.nexus-asset-root input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
-.nexus-asset-root input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.nexus-asset-root input[type=number]{appearance:textfield}
+.nexus-asset-root input[type=number]{-moz-appearance:textfield;appearance:textfield}
 .nexus-asset-root button, .nexus-asset-root [role=button], .nexus-asset-root select{touch-action:manipulation}
 .nexus-asset-root :focus-visible{outline:2px solid hsl(var(--color-blue));outline-offset:2px}
 .nexus-asset-root .gt-toc{position:sticky;top:76px;align-self:start;max-height:calc(100vh - 96px);overflow-y:auto}
@@ -28,17 +25,6 @@
 }
 @media (max-width: 640px){
   .nexus-asset-root .asset-linkrow{ grid-template-columns: 1fr !important; gap: 8px !important; align-items: stretch !important; }
-  .nexus-asset-root .gt-bc-trail{ display: none !important; }
-  .nexus-asset-root .gt-tabs{
-    flex-wrap: nowrap !important;
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    scroll-snap-type: x proximity;
-  }
-  .nexus-asset-root .gt-tabs::-webkit-scrollbar{ display: none; }
-  .nexus-asset-root .gt-tabs > *{ flex-shrink: 0 !important; scroll-snap-align: start; }
   .nexus-asset-root .gt-frow.gt-editing{ grid-template-columns: 1fr !important; gap: 6px !important; align-items: stretch !important; }
   .nexus-asset-root .gt-frow.gt-editing input, .nexus-asset-root .gt-frow.gt-editing select, .nexus-asset-root .gt-frow.gt-editing textarea{
     width: 100% !important; box-sizing: border-box; font-size: 16px;
@@ -51,18 +37,6 @@
   .nexus-asset-root .gt-frow:not(.gt-editing) > *:nth-child(1){ grid-column: 1; grid-row: 1; }
   .nexus-asset-root .gt-frow:not(.gt-editing) > *:nth-child(2){ grid-column: 1; grid-row: 2; }
   .nexus-asset-root .gt-frow:not(.gt-editing) > *:nth-child(3){ grid-column: 2; grid-row: 1 / 3; align-self: center; justify-self: center; }
-  .nexus-asset-root .health-grid{
-    grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)) !important;
-    gap: 8px !important;
-  }
-  .nexus-asset-root .health-wrap{ border: none !important; background: transparent !important; box-shadow: none !important; border-radius: 0 !important; overflow: visible !important; }
-  .nexus-asset-root .health-grid > div{
-    border-left: none !important;
-    border: 1px solid var(--border-color) !important;
-    border-radius: 10px !important;
-    background: var(--bg-card) !important;
-    box-shadow: var(--shadow-sm) !important;
-  }
   .nexus-asset-root .manage-tabs{
     flex-wrap: nowrap !important;
     overflow-x: auto;
@@ -114,7 +88,7 @@
   .nexus-asset-root .coll-table > thead{ display: none !important; }
   .nexus-asset-root .coll-table > tbody > tr{ display: block; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-card) !important; box-shadow: var(--shadow-sm); margin-bottom: 8px; padding: 4px 13px; }
   .nexus-asset-root .coll-table > tbody > tr > td{ display: flex !important; justify-content: space-between; align-items: baseline; gap: 14px; width: auto !important; border: none !important; padding: 8px 0 !important; white-space: normal !important; text-align: right; }
-  .nexus-asset-root .coll-table > tbody > tr > td::before{ content: attr(data-label); font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); text-align: left; flex: 0 0 auto; padding-top: 3px; white-space: nowrap; }
+  .nexus-asset-root .coll-table > tbody > tr > td::before{ content: attr(data-label); font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); text-align: left; flex: 0 0 auto; padding-top: 3px; white-space: nowrap; }
   .nexus-asset-root .coll-table > tbody > tr > td:empty{ display: none !important; }
 }
 .nexus-asset-root .gt-frow .gt-flag{opacity:0;transition:opacity .15s}

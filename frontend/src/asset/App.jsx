@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { Settings2, ArrowLeft, Pencil, Search, ChevronRight, Lock, Copy } from 'lucide-react';
+import { Settings2, ArrowLeft, Pencil, Search, Lock, Unlock, Copy, MoreHorizontal, FileText, Download } from 'lucide-react';
 
 import { PT } from './lib/propertyFields.js';
 import { ASSET_SCHEMAS, inferAssetKind } from './lib/vehicleFields.js';
@@ -12,8 +12,11 @@ import { TAB_LIST, visibleTabsFor, SHARED_FILTER_GROUPS, LOG_SECTION_TO_TAB, UND
 import { TIMELINE_FIELDS, permitColumns } from './lib/timelineFields.js';
 import { useNexusStore } from './lib/useNexusStore.js';
 import { portfolioStats } from './lib/assetMetrics.js';
+import { typeLabel } from './lib/portfolioCards.js';
+import AnchoredMenu from '../components/AnchoredMenu';
+import { StatusLabel } from '../components/StatusLabel.jsx';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 
-import { CopyButton } from './components/shared/CopyButton.jsx';
 import { ToastHost, pushToast } from './components/shared/ToastHost.jsx';
 import { SyncStatus } from './components/shared/SyncStatus.jsx';
 import { CollectionTable } from './components/shared/CollectionTable.jsx';
@@ -25,7 +28,6 @@ import { CriticalDates } from './components/asset/CriticalDates.jsx';
 import { AssetDetailForm } from './components/asset/AssetDetailForm.jsx';
 import { ParcelManager } from './components/asset/ParcelManager.jsx';
 import { AssemblageParcels } from './components/asset/AssemblageParcels.jsx';
-import { ExportMenu } from './components/asset/ExportMenu.jsx';
 import { AddAssetModal } from './components/asset/AddAssetModal.jsx';
 import { TimelineTracker } from './components/asset/TimelineTracker.jsx';
 import { SimpleRecordTable } from './components/shared/SimpleRecordTable.jsx';
@@ -91,6 +93,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     onSubChange?.(null);
   }, [subSeen, activeSub, subMissing, onSubChange]);        // deep-link target set by "Go to" from the Activity Log
   const [typeFilter, setTypeFilter] = useState('');
+  const moreRef = useRef(null);                                // the header's "more actions" button
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const unseenLogCount = (store.logs || []).filter((l) => l.ts > lastManageVisit).length;
   const markManageSeen = () => {
@@ -664,8 +668,10 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const pulse = view !== 'manage' && !active ? portfolioStats(store) : null;
   const assetKind = active ? inferAssetKind(active) : null;
   const tabsForActiveAsset = active ? visibleTabsFor(assetKind) : [];
+  const tabCount = (key) => !active ? 0 : key === 'timeline' ? (active.timeline || []).length : key === 'permit' ? (active.permits || []).length : key === 'property' ? 0 : recordsFor(key).length;
+  const backToPortfolio = () => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')));
   const filterKeysForTab = SHARED_FILTER_GROUPS[view] || [view];
-  const showTabSearch = filterKeysForTab.length > 0 || ['timeline', 'permit'].includes(view);
+  const showTabSearch = view !== 'property' && (filterKeysForTab.length > 0 || ['timeline', 'permit'].includes(view));
   const searchValue = filterKeysForTab.length ? (filters[filterKeysForTab[0]] || '') : '';
   const setSearchValue = (text) => setFilters((f) => {
     const next = { ...f };
@@ -679,108 +685,115 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       <SyncStatus />
 
       {!active && view !== 'manage' && pulse && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Inter', sans-serif", letterSpacing: '-0.03em', color: 'var(--ink)', margin: 0 }}>Asset Management</h1>
-          <span style={{ marginLeft: 'auto', fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-            {loading && !visibleProperties.length ? '…' : `${pulse.assets}${pulse.assets === 1 ? ' Asset' : ' Assets'}`}
-          </span>
-          <button className="primary-btn" onClick={() => navigate('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <div className="view-header" style={{ alignItems: 'center', marginBottom: 16 }}>
+          <div className="view-title-group" style={{ minWidth: 0 }}>
+            <h2 style={{ fontFamily: 'var(--wk-font)' }}>Asset Management</h2>
+            <p>{loading && !visibleProperties.length ? 'Loading the portfolio…' : `${pulse.assets} ${pulse.assets === 1 ? 'asset' : 'assets'} in the portfolio`}</p>
+          </div>
+          <button className="secondary-btn" onClick={() => navigate('manage')} style={{ position: 'relative' }}>
             <Settings2 size={14} /> Manage
             {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
           </button>
         </div>
       )}
 
+      {/* One title band, the shape every Nexus module has (Shifts, Support):
+          back, photo, name + place, the health signals as soft labels; the
+          actions on the right, the rare ones (Private, Duplicate, Export)
+          behind one "more" button. The old hero + breadcrumb bar + pill strip
+          put ~300px of chrome before any content (760px on a phone). */}
       {active && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-          {(active.images?.[0] || active.image) && (
-            <img
-              src={active.images?.[0] || active.image}
-              alt={active.name}
-              title={active.name}
-              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-              style={{ width: 170, height: 127, objectFit: 'cover', objectPosition: 'center 30%', borderRadius: 14, border: '1px solid var(--border-color)', flexShrink: 0, boxShadow: 'var(--shadow-sm)' }}
-            />
-          )}
-          <div style={{ minWidth: 0 }}>
-            <h1 style={{ fontSize: '1.5rem', letterSpacing: '-0.01em', color: 'var(--text-primary)', margin: 0 }}>{active.name}</h1>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span>{cityRegion(active) || '-'}</span>
-              {assetKind === 'property' && <CopyButton text={cityRegion(active)} />}
+        <div className="view-header" style={{ alignItems: 'center', marginBottom: 12 }}>
+          {/* flex-basis 320px: narrower than that (a phone) the action row wraps under
+              the title instead of squeezing the name to one letter a line. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 320px' }}>
+            <button type="button" className="secondary-btn" onClick={backToPortfolio} title="Back to Portfolio" aria-label="Back to Portfolio" style={{ padding: 8, flexShrink: 0 }}>
+              <ArrowLeft size={16} />
+            </button>
+            {(active.images?.[0] || active.image) && (
+              <img
+                src={active.images?.[0] || active.image}
+                alt=""
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                style={{ width: 64, height: 48, objectFit: 'cover', objectPosition: 'center 30%', borderRadius: 8, border: '1px solid var(--border-color)', flexShrink: 0 }}
+              />
+            )}
+            <div className="view-title-group" style={{ minWidth: 0 }}>
+              <h2 style={{ fontFamily: 'var(--wk-font)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{active.name}</span>
+                {active.private && <StatusLabel label="Private" color="hsl(var(--color-red))" size="sm" title="Hidden from everyone but officers" />}
+              </h2>
+              <p>{[cityRegion(active), assetKind === 'property' ? typeLabel(active) : ''].filter(Boolean).join(' · ') || '-'}</p>
+              <HealthStrip p={active} store={store} logs={store.logs} />
             </div>
-            <HealthStrip p={active} store={store} logs={store.logs} />
           </div>
-          <button className="primary-btn" onClick={() => navigate('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>
-            <Settings2 size={14} /> Manage
-            {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
-          </button>
-        </div>
-      )}
-
-      {active && (
-        <div className="gt-crumb" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 51, backgroundColor: 'var(--paper)', padding: '8px 4px 7px', marginBottom: 8 }}>
-          <button onClick={() => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')))} title="Back to portfolio" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 15px', borderRadius: 999, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: 'var(--shadow-sm)' }}>
-            <ArrowLeft size={15} />Back
-          </button>
-          <div className="gt-bc-trail" style={{ display: 'flex', alignItems: 'center', gap: 7, flex: 1, minWidth: 0, fontSize: '0.82rem' }}>
-            <button onClick={() => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')))} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--text-secondary)', fontWeight: 600, cursor: 'pointer', flexShrink: 0, fontSize: '0.82rem' }}>Portfolio</button>
-            <ChevronRight size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-            <span style={{ color: 'var(--text-primary)', fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{active.name}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+            {view === 'property' && (
+              <button className="primary-btn" onClick={() => editGuard.startEdit?.()}>
+                <Pencil size={14} /> Edit
+              </button>
+            )}
+            <button className="secondary-btn" onClick={() => navigate('manage')} style={{ position: 'relative' }}>
+              <Settings2 size={14} /> Manage
+              {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
+            </button>
+            <button ref={moreRef} type="button" className="secondary-btn" aria-label="More actions" aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)} style={{ padding: 8 }}>
+              <MoreHorizontal size={16} />
+            </button>
+            <AnchoredMenu anchorRef={moreRef} open={moreOpen} onClose={() => setMoreOpen(false)} align="end" minWidth={220}
+              style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
+              <MenuRow icon={active.private ? Unlock : Lock} onClick={() => { setMoreOpen(false); togglePrivate(active.id); }}>
+                {active.private ? 'Make Public' : 'Mark Private'}
+              </MenuRow>
+              <MenuRow icon={Copy} onClick={() => { setMoreOpen(false); duplicateAsset(false); }}>Duplicate</MenuRow>
+              <MenuRow icon={FileText} onClick={() => { setMoreOpen(false); exportAssetPdf(active, store); }}>Export as PDF</MenuRow>
+              <MenuRow icon={Download} onClick={() => { setMoreOpen(false); exportCsvWithTickets(active); }}>Export as CSV</MenuRow>
+            </AnchoredMenu>
           </div>
-
-          <button
-            onClick={() => togglePrivate(active.id)}
-            title={active.private ? 'Click to make public (visible to all)' : 'Click to mark private (hidden from non-officers)'}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 999, fontSize: '0.76rem', fontWeight: 700, marginLeft: 'auto', border: active.private ? '1px solid transparent' : '1px dashed var(--border-color)', cursor: 'pointer', backgroundColor: active.private ? 'hsla(var(--color-red), 0.12)' : 'transparent', color: active.private ? 'hsl(var(--color-red))' : 'var(--text-muted)' }}
-          >
-            {active.private ? <><Lock size={12} /> Private</> : 'Mark Private'}
-          </button>
-          <button className="secondary-btn" onClick={() => duplicateAsset(false)} title="Duplicate this asset as a standalone copy" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Copy size={14} /> Duplicate</button>
-          <ExportMenu onPdf={() => exportAssetPdf(active, store)} onCsv={() => exportCsvWithTickets(active)} />
         </div>
       )}
 
       {active && <ParcelManager active={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} onLink={linkParcel} onUnlink={unlinkParcel} onTogglePrimary={togglePrimaryParcel} onMove={moveParcelOrder} onRenameGroup={renameGroup} onDuplicate={() => duplicateAsset(true)} onSetAssembled={setAssembled} />}
 
       {leaveAsk && (
-        <div onClick={() => setLeaveAsk(false)} style={{ position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(8,12,22,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--bg-card)', borderRadius: 16, padding: '20px 20px 16px', maxWidth: 380, width: '100%', boxShadow: '0 20px 50px rgba(0,0,0,0.35)' }}>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>Unsaved Changes</div>
-            <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 18 }}>You have unsaved changes on this asset. Save them before you leave?</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              <button className="primary-btn" onClick={() => { editGuard.save?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }} style={{ width: '100%', padding: 12, fontSize: '0.9rem' }}>Save & Leave</button>
-              <button className="secondary-btn" onClick={() => { editGuard.cancel?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }} style={{ width: '100%', padding: 12, fontSize: '0.9rem' }}>Discard & Leave</button>
-              <button onClick={() => { setLeaveAsk(false); setPendingNav(null); }} style={{ width: '100%', padding: 10, background: 'none', border: 'none', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.86rem', cursor: 'pointer' }}>Keep Editing</button>
-            </div>
-          </div>
-        </div>
+        <UnsavedChangesPrompt
+          onKeepEditing={() => { setLeaveAsk(false); setPendingNav(null); }}
+          onDiscard={() => { editGuard.cancel?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }}
+          onSave={() => { editGuard.save?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }}
+        />
       )}
 
+      {/* Underline tabs with a count each - the Shifts strip. Not sticky: Nexus
+          took sticky tab strips out app-wide (style.css, Sep 5). */}
       {active && (
-        <>
-          <div className="gt-tabs" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, padding: '8px 4px', position: 'sticky', top: 46, zIndex: 50, backgroundColor: 'var(--paper)', borderBottom: '1px solid var(--border-color)' }}>
+        <div className="gt-tabs" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, borderBottom: '1px solid var(--wk-line)', flexWrap: 'wrap' }}>
+          <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
             {tabsForActiveAsset.map(([key, defaultLabel]) => {
-              const isActive = view === key;
+              const on = view === key;
               const label = (key === 'property' && assetKind !== 'property') ? 'Overview' : (key === 'documents' && assetKind !== 'property') ? 'Documents' : defaultLabel;
+              const n = tabCount(key);
               return (
-                <button key={key} onClick={() => navigate(key)} style={{ position: 'relative', padding: '8px 16px', borderRadius: 999, border: '1px solid', borderColor: isActive ? 'var(--pine)' : 'var(--border-color)', background: isActive ? 'var(--pine)' : 'var(--bg-card)', color: isActive ? '#fff' : 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <button key={key} type="button" role="tab" aria-selected={on} onClick={() => navigate(key)}
+                  aria-label={n ? `${label}, ${n}` : undefined}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 14px', border: 'none', background: 'none',
+                    cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: on ? 700 : 600,
+                    color: on ? 'var(--wk-brand)' : 'var(--muted)', whiteSpace: 'nowrap', marginBottom: -1,
+                    borderBottom: on ? '2.5px solid var(--wk-brand)' : '2.5px solid transparent' }}>
                   {label}
+                  {n > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 700, lineHeight: '16px', padding: '0 6px', borderRadius: 8, background: on ? 'var(--wk-brand-tint)' : 'var(--bg-secondary)', color: on ? 'var(--wk-brand)' : 'var(--muted)' }}>{n}</span>
+                  )}
                 </button>
               );
             })}
-            {view === 'property' && (
-              <button className="primary-btn" onClick={() => editGuard.startEdit?.()} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', padding: '7px 14px' }}>
-                <Pencil size={14} /> Edit
-              </button>
-            )}
-            {showTabSearch && (
-              <div style={{ position: 'relative', width: 220, marginLeft: view === 'property' ? undefined : 'auto' }}>
-                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-                <input className="form-input" placeholder="Search…" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} style={{ width: '100%', fontSize: '0.82rem', padding: '7px 10px 7px 32px' }} />
-              </div>
-            )}
           </div>
-        </>
+          {showTabSearch && (
+            <div style={{ position: 'relative', width: 220, marginLeft: 'auto', padding: '4px 0' }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+              <input className="form-input" placeholder="Search…" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} style={{ width: '100%', fontSize: '0.82rem', padding: '7px 10px 7px 32px' }} />
+            </div>
+          )}
+        </div>
       )}
 
       {view === 'portfolio' && !active && loading && !visibleProperties.length && (
@@ -790,7 +803,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} />}
 
       {view === 'property' && active?.assembled && !active.parentId && <AssemblageParcels lead={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} />}
-      {view === 'property' && active && <CriticalDates store={store} only={active.id} openProperty={openAsset} onTab={navigate} />}
+      {view === 'property' && active && <CriticalDates store={store} only={active.id} openProperty={openAsset} onTab={navigate} hideIfEmpty />}
       {view === 'property' && active && (
         <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} />
       )}
@@ -963,5 +976,16 @@ function CountBadge({ n }) {
     <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
       {n}
     </span>
+  );
+}
+
+function MenuRow({ icon: Icon, onClick, children }) {
+  return (
+    <button type="button" role="menuitem" onClick={onClick}
+      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', cursor: 'pointer', borderRadius: 7, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'inherit' }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--mist)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}>
+      <Icon size={15} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} /> {children}
+    </button>
   );
 }

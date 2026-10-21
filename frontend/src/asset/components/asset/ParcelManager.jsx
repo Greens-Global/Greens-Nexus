@@ -238,7 +238,7 @@ export function ParcelManager({
                   fontWeight: 700,
                   textTransform: 'uppercase',
                   letterSpacing: '0.04em',
-                  color: 'var(--text-muted)',
+                  color: 'var(--text-secondary)',
                 }}
               >
                 Group Name
@@ -301,7 +301,7 @@ export function ParcelManager({
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em',
-                color: 'var(--text-muted)',
+                color: 'var(--text-secondary)',
               }}
             >
               {grouped ? 'Add a parcel' : 'Link with another parcel'}
@@ -347,7 +347,7 @@ export function ParcelManager({
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em',
-                color: 'var(--text-muted)',
+                color: 'var(--text-secondary)',
               }}
             >
               Quick Start
@@ -384,7 +384,7 @@ export function ParcelManager({
                   fontWeight: 700,
                   textTransform: 'uppercase',
                   letterSpacing: '0.04em',
-                  color: 'var(--text-muted)',
+                  color: 'var(--text-secondary)',
                 }}
               >
                 Parcels ({members.length}) - reorder with the arrows; the star marks the primary parcel

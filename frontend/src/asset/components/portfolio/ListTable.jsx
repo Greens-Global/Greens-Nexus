@@ -36,7 +36,7 @@ const COLUMN_ACCESSORS = [
 
 const thStyle = {
   textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase',
-  letterSpacing: '0.05em', color: 'var(--text-muted)', padding: '11px 16px', whiteSpace: 'nowrap',
+  letterSpacing: '0.05em', color: 'var(--text-secondary)', padding: '11px 16px', whiteSpace: 'nowrap',
   overflow: 'hidden', textOverflow: 'ellipsis', borderBottom: '1px solid var(--border-color)',
   backgroundColor: 'var(--bg-secondary)',
 };

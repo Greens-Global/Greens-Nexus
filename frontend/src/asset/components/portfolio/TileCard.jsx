@@ -234,7 +234,7 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
                   <div style={{ fontSize: valFontSize, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.18, whiteSpace: 'normal', wordBreak: 'break-word' }}>
                     {s.v}
                   </div>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginTop: 3, whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {s.l}
                   </div>
                 </div>

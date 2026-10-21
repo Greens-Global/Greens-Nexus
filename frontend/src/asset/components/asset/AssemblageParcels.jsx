@@ -83,7 +83,7 @@ export function AssemblageParcels({ lead, all, onOpen }) {
                     fontWeight: 700,
                     textTransform: 'uppercase',
                     letterSpacing: '0.04em',
-                    color: 'var(--text-muted)',
+                    color: 'var(--text-secondary)',
                     padding: '8px 14px',
                     backgroundColor: 'var(--bg-secondary)',
                     whiteSpace: 'nowrap',
