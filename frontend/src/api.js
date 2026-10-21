@@ -2711,6 +2711,12 @@ export const api = {
   getOpsCustomerMap: ({ facility = 'all', state = '', kind = 'all', since = 'all', band = 'all' } = {}) => req(`/facility-ops/customer-map?${new URLSearchParams({ facility, state, kind, since, band })}`),
   // Ops Budget > Hummingbird History (Oct 21 2026): what the last HB export load holds, per site (admins only).
   getOpsHummingbird: () => req('/ops-budget/hummingbird'),
+  // Contractor invoices (Oct 21): drafted when a contractor's Time Sheet is
+  // finalized, approved and emailed by HR from People > Time > Invoices.
+  contractorInvoices:     (status = 'draft') => req(`/contractor-invoices?status=${encodeURIComponent(status)}`),
+  contractorInvoicesMine: ()   => req('/contractor-invoices/mine'),
+  contractorInvoicePdf:   (id) => reqBlob(`/contractor-invoices/${encodeURIComponent(id)}/pdf`),   // bearer-authenticated, so a blob, never a bare link
+  contractorInvoiceSend:  (id) => req(`/contractor-invoices/${encodeURIComponent(id)}/send`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

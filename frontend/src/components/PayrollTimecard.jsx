@@ -15,6 +15,7 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
 import ChoicePills from './ChoicePills';
+import { InvoiceCard } from './ContractorInvoices';
 import BreakPremiums from './BreakPremiums';
 import GeofencePunchModal from './GeofencePunchModal';
 import AddTimeModal from './AddTimeModal';
@@ -1479,7 +1480,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           not at the bottom under the grid, and not every period's requests. */}
       {self && T && (
         <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={label}
-          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
+          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastErr={toastErr} /> : null} />
       )}
       {self && data && selfTop?.(perStart, perEnd)}
       {self && (
@@ -1493,9 +1495,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
           {/* The OT rule is for managers and HR, never on the employee's own
               time sheet (Neil, Oct 18 2026). */}
-          {self ? (showPay && <span><strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {fmtM(rate)}/hr</span>) : (
+          {self ? (showPay && <span><strong style={{ color: 'var(--ink)' }}>{data.contractor ? 'Rate' : 'Pay rate'}:</strong> {fmtM(rate)}/hr</span>) : (
           <span title="Set on the Pay & Benefits tab of this person's profile">
-            {showPay && <><strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {fmtM(rate)}/hr · </>}<strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {RULE_LABEL[rule] || 'None'}
+            {showPay && <><strong style={{ color: 'var(--ink)' }}>{data.contractor ? 'Rate' : 'Pay rate'}:</strong> {fmtM(rate)}/hr · </>}<strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {RULE_LABEL[rule] || 'None'}
           </span>
           )}
           {showPay && rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`) && (
@@ -1545,8 +1547,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th title="The day's total, on its last row - the rows above point down to it" style={gh}>Hrs/Day</th>
                 <th title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×" style={gh}>OT</th>
                 <th style={gh}>Loc</th>
-                {showPay && <th title="The rate in effect that day" style={gh}>Pay Rate</th>}
-                {showPay && <th style={gh}>Wage</th>}
+                {showPay && <th title="The rate in effect that day" style={gh}>{data.contractor ? 'Rate' : 'Pay Rate'}</th>}
+                {showPay && <th style={gh}>{data.contractor ? 'Amount' : 'Wage'}</th>}
                 <th title="What was planned, done, and left pending that day" style={gh}>Log</th>
               </tr>
             </thead>
@@ -1845,7 +1847,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           back or agrees, then employee -> manager -> HR sign in Nexus Sign. */}
       {T && !self && (
         <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={label}
-          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
+          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastErr={toastErr} /> : null} />
       )}
 
       {noteModal && (
@@ -2018,15 +2021,16 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           change requests (Neil, Oct 18 2026). */}
       {self && (
         <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}
-          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
+          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastErr={toastErr} /> : null} />
       )}
       {self && selfTop?.(data.periodStart, data.periodEnd)}
 
       {/* Fixed-pay strip */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontWeight: 700 }}>Fixed salary</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontWeight: 700 }}>{data.contractor ? 'Fixed fee' : 'Fixed salary'}</span>
         {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
-        {showPay && <span title="Set on the Pay & Benefits tab of this person's profile"><strong style={{ color: 'var(--ink)' }}>Salary:</strong> {fmtM(data.monthlySalary)}/mo</span>}
+        {showPay && <span title="Set on the Pay & Benefits tab of this person's profile"><strong style={{ color: 'var(--ink)' }}>{data.contractor ? 'Monthly fee' : 'Salary'}:</strong> {fmtM(data.monthlySalary)}/mo</span>}
         {showPay && fixedSplit && (
           <span title="The salary changed inside this month - each day is paid at the salary in effect that day" style={{ color: 'var(--wk-brand)', fontWeight: 600 }}>{fixedSplit}</span>
         )}
@@ -2260,7 +2264,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         <div style={{ flex: 1, minWidth: 300, display: showPay ? undefined : 'none', border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {(() => {
             const rows = [
-              [fixedSplit ? 'Salary this month (pro-rated by day)' : 'Monthly salary', fmtM(T.salaryForPeriod ?? T.monthlySalary)],
+              [data.contractor ? (fixedSplit ? 'Fee this month (pro-rated by day)' : 'Monthly fee') : (fixedSplit ? 'Salary this month (pro-rated by day)' : 'Monthly salary'), fmtM(T.salaryForPeriod ?? T.monthlySalary)],
               // Why the days were missed (Charmi, Oct 15 2026): "Sick ×2 · Personal ×8"
               // instead of only a count - the server sends missedReasons.
               [<span key="missed">
@@ -2277,7 +2281,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 )}
               </span>, T.deduction ? `−${fmtM(T.deduction)}` : fmtM(0)],
               [`Weekend pay (${T.weekendDaysWorked} day${T.weekendDaysWorked === 1 ? '' : 's'}, ${data.weekendMultiplier || 1.35} × daily by hours)`, T.weekendBonus ? `+${fmtM(T.weekendBonus)}` : fmtM(0)],
-              ['Net pay this month', fmtM(T.totalPay)],
+              [data.contractor ? 'Invoice amount this month' : 'Net pay this month', fmtM(T.totalPay)],
             ];
             const last = rows.length - 1;
             return rows.map(([lbl, amt], i) => (
@@ -2311,7 +2315,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
       {/* Review + Nexus Sign (same as hourly) - at the top on the employee's own sheet */}
       {!self && <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}
-        nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />}
+        nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
+          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastErr={toastErr} /> : null} />}
 
       {editDay && (
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
