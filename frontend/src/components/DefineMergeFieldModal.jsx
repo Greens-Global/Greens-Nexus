@@ -4,7 +4,7 @@ import TypedFieldInput from './TypedFieldInput';
 import { FIELD_SOURCES, FIELD_TYPES, VALIDATION_KEYS, OPTION_TYPES, slugifyToken, isValidToken } from '../lib/mergeFieldTypes';
 
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
-const cardStyle = { background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 440, maxHeight: '86vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)' };
+const cardStyle = { background: 'var(--card)', borderRadius: 16, overflowY: 'auto', boxShadow: 'var(--shadow-lg)' };
 const label = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 };
 const field = { marginBottom: 14 };
 
@@ -61,7 +61,7 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
 
   return (
     <div style={overlayStyle} onClick={onCancel}>
-      <div style={cardStyle} onClick={(e) => e.stopPropagation()}>
+      <div className="nx-popup" style={cardStyle} onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           {isEdit ? 'Edit Merge Field' : 'Convert to Merge Field'}
           <button onClick={onCancel} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><X size={18} /></button>

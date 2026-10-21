@@ -14,6 +14,8 @@ function reqFromApi(r) {
     id:                   r.id,
     employeeName:         r.employee_name,
     employeeDept:         r.employee_dept,
+    employeeEmail:        r.employee_email || '',
+    submittedByEmail:     r.submitted_by_email || '',
     item:                 r.item,
     quantity:             r.quantity,
     reason:               r.reason,
@@ -198,7 +200,7 @@ export function RequisitionProvider({ children }) {
     const newReq = {
       id, employeeName, employeeDept, item,
       quantity: Number(quantity), reason,
-      employeeEmail: ownerEmail,
+      employeeEmail: ownerEmail, submittedByEmail: myEmail,
       status: 'pending_manager',
       supervisorName: 'TBD',   // resolved by the picked approver, not a hardcoded map
       managerName: null, managerApprovalDate: null, rejectionReason: null,

@@ -40,14 +40,10 @@ export default function Modal({ title, onClose, children, width, isDirty = false
     try { await onSave() } finally { setSaving(false); setConfirming(false) }
   }
 
-  // Every caller of this Modal is a real content form (add/edit/detail), never
-  // a small confirm, so it always sizes to ~60% of the viewport - clamped so
-  // it never overflows a narrow laptop or shrinks below a usable floor -
-  // matching the app-wide modal default in style.css. The width token is kept
-  // only as a floor: a caller that asked for something bigger than 60vw (e.g.
-  // max-w-4xl on a wide report) still gets that larger fixed size.
+  // Every caller of this Modal is a real content form (add/edit/detail), so it
+  // always takes the app-wide popup size (.nx-popup: 60vw x 60vh). The width
+  // token only matters when it asks for something bigger (max-w-4xl and up).
   const tokenWidth = MAX_W[width] || 0
-  const maxWidth = tokenWidth > 900 ? tokenWidth : 'clamp(520px, 60vw, 980px)'
 
   return (
     <div
@@ -66,12 +62,9 @@ export default function Modal({ title, onClose, children, width, isDirty = false
       onClick={requestClose}
     >
       <div
-        className="nx-panel"
+        className="nx-panel nx-popup"
         style={{
-          width: '100%',
-          maxWidth,
-          maxHeight: '85vh',
-          overflowY: 'auto',
+          ...(tokenWidth > 900 ? { width: `max(60vw, min(${tokenWidth}px, 100%))` } : null),
           borderRadius: 16,
           background: C.white,
           boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
@@ -118,12 +111,12 @@ export default function Modal({ title, onClose, children, width, isDirty = false
       {confirming && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: alpha(C.black, 0.2) }}
           onClick={(e) => e.stopPropagation()}>
-          <div style={{ width: 340, maxWidth: '90vw', background: C.white, borderRadius: 14, padding: 20, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)' }}>
+          <div className="nx-popup" style={{ background: C.white, borderRadius: 14, padding: 20, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: C.gray900, marginBottom: 6 }}>Save your changes?</div>
             <div style={{ fontSize: 13, color: C.gray500, lineHeight: 1.5, marginBottom: 18 }}>
               You have unsaved changes. Closing now will discard them.
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
               <button onClick={() => setConfirming(false)} style={{ background: C.gray100, color: C.gray700, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Keep Editing</button>
               <button onClick={exit} style={{ background: C.gray100, color: C.gray700, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Discard</button>
               {onSave && (

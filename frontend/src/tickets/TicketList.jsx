@@ -147,7 +147,7 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
 // Memoized, with id-taking callbacks (onOpen(id, tab), onToggle(id)) that
 // TicketsView keeps stable - so ticking one checkbox or typing in the search
 // box re-renders the rows that changed, not all of them.
-const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, updateTicket, onOpen, onResolve, people, checked, onToggle, cols, band = false, mobile = false }) {
+const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, updateTicket, onOpen, people, checked, onToggle, cols, band = false, mobile = false }) {
   const isMobile = !!mobile || !Array.isArray(cols);
   const open = () => onOpen(t.id);
   const openConversation = () => onOpen(t.id, 'conversation');
@@ -172,12 +172,6 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
   // department/resolution - never let the list's inline dropdown drift from
   // it (see TicketDrawer below and InlineTicketSelect above).
   const { canWorking, canEditStatus, requesterOnly: rowRequesterOnly } = ticketRights(t, myEmail, privileged);
-  // Mark Resolved from the row (Neil, Oct 1): the person who raised it may
-  // resolve their own still-active ticket whatever its state ("a colleague
-  // helped me" - optional comment, no write-up); anyone who can work it gets
-  // the desk's Resolve dialog. Mirrors _requester_self_resolve server-side.
-  const canResolveRow = !!onResolve && !CLOSED_STATES.includes(t.status) && (rowRequesterOnly || canWorking);
-  const resolveRow = (e) => { e.stopPropagation(); onResolve(t, rowRequesterOnly ? 'self_resolve' : 'resolve'); };
   // Assigning is the desk's (the drawer hides Assign To from a requester on an
   // Open ticket) and waits for any approval - the same gates as the drawer.
   const canAssignRow = isMobile && !!people && canWorking && !rowRequesterOnly
@@ -205,12 +199,6 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
             </div>
           </div>
           {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} />}
-          {canResolveRow && (
-            <button type="button" onClick={resolveRow} title="Mark Resolved" aria-label={`Mark ${ticketNoShort(t.code) || 'ticket'} Resolved`}
-              style={{ ...btn('outline'), flexShrink: 0, padding: '5px 8px', fontSize: 12, gap: 4, color: NX.green, minHeight: 32 }}>
-              <CheckCircle2 size={14} /> Resolve
-            </button>
-          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <TicketStatusChip status={t.status} />
@@ -379,19 +367,12 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
         )}
       </div>
     ),
-    // The resolved gutter doubles as the row's Mark Resolved action: a faint
-    // outline check on a ticket still in flight (solid green once on hover),
-    // the filled green check once it is resolved.
+    // Resolved shows as a green check, but resolving is never a one-click row
+    // action (Neil, Oct 19): a ticket is a conversation, so it is resolved from
+    // inside it with a written resolution.
     resolved: (
       <div style={{ ...cell, justifyContent: 'center', borderRight: 'none', padding: 0 }}>
-        {t.resolvedAt
-          ? <CheckCircle2 size={16} style={{ color: NX.green }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />
-          : canResolveRow && (
-            <button type="button" className="nx-row-resolve" onClick={resolveRow} title="Mark Resolved"
-              aria-label={`Mark ${ticketNoShort(t.code) || 'ticket'} Resolved`}>
-              <CheckCircle2 size={16} />
-            </button>
-          )}
+        {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />}
       </div>
     ),
   };

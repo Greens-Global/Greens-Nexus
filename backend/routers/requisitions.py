@@ -140,6 +140,10 @@ def list_requisitions(
         q = q.filter(
             (models.Requisition.employee_email == user["email"]) |
             (models.Requisition.submitted_by_email == user["email"]) |  # on-behalf: the submitter can track it too
+            # The person a manager picked to purchase & fulfill it (a supervisor
+            # can be one) - _require_fulfiller already lets them act on it, and
+            # Workday > Purchase Requests lists it for them (Oct 22 2026).
+            (models.Requisition.allocator_email == user["email"]) |
             (models.Requisition.employee_email == "")  # legacy rows without email
         )
 

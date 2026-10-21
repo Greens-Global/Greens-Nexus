@@ -34,7 +34,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Union, List, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -77,11 +77,13 @@ def _advance_to_interview(db: Session, cand: HrCandidate, by: str, note: str, pu
     an Offer candidate back to Interview too."""
     if not cand:
         return
-    if cand.stage in ("applied", "screening") or (pull_back and cand.stage == "offer"):
+    if cand.stage in ("applied", "screening") or (pull_back and cand.stage in ("offer", "decision")):
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id,
                             from_stage=cand.stage, to_stage="interview",
                             note=note, by_email=by, created_at=_now()))
         cand.stage = "interview"
+        import hiring_decision
+        hiring_decision.close(db, cand)      # another round - the decision waits for it
     else:
         # Same-stage milestone entry (timeline note, no stage change).
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id,
@@ -540,18 +542,18 @@ class InterviewPatch(BaseModel):
 
 
 @router.patch("/interviews/{iid}")
-def update_interview(iid: str, body: InterviewPatch, user: dict = Depends(require_hr_write),
-                     db: Session = Depends(get_db)):
+def update_interview(iid: str, body: InterviewPatch, background: BackgroundTasks = None,
+                     user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).first(), user, db)
+    task = None
     if body.status in ("live", "completed") and body.status != iv.status:
-        iv.status = body.status
-        if body.status == "live" and not iv.started_at:
-            iv.started_at = _now()
-        if body.status == "completed":
-            iv.completed_at = _now()
         cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
-        _advance_to_interview(db, cand, user["email"],
-                              "Interview started" if body.status == "live" else "Interview completed")
+        if body.status == "completed":
+            task = _complete_round(db, iv, cand, user["email"])
+        else:
+            iv.status = "live"
+            iv.started_at = iv.started_at or _now()
+            _advance_to_interview(db, cand, user["email"], "Interview started")
     if body.answers is not None:
         iv.answers = body.answers
     if body.transcript is not None:
@@ -559,6 +561,9 @@ def update_interview(iid: str, body: InterviewPatch, user: dict = Depends(requir
         _save_transcript_file(db, iv)
     iv.updated_at = _now()
     db.commit()
+    if task is not None and background is not None:
+        from task_notify import notify_task_event
+        background.add_task(notify_task_event, task.id, "assigned", user["email"])
     return _ser_iv(iv)
 
 
@@ -581,6 +586,13 @@ def _fetch_transcript(db: Session, iv: HrInterview) -> None:
     h = {"Authorization": f"Bearer {_graph_token()}"}
     oid, mid = _graph_meeting_ids(h, iv, db)
     r = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings/{mid}/transcripts", headers=h, timeout=30)
+    if r.status_code in (401, 403):
+        # Was reported as "no transcript yet" and retried for two hours.
+        raise HTTPException(502, "Graph denied reading the transcript - grant 'OnlineMeetingTranscript.Read.All' "
+                                 "(application) with admin consent, and make sure the organizer is in the Teams "
+                                 "application access policy.")
+    if not r.is_success and r.status_code != 404:
+        raise HTTPException(502, f"Transcript lookup failed ({r.status_code}): {r.text[:200]}")
     if not r.is_success or not r.json().get("value"):
         raise HTTPException(404, "No transcript yet - make sure transcription was started in the meeting "
                                  "and the call has ended (Teams takes a few minutes to publish it).")
@@ -842,19 +854,15 @@ def _when(minutes: float) -> str:
 
 
 @router.post("/interviews/{iid}/finish")
-def finish_interview(iid: str, body: FinishIn, user: dict = Depends(require_hr_write),
-                     db: Session = Depends(get_db)):
+def finish_interview(iid: str, body: FinishIn, background: BackgroundTasks = None,
+                     user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).with_for_update().first(), user, db)
     if iv.status not in ("scheduled", "live", "completed"):
         raise HTTPException(409, f"This interview is already {iv.status}")
     if body.answers is not None:
         iv.answers = body.answers
     cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
-    if iv.status != "completed":
-        iv.status = "completed"
-        iv.started_at = iv.started_at or _now()
-        iv.completed_at = _now()
-        _advance_to_interview(db, cand, user["email"], "Interview completed")
+    task = _complete_round(db, iv, cand, user["email"]) if iv.status != "completed" else None
     iv.followup_status = "waiting"
     iv.followup_attempts = 0
     iv.followup_next_at = _now()
@@ -867,7 +875,28 @@ def finish_interview(iid: str, body: FinishIn, user: dict = Depends(require_hr_w
         iv.recording_note = "Waiting for Teams to publish the recording"
     iv.updated_at = _now()
     db.commit()
+    if task is not None and background is not None:
+        from task_notify import notify_task_event
+        background.add_task(notify_task_event, task.id, "assigned", user["email"])
     return _ser_iv(iv, cand)
+
+
+def _complete_round(db: Session, iv: HrInterview, cand: Optional[HrCandidate], by: str):
+    """The round is over. With no other round still coming, the candidate
+    moves to Decision (Neil, Oct 19: "interview over and then you take a
+    decision") - returns the new "Decide on" task. Not committed."""
+    iv.status = "completed"
+    iv.started_at = iv.started_at or _now()
+    iv.completed_at = _now()
+    _advance_to_interview(db, cand, by, "Interview completed")
+    if cand is None or cand.stage != "interview":
+        return None
+    more = (db.query(HrInterview).filter(HrInterview.candidate_id == cand.id, HrInterview.id != iv.id,
+                                         HrInterview.status.in_(("scheduled", "live"))).first())
+    if more is not None:
+        return None
+    import hiring_decision
+    return hiring_decision.enter(db, cand, by)
 
 
 @router.post("/interviews/{iid}/followup")
@@ -897,6 +926,9 @@ def followup_step(db: Session, iv: HrInterview) -> None:
     iv.followup_attempts = attempts
     out_of_time = attempts > len(FOLLOWUP_BACKOFF_MIN)
     setup_problem = ""
+    # Started by the clock, not End Interview (start_after_meeting): nobody
+    # said the interview happened, so only a transcript proves it did.
+    auto = iv.status in ("scheduled", "live")
     if iv.join_url and not iv.transcript:
         try:
             _fetch_transcript(db, iv)
@@ -905,6 +937,11 @@ def followup_step(db: Session, iv: HrInterview) -> None:
                 iv.followup_note = "Waiting for Teams to publish the transcript"
                 iv.followup_next_at = _when(FOLLOWUP_BACKOFF_MIN[attempts - 1])
                 return
+            if e.status_code == 404 and auto:
+                # A no-show or a meeting held elsewhere - say so quietly, no bells.
+                iv.followup_status, iv.followup_next_at = "failed", ""
+                iv.followup_note = "No Teams transcript - if the interview happened, click End Interview."
+                return
             setup_problem = str(e.detail)
         except Exception as e:     # network - try again later
             if not out_of_time:
@@ -912,6 +949,8 @@ def followup_step(db: Session, iv: HrInterview) -> None:
                 iv.followup_next_at = _when(FOLLOWUP_BACKOFF_MIN[attempts - 1])
                 return
             setup_problem = f"Teams did not answer ({type(e).__name__})"
+    if auto and iv.transcript:
+        _complete_round(db, iv, cand, "nexus")     # the transcript proves the interview happened
     try:
         if iv.transcript and iv.answers:
             _autofill(iv, only_blank=True)
@@ -976,11 +1015,45 @@ def recording_step(db: Session, iv: HrInterview) -> None:
     _tell(db, iv, f"Interview Recording Not Saved - {name}", iv.recording_note)
 
 
+# Minutes after a meeting's scheduled end before Nexus looks for its
+# transcript by itself (Neil, Oct 19: the transcript was "not operational" -
+# it only ever started when someone clicked End Interview).
+AFTER_MEETING_MIN = 15
+
+
+def start_after_meeting(db: Session, limit: int = 20) -> int:
+    """Rounds whose meeting time is over but nobody clicked End Interview: start
+    the same follow-up (transcript, then recording). Not committed."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=AFTER_MEETING_MIN)
+    n = 0
+    for iv in (db.query(HrInterview).filter(HrInterview.status.in_(("scheduled", "live")),
+                                            HrInterview.join_url != "", HrInterview.followup_status == "",
+                                            HrInterview.at != "", HrInterview.at <= cutoff.isoformat())
+               .order_by(HrInterview.at).limit(limit).all()):
+        try:
+            start = datetime.fromisoformat(iv.at.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if start + timedelta(minutes=iv.duration_min or 45) > cutoff:
+            continue
+        iv.followup_status, iv.followup_attempts, iv.followup_next_at = "waiting", 0, _now()
+        iv.followup_note = "The meeting is over - looking for the Teams transcript"
+        if not iv.recording_path and not iv.recording_status:
+            iv.recording_status, iv.recording_attempts, iv.recording_next_at = "waiting", 0, _now()
+            iv.recording_note = "Waiting for Teams to publish the recording"
+        n += 1
+    return n
+
+
 def process_followups(limit: int = 10) -> int:
     from database import SessionLocal
     db = SessionLocal()
     n = 0
     try:
+        if start_after_meeting(db):
+            db.commit()
         now = _now()
         ids = [r.id for r in db.query(HrInterview).filter(HrInterview.followup_status == "waiting",
                                                            HrInterview.followup_next_at != "",
@@ -1107,7 +1180,7 @@ def invite_final_round(iid: str, body: FinalRoundIn, user: dict = Depends(requir
         f"Hi {cand.first_name},\n\nGreat news - we'd like to move you to the final round. "
         "Join with the Teams link in this invite.\n", cand.email, cand_name,
         body.at.replace("Z", "+00:00"), max(15, min(240, body.duration_min)))
-    if cand.stage in ("applied", "screening", "interview"):
+    if cand.stage in ("applied", "screening", "interview", "decision"):
         # Recorded like every other move, so Stage History shows it.
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage, to_stage="offer",
                             note="Invited to the final round", by_email=user["email"], created_at=_now()))

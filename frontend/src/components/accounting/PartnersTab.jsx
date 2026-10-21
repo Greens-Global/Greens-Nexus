@@ -283,7 +283,7 @@ export default function PartnersTab({ canApprove = false }) {
 
       {editing && (
         <div role="dialog" aria-modal="true" aria-label={`Edit ${editing.before.displayName || editing.before.name}`} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget) setEditing(null); }}>
-          <form onSubmit={submitChange} style={{ ...card, width: 'min(680px, 100%)', maxHeight: '90vh', overflow: 'auto', padding: 18 }}>
+          <form onSubmit={submitChange} className="nx-popup" style={{ ...card, padding: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <h3 style={{ margin: 0, fontSize: '1rem' }}>Edit {kind === 'vendor' ? 'Vendor' : 'Customer'} {editing.before.id}</h3>
               <button type="button" aria-label="Close" onClick={() => setEditing(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}><X size={16} /></button>

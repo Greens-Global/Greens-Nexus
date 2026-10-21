@@ -515,5 +515,42 @@ def test_history_has_points_cards_and_a_change_log(db, fake):
     sources = {e["source"] for e in h["log"]}
     assert {"comp_set", "cubby", "website"} <= sources
     assert any("$114.50 -> $114.00" in e["text"] for e in h["log"])
-    assert h["workbookImport"]["available"] is False
+    assert "workbookImport" not in h                   # the past-CMA-workbook seed is gone (Neil, Oct 21)
     assert c.get(f"/facility-ops/cma/history?facility_id={FAC}&unit_type=nope").status_code == 404
+
+
+def test_history_reaches_back_through_hummingbird(db, fake):
+    import hb_models as hm
+    for m in (hm.HbRateMonth, hm.HbProperty):
+        db.query(m).delete()
+    db.add(hm.HbProperty(id="hbp5", name="Greens Storage, Fairfield", short_name="Fairfield", number="05"))
+    # HB's name carries a trailing space and different spacing - still the same unit type.
+    for month, sell, rent, occ in (("2025-11", 11000, 10500, 80), ("2025-12", 11000, 10600, 82),
+                                   ("2026-01", 11450, 10700, 85)):
+        db.add(hm.HbRateMonth(id=f"hbp5|12' x 32'  Parking |{month}", property_id="hbp5", unit_type="12' x 32'  Parking ",
+                              month=month, sell_cents=sell, rent_cents=rent, units=113, occupied=occ))
+    db.commit()
+    _mockup_market(db)
+    c = _client()
+    h = c.get(f"/facility-ops/cma/history?facility_id={FAC}&unit_type=12' x 32' Parking").json()
+    hb = [p for p in h["points"] if p.get("source") == "hummingbird"]
+    assert [p["date"] for p in hb[:3]] == ["2025-11-30", "2025-12-31", "2026-01-31"]
+    assert hb[0]["sell"] == 11000 and hb[0]["avgRent"] == 10500 and hb[0]["marketAvg"] is None
+    assert h["points"] == sorted(h["points"], key=lambda p: p["date"])
+    assert h["points"][-1]["date"] == "2026-10-20"                     # Cubby still owns today
+    hb_log = [e for e in h["log"] if e["source"] == "hummingbird"]
+    assert [e["text"] for e in hb_log] == ["Sell rate $110.00 -> $114.50"] and hb_log[0]["date"] == "2026-01-01"
+    assert h["cards"]["occupiedThen"] == 80 and h["cards"]["occupiedFrom"] == "2025-11-30"
+    assert h["hummingbird"] == {"first": "2025-11", "last": "2026-01"}
+    assert h["span"]["first"] == "2025-11-30" and h["span"]["last"] == "2026-10-20"
+    # A date filter (Oct 21): only that period's points and log lines; the span stays whole.
+    w = c.get(f"/facility-ops/cma/history?facility_id={FAC}&unit_type=12' x 32' Parking&start=2025-12-01&end=2026-01-31").json()
+    assert [p["date"] for p in w["points"]] == ["2025-12-31", "2026-01-31"]
+    assert all("2025-12-01" <= e["date"] <= "2026-01-31" for e in w["log"]) and w["log"]
+    assert w["span"] == h["span"] and w["range"] == {"start": "2025-12-01", "end": "2026-01-31"}
+    assert w["cards"]["occupiedThen"] == 82 and w["cards"]["occupiedFrom"] == "2025-12-31"
+    assert c.get(f"/facility-ops/cma/history?facility_id={FAC}&unit_type=12' x 32' Parking&start=12/01/2025").status_code == 400
+    assert c.get(f"/facility-ops/cma/history?facility_id={FAC}&unit_type=12' x 32' Parking&start=2026-02-01&end=2026-01-01").status_code == 400
+    for m in (hm.HbRateMonth, hm.HbProperty):
+        db.query(m).delete()
+    db.commit()

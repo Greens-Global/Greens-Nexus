@@ -406,7 +406,7 @@ export function LoanAmortizationDialog({ loan, canEdit = false, month, onClose }
   const l = normalizeLoan(loan);
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Amortization schedule" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 1080, width: '100%' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Amortization schedule" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Amortization Schedule</h3>

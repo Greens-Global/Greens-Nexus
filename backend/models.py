@@ -979,7 +979,7 @@ class HrCandidate(Base):
     phone          = Column(String, default="")
     role_title     = Column(String, default="")               # role they applied for
     department     = Column(String, default="")
-    stage          = Column(String, default="applied")        # applied|screening|interview|offer|hired|rejected
+    stage          = Column(String, default="applied")        # applied|screening|interview|decision|offer|hired|rejected
     expected_start = Column(String, default="")               # ISO date
     interview_at   = Column(String, default="")               # ISO datetime of the next interview
     source         = Column(String, default="")               # referral, LinkedIn, ...
@@ -999,6 +999,13 @@ class HrCandidate(Base):
     # The "Screen <name>" task for the department head and up (Oct 14,
     # hiring_screening.py) - its due date follows the interview.
     screen_task_id = Column(String, default="")               # Task.id
+    # The Decision step after the interview (Neil, Oct 19, hiring_decision.py):
+    # the "Decide on <name>" task, and the department head's final call.
+    decision_task_id = Column(String, default="")             # Task.id
+    decision       = Column(String, default="")               # '' | hire | reject
+    decision_by    = Column(String, default="")
+    decision_at    = Column(String, default="")
+    decision_note  = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
@@ -5262,8 +5269,10 @@ class HrChecklistTemplate(Base):
     create_all builds it; RLS must be enabled on dev and prod at release."""
     __tablename__ = "hr_checklist_templates"
     id         = Column(String, primary_key=True)                 # uuid
-    kind       = Column(String, default="onboarding", index=True)  # onboarding | offboarding | inactive
+    kind       = Column(String, default="onboarding", index=True)  # onboarding | promotion | offboarding | inactive
     entity_id  = Column(String, default="", index=True)            # HrEntity.id ('' = every company)
+    # A job role's extra steps (Neil, Oct 19: company, then role) - entity_id ''.
+    role_id    = Column(String, default="", index=True)            # NexusGroup.id ('' = company / library)
     name       = Column(String, default="")
     items      = Column(JSON, default=list)
     updated_by = Column(String, default="")
@@ -5317,6 +5326,13 @@ class HrChecklistItem(Base):
     done_at      = Column(String, default="")
     note         = Column(String, default="")
     sort_order   = Column(Integer, default=0)
+    task_id      = Column(String, default="")   # the owner's task for this checklist (hr_checklists.sync_tasks)
+    # Every owner, comma-separated (owner_email is the first): a role can have
+    # several owners, each on the step's task (Pranshu, Oct 20).
+    owner_emails = Column(String, default="")
+    # Comments made while the step had no subtask; the rest live on the subtask
+    # as task comments, so both sides show the same thread (hr_checklists.comments_for).
+    comments     = Column(JSON, default=list)
 
 
 class AccountingLoanSchedule(Base):

@@ -57,7 +57,8 @@ export default function PersonSearchSelect({ groups, onPick, placeholder = 'Sear
                 <button key={p.email} type="button" role="option" aria-selected={i === hi}
                   onMouseDown={ev => { ev.preventDefault(); pick(p); }} onMouseEnter={() => setHi(i)} style={optionStyle(i === hi)}>
                   <span style={{ fontWeight: 600 }}>{p.name || p.email}</span>
-                  <span style={{ color: 'var(--muted)', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.email}</span>
+                  {/* Their job title next to the name (Neil, Oct 19), then the email. */}
+                  <span style={{ color: 'var(--muted)', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[p.title, p.email].filter(Boolean).join(' · ')}</span>
                 </button>
               );
             })}

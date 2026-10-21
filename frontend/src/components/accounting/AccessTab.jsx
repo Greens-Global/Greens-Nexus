@@ -325,7 +325,7 @@ function PfsFilePicker({ person, files, onClose, onSave }) {
   const choice = (on) => ({ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' });
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={`Which PFS ${person.name} can see`} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={`Which PFS ${person.name} can see`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <Face email={person.email} name={person.name} size={32} />
@@ -415,7 +415,7 @@ function IntacctImport({ names, onClose, onApplied }) {
   };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Entity access from Intacct" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'min(1100px, 96vw)', maxHeight: '92vh' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Entity access from Intacct" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'max(60vw, min(1100px, 96vw))', maxHeight: '92vh' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>Entity Access From Intacct</h3>
@@ -509,7 +509,7 @@ function EntityLimit({ person, entities, onClose, onSaved }) {
   const choice = (on) => ({ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' });
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={`Entities ${person.name} can read`} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={`Entities ${person.name} can read`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Entities {person.name} Can Read</h3>

@@ -62,9 +62,9 @@ describe('Workday Overview with the Time Clock', () => {
     expect(screen.getByRole('button', { name: /Punch In/ }).closest('.wd-punch-row')).toBeTruthy();
     expect(document.querySelector('.wd-overview > .wd-clock-wrap .wd-clock')).toBeTruthy();
     expect(await screen.findByText('Amy Test')).toBeTruthy();
-    // Overview, Time Sheet, Time Off - no Clock tab.
+    // Overview, Time Sheet, Time Off, Purchase Requests (Oct 22 2026) - no Clock tab.
     const tabs = [...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim());
-    expect(tabs).toEqual(['Overview', 'Time Sheet', 'Time Off']);
+    expect(tabs).toEqual(['Overview', 'Time Sheet', 'Time Off', 'Purchase Requests']);
   }, SLOW);
 
   it('sends an old Clock link to Overview and rewrites the address', async () => {
@@ -215,7 +215,7 @@ describe('Workday Overview with the Time Clock', () => {
     await screen.findByText('Amy Test');
     expect(screen.queryByRole('region', { name: 'Time Clock' })).toBeNull();
     expect(screen.queryByText('Hours · This Week')).toBeNull();
-    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toEqual(['Overview', 'Time Off']);
+    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toEqual(['Overview', 'Time Off', 'Purchase Requests']);
     expect(screen.getByText('Time Off This Year')).toBeTruthy();   // the rest of Overview is there
   }, SLOW);
 
@@ -226,5 +226,31 @@ describe('Workday Overview with the Time Clock', () => {
     await screen.findByText('Amy Test');
     expect(screen.getByRole('region', { name: 'Time Clock' })).toBeTruthy();
     expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toContain('Time Sheet');
+  }, SLOW);
+
+  // Purchase Requisition moved here from Item Management (Neil, Oct 22 2026).
+  it('has a Purchase Request tile beside Ask HR and Reimbursements that opens the tab', async () => {
+    const onSubChange = await renderWorkday('overview');
+    await screen.findByText('Amy Test');
+    const tile = screen.getByRole('button', { name: 'Purchase Request' });
+    expect(tile.closest('.wd-actions')).toBeTruthy();
+    expect(tile.closest('.wd-actions').querySelectorAll('.wd-askhr')).toHaveLength(3);
+    fireEvent.click(tile);
+    expect(await screen.findByRole('button', { name: /New Purchase Request/ })).toBeTruthy();
+    expect(screen.getByText('No purchase requests yet')).toBeTruthy();
+    await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('purchase'));
+  }, SLOW);
+
+  it('opens the Purchase Requests tab from its link, and the form for purchase:new', async () => {
+    // The request form reads the approver list through TanStack Query.
+    const TimeClock = (await import('./TimeClock')).default;
+    const { QueryClientProvider } = await import('@tanstack/react-query');
+    const { queryClient } = await import('../lib/queryClient');
+    const onSubChange = vi.fn();
+    render(<QueryClientProvider client={queryClient}><TimeClock initialTab="overview" activeSub="purchase:new" onSubChange={onSubChange} /></QueryClientProvider>);
+    expect(await screen.findByRole('dialog', { name: 'New Purchase Request' })).toBeTruthy();
+    expect(screen.getByLabelText(/WHAT DO YOU NEED/)).toBeTruthy();
+    // The address settles on the tab itself.
+    await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('purchase'));
   }, SLOW);
 });

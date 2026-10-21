@@ -3,19 +3,46 @@
 // market low-high band - with the gap to market, rent vs web rate and
 // occupancy cards, and a change log of every Cubby rate change, survey, comp
 // set edit, approval and website sync (GET /facility-ops/cma/history).
-// "Seed history from past CMA workbooks" stays off until we have a sample
-// workbook to read safely (the server says why).
+// Before Cubby (Sep 2026) the chart and the log reach back through the
+// Hummingbird months - one month-end point each, our rates and occupancy only
+// (source "Hummingbird"). Neil, Oct 21 2026: the old Excel CMAs are not wanted,
+// so there is no workbook seed.
 import { useEffect, useMemo, useState } from 'react';
-import { Download, Upload } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner, LoadingState } from '../../components/AsyncState';
 import { formatDate } from '../../lib/datetime';
+import { DateField, SearchSelect } from '../../tasks/components';
 import { count } from '../model';
 import { dash, exportRows, pctText, signedUsd, sizeOf, usd } from './cmaModel';
 
-const SOURCE = { manual: ['manual', 'Manual'], comp_set: ['comp_set', 'Comp Set'], cubby: ['cubby', 'Cubby'], website: ['website', 'Website'], import: ['import', 'Import'] };
+// The period the chart and the change log cover (Visesh, Oct 21: a date filter
+// to see the Hummingbird years). Remembered per viewer on this device.
+const PERIODS = [
+  { key: 'all', label: 'All History' },
+  { key: '3m', label: 'Last 3 Months', months: 3 },
+  { key: '6m', label: 'Last 6 Months', months: 6 },
+  { key: '12m', label: 'Last 12 Months', months: 12 },
+  { key: '24m', label: 'Last 24 Months', months: 24 },
+  { key: 'ytd', label: 'This Year' },
+  { key: 'custom', label: 'Custom Range' },
+];
+const PERIOD_KEY = 'nexus.ops.rateHistory.period';
+const readPeriod = () => { try { return JSON.parse(localStorage.getItem(PERIOD_KEY)) || { key: 'all' }; } catch { return { key: 'all' }; } };
+const savePeriod = (p) => { try { localStorage.setItem(PERIOD_KEY, JSON.stringify(p)); } catch { /* not remembered */ } };
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** {start, end} (YYYY-MM-DD or '') for a period choice. */
+export function periodBounds(p, today = new Date()) {
+  const def = PERIODS.find((x) => x.key === p?.key);
+  if (!def || def.key === 'all') return { start: '', end: '' };
+  if (def.key === 'custom') return { start: p.start || '', end: p.end || '' };
+  if (def.key === 'ytd') return { start: `${today.getFullYear()}-01-01`, end: '' };
+  const from = new Date(today.getFullYear(), today.getMonth() - def.months, today.getDate());
+  return { start: isoDay(from), end: '' };
+}
+
+const SOURCE = { manual: ['manual', 'Manual'], comp_set: ['comp_set', 'Comp Set'], cubby: ['cubby', 'Cubby'], website: ['website', 'Website'], import: ['import', 'Import'], hummingbird: ['hummingbird', 'Hummingbird'] };
 const W = 760; const H = 260; const PAD = { l: 52, r: 16, t: 14, b: 30 };
-const shortDay = (iso) => { const [, m, d] = String(iso).split('-'); return `${Number(m)}/${Number(d)}`; };
 
 function Chart({ points }) {
   const [hover, setHover] = useState(null);
@@ -61,14 +88,14 @@ function Chart({ points }) {
         ))}
         {hp && <line x1={x(hp.date)} x2={x(hp.date)} y1={PAD.t} y2={H - PAD.b} stroke="var(--muted)" strokeWidth="1" />}
         {[points[0], points[points.length - 1]].filter((p, i, a) => i === 0 || p.date !== a[0].date).map((p) => (
-          <text key={p.date} x={x(p.date)} y={H - 10} fontSize="11" fill="var(--muted)" textAnchor="middle">{shortDay(p.date)}</text>
+          <text key={p.date} x={x(p.date)} y={H - 10} fontSize="11" fill="var(--muted)" textAnchor={p === points[0] ? 'start' : 'end'}>{formatDate(p.date)}</text>
         ))}
       </svg>
       {hp && (
         <div role="status" style={{ position: 'absolute', top: 30, left: `${Math.min(70, (x(hp.date) / W) * 100)}%`, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', fontSize: 12, pointerEvents: 'none', boxShadow: '0 4px 12px rgba(15,23,42,.12)' }}>
-          <strong>{formatDate(hp.date)}</strong>
+          <strong>{formatDate(hp.date)}</strong>{hp.source === 'hummingbird' && <span className="cma-badge cma-badge-hummingbird" style={{ marginLeft: 6 }}>Hummingbird</span>}
           <div>Web Rate {usd(hp.sell)}</div>
-          <div>Market Avg {usd(hp.marketAvg)} ({usd(hp.marketLow)} - {usd(hp.marketHigh)}, {hp.comps} comps)</div>
+          {hp.marketAvg != null && <div>Market Avg {usd(hp.marketAvg)} ({usd(hp.marketLow)} - {usd(hp.marketHigh)}, {hp.comps} comps)</div>}
           {hp.avgRent != null && <div>Avg In-Place Rent {usd(hp.avgRent)}</div>}
         </div>
       )}
@@ -82,18 +109,22 @@ export default function CmaHistory({ facility, view, onSection }) {
   const [unit, setUnit] = useState(first?.name || '');
   const [state, setState] = useState({ status: 'loading', data: null, key: '' });
   const [nonce, setNonce] = useState(0);
-  const key = `${facility.id}|${unit}|${nonce}`;
+  const [period, setPeriodState] = useState(readPeriod);
+  const setPeriod = (p) => { setPeriodState(p); savePeriod(p); };
+  const { start, end } = periodBounds(period);
+  const badRange = !!(start && end && start > end);
+  const key = `${facility.id}|${unit}|${start}|${end}|${nonce}`;
   useEffect(() => {
-    if (!unit) return undefined;
+    if (!unit || badRange) return undefined;
     let live = true;
-    api.getOpsCmaHistory(facility.id, unit)
+    api.getOpsCmaHistory(facility.id, unit, { start, end })
       .then((data) => { if (live) setState({ status: 'ready', data, key }); })
       .catch((err) => { console.error('Operations: rate history failed', err); if (live) setState({ status: 'error', data: null, key }); });
     return () => { live = false; };
-  }, [facility.id, unit, key]);
+  }, [facility.id, unit, start, end, badRange, key]);
   const row = types.find((r) => r.name === unit);
   const d = state.key === key ? state.data : null;
-  const loading = state.key !== key;
+  const loading = state.key !== key && !badRange;
   const exportLog = (format) => exportRows(format, {
     title: `Rate History ${unit}`, facility: view.facility, asOf: view.asOf, rows: d.log,
     columns: [{ header: 'Date', get: (e) => formatDate(e.date), width: 12 }, { header: 'What Changed', get: (e) => e.text, width: 60 },
@@ -101,13 +132,26 @@ export default function CmaHistory({ facility, view, onSection }) {
   }).catch((err) => console.error('Operations: history export failed', err));
   const exportPoints = (format) => exportRows(format, {
     title: `Rate History Points ${unit}`, facility: view.facility, asOf: view.asOf, rows: d.points,
-    columns: [{ header: 'Date', get: (p) => formatDate(p.date) }, { header: 'Web Rate', get: (p) => usd(p.sell) },
+    columns: [{ header: 'Date', get: (p) => formatDate(p.date) }, { header: 'Source', get: (p) => (p.source === 'hummingbird' ? 'Hummingbird' : 'Cubby') }, { header: 'Web Rate', get: (p) => usd(p.sell) },
       { header: 'Standard Rate', get: (p) => usd(p.standard) }, { header: 'Avg In-Place Rent', get: (p) => usd(p.avgRent) },
       { header: 'Market Low', get: (p) => usd(p.marketLow) }, { header: 'Market Avg', get: (p) => usd(p.marketAvg) },
       { header: 'Market High', get: (p) => usd(p.marketHigh) }, { header: 'Comps', get: (p) => p.comps },
       { header: 'Occupied', get: (p) => (p.occupied == null ? '' : p.occupied) }],
   }).catch((err) => console.error('Operations: history export failed', err));
-  const pills = useMemo(() => types.filter((r) => r.total), [types]);
+  // Unit types as one searchable dropdown, grouped Self-Storage / Vehicle
+  // Storage (Visesh, Oct 21: the chip rows were crammed, and two parking types
+  // of one size read the same as chips). The full Cubby name tells them apart.
+  const unitOptions = useMemo(() => {
+    const live = types.filter((r) => r.total);
+    const out = [];
+    for (const [title, test] of [['Self-Storage', (r) => r.category !== 'Vehicle Storage'], ['Vehicle Storage', (r) => r.category === 'Vehicle Storage']]) {
+      const list = live.filter(test);
+      if (!list.length) continue;
+      out.push({ id: `__${title}`, header: true, label: title });
+      list.forEach((r) => out.push({ id: r.name, label: r.name, keywords: `${sizeOf(r)} ${r.category || ''}` }));
+    }
+    return out;
+  }, [types]);
 
   return (
     <>
@@ -116,14 +160,41 @@ export default function CmaHistory({ facility, view, onSection }) {
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 }}>
           <div>
             <h2 className="cma-title">Rate History · {row ? `${sizeOf(row)} ${row.category === 'Vehicle Storage' ? 'parking' : 'storage'}` : unit}</h2>
-            <div className="cma-sub">Our rates from Cubby&apos;s rate changes and daily snapshots · competitor rates from each website read and manual survey.</div>
+            <div className="cma-sub">Our rates from Cubby&apos;s rate changes and daily snapshots, and from Hummingbird month-ends before Cubby · competitor rates from each website read and manual survey.</div>
           </div>
         </div>
-        <div className="cma-pills" role="group" aria-label="Unit type" style={{ marginTop: 10 }}>
-          {pills.map((r) => (
-            <button key={r.name} type="button" className="cma-pill" aria-pressed={unit === r.name} onClick={() => setUnit(r.name)} title={r.name}>{sizeOf(r)}{r.parking ? ' P' : ''}</button>
-          ))}
+        <div className="cma-toolbar">
+          <div className="cma-toolbar-group">
+            <span className="cma-field">
+              <span className="cma-field-label" id="rh-unit-label">Unit Type</span>
+              <span aria-labelledby="rh-unit-label" className="cma-unit-select">
+                <SearchSelect options={unitOptions} value={unit} onPick={(v) => v && !String(v).startsWith('__') && setUnit(v)}
+                  placeholder="Pick a unit type" searchPlaceholder="Search sizes or types..." menuMinWidth={340} />
+              </span>
+            </span>
+            <span className="cma-field" role="group" aria-label="Date range">
+              <label className="cma-field-label" htmlFor="rh-period">Period</label>
+              <select id="rh-period" className="cma-select" value={period.key} onChange={(e) => setPeriod(e.target.value === 'custom'
+                ? { key: 'custom', start: start || (d?.span?.first || ''), end: end || '' } : { key: e.target.value })}>
+                {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+              {period.key === 'custom' && (
+                <span className="cma-range-dates">
+                  <DateField value={period.start || ''} onChange={(v) => setPeriod({ ...period, start: v || '' })} placeholder="From" title="From" />
+                  <span aria-hidden="true">-</span>
+                  <DateField value={period.end || ''} onChange={(v) => setPeriod({ ...period, end: v || '' })} placeholder="Today" title="To" />
+                </span>
+              )}
+            </span>
+          </div>
+          {d?.span?.first && (
+            <span className="cma-record">
+              History on record {formatDate(d.span.first)} - {formatDate(d.span.last)}
+              {d.hummingbird?.first ? <span className="cma-record-hb">Hummingbird from {formatDate(`${d.hummingbird.first}-01`)}</span> : null}
+            </span>
+          )}
         </div>
+        {badRange && <p className="ops-note" role="alert" style={{ margin: '8px 0 0' }}>The From date is after the To date.</p>}
       </div>
       {loading && <LoadingState size="section" label="Loading rate history" minHeight={240} />}
       {!loading && state.status === 'error' && <ErrorBanner message="Couldn't load the rate history." onRetry={() => setNonce((n) => n + 1)} />}
@@ -136,9 +207,9 @@ export default function CmaHistory({ facility, view, onSection }) {
                 <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}>Show as a Table</summary>
                 <div className="req-table-wrapper">
                   <table className="req-table stack-table cma-table">
-                    <thead><tr><th>Date</th><th className="num">Web Rate</th><th className="num">Avg In-Place Rent</th><th className="num">Mkt Low</th><th className="num">Mkt Avg</th><th className="num">Mkt High</th><th className="num">Comps</th></tr></thead>
+                    <thead><tr><th>Date</th><th>Source</th><th className="num">Web Rate</th><th className="num">Avg In-Place Rent</th><th className="num">Mkt Low</th><th className="num">Mkt Avg</th><th className="num">Mkt High</th><th className="num">Comps</th></tr></thead>
                     <tbody>{d.points.map((p) => (
-                      <tr key={p.date}><td>{formatDate(p.date)}</td><td className="num">{usd(p.sell)}</td><td className="num">{usd(p.avgRent)}</td>
+                      <tr key={p.date}><td>{formatDate(p.date)}</td><td>{p.source === 'hummingbird' ? 'Hummingbird' : 'Cubby'}</td><td className="num">{usd(p.sell)}</td><td className="num">{usd(p.avgRent)}</td>
                         <td className="num">{usd(p.marketLow)}</td><td className="num">{usd(p.marketAvg)}</td><td className="num">{usd(p.marketHigh)}</td><td className="num">{p.comps}</td></tr>
                     ))}</tbody>
                   </table>
@@ -196,13 +267,6 @@ export default function CmaHistory({ facility, view, onSection }) {
                 </table>
               </div>
             )}
-          </section>
-
-          <section className="cma-panel" aria-label="Seed history from past CMA workbooks">
-            <h3 className="cma-h3">Seed History From Past CMA Workbooks</h3>
-            <p className="cma-note">Upload the monthly Excel CMAs (GSE, GSF, GSM, GST, GSVC) and Nexus reads each Input tab as a dated snapshot, so trends start from your earliest workbook instead of today.</p>
-            <p className="cma-note">{d.workbookImport.why}</p>
-            <button type="button" className="secondary-btn cma-btn" disabled title={d.workbookImport.why}><Upload size={14} aria-hidden="true" /> Upload Workbooks</button>
           </section>
         </>
       )}

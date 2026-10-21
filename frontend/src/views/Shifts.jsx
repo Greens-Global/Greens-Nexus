@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarClock, CalendarDays, Contact, Inbox, Handshake } from 'lucide-react';
+import { CalendarClock, CalendarDays, Contact, Inbox, Handshake, ListChecks } from 'lucide-react';
+import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import MyShifts from '../components/MyShifts';
 import { SkeletonBlocks } from '../components/AsyncState';
@@ -21,12 +22,16 @@ import { useManagerInbox } from '../components/shifts/useManagerInbox';
 
 // Lazy: the directory is a big screen, and only its tab needs it.
 const Directory = lazy(() => import('./Directory'));
+const RoleChecklists = lazy(() => import('../components/HrChecklists').then(m => ({ default: m.RoleChecklists })));
 
 // Contact last (Pranshu, Oct 15 2026); Team opens on Shifts.
 const TABS = [
   ['shifts', 'Shifts', CalendarClock, false],
   ['schedule', 'Schedule', CalendarDays, true],
   ['requests', 'Requests', Inbox, true],
+  // A role's own checklist steps, for department heads (Neil, Oct 19) - only
+  // shown to someone who keeps at least one role.
+  ['role-checklists', 'Role Checklists', ListChecks, false],
   ['contact', 'Contact', Contact, false],
 ];
 const SUBTITLE = {
@@ -34,12 +39,18 @@ const SUBTITLE = {
   shifts: "Your group's week",
   schedule: "Build, share and adjust the team's schedule",
   requests: "Decide your team's time off, swaps, offers and open-shift requests",
+  'role-checklists': "The extra onboarding, promotion, offboarding and leave steps your department's roles need",
 };
 
 export default function Shifts({ activeSub, onSubChange }) {
   const { can } = useRole();
   const canManage = can('manager');
-  const tabs = TABS.filter(([, , , managerOnly]) => canManage || !managerOnly);
+  const [keepsRoles, setKeepsRoles] = useState(false);
+  useEffect(() => {
+    Promise.resolve().then(() => api.getRoleChecklistRoles())
+      .then(r => setKeepsRoles((r?.roles || []).length > 0)).catch(() => {});
+  }, []);
+  const tabs = TABS.filter(([key, , , managerOnly]) => (canManage || !managerOnly) && (key !== 'role-checklists' || keepsRoles));
   // A weather advisory's bell deep-links to one day of one group:
   // sub = "schedule:YYYY-MM-DD:<group id>" (Weather Call, Oct 2026). The tab
   // is the part before the first colon; the rest is where to land.
@@ -107,6 +118,7 @@ export default function Shifts({ activeSub, onSubChange }) {
       {tab === 'contact' ? <Suspense fallback={<SkeletonBlocks count={4} height={96} />}><Directory embedded toolsTarget={toolSlot} /></Suspense>
         : tab === 'shifts' ? <MyShifts part="team" />
         : tab === 'schedule' ? <ShiftSchedule toastOk={toastOk} toastErr={toastErr} onOpenRequests={openRequests} focus={focus} />
+        : tab === 'role-checklists' ? <Suspense fallback={<SkeletonBlocks count={3} height={56} />}><RoleChecklists toastOk={toastOk} toastErr={toastErr} /></Suspense>
           : <ShiftRequestsPage inbox={requests.inbox} timeoff={requests.timeoff} loading={requests.loading} error={requests.error}
             onRetry={requests.reload} onChanged={requests.reload} toastOk={toastOk} toastErr={toastErr} />}
 

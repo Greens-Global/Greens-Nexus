@@ -377,7 +377,12 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   with AM/PM (never 24-hour) - Charmi/Visesh, Aug 4. Use the shared helpers in
   `frontend/src/lib/datetime.js` (formatDate / formatTime / formatDateTime)
   instead of ad-hoc toLocale*/Intl.DateTimeFormat calls so it stays consistent
-  app-wide.
+  app-wide. Date BOXES are `DateField` (`tasks/components.jsx`), never a native
+  `<input type="date">` - that one follows the computer's region and shows
+  20-10-2026 on an Indian laptop (Neil, Oct 19). `npm run lint` (CI) fails on
+  any NEW native date box or toLocaleDateString / toLocaleTimeString /
+  Intl.DateTimeFormat call (`frontend/scripts/check-dates.mjs`; older code is
+  in its baseline and may only go down).
 - **UI text casing (Neil, Jul 28 — supersedes any earlier sentence-case note):
   Titles, headings, tab labels, and buttons use Title Case** ("Punch In",
   "Start Break", "Time Sheet", "Request Time Off"). So do status labels,

@@ -984,7 +984,7 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
   const title = ledgerRow ? `${row.account.code} ${row.account.title}` : row.lease.propertyName;
   return (
     <div className="modal-overlay" onClick={tryClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={`${title}, ${monthName(month.month)}`} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={`${title}, ${monthName(month.month)}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>{monthName(month.month)}</h3>
@@ -1124,7 +1124,7 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 };
   return (
     <div className="modal-overlay" onClick={tryClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={replacing ? 'New tenant in this space' : isCam ? (l.id ? 'Change CAM charge' : 'New CAM charge') : !isLease ? (l.id ? 'Change income source' : 'New interest or loan payment') : l.id ? 'Change lease' : 'New lease'} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 860 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={replacing ? 'New tenant in this space' : isCam ? (l.id ? 'Change CAM charge' : 'New CAM charge') : !isLease ? (l.id ? 'Change income source' : 'New interest or loan payment') : l.id ? 'Change lease' : 'New lease'} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>{replacing ? 'New Tenant in This Space' : isCam ? (l.id ? 'Change CAM Charge' : 'New CAM Charge') : !isLease ? (l.id ? 'Change Income Source' : 'New Interest or Loan Payment') : l.id ? 'Change Lease' : 'New Lease'}</h3>

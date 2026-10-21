@@ -1847,14 +1847,10 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
 // to discard an in-progress edit with no warning - with isDirty set, those
 // three confirm first. A form's own Cancel button still discards straight
 // away, since that's a deliberate choice.
-// size="lg" (the job-role editor, Pranshu, Sep 28: "60% of screen" so the
-// module-bundle grid has room to breathe) scales with the viewport - min-width
-// keeps it from shrinking below the old `wide` size on a laptop, max-width
-// keeps it sane on an ultra-wide monitor, and on a phone it still falls back
-// to nearly full width exactly like `wide` always did.
+// Every size but xl is .nx-popup: 60% of the screen (CLAUDE.md popup rule).
 // size="xl" (the job-role editor again, Neil, 10/06: "make the screen larger"):
 // nearly the whole screen, details beside a tall module list.
-function Modal({ title, children, onClose, wide, size, isDirty = false, onSave }) {
+function Modal({ title, children, onClose, size, isDirty = false, onSave }) {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
@@ -1870,11 +1866,10 @@ function Modal({ title, children, onClose, wide, size, isDirty = false, onSave }
   };
   return (
     <div onClick={requestClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 1200, padding: 18 }}>
-      <div onClick={e => e.stopPropagation()} style={{
+      <div onClick={e => e.stopPropagation()} className={size === 'xl' ? undefined : 'nx-popup'} style={{
         background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)',
-        width: size === 'xl' ? 'min(1240px, 100%)' : size === 'lg' ? 'min(60vw, 1200px)' : `min(${wide ? 560 : 440}px, 100%)`,
-        minWidth: size === 'lg' ? 'min(560px, 100%)' : undefined,
-        maxHeight: size === 'xl' ? '94vh' : '86vh', overflow: 'auto', padding: size === 'xl' ? 24 : 20,
+        ...(size === 'xl' ? { width: 'min(1240px, 100%)', maxHeight: '94vh' } : null),
+        overflow: 'auto', padding: size === 'xl' ? 24 : 20,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
           <h3 style={{ fontSize: 16, fontWeight: 800, flex: 1 }}>{title}</h3>
@@ -1884,7 +1879,7 @@ function Modal({ title, children, onClose, wide, size, isDirty = false, onSave }
       </div>
       {confirming && (
         <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', inset: 0, zIndex: 1300, display: 'grid', placeItems: 'center', background: 'rgba(0,0,0,0.25)' }}>
-          <div style={{ width: 340, maxWidth: '90vw', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--shadow-lg)', padding: 20 }}>
+          <div className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--shadow-lg)', padding: 20 }}>
             <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Save your changes?</div>
             <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 18 }}>
               You have unsaved changes. Closing now will discard them.

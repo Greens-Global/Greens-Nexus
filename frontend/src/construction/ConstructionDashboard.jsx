@@ -127,7 +127,7 @@ function NewProjectModal({ onClose, onCreated }) {
 
   return (
     <div className="modal-overlay" onClick={guard.requestClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 'clamp(520px, 60vw, 900px)' }}>
+      <div className="modal-content nx-popup" onClick={(e) => e.stopPropagation()}>
         <form onSubmit={save}>
           <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>New Project</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>

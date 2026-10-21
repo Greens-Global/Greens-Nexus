@@ -62,7 +62,7 @@ export function EmptyState({ icon: Icon, title, sub, children }) {
 // button) used to silently discard an in-progress edit - with isDirty set,
 // those three confirm first. A form's own Cancel button still discards
 // straight away, since that's a deliberate choice.
-export function Modal({ title, onClose, width, children, isDirty = false, onSave }) {
+export function Modal({ title, onClose, children, isDirty = false, onSave }) {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const requestClose = () => { if (isDirty && !isBypassing()) setConfirming(true); else onClose(); };
@@ -78,7 +78,7 @@ export function Modal({ title, onClose, width, children, isDirty = false, onSave
   };
   return (
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) requestClose(); }}>
-      <div className="modal-content" style={{ maxWidth: width || 'clamp(520px, 60vw, 980px)' }}>
+      <div className="modal-content nx-popup">
         <div className="modal-header">
           <h3>{title}</h3>
           <button type="button" className="close-btn" onClick={requestClose}><X size={18} /></button>

@@ -38,7 +38,6 @@ export const SUBMENUS = {
       { sub: 'manage',       label: 'Manage' },
       { sub: 'checkouts',    label: 'Checkouts' },
       { sub: 'whohasit',     label: 'Who Has What' },
-      { sub: 'purchasereqs', label: 'Purchase Requests' },
       { sub: 'audit',        label: 'Audit Log' },
     ],
     employee: [
