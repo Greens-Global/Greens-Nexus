@@ -480,6 +480,9 @@ function EmployeeNoteLine({ note }) {
 // survives the component unmounting between tabs. Reopening the Time Sheet paints the
 // cached card instantly and refreshes in the background - no loader flash, no snap.
 const _timecardCache = new Map();
+// Tests render several cards for the same person and period: clear between them,
+// or a test briefly sees the previous test's card from this cache (a CI flake).
+export const clearTimecardCache = () => _timecardCache.clear();
 const _tcKey = (self, email, start, end) => self ? `self:${start}` : (email ? `${email}:${start}:${end}` : '');
 // A reload lands back on the same card (Charmi, Oct 16: "it took me back to
 // Aarav Mehta's time card"): the last employee and period opened, kept for

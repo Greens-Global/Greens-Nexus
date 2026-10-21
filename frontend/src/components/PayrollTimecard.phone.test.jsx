@@ -28,7 +28,8 @@ vi.mock('../api', () => {
 
 let PHONE = true;
 const realMatchMedia = window.matchMedia;
-beforeEach(() => {
+beforeEach(async () => {
+  (await import('./PayrollTimecard')).clearTimecardCache();
   window.matchMedia = (q) => ({ matches: PHONE && /max-width:\s*900px/.test(q), media: q, onchange: null,
     addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false });
 });
