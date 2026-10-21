@@ -1217,10 +1217,10 @@ def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) 
 # layout for clients that honor it.
 # The app's own green (Oct 6: "make the green used in mails the same as the
 # default green in the application") - the --color-green status token,
-# hsl(142,60%,35%), the same #248f4b the task emails' buttons and the one-tap
+# hsl(142,60%,35%), the same #1f7a40 the task emails' buttons and the one-tap
 # action pages already use. An admin's Email Appearance accent still wins
 # (email_theme), so every family follows one setting.
-_GREEN = "#248f4b"
+_GREEN = "#1f7a40"
 _BRAND = _GREEN
 _INK, _BODY, _MUTED, _LINE, _SOFT = "#111827", "#374151", "#6b7280", "#e5e7eb", "#f9fafb"
 _LINK = _GREEN

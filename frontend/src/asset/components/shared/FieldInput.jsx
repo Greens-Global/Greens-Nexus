@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { Upload, FileText, Plus, X } from 'lucide-react';
 import { fileToDataUrl } from '../../lib/format.js';
 
@@ -80,24 +80,32 @@ export function MultiDateInput({ value, onChange, readOnly }) {
  *
  * `value` is the current value for this field; `onChange(key, newValue)` commits it.
  */
-export function FieldInput({ f, value, onChange }) {
+/** One form field. `error` (a short string) marks the control invalid and prints under it. */
+export function FieldInput({ f, value, onChange, error }) {
+  const id = useId();
   const baseProps = {
+    id,
+    'data-field': f.k,
     className: 'form-input',
     value: value ?? '',
     onChange: (e) => onChange(f.k, e.target.value),
     readOnly: f.readOnly,
+    'aria-invalid': error ? true : undefined,
+    'aria-describedby': error ? id + '-err' : undefined,
     style: {
       fontSize: '0.85rem',
+      ...(error ? { borderColor: 'hsl(var(--color-red))' } : {}),
       ...(f.readOnly ? { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'not-allowed' } : {}),
     },
   };
 
   const label = (
-    <label>
+    <label htmlFor={id}>
       {f.label}
       {f.req ? <span style={{ color: 'hsl(var(--color-red))' }}> *</span> : ''}
     </label>
   );
+  const errorLine = error ? <div id={id + '-err'} role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{error}</div> : null;
 
   // File upload: stores the file as a base64 data URL directly on the record (f.k), plus the
   // original filename on a sibling key (f.nameKey) so the table/summary can show a filename
@@ -130,7 +138,7 @@ export function FieldInput({ f, value, onChange }) {
     return (
       <div className={f.full ? 'form-group form-group-full' : 'form-group'}>
         {label}
-        <div onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', outline: 'none' }}>
+        <div id={id} data-field={f.k} onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', outline: 'none' }}>
           <label className="secondary-btn" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0 }}>
             <Upload size={14} /> {value ? 'Replace File' : 'Upload File'}
             <input
@@ -162,6 +170,7 @@ export function FieldInput({ f, value, onChange }) {
             </button>
           )}
         </div>
+        {errorLine}
       </div>
     );
   }
@@ -199,6 +208,18 @@ export function FieldInput({ f, value, onChange }) {
     <div className={f.full ? 'form-group form-group-full' : 'form-group'}>
       {label}
       {control}
+      {errorLine}
     </div>
   );
+}
+
+/** Which required fields are empty - { key: 'Required' } - and focuses the first one. */
+export function requiredErrors(fields, values) {
+  const errors = {};
+  for (const f of fields) {
+    if (f.req && !f.sec && !String(values[f.k] ?? '').trim()) errors[f.k] = 'Required';
+  }
+  const first = Object.keys(errors)[0];
+  if (first) setTimeout(() => document.querySelector(`[data-field="${first}"]`)?.focus?.(), 0);
+  return errors;
 }

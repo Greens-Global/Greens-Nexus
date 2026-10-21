@@ -34,11 +34,18 @@ export function formatDate(v) {
   return usFormatDate(String(v).slice(0, 10), String(v));
 }
 
-/** Days from today until `v` (negative = in the past). null if empty/invalid. */
+/** Days from today until `v` (negative = in the past). null if empty/invalid.
+ *  Both ends are LOCAL calendar days: `new Date('YYYY-MM-DD')` is UTC midnight,
+ *  which made a date due yesterday read "Due Today" until 5 PM Pacific. */
 export function daysUntil(v) {
   if (!v) return null;
-  const d = new Date(String(v).slice(0, 10));
-  return isNaN(d) ? null : Math.ceil((d - new Date()) / 864e5);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v));
+  if (!m) return null;
+  const target = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (isNaN(target)) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target - today) / 864e5);
 }
 
 /** Format a value according to a PT-style field `type` (money/date/pct/num), else pass through. */

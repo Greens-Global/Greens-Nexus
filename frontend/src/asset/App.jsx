@@ -80,6 +80,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   if (ticketSub && !loading && activeSub !== subSeen) {
     setSubSeen(activeSub);
     if (store.properties.some((p) => p.id === ticketSub[2] && !p.deleted)) {
+      setSubMissing(false);
       setActiveId(ticketSub[2]);
       setView('maintenance');
       setTicketFocus((f) => ({ propertyId: ticketSub[2], ticketId: ticketSub[3] || null, tab: ticketSub[1], at: (f?.at || 0) + 1 }));
@@ -567,9 +568,13 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
           props = props.map((p) => (p.id === assetId && p.parentId) ? { ...p, parentId: '', siteName: '' } : p);
         } else if (linkOptions.role === 'secondary' && linkOptions.targetId) {
           const anchorId = anchorOf(linkOptions.targetId);
-          const anchor = props.find((p) => p.id === anchorId);
-          const siteName = (anchor?.siteName || anchor?.name || '').trim();
-          props = props.map((p) => p.id === assetId ? { ...p, parentId: anchorId, siteName } : (p.id === anchorId && !p.siteName) ? { ...p, siteName } : p);
+          // Linking under one's own parcel would make the asset its own anchor and
+          // drop the whole group off the portfolio (tiles show parentId-less assets).
+          if (anchorId && anchorId !== assetId) {
+            const anchor = props.find((p) => p.id === anchorId);
+            const siteName = (anchor?.siteName || anchor?.name || '').trim();
+            props = props.map((p) => p.id === assetId ? { ...p, parentId: anchorId, siteName } : (p.id === anchorId && !p.siteName) ? { ...p, siteName } : p);
+          }
         } else if (linkOptions.role === 'primary' && linkOptions.targetId) {
           const anchorId = anchorOf(linkOptions.targetId);
           const self = props.find((p) => p.id === assetId);

@@ -57,6 +57,10 @@ export const LOG_SECTION_TO_TAB = {
   Timeline: 'timeline',
   Permit: 'permit',
   Linking: 'property',
+  Maintenance: 'maintenance',
+  'Service & Maintenance': 'vservice',
+  'Odometer Log': 'odometer',
+  Documents: 'vdocs',
 };
 
 /** Undo support: maps a spec-sheet field LABEL back to its top-level record KEY, so an

@@ -33,6 +33,9 @@ router = APIRouter(tags=["Asset Management"])
 require_asset_read  = require_module_grant("property-asset", "viewer")
 require_asset_write = require_module_grant("property-asset", "editor")
 
+# Activity-log rows kept per asset (newest first); the rest are dropped on save.
+LOG_CAP_PER_ASSET = 500
+
 # The flat child collections the module persists alongside properties + logs.
 # vservice/odometer are the vehicle & equipment service/maintenance + odometer logs.
 COLLECTIONS = ["warranties", "inspections", "documents", "ahj", "utilities", "vendors",
@@ -106,9 +109,14 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
     # last pulled (mid-edit sessions suppress pulls, so long sessions get very
     # stale). 409 'stale' → the client pulls, merges by row id, and retries -
     # nobody's work is dropped on either side.
-    cur_meta = db.get(PropertyWorkspaceMeta, 1)
+    # The meta row is locked for the whole replace: two saves with the same
+    # baseTs used to both pass the check, and the second then hit the first's
+    # re-inserted ids (a 500, not a 409). Locked, the second waits and sees the
+    # new ts. A client that sends no baseTs is stale by definition now that
+    # every client sends one.
+    cur_meta = db.query(PropertyWorkspaceMeta).filter(PropertyWorkspaceMeta.id == 1).with_for_update().first()
     server_ts = (cur_meta.ts if cur_meta else 0) or 0
-    if ws.baseTs is not None and server_ts and ws.baseTs < server_ts:
+    if server_ts and (ws.baseTs is None or ws.baseTs < server_ts):
         raise HTTPException(status_code=409,
                             detail="stale: the portfolio changed since this tab last pulled - merge and retry")
 
@@ -153,13 +161,20 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
                 updated_at=now,
             ))
 
-    for entry in ws.logs:
+    # The log is capped per asset (newest first) - it used to grow without bound
+    # and ride every save - and stamped with the server clock on first sight.
+    seen_logs: Dict[str, int] = {}
+    for entry in sorted(ws.logs, key=lambda e: str(e.get("ts") or ""), reverse=True):
         lid = str(entry.get("id") or "").strip()
         if not lid:
             continue
+        pid = str(entry.get("propertyId") or "")
+        seen_logs[pid] = seen_logs.get(pid, 0) + 1
+        if seen_logs[pid] > LOG_CAP_PER_ASSET:
+            continue
         db.add(PropertyActivityLog(
             id=lid,
-            property_id=str(entry.get("propertyId") or ""),
+            property_id=pid,
             payload=entry,
             created_at=str(entry.get("ts") or now),
         ))
@@ -167,7 +182,7 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
     # Stamp the workspace's freshness marker with SERVER time (epoch ms) so pull
     # decisions never depend on any client's clock.
     ts_ms = int(time.time() * 1000)
-    meta = db.get(PropertyWorkspaceMeta, 1)
+    meta = cur_meta
     if meta is None:
         meta = PropertyWorkspaceMeta(id=1)
         db.add(meta)

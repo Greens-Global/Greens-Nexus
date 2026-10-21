@@ -11,9 +11,13 @@ const LABEL_STYLE = { fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppe
 
 const DATE_INPUT_STYLE = { padding: '6px 9px', width: 'auto', fontSize: '0.8rem' };
 
-/** yyyy-mm-dd slice of an ISO timestamp, used both for day-bucketing and the date-range filter. */
+/** yyyy-mm-dd of a stamp in LOCAL time (an entry logged at 6 PM Pacific used to
+ *  land under the next day's header), for day-bucketing and the date-range filter. */
 function dateKey(ts) {
-  return (ts || '').slice(0, 10);
+  if (!ts) return '';
+  const d = ts instanceof Date ? ts : new Date(ts);
+  if (isNaN(d)) return String(ts).slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /** "Today" / "Yesterday" / full weekday date, for the day-group headers. */
@@ -22,8 +26,8 @@ function dayLabel(ts) {
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
   const key = dateKey(ts);
-  if (key === dateKey(today.toISOString())) return 'Today';
-  if (key === dateKey(yesterday.toISOString())) return 'Yesterday';
+  if (key === dateKey(today)) return 'Today';
+  if (key === dateKey(yesterday)) return 'Yesterday';
   return formatDate(ts, key);
 }
 

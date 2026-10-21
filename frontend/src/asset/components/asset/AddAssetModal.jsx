@@ -13,7 +13,8 @@
 import { useState, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Modal } from '../shared/Modal.jsx';
-import { FieldInput } from '../shared/FieldInput.jsx';
+import { FieldInput, requiredErrors } from '../shared/FieldInput.jsx';
+import { pushToast } from '../shared/ToastHost.jsx';
 import { PROPERTY_WIZARD_FIELDS } from '../../lib/propertyFields.js';
 import { VEHICLE_FIELDS, EQUIPMENT_FIELDS, ASSET_SCHEMAS, inferAssetKind, buildAssetSnapshot } from '../../lib/vehicleFields.js';
 import { nexusCsvEsc, nexusCsvParse } from '../../lib/csvExport.js';
@@ -69,7 +70,9 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
   const schema = WIZARD_SCHEMAS[kind] || PROPERTY_WIZARD_FIELDS;
   const isNonPropertyAsset = kind !== 'property';
   const requiredFields = schema.filter((f) => !f.sec);
-  const otherAssets = (properties || []).filter((p) => !row || p.id !== row.id);
+  // Not itself and not its own parcels: linking under a child would make the
+  // asset its own anchor and drop the group off the portfolio.
+  const otherAssets = (properties || []).filter((p) => !row || (p.id !== row.id && p.parentId !== row.id));
 
   // Form values, seeded from `row` (or `draft`, when returning to an in-progress add) across
   // every schema's keys at once (not just the current kind's) so switching the asset-class
@@ -85,6 +88,9 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
   const [initialValues] = useState(values);
 
   const [addressChangeReason, setAddressChangeReason] = useState('');
+  const [errors, setErrors] = useState({});
+  const [reasonError, setReasonError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [linkTargetId, setLinkTargetId] = useState(row?.parentId || '');
   const [linkRole, setLinkRole] = useState('secondary');
   const linkTargetName = otherAssets.find((p) => p.id === linkTargetId)?.name || '';
@@ -136,16 +142,10 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
   const needsAddressReason = kind === 'property' && changedAddressFields.length > 0;
 
   const save = () => {
-    for (const f of requiredFields) {
-      if (f.req && !String(values[f.k] || '').trim()) {
-        alert('Please fill: ' + f.label);
-        return;
-      }
-    }
-    if (needsAddressReason && !addressChangeReason.trim()) {
-      alert('Please give a reason for the address change.');
-      return;
-    }
+    const next = requiredErrors(requiredFields, values);
+    setErrors(next);
+    if (needsAddressReason && !addressChangeReason.trim()) setReasonError('A reason is required.');
+    if (Object.keys(next).length || (needsAddressReason && !addressChangeReason.trim())) return;
 
     const payload = { image: values.image, kind };
     schema.forEach((f) => { if (!f.sec) payload[f.k] = values[f.k] ?? ''; });
@@ -195,7 +195,7 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
       try {
         const rows = nexusCsvParse(String(reader.result || ''));
         if (rows.length < 2) {
-          alert('No data rows found. Put one asset per row under the header line.');
+          pushToast?.('No data rows found. Put one asset per row under the header line.', 'bad');
           return;
         }
         const headerLabels = rows[0].map((h) => normLabel(h));
@@ -228,14 +228,14 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
         }
 
         e.target.value = '';
-        alert(
+        pushToast?.(
           `${created} asset${created === 1 ? '' : 's'} imported` +
-          (skipped ? `, ${skipped} row(s) skipped (missing name)` : '') + '.'
+          (skipped ? `, ${skipped} row(s) skipped (missing name)` : '') + '.', 'ok'
         );
         onClose();
       } catch {
         e.target.value = '';
-        alert('Could not read that file. Use the downloaded template and keep the header row.');
+        pushToast?.('Could not read that file. Use the downloaded template and keep the header row.', 'bad');
       }
     };
     reader.readAsText(file);
@@ -265,12 +265,17 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
       onSave={save}
       footer={
         <>
-          {row && onDelete && (
+          {row && onDelete && confirmDelete && (
+            <span style={{ marginRight: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)' }}>Move "{row.name}" to Trash? It can be restored from there.</span>
+              <button className="secondary-btn" onClick={() => setConfirmDelete(false)}>Keep</button>
+              <button className="primary-btn" onClick={onDelete} style={{ backgroundColor: 'hsl(var(--color-red))' }}>Move to Trash</button>
+            </span>
+          )}
+          {row && onDelete && !confirmDelete && (
             <button
               className="secondary-btn"
-              onClick={() => {
-                if (window.confirm(`Delete "${row.name}"? It moves to "Recover Deleted" and can be restored later.`)) onDelete();
-              }}
+              onClick={() => setConfirmDelete(true)}
               style={{ marginRight: 'auto', color: 'hsl(var(--color-red))' }}
             >
               Delete
@@ -337,10 +342,13 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
             className="form-input"
             autoFocus
             value={addressChangeReason}
-            onChange={(e) => setAddressChangeReason(e.target.value)}
+            onChange={(e) => { setAddressChangeReason(e.target.value); if (reasonError) setReasonError(''); }}
             placeholder="Why is the address being changed? (required)"
-            style={{ fontSize: '0.85rem' }}
+            aria-label="Reason for the address change"
+            aria-invalid={reasonError ? true : undefined}
+            style={{ fontSize: '0.85rem', ...(reasonError ? { borderColor: 'hsl(var(--color-red))' } : {}) }}
           />
+          {reasonError && <div role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{reasonError}</div>}
         </div>
       )}
 
@@ -452,7 +460,7 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
                 {f.sec}
               </div>
             ) : (
-              <FieldInput key={f.k} f={f} value={values[f.k]} onChange={setField} />
+              <FieldInput key={f.k} f={f} value={values[f.k]} error={errors[f.k]} onChange={(k, v) => { setField(k, v); if (errors[k]) setErrors((e) => { const n = { ...e }; delete n[k]; return n; }); }} />
             )
           )}
         </div>

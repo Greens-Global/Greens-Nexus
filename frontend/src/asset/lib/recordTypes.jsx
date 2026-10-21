@@ -195,7 +195,7 @@ export const RECORD_TYPES = {
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
     cols: [
-      { label: 'Inspection', main: (r) => r.type, sub: (r) => r.frequency + (r.ahjRequired === 'Yes' ? ' · AHJ required' : '') },
+      { label: 'Inspection', main: (r) => r.type, sub: (r) => [r.frequency, r.ahjRequired === 'Yes' && 'AHJ required'].filter(Boolean).join(' · ') },
       { label: 'Vendor', main: (r) => r.vendor || '-', sub: (r) => r.vendorPhone || '' },
       { label: 'Last', mono: (r) => formatDate(r.lastCompleted) },
       { label: 'Next Due', mono: (r) => formatDate(r.nextDue) },

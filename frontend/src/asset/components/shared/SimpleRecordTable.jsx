@@ -5,6 +5,7 @@
 // Timeline" tabs, alongside SimpleRowModal for add/edit and, for Timeline only,
 // ../asset/TimelineStatusModal.jsx for the Status column's chip button.
 
+import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Card } from './Card.jsx';
 import { EmptyState } from './EmptyState.jsx';
@@ -46,6 +47,7 @@ function rowIdentity(row, cols) {
  *                        renders as a clickable chip button instead of a plain badge
  */
 export function SimpleRecordTable({ title, subtitle, rows, cols, query, highlightItem, onAdd, onEdit, onDelete, onStatusClick }) {
+  const [confirmIdx, setConfirmIdx] = useState(null);   // the row whose Delete is awaiting a Yes
   const allRows = rows || [];
   const columns = cols || (() => {
     const keys = [];
@@ -150,10 +152,17 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
                       >
                         Edit
                       </button>
-                      {onDelete && (
+                      {onDelete && confirmIdx === idx && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 600 }}>Delete this row?</span>
+                          <button className="secondary-btn" onClick={() => setConfirmIdx(null)} style={{ padding: '5px 11px', fontSize: '0.74rem' }}>Keep</button>
+                          <button className="primary-btn" onClick={() => { setConfirmIdx(null); onDelete(idx); }} style={{ padding: '5px 11px', fontSize: '0.74rem', backgroundColor: 'hsl(var(--color-red))' }}>Delete</button>
+                        </span>
+                      )}
+                      {onDelete && confirmIdx !== idx && (
                         <button
                           className="secondary-btn"
-                          onClick={() => { if (window.confirm('Delete this row?')) onDelete(idx); }}
+                          onClick={() => setConfirmIdx(idx)}
                           style={{ padding: '5px 11px', fontSize: '0.74rem', color: 'hsl(var(--color-red))' }}
                         >
                           Delete
