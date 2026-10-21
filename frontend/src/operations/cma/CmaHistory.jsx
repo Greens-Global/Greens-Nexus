@@ -230,7 +230,7 @@ export default function CmaHistory({ facility, view, onSection }) {
               <div className="cma-kpi">
                 <div className="cma-kpi-label">Occupancy Trend</div>
                 <div className="cma-kpi-value" style={{ fontSize: 20 }}>{d.cards.occupiedThen == null ? count(d.cards.occupiedNow) : `${count(d.cards.occupiedThen)} → ${count(d.cards.occupiedNow)}`}</div>
-                <div className="cma-kpi-sub">Occupied of {count(d.cards.total)}{d.cards.occupiedFrom ? ` · ${formatDate(d.cards.occupiedFrom)} → ${formatDate(d.cards.asOf)}` : ' today'}</div>
+                <div className="cma-kpi-sub">Occupied of {count(d.cards.total)}{d.cards.occupiedFrom ? ` · ${formatDate(d.cards.occupiedFrom)} → ${formatDate(d.cards.occupiedTo || d.cards.asOf)}` : ' today'}</div>
               </div>
             </div>
           </div>

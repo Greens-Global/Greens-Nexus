@@ -396,8 +396,10 @@ def rate_history(db, short_name: str, unit_type: str) -> dict:
             .order_by(hm.HbRateMonth.month).all() if norm_type(r.unit_type) == want]
     points, log = [], []
     prev = None
+    prev_rent = prev_occ = None
     for r in rows:
-        points.append({"date": month_end(r.month), "sell": r.sell_cents, "standard": None, "avgRent": r.rent_cents,
+        end = month_end(r.month)
+        points.append({"date": end, "sell": r.sell_cents, "standard": None, "avgRent": r.rent_cents,
                        "occupied": r.occupied, "total": r.units, "marketAvg": None, "marketLow": None,
                        "marketHigh": None, "comps": 0, "source": SOURCE})
         if prev is not None and r.sell_cents is not None and prev != r.sell_cents:
@@ -406,6 +408,20 @@ def rate_history(db, short_name: str, unit_type: str) -> dict:
                         "text": f"Sell rate {_usd(prev)} -> {_usd(r.sell_cents)}"})
         if r.sell_cents is not None:
             prev = r.sell_cents
+        # What tenants pay and how many there are, month-end to month-end
+        # (Visesh, Oct 21: a window with no sell-rate change showed an empty
+        # log while the rent line moved). One line per month that changed.
+        moved = []
+        if prev_occ is not None and r.occupied is not None and r.occupied != prev_occ:
+            moved.append(f"Occupied {prev_occ} -> {r.occupied} of {r.units}")
+        if prev_rent is not None and r.rent_cents is not None and r.rent_cents != prev_rent:
+            moved.append(f"Avg in-place rent {_usd(prev_rent)} -> {_usd(r.rent_cents)}")
+        if moved:
+            log.append({"at": end, "date": end, "source": SOURCE, "by": "", "text": " · ".join(moved)})
+        if r.occupied is not None:
+            prev_occ = r.occupied
+        if r.rent_cents is not None:
+            prev_rent = r.rent_cents
     return {"points": points, "log": log, "first": rows[0].month if rows else "", "last": rows[-1].month if rows else ""}
 
 
