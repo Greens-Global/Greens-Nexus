@@ -635,7 +635,7 @@ def ecri_insights(fac: dict, e: dict, today: date) -> list[dict]:
                            f"with no increase; bringing {'it' if e['candidateCount'] == 1 else 'them'} to street adds "
                            f"{usd(e['upside'])} a month.",
                            {"tenants": e["candidateCount"], "upside": e["upside"]},
-                           "Build a rent change in Revenue Management.", {"tab": "revenue", "facilityId": fac["id"]},
+                           "Build a rent change in ECRI Management.", {"tab": "revenue", "facilityId": fac["id"]},
                            impact=e["upside"]))
     if e["scheduled"]:
         last = max(r["effective"] for r in e["scheduled"])

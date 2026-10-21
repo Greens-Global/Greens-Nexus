@@ -107,5 +107,31 @@ class PublicViewTests(unittest.TestCase):
         self.assertTrue(all("l" not in u for u in pub["units"]))      # occupancy still stripped
 
 
+class ValleyCenterParkingTests(unittest.TestCase):
+    """P001 and P002 sit at the west end of Building C2, right after C071 -
+    not in the Vehicle Parking lot (Miranda Negrete, Oct 21 2026)."""
+
+    def test_p001_and_p002_continue_building_c_after_c071(self):
+        from routers import site_models
+        m = site_models.load_model("greens-storage-valley-center")
+        p = {u["n"]: u for u in m["units"]}
+        c070, c071 = p["C070"], p["C071"]
+        pitch = round(c071["v"] - c070["v"], 2)             # the row runs along +v
+        self.assertGreater(pitch, 0)
+        prev = c071
+        for n in ("P001", "P002"):
+            u = p[n]
+            self.assertEqual(u["b"], "C2", f"{n} is not on Building C2")
+            self.assertEqual(u.get("tr"), 1, f"{n} is not traced")
+            self.assertAlmostEqual(u["v"], prev["v"] + pitch, places=2)       # next slot along the row
+            self.assertEqual(u["dv"], c071["dv"])                             # same 12 ft width
+            self.assertAlmostEqual(u["u"] + u["wu"], c071["u"] + c071["wu"], places=2)   # same door line
+            self.assertEqual(u["door"], c071["door"])
+            self.assertFalse(u.get("rot"))
+            prev = u
+        self.assertFalse([u["n"] for u in m["units"] if u["b"] == "P" and u["n"].startswith("P")],
+                         "P units are still in the Vehicle Parking lot")
+
+
 if __name__ == "__main__":
     unittest.main()

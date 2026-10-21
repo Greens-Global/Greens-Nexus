@@ -2,7 +2,7 @@
 //   Overview    - how are the facilities doing, and which one needs a look
 //   Collections - who owes what, how old is it, is money coming in
 //   Units       - where is the empty space and the pricing room
-//   Worklist    - what does someone on site need to do
+//   Worklist    - what does someone on site need to do ("Facility Tasks" in the menu, Cubby's name)
 // `data` is one block from model.combine (a single facility or several);
 // `facilities` is always the full list, for the side-by-side pieces.
 //
@@ -374,7 +374,7 @@ export function Units({ data, many, focus, go, unitClasses, canEditClasses, onCl
   );
 }
 
-// ── Worklist ──────────────────────────────────────────────────────────────────
+// ── Worklist ("Facility Tasks", Oct 21) ──────────────────────────────────────────────────────────────
 
 export function Worklist({ data, many, focus, go }) {
   useScrollTo(focus);
