@@ -91,8 +91,15 @@
   .nexus-asset-root .coll-table > tbody > tr > td::before{ content: attr(data-label); font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); text-align: left; flex: 0 0 auto; padding-top: 3px; white-space: nowrap; }
   .nexus-asset-root .coll-table > tbody > tr > td:empty{ display: none !important; }
 }
+/* The spec sheet's flag button: quiet until the row is hovered, always
+   visible once flagged, while its menu is open, under keyboard focus, and on
+   a touch screen (nothing hovers there). */
 .nexus-asset-root .gt-frow .gt-flag{opacity:0;transition:opacity .15s}
-.nexus-asset-root .gt-frow:hover .gt-flag{opacity:.5}
+.nexus-asset-root .gt-frow:hover .gt-flag{opacity:.6}
+.nexus-asset-root .gt-frow .gt-flag.on, .nexus-asset-root .gt-frow .gt-flag:focus-visible, .nexus-asset-root .gt-frow .gt-flag[aria-expanded=true]{opacity:1}
+@media (hover: none){
+  .nexus-asset-root .gt-frow .gt-flag{opacity:.6}
+}
 .nexus-asset-root .asset-card{cursor:pointer;transition:transform .18s cubic-bezier(.2,.7,.3,1),box-shadow .18s ease,border-color .18s ease}
 .nexus-asset-root .asset-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-md) !important;border-color:var(--border-hover) !important}
 .nexus-asset-root .asset-card:active{transform:translateY(-1px) scale(.995)}

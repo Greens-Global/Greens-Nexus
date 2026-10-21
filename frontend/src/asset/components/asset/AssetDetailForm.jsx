@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Flag, ChevronDown, ChevronUp } from 'lucide-react';
+import AnchoredMenu from '../../../components/AnchoredMenu';
 import { PT } from '../../lib/propertyFields.js';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
 import { normLabel, formatFieldValue } from '../../lib/format.js';
@@ -41,6 +43,12 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
   const [dirty, setDirty] = useState(false);
+  // Read mode shows only the fields that hold a value; a section's empty fields
+  // fold behind one "Show N empty fields" line (per section, this visit).
+  const [showEmpty, setShowEmpty] = useState({});
+  // The one flag menu: which row's button opened it ({ key, section, label }).
+  const [flagMenu, setFlagMenu] = useState(null);
+  const flagBtnRef = useRef(null);
 
   const sections = buildSections(asset, isProperty, editing);
 
@@ -174,23 +182,32 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
           </div>
         )}
 
-        {sections.map((sec, si) => (
+        {sections.map((sec, si) => {
+          const all = sec.fields.map((f) => ({ ...f, value: formatFieldValue(f.raw, f.t), flagKey: (sec.title || '') + '~#~' + f.l }));
+          const hasValue = (f) => String(f.value ?? '').trim() !== '';
+          const filled = all.filter(hasValue).length;
+          // Read mode: the filled fields, plus any empty one that is flagged or deep-linked.
+          const rows = (editing || showEmpty[si]) ? all : all.filter((f) => hasValue(f) || (onFlag && flagMap.has(f.flagKey)) || (highlightField && String(f.l).toLowerCase() === highlightField));
+          const hidden = all.length - rows.length;
+          return (
           <section key={'sec' + si} id={'gt-sec' + si} style={sectionCardStyle}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
               <strong style={{ fontSize: '0.98rem', color: 'var(--text-primary)' }}>{sec.title}</strong>
-              {onFlag && <span style={{ marginLeft: 'auto', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Flag</span>}
+              <span title="Fields with a value" style={{ marginLeft: 'auto', fontSize: '0.78rem', fontWeight: 600, color: filled === all.length ? 'hsl(var(--color-green))' : 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+                {filled} of {all.length}
+              </span>
             </div>
             <div>
-              {sec.fields.map((f, fi) => {
+              {rows.map((f, fi) => {
                 const label = f.l;
-                const value = formatFieldValue(f.raw, f.t);
+                const value = f.value;
                 const isHighlighted = !editing && highlightField && String(label).toLowerCase() === highlightField;
-                const flagKey = (sec.title || '') + '~#~' + label;
-                const isFlagged = onFlag && flagMap.has(flagKey);
+                const isFlagged = onFlag && flagMap.has(f.flagKey);
+                const menuOpen = flagMenu?.key === f.flagKey;
 
                 return (
                   <div
-                    key={fi}
+                    key={label}
                     className={editing ? 'gt-frow gt-editing' : 'gt-frow'}
                     data-fl={String(label).toLowerCase()}
                     style={{
@@ -209,38 +226,66 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
                     {editing ? renderEditInput(f)
                       : f.contact && String(value ?? '').trim()
                         ? <ContactCell name={value} label={f.l} contacts={asset.contacts} onSave={onSaveContact} />
-                        : <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>
+                        : <span style={{ fontSize: '0.85rem', fontWeight: 600, color: (value ?? '') === '' ? 'var(--text-muted)' : 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>
                           {(value ?? '') === '' ? '-' : f.unitLabel ? `${value} ${f.unitRaw}` : value}
                         </span>}
 
+                    {/* The flag: a quiet icon that shows on hover (always on a touch
+                        screen, always once flagged - asset-styles .gt-flag). A click
+                        opens the reasons; a flagged one clears on click. */}
                     {onFlag ? (
-                      isFlagged ? (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onFlag(asset.id, sec.title, label); }}
-                          title={`Flagged (${flagMap.get(flagKey) || 'Needs review'}) - click to clear`}
-                          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, boxSizing: 'border-box', borderRadius: '50%', border: 'none', cursor: 'pointer', backgroundColor: 'hsla(var(--color-orange), 0.18)', color: 'hsl(var(--color-orange))', fontSize: '1.05rem', lineHeight: 1, verticalAlign: 'middle', padding: 0, margin: 0 }}
-                        >
-                          ⚑
-                        </button>
-                      ) : (
-                        <select
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => { const v = e.target.value; v && onFlag(asset.id, sec.title, label, v); e.target.value = ''; }}
-                          value=""
-                          title="Flag this field for review"
-                          style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '0.95rem', color: 'var(--text-muted)', width: 40, height: 26, boxSizing: 'border-box', textAlignLast: 'center', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px 0 0', margin: 0, verticalAlign: 'middle' }}
-                        >
-                          <option value="">⚐</option>
-                          {FLAG_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
-                        </select>
-                      )
-                    ) : null}
+                      <button
+                        type="button"
+                        ref={menuOpen ? flagBtnRef : undefined}
+                        className={isFlagged ? 'gt-flag on' : 'gt-flag'}
+                        aria-haspopup={isFlagged ? undefined : 'menu'}
+                        aria-expanded={isFlagged ? undefined : menuOpen}
+                        aria-label={isFlagged ? `Flagged: ${flagMap.get(f.flagKey) || 'Needs review'}. Clear the flag` : `Flag ${label} for review`}
+                        title={isFlagged ? `Flagged (${flagMap.get(f.flagKey) || 'Needs review'}) - click to clear` : 'Flag this field for review'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isFlagged) onFlag(asset.id, sec.title, label);
+                          else setFlagMenu(menuOpen ? null : { key: f.flagKey, section: sec.title, label });
+                        }}
+                        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 7, border: 'none', cursor: 'pointer', justifySelf: 'end',
+                          background: isFlagged ? 'hsla(var(--color-orange), 0.14)' : 'transparent', color: isFlagged ? 'hsl(var(--color-orange))' : 'var(--text-secondary)' }}
+                      >
+                        <Flag size={14} fill={isFlagged ? 'currentColor' : 'none'} />
+                      </button>
+                    ) : <span />}
                   </div>
                 );
               })}
+              {!editing && (hidden > 0 || showEmpty[si]) && (
+                <button
+                  type="button"
+                  onClick={() => setShowEmpty((m) => ({ ...m, [si]: !m[si] }))}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '9px 18px', border: 'none', borderTop: rows.length ? '1px solid var(--border-color)' : 'none', background: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', fontFamily: 'inherit', textAlign: 'left' }}
+                >
+                  {showEmpty[si] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  {showEmpty[si] ? 'Hide empty fields' : `Show ${hidden} empty ${hidden === 1 ? 'field' : 'fields'}`}
+                </button>
+              )}
             </div>
           </section>
-        ))}
+          );
+        })}
+
+        {onFlag && (
+          <AnchoredMenu anchorRef={flagBtnRef} open={!!flagMenu} onClose={() => setFlagMenu(null)} align="end" minWidth={210}
+            style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
+            <div style={{ padding: '6px 10px 4px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--text-secondary)' }}>Flag for Review</div>
+            {FLAG_REASONS.map((r) => (
+              <button key={r} type="button" role="menuitem"
+                onClick={() => { const m = flagMenu; setFlagMenu(null); if (m) onFlag(asset.id, m.section, m.label, r); }}
+                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', cursor: 'pointer', borderRadius: 7, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'inherit' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--mist)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}>
+                {r}
+              </button>
+            ))}
+          </AnchoredMenu>
+        )}
 
         {isProperty && (
           <div id="gt-map" style={{ scrollMarginTop: 108 }}>
