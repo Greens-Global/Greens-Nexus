@@ -2679,6 +2679,9 @@ def _run_migrations():
         "ALTER TABLE ops_cma_changes ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_cma_snapshots ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_cma_events ENABLE ROW LEVEL SECURITY",
+        # Operations > Customer Map (Oct 21 2026, ops_customer_geo.py): one new
+        # table, rounded points only, explicit RLS. models.OpsCustomerPoint.
+        "ALTER TABLE ops_customer_points ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3711,6 +3714,19 @@ async def lifespan(app: FastAPI):
                 print("[startup] weekly ticket report skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] weekly ticket report skipped: {e}")
+        # Customer Map (Operations, Oct 21 2026, ops_customer_geo.py): current
+        # customers' points, looked up once per address through the shared
+        # Nominatim pacer (one request a second with the asset geocode loop).
+        # Deployed worker only; every Cubby / DB / Nominatim call in a thread.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ops_customer_geo import customer_geo_loop
+                _tasks.append(_a.create_task(customer_geo_loop()))
+            else:
+                print("[startup] Customer Map geocode loop skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Customer Map geocode loop skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:
@@ -4211,3 +4227,5 @@ from routers import ops_settings as ops_settings_router  # noqa: E402
 app.include_router(ops_settings_router.router)     # Operations settings: the Push to Cubby switch, OFF by default (Visesh, Oct 21 2026)
 from routers import ops_cma as ops_cma_router  # noqa: E402
 app.include_router(ops_cma_router.router)          # Operations > Rate Management CMA: comp set, surveys, history, review & push (Miranda, Oct 21 2026)
+from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
+app.include_router(ops_customer_map_router.router)  # Operations > Customer Map: current customers around each facility, with rings (Neil, Oct 21 2026)

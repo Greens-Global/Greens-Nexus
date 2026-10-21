@@ -7,7 +7,7 @@
 // is instant. Nexus only reads - payments, leases and tenant edits stay in
 // Cubby, and each tenant row links there.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge, Map as MapIcon, Lightbulb, Users, LineChart, Tags, ArrowUpRight, ShieldAlert, Percent, Target, CalendarClock, Wrench, Download } from 'lucide-react';
+import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge, Map as MapIcon, Lightbulb, Users, LineChart, Tags, ArrowUpRight, ShieldAlert, Percent, Target, CalendarClock, Wrench, Download, MapPinned } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
@@ -32,6 +32,8 @@ const OpsBudget = lazy(() => import('../operations/OpsBudget'));
 const SiteMap = lazy(() => import('../operations/SiteMap'));
 // Pricing Insights (Visesh, Oct 20): insights from Cubby's pricing + the market. Lazy, its own chunk.
 const PricingInsights = lazy(() => import('../operations/PricingInsights'));
+// Customer Map (Neil, Oct 21): current customers around each facility, with rings. Lazy, its own chunk.
+const CustomerMap = lazy(() => import('../operations/CustomerMap'));
 
 const SYNC_POLL_MS = 3000;
 const NOT_CONNECTED = "Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.";
@@ -50,6 +52,8 @@ const TABS = [
     // The Daily Flash for any set of properties, with its own picker and month (Neil, Oct 20).
     { key: 'portfolio',   label: 'Portfolio',       Icon: Gauge },
     { key: 'site-map',    label: 'Site Map',        Icon: MapIcon },
+    // Managers and up, or Operations Full - the ECRI Management door (Oct 21).
+    { key: 'customer-map', label: 'Customer Map',   Icon: MapPinned },
   ] },
   { key: 'facilities', label: 'Facilities', Icon: Warehouse, items: [
     { key: 'collections', label: 'Collections',     Icon: HandCoins },
@@ -101,13 +105,17 @@ const screenOf = (key) => {
   }
   return { screen: key, view: '' };
 };
+// Menu items only managers (and the Operations Full grant) see.
+const MANAGER_ITEMS = new Set(['customer-map']);
+const STAFF_TABS = TABS.filter((t) => t.key !== 'revenue-menu')
+  .map((t) => (t.items ? { ...t, items: t.items.filter((i) => !MANAGER_ITEMS.has(i.key)) } : t));
 const viewKey = (screen, view) => (view === SCREEN_VIEWS[screen].first ? screen : `${SCREEN_VIEWS[screen].prefix}-${view}`);
 // Tabs that work on one facility at a time and are not about a period. With
 // All Facilities picked they open on the first facility (the first one with a
 // site model, for the Site Map) and the dropdown shows which; the page's
 // choice itself stays All, so the other tabs still see every facility.
 const ONE_FACILITY = new Set(['market', 'revenue', 'site-map']);
-const NO_PERIOD = new Set([...ONE_FACILITY, 'pricing']);
+const NO_PERIOD = new Set([...ONE_FACILITY, 'pricing', 'customer-map']);
 const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? t.items.map((i) => i.key) : [t.key]));
 
 // The facility choice is remembered per viewer on this device and kept across tabs.
@@ -176,7 +184,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   const role = useRole();
   const canSeeKeyHint = role?.can?.('manager') ?? false;
   const canRevenue = role?.canAccessModule ? role.canAccessModule('operations', 'manager', 'full') : canSeeKeyHint;
-  const tabs = canRevenue ? TABS : TABS.filter((t) => t.key !== 'revenue-menu');
+  const tabs = canRevenue ? TABS : STAFF_TABS;
   // A menu's own key opens its first item; the old mock tab ids (fms,
   // reputation, site-staff) and anything else unknown open the Overview.
   const leaves = leafKeys(tabs);
@@ -364,6 +372,11 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {screen === 'site-map' && (current === 'all' && modelIds === null
             ? <LoadingState size="section" label="Loading the site map" minHeight={420} />
             : <Suspense fallback={<LoadingState size="section" label="Loading the site map" minHeight={420} />}><SiteMap facility={single} facilities={facilities} onPick={setPicked} modelIds={modelIds} onMapSearch={setMapSearch} /></Suspense>)}
+          {screen === 'customer-map' && (
+            <Suspense fallback={<LoadingState size="section" label="Loading the customer map" minHeight={420} />}>
+              <CustomerMap facility={current === 'all' ? null : single} state={stateOn} />
+            </Suspense>
+          )}
           {screen === 'pricing' && (
             <Suspense fallback={<LoadingState size="section" label="Loading pricing insights" minHeight={320} />}>
               <PricingInsights facility={single && !isThirdParty(single) ? single : null} onPick={setPicked} onGo={onSubChange} section={view} onSection={onView('pricing')} />
