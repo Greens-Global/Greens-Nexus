@@ -1,7 +1,7 @@
 // Start as Task: the SOP's steps become a task checklist. 60vw popup.
 import { useEffect, useState } from 'react';
 import { Camera, CheckSquare } from 'lucide-react';
-import { Modal } from '../../tasks/components';
+import { Modal, DateField } from '../../tasks/components';
 import { api } from '../../api';
 import { useRole } from '../../contexts/RoleContext';
 import PeoplePick from './PeoplePick';
@@ -52,7 +52,7 @@ export default function StartTaskModal({ page, onClose }) {
           <div className="kb-field"><label>Task Name</label><input className="kb-input" value={title} onChange={(e) => setTitle(e.target.value)} /></div>
           <div className="kb-field"><label>Assign To</label><PeoplePick value={assignee} onChange={setAssignee} allowClear={false} /></div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="kb-field"><label>Due</label><input type="date" className="kb-input" value={due} onChange={(e) => setDue(e.target.value)} /></div>
+            <div className="kb-field"><label>Due</label><DateField value={due} onChange={setDue} placeholder="No due date" noPast style={{ minHeight: 40, borderRadius: 10 }} /></div>
             <div className="kb-field"><label>Priority</label>
               <select className="kb-select" value={priority} onChange={(e) => setPriority(e.target.value)}>
                 <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>

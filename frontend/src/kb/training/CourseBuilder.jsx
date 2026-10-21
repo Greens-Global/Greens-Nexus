@@ -8,7 +8,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { ArrowLeft, Plus, Trash2, ArrowUp, ArrowDown, BookOpen, FileText, HelpCircle, Sparkles, Check, Users, History, BarChart3, AlertTriangle, Loader2, X, Bell, Unlock } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection from '../../components/AsyncState';
-import { Modal } from '../../tasks/components';
+import { Modal, DateField } from '../../tasks/components';
 import { Chip, Banner, Stat, Av, TrainingChip } from '../components/Chips';
 import { PeopleMultiPick } from '../components/PeoplePick';
 import AudienceModal, { normalizeAudience } from '../components/AudienceModal';
@@ -326,7 +326,7 @@ export default function CourseBuilder({ id, me }) {
             <Modal title="Assign People" onClose={() => setAssignOpen(false)} minHeight="40vh" footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}><button type="button" className="kb-btn" onClick={() => setAssignOpen(false)}>Cancel</button><button type="button" className="kb-btn pri" disabled={!assignEmails.length} onClick={() => api.kbAssignCourse(data.course.id, assignEmails, assignDue).then((r) => { toast(`Assigned to ${r.assigned}`); setAssignOpen(false); setAssignEmails([]); loadAssignments(); }).catch((e) => toast(errText(e), 'err'))}>Assign</button></div>}>
               <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div className="kb-field"><label>People</label><PeopleMultiPick value={assignEmails} onChange={setAssignEmails} /></div>
-                <div className="kb-field"><label>Due</label><input type="date" className="kb-input" style={{ width: 200 }} value={assignDue} onChange={(e) => setAssignDue(e.target.value)} /></div>
+                <div className="kb-field"><label>Due</label><DateField value={assignDue} onChange={setAssignDue} placeholder="No due date" noPast style={{ minHeight: 40, borderRadius: 10, width: 220 }} /></div>
                 <div className="kb-help">For a whole department or job title, use Assign by Audience instead; new hires are picked up automatically.</div>
               </div>
             </Modal>
