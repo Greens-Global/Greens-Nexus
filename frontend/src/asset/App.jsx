@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { Settings2, ArrowLeft, Pencil, Search, Lock, Unlock, Copy, MoreHorizontal, FileText, Download, Plus } from 'lucide-react';
+import { ArrowLeft, Pencil, Search, Lock, Unlock, Copy, MoreHorizontal, FileText, Download, Plus, History, Trash2, Upload } from 'lucide-react';
 
 import { PT } from './lib/propertyFields.js';
 import { ASSET_SCHEMAS, inferAssetKind } from './lib/vehicleFields.js';
@@ -11,7 +11,7 @@ import { makeLogEntry, appendLog, diffChanges, recordDisplayName } from './lib/l
 import { SHARED_FILTER_GROUPS, LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS, recordViewsFor, stripTabsFor, recordLabel } from './lib/navigation.js';
 import { TIMELINE_FIELDS, permitColumns } from './lib/timelineFields.js';
 import { useNexusStore } from './lib/useNexusStore.js';
-import { portfolioStats } from './lib/assetMetrics.js';
+import { portfolioStats, assetCompleteness } from './lib/assetMetrics.js';
 import { typeLabel } from './lib/portfolioCards.js';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { StatusLabel } from '../components/StatusLabel.jsx';
@@ -37,7 +37,9 @@ import { TimelineStatusModal } from './components/asset/TimelineStatusModal.jsx'
 import { VserviceSection } from './components/maintenance/VserviceSection.jsx';
 import { PropertyMaintenanceSection } from './components/maintenance/PropertyMaintenanceSection.jsx';
 
-import { ManagePage } from './components/manage/ManagePage.jsx';
+import { ReviewFlagsPanel } from './components/manage/ReviewFlagsPanel.jsx';
+import { ActivityLog } from './components/manage/ActivityLog.jsx';
+import { DataGapsPanel, TrashPanel, PanelHead } from './components/portfolio/PortfolioPanels.jsx';
 
 import { exportAssetCsvAsFile, exportAssetPdf } from './lib/csvExport.js';
 import { ticketMaintenanceRows } from './lib/propertyTickets.js';
@@ -96,6 +98,11 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const [typeFilter, setTypeFilter] = useState('');
   const moreRef = useRef(null);                                // the header's "more actions" button
   const [moreOpen, setMoreOpen] = useState(false);
+  // The portfolio's own more menu and the panel open under its Needs Attention band
+  // (Data Gaps / Flagged / Activity Log / Trash - the old Manage page, in place).
+  const portfolioMoreRef = useRef(null);
+  const [portfolioMoreOpen, setPortfolioMoreOpen] = useState(false);
+  const [panel, setPanel] = useState(null);
   const [lastRecord, setLastRecord] = useState(null);         // the Records segment last open, per session
   // Per-asset numbers for the tiles (occupancy, % complete) - one read, refreshed with the store.
   const [metrics, setMetrics] = useState({});
@@ -110,8 +117,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     setLastManageVisit(now);
     try { localStorage.setItem('nexus_manage_seen', now); } catch { /* ignore */ }
   };
-  // Visiting Manage, or any new log arriving while already on Manage, marks everything read.
-  useEffect(() => { if (view === 'manage') markManageSeen(); }, [view, store.logs]);
+  // Opening the Activity Log, or any new log arriving while it is open, marks everything read.
+  useEffect(() => { if (panel === 'activity') markManageSeen(); }, [panel, store.logs]);  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (recordViews.includes(view)) setLastRecord(view); }, [view]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -171,8 +178,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   /** All navigation goes through this - it's what enforces the unsaved-changes guard. */
   const navigate = (nextView) => {
     const go = () => {
+      if (nextView === 'manage') { setActiveId(null); setView('portfolio'); setPanel('activity'); return; }
       setView(nextView);
-      if (nextView === 'manage') { setActiveId(null); markManageSeen(); }
     };
     if (editGuard.dirty) { setPendingNav(() => go); setLeaveAsk(true); }
     else go();
@@ -692,7 +699,9 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   // Render
   // ---------------------------------------------------------------------------------------
 
-  const pulse = view !== 'manage' && !active ? portfolioStats(store) : null;
+  const pulse = !active ? portfolioStats(store) : null;
+  const needData = !active ? visibleProperties.filter((p) => assetCompleteness(p).pct < 100).length : 0;
+  const flagCount = !active ? visibleProperties.reduce((n, p) => n + ((p.reviewFlags || []).length), 0) : 0;
   const assetKind = active ? inferAssetKind(active) : null;
   const recordViews = active ? recordViewsFor(assetKind) : [];
   const stripTabs = active ? stripTabsFor(assetKind) : [];
@@ -723,21 +732,26 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       <ToastHost />
       <SyncStatus />
 
-      {!active && view !== 'manage' && pulse && (
+      {!active && pulse && (
         <div className="view-header" style={{ alignItems: 'center', marginBottom: 16 }}>
           <div className="view-title-group" style={{ minWidth: 0 }}>
             <h2 style={{ fontFamily: 'var(--wk-font)' }}>Asset Management</h2>
             <p>{loading && !visibleProperties.length ? 'Loading the portfolio…' : `${pulse.assets} ${pulse.assets === 1 ? 'asset' : 'assets'} in the portfolio`}</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <button className="secondary-btn" onClick={() => navigate('manage')} style={{ position: 'relative' }}>
-              <Settings2 size={14} /> Manage
-              {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
-            </button>
-            {/* Adding an asset is the portfolio's own first action, not two clicks away under Manage. */}
             <button className="primary-btn" onClick={() => setModal({ type: 'property', id: null })}>
               <Plus size={14} /> Add Asset
             </button>
+            <button ref={portfolioMoreRef} type="button" className="secondary-btn" aria-label="More" aria-haspopup="menu" aria-expanded={portfolioMoreOpen} onClick={() => setPortfolioMoreOpen((o) => !o)} style={{ padding: 8, position: 'relative' }}>
+              <MoreHorizontal size={16} />
+              {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
+            </button>
+            <AnchoredMenu anchorRef={portfolioMoreRef} open={portfolioMoreOpen} onClose={() => setPortfolioMoreOpen(false)} align="end" minWidth={220}
+              style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
+              <MenuRow icon={History} onClick={() => { setPortfolioMoreOpen(false); setPanel('activity'); }}>Activity Log{unseenLogCount > 0 ? ` (${unseenLogCount} new)` : ''}</MenuRow>
+              <MenuRow icon={Trash2} onClick={() => { setPortfolioMoreOpen(false); setPanel('trash'); }}>Trash{deletedProperties.length ? ` (${deletedProperties.length})` : ''}</MenuRow>
+              <MenuRow icon={Upload} onClick={() => { setPortfolioMoreOpen(false); setModal({ type: 'property', id: null }); }}>Import From a Spreadsheet</MenuRow>
+            </AnchoredMenu>
           </div>
         </div>
       )}
@@ -783,10 +797,6 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
                 <button className="primary-btn" onClick={() => editGuard.save?.()} disabled={!editState.dirty} title={editState.dirty ? undefined : 'No changes yet'}>Save Changes</button>
               </>
             )}
-            <button className="secondary-btn" onClick={() => navigate('manage')} style={{ position: 'relative' }}>
-              <Settings2 size={14} /> Manage
-              {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
-            </button>
             <button ref={moreRef} type="button" className="secondary-btn" aria-label="More actions" aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)} style={{ padding: 8 }}>
               <MoreHorizontal size={16} />
             </button>
@@ -869,7 +879,31 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       {view === 'portfolio' && !active && loading && !visibleProperties.length && (
         <LoadingState label="Loading assets…" minHeight={320} />
       )}
-      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <CriticalDates store={store} openProperty={openAsset} hideIfEmpty />}
+      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && (
+        <CriticalDates store={store} openProperty={openAsset} hideIfEmpty title="Needs Attention"
+          extraChips={[
+            { count: needData, label: 'Need Data', color: 'orange', title: 'Assets with key fields to fill', onClick: () => setPanel((p) => (p === 'data' ? null : 'data')) },
+            { count: flagCount, label: 'Flagged', color: 'purple', title: 'Fields flagged for review', onClick: () => setPanel((p) => (p === 'flags' ? null : 'flags')) },
+          ]} />
+      )}
+      {view === 'portfolio' && !active && panel === 'data' && (
+        <DataGapsPanel assets={visibleProperties} onOpen={openAsset} onDelete={(id) => deleteAsset(id, true)} serverOk={serverOk} onClose={() => setPanel(null)} />
+      )}
+      {view === 'portfolio' && !active && panel === 'flags' && (
+        <div style={{ border: '1px solid var(--border-color)', borderRadius: 14, background: 'var(--bg-card)', padding: '16px 18px', marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+          <PanelHead title="Flagged for Review" subtitle="Fields someone marked as wrong, outdated or unverified - fix them here or on the asset." onClose={() => setPanel(null)} />
+          <ReviewFlagsPanel props={visibleProperties} onClearFlag={toggleFlag} onOpen={openAsset} onPushFix={pushFieldFix} />
+        </div>
+      )}
+      {view === 'portfolio' && !active && panel === 'activity' && (
+        <div style={{ border: '1px solid var(--border-color)', borderRadius: 14, background: 'var(--bg-card)', padding: '16px 18px', marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+          <PanelHead title="Activity Log" subtitle="Every change across the portfolio, newest first." onClose={() => setPanel(null)} />
+          <ActivityLog logs={store.logs || []} query="" onOpenProperty={openAsset} activeId={null} activeName="" onGoTo={goToLogEntry} onUndo={undoLogEntry} canUndo={canUndo} assetsForKind={visibleProperties} />
+        </div>
+      )}
+      {view === 'portfolio' && !active && panel === 'trash' && (
+        <TrashPanel deleted={deletedProperties} onRecover={recoverAsset} onPurge={purgeAsset} onClose={() => setPanel(null)} />
+      )}
       {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} metrics={metrics} />}
 
       {view === 'property' && active?.assembled && !active.parentId && <AssemblageParcels lead={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} />}
@@ -934,26 +968,6 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
           onAdd={() => setModal({ type: 'plist', field: 'permits', index: null, fields: permitColumns(active.permits) })}
           onEdit={(i) => setModal({ type: 'plist', field: 'permits', index: i, fields: permitColumns(active.permits) })}
           onDelete={(i) => deletePropertyListRow('permits', i, permitColumns(active.permits))}
-        />
-      )}
-
-      {view === 'manage' && !active && (
-        <ManagePage
-          props={visibleProperties}
-          logs={store.logs || []}
-          deletedProps={deletedProperties}
-          onBack={() => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')))}
-          onAdd={() => setModal({ type: 'property', id: null })}
-          onDelete={(id) => deleteAsset(id, true)}
-          onRecover={recoverAsset}
-          onPurge={purgeAsset}
-          onOpenProperty={openAsset}
-          onGoTo={goToLogEntry}
-          onUndo={undoLogEntry}
-          canUndo={canUndo}
-          onClearFlag={toggleFlag}
-          onPushFix={pushFieldFix}
-          serverOk={serverOk}
         />
       )}
 

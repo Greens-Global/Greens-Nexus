@@ -98,7 +98,7 @@ function WindowChip({ value, label, active, onSelect }) {
  * `hideIfEmpty` is deliberately NOT the default and must be opted into per call site - do not
  * flip its default, or the per-asset usage will start disappearing on clean assets.
  */
-export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty }) {
+export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, title = 'Critical Items', extraChips = [] }) {
   const [open, setOpen] = useState(false);
   // Per-asset view starts on "All" (nothing to triage away); portfolio view starts on "Next 90
   // days" (lead with what's actually urgent across the whole portfolio).
@@ -114,7 +114,8 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty })
 
   // Portfolio banner usage: nothing due at all -> render nothing. Per-asset usage never sets
   // hideIfEmpty, so it always falls through and renders (even all-zero, for context).
-  if (hideIfEmpty && !overdueCount && !due30Count && !due90Count) return null;
+  const extras = extraChips.filter((c) => c && c.count > 0);
+  if (hideIfEmpty && !overdueCount && !due30Count && !due90Count && !extras.length) return null;
 
   const categories = [...new Set(all.map((x) => x.cat))].sort();
 
@@ -145,12 +146,20 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty })
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <span style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-          Critical Items
+          {title}
         </span>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <CountPill count={overdueCount} label="Overdue" color="red" />
           <CountPill count={due30Count} label="Due in 30d" color="orange" />
           <CountPill count={due90Count} label="Due in 90d" color="gold" />
+          {extras.map((c) => (
+            <button key={c.label} type="button" onClick={c.onClick} title={c.title}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+                color: `hsl(var(--color-${c.color || 'orange'}))`, backgroundColor: `hsla(var(--color-${c.color || 'orange'}), 0.12)` }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: `hsl(var(--color-${c.color || 'orange'}))` }} />
+              {c.count} {c.label}
+            </button>
+          ))}
         </div>
         <button
           onClick={() => setOpen((o) => !o)}
