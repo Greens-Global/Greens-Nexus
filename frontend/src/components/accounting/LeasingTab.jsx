@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FolderUp, Home, Landmark, Mail, Pencil, Plus, RefreshCw, Search, Tags, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { AlertTriangle, Building2, Check, ChevronDown, ExternalLink, FolderUp, Home, Landmark, Mail, Pencil, Plus, RefreshCw, Search, Tags, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
@@ -14,6 +14,8 @@ import { linesFile } from './linesExport';
 import SendReportDialog from './SendReportDialog';
 import AddMenu from './AddMenu';
 import EntryDetail from './EntryDetail';
+import { DateField } from '../../tasks/components';
+import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths } from './recurringShared';
 
 // Accounting -> Leasing: leases and monthly recurring income (Neil and
 // Charmi, Sep 25). Rent was tracked in a workbook and chased by hand; this is
@@ -91,6 +93,24 @@ import EntryDetail from './EntryDetail';
 //   - A month the lease is not in force shows a dash, never 0.
 //   - Total and Balance open the lease's ledger lines in Reports.
 //   - Customer codes sit left of the name.
+//
+// Oct 22 (Priyanka, Charmi, Urmi, Neil):
+//   - Frequency on a source - Monthly (every source saved before), Quarterly,
+//     Semi-Annual, Annual or Custom every N months, like MRE. A month it does
+//     not fall due shows a dash.
+//   - A payment that covers more than one month settles the OLDEST open month
+//     first (the server's apply_credits): that month reads Covered, with the
+//     month that paid it on hover. Balances never change - expected less
+//     received is the same sum.
+//   - The color legend is a filter at the top: pick Paid / Short / Unpaid or
+//     Late / Due / Upcoming / Covered to see the rows with a month in that
+//     state within the months shown.
+//   - Dates are picked with the Nexus date picker (MM/DD/YYYY whatever the
+//     browser's language); the rent change table's headers sit over their
+//     inputs.
+//   - Possibly Ended: a source with nothing received for months (the daily
+//     check, recurring_stale.py) carries a chip; Settings (full access) sets
+//     how many months and runs the check now.
 
 const SECTIONS = [{ key: 'roll', label: 'Income Roll' }, { key: 'outstanding', label: 'Outstanding' }, { key: 'tenants', label: 'Payers' }];
 export const TYPES = [{ key: 'lease', label: 'Lease' }, { key: 'cam', label: 'CAM' }, { key: 'interest', label: 'Interest' }, { key: 'loan_payment', label: 'Loan Payment' }, { key: 'other', label: 'Other' }];
@@ -113,24 +133,24 @@ const STATUS = {
   none: { label: 'Nothing Due', fg: 'var(--text-muted)', bg: 'transparent' },
   // Oct 14: posted while the lease is not in force - a plain received month, no separate concept.
   outside: { label: 'Received', fg: 'var(--text-primary)', bg: 'transparent' },
+  // Oct 22: settled by an overpayment in another month (the oldest open month first).
+  covered: { label: 'Covered', fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.06)' },
   income: { label: 'Received', fg: 'var(--text-primary)', bg: 'transparent' },
 };
 const LEASE_STATUS = { active: 'Active', ended: 'Ended', vacant: 'Vacant' };
-// Period presets within the year (Oct 6): [first month index, last month index].
-const PERIODS = [
-  { key: 'year', label: 'Full Year' }, { key: 'ytd', label: 'Year-to-Date' }, { key: 'q1', label: 'Q1' }, { key: 'q2', label: 'Q2' }, { key: 'q3', label: 'Q3' }, { key: 'q4', label: 'Q4' },
-  { key: 'month', label: 'This Month' }, { key: 'custom', label: 'Custom Months' },
+// The legend as a filter (Oct 22, Neil: "should be a filter option at the top").
+export const STATE_FILTERS = [
+  { key: 'paid', label: 'Paid', statuses: ['paid'] }, { key: 'short', label: 'Short', statuses: ['short'] },
+  { key: 'unpaid', label: 'Unpaid or Late', statuses: ['unpaid', 'late'] }, { key: 'due', label: 'Due', statuses: ['due'] },
+  { key: 'upcoming', label: 'Upcoming', statuses: ['upcoming'] }, { key: 'covered', label: 'Covered', statuses: ['covered'] },
 ];
-function periodMonths(key, year, custom = [0, 11], today = new Date()) {
-  const thisYear = today.getFullYear() === year;
-  const m = today.getMonth();
-  if (key === 'ytd') return [0, thisYear ? m : 11];
-  if (/^q[1-4]$/.test(key)) { const q = Number(key[1]) - 1; return [q * 3, q * 3 + 2]; }
-  if (key === 'month') return thisYear ? [m, m] : [11, 11];
-  if (key === 'custom') return [Math.min(custom[0], custom[1]), Math.max(custom[0], custom[1])];
-  return [0, 11];
+/** Whether a row has a month in one of the picked states within the months shown. Ledger account rows have no schedule: never. */
+export function rowInStates(row, picked, [from, to]) {
+  if (!picked.length) return true;
+  if (row.kind === 'account') return false;
+  const want = new Set(STATE_FILTERS.filter((f) => picked.includes(f.key)).flatMap((f) => f.statuses));
+  return row.months.slice(from, to + 1).some((c) => c && c.inForce && !blankMonth(c) && want.has(c.status));
 }
-
 // Figures in text (titles, the reminder email) read as the screen shows them.
 const money = formatAmount;
 const whole = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
@@ -138,6 +158,9 @@ const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--borde
 const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const icon = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+// The Nexus date picker in a box shaped like the other inputs (Oct 22, Urmi:
+// native date inputs showed dd-mm-yyyy in a browser set to another language).
+const dateBox = { ...control, display: 'flex', alignItems: 'center', width: '100%' };
 const chipStyle = (tone) => ({ display: 'inline-block', marginLeft: 6, padding: '0 7px', borderRadius: 999, fontSize: '0.66rem', fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'middle',
   color: tone === 'bad' ? 'var(--bad-fg, #dc2626)' : 'var(--text-secondary)', background: tone === 'bad' ? 'rgba(220,38,38,0.10)' : 'var(--bg-secondary)', border: '1px solid var(--border-color)' });
 const monthName = (key) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
@@ -145,7 +168,7 @@ const monthName = (key) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0
 // with it - not today (a lease typed in on the 2nd expected 30/31 of a month
 // and nothing before it).
 const firstOfMonth = () => `${iso(new Date()).slice(0, 7)}-01`;
-const blank = (incomeType = 'lease') => ({ incomeType, propertyName: '', region: '', tenancy: 'external', landlord: '', entityCode: '', incomeAccounts: leaseLike(incomeType) ? ['41101'] : [], customerId: '', tenantName: '', contactName: '', phone: '', email: '', mailingAddress: '', leaseStart: firstOfMonth(), leaseEnd: '', securityDeposit: 0, leaseTerms: '', termType: '', termMonths: null, lateFee: 0, dueDay: 1, graceDays: 5, status: 'active', notes: '', rates: [{ startDate: firstOfMonth(), rent: 0, cam: 0, other: 0, note: '' }] });
+const blank = (incomeType = 'lease') => ({ incomeType, frequency: 'monthly', frequencyMonths: 0, propertyName: '', region: '', tenancy: 'external', landlord: '', entityCode: '', incomeAccounts: leaseLike(incomeType) ? ['41101'] : [], customerId: '', tenantName: '', contactName: '', phone: '', email: '', mailingAddress: '', leaseStart: firstOfMonth(), leaseEnd: '', securityDeposit: 0, leaseTerms: '', termType: '', termMonths: null, lateFee: 0, dueDay: 1, graceDays: 5, status: 'active', notes: '', rates: [{ startDate: firstOfMonth(), rent: 0, cam: 0, other: 0, note: '' }] });
 // Oct 15 (Charmi + Neil): the lease term is a pick - Annual, Month to Month or
 // Custom with a whole number of months - never free text a typo can break.
 const TERM_OPTIONS = [['annual', 'Annual'], ['month_to_month', 'Month to Month'], ['custom', 'Custom']];
@@ -190,13 +213,20 @@ const tenantOf = (r) => (r.kind === 'account' ? 'From the ledger' : r.lease.stat
  *  balance are 0 from the server). */
 const counts = (c) => c.inForce && c.status !== 'upcoming' && c.status !== 'unknown';
 /** A month with nothing to show: not in force, or outside the lease dates with nothing posted (Urmi, 10/14: a dash, not 0). */
-const blankMonth = (c) => !c || !c.inForce || (c.status === 'outside' && Math.abs(c.received || 0) <= 0.005);
+const blankMonth = (c) => !c || !c.inForce || ((c.status === 'outside' || c.offCycle) && Math.abs(c.received || 0) <= 0.005);
 /** Lease-like types: a tenant, a space and lease dates. */
 const leaseLike = (t) => (t || 'lease') === 'lease' || t === 'cam';
 /** Not an active lease (Urmi, 10/14): ended, vacant, past its end, or the payer is inactive in Intacct. */
 const inactiveRow = (r) => !!r.expired || r.customerActive === false || (r.lease?.status || 'active') !== 'active';
 /** The notes written on single months, as one line: "Mar: text; Jun: text". */
 const monthNotesText = (row) => (row.months || []).filter((c) => c.note).map((c) => `${MONTHS[Number(c.month.slice(5, 7)) - 1]}: ${c.note}`).join('; ');
+/** How an overpayment was applied to a month, in words (Oct 22). */
+export function coverText(c) {
+  const parts = [];
+  if (c?.covered) parts.push(`${money(c.covered)} covered by the ${(c.coveredBy || []).map(monthName).join(', ')} payment${(c.coveredBy || []).length === 1 ? '' : 's'}${c.prepaid ? ' (prepaid)' : ''}`);
+  if (c?.applied) parts.push(`${money(c.applied)} of this payment applied to ${(c.appliedTo || []).map(monthName).join(', ')} - the oldest open month first`);
+  return parts.join('. ');
+}
 const rowKey = (r) => (r.kind === 'account' ? r.key : r.lease.id);
 const rowName = (r) => (r.kind === 'account' ? `${r.account.code} ${r.account.title}` : r.lease.propertyName);
 
@@ -261,6 +291,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const [types, setTypes] = useState([]);             // picked types ([] = all)
   const [period, setPeriod] = useState('year');
   const [custom, setCustom] = useState([0, 11]);
+  const [states, setStates] = useState([]);           // picked month states ([] = all) - the legend as a filter
   const [editing, setEditing] = useState(null);       // { lease, replacing? }
   const [cell, setCell] = useState(null);             // { row, month }
   const [sending, setSending] = useState(null);       // email | egnyte
@@ -293,6 +324,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const reload = () => load(year, entities);
 
   const span = periodMonths(period, year, custom);
+  const [spanFrom, spanTo] = span;
   const accountRows = useMemo(() => ledgerIncomeRows(ledger?.rows, roll?.rows, year), [ledger, roll, year]);
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -302,16 +334,17 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
       const l = r.lease;
       if (kinds.size && !kinds.has(typeOf(r))) return false;
       if (picked.size && !picked.has(l.customerId)) return false;
+      if (!rowInStates(r, states, [spanFrom, spanTo])) return false;
       // A text filter finds inactive leases too (marked); otherwise Customize decides.
       if (s) return [l.propertyName, l.tenantName, r.customer?.name, l.landlord, l.region, l.customerId, l.teamNote?.text, monthNotesText(r), TYPE_LABEL[typeOf(r)]].some((v) => (v || '').toLowerCase().includes(s));
       if (!showInactive && inactiveRow(r) && !picked.has(l.customerId)) return false;
       return true;
     });
     // The ledger's income account rows have no payer: picking payers leaves them out.
-    const ledgerRows = picked.size ? [] : accountRows.filter((r) => (!kinds.size || kinds.has(r.type))
+    const ledgerRows = picked.size || states.length ? [] : accountRows.filter((r) => (!kinds.size || kinds.has(r.type))
       && (!s || [r.account.code, r.account.title, TYPE_LABEL[r.type]].some((v) => (v || '').toLowerCase().includes(s))));
     return [...kept, ...ledgerRows];
-  }, [roll, accountRows, q, tenants, types, showInactive]);
+  }, [roll, accountRows, q, tenants, types, showInactive, states, spanFrom, spanTo]);
   const sources = useMemo(() => rows.filter((r) => r.kind !== 'account'), [rows]);
   const figures = useMemo(() => rows.reduce((t, r) => {
     const f = rowFigures(r, span);
@@ -327,7 +360,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const thisMonth = iso(new Date()).slice(0, 7);
   const behind = sources.filter((r) => r.monthsBehind);
   // Rows per Page: back to page 1 whenever the filters or the section change.
-  const pageKey = [section, year, entities, tenants, types, period, custom, cz.pageSize, q, showInactive];
+  const pageKey = [section, year, entities, tenants, types, period, custom, cz.pageSize, q, showInactive, states];
   const pageSize = cz.pageSize;
   // A ledger income account's Total opens its lines in Reports for the months shown (item 33).
   const drillWindow = () => {
@@ -352,7 +385,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
 
   // What the Export menu writes: the section on screen, as on screen.
   const entityLabel = !entities.length ? (locations.limited ? 'All my entities' : 'All entities') : entities.length === 1 ? (() => { const e = locations.entities.find((x) => x.code === entities[0]); return e?.name ? `${e.name} (${e.code})` : entities[0]; })() : `${entities.length} entities`;
-  const periodLabel = `${PERIODS.find((p) => p.key === period)?.label || 'Full Year'} ${year} (${MONTHS[span[0]]}${span[1] !== span[0] ? ` - ${MONTHS[span[1]]}` : ''})`;
+  const periodLabel = periodText(period, year, span);
   const buildTable = () => {
     const title = section === 'outstanding' ? 'Income Outstanding' : section === 'tenants' ? 'Payers' : 'Monthly Recurring Income';
     const subtitle = `${entityLabel} · ${periodLabel}${types.length ? ` · ${types.map((t) => TYPE_LABEL[t]).join(', ')}` : ''}${tenants.length ? ` · ${tenants.length} ${tenants.length === 1 ? 'payer' : 'payers'}` : ''}${q.trim() ? ` · "${q.trim()}"` : ''}`;
@@ -412,21 +445,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
               </button>
             ))}
           </div>
-          <div role="group" aria-label="Period" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-            <button type="button" style={icon} aria-label="Previous year" onClick={() => setYear((y) => y - 1)}><ChevronLeft size={16} /></button>
-            <strong style={{ fontSize: '0.86rem', minWidth: 40, textAlign: 'center' }}>{year}</strong>
-            <button type="button" style={icon} aria-label="Next year" disabled={year >= new Date().getFullYear() + 1} onClick={() => setYear((y) => y + 1)}><ChevronRight size={16} /></button>
-            <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Months" style={control}>
-              {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-            </select>
-            {period === 'custom' && (
-              <>
-                <select value={custom[0]} onChange={(e) => setCustom(([, b]) => [Number(e.target.value), Math.max(b, Number(e.target.value))])} aria-label="From month" style={control}>{MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}</select>
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>to</span>
-                <select value={custom[1]} onChange={(e) => setCustom(([a]) => [Math.min(a, Number(e.target.value)), Number(e.target.value)])} aria-label="To month" style={control}>{MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}</select>
-              </>
-            )}
-          </div>
+          <PeriodPicker year={year} onYear={setYear} period={period} onPeriod={setPeriod} custom={custom} onCustom={setCustom} />
           <EntitiesPicker entities={locations.entities} value={entities} onChange={setEntities} limited={locations.limited} showHistorical={!!prefs.showHistoricalEntities} />
           <MultiPicker label="Type filter" allLabel="All Types" noun={['type', 'types']} Icon={Tags} options={TYPES.map((t) => ({ code: t.key, name: t.label }))} value={types} onChange={setTypes} showCodes={false} />
           <MultiPicker label="Payer filter" allLabel="All Payers" noun={['payer', 'payers']} Icon={Users} options={customers} value={tenants} onChange={setTenants}
@@ -451,6 +470,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
               { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, file attached', Icon: Mail, onPick: () => setSending('email') },
               { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             ]} />
+            {canDelete && <RecurringSettingsButton onChecked={reload} />}
             {canEdit && (
               <button type="button" className="secondary-btn" onClick={syncNow} disabled={syncing} title="Link every lease to its Intacct customer and add the leases of new tenants" style={btn}>
                 <RefreshCw size={14} className={syncing ? 'spin' : undefined} /> {syncing ? 'Syncing...' : 'Sync Now'}
@@ -466,6 +486,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           </div>
         </div>
 
+        {section === 'roll' && <StateFilter value={states} onChange={setStates} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums', padding: '0 4px' }}>
           <span>Expected <strong><Amount value={figures.expected} /></strong></span>
           <span>Received <strong><Amount value={figures.received} /></strong></span>
@@ -515,6 +536,32 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
         );
       })()}
     </AsyncSection>
+  );
+}
+
+// The color legend as a multi-select filter at the top of the Income Roll
+// (Oct 22 - Charmi: "make the legend clickable"; Neil: "should be a filter
+// option at the top"). Nothing picked = every row.
+function StateFilter({ value, onChange }) {
+  const on = new Set(value);
+  const toggle = (k) => { const n = new Set(on); if (n.has(k)) n.delete(k); else n.add(k); onChange(STATE_FILTERS.map((f) => f.key).filter((x) => n.has(x))); };
+  return (
+    <div role="group" aria-label="Show rows with a month that is" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: '0.74rem', padding: '0 4px' }}>
+      <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Show Rows With:</span>
+      {STATE_FILTERS.map((f) => {
+        const st = STATUS[f.key];
+        const picked = on.has(f.key);
+        return (
+          <button key={f.key} type="button" aria-pressed={picked} onClick={() => toggle(f.key)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 999, padding: '2px 10px', font: 'inherit', fontWeight: picked ? 700 : 500, cursor: 'pointer',
+              border: `1px solid ${picked ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: picked ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: 'var(--text-primary)' }}>
+            <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 3, background: st.bg, border: `1px solid ${st.fg}` }} />{f.label}
+            {picked && <Check size={12} style={{ color: 'var(--wk-brand, #2b45e1)' }} />}
+          </button>
+        );
+      })}
+      {value.length > 0 && <button type="button" onClick={() => onChange([])} style={{ border: 'none', background: 'none', padding: '2px 4px', font: 'inherit', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer' }}>Clear</button>}
+    </div>
   );
 }
 
@@ -733,21 +780,25 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
                   <td style={{ position: 'sticky', left: 0, zIndex: 1, whiteSpace: 'normal', minWidth: cw.width('property') || 250, ...(cw.width('property') ? { width: cw.width('property'), maxWidth: cw.width('property'), overflow: 'hidden' } : {}) }}>
                     <button type="button" className="acct-drill" onClick={() => onLease(l)} style={{ fontWeight: 600, textAlign: 'left' }}>{l.propertyName}</button>
                     <StandingChips row={r} />
+                    <PossiblyEndedChip flag={l.possiblyEnded} kind="mri" />
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}><TenantName row={r} />{l.status === 'ended' ? ` · ended ${l.leaseEnd ? formatDate(l.leaseEnd) : ''}` : ''}</div>
                   </td>
                   <td><TypeChip type={typeOf(r)} /></td>
-                  <td className="acct-num">{rate ? whole(rate.rent + rate.cam + rate.other) : '-'}</td>
+                  <td className="acct-num">{rate ? whole(rate.rent + rate.cam + rate.other) : '-'}{stepMonths(l) > 1 ? <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{frequencyLabel(l)}</span> : null}</td>
                   {idx.map((i) => {
                     const c = r.months[i];
                     if (!c || !c.inForce) return <td key={i} className="acct-num" style={{ color: 'var(--text-muted)' }}>-</td>;
                     const s = STATUS[c.status] || STATUS.none;
                     const dash = blankMonth(c);
+                    const off = c.offCycle && dash;
+                    const credit = coverText(c);
                     return (
                       <td key={c.month} className="acct-num" style={{ padding: 2 }}>
-                        <button type="button" onClick={() => onCell(r, c)} aria-label={`${l.propertyName}, ${monthName(c.month)}: ${dash ? 'Not in Force' : s.label}, received ${money(c.received)} of ${money(c.expected)}`}
-                          title={`${dash ? 'Not in force' : s.label} - received ${money(c.received)} of ${money(c.expected)}${c.note ? ` - ${c.note}` : ''}`}
-                          style={{ width: '100%', border: 'none', borderRadius: 6, cursor: 'pointer', font: 'inherit', fontVariantNumeric: 'tabular-nums', padding: '3px 6px', textAlign: 'right', background: dash ? 'transparent' : s.bg, color: dash ? 'var(--text-muted)' : s.fg, fontWeight: ['short', 'unpaid', 'late'].includes(c.status) ? 700 : 400 }}>
-                          {dash ? '-' : c.status === 'upcoming' || c.status === 'due' || c.status === 'unknown' ? whole(c.expected) : whole(c.received)}{c.note ? '*' : ''}
+                        <button type="button" onClick={() => onCell(r, c)} aria-label={`${l.propertyName}, ${monthName(c.month)}: ${off ? 'Not Due This Month' : dash ? 'Not in Force' : s.label}, received ${money(c.received)} of ${money(c.expected)}${credit ? `. ${credit}` : ''}`}
+                          title={`${off ? 'Not due this month' : dash ? 'Not in force' : s.label} - received ${money(c.received)} of ${money(c.expected)}${credit ? ` - ${credit}` : ''}${c.note ? ` - ${c.note}` : ''}`}
+                          style={{ width: '100%', border: 'none', borderRadius: 6, cursor: 'pointer', font: 'inherit', fontVariantNumeric: 'tabular-nums', padding: '3px 6px', textAlign: 'right', background: dash ? 'transparent' : s.bg, color: dash ? 'var(--text-muted)' : s.fg, fontWeight: ['short', 'unpaid', 'late'].includes(c.status) ? 700 : 400, fontStyle: c.status === 'covered' ? 'italic' : undefined }}>
+                          {dash ? '-' : c.status === 'covered' ? whole(c.received + (c.covered || 0)) : c.status === 'upcoming' || c.status === 'due' || c.status === 'unknown' ? whole(c.expected) : whole(c.received)}{c.note ? '*' : ''}
+                          {c.covered ? <sup data-testid="covered-mark" aria-hidden="true" style={{ marginLeft: 1, fontSize: '0.6rem', color: 'var(--ok-fg, #15803d)' }}>c</sup> : null}
                         </button>
                       </td>
                     );
@@ -781,12 +832,7 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
       </div>
       <Pager {...paged} />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-        {['paid', 'short', 'unpaid', 'due', 'upcoming'].map((k) => (
-          <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 12, height: 12, borderRadius: 3, background: STATUS[k].bg, border: `1px solid ${STATUS[k].fg}` }} />{k === 'unpaid' ? 'Unpaid or Late' : STATUS[k].label}
-          </span>
-        ))}
-        <span>A paid month shows what came in; a month not yet paid shows what is expected. * has a note. Click a month for the detail and its journal entries. A dash is a month the lease is not in force. Balance is expected less received; a credit (in parentheses) is a prepayment. Total and Balance open the ledger lines.</span>
+        <span>A paid month shows what came in; a month not yet paid shows what is expected. * has a note. Click a month for the detail and its journal entries. A dash is a month the lease is not in force (or, for a source that is not monthly, a month it does not fall due). A payment above what a month expects settles the oldest open month first: that month reads Covered, and a small c marks a month part or wholly settled that way. Balance is expected less received; a credit (in parentheses) is a prepayment. Total and Balance open the ledger lines. The colors filter the rows above the table.</span>
       </div>
     </div>
   );
@@ -795,7 +841,7 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
 function reminder(row, year) {
   const l = row.lease;
   const behind = row.months.filter((c) => ['late', 'short', 'unpaid'].includes(c.status));
-  const lines = behind.map((c) => `  ${monthName(c.month)}: ${money(c.balance)} of ${money(c.expected)}`).join('\n');
+  const lines = behind.map((c) => `  ${monthName(c.month)}: ${money(c.balance - (c.covered || 0))} of ${money(c.expected)}`).join('\n');
   const body = `Hello ${l.contactName || l.tenantName},\n\nOur records for ${l.propertyName} show rent outstanding for ${year}:\n\n${lines}\n\nTotal outstanding: ${money(row.owed)}${row.lateFees ? `\nLate fees under the lease: ${money(row.lateFees)}` : ''}\n\nIf you have already paid, please reply with the date and amount so we can match it.\n\nThank you.`;
   return `mailto:${encodeURIComponent(l.email)}?subject=${encodeURIComponent(`Rent outstanding - ${l.propertyName}`)}&body=${encodeURIComponent(body)}`;
 }
@@ -866,7 +912,7 @@ function Tenants({ rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey =
                   <td className="acct-num">{rate ? <Amount value={rate.rent} /> : '-'}</td>
                   <td className="acct-num">{rate?.cam ? <Amount value={rate.cam} /> : '-'}</td>
                   <td className="acct-num">{l.securityDeposit ? <Amount value={l.securityDeposit} /> : '-'}</td>
-                  <td>{LEASE_STATUS[l.status] || l.status}<StandingChips row={r} /></td>
+                  <td>{LEASE_STATUS[l.status] || l.status}<StandingChips row={r} /><PossiblyEndedChip flag={l.possiblyEnded} kind="mri" /></td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {canEdit && (
                       <>
@@ -1002,6 +1048,8 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
             {month.lateFee ? fact('Late fee under the lease', money(month.lateFee)) : null}
           </div>
           {month.status === 'outside' && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Nothing is expected this month under the lease dates.</div>}
+          {month.offCycle && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Not a month this source falls due ({frequencyLabel(row.lease)}).</div>}
+          {coverText(month) && <div data-testid="cover-text" style={{ fontSize: '0.78rem', color: 'var(--ok-fg, #15803d)' }}>{coverText(month)}.</div>}
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
             {ledgerRow ? `Received is everything that posted to account ${row.account.code} this month, less what the sources in this list already count.` : `Received is what posted to account ${row.lease.incomeAccounts.join(', ')} for customer ${row.lease.customerId || '(none set)'} in this month.`}
           </div>
@@ -1085,9 +1133,11 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
   const setStart = (v) => setL((x) => ({ ...x, leaseStart: v, rates: x.rates.map((r, i) => (i === 0 && (!r.startDate || r.startDate === x.leaseStart) ? { ...r, startDate: v } : r)) }));
   const customMonths = Number(l.termMonths);
   const termOk = l.termType !== 'custom' || (Number.isInteger(customMonths) && customMonths >= 1 && customMonths <= TERM_MAX_MONTHS);
-  const ready = l.propertyName.trim() && (vacant || l.tenantName.trim()) && l.rates.every((r) => r.startDate) && termOk;
+  const freqOk = l.frequency !== 'custom' || (Number(l.frequencyMonths) >= 1 && Number(l.frequencyMonths) <= CUSTOM_MAX_MONTHS);
+  const ready = l.propertyName.trim() && (vacant || l.tenantName.trim()) && l.rates.every((r) => r.startDate) && termOk && freqOk;
   const pickTerm = (v) => set({ termType: v, termMonths: v === 'annual' ? 12 : v === 'custom' ? (l.termType === 'custom' ? l.termMonths : '') : null });
   const body = () => ({ ...l, termLegacy: undefined, termType: l.termType || '', termMonths: l.termType === 'annual' ? 12 : l.termType === 'custom' ? customMonths : null,
+    frequency: l.frequency || 'monthly', frequencyMonths: l.frequency === 'custom' ? Math.floor(Number(l.frequencyMonths) || 0) : 0,
     incomeType: l.incomeType || 'lease', securityDeposit: Number(l.securityDeposit) || 0, lateFee: Number(l.lateFee) || 0, dueDay: Number(l.dueDay) || 1, graceDays: Number(l.graceDays) || 0,
     incomeAccounts: String(l.incomeAccounts).split(',').map((x) => x.trim()).filter(Boolean),
     rates: l.rates.map((r) => ({ startDate: r.startDate, rent: Number(r.rent) || 0, cam: Number(r.cam) || 0, other: Number(r.other) || 0, note: r.note || '' })) });
@@ -1135,8 +1185,8 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 14, maxHeight: '72vh', overflowY: 'auto' }}>
           {replacing && (
             <div style={{ maxWidth: 240 }}>
-              <label style={label} htmlFor="lease-moved">Last Day of {replacing.tenantName}</label>
-              <input id="lease-moved" type="date" value={movedOut} onChange={(e) => setMovedOut(e.target.value)} style={{ ...control, width: '100%' }} />
+              <span style={label}>Last Day of {replacing.tenantName}</span>
+              <div id="lease-moved" style={dateBox}><DateField value={movedOut} onChange={(v) => setMovedOut(v || '')} placeholder="MM/DD/YYYY" title={`Last Day of ${replacing.tenantName}`} style={{ width: '100%' }} /></div>
             </div>
           )}
           <div style={grid}>
@@ -1179,13 +1229,13 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
 
           <div style={grid}>
             <div>
-              <label style={label} htmlFor="lease-leaseStart">{isLease ? 'Lease Start' : 'Starts'}</label>
-              <input id="lease-leaseStart" type="date" value={l.leaseStart || ''} onChange={(e) => setStart(e.target.value)} style={{ ...control, width: '100%' }} />
+              <span style={label}>{isLease ? 'Lease Start' : 'Starts'}</span>
+              <div id="lease-leaseStart" style={dateBox}><DateField value={l.leaseStart || ''} onChange={(v) => setStart(v || '')} placeholder="MM/DD/YYYY" title={isLease ? 'Lease Start' : 'Starts'} style={{ width: '100%' }} /></div>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>When the tenant started paying. Expected rent counts from here.</div>
             </div>
             <div>
-              <label style={label} htmlFor="lease-leaseEnd">{isLease ? 'Lease End' : 'Ends'}</label>
-              <input id="lease-leaseEnd" type="date" value={l.leaseEnd || ''} onChange={(e) => set({ leaseEnd: e.target.value })} style={{ ...control, width: '100%' }} />
+              <span style={label}>{isLease ? 'Lease End' : 'Ends'}</span>
+              <div id="lease-leaseEnd" style={dateBox}><DateField value={l.leaseEnd || ''} onChange={(v) => set({ leaseEnd: v || '' })} placeholder="MM/DD/YYYY" title={isLease ? 'Lease End' : 'Ends'} style={{ width: '100%' }} /></div>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Leave empty for month to month.</div>
             </div>
             <div>
@@ -1202,6 +1252,21 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
               </div>
               {l.termType === 'custom' && !termOk && <div style={{ fontSize: '0.7rem', color: 'var(--bad-fg, #dc2626)', marginTop: 3 }}>A whole number of months, 1 to {TERM_MAX_MONTHS}.</div>}
               {!l.termType && l.termLegacy && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }} data-testid="lease-term-legacy">Saved as "{l.termLegacy}" - pick a term.</div>}
+            </div>
+            <div>
+              <label style={label} htmlFor="lease-frequency">Frequency</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <select id="lease-frequency" value={l.frequency || 'monthly'} onChange={(e) => set({ frequency: e.target.value, frequencyMonths: e.target.value === 'custom' ? (Number(l.frequencyMonths) >= 1 ? l.frequencyMonths : 2) : 0 })} style={{ ...control, flex: 1, minWidth: 0 }}>
+                  {Object.entries(FREQUENCY).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+                {l.frequency === 'custom' && (
+                  <input id="lease-every" type="number" inputMode="numeric" min={1} max={CUSTOM_MAX_MONTHS} step={1} value={l.frequencyMonths || ''} placeholder="Months" aria-label="Every (Months)"
+                    onChange={(e) => set({ frequencyMonths: e.target.value === '' ? '' : Math.floor(Number(e.target.value)) })} style={{ ...control, width: 90 }} />
+                )}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: freqOk ? 'var(--text-muted)' : 'var(--bad-fg, #dc2626)', marginTop: 3 }}>
+                {!freqOk ? `Enter 1 to ${CUSTOM_MAX_MONTHS} months.` : stepMonths(l) > 1 ? `Falls due every ${stepMonths(l)} months from the start month; the rent below is the amount each time.` : 'Due every month.'}
+              </div>
             </div>
             {field('securityDeposit', 'Security Deposit', { type: 'number', min: 0, step: '0.01' })}
             {field('lateFee', 'Late Fee', { type: 'number', min: 0, step: '0.01' })}
@@ -1224,7 +1289,7 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
                   <thead>
                     <tr>
                       {[['Effective Date', 'The date this rent starts'], ['Rent', ''], ['CAM', 'Common area maintenance'], ['Other', ''], ['Note', '']].map(([text, hint]) => (
-                        <th key={text} scope="col" title={hint || undefined} style={{ ...label, textAlign: 'left', padding: 0, margin: 0 }}>{text}</th>
+                        <th key={text} scope="col" title={hint || undefined} style={{ ...label, display: 'table-cell', textAlign: 'left', verticalAlign: 'bottom', padding: 0, margin: 0 }}>{text}</th>
                       ))}
                       <th scope="col" aria-label="Remove" style={{ padding: 0 }} />
                     </tr>
@@ -1232,7 +1297,7 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
                   <tbody>
                     {l.rates.map((r, i) => (
                       <tr key={i}>
-                        <td style={{ padding: 0 }}><input type="date" value={r.startDate} aria-label={`Rent ${i + 1} starts`} onChange={(e) => set({ rates: l.rates.map((x, k) => (k === i ? { ...x, startDate: e.target.value } : x)) })} style={{ ...control, width: '100%' }} /></td>
+                        <td style={{ padding: 0 }}><div style={dateBox}><DateField value={r.startDate} onChange={(v) => set({ rates: l.rates.map((x, k) => (k === i ? { ...x, startDate: v || '' } : x)) })} placeholder="MM/DD/YYYY" title={`Rent ${i + 1} starts`} style={{ width: '100%' }} /></div></td>
                         {[['rent', 'Rent'], ['cam', 'CAM'], ['other', 'Other']].map(([k, text]) => (
                           <td key={k} style={{ padding: 0 }}><input type="number" min="0" step="0.01" value={r[k]} aria-label={`${text} of rent ${i + 1}`} onChange={(e) => set({ rates: l.rates.map((x, n) => (n === i ? { ...x, [k]: e.target.value } : x)) })} style={{ ...control, width: '100%' }} /></td>
                         ))}
