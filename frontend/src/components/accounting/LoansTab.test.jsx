@@ -79,6 +79,8 @@ vi.mock('../../api', () => ({
     setLoanStressExcluded: vi.fn(async () => ({ ok: true })),
     getLoanEntityNoi: vi.fn(async () => ({ entities: { 15000: { noi: 200000, annualized: 266000 } } })),
     getPlannedLoans: vi.fn(async () => ({ planned: [] })),
+    egnyteStatus: vi.fn(async () => ({ configured: true, oauth: { enabled: false, mustConnect: false } })),
+    getLoanVendors: vi.fn(async () => ({ vendors: [{ code: 'V-FM', name: 'F&M Bank', lines: 24 }] })),
   },
 }));
 
@@ -102,7 +104,7 @@ describe('LoansTab', () => {
     render(<LoansTab canEdit />);
     const fm = await rowOf('F&M Bank');
     const heads = screen.getAllByRole('columnheader').map((h) => h.textContent).filter(Boolean);
-    expect(heads.slice(0, 6)).toEqual(['Lender', 'Loan #', 'Entity', 'Monthly Payment', 'Original Principal', 'Balance']);
+    expect(heads.slice(0, 7)).toEqual(['Lender', 'Loan #', 'GL Code', 'Entity', 'Monthly Payment', 'Original Principal', 'Balance']);
     expect(heads).not.toContain('Month Ago');
     expect(heads).not.toContain('Year Ago');
     expect(heads).not.toContain('Lender / Loan');
@@ -325,7 +327,8 @@ describe('LoansTab', () => {
     await waitFor(() => expect(api.updateLoan).toHaveBeenCalled());
     const [id, , body] = api.updateLoan.mock.calls[0];
     expect(id).toBe('FL1');
-    expect(body).toMatchObject({ lender: 'F&M Bank - Escondido', loanNo: '6870-A', interestAccount: '71200', ratePct: 6.25, rateType: 'fixed', maturity: '2027-06-30', covenantMin: 1.25, monthlyPayment: 10000, originalPrincipal: null, docsPath: '/Shared/Loans/F&M' });
+    // Oct 22: only what changed - a field left alone is not re-saved; Loan # is the loan's own number now.
+    expect(body).toEqual({ lender: 'F&M Bank - Escondido', loanNumber: '6870-A', interestAccount: '71200', ratePct: 6.25, covenantMin: 1.25 });
     expect(body).not.toHaveProperty('glAccount');      // the GL wiring is kept
     expect(body).not.toHaveProperty('internal');
   });
@@ -442,7 +445,7 @@ describe('LoansTab', () => {
     render(<LoansTab canEdit />);
     await rowOf('F&M Bank');
     fireEvent.click(screen.getByRole('tab', { name: 'Loan Planning' }));
-    expect(await screen.findByText('Mortgage Calculator')).toBeTruthy();
+    expect(await screen.findByText('Loan Calculator')).toBeTruthy();
     await waitFor(() => expect(api.getPlannedLoans).toHaveBeenCalled());
     expect(await screen.findByText(/No planned loans yet/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Save Planned Loan/ })).toBeTruthy();
@@ -512,8 +515,8 @@ describe('LoansTab', () => {
   it('exports the loans shown as a table', () => {
     const t = _test.loansTable(_test.visibleLoans(review.loans), { from: '2026-10-01', to: '2026-10-06', entityLabel: 'All entities' });
     expect(t.rows).toHaveLength(4);
-    expect(t.columns.map((c) => c.label).slice(0, 4)).toEqual(['Lender', 'Loan #', 'Entity', 'Monthly Payment']);
-    expect(t.totals[5]).toBe(1252000 + 400000 + 20000 + 14500000);
+    expect(t.columns.map((c) => c.label).slice(0, 5)).toEqual(['Lender', 'Loan #', 'GL Code', 'Entity', 'Monthly Payment']);
+    expect(t.totals[6]).toBe(1252000 + 400000 + 20000 + 14500000);
     expect(t.subtitle).toContain('10/06/2026');
   });
 });
@@ -654,11 +657,11 @@ describe('LoansTab - Oct 14 feedback', () => {
     expect(_test.termBody('monthlyPayment', '5,995.51', l)).toEqual({ monthlyPayment: 5995.51 });
   });
 
-  it('asks for a loan\'s own interest account when none is linked or it is shared', async () => {
+  it('asks for a loan\'s own interest account when none is linked; no Interest Shared tag (Charmi, Oct 22)', async () => {
     api.getLoansReview.mockImplementation(async () => ({ ...review, loans: [loan({ interestSource: 'none', interestAccounts: [], interestAccount: '' }), loan({ id: 'FL2', lender: 'Chase', interestSource: 'shared' })] }));
     render(<LoansTab canEdit />);
     expect(within(await rowOf('F&M Bank')).getByText('Link Interest Account')).toBeTruthy();
-    expect(within(await rowOf('Chase')).getByText('Interest Shared')).toBeTruthy();
+    expect(within(await rowOf('Chase')).queryByText('Interest Shared')).toBeNull();
   });
 
   it('+ Add > From the Ledger reads active entities only, even with Show Historical Entities on; the box opts in', async () => {
@@ -673,5 +676,99 @@ describe('LoansTab - Oct 14 feedback', () => {
     expect(api.getLoanProposalsAsOf).toHaveBeenLastCalledWith(expect.objectContaining({ historical: false }));
     fireEvent.click(within(dialog).getByLabelText(/Include Historical Entities/));
     await waitFor(() => expect(api.getLoanProposalsAsOf).toHaveBeenLastCalledWith(expect.objectContaining({ historical: true })));
+  });
+});
+
+// Oct 22 (Charmi): GL Code beside the real Loan #, no Interest Shared tag,
+// Change Loan saves only what changed (the "Can't reach Nexus" on wiring a
+// folder), Browse says when Egnyte is not connected, the vendor wiring.
+describe('LoansTab, Oct 22 feedback', () => {
+  it('shows the GL code in its own column and "-" for a loan with no number yet', async () => {
+    api.getLoansReview.mockImplementation(async () => ({ ...review, loans: [loan({ loanNo: '', glCode: '27100' })] }));
+    render(<LoansTab canEdit />);
+    const fm = await rowOf('F&M Bank');
+    const cells = within(fm).getAllByRole('cell').map((c) => c.textContent);
+    expect(cells[2]).toBe('-');          // Loan #
+    expect(cells[3]).toBe('27100');      // GL Code
+  });
+
+  it('editBody sends only the fields changed', async () => {
+    const { editBody, editStart } = await import('./LoanDialogs');
+    const l = loan({ vendorId: '', vendorName: '' });
+    const start = editStart(l);
+    expect(editBody(l, start, start)).toEqual({});
+    expect(editBody(l, start, { ...start, docsPath: ' /Shared/Loans/New ' })).toEqual({ docsPath: '/Shared/Loans/New' });
+    expect(editBody(l, start, { ...start, vendorId: 'V-FM', vendorName: 'F&M Bank' })).toEqual({ vendorId: 'V-FM', vendorName: 'F&M Bank' });
+    // Clearing a number the loan row itself carried clears it there too.
+    expect(editBody({ ...l, loanNoStored: '6870' }, start, { ...start, loanNumber: '' })).toEqual({ loanNumber: '', loanNo: '' });
+    // ...but never the GL account a ledger loan stored as its number.
+    expect(editBody({ ...l, loanNo: '', loanNoStored: '27100' }, { ...start, loanNumber: 'X' }, { ...start, loanNumber: '' })).toEqual({ loanNumber: '' });
+  });
+
+  it('a Change Loan that only wires a folder sends only the folder', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit F&M Bank' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Change Loan' });
+    fireEvent.change(within(dialog).getByLabelText('Statements Folder'), { target: { value: '/Shared/Loans/F&M/Statements' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLoan).toHaveBeenCalledWith('FL1', '', { statementsPath: '/Shared/Loans/F&M/Statements' }));
+  });
+
+  it('Browse says so when Egnyte is not connected, instead of failing', async () => {
+    api.egnyteStatus.mockImplementationOnce(async () => ({ configured: true, oauth: { enabled: true, mustConnect: true } }));
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit F&M Bank' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Change Loan' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Browse for Statements Folder' }));
+    expect(await within(dialog).findByText(/Your Egnyte account is not connected to Nexus yet/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Pick in Statements Folder/ })).toBeNull();
+    // Connected: the picker opens.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Browse for Statements Folder' }));
+    expect(await screen.findByRole('button', { name: /Pick in Statements Folder/ })).toBeTruthy();
+  });
+
+  it('egnyteNotReady words each case', async () => {
+    const { egnyteNotReady } = await import('./LoanDialogs');
+    expect(egnyteNotReady({ configured: false })).toMatch(/not connected to Nexus yet/);
+    expect(egnyteNotReady({ configured: true, oauth: { mustConnect: true } })).toMatch(/Your Egnyte account/);
+    expect(egnyteNotReady({ configured: true, oauth: { mustConnect: false } })).toBe('');
+    expect(egnyteNotReady(null)).toBe('');
+  });
+
+  it('Change Loan wires the lender\'s vendor from the loan\'s accounts', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit F&M Bank' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Change Loan' });
+    await waitFor(() => expect(api.getLoanVendors).toHaveBeenCalledWith('15000', ['27100', '71100', '71200'], expect.any(String)));
+    await waitFor(() => expect(dialog.querySelector('#loan-vendor-list option')).toBeTruthy());
+    fireEvent.change(within(dialog).getByLabelText('Vendor (Lender)'), { target: { value: 'V-FM' } });
+    expect(within(dialog).getByText(/F&M Bank: Interest Paid and Principal Paid count only this vendor's lines/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLoan).toHaveBeenCalledWith('FL1', '', { vendorId: 'V-FM', vendorName: 'F&M Bank' }));
+  });
+
+  it('the Interest Paid hover says why a figure is negative', () => {
+    const t = _test.interestTitle(loan({ interestPaid: -5680.22 }));
+    expect(t).toMatch(/Negative: more was credited/);
+    expect(_test.interestTitle(loan({ interestSource: 'vendor', vendorId: 'V-FM', vendorName: 'F&M Bank' }))).toMatch(/vendor lines only \(F&M Bank\)/);
+  });
+});
+
+describe('paymentRows with a vendor', () => {
+  it('counts only the vendor\'s lines and still walks the balance over every line', async () => {
+    const { paymentRows } = await import('./LoanDetail');
+    const h = {
+      principal: { truncated: false, lines: [
+        { date: '2026-10-01', entryId: 'a', entryNo: 'AP-1', debit: 4000, credit: 0, vendorId: 'V-FM' },
+        { date: '2026-09-30', entryId: 'b', entryNo: 'GJ-9', debit: 1000, credit: 0, vendorId: '' },
+      ] },
+      interest: [{ lines: [{ date: '2026-10-01', entryId: 'a', entryNo: 'AP-1', debit: 6000, credit: 0, vendorId: 'V-FM' }, { date: '2026-09-30', entryId: 'b', entryNo: 'GJ-9', debit: 0, credit: 1000, vendorId: '' }] }],
+    };
+    const rows = paymentRows(h, { vendorId: 'V-FM', owedAtEnd: 100000 });
+    expect(rows.map((r) => [r.entryNo, r.principal, r.interest])).toEqual([['AP-1', 4000, 6000]]);
+    expect(paymentRows(h, {}).length).toBe(2);
   });
 });

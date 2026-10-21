@@ -83,6 +83,8 @@ export async function punchDurable({ kind, tzOffsetMin, clickedAt = '', pos = nu
     try {
       const r = await api.timePunch(body);
       clearPending();
+      // A clock-in with no location: the red Turn On / Skip bar (LocationNoticeBar).
+      if (r?.locationAsk) window.dispatchEvent(new CustomEvent('nexus:location-ask'));
       return { ok: true, punch: r.punch, allowed: r.allowed, result: r };
     } catch (e) {
       lastErr = e;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { existingDebt, maxLoanForDscr, mortgagePlan, planImpact, planLoanAmount, pmt, round2, stressPortfolio, t12From, yearlySchedule } from './loanMath';
+import { existingDebt, maxLoanForDscr, mortgagePlan, planImpact, planKind, planLoanAmount, planRate, pmt, round2, stressPortfolio, t12From, yearlySchedule } from './loanMath';
 
 // Loan Planning / Mortgage Calculator (Charmi, item 25, Oct 15): the
 // arithmetic behind Accounting > Loans & Financing > Loan Planning.
@@ -136,5 +136,62 @@ describe('DSCR sizing', () => {
     expect(t12From('2026-10-15')).toBe('2025-10-16');
     expect(t12From('2024-02-29')).toBe('2023-03-01');
     expect(t12From('')).toBe('');
+  });
+});
+
+// The Loan Calculator (Neil, Oct 16): sections, variable rate, interest
+// expense only, Other's extra payments and rate periods.
+describe('Loan Calculator', () => {
+  it('puts a plan saved before the sections where it fits', () => {
+    expect(planKind({ ...base })).toBe('residential');
+    expect(planKind({ ...base, termYears: 10 })).toBe('commercial');
+    expect(planKind({ ...base, usePurchase: true })).toBe('other');
+    expect(planKind({ ...base, closingCosts: 5000 })).toBe('other');
+    expect(planKind({ ...base, kind: 'commercial' })).toBe('commercial');
+    expect(planKind({ ...base, kind: 'bogus', pointsPct: 1 })).toBe('other');
+  });
+
+  it('works a variable rate at the index plus the margin', () => {
+    expect(planRate({ rateType: 'variable', indexRatePct: 4.31, marginPct: 2.75 })).toBe(7.06);
+    expect(planRate({ rateType: 'fixed', ratePct: 6 })).toBe(6);
+    const v = mortgagePlan({ ...base, ratePct: '', rateType: 'variable', indexRatePct: 3.25, marginPct: 2.75 });
+    expect(v.rate).toBe(6);
+    expect(v.payment).toBe(5995.51);
+    expect(mortgagePlan({ ...base, rateType: 'variable', indexRatePct: '' }).errors).toContain('Enter the index rate (or pull it live).');
+  });
+
+  it('shows the interest expense alone beside the P&I', () => {
+    const p = mortgagePlan(base);
+    expect(p.interestOnlyPayment).toBe(5000);
+    expect(p.interestOnlyAnnual).toBe(60000);
+    near(p.firstYearInterest, 59665.95, 1);              // 12 payments of 5,995.51 less 12,280.17 of principal
+    near(p.avgAnnualInterest, 1158383.6 / 30, 1);
+    const q = mortgagePlan({ ...base, frequency: 'quarterly' });
+    expect(q.interestOnlyMonthly).toBe(5000);
+    expect(q.interestOnlyPayment).toBe(15000);
+  });
+
+  it('takes extra principal in Other only, and the loan pays off sooner', () => {
+    const other = mortgagePlan({ ...base, kind: 'other', extraPayment: 1000, extraPayments: [{ n: 12, amount: 50000 }] });
+    expect(other.rows.length).toBeLessThan(360);
+    expect(other.rows[0]).toMatchObject({ extra: 1000, principal: 1995.51, payment: 6995.51 });
+    expect(other.rows[11].extra).toBe(51000);
+    expect(other.payment).toBe(5995.51);                       // the scheduled payment is still the level one
+    expect(other.totalInterest).toBeLessThan(mortgagePlan(base).totalInterest);
+    // The same inputs in a basic section count for nothing.
+    const basic = mortgagePlan({ ...base, kind: 'residential', extraPayment: 1000, closingCosts: 9000 });
+    expect(basic.upfrontCosts).toBe(0);
+    expect(basic.rows).toHaveLength(360);
+  });
+
+  it('re-sizes the payment when a rate period starts', () => {
+    const p = mortgagePlan({ ...base, kind: 'other', ratePeriods: [{ fromPayment: 61, ratePct: 8 }] });
+    expect(p.rows[59].payment).toBe(5995.51);
+    const bal = p.rows[59].balance;
+    expect(p.rows[60].interest).toBe(round2(bal * 0.08 / 12));
+    expect(p.rows[60].payment).toBe(round2(pmt(bal, 0.08 / 12, 300)));
+    expect(p.rows[359].balance).toBe(0);
+    // A half-typed period (no rate yet) changes nothing.
+    expect(mortgagePlan({ ...base, kind: 'other', ratePeriods: [{ fromPayment: 61, ratePct: '' }] }).totalInterest).toBe(mortgagePlan(base).totalInterest);
   });
 });

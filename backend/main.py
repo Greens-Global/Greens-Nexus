@@ -1194,6 +1194,24 @@ def _run_migrations():
             # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
             "ALTER TABLE hr_checklist_items ADD COLUMN owner_emails VARCHAR DEFAULT ''",
             "ALTER TABLE hr_checklist_items ADD COLUMN comments JSON DEFAULT '[]'",
+            # AMA questions keep the line's Department / Vendor / Custom (Priyanka, Oct 22). models.AccountingAmaThread.
+            "ALTER TABLE accounting_ama_threads ADD COLUMN department VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_ama_threads ADD COLUMN vendor VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_ama_threads ADD COLUMN custom VARCHAR DEFAULT ''",
+            # MRI / MRE feedback (Oct 22): MRI frequency, MRE Egnyte folder, Possibly Ended flags. models.Lease / RecurringExpense.
+            "ALTER TABLE leases ADD COLUMN frequency VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN frequency_months INTEGER DEFAULT 0",
+            "ALTER TABLE leases ADD COLUMN stale_since VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN stale_last_paid VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN stale_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN stale_since VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN stale_last_paid VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN stale_task_id VARCHAR DEFAULT ''",
+            # Accounting > Loans (Charmi, Oct 22) - see the Postgres list.
+            "ALTER TABLE accounting_loan_settings ADD COLUMN loan_number VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN vendor_id VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN vendor_name VARCHAR DEFAULT ''",
             # Contractor invoices (Oct 21): the company's payer emails. models.HrEntity.
             "ALTER TABLE hr_entities ADD COLUMN invoice_recipients JSON DEFAULT '[]'",
         ]
@@ -2725,6 +2743,27 @@ def _run_migrations():
         # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
         "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS owner_emails VARCHAR DEFAULT ''",
         "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'",
+        # AMA questions keep the line's Department / Vendor / Custom (Priyanka, Oct 22). models.AccountingAmaThread.
+        "ALTER TABLE accounting_ama_threads ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_ama_threads ADD COLUMN IF NOT EXISTS vendor VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_ama_threads ADD COLUMN IF NOT EXISTS custom VARCHAR DEFAULT ''",
+        # MRI / MRE feedback (Oct 22): MRI frequency (''/monthly = as before), MRE Egnyte folder,
+        # Possibly Ended flags set by recurring_stale. Additive only. models.Lease / RecurringExpense.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS frequency VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS frequency_months INTEGER DEFAULT 0",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS stale_since VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS stale_last_paid VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS stale_task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS egnyte_folder VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_since VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_last_paid VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_task_id VARCHAR DEFAULT ''",
+        # Accounting > Loans (Charmi, Oct 22): the real loan number (Loan # showed
+        # the GL account, now its own GL Code column) and the lender's vendor id
+        # that Interest / Principal Paid are read by.
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS loan_number VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS vendor_id VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS vendor_name VARCHAR DEFAULT ''",
         # Contractor invoices (Oct 21): the company's payer emails. models.HrEntity.
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS invoice_recipients JSONB DEFAULT '[]'::jsonb",
     ]
@@ -3473,6 +3512,15 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(leasing_sync_loop()))
         except Exception as e:
             print(f"[startup] leasing sync skipped: {e}")
+        # MRI / MRE Possibly Ended check (Neil, Oct 21): once a day, flags
+        # active lines with nothing posted for N months and opens one
+        # accounting task each. Deployed-worker gated inside; reads async,
+        # writes in a thread (recurring_stale.py).
+        try:
+            from recurring_stale import recurring_stale_loop
+            _tasks.append(_a.create_task(recurring_stale_loop()))
+        except Exception as e:
+            print(f"[startup] recurring stale check skipped: {e}")
         try:
             # Pay period close alerts (Oct 19 2026): every half hour, in a
             # thread - one notice per approver per closed period listing the

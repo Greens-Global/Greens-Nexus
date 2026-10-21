@@ -243,6 +243,79 @@ class PartnerChangeTests(unittest.TestCase):
         self.assertTrue(lines[2].startswith("vendor,V00012,Acme Plumbing,address.city,Escondido,San Marcos,"))
         self.assertEqual(self.client.get("/accounting/partners/changes/export.csv?status=pending").text.strip().count("\r\n"), 0, "nothing pending now")
 
+    # ── entity reach (Neil's review, Oct 20) ────────────────────────────────
+    def test_requests_are_held_to_the_callers_entities(self):
+        """A limited person sees and exports only the requests about partners
+        of their entities (or with no entity), and cannot ask about another
+        entity's partner; an unlimited person sees them all."""
+        for pid, name in (("V00012", "Acme Plumbing"), ("V00013", "Bay Electric"), ("V00014", "No Entity Supply")):
+            _as(REQUESTER)
+            r = self.client.post("/accounting/partners/changes", json={"kind": "vendor", "partnerId": pid, "partnerName": name,
+                                                                       "changes": {"taxId": {"from": "1", "to": "2"}}})
+            self.assertEqual(r.status_code, 201, r.text)
+        _as(REQUESTER)
+        self.assertEqual(sorted(c["partnerId"] for c in self.client.get("/accounting/partners/changes").json()["changes"]),
+                         ["V00012", "V00013", "V00014"])
+        self.assertEqual(self.client.get("/accounting/partners/changes/export.csv?status=pending").text.count("V00013"), 1)
+        _as(LIMITED)
+        for q in ("", "?kind=vendor", "?status=pending"):
+            ids = sorted(c["partnerId"] for c in self.client.get(f"/accounting/partners/changes{q}").json()["changes"])
+            self.assertEqual(ids, ["V00012", "V00014"], q)
+        csv_text = self.client.get("/accounting/partners/changes/export.csv?status=pending").text
+        self.assertNotIn("V00013", csv_text, "another entity's tax ID change is not exported")
+        self.assertIn("V00012", csv_text)
+        self.assertIn("V00014", csv_text)
+        body = {"kind": "vendor", "partnerId": "V00013", "changes": {"email": {"from": "old@bay.com", "to": "new@bay.com"}}}
+        self.assertEqual(self.client.post("/accounting/partners/changes", json=body).status_code, 403)
+        body["partnerId"] = "V99999"
+        self.assertEqual(self.client.post("/accounting/partners/changes", json=body).status_code, 403, "an unknown record is outside reach")
+        db = database.SessionLocal()
+        try:
+            self.assertEqual(db.query(models.AccountingPartnerChange).count(), 3, "the refused asks wrote nothing")
+        finally:
+            db.close()
+
+    def test_limited_caller_sees_no_requests_while_records_are_unavailable(self):
+        """With the partners route missing (501) nothing says which entity a
+        record is in, so a limited caller sees no requests (the ledger list
+        refuses them too); an unlimited caller still sees every request."""
+        from fastapi import HTTPException
+        self.assertEqual(self._ask().status_code, 201)
+
+        async def missing(params):
+            raise HTTPException(status_code=501, detail=accounting_partners._NOT_READY)
+        accounting_partners._get = missing
+        _as(REQUESTER)
+        self.assertEqual(len(self.client.get("/accounting/partners/changes").json()["changes"]), 1)
+        _as(LIMITED)
+        self.assertEqual(self.client.get("/accounting/partners/changes").json()["changes"], [])
+        self.assertEqual(self.client.post("/accounting/partners/changes", json={"kind": "vendor", "partnerId": "V00014",
+                                          "changes": {"phone": {"from": "", "to": "1"}}}).status_code, 403)
+
+    def test_pending_check_takes_a_lock_on_postgres(self):
+        """The one-pending-request check runs under a transaction-scoped
+        advisory lock (Postgres) and a row lock, so two concurrent posts for
+        one record cannot both pass it."""
+        seen = []
+
+        class FakeDialect:
+            name = "postgresql"
+
+        class FakeBind:
+            dialect = FakeDialect()
+
+        class FakeDb:
+            bind = FakeBind()
+
+            def execute(self, stmt, params):
+                seen.append((str(stmt), params))
+        accounting_partners._lock_partner(FakeDb(), "vendor", "V00012")
+        self.assertEqual(len(seen), 1)
+        self.assertIn("pg_advisory_xact_lock", seen[0][0])
+        self.assertEqual(seen[0][1]["key"], "vendor:V00012")
+        import inspect
+        self.assertIn("with_for_update()", inspect.getsource(accounting_partners.create_change))
+
 
 if __name__ == "__main__":
     unittest.main()
