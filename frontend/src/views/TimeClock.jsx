@@ -856,8 +856,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       kind === 'out' ? punchPosition('out') : getPosition(9000),   // out: a recent fix if a fresh one is slow
       kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
     ]);
-    // No fix: the person is asked to share their location (Try Again) or
-    // punch without it - never blocked (Visesh, Oct 20).
+    // No fix: the punch goes without one, never asked or blocked; a clock-in
+    // raises the red Turn On / Skip bar after it lands (Neil, Oct 21).
     const { pos, locationOff } = await askPunchPosition(firstPos);
     // punchDurable retries and, if the server still can't be reached, parks the
     // punch for replay. The Teams message has already gone out by this point, so
