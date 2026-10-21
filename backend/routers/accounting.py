@@ -29,6 +29,23 @@ _ACCT_BASE = os.environ.get("ACCOUNTING_BASE_URL", "").rstrip("/")
 _ACCT_KEY = os.environ.get("ACCOUNTING_INTERNAL_KEY", "")
 _ACCT_CACHE: dict[str, tuple[float, dict]] = {}
 _ACCT_TTL = 300.0
+# Neil's review (Oct 20): entries expired but were never removed, and the keys
+# carry free text (searches, column filters) - the cache only grew. Expired
+# entries go on every insert and it holds at most this many, least recently
+# used out first.
+_ACCT_CACHE_MAX = 256
+
+
+def cache_put(store: dict, key, value, now: float, ttl: float, cap: int) -> None:
+    """Store `(now, value)` under `key` in a {key: (stored_at, value)} cache:
+    drop what has expired, then the least recently used entries (the front of
+    the dict - a hit moves its entry to the back) until there is room."""
+    for k in [k for k, (t, _) in store.items() if now - t >= ttl]:
+        store.pop(k, None)
+    store.pop(key, None)
+    while store and len(store) >= cap:
+        store.pop(next(iter(store)), None)
+    store[key] = (now, value)
 
 
 def _upstream_detail(r) -> str:
@@ -81,9 +98,10 @@ async def _acct_get(path: str, params: dict) -> dict:
     hit = _ACCT_CACHE.get(key)
     now = time.monotonic()
     if hit and now - hit[0] < _ACCT_TTL:
+        _ACCT_CACHE[key] = _ACCT_CACHE.pop(key, hit)      # most recently used goes to the back
         return hit[1]
     data = await asyncio.to_thread(_acct_get_sync, path, {k: v for k, v in params.items() if v is not None})
-    _ACCT_CACHE[key] = (now, data)
+    cache_put(_ACCT_CACHE, key, data, now, _ACCT_TTL, _ACCT_CACHE_MAX)
     return data
 
 

@@ -274,6 +274,78 @@ class ArithmeticTests(unittest.TestCase):
         self.assertEqual((rows["A"]["interestAccount"], rows["A"]["interestSource"], rows["A"]["interestPaid"]), ("71200", "wired", 500.0))
 
 
+class CacheBoundTests(unittest.TestCase):
+    """Neil's review (Oct 20): the accounting read cache and the scan jobs
+    only ever grew. Expired entries go on insert, and both are capped."""
+
+    def test_acct_cache_evicts_expired_and_caps_least_recently_used(self):
+        store = {}
+        accounting.cache_put(store, "old", 1, now=0.0, ttl=300.0, cap=3)
+        accounting.cache_put(store, "a", 2, now=200.0, ttl=300.0, cap=3)
+        accounting.cache_put(store, "b", 3, now=301.0, ttl=300.0, cap=3)
+        self.assertEqual(list(store), ["a", "b"], "the expired entry went on insert")
+        accounting.cache_put(store, "c", 4, now=302.0, ttl=300.0, cap=3)
+        store["a"] = store.pop("a")                  # a hit moves it to the back
+        accounting.cache_put(store, "d", 5, now=303.0, ttl=300.0, cap=3)
+        self.assertEqual(list(store), ["c", "a", "d"], "the least recently used went first")
+        for i in range(50):
+            accounting.cache_put(store, f"q={i}", i, now=304.0, ttl=300.0, cap=3)
+        self.assertEqual(len(store), 3)
+
+    def test_acct_get_keeps_the_cache_bounded(self):
+        calls = []
+        real = (accounting._acct_get_sync, accounting._ACCT_BASE, accounting._ACCT_KEY, accounting._ACCT_CACHE_MAX)
+        accounting._acct_get_sync = lambda path, params: calls.append(params) or {"ok": True, "q": params.get("q")}
+        accounting._ACCT_BASE, accounting._ACCT_KEY, accounting._ACCT_CACHE_MAX = "http://accounting.invalid", "k", 5
+        accounting._ACCT_CACHE.clear()
+        try:
+            async def run():
+                for i in range(20):
+                    await accounting._acct_get("/api/internal/search", {"q": f"free text {i}"})
+                await accounting._acct_get("/api/internal/search", {"q": "free text 19"})
+            asyncio.run(run())
+            self.assertEqual(len(accounting._ACCT_CACHE), 5)
+            self.assertEqual(len(calls), 20, "the last one was still a hit")
+        finally:
+            accounting._acct_get_sync, accounting._ACCT_BASE, accounting._ACCT_KEY, accounting._ACCT_CACHE_MAX = real
+            accounting._ACCT_CACHE.clear()
+
+    def test_scan_jobs_evict_expired_and_cap_finished_never_running(self):
+        class Job:
+            def __init__(self, finished_at=None, running=False):
+                self.result = None if running else {"ok": True}
+                self.finished = finished_at
+                self.running = running
+
+            def expired(self, now):
+                return self.result is not None and now - self.finished >= accounting_loans._RESULT_TTL
+
+            def failed(self):
+                return False
+        real_max = accounting_loans._JOBS_MAX
+        accounting_loans._JOBS.clear()
+        accounting_loans._JOBS_MAX = 4
+        try:
+            jobs = accounting_loans._JOBS
+            jobs[("a", "loans", "old")] = Job(finished_at=0.0)
+            jobs[("a", "loans", "run1")] = Job(running=True)
+            jobs[("a", "loans", "f1")] = Job(finished_at=1700.0)
+            accounting_loans._sweep_jobs(1900.0)
+            self.assertNotIn(("a", "loans", "old"), jobs, "expired")
+            jobs[("b", "loans", "run2")] = Job(running=True)
+            jobs[("b", "loans", "f2")] = Job(finished_at=1800.0)
+            accounting_loans._sweep_jobs(1900.0)
+            self.assertEqual(len(jobs), 3)
+            self.assertEqual(sorted(k[2] for k in jobs), ["f2", "run1", "run2"], "the oldest finished went; running scans stay")
+            for i in range(10):
+                jobs[("c", "loans", f"run{i + 3}")] = Job(running=True)
+            accounting_loans._sweep_jobs(1900.0)
+            self.assertTrue(all(j.running for j in jobs.values()), "only finished jobs are dropped for room")
+        finally:
+            accounting_loans._JOBS.clear()
+            accounting_loans._JOBS_MAX = real_max
+
+
 class EndpointTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -202,6 +202,23 @@ class ScanJob:
 
 _JOBS: dict[tuple, ScanJob] = {}
 _INTERRUPTED = "The ledger scan was interrupted - open again to start it over."
+# Neil's review (Oct 20): a job (with its whole scan result) was dropped only
+# when the same user asked the same scan again, so results per user x as-of x
+# entity pick piled up. Expired jobs go whenever a job starts, and at most
+# this many are kept - the oldest finished (or failed) first; a running scan
+# is never dropped.
+_JOBS_MAX = 200
+
+
+def _sweep_jobs(now: float) -> None:
+    for k in [k for k, j in _JOBS.items() if j.expired(now)]:
+        _JOBS.pop(k, None)
+    if len(_JOBS) < _JOBS_MAX:
+        return
+    for k in [k for k, j in _JOBS.items() if j.result is not None or j.failed()]:
+        if len(_JOBS) < _JOBS_MAX:
+            break
+        _JOBS.pop(k, None)
 
 
 def scan_job(key: tuple, run: Callable[[ScanJob], Any]) -> ScanJob:
@@ -232,6 +249,7 @@ def scan_job(key: tuple, run: Callable[[ScanJob], Any]) -> ScanJob:
                 job.status = 503
 
     job.task = asyncio.create_task(runner())
+    _sweep_jobs(now)
     _JOBS[key] = job
     return job
 
