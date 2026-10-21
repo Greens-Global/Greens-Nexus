@@ -131,6 +131,24 @@ describe('Operations module', () => {
     expect(getFacilityOps).toHaveBeenCalledTimes(1);
   });
 
+  // Oct 21 (Visesh): the bar is five dropdowns like Accounting's - every screen
+  // and every view inside one is a menu item, never a View box in the page.
+  it('draws the bar as five menus, and a menu item opens its screen and view', async () => {
+    const onSubChange = vi.fn();
+    isManager = true;   // Revenue Management is for managers
+    const { rerender } = render(<FacilityOperations activeSub="overview" onSubChange={onSubChange} />);
+    await screen.findByText('Facility Scorecard');
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Dashboard', 'Facilities', 'Pricing', 'Revenue Management', 'Reports']);
+    isManager = false;
+    // The view comes from the bar: no View box in the page.
+    rerender(<FacilityOperations activeSub="reports-exports" onSubChange={onSubChange} />);
+    expect(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' })).toBeTruthy();
+    expect(screen.queryByLabelText('View')).toBeNull();
+    // A menu's own key opens its first item.
+    rerender(<FacilityOperations activeSub="facilities" onSubChange={onSubChange} />);
+    expect(screen.getByText('Tenants Past Due', { selector: '.dash-card-title' })).toBeTruthy();
+  });
+
   it('narrows to one facility, and an old bookmarked tab lands on Overview', async () => {
     render(<FacilityOperations activeSub="reputation" onSubChange={() => {}} />);
     await screen.findByText('Facility Scorecard');
@@ -286,8 +304,7 @@ describe('Operations module', () => {
 
   it('exports a list from the screen and a report from Cubby', async () => {
     facilityOpsReport.mockResolvedValue({ title: 'Rent Roll', asOf: '2026-10-13', columns: ['Unit'], rows: [['A12']] });
-    render(<FacilityOperations activeSub="reports" onSubChange={() => {}} />);
-    fireEvent.change(await screen.findByLabelText('View'), { target: { value: 'exports' } });
+    render(<FacilityOperations activeSub="reports-exports" onSubChange={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
     await waitFor(() => expect(downloadCsv).toHaveBeenCalledTimes(1));   // the lazy Quick Exports chunk can land a tick late in CI
     expect(downloadCsv.mock.calls[0][0]).toBe('Tenants Past Due - All Facilities - 10-13-2026.csv');

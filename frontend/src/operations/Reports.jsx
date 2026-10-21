@@ -89,8 +89,12 @@ const CUBBY_REPORTS = [
 const ReportBuilder = lazy(() => import('./ReportBuilder'));
 
 // The facility is the page's one Facility dropdown (Oct 20); no picker of its own.
-export default function Reports({ data, facilities, scope, range }) {
-  const [section, setSection] = useState('reports');
+// Operations' top bar picks the view (Reports menu, Oct 21) through `section` /
+// `onSection`; without them the in-page View dropdown does.
+export default function Reports({ data, facilities, scope, range, section: sectionProp, onSection }) {
+  const [ownSection, setOwnSection] = useState('reports');
+  const section = sectionProp || ownSection;
+  const setSection = onSection || setOwnSection;
   const [catalog, setCatalog] = useState({ status: 'loading' });
   const [editing, setEditing] = useState(null);   // a schedule being made or changed
   const [flash, setFlash] = useState('');
@@ -127,10 +131,12 @@ export default function Reports({ data, facilities, scope, range }) {
 
   return (
     <>
-      <div className="ops-rep-bar">
-        <SectionPicker label="View" value={section} onChange={setSection}
-          options={sections.map(([key, label]) => ({ value: key, label }))} />
-      </div>
+      {!onSection && (
+        <div className="ops-rep-bar">
+          <SectionPicker label="View" value={section} onChange={setSection}
+            options={sections.map(([key, label]) => ({ value: key, label }))} />
+        </div>
+      )}
       {flash && <div className="ops-rep-flash" role="status">{flash}</div>}
       {section === 'reports' && catalogBody(() => (
         <CubbyReports catalog={catalog.data} scope={scope} facilities={facilities} range={range} today={today}
