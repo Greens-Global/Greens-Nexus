@@ -1194,6 +1194,10 @@ def _run_migrations():
             # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
             "ALTER TABLE hr_checklist_items ADD COLUMN owner_emails VARCHAR DEFAULT ''",
             "ALTER TABLE hr_checklist_items ADD COLUMN comments JSON DEFAULT '[]'",
+            # Accounting > Loans (Charmi, Oct 22) - see the Postgres list.
+            "ALTER TABLE accounting_loan_settings ADD COLUMN loan_number VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN vendor_id VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN vendor_name VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2723,6 +2727,12 @@ def _run_migrations():
         # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
         "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS owner_emails VARCHAR DEFAULT ''",
         "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'",
+        # Accounting > Loans (Charmi, Oct 22): the real loan number (Loan # showed
+        # the GL account, now its own GL Code column) and the lender's vendor id
+        # that Interest / Principal Paid are read by.
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS loan_number VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS vendor_id VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS vendor_name VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

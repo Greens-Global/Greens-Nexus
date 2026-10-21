@@ -28,13 +28,17 @@ loans screen itself. Sync DB work runs in a thread (CLAUDE.md: never block
 the loop).
 """
 import asyncio
+import csv
+import io
 import json
 import os
 import re
+import time
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -312,9 +316,44 @@ _PLAN_NUMBERS = {                # field: (low, high)
     "loanAmount": (0, 1e11), "purchasePrice": (0, 1e11), "downPct": (0, 100), "ratePct": (0, 50),
     "amortYears": (0, 100), "termYears": (0, 100), "ioMonths": (0, 1200), "closingCosts": (0, 1e10),
     "pointsPct": (0, 20), "dscrTarget": (0, 10), "noi": (-1e12, 1e12),
+    # The Loan Calculator (Neil, Oct 16): a variable rate is the index plus the
+    # margin; Other takes an extra principal payment every period.
+    "indexRatePct": (-5, 50), "marginPct": (-20, 30), "extraPayment": (0, 1e10),
 }
 _PLAN_TEXT = {"lender": 120, "notes": 2000}
-_PLAN_DATES = ("startDate", "closeDate")
+_PLAN_DATES = ("startDate", "closeDate", "indexAsOf")
+# Residential and Commercial are the basic calculators, Other the fully
+# customizable one; a plan saved before the sections has no kind and the
+# screen works out which section it belongs in (loanMath.planKind).
+PLAN_KINDS = ("residential", "commercial", "other")
+RATE_TYPES = ("fixed", "variable")
+INDEX_KEYS = ("sofr", "treasury10", "prime", "custom")
+MAX_PLAN_LIST = 60               # extra payments / rate periods per plan
+
+
+def _plan_list(p: dict, key: str, fields: dict) -> list[dict]:
+    """A list of {field: number} rows (Other's one-time extra payments and its
+    rate periods), each field in range, at most MAX_PLAN_LIST rows."""
+    raw = p.get(key)
+    if raw in (None, ""):
+        return []
+    if not isinstance(raw, list) or len(raw) > MAX_PLAN_LIST:
+        raise HTTPException(status_code=400, detail=f"{key} must be a list of at most {MAX_PLAN_LIST} rows.")
+    out = []
+    for row in raw:
+        if not isinstance(row, dict):
+            raise HTTPException(status_code=400, detail=f"{key} rows must be objects.")
+        clean = {}
+        for f, (lo, hi) in fields.items():
+            try:
+                v = float(row.get(f))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{key}: {f} must be a number.")
+            if v != v or v < lo or v > hi:
+                raise HTTPException(status_code=400, detail=f"{key}: {f} is out of range.")
+            clean[f] = round(v, 4)
+        out.append(clean)
+    return out
 
 
 def clean_plan_params(p: Any) -> dict:
@@ -354,6 +393,21 @@ def clean_plan_params(p: Any) -> dict:
         raise HTTPException(status_code=400, detail="Payment frequency is Monthly, Quarterly, Semiannual or Annual.")
     out["frequency"] = freq
     out["usePurchase"] = bool(p.get("usePurchase"))
+    for key, allowed, what in (("kind", PLAN_KINDS, "The calculator is Residential, Commercial or Other."),
+                               ("rateType", RATE_TYPES, "The rate is Fixed or Variable."),
+                               ("index", INDEX_KEYS, "The index is SOFR, 10-Year Treasury, Prime or Custom.")):
+        v = p.get(key)
+        if v in (None, ""):
+            continue
+        if v not in allowed:
+            raise HTTPException(status_code=400, detail=what)
+        out[key] = v
+    extras = _plan_list(p, "extraPayments", {"n": (1, 1200), "amount": (0, 1e10)})
+    if extras:
+        out["extraPayments"] = extras
+    steps = _plan_list(p, "ratePeriods", {"fromPayment": (1, 1200), "ratePct": (0, 50)})
+    if steps:
+        out["ratePeriods"] = steps
     return out
 
 
@@ -468,6 +522,111 @@ async def delete_planned(plan_id: str, user: dict = Depends(_edit), scope: dict 
             db.close()
     await asyncio.to_thread(_del)
     return {"ok": True}
+
+
+# ── Live index rates (Loan Calculator, Neil Oct 16) ─────────────────────────
+# A variable rate is an index plus a margin, and the index can be PULLED
+# instead of typed. Free public sources that need no key:
+#   SOFR              the New York Fed's reference rate API (the latest day)
+#   10-Year Treasury  the US Treasury's daily par yield curve (CSV, this year)
+#   Prime             no free official feed: the Wall Street Journal convention,
+#                     the Fed funds target's upper bound + 3.00% (the New York
+#                     Fed's EFFR answer carries the target range) - labelled so
+# Kept four hours per index (a rate a day; one fetch serves every screen), read
+# in a thread (never block the loop), never called from tests. An unreachable
+# source answers 424 with what to do - not a 5xx, which would put the
+# "reconnecting" banner over the whole app - or the last rate read, marked
+# stale, when there is one from the last day.
+SOFR_URL = "https://markets.newyorkfed.org/api/rates/secured/sofr/last/1.json"
+EFFR_URL = "https://markets.newyorkfed.org/api/rates/unsecured/effr/last/1.json"
+TREASURY_URL = ("https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/{year}/all"
+                "?type=daily_treasury_yield_curve&field_tdr_date_value={year}&page&_format=csv")
+PRIME_SPREAD = 3.0
+INDEX_TTL = 4 * 3600.0
+INDEX_STALE_OK = 24 * 3600.0
+INDEX_LABELS = {"sofr": "SOFR", "treasury10": "10-Year Treasury", "prime": "Prime"}
+INDEX_SOURCES = {"sofr": "the New York Fed", "treasury10": "the US Treasury", "prime": "the New York Fed"}
+_INDEX_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+def parse_sofr(data: dict) -> dict:
+    ref = (data.get("refRates") or [])[0]
+    return {"ratePct": round(float(ref["percentRate"]), 4), "asOf": str(ref["effectiveDate"])[:10],
+            "source": "Federal Reserve Bank of New York - SOFR", "sourceUrl": "https://www.newyorkfed.org/markets/reference-rates/sofr"}
+
+
+def parse_prime(data: dict) -> dict:
+    ref = (data.get("refRates") or [])[0]
+    upper = float(ref["targetRateTo"])
+    return {"ratePct": round(upper + PRIME_SPREAD, 4), "asOf": str(ref["effectiveDate"])[:10],
+            "source": f"Derived: Fed funds target upper bound {upper:.2f}% (New York Fed) + {PRIME_SPREAD:.2f}%",
+            "sourceUrl": "https://www.newyorkfed.org/markets/reference-rates/effr",
+            "note": "Prime is not published as free data - this is the Wall Street Journal convention (Fed funds upper bound + 3%)."}
+
+
+def parse_treasury_csv(text: str) -> Optional[dict]:
+    """The newest day with a 10-year yield in the Treasury's yield curve CSV
+    (dates MM/DD/YYYY, newest first - sorted here anyway)."""
+    best = None
+    for row in csv.DictReader(io.StringIO(text.lstrip("﻿"))):
+        raw, val = (row.get("Date") or "").strip(), (row.get("10 Yr") or "").strip()
+        if not raw or not val:
+            continue
+        try:
+            d = datetime.strptime(raw, "%m/%d/%Y").date()
+            v = float(val)
+        except ValueError:
+            continue
+        if best is None or d > best[0]:
+            best = (d, v)
+    if not best:
+        return None
+    return {"ratePct": round(best[1], 4), "asOf": best[0].isoformat(), "source": "US Treasury - Daily Par Yield Curve, 10 Yr",
+            "sourceUrl": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve"}
+
+
+def _get(url: str) -> httpx.Response:
+    r = httpx.get(url, timeout=10, follow_redirects=True, headers={"User-Agent": "GreensNexus/1.0 (loan calculator)"})
+    r.raise_for_status()
+    return r
+
+
+def fetch_index(index: str, today: Optional[date] = None) -> dict:
+    """The index's latest published rate (sync: call it in a thread)."""
+    if index == "sofr":
+        return parse_sofr(_get(SOFR_URL).json())
+    if index == "prime":
+        return parse_prime(_get(EFFR_URL).json())
+    if index == "treasury10":
+        year = (today or date.today()).year
+        for y in (year, year - 1):          # the first days of January have no rows yet
+            got = parse_treasury_csv(_get(TREASURY_URL.format(year=y)).text)
+            if got:
+                return got
+        raise ValueError("no 10-year yield in the Treasury's data")
+    raise ValueError(f"unknown index {index}")
+
+
+@router.get("/index-rate")
+async def index_rate(index: str):
+    """The live rate of one index for the Loan Calculator: {index, label,
+    ratePct, asOf, source, sourceUrl, note?, stale?}."""
+    if index not in INDEX_LABELS:
+        raise HTTPException(status_code=400, detail="The index is SOFR, 10-Year Treasury or Prime (a Custom index is typed).")
+    now = time.monotonic()
+    hit = _INDEX_CACHE.get(index)
+    if hit and now - hit[0] < INDEX_TTL:
+        return hit[1]
+    try:
+        got = await asyncio.to_thread(fetch_index, index)
+    except Exception as e:  # noqa: BLE001 - any failure of an outside source reads the same to the person
+        print(f"[loan-plans] index {index} not read: {e.__class__.__name__}: {e}")
+        if hit and now - hit[0] < INDEX_STALE_OK:
+            return {**hit[1], "stale": True}
+        raise HTTPException(status_code=424, detail=f"Could not read {INDEX_LABELS[index]} from {INDEX_SOURCES[index]} just now. Type the rate instead, or try again later.")
+    out = {"index": index, "label": INDEX_LABELS[index], **got, "fetchedAt": _now()}
+    _INDEX_CACHE[index] = (now, out)
+    return out
 
 
 @router.get("/{loan_id}/schedule")

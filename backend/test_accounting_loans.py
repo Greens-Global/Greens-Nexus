@@ -742,6 +742,94 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(self.client.get("/accounting/loans/review?from=2026-09-31&to=2026-09-30").status_code, 400)
         self.assertEqual(self.client.get("/accounting/loans/proposals?month=Sept").status_code, 400)
 
+    # ── Oct 22 (Charmi): GL Code vs Loan #, vendor wiring, the scan ─────────
+    def test_gl_code_and_the_real_loan_number(self):
+        _as(EDITOR)
+        self.loans[0]["loan_no"] = "27100"          # set up from the ledger: the account stood in for a number
+        [row] = self._review()["loans"]
+        self.assertEqual((row["loanNo"], row["glCode"], row["loanNoStored"]), ("", "27100", "27100"))
+        r = self.client.put("/accounting/loans/FL1", json={"loanNumber": " 4410-0012 "})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.saves, [])             # kept by Nexus: the fin_loans row is not rewritten
+        [row] = self._review()["loans"]
+        self.assertEqual((row["loanNo"], row["loanNumber"], row["glCode"]), ("4410-0012", "4410-0012", "27100"))
+        # A number fin_loans already had (typed in Data > Loans, or a manual loan) still shows.
+        self.client.put("/accounting/loans/FL1", json={"loanNumber": ""})
+        self.loans[0]["loan_no"] = "6870"
+        accounting_dashboard._CACHE.clear()
+        self.assertEqual(self._review()["loans"][0]["loanNo"], "6870")
+
+    def test_vendor_wiring_reads_that_vendors_lines_only(self):
+        loans = [{"id": "A", "lender": "Pacific Premier", "entity_code": "15000", "gl_account": "26100", "balance_source": "ledger", "is_active": True},
+                 {"id": "B", "lender": "Golden 1", "entity_code": "15000", "gl_account": "26200", "balance_source": "ledger", "is_active": True}]
+        # One interest account (62601) shared by both loans; A's payments go
+        # whole to interest through its vendor's bills, and a year-end reclass
+        # (no vendor) moved principal out of interest - the negative month.
+        whole = {"26100": {"title": "Calle Boveda - Pacific Premier - 4410", "section": "liability", "opening": -3000000, "debit": 0, "credit": 0, "closing": -3000000},
+                 "26200": {"title": "Golden 1 - 5860", "section": "liability", "opening": -1000000, "debit": 0, "credit": 0, "closing": -1000000},
+                 "62601": {"title": "Interest Expense", "section": "expense", "opening": 0, "debit": 20000, "credit": 25000, "closing": -5000}}
+        vend = {"26100": {"title": "Calle Boveda - Pacific Premier - 4410", "section": "liability", "opening": 0, "debit": 6000, "credit": 0, "closing": 6000},
+                "62601": {"title": "Interest Expense", "section": "expense", "opening": 0, "debit": 15000, "credit": 0, "closing": 15000}}
+        tbs = {("15000", "period"): whole, ("15000", "t12"): whole}
+        before = {r["id"]: r for r in accounting_loans.review_rows(loans, {}, tbs, NAMES)}
+        self.assertEqual((before["A"]["interestSource"], before["A"]["interestPaid"], before["A"]["principalPaid"]), ("shared", -3750.0, 0.0))
+        settings = {"A": {"vendor_id": "V-PPB", "vendor_name": "Pacific Premier Bank"}}
+        vtbs = {("15000", "V-PPB", "period"): vend, ("15000", "V-PPB", "t12"): vend}
+        rows = {r["id"]: r for r in accounting_loans.review_rows(loans, settings, tbs, NAMES, vtbs=vtbs)}
+        a = rows["A"]
+        self.assertEqual((a["interestSource"], a["interestPaid"], a["principalPaid"], a["debtService"], a["interestShare"]), ("vendor", 15000.0, 6000.0, 21000.0, 1.0))
+        self.assertEqual((a["vendorId"], a["vendorName"], a["balance"]), ("V-PPB", "Pacific Premier Bank", 3000000.0))    # the balance is the whole account's
+        self.assertEqual(rows["B"]["interestPaid"], before["B"]["interestPaid"])                                            # a loan with no vendor: as before
+        # The vendor read failed: today's figures, flagged.
+        rows = {r["id"]: r for r in accounting_loans.review_rows(loans, settings, tbs, NAMES, vtbs={("15000", "V-PPB", "period"): None, ("15000", "V-PPB", "t12"): None})}
+        self.assertEqual((rows["A"]["interestSource"], rows["A"]["vendorUnread"]), ("shared", True))
+
+    def test_vendor_wiring_end_to_end(self):
+        _as(EDITOR)
+        self.assertEqual(self.client.put("/accounting/loans/FL1", json={"vendorId": "bad;id"}).status_code, 400)
+        r = self.client.put("/accounting/loans/FL1", json={"vendorId": "V-FM", "vendorName": "F&M Bank"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.calls.clear()
+        [row] = self._review()["loans"]
+        vendor_reads = [c[1] for c in self.calls if c[0].endswith("/trial-balance") and c[1].get("vendor")]
+        self.assertEqual(sorted((c["location"], c["vendor"]) for c in vendor_reads), [("15000", "V-FM"), ("15000", "V-FM")])
+        self.assertEqual((row["vendorId"], row["vendorName"], row["interestSource"]), ("V-FM", "F&M Bank", "vendor"))
+        self.client.put("/accounting/loans/FL1", json={"vendorId": ""})
+        [row] = self._review()["loans"]
+        self.assertEqual((row["vendorId"], row["vendorName"], row["interestSource"]), ("", "", "matched"))
+
+    def test_vendor_list_for_a_loan(self):
+        _as(EDITOR)
+        real = accounting._acct_get
+
+        async def with_facets(path, params):
+            if path.endswith("/search"):
+                self.calls.append((path, dict(params)))
+                v = {"27100": [{"code": "V-FM", "name": "F&M Bank", "lines": 12}], "71100": [{"code": "V-FM", "name": "F&M Bank", "lines": 12}, {"code": "V-X", "name": "Other", "lines": 1}]}
+                return {"ok": True, "total": 0, "rows": [], "facets": {"vendors": v.get(params.get("account"), [])}}
+            return await real(path, params)
+        accounting._acct_get = with_facets
+        r = self.client.get("/accounting/loans/vendors?entity=15000&accounts=27100,71100&to=2026-09-30")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([(v["code"], v["lines"], v["accounts"]) for v in r.json()["vendors"]], [("V-FM", 24, ["27100", "71100"]), ("V-X", 1, ["71100"])])
+        self.assertTrue(all(c[1].get("location") == "15000" for c in self.calls if c[0].endswith("/search")))
+        _as(LIMITED)
+        self.assertEqual(self.client.get("/accounting/loans/vendors?entity=12000").status_code, 403)
+
+    def test_long_term_debt_range_is_loans_by_number(self):
+        # "Not all loans show": a mortgage titled only with its property and a
+        # lender the name list does not know was never proposed.
+        self.assertEqual(self.classify("Calle Boveda - Pacific Premier - 4410", "26031")["kind"], "external")
+        self.assertEqual(self.classify("Toyota Motor Credit - Tacoma", "27012")["kind"], "external")
+        self.assertEqual(self.classify("Long-Term Debt - Calle Boveda", "25500")["kind"], "external")
+        self.assertIsNone(self.classify("Accounts Payable - Retention", "26900"))
+        self.assertIsNone(self.classify("Current Portion of Long-Term Debt", "26990"))
+        self.assertIsNone(self.classify("Pacific Premier - 4410", "24100"))       # below the range: still needs a loan word
+
+    @staticmethod
+    def classify(title, code):
+        return accounting_loans.classify_loan_account("liability", code, title, NAMES, "15000")
+
     def test_not_configured_is_503(self):
         _as(EDITOR)
         accounting._acct_get = self._get
