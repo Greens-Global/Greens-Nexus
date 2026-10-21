@@ -2708,7 +2708,7 @@ export const api = {
   getOpsBudgetLoadFile: (id) => reqBlob(`/ops-budget/loads/${encodeURIComponent(id)}/file`),
   runOpsBudgetSnapshot: () => req('/ops-budget/snapshot', { method: 'POST', timeoutMs: 120_000 }),
   // Operations > Customer Map (Oct 21 2026, routers/ops_customer_map.py): rounded points, counts only.
-  getOpsCustomerMap: ({ facility = 'all', state = '' } = {}) => req(`/facility-ops/customer-map?${new URLSearchParams({ facility, state })}`),
+  getOpsCustomerMap: ({ facility = 'all', state = '', kind = 'all', since = 'all', band = 'all' } = {}) => req(`/facility-ops/customer-map?${new URLSearchParams({ facility, state, kind, since, band })}`),
   // Ops Budget > Hummingbird History (Oct 21 2026): what the last HB export load holds, per site (admins only).
   getOpsHummingbird: () => req('/ops-budget/hummingbird'),
 };
