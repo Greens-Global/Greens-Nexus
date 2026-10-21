@@ -174,7 +174,7 @@ export function AddToMaintenanceModal({ propertyId, t, onClose, onSaved }) {
         ) : (
           <ScheduleFields value={schedule} onChange={setSchedule} />
         )}
-        <Field label="Invoice / Report (Upload)" full>
+        <Field label="Invoice / Report" full>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <label className="secondary-btn" style={{ cursor: 'pointer' }}>
               Upload File

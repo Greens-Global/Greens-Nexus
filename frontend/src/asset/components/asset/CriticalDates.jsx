@@ -12,6 +12,11 @@ function toneOf(days) {
   return 'green';
 }
 
+// Five rows is a glance; the rest sit behind Show All.
+const ROW_CAP = 5;
+// "Inspection · Inspection Due" says it twice - drop the category when the label starts with it.
+const rowLabel = (item) => (String(item.label).toLowerCase().startsWith(String(item.cat).toLowerCase()) ? item.label : `${item.cat} · ${item.label}`);
+
 function dueText(days) {
   if (days < 0) return Math.abs(days) + 'd overdue';
   if (days === 0) return 'Due Today';
@@ -105,13 +110,16 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
   // days" (lead with what's actually urgent across the whole portfolio).
   const [windowSel, setWindowSel] = useState(only ? 'all' : '90');
   const [cat, setCat] = useState('');
+  const [showAll, setShowAll] = useState(false);
 
   let all = collectCriticalDates(store);
   if (only) all = all.filter((x) => x.id === only);
 
+  // Exclusive buckets, so the three pills add up instead of reading as twelve
+  // when they are two, two and eight.
   const overdueCount = all.filter((x) => x.days < 0).length;
   const due30Count = all.filter((x) => x.days >= 0 && x.days <= 30).length;
-  const due90Count = all.filter((x) => x.days >= 0 && x.days <= 90).length;
+  const due90Count = all.filter((x) => x.days > 30 && x.days <= 90).length;
 
   // Portfolio banner usage: nothing due at all -> render nothing. Per-asset usage never sets
   // hideIfEmpty, so it always falls through and renders (even all-zero, for context).
@@ -154,7 +162,7 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {!chipsOnly && <CountPill count={overdueCount} label="Overdue" color="red" />}
           {!chipsOnly && <CountPill count={due30Count} label="Due in 30d" color="orange" />}
-          {!chipsOnly && <CountPill count={due90Count} label="Due in 90d" color="gold" />}
+          {!chipsOnly && <CountPill count={due90Count} label="Due in 31-90d" color="gold" />}
           {extras.map((c) => (
             <button key={c.label} type="button" onClick={c.onClick} title={c.title} aria-expanded={c.expanded}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: 'none', fontFamily: 'inherit',
@@ -214,16 +222,23 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
                 borderRadius: 8,
               }}
             >
-              {rows.map((item, i) => (
-                <div
+              {(showAll ? rows : rows.slice(0, ROW_CAP)).map((item, i) => (
+                <button
+                  type="button"
                   key={item.id + '|' + item.cat + '|' + i}
                   onClick={() => handleRowClick(item)}
+                  aria-label={`${item.name}: ${rowLabel(item)}, ${dueText(item.days)}`}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: 12,
+                    width: '100%',
+                    textAlign: 'left',
                     padding: '10px 12px',
                     cursor: 'pointer',
+                    border: 'none',
+                    background: 'none',
+                    fontFamily: 'inherit',
                     borderTop: i ? '1px solid var(--border-color)' : 'none',
                   }}
                 >
@@ -265,7 +280,7 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {item.cat} · {item.label}
+                      {rowLabel(item)}
                       {item.detail ? ' - ' + item.detail : ''}
                     </div>
                   </div>
@@ -280,8 +295,14 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
                   >
                     {formatDate(item.date)}
                   </span>
-                </div>
+                </button>
               ))}
+              {rows.length > ROW_CAP && (
+                <button type="button" className="secondary-btn" onClick={() => setShowAll((v) => !v)}
+                  style={{ display: 'block', width: '100%', borderRadius: 0, border: 'none', borderTop: '1px solid var(--border-color)', padding: '9px 12px', fontSize: '0.8rem' }}>
+                  {showAll ? 'Show Fewer' : `Show All (${rows.length})`}
+                </button>
+              )}
             </div>
           ) : (
             <div

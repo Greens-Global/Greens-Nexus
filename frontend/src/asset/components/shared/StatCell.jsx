@@ -1,5 +1,5 @@
 const LABEL_STYLE = {
-  fontSize: '0.68rem',
+  fontSize: '0.75rem',
   fontWeight: 600,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',

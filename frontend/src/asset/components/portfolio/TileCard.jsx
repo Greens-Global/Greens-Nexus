@@ -208,7 +208,7 @@ export function TileCard({ pr: property, openProperty, secondaries = [], metric 
               <div style={{ display: 'grid', gridTemplateColumns: lead.entity && lead.manager ? '1fr 1fr' : '1fr', gap: '2px 16px' }}>
                 {lead.entity && (
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-secondary)', marginBottom: 2 }}>Owner</div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-secondary)', marginBottom: 2 }}>Owner</div>
                     <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {lead.entity}
                     </div>
@@ -216,7 +216,7 @@ export function TileCard({ pr: property, openProperty, secondaries = [], metric 
                 )}
                 {lead.manager && (
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-secondary)', marginBottom: 2 }}>Asset Manager</div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-secondary)', marginBottom: 2 }}>Asset Manager</div>
                     <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {lead.manager}
                     </div>
@@ -237,7 +237,7 @@ export function TileCard({ pr: property, openProperty, secondaries = [], metric 
                   <div style={{ fontSize: valFontSize, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.18, whiteSpace: 'normal', wordBreak: 'break-word' }}>
                     {s.v}
                   </div>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {s.l}
                   </div>
                 </div>

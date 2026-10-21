@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Plus, Download, CornerDownRight } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ChevronDown, ChevronUp, Plus, Download, CornerDownRight, FileSpreadsheet, FileText } from 'lucide-react';
+import AnchoredMenu from '../../../components/AnchoredMenu';
 import { RECORD_TYPES } from '../../lib/recordTypes.jsx';
 import { Card } from './Card.jsx';
 import { EmptyState } from './EmptyState.jsx';
+import { MenuRow } from './MenuRow.jsx';
 
 // Small uppercase label style - shared by column headers and summary-strip labels.
-const LABEL_STYLE = { fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
+const LABEL_STYLE = { fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
 
 // Quick-add config per collection: which field the single text input fills, extra defaults
 // merged into the new record, and the input's placeholder/button copy. Only collections with
@@ -104,6 +106,7 @@ function rowIdentity(coll, row) {
 export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, highlightItem, collapsible, onQuickAdd, summaryOverride = null, leadColumn = null }) {
   const recordType = RECORD_TYPES[coll];
   const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef(null);   // the Export button its menu is pinned to
   const [quickText, setQuickText] = useState('');
   const [quickDate, setQuickDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [open, setOpen] = useState(false);
@@ -157,83 +160,58 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
   return (
     <Card>
       <div
-        onClick={collapsible ? () => setOpen((o) => !o) : undefined}
-        title={collapsible ? (open ? 'Collapse' : 'Expand') : undefined}
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 10,
           marginBottom: contentVisible ? 14 : 0,
           flexWrap: 'wrap',
-          cursor: collapsible ? 'pointer' : 'default',
-          userSelect: collapsible ? 'none' : 'auto',
         }}
       >
-        {collapsible && (
-          <ChevronDown size={18} style={{ color: 'var(--text-secondary)', transition: 'transform 0.2s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }} />
-        )}
-        <strong style={{ fontSize: '1rem' }}>{recordType.plural}</strong>
-
-        <div style={{ marginLeft: 'auto', position: 'relative' }}>
+        {/* A collapsible section folds from its title, a real button so the
+            keyboard reaches it (the whole bar used to be a clickable div). */}
+        {collapsible ? (
           <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen((o) => !o)}
+            title={open ? 'Collapse' : 'Expand'}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', color: 'inherit', userSelect: 'none' }}
+          >
+            <ChevronDown size={18} aria-hidden="true" style={{ color: 'var(--text-secondary)', transition: 'transform 0.2s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }} />
+            <strong style={{ fontSize: '1rem' }}>{recordType.plural}</strong>
+          </button>
+        ) : (
+          <strong style={{ fontSize: '1rem' }}>{recordType.plural}</strong>
+        )}
+
+        {/* The export menu is an AnchoredMenu: closes on Escape and on a tap
+            outside, its rows are buttons the keyboard reaches. */}
+        <div style={{ marginLeft: 'auto' }}>
+          <button
+            ref={exportRef}
+            type="button"
             className="secondary-btn"
             disabled={!displayRows.length}
-            onClick={(e) => {
-              e.stopPropagation();
-              setExportOpen((v) => !v);
-            }}
+            aria-haspopup="menu"
+            aria-expanded={exportOpen}
+            onClick={() => setExportOpen((v) => !v)}
             title="Export this list"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', fontSize: '0.8rem', opacity: displayRows.length ? 1 : 0.5 }}
           >
             <Download size={14} /> Export <ChevronDown size={13} style={{ opacity: 0.7 }} />
           </button>
-          {exportOpen && (
-            <div
-              onMouseLeave={() => setExportOpen(false)}
-              style={{
-                position: 'absolute',
-                right: 0,
-                top: 'calc(100% + 4px)',
-                zIndex: 60,
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 9,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                overflow: 'hidden',
-                minWidth: 150,
-              }}
-            >
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExportOpen(false);
-                  exportCsv(displayRows, recordType, active.name);
-                }}
-                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 13px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-primary)' }}
-              >
-                Export as CSV
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExportOpen(false);
-                  exportPdf(displayRows, recordType, active.name);
-                }}
-                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 13px', border: 'none', borderTop: '1px solid var(--border-color)', background: 'transparent', cursor: 'pointer', fontSize: '0.82rem', color: 'var(--text-primary)' }}
-              >
-                Export as PDF
-              </button>
-            </div>
-          )}
+          <AnchoredMenu anchorRef={exportRef} open={exportOpen} onClose={() => setExportOpen(false)} align="end" minWidth={180}
+            style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
+            <MenuRow icon={FileSpreadsheet} onClick={() => { setExportOpen(false); exportCsv(displayRows, recordType, active.name); }}>Export as CSV</MenuRow>
+            <MenuRow icon={FileText} onClick={() => { setExportOpen(false); exportPdf(displayRows, recordType, active.name); }}>Export as PDF</MenuRow>
+          </AnchoredMenu>
         </div>
 
         {onAdd && (
           <button
             className="primary-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAdd();
-            }}
+            onClick={() => onAdd()}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: '0.8rem' }}
           >
             <Plus size={14} /> Add
@@ -312,19 +290,27 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                     {recordType.cols.map((col, ci) => (
                       <th
                         key={col.label}
-                        onClick={() => {
-                          if (sortCol === ci) setSortDir((d) => -d);
-                          else {
-                            setSortCol(ci);
-                            setSortDir(1);
-                          }
-                        }}
-                        style={{ ...LABEL_STYLE, textAlign: 'left', padding: '10px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}
+                        aria-sort={sortCol === ci ? (sortDir > 0 ? 'ascending' : 'descending') : 'none'}
+                        style={{ ...LABEL_STYLE, textAlign: 'left', padding: 0, background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}
                       >
-                        {col.label}
-                        {sortCol === ci ? (
-                          <span style={{ marginLeft: 4, color: 'hsl(var(--color-blue))', display: 'inline-flex', verticalAlign: '-2px' }}>{sortDir > 0 ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
-                        ) : null}
+                        {/* The sort control is a button filling the header cell (keyboard reachable). */}
+                        <button
+                          type="button"
+                          title={`Sort by ${col.label}`}
+                          onClick={() => {
+                            if (sortCol === ci) setSortDir((d) => -d);
+                            else {
+                              setSortCol(ci);
+                              setSortDir(1);
+                            }
+                          }}
+                          style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '10px 12px', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', userSelect: 'none' }}
+                        >
+                          {col.label}
+                          {sortCol === ci ? (
+                            <span style={{ marginLeft: 4, color: 'hsl(var(--color-blue))', display: 'inline-flex', verticalAlign: '-2px' }}>{sortDir > 0 ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
+                          ) : null}
+                        </button>
                       </th>
                     ))}
                     <th style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }} />
@@ -361,23 +347,31 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                             {leadColumn.render(row)}
                           </td>
                         )}
-                        {recordType.cols.map((col, ci) => (
-                          <td key={col.label} data-label={col.label} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', ...(!leadColumn && ci === 0 && row._nested ? { paddingLeft: 28 } : null) }}>
+                        {recordType.cols.map((col, ci) => {
+                          const chip = col.chip ? col.chip(row) : null;
+                          const sub = col.main && col.sub ? col.sub(row) : null;
+                          const text = cellText(col, row).trim();
+                          // A cell with nothing to say shows "-" on a desktop; the phone card
+                          // drops it (asset-styles td[data-empty]) instead of printing "SCOPE -".
+                          const empty = col.chip ? !chip : (text === '' || text === '-') && !sub;
+                          return (
+                          <td key={col.label} data-label={col.label} data-empty={empty ? '1' : undefined} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', ...(!leadColumn && ci === 0 && row._nested ? { paddingLeft: 28 } : null) }}>
                             {!leadColumn && ci === 0 && row._nested && <CornerDownRight size={13} style={{ color: 'var(--text-secondary)', marginRight: 4, verticalAlign: '-2px' }} />}
                             {col.main ? (
                               <>
                                 <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{col.main(row) || '-'}</div>
-                                {col.sub && col.sub(row) ? <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 1 }}>{col.sub(row)}</div> : null}
+                                {sub ? <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 1 }}>{sub}</div> : null}
                               </>
                             ) : col.mono ? (
                               <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: '0.8rem' }}>{col.mono(row)}</span>
                             ) : col.chip ? (
-                              col.chip(row)
+                              chip
                             ) : (
                               <span>{col.plain(row)}</span>
                             )}
                           </td>
-                        ))}
+                          );
+                        })}
                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', textAlign: 'right' }}>
                           <button
                             className="secondary-btn"
@@ -385,7 +379,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                               e.stopPropagation();
                               onEdit(row.id);
                             }}
-                            style={{ padding: '4px 10px', fontSize: '0.74rem' }}
+                            style={{ padding: '4px 10px', fontSize: '0.75rem' }}
                           >
                             {row._readOnly ? 'View' : 'Edit'}
                           </button>
@@ -397,7 +391,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
               </table>
             </div>
           ) : (
-            <EmptyState>{recordType.empty}</EmptyState>
+            <EmptyState action={onAdd ? `Add ${recordType.title}` : undefined} onAction={onAdd}>{recordType.empty}</EmptyState>
           )}
         </>
       )}

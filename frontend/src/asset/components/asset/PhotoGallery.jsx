@@ -4,7 +4,7 @@
 // Supports the legacy single `image` field as well as the newer `images` array - reads whichever
 // is present, always writes back through `images` via onSave.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Upload, X } from 'lucide-react';
 import { Card } from '../shared/Card.jsx';
 import { storeAssetImage } from '../../lib/upload.js';
@@ -29,6 +29,33 @@ export function PhotoGallery({ p, n, onSave }) {
   const [editing, setEditing] = useState(false);
   const [draftImages, setDraftImages] = useState([]);
   const [lightbox, setLightbox] = useState(null);
+  // The lightbox is a dialog: Escape and the Close button shut it, focus goes to
+  // Close while it is open and back to the thumbnail that opened it after.
+  const closeRef = useRef(null);
+  const triggerRef = useRef(null);
+  const openLightbox = (src, e) => { triggerRef.current = e.currentTarget; setLightbox(src); };
+  const closeLightbox = () => {
+    setLightbox(null);
+    const back = triggerRef.current;
+    triggerRef.current = null;
+    back?.focus?.();
+  };
+  useEffect(() => {
+    if (!lightbox) return undefined;
+    closeRef.current?.focus();
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeLightbox(); } };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lightbox]);
+  // A thumbnail opens the lightbox: a real button while viewing (keyboard
+  // reachable), the bare picture while editing (the red X is the only action).
+  const zoomable = (src, label, node, radius) => (editing ? node : (
+    <button type="button" onClick={(e) => openLightbox(src, e)} aria-label={label}
+      style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', borderRadius: radius, fontFamily: 'inherit' }}>
+      {node}
+    </button>
+  ));
   // Feedback when an added file can't be used. The old silent skip meant an
   // unsupported picture (iPhone HEIC is the classic) just... didn't appear,
   // with no clue why - "I added an image and it's still not showing" (Aarav,
@@ -97,19 +124,26 @@ export function PhotoGallery({ p, n, onSave }) {
   return (
     <Card>
       <div
-        onClick={() => !editing && setExpanded((v) => !v)}
-        title={editing ? '' : expanded ? 'Collapse' : 'Expand'}
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 9,
-          cursor: editing ? 'default' : 'pointer',
-          userSelect: 'none',
           marginBottom: expanded ? 14 : 0,
           paddingBottom: expanded ? 10 : 0,
           borderBottom: expanded ? '1px solid var(--border-color)' : 'none',
         }}
       >
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => !editing && setExpanded((v) => !v)}
+          title={editing ? '' : expanded ? 'Collapse' : 'Expand'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 9, flex: 1, minWidth: 0,
+            padding: 0, border: 'none', background: 'none', textAlign: 'left',
+            fontFamily: 'inherit', color: 'inherit', cursor: editing ? 'default' : 'pointer', userSelect: 'none',
+          }}
+        >
         {n != null && (
           <span
             style={{
@@ -131,12 +165,22 @@ export function PhotoGallery({ p, n, onSave }) {
         <strong style={{ fontSize: '0.95rem' }}>
           Media {images.length > 0 && `(${images.length})`}
         </strong>
+        <ChevronDown
+          size={18}
+          aria-hidden="true"
+          style={{
+            marginLeft: 'auto',
+            color: 'var(--text-secondary)',
+            transition: 'transform 0.2s',
+            transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+          }}
+        />
+        </button>
         {expanded && !editing && (
           <button
             className="secondary-btn"
             onClick={startEdit}
             style={{
-              marginLeft: 'auto',
               padding: '4px 12px',
               fontSize: '0.76rem',
               color: 'hsl(var(--color-blue))',
@@ -147,37 +191,29 @@ export function PhotoGallery({ p, n, onSave }) {
             Edit
           </button>
         )}
-        <ChevronDown
-          size={18}
-          style={{
-            marginLeft: expanded && !editing ? 8 : 'auto',
-            color: 'var(--text-secondary)',
-            transition: 'transform 0.2s',
-            transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-          }}
-        />
       </div>
 
       {expanded && (
         <>
           {images.length === 1 ? (
             <div style={{ position: 'relative', maxWidth: 480 }}>
-              <img
-                src={images[0]}
-                alt={p.name}
-                loading="lazy"
-                onClick={() => !editing && setLightbox(images[0])}
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                style={{
-                  width: '100%',
-                  height: 280,
-                  objectFit: 'cover',
-                  borderRadius: 10,
-                  border: '1px solid var(--border-color)',
-                  display: 'block',
-                  cursor: editing ? 'default' : 'zoom-in',
-                }}
-              />
+              {zoomable(images[0], `Open the photo of ${p.name}`, (
+                <img
+                  src={images[0]}
+                  alt={p.name}
+                  loading="lazy"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  style={{
+                    width: '100%',
+                    height: 280,
+                    objectFit: 'cover',
+                    borderRadius: 10,
+                    border: '1px solid var(--border-color)',
+                    display: 'block',
+                    cursor: editing ? 'default' : 'zoom-in',
+                  }}
+                />
+              ), 10)}
               {editing && (
                 <button
                   onClick={() => setDraftImages([])}
@@ -206,14 +242,15 @@ export function PhotoGallery({ p, n, onSave }) {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {images.map((src, i) => (
                 <div key={i} style={{ position: 'relative' }}>
-                  <img
-                    src={src}
-                    alt={`${p.name} ${i + 1}`}
-                    loading="lazy"
-                    onClick={() => !editing && setLightbox(src)}
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                    style={{ ...THUMB_STYLE, cursor: editing ? 'default' : 'zoom-in' }}
-                  />
+                  {zoomable(src, `Open photo ${i + 1} of ${images.length}`, (
+                    <img
+                      src={src}
+                      alt={`${p.name} ${i + 1}`}
+                      loading="lazy"
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      style={{ ...THUMB_STYLE, cursor: editing ? 'default' : 'zoom-in' }}
+                    />
+                  ), 8)}
                   {editing && (
                     <button
                       onClick={() => setDraftImages((imgs) => imgs.filter((_, idx) => idx !== i))}
@@ -288,7 +325,12 @@ export function PhotoGallery({ p, n, onSave }) {
 
       {lightbox && (
         <div
-          onClick={() => setLightbox(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Photo"
+          onClick={closeLightbox}
+          // Close is the only control, so Tab stays on it (a one-button focus trap).
+          onKeyDown={(e) => { if (e.key === 'Tab') { e.preventDefault(); closeRef.current?.focus(); } }}
           style={{
             position: 'fixed',
             inset: 0,
@@ -301,11 +343,25 @@ export function PhotoGallery({ p, n, onSave }) {
             cursor: 'zoom-out',
           }}
         >
+          <button
+            ref={closeRef}
+            type="button"
+            aria-label="Close"
+            title="Close"
+            onClick={(e) => { e.stopPropagation(); closeLightbox(); }}
+            style={{
+              position: 'absolute', top: 16, right: 16, width: 40, height: 40, borderRadius: '50%',
+              border: 'none', cursor: 'pointer', color: '#fff', backgroundColor: 'rgba(255,255,255,0.16)',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <X size={20} />
+          </button>
           <img
             src={lightbox}
             alt={p.name}
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: '95%', maxHeight: '92%', objectFit: 'contain', borderRadius: 8, boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }}
+            style={{ maxWidth: '95%', maxHeight: '92%', objectFit: 'contain', borderRadius: 8, boxShadow: '0 8px 40px rgba(0,0,0,0.5)', cursor: 'default' }}
           />
         </div>
       )}

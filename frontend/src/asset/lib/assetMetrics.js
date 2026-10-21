@@ -3,7 +3,7 @@
 // its child collections), not off any single asset.
 //
 // Also home to the per-asset compliance-signal helpers that back the Health Status strip
-// (HealthStrip) on each asset detail page: snapMap (free-text snapshot -> label-keyed lookup),
+// (the old HealthStrip) on each asset detail page: snapMap (free-text snapshot -> label-keyed lookup),
 // assetSignals (Insurance/Inspections/Permits/Debt for properties, Insurance/Registration/
 // Service/Odometer for vehicles/equipment), freshTs/freshMeta (last-touched recency),
 // assetCompleteness (Manage-page completeness %), and assetRank (default portfolio sort order).

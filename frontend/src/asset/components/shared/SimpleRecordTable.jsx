@@ -41,12 +41,14 @@ function rowIdentity(row, cols) {
  * @param query           free-text filter string
  * @param highlightItem   a row-identity string to scroll to + highlight
  * @param onAdd           () => void
+ * @param emptyText       the empty state's line (default "No <title> yet.")
+ * @param emptyAction     the empty state's button label (default "Add the First Row")
  * @param onEdit          (index) => void
  * @param onDelete        (index) => void, or omit to hide the Delete button
  * @param onStatusClick   (index, currentStatus) => void - if provided, the "status" column
  *                        renders as a clickable chip button instead of a plain badge
  */
-export function SimpleRecordTable({ title, subtitle, rows, cols, query, highlightItem, onAdd, onEdit, onDelete, onStatusClick }) {
+export function SimpleRecordTable({ title, subtitle, rows, cols, query, highlightItem, onAdd, onEdit, onDelete, onStatusClick, emptyText, emptyAction }) {
   const [confirmIdx, setConfirmIdx] = useState(null);   // the row whose Delete is awaiting a Yes
   const allRows = rows || [];
   const columns = cols || (() => {
@@ -176,7 +178,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
           </table>
         </div>
       ) : (
-        <EmptyState>No {title.toLowerCase()} data yet - use "Add row" to add one.</EmptyState>
+        <EmptyState action={emptyAction || 'Add the First Row'} onAction={onAdd}>{emptyText || `No ${title.toLowerCase()} yet.`}</EmptyState>
       )}
     </Card>
   );

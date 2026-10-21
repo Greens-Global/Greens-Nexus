@@ -35,7 +35,7 @@ const COLUMN_ACCESSORS = [
 ];
 
 const thStyle = {
-  textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase',
+  textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase',
   letterSpacing: '0.05em', color: 'var(--text-secondary)', padding: '11px 16px', whiteSpace: 'nowrap',
   overflow: 'hidden', textOverflow: 'ellipsis', borderBottom: '1px solid var(--border-color)',
   backgroundColor: 'var(--bg-secondary)',
@@ -194,7 +194,7 @@ export function ListTable({ rows, childrenOf, open, sortCol, setSortCol, sortDir
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {isChild ? 'Linked property' : cityRegion(asset) || '-'}
               </div>
             </div>
@@ -220,11 +220,20 @@ export function ListTable({ rows, childrenOf, open, sortCol, setSortCol, sortDir
             {COLUMNS.map((label, i) => (
               <th
                 key={i}
-                onClick={() => onSortClick(i)}
-                style={{ ...thStyle, width: colWidths[i], position: 'relative', cursor: 'pointer', userSelect: 'none' }}
+                aria-sort={sortCol === i ? (sortDir > 0 ? 'ascending' : 'descending') : 'none'}
+                style={{ ...thStyle, padding: 0, width: colWidths[i], position: 'relative' }}
               >
-                {label}
-                {sortCol === i ? (sortDir > 0 ? <ChevronUp size={11} style={{ marginLeft: 3, verticalAlign: '-1px' }} /> : <ChevronDown size={11} style={{ marginLeft: 3, verticalAlign: '-1px' }} />) : null}
+                {/* The sort control is a button filling the header cell (keyboard
+                    reachable); the resize handle stays a sibling over its right edge. */}
+                <button
+                  type="button"
+                  title={`Sort by ${label}`}
+                  onClick={() => onSortClick(i)}
+                  style={{ display: 'block', width: '100%', padding: '11px 16px', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', userSelect: 'none' }}
+                >
+                  {label}
+                  {sortCol === i ? (sortDir > 0 ? <ChevronUp size={11} style={{ marginLeft: 3, verticalAlign: '-1px' }} /> : <ChevronDown size={11} style={{ marginLeft: 3, verticalAlign: '-1px' }} />) : null}
+                </button>
                 <span
                   onMouseDown={(ev) => onResizeDown(i, ev)}
                   onClick={(ev) => ev.stopPropagation()}

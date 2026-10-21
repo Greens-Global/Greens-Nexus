@@ -103,10 +103,17 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
 
   return (
     <Card>
-      <div
+      <button
+        type="button"
         onClick={() => setOpen((o) => !o)}
         title={open ? 'Collapse' : 'Expand'}
+        aria-expanded={open}
         style={{
+          width: '100%',
+          border: 'none',
+          background: 'none',
+          fontFamily: 'inherit',
+          textAlign: 'left',
           display: 'flex',
           alignItems: 'center',
           gap: 9,
@@ -159,7 +166,7 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
             transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
           }}
         />
-      </div>
+      </button>
 
       {open && onSave && (
         <input
@@ -204,7 +211,7 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
               <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                 {customLink
                   ? 'Showing the area - paste a full maps.google.com link (with the @lat,lng) to drop the pin exactly; your link still powers Open in Google Maps'
-                  : 'Tip: paste a Google Maps link in Project Details for a 100% accurate pin'}
+                  : 'Paste a Google Maps link above to drop the pin exactly.'}
               </span>
             )}
           </div>

@@ -3,7 +3,7 @@ import { Flag, ChevronDown, ChevronUp } from 'lucide-react';
 import AnchoredMenu from '../../../components/AnchoredMenu';
 import { PT } from '../../lib/propertyFields.js';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
-import { normLabel, formatFieldValue } from '../../lib/format.js';
+import { normLabel, formatFieldValue, formatNumber } from '../../lib/format.js';
 import { STAGE_FORM, baseStage } from '../../lib/stages.js';
 import { editGuard } from '../../lib/editGuard.js';
 import { deriveType } from '../../lib/portfolioCards.js';
@@ -68,6 +68,38 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
     const el = document.getElementById('gt-' + key);
     el && el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
+
+  // Scroll-spy for the "On This Page" rail: the first section (in rail order)
+  // crossing the band just under the page header is the current one; between
+  // two sections the last hit stays lit, and before any scroll the first is.
+  const [current, setCurrent] = useState(null);
+  const navKeys = nav.map(([key]) => key).join('|');
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return undefined;
+    const keys = navKeys.split('|').filter(Boolean);
+    const hits = new Map();
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((en) => hits.set(en.target.id.slice(3), en.isIntersecting));
+      const hit = keys.find((k) => hits.get(k));
+      setCurrent((prev) => hit || prev || keys[0] || null);
+    }, { rootMargin: '-96px 0px -55% 0px', threshold: 0 });
+    keys.forEach((k) => { const el = document.getElementById('gt-' + k); el && io.observe(el); });
+    return () => io.disconnect();
+  }, [navKeys, asset.id]);
+
+  // The fixed Save / Cancel bar is the page header's twin: the header already
+  // holds Cancel / Save Changes while editing, so the bar shows only once the
+  // header has scrolled off screen. No header on the page (a test, another
+  // host) = the bar is always there.
+  const [headerOff, setHeaderOff] = useState(false);
+  useEffect(() => {
+    if (!editing) { setHeaderOff(false); return undefined; }
+    const head = document.querySelector('.nexus-asset-root .asset-head');
+    if (!head || typeof IntersectionObserver === 'undefined') { setHeaderOff(true); return undefined; }
+    const io = new IntersectionObserver(([en]) => setHeaderOff(!en.isIntersecting), { threshold: 0 });
+    io.observe(head);
+    return () => io.disconnect();
+  }, [editing]);
 
   // Deep-link to a specific field (a search result, a flagged-field notice, a Data Gaps
   // chip): scroll to it, and in edit mode put the cursor in it.
@@ -154,26 +186,31 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
   return (
     <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
       <nav className="gt-toc" style={{ position: 'sticky', top: 64, flexShrink: 0, width: 178, display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <div style={{ ...labelStyle, padding: '2px 11px 8px' }}>On this page</div>
-        {nav.map(([key, title]) => (
-          <button
-            key={key}
-            onClick={() => jumpTo(key)}
-            style={{ textAlign: 'left', padding: '7px 11px', borderRadius: 8, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-          >
-            {title}
-          </button>
-        ))}
+        <div style={{ ...labelStyle, padding: '2px 11px 8px' }}>On This Page</div>
+        {nav.map(([key, title]) => {
+          const on = current === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-current={on ? 'true' : undefined}
+              onClick={() => jumpTo(key)}
+              style={{ textAlign: 'left', padding: '7px 11px', borderRadius: 8, border: 'none', background: on ? 'var(--bg-secondary)' : 'transparent', boxShadow: on ? 'inset 3px 0 0 var(--pine)' : 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, color: on ? 'var(--pine)' : 'var(--text-secondary)', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-secondary)'; if (!on) e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = on ? 'var(--bg-secondary)' : 'transparent'; e.currentTarget.style.color = on ? 'var(--pine)' : 'var(--text-secondary)'; }}
+            >
+              {title}
+            </button>
+          );
+        })}
       </nav>
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {editing && dirty && (
+        {editing && dirty && headerOff && (
           <div className="save-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 300, display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)', boxShadow: '0 -6px 20px rgba(0,0,0,0.18)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)' }}>You've made changes</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Save before you leave this page</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Save before you leave this page</div>
             </div>
             <button className="secondary-btn" onClick={cancel} style={{ padding: '9px 14px', flexShrink: 0 }}>Cancel</button>
             <button className="primary-btn" onClick={save} style={{ padding: '9px 22px', flexShrink: 0 }}>Save Changes</button>
@@ -184,7 +221,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderRadius: 11, border: '1px solid hsl(var(--color-purple) / 0.35)', backgroundColor: 'hsl(var(--color-purple) / 0.07)', flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'hsl(var(--color-purple))' }}>Parcel of {asset.siteName || 'an assembled asset'}</div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.45 }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.45 }}>
                 Project detail (ownership, financials, zoning, team) is managed on the assemblage. This page holds only the info specific to this parcel.
               </div>
             </div>
@@ -290,7 +327,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
         {onFlag && (
           <AnchoredMenu anchorRef={flagBtnRef} open={!!flagMenu} onClose={() => setFlagMenu(null)} align="end" minWidth={210}
             style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
-            <div style={{ padding: '6px 10px 4px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--text-secondary)' }}>Flag for Review</div>
+            <div style={{ padding: '6px 10px 4px', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--text-secondary)' }}>Flag for Review</div>
             {FLAG_REASONS.map((r) => (
               <button key={r} type="button" role="menuitem"
                 onClick={() => { const m = flagMenu; setFlagMenu(null); if (m) onFlag(asset.id, m.section, m.label, r); }}
@@ -359,6 +396,12 @@ function buildSections(asset, isProperty, editing) {
     const key = normLabel(f.label);
     if (snapshotValues[key] === undefined || snapshotValues[key] === '') snapshotValues[key] = f.value;
   }));
+  // "119929" reads as "119,929" on the sheet; the raw value is what edit mode shows.
+  const numText = (field, v) => {
+    if (field.type !== 'num' || v === '' || v == null) return v;
+    const n = Number(String(v).replace(/[,\s]/g, ''));
+    return Number.isFinite(n) ? formatNumber(n) : v;
+  };
   const resolveValue = (field) => {
     if (field.type === 'stage') return asset.devStage || snapshotValues[normLabel(field.label)] || '';
     if (field.key && asset[field.key] != null && String(asset[field.key]).trim() !== '') return String(asset[field.key]);
@@ -401,6 +444,6 @@ function buildSections(asset, isProperty, editing) {
       title: group.group,
       fields: group.fields
         .filter((f) => (editing || !(stabilized && f.dev) || hasValue(f)) && classAllowed(f.cls) && f.key !== 'mapUrl' && !f.hidden)
-        .map((f) => ({ l: f.label, raw: resolveValue(f), t: f.type, contact: f.contact, key: f.key, options: f.options, ...withUnit(f) })),
+        .map((f) => ({ l: f.label, raw: editing ? resolveValue(f) : numText(f, resolveValue(f)), t: f.type, contact: f.contact, key: f.key, options: f.options, ...withUnit(f) })),
     }));
 }

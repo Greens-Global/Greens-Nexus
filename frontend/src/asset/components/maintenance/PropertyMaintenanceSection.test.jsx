@@ -135,7 +135,7 @@ describe('Property Maintenance with tickets', () => {
     expect(screen.getByRole('button', { name: 'Log Work' })).toBeTruthy();   // the one primary
     fireEvent.click(screen.getByRole('button', { name: 'More maintenance actions' }));
     expect(screen.getByRole('menuitem', { name: 'Create New Ticket' })).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: 'Start Walkthrough' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Batch Create' })).toBeTruthy();   // the modal's own title
     expect(screen.getByRole('menuitem', { name: 'Set Up Units' })).toBeTruthy();
   });
 

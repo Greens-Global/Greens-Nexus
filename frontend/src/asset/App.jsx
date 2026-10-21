@@ -8,7 +8,7 @@ import { RECORD_TYPES } from './lib/recordTypes.jsx';
 import { normLabel, genId, toNumber, snapMap } from './lib/format.js';
 import { editGuard } from './lib/editGuard.js';
 import { makeLogEntry, appendLog, diffChanges, recordDisplayName } from './lib/logging.js';
-import { SHARED_FILTER_GROUPS, LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS, recordViewsFor, stripTabsFor, recordLabel, assetSub, parseAssetSub, PORTFOLIO_SUB } from './lib/navigation.js';
+import { SHARED_FILTER_GROUPS, LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS, recordViewsFor, stripTabsFor, recordLabel, recordHint, assetSub, parseAssetSub, PORTFOLIO_SUB } from './lib/navigation.js';
 import { TIMELINE_FIELDS, permitColumns } from './lib/timelineFields.js';
 import { useNexusStore } from './lib/useNexusStore.js';
 import { portfolioStats, assetCompleteness } from './lib/assetMetrics.js';
@@ -122,7 +122,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         onSubChange?.(PORTFOLIO_SUB);
         return;
       }
-      const go = () => { setActiveId(target.id); setView(target.view); };
+      const go = () => { setActiveId(target.id); setView(target.view); if (target.item) setHighlight({ tab: target.view, section: '', field: '', item: target.item, at: Date.now() }); };
       if (editGuard.dirty) { onSubChange?.(wantSub); setPendingNav(() => go); setLeaveAsk(true); } else go();
     } else if (activeId && (!activeSub || activeSub === PORTFOLIO_SUB)) {
       const go = () => { setActiveId(null); setView('portfolio'); };
@@ -181,8 +181,11 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     // A row someone else saved since this tab read it: the server kept theirs,
     // the workspace was re-pulled; say so rather than overwrite in silence.
     const onConflict = (e) => {
+      const rows = e?.detail?.rows || [];
+      const names = rows.map((r) => r.name || r.scope || r.type || r.item || r.description || r.id).filter(Boolean).slice(0, 3);
       const n = (e?.detail?.ids || []).length || 1;
-      pushToast?.(`${n === 1 ? 'One record was' : n + ' records were'} changed by someone else - reloaded with their version.`, 'mut');
+      const what = names.length ? names.join(', ') + (n > names.length ? ` and ${n - names.length} more` : '') : (n === 1 ? 'One record' : `${n} records`);
+      pushToast?.(`Not saved: ${what} - someone else changed ${n === 1 ? 'it' : 'them'} first. Reloaded with their version; your version is kept on this device for this session.`, 'mut');
     };
     window.addEventListener('nexus:asset-save-failed', onSaveFailed);
     window.addEventListener('nexus:asset-save-conflict', onConflict);
@@ -796,15 +799,18 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
           behind one "more" button. The old hero + breadcrumb bar + pill strip
           put ~300px of chrome before any content (760px on a phone). */}
       {active && (
-        <div className="view-header" style={{ alignItems: 'center', marginBottom: 12 }}>
+        <div className={editState.editing ? 'view-header asset-head is-editing' : 'view-header asset-head'} style={{ alignItems: 'center', marginBottom: 12 }}>
           {/* flex-basis 320px: narrower than that (a phone) the action row wraps under
-              the title instead of squeezing the name to one letter a line. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 320px' }}>
+              the title instead of squeezing the name to one letter a line. Under
+              640px asset-styles keeps the back arrow and the name on one line, hides
+              the thumbnail and lets only the edit-mode actions wrap (.asset-head). */}
+          <div className="asset-head-main" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 320px' }}>
             <button type="button" className="secondary-btn" onClick={backToPortfolio} title="Back to Portfolio" aria-label="Back to Portfolio" style={{ padding: 8, flexShrink: 0 }}>
               <ArrowLeft size={16} />
             </button>
             {(active.images?.[0] || active.image) && (
               <img
+                className="asset-head-thumb"
                 src={active.images?.[0] || active.image}
                 alt=""
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
@@ -819,9 +825,10 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
               <p>{[cityRegion(active), assetKind === 'property' ? typeLabel(active) : ''].filter(Boolean).join(' · ') || '-'}</p>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+          <div className="asset-head-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
             {view === 'property' && !editState.editing && (
-              <button className="primary-btn" onClick={() => editGuard.startEdit?.()}>
+              <button className="primary-btn" onClick={() => editGuard.startEdit?.()} disabled={!serverOk}
+                title={serverOk ? undefined : 'Connecting to the server - editing opens once the latest copy is in.'}>
                 <Pencil size={14} /> Edit
               </button>
             )}
@@ -861,7 +868,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
           took sticky tab strips out app-wide (style.css, Sep 5). */}
       {active && (
         <div className="gt-tabs" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, borderBottom: '1px solid var(--wk-line)', flexWrap: 'wrap' }}>
-          <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
+          <div className="scroll-tabs asset-fade-x" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
             {stripTabs.map(([key, label]) => {
               const on = key === 'records' ? onRecords : view === key;
               const n = tabCount(key);
@@ -891,9 +898,12 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
 
       {/* Records: one segment per collection, counts beside the names, the open
           one lifted on the track - the same control the Maintenance tab uses for
-          its units. Scrolls sideways on a phone (.scroll-tabs). */}
+          its units. Scrolls sideways on a phone: the outer div is the scroller
+          (.scroll-tabs, edge fades under 640px), the inner one the track, so the
+          track grows with its segments instead of clipping them. */}
       {active && onRecords && (
-        <div className="scroll-tabs" role="tablist" aria-label="Record type" style={{ display: 'flex', gap: 2, padding: 3, marginBottom: 16, borderRadius: 10, background: 'var(--bg-secondary)', width: 'fit-content', maxWidth: '100%' }}>
+        <div className="scroll-tabs asset-fade-x" style={{ marginBottom: 16 }}>
+        <div role="tablist" aria-label="Record type" style={{ display: 'flex', gap: 2, padding: 3, borderRadius: 10, background: 'var(--bg-secondary)', width: 'max-content', maxWidth: 'none' }}>
           {recordViews.map((key) => {
             const on = view === key;
             const n = tabCount(key);
@@ -903,11 +913,16 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
                   fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
                   background: on ? 'var(--bg-card)' : 'transparent', color: on ? 'var(--text-primary)' : 'var(--text-secondary)', boxShadow: on ? 'var(--shadow-sm)' : 'none' }}>
                 {recordLabel(key)}
+                {recordHint(key) && <span style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>{` - ${recordHint(key)}`}</span>}
                 <span style={{ fontSize: 11.5, fontWeight: 600, color: on ? 'var(--text-secondary)' : 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>
               </button>
             );
           })}
         </div>
+        </div>
+      )}
+      {active && onRecords && recordHint(view) && (
+        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '-8px 0 12px 2px' }}>{recordLabel(view)} - {recordHint(view)}</div>
       )}
 
       {view === 'portfolio' && !active && loading && !visibleProperties.length && (
@@ -989,7 +1004,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       )}
       {view === 'permit' && active && (
         <SimpleRecordTable
-          title="Permit Matrix"
+          title="Permits"
           subtitle={active.name}
           rows={active.permits}
           cols={permitColumns(active.permits)}

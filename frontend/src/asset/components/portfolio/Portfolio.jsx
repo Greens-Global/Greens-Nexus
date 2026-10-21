@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutGrid, List, MapPin, Flag, Shapes, Search, X, ArrowUp, ArrowDown } from 'lucide-react';
+import { LayoutGrid, List, MapPin, Search, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { CATEGORIES, TYPES, deriveCategory, deriveType, cityRegion, typeLabel, stateAbbrev, stateSearchHaystack, assetRank } from '../../lib/portfolioCards.js';
 import { STAGE_FILTER_OPTIONS, baseStage } from '../../lib/stages.js';
 import { EmptyState } from '../shared/EmptyState.jsx';
@@ -18,18 +18,6 @@ import { ListTable } from './ListTable.jsx';
 // imported) only for the "Sorted: <Column>" chip label; kept as its own small constant so
 // Portfolio.jsx doesn't need to reach into ListTable's internals for display text.
 const SORT_COLUMN_LABELS = ['Asset', 'Type', 'Location', 'Stage', 'Owner', 'Asset Manager', 'Size'];
-
-// Icon-label span style, shared by the little Category/Stage/Type/Region glyphs that sit
-// directly to the left of each filter <select>.
-const filterIconLabelStyle = {
-  fontSize: '0.68rem',
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: '0.04em',
-  color: 'var(--text-secondary)',
-  display: 'inline-flex',
-  alignItems: 'center',
-};
 
 // Each select gives way before the row wraps (with the sidebar open at 1440 the
 // fixed 140px selects pushed "All Regions" onto its own line).
@@ -189,12 +177,10 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
             />
           </div>
 
-          <span title="Category" style={{ ...filterIconLabelStyle, color: 'var(--pine)' }}>
-            <LayoutGrid size={15} />
-          </span>
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
+            aria-label="Category"
             className="form-input"
             style={{ ...selectStyle, borderColor: categoryFilter ? 'var(--pine)' : undefined }}
           >
@@ -206,30 +192,21 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
 
           <span style={{ width: 1, height: 22, backgroundColor: 'var(--border-color)' }} />
 
-          <span title="Stage" style={filterIconLabelStyle}>
-            <Flag size={15} />
-          </span>
-          <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className="form-input" style={selectStyle}>
+          <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} aria-label="Stage" className="form-input" style={selectStyle}>
             <option value="">All Stages</option>
             {STAGE_FILTER_OPTIONS.map((stage) => (
               <option key={stage} value={stage}>{`${stage} (${stageCount(stage)})`}</option>
             ))}
           </select>
 
-          <span title="Asset type" style={filterIconLabelStyle}>
-            <Shapes size={15} />
-          </span>
-          <select value={typeFilter} onChange={(e) => setTypeFilter && setTypeFilter(e.target.value)} className="form-input" style={selectStyle}>
+          <select value={typeFilter} onChange={(e) => setTypeFilter && setTypeFilter(e.target.value)} aria-label="Asset Type" className="form-input" style={selectStyle}>
             <option value="">All Types</option>
             {availableTypes.map((type) => (
               <option key={type} value={type}>{`${type} (${typeCounts[type]})`}</option>
             ))}
           </select>
 
-          <span title="Region" style={filterIconLabelStyle}>
-            <MapPin size={15} />
-          </span>
-          <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} className="form-input" style={selectStyle}>
+          <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)} aria-label="Region" className="form-input" style={selectStyle}>
             <option value="">All Regions</option>
             {availableRegions.map((region) => (
               <option key={region} value={region}>{`${region} (${regionCounts[region]})`}</option>
@@ -265,8 +242,11 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
       )}
 
       {topLevelAssets.length === 0 ? (
-        <EmptyState>
-          No properties match the current filters{categoryFilter ? ` (${categoryFilter})` : ''}.
+        <EmptyState
+          action={hasAnyFilter ? 'Clear Filters' : undefined}
+          onAction={clearFilters}
+        >
+          {hasAnyFilter ? 'No assets match the current filters.' : 'No assets yet - Add Asset starts the portfolio.'}
         </EmptyState>
       ) : viewMode === 'map' ? (
         <PortfolioMap assets={topLevelAssets} openProperty={openProperty} />

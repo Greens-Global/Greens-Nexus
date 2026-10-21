@@ -145,7 +145,7 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
         <AnchoredMenu anchorRef={moreRef} open={moreOpen} onClose={() => setMoreOpen(false)} align="end" minWidth={220}
           style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
           <MenuRow icon={Ticket} onClick={() => { setMoreOpen(false); setComposing(true); }}>Create New Ticket</MenuRow>
-          {data?.canWalkthrough && <MenuRow icon={ClipboardCheck} onClick={() => { setMoreOpen(false); setWalking(true); }}>Start Walkthrough</MenuRow>}
+          {data?.canWalkthrough && <MenuRow icon={ClipboardCheck} onClick={() => { setMoreOpen(false); setWalking(true); }}>Batch Create</MenuRow>}
           <MenuRow icon={LayoutGrid} onClick={() => { setMoreOpen(false); setManaging(true); }}>{units.length ? 'Manage Units' : 'Set Up Units'}</MenuRow>
         </AnchoredMenu>
       </div>

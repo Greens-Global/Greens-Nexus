@@ -80,8 +80,35 @@
   .nexus-asset-root .coll-table > thead{ display: none !important; }
   .nexus-asset-root .coll-table > tbody > tr{ display: block; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-card) !important; box-shadow: var(--shadow-sm); margin-bottom: 8px; padding: 4px 13px; }
   .nexus-asset-root .coll-table > tbody > tr > td{ display: flex !important; justify-content: space-between; align-items: baseline; gap: 14px; width: auto !important; border: none !important; padding: 8px 0 !important; white-space: normal !important; text-align: right; }
-  .nexus-asset-root .coll-table > tbody > tr > td::before{ content: attr(data-label); font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); text-align: left; flex: 0 0 auto; padding-top: 3px; white-space: nowrap; }
+  .nexus-asset-root .coll-table > tbody > tr > td::before{ content: attr(data-label); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); text-align: left; flex: 0 0 auto; padding-top: 3px; white-space: nowrap; }
   .nexus-asset-root .coll-table > tbody > tr > td:empty{ display: none !important; }
+  /* A cell whose only content is the desktop "-" placeholder (CollectionTable
+     marks it data-empty) is dropped from the card instead of reading "SCOPE -". */
+  .nexus-asset-root .coll-table > tbody > tr > td[data-empty="1"]{ display: none !important; }
+}
+/* Phone detail header (C1 finish pass, Oct 2026): the back arrow and the name
+   share one line with the subtitle under it, the thumbnail is gone, and the
+   read-mode actions (Edit, more) stay beside the name; the wider edit-mode pair
+   (Cancel / Save Changes) wraps under it. The tab strip and the Records
+   segments scroll sideways under a fade at each edge: the scroller reaches
+   into the 12px page gutter so the fade covers the gutter, not the first tab,
+   and a strip that fits is never dimmed. */
+@media (max-width: 640px){
+  .nexus-asset-root .asset-head{ gap: 6px 8px !important; margin-bottom: 8px !important; padding-bottom: 10px !important; }
+  .nexus-asset-root .asset-head-main{ flex: 1 1 160px !important; gap: 8px !important; }
+  .nexus-asset-root .asset-head-thumb{ display: none !important; }
+  .nexus-asset-root .asset-head .view-title-group{ flex: 1 1 0; min-width: 0; }
+  .nexus-asset-root .asset-head .view-title-group h2{ flex-wrap: nowrap !important; }
+  .nexus-asset-root .asset-head .view-title-group h2 > span:first-child{ flex: 0 1 auto; min-width: 0; white-space: nowrap; }
+  .nexus-asset-root .asset-head .view-title-group p{ display: block !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nexus-asset-root .asset-head-actions{ flex-wrap: nowrap !important; gap: 6px !important; }
+  .nexus-asset-root .asset-head.is-editing .asset-head-actions{ flex: 1 1 100%; justify-content: flex-end; }
+  .nexus-asset-root .asset-fade-x{
+    margin-left: -12px !important; margin-right: -12px !important;
+    padding-left: 12px !important; padding-right: 12px !important;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+  }
 }
 /* The spec sheet's flag button: quiet until the row is hovered, always
    visible once flagged, while its menu is open, under keyboard focus, and on
