@@ -730,8 +730,8 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
                     const w = widths.width(c.key);
                     const size = w ? { width: w, minWidth: w, maxWidth: w } : {};
                     return (
-                      <th key={c.key} aria-label={c.label} className={i === 0 ? 'acct-label acct-head' : c.type === 'date' || c.type === 'text' ? undefined : 'acct-num'}
-                        style={{ position: i === 0 ? 'sticky' : 'relative', ...size, ...(c.emphasis ? EMPHASIS : {}) }}>
+                      <th key={c.key} aria-label={c.label} title={c.hint || undefined} className={i === 0 ? 'acct-label acct-head' : c.type === 'date' || c.type === 'text' ? undefined : 'acct-num'}
+                        style={{ position: i === 0 ? 'sticky' : 'relative', ...size, ...(c.emphasis ? EMPHASIS : {}), ...(c.hint ? { cursor: 'help' } : {}) }}>
                         {c.label}
                         <ColumnResizer {...widths.resizer(c.key, c.label)} />
                       </th>
@@ -934,10 +934,11 @@ function StatementRow({ row, columns, open, width = () => undefined, onToggle, o
 
 // The Review cell of a Flux line (Charmi, 10/15): Open (flagged, nothing
 // written - amber, someone has to act), Answered (an explanation is written -
-// the reviewer's turn), Closed (signed off - quiet). The check mark closes
-// the review, the arrow reopens it; only an editor sees them.
-const REVIEW_CHIP = { Open: 'acct-chip-warn', Answered: 'acct-chip-info', Closed: 'acct-chip-muted' };
-const REVIEW_HINT = { Open: 'Over the flux thresholds - needs an explanation', Answered: 'Explained - waiting for the reviewer to close it', Closed: 'Reviewed and closed' };
+// the reviewer's turn), Reviewed (signed off - quiet). The check mark marks it
+// Reviewed, the arrow reopens it; only an editor sees them.
+// Oct 22 (Charmi): the signed-off state reads Reviewed, not Closed.
+const REVIEW_CHIP = { Open: 'acct-chip-warn', Answered: 'acct-chip-info', Reviewed: 'acct-chip-muted' };
+const REVIEW_HINT = { Open: 'Over the flux thresholds - needs an explanation', Answered: 'Explained - waiting for the reviewer to mark it Reviewed', Reviewed: 'The variance is explained and a reviewer signed it off' };
 function ReviewCell({ row, value, note }) {
   const busy = note.busy === row.code;
   const name = `${row.code} ${row.title}`;
@@ -950,7 +951,7 @@ function ReviewCell({ row, value, note }) {
         {value ? <span className={`acct-chip ${REVIEW_CHIP[value] || 'acct-chip-muted'}`} title={`${REVIEW_HINT[value] || ''}${by}`}>{value}</span> : null}
         {note.canEdit && (closed
           ? <button type="button" style={iconBtn} disabled={busy} onClick={() => note.onReview(row.code, false)} aria-label={`Reopen the review of ${name}`} title="Reopen the review"><RotateCcw size={13} /></button>
-          : (value || row.flag) && <button type="button" style={iconBtn} disabled={busy} onClick={() => note.onReview(row.code, true)} aria-label={`Close the review of ${name}`} title="Reviewed - close this line"><Check size={13} /></button>)}
+          : (value || row.flag) && <button type="button" style={iconBtn} disabled={busy} onClick={() => note.onReview(row.code, true)} aria-label={`Mark ${name} Reviewed`} title="Mark Reviewed - the variance is explained"><Check size={13} /></button>)}
       </span>
     </td>
   );

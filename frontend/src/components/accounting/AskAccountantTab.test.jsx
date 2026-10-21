@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Accounting -> Reporting -> AMA, Ask My Accountant (Neil, 10/15): the screen
 // renders (a render smoke test - a crash here would blank the screen), the
@@ -45,12 +45,14 @@ vi.mock('../../api', () => ({
   },
 }));
 
-import AskAccountantTab, { SettingsDialog, exportTable, visibleRows } from './AskAccountantTab';
+import AskAccountantTab, { SettingsDialog, columnFilter, columnFiltering, exportTable, lineText, visibleRows } from './AskAccountantTab';
+import { setPendingOpen, __clearPendingOpen } from '../../lib/pendingOpen';
 import { api } from '../../api';
 import { resetAccountingPrefs } from './prefs';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __clearPendingOpen();
   resetAccountingPrefs();
   try { localStorage.clear(); } catch { /* private mode */ }
   api.getAskItems.mockImplementation(async () => items());
@@ -75,7 +77,7 @@ describe('AskAccountantTab', () => {
     expect(screen.getByRole('tab', { name: /Open 2/ })).toBeTruthy();
     expect(screen.getByRole('tab', { name: /Answered 1/ })).toBeTruthy();
     expect(screen.getByText(/AMA account: 99999 Ask My Accountant \(found by title\)/)).toBeTruthy();
-    for (const h of ['Date', 'Entity', 'Entry', 'Account', 'Description', 'Amount', 'Question', 'Asked By', 'Accountant', 'Status', 'Last Reply']) {
+    for (const h of ['Date', 'Entity', 'Entry', 'Account', 'Description', 'Department', 'Vendor', 'Custom', 'Amount', 'Question', 'Asked By', 'Accountant', 'Status', 'Last Reply']) {
       expect(screen.getByRole('columnheader', { name: h })).toBeTruthy();
     }
     fireEvent.click(screen.getByRole('tab', { name: /Answered/ }));
@@ -135,8 +137,81 @@ describe('AskAccountantTab', () => {
     expect(visibleRows(rows, { status: 'All', mine: 'assigned', me: ACCT }).map((r) => r.id)).toEqual(['T1', 'T2', 'T3']);
     expect(visibleRows(rows, { status: 'All', text: 'deposit' }).map((r) => r.id)).toEqual(['line:L2']);
     const t = exportTable(rows, { from: '2025-10-15', to: '2026-10-15' });
-    expect(t.columns.map((c) => c.label)).toEqual(['Date', 'Entity', 'Entry', 'Account', 'Description', 'Amount', 'Question', 'Asked By', 'Accountant', 'Status', 'Last Reply']);
-    expect(t.rows[0].slice(0, 6)).toEqual(['09/15/2026', '15000', 'GJ-100', '99999 Ask My Accountant', 'Home Depot card', 125]);
+    expect(t.columns.map((c) => c.label)).toEqual(['Date', 'Entity', 'Entry', 'Account', 'Description', 'Department', 'Vendor', 'Custom', 'Amount', 'Question', 'Asked By', 'Accountant', 'Status', 'Last Reply']);
+    expect(t.rows[0].slice(0, 9)).toEqual(['09/15/2026', '15000', 'GJ-100', '99999 Ask My Accountant', 'Home Depot card', '', '', '', 125]);
+  });
+
+  // Oct 22 (Priyanka): the export and the screen read the ledger LINE memo
+  // (what Intacct's AMA report shows), not the batch title, with the
+  // Department, Vendor and Custom columns beside it.
+  it('exports the line memo as Description with Department, Vendor and Custom', () => {
+    const r = thread({ description: 'Credit card transactions(Bank-AMEX Amazon): Batch Summary Entry', memo: 'Charge Card Transaction - GG - Amex - 1009: NEIL KADAKIA 1058 AMAZON MARKETPLACE',
+      department: '200 Operations', vendor: 'V00225 Amazon', custom: 'P7 Escondido' });
+    expect(lineText(r)).toMatch(/^Charge Card Transaction/);
+    const t = exportTable([r], { from: '2026-09-01', to: '2026-09-30' });
+    expect(t.rows[0].slice(4, 9)).toEqual(['Charge Card Transaction - GG - Amex - 1009: NEIL KADAKIA 1058 AMAZON MARKETPLACE', '200 Operations', 'V00225 Amazon', 'P7 Escondido', 125]);
+    expect(lineText({ description: 'Only the entry', memo: '' })).toBe('Only the entry');
+  });
+
+  // Oct 22 (Neil: "critical"): a filter box at the top of every column; they stack.
+  it('filters by column, amounts with operators, and stacks the filters', () => {
+    const rows = [thread({ id: 'A', amount: 125, vendor: 'V1 Amazon', date: '2025-12-02' }), thread({ id: 'B', amount: -40, vendor: 'V2 Home Depot', date: '2026-09-15' }),
+      thread({ id: 'C', amount: 5000, vendor: 'V1 Amazon', status: 'Answered', date: '2026-09-20' })];
+    expect(columnFilter(rows, {}).map((r) => r.id)).toEqual(['A', 'B', 'C']);
+    expect(columnFilter(rows, { vendor: 'amazon' }).map((r) => r.id)).toEqual(['A', 'C']);
+    expect(columnFilter(rows, { amount: { op: '>', a: '100' } }).map((r) => r.id)).toEqual(['A', 'C']);
+    expect(columnFilter(rows, { amount: { op: 'between', a: '100', b: '200' } }).map((r) => r.id)).toEqual(['A']);
+    expect(columnFilter(rows, { amount: { op: '=', a: '40' } }).map((r) => r.id)).toEqual(['B']);
+    expect(columnFilter(rows, { vendor: 'amazon', amount: { op: '<', a: '1000' } }).map((r) => r.id)).toEqual(['A']);
+    expect(columnFilter(rows, { date: '09/2026' }).map((r) => r.id)).toEqual([]);
+    expect(columnFilter(rows, { date: '/2026' }).map((r) => r.id)).toEqual(['B', 'C']);
+    expect(columnFilter(rows, { status: 'answered' }).map((r) => r.id)).toEqual(['C']);
+    expect(columnFilter(rows, { askedBy: 'val' }).length).toBe(3);
+    expect(columnFiltering({ vendor: '  ' })).toBe(false);
+    expect(columnFiltering({ amount: { op: '>', a: '' } })).toBe(false);
+    expect(columnFiltering({ amount: { op: '>', a: '1' } })).toBe(true);
+  });
+
+  it('filters the grid from the box under a column header, and clears them', async () => {
+    render(<AskAccountantTab />);
+    await screen.findByText('Which property is this for?');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Description' }), { target: { value: 'deposit' } });
+    expect(screen.queryByText('Which property is this for?')).toBeNull();
+    expect(screen.getByText('Unknown deposit')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Open 1/ })).toBeTruthy();       // the counts follow the filters
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter Amount' }), { target: { value: '41' } });
+    expect(screen.getByText(/Nothing here matches/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
+    expect(screen.getByText('Which property is this for?')).toBeTruthy();
+  });
+
+  // Oct 22 (Urmi): the period is the line's date; the questions it leaves out
+  // are counted, with a way to include them.
+  it('says how many questions are outside the period and widens it', async () => {
+    api.getAskItems.mockImplementation(async ({ from, to }) => ({ ...items(), from, to, outside: from <= '2025-03-04' ? { count: 0 } : { count: 2, open: 1, earliest: '2025-03-04', latest: '2025-12-01' } }));
+    render(<AskAccountantTab />);
+    const note = await screen.findByText(/2 questions are on lines dated outside/);
+    expect(note.textContent).toMatch(/1 not resolved/);
+    fireEvent.click(screen.getByRole('button', { name: 'Include Them' }));
+    await waitFor(() => expect(api.getAskItems).toHaveBeenLastCalledWith(expect.objectContaining({ from: '2025-03-04' })));
+    await waitFor(() => expect(screen.queryByText(/questions are on lines dated outside/)).toBeNull());
+  });
+
+  // The bell's "Open AMA" (Priyanka, 10/15: the page disappeared): the
+  // question it names opens on the AMA tab - from the note left for a tab
+  // still loading, or the live event for one already up.
+  it('opens the question the bell names, mounted or not', async () => {
+    setPendingOpen('amaThread', 'T2');
+    api.getAskThread.mockImplementation(async (id) => detail({ id, question: id === 'T2' ? 'Capitalize?' : 'Moved yet?' }));
+    render(<AskAccountantTab />);
+    const panel = await screen.findByRole('dialog', { name: 'Ask My Accountant Question' });
+    await waitFor(() => expect(api.getAskThread).toHaveBeenCalledWith('T2'));
+    expect(await within(panel).findByRole('list', { name: 'Thread' })).toBeTruthy();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Ask My Accountant Question' })).toBeNull();
+    act(() => { window.dispatchEvent(new CustomEvent('nexus:open-ama-thread', { detail: { id: 'T3' } })); });
+    expect(await screen.findByRole('dialog', { name: 'Ask My Accountant Question' })).toBeTruthy();
+    await waitFor(() => expect(api.getAskThread).toHaveBeenCalledWith('T3'));
   });
 
   it('shows the editor the settings and a plain error', async () => {

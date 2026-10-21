@@ -387,7 +387,7 @@ export function filterChips(config, entities = [], names = {}) {
     out.push({ key: 'flux-amount', label: fluxAmountText(config.fluxFilter), patch: { fluxFilter: { ...config.fluxFilter, a: '', b: '' } } });
   }
   if (config.report === 'flux' && config.fluxStatus && config.fluxStatus !== 'all') {
-    out.push({ key: 'flux-status', label: `Review: ${config.fluxStatus === 'flagged' ? 'Flagged' : config.fluxStatus[0].toUpperCase() + config.fluxStatus.slice(1)}`, patch: { fluxStatus: 'all' } });
+    out.push({ key: 'flux-status', label: `Review: ${config.fluxStatus === 'flagged' ? 'Flagged' : FLUX_STATUSES.find((x) => x.key === config.fluxStatus)?.label || config.fluxStatus}`, patch: { fluxStatus: 'all' } });
   }
   return out;
 }
@@ -1165,7 +1165,8 @@ async function fluxAnalysis(api, config, book) {
     { key: 'cur', label: rangeText(range), type: 'amount', drill: drillOf(range) },
     { key: 'prior', label: rangeText(prior), type: 'amount', drill: drillOf(prior) },
     { key: 'var', label: 'Variance $', type: 'variance' }, { key: 'pct', label: 'Variance %', type: 'pct' },
-    { key: 'flag', label: 'Review', type: 'text' }, { key: 'note', label: 'Explanation', type: 'text' },
+    // Oct 22 (Charmi: "what is Open / Closed for?"): the header explains itself.
+    { key: 'flag', label: 'Review', type: 'text', hint: FLUX_REVIEW_HINT }, { key: 'note', label: 'Explanation', type: 'text' },
   ];
   const lines = fluxRows(a.sections, b.sections, config);
   const wanted = config.accounts?.length ? new Set(config.accounts) : null;
@@ -1202,15 +1203,18 @@ async function fluxAnalysis(api, config, book) {
     { label: 'Change', value: [money(c.net - p.net), pct(c.net, p.net)].filter(Boolean).join(' · '), tone: c.net - p.net >= 0 ? 'good' : 'bad' },
     { label: 'Review', value: `${flagged.toLocaleString('en-US')} Open` },
   ];
-  const notes = [`A line is flagged when its variance passes both ${config.fluxPct}% and ${money(config.fluxAmount)} (Customize changes the thresholds). A flagged line is Open until its Explanation is written (the pencil edits it, the trash removes it), then Answered; a reviewer Closes it with the check mark. Removing an explanation reopens the line unless it was closed. Notes are kept for this entity set and period.`];
+  const notes = [`A line is flagged when its variance passes both ${config.fluxPct}% and ${money(config.fluxAmount)} (Customize changes the thresholds). A flagged line is Open until its Explanation is written (the pencil edits it, the trash removes it), then Answered; a reviewer marks it Reviewed with the check mark once the variance is explained. Removing an explanation reopens the line unless it was reviewed. Notes are kept for this entity set and period.`];
   return { org: a.org || '', generatedAt: a.generated_at || '', mode: 'compare', otherLabel: rangeText(prior), columns, rows, summary, pickable, notes, flux: { period: `${config.from}_${config.to}` } };
 }
 const FLUX_FLAG_AT = 4;    // the Review column's index
-/** The review states of a flux line, in the order they are worked (Charmi, 10/15). */
+/** The review states of a flux line, in the order they are worked (Charmi,
+ *  10/15). Oct 22 (Charmi: "what is the Open / Closed column for?"): the
+ *  signed-off state reads "Reviewed"; its key (and the stored `closed` flag)
+ *  did not change. */
 export const FLUX_STATUSES = [
-  { key: 'open', label: 'Open', hint: 'Flagged, no explanation yet' },
+  { key: 'open', label: 'Open', hint: 'Over the flux thresholds, no explanation yet' },
   { key: 'answered', label: 'Answered', hint: 'An explanation is written, waiting for the reviewer' },
-  { key: 'closed', label: 'Closed', hint: 'Reviewed and signed off' },
+  { key: 'closed', label: 'Reviewed', hint: 'The variance is explained and a reviewer signed it off' },
 ];
 const STATUS_LABEL = Object.fromEntries(FLUX_STATUSES.map((s) => [s.key, s.label]));
 /** One kept note as { note, closed, closedBy, closedAt } - an older answer was the text alone. */
@@ -1246,7 +1250,7 @@ export function withFluxNotes(result, notes) {
     };
   });
   const n = (x) => x.toLocaleString('en-US');
-  const summary = (result.summary || []).map((f) => (f.label === 'Review' ? { ...f, value: `${n(counts.open)} Open · ${n(counts.answered)} Answered · ${n(counts.closed)} Closed` } : f));
+  const summary = (result.summary || []).map((f) => (f.label === 'Review' ? { ...f, value: `${n(counts.open)} Open · ${n(counts.answered)} Answered · ${n(counts.closed)} Reviewed` } : f));
   return { ...result, rows, summary, fluxCounts: counts };
 }
 /**
@@ -1528,6 +1532,9 @@ export const NUM_OPS = [
   { key: '>=', label: '>=' }, { key: '<=', label: '<=' }, { key: 'between', label: 'Between' },
 ];
 /** "(3,418.07)" / "-3418.07" / "19.8%" -> a number; NaN when there is none. */
+/** The Flux Review column's header tooltip (Charmi, 10/22). */
+export const FLUX_REVIEW_HINT = 'Open: over the flux thresholds, no explanation yet. Answered: explained, waiting for the reviewer. Reviewed: signed off. Mark a line Reviewed once its variance is explained.';
+
 export function parseFigure(text) {
   const t = String(text ?? '').trim();
   if (!t || t === '-') return Number.NaN;

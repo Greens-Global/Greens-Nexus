@@ -2082,6 +2082,9 @@ export const api = {
   createAccountingPartnerChange: (body) => req('/accounting/partners/changes', { method: 'POST', body: JSON.stringify(body) }),
   decideAccountingPartnerChange: (id, decision, note = '') => req(`/accounting/partners/changes/${encodeURIComponent(id)}/${decision}`, { method: 'POST', body: JSON.stringify({ note }) }),
   exportAccountingPartnerChanges: (status = 'approved', kind = '') => reqBlob(`/accounting/partners/changes/export.csv?status=${status}${kind ? `&kind=${kind}` : ''}`),
+  // One vendor or customer drilled into (Charmi, 10/16): the record, its
+  // change requests and its ledger activity.
+  getAccountingPartnerRecord:   (kind, id) => req(`/accounting/partners/record/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`),
   // The monthly payroll allocation entry: the mapping, a preview for a month,
   // the runs kept, and a run as an Intacct GL import CSV or a workbook.
   getAllocationsMap:    () => req('/accounting/allocations/map'),
