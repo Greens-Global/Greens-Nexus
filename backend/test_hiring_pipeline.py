@@ -577,5 +577,162 @@ class FollowupTests(PipelineCase):
         self.assertIn("paste the transcript", iv.followup_note)
 
 
+class AfterMeetingTests(FollowupTests):
+    """Neil, Oct 19: the transcript was "not operational" - it only ever
+    started when someone clicked End Interview. Now the clock starts it."""
+
+    def _past(self):
+        self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).update(
+            {"at": "2026-01-05T15:00:00Z", "join_url": "https://teams/x"})
+        self.db.commit()
+
+    def test_a_finished_meeting_is_picked_up_and_the_transcript_completes_it(self):
+        self._past()
+        self.assertEqual(hi.start_after_meeting(self.db), 1)
+        self.db.commit()
+        iv = self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).first()
+        self.assertEqual((iv.status, iv.followup_status, iv.recording_status), ("scheduled", "waiting", "waiting"))
+        self.assertEqual(hi.start_after_meeting(self.db), 0)          # once only
+        self.transcript_ready = True
+        iv = self._step()
+        self.assertIn(iv.status, ("completed", "scored"))
+        self.assertEqual(self._stage(self.cid).stage, "decision")
+
+    def test_no_transcript_after_the_meeting_fails_quietly(self):
+        self._past()
+        hi.start_after_meeting(self.db)
+        self.db.commit()
+        for _ in range(len(hi.FOLLOWUP_BACKOFF_MIN) + 1):
+            iv = self._step()
+        self.assertEqual((iv.status, iv.followup_status), ("scheduled", "failed"))
+        self.assertIn("End Interview", iv.followup_note)
+        self.assertEqual(self._stage(self.cid).stage, "interview")
+        self.assertFalse(self.db.query(models.NexusNotification).filter(
+            models.NexusNotification.title.like("Interview Not Scored%")).count())
+
+    def test_a_meeting_still_running_is_left_alone(self):
+        from datetime import datetime, timedelta, timezone
+        soon = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat().replace("+00:00", "Z")
+        self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).update({"at": soon, "join_url": "https://teams/x"})
+        self.db.commit()
+        self.assertEqual(hi.start_after_meeting(self.db), 0)          # 45 minutes long - not over yet
+
+
+class TranscriptRefusalTests(unittest.TestCase):
+    """A 403 on the transcripts list used to read as "not published yet" and
+    was retried for two hours."""
+
+    def test_a_refusal_is_a_setup_problem(self):
+        class R:
+            status_code, is_success, text = 403, False, "Forbidden"
+        real = (hi._graph_token, hi._graph_meeting_ids, hi.httpx.get)
+        hi._graph_token = lambda: "t"
+        hi._graph_meeting_ids = lambda h, iv, db=None: ("oid", "mid")
+        hi.httpx.get = lambda *a, **k: R()
+        try:
+            with self.assertRaises(HTTPException) as ctx:
+                hi._fetch_transcript(None, models.HrInterview(id="x", join_url="https://teams/x"))
+        finally:
+            hi._graph_token, hi._graph_meeting_ids, hi.httpx.get = real
+        self.assertEqual(ctx.exception.status_code, 502)
+        self.assertIn("OnlineMeetingTranscript.Read.All", ctx.exception.detail)
+
+
+class DecisionTests(PipelineCase):
+    """Neil, Oct 19: interview over -> Decision. Everyone who interviewed says
+    Yes or No and why (on a task - Pranshu, Oct 20), the department head makes
+    the final call, then HR makes the offer."""
+
+    HEAD = "head@greensglobal.com"
+
+    def setUp(self):
+        super().setUp()
+        self.db.add(models.NexusEmployee(id="e-head", work_email=self.HEAD, first_name="Hedy", last_name="Lead",
+                                         company=ENT, status="active"))
+        self.db.add(models.HrDepartment(id="d-acct", company_id=ENT, name="Accounting", lead_email=self.HEAD))
+        self.db.commit()
+        self.cid = self._cand("screening", role_id="role-analyst")
+        self.iv = self._schedule(self.cid, interviewer_emails=[NEIL])
+
+    def tearDown(self):
+        self.db.query(models.Task).delete()
+        self.db.commit()
+        super().tearDown()
+
+    def _task(self):
+        self.db.expire_all()
+        return self.db.query(models.Task).filter_by(id=self._stage(self.cid).decision_task_id).first()
+
+    def _end(self):
+        hi.finish_interview(self.iv["id"], hi.FinishIn(answers=[]), user=HR_USER, db=self.db)
+
+    def test_end_interview_opens_decision_with_one_task_for_interviewers_and_the_head(self):
+        self._end()
+        self.assertEqual(self._stage(self.cid).stage, "decision")
+        t = self._task()
+        self.assertEqual(t.assignee_emails, [NEIL, self.HEAD])
+        self.assertIn("Decide on Jane Doe", t.title)
+        self.assertTrue(t.due_on)
+        bells = {n.recipient for n in self.db.query(models.NexusNotification).filter(
+            models.NexusNotification.title.like("Decide on %")).all()}
+        self.assertEqual(bells, {NEIL, self.HEAD})
+
+    def test_votes_count_and_the_heads_answer_is_the_final_call(self):
+        import hiring_decision as hd
+        self._end()
+        tid = self._task().id
+        self.assertTrue(hd.vote_from_comment(self.db, tid, NEIL, "<p>No - not enough Intacct</p>"))
+        self.db.commit()
+        self.assertEqual(self._stage(self.cid).decision, "")          # an interviewer does not decide
+        self.assertTrue(hd.vote_from_comment(self.db, tid, self.HEAD, "<p>Thanks all.</p>"))   # just a note
+        self.assertTrue(hd.vote_from_comment(self.db, tid, self.HEAD, "<p>Yes - I will train them</p>"))
+        self.db.commit()
+        c = self._stage(self.cid)
+        self.assertEqual((c.decision, c.decision_by), ("hire", self.HEAD))
+        self.assertTrue(self._task().completed)
+        self.assertTrue(self.db.query(models.NexusNotification).filter(
+            models.NexusNotification.recipient == HR_USER["email"],
+            models.NexusNotification.title == "Final Call On Jane Doe: Hire").count())
+        out = hr.candidate_decision(self.cid, user=HR_USER, db=self.db)
+        votes = {v["email"]: v["vote"] for v in out["votes"]}
+        self.assertEqual(votes, {NEIL: "no", self.HEAD: "yes"})
+        self.assertEqual(out["decision"], "hire")
+        kinds = [r["kind"] for r in hr.candidate_history(self.cid, user=HR_USER, db=self.db)]
+        self.assertEqual(kinds.count("vote"), 2)
+        self.assertFalse(hd.vote_from_comment(self.db, "another-task", NEIL, "Yes"))
+
+    def test_another_round_from_decision_goes_back_to_interview_and_closes_the_task(self):
+        self._end()
+        t = self._task()
+        self._schedule(self.cid, at="2026-11-09T17:00:00Z", interviewer_emails=[NEIL])
+        self.assertEqual(self._stage(self.cid).stage, "interview")
+        self.db.expire_all()
+        self.assertTrue(self.db.query(models.Task).filter_by(id=t.id).one().completed)
+
+    def test_decision_comes_between_interview_and_offer(self):
+        with self.assertRaises(HTTPException):          # no hand jump from Interview to Offer
+            hr.update_candidate(self.cid, hr.CandidateUpdate(stage="offer"), user=HR_USER, db=self.db)
+        hr.update_candidate(self.cid, hr.CandidateUpdate(stage="decision"), user=HR_USER, db=self.db)
+        self.assertEqual(self._stage(self.cid).stage, "decision")
+        self.assertTrue(self._task())
+        hr.update_candidate(self.cid, hr.CandidateUpdate(stage="rejected"), user=HR_USER, db=self.db)
+        self.assertTrue(self._task().completed)
+
+    def test_parse_vote(self):
+        from hiring_decision import parse_vote
+        for text, want in (("Yes - great", "yes"), ("yes.", "yes"), ("Hire", "yes"), ("\U0001F44D", "yes"),
+                           ("No", "no"), ("no, sorry", "no"), ("Reject", "no"), ("\U0001F44E nope", "no"),
+                           ("Not sure yet", ""), ("Yesterday they said", ""), ("Nothing to add", ""), ("", "")):
+            self.assertEqual(parse_vote(text), want, text)
+
+    def test_hr_contact_screens_with_the_department_head(self):
+        self.db.query(models.HrEntity).filter_by(id=ENT).update({"hr_contact_email": NEIL})
+        self.db.commit()
+        c = self._add(role_id="role-analyst")
+        cand = self.db.query(models.HrCandidate).filter_by(id=c["id"]).one()
+        task = self.db.query(models.Task).filter_by(id=cand.screen_task_id).one()
+        self.assertEqual(task.assignee_emails, [self.HEAD, NEIL])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -145,7 +145,8 @@ function History({ rounds, nameFor }) {
   );
 }
 
-export default function TimesheetReviewPanel({ review, self, anchor, periodLabel, nameFor, onChanged, toastOk, toastErr }) {
+// `below`: a card the time card hangs under the panel (a contractor's Invoice card, Oct 21).
+export default function TimesheetReviewPanel({ review, self, anchor, periodLabel, nameFor, onChanged, toastOk, toastErr, below = null }) {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [signing, setSigning] = useState(null);   // Nexus Sign party id
@@ -153,7 +154,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   // shows the meal and rest break statement and Report a Missed Break.
   const startSign = (partyId) => setSigning(partyId);
   const [reason, setReason] = useState('');
-  if (!review) return null;
+  if (!review) return below;
   const r = review;
   const name = (e) => (e ? nameFor?.(e) || e : '');
   const lastNote = [...(r.rounds || [])].reverse().find((e) => e.note)?.note;
@@ -366,6 +367,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
           <SignModal partyId={signing} onClose={() => setSigning(null)}
             onDone={() => { setSigning(null); onChanged?.(); }} toastOk={toastOk || (() => {})} toastErr={toastErr || (() => {})} />
         </div>, document.body)}
+      {below}
     </div>
   );
 }

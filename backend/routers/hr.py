@@ -273,6 +273,48 @@ def _with_backup(db: Session, out: dict) -> dict:
 _CONTRACTOR_PAY = ("rate", "rate_type", "currency", "billing_rate", "bill_rate")
 
 
+PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+
+
+def _norm_contractor(c: dict) -> dict:
+    """Contractor invoice settings (Pranshu, Oct 21): the next invoice number
+    is a whole number from 1 - anything else is dropped, never stored."""
+    c = dict(c or {})
+    try:
+        n = int(str(c.get("invoice_next_number", "")).strip())
+    except ValueError:
+        n = 0
+    if n >= 1:
+        c["invoice_next_number"] = n
+    else:
+        c.pop("invoice_next_number", None)
+    return c
+
+
+def _norm_compliance(c: dict) -> dict:
+    """PAN (India) is stored uppercased and only in its printed form."""
+    c = dict(c or {})
+    pan = str(c.get("pan") or "").strip().upper()
+    if pan and not PAN_RE.match(pan):
+        raise HTTPException(400, "PAN must be 5 letters, 4 digits and a letter, e.g. ABCDE1234F")
+    if pan:
+        c["pan"] = pan
+    else:
+        c.pop("pan", None)
+    return c
+
+
+GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+
+
+def _norm_gstin(v) -> str:
+    """A contractor's GSTIN (Pranshu, Oct 21): uppercased, printed form only; '' clears it."""
+    g = str(v or "").strip().upper()
+    if g and not GSTIN_RE.match(g):
+        raise HTTPException(400, "GSTIN must be 15 characters, e.g. 29ABCDE1234F1Z5")
+    return g
+
+
 def _team_view(row: dict) -> dict:
     """An employee as a manager sees them in People (Oct 6): Overview as is,
     but no Compliance records and no contractor rate - never pay."""
@@ -315,9 +357,9 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         postal_code=(body.postal_code or "").strip(),
         company=(body.company or "").strip(),
         identity_type=body.identity_type or "internal",
-        contractor=body.contractor or {},
+        contractor=_norm_contractor(body.contractor),
         personal=body.personal or {},
-        compliance=body.compliance or {},
+        compliance=_norm_compliance(body.compliance),
         notes=body.notes or "",
         created_by=user["email"],
         created_at=now,
@@ -360,6 +402,10 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             value = value.strip().lower()
         elif isinstance(value, str) and key != "notes":
             value = value.strip()
+        elif key == "contractor":
+            value = _norm_contractor(value)
+        elif key == "compliance":
+            value = _norm_compliance(value)
         before = getattr(row, key, None)
         if before != value:
             changes[key] = (before, value)
@@ -378,7 +424,8 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
         try:
             import json as _json
             from models import AuditLog
-            _mask = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation", "account")
+            # "compliance", not "pan": that substring is in "company". The PAN sits inside that JSON.
+            _mask = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation", "account", "compliance")
             shown = {k: ("(changed)" if any(m in k.lower() for m in _mask)
                          else [None if v[0] is None else str(v[0])[:120], None if v[1] is None else str(v[1])[:120]])
                      for k, v in changes.items()}
@@ -520,7 +567,7 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
 
 from models import HrCandidate, HrStageEvent, HrLeaveRequest, HrLeaveBalance, NexusNotification
 
-_STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
+_STAGES = ("applied", "screening", "interview", "decision", "offer", "hired", "rejected")
 # Moves HR makes by hand (Neil, Oct 8: each stage has its own action). Into
 # Interview only by SCHEDULING one (hr_interviews.schedule_interview) - "the
 # action should not be moved to interview. It should be schedule an interview"
@@ -528,11 +575,15 @@ _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
 # from Offer (the hiring packet hires by itself when signed).
 # Neil, Oct 14: "you should be able to go backwards to different stages" -
 # any earlier stage, by hand or by dragging the card. Hired is final.
+# Neil, Oct 19: "it should be interview over and then you take a decision" -
+# Decision sits between Interview and Offer (hiring_decision.py); the offer
+# itself starts from the offer flow (hr_life_events.start_offer).
 _STAGE_MOVES = {
     "applied":   {"screening", "rejected"},
     "screening": {"applied", "rejected"},
-    "interview": {"offer", "screening", "applied", "rejected"},
-    "offer":     {"hired", "interview", "screening", "applied", "rejected"},
+    "interview": {"decision", "screening", "applied", "rejected"},
+    "decision":  {"offer", "interview", "screening", "applied", "rejected"},
+    "offer":     {"hired", "decision", "interview", "screening", "applied", "rejected"},
     "rejected":  {"applied", "screening"},     # reopen
     "hired":     set(),
 }
@@ -617,6 +668,7 @@ def _ser_candidate(c: HrCandidate) -> dict:
         "expectedStart": c.expected_start, "source": c.source,
         "company": c.company or "", "roleId": c.role_id or "",
         "interviewAt": c.interview_at or "",
+        "decision": c.decision or "", "decisionBy": c.decision_by or "", "decisionAt": c.decision_at or "",
         "resumeUrl": c.resume_url, "notes": c.notes, "employeeId": c.employee_id,
         "createdAt": c.created_at, "updatedAt": c.updated_at,
     }
@@ -665,13 +717,16 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
              if all_roles or not (r.company_id or "") or (r.company_id or "") == company_id]
     if all_roles and scope is not None:        # questionnaire links: every role HR can see
         roles = [r for r in roles if not (r.company_id or "") or r.company_id in scope]
-    depts = []
+    depts, leads = [], {}
     if company_id:
         entity = db.query(HrEntity).filter(HrEntity.id == company_id).first()
         if entity:
             _ensure_departments(db, entity)
-            depts = [d.name for d in db.query(HrDepartment).filter(HrDepartment.company_id == company_id)
-                     .order_by(HrDepartment.sort_order, HrDepartment.name).all()]
+            rows = (db.query(HrDepartment).filter(HrDepartment.company_id == company_id)
+                    .order_by(HrDepartment.sort_order, HrDepartment.name).all())
+            depts = [d.name for d in rows]
+            # The interviewer picker puts the department's lead first (Neil, Oct 19).
+            leads = {d.name: [e.lower() for e in (d.lead_email, d.backup_email) if e] for d in rows}
     for r in roles:          # a role's department is always offered, even if the list lacks it
         if r.department and r.department not in depts:
             depts.append(r.department)
@@ -680,7 +735,7 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
                        "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", ""),
                        "defaultManagerEmail": (r.default_manager_email or "").lower()}
                       for r in roles],
-            "departments": depts, "sources": list(HIRING_SOURCES)}
+            "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES)}
 
 
 def _cand_in_scope(c: Optional[HrCandidate], scope) -> HrCandidate:
@@ -733,6 +788,17 @@ def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends
             "interviewers": [people.get(e, e) for e in (iv.interviewer_emails or [])]}
         out.append(d)
     return out
+
+
+@router.get("/candidates/{cid}/decision")
+def candidate_decision(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The Decision step on the card (Neil, Oct 19): each interviewer's Yes /
+    No and why, who has not answered, and the department head's final call."""
+    cand = _cand_in_scope(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), hr_scope(user, db))
+    if cand is None:
+        raise HTTPException(404, "Candidate not found")
+    import hiring_decision
+    return hiring_decision.summary(db, cand)
 
 
 @router.get("/candidates/{cid}/history")
@@ -936,7 +1002,9 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
     cand.employee_id = emp.id
     # Their onboarding checklist starts with the hire (hr_checklists.py).
     import hr_checklists
-    hr_checklists.start_on_hire(db, emp, actor)
+    # The role they were hired into adds its own steps - passed in, because
+    # cand.employee_id is not flushed yet (autoflush is off).
+    hr_checklists.start_on_hire(db, emp, actor, role_id=cand.role_id or "")
     # Their interview recordings and transcripts come with them onto the
     # profile's Documents (routers/hr_interviews.py).
     try:
@@ -948,7 +1016,8 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
 
 
 @router.patch("/candidates/{cid}")
-def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTasks = None,
+                     user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row:
         raise HTTPException(404, "Candidate not found")
@@ -958,6 +1027,7 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
         raise HTTPException(403, "You can't move a candidate to a company outside your People access")
     now = datetime.now(timezone.utc).isoformat()
     created_employee = None
+    decision_task = None
 
     if body.stage is not None and body.stage != row.stage:
         if body.stage not in _STAGES:
@@ -980,10 +1050,16 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
                                          "(on its card), then mark them hired.")
             if not (body.stage_note or "").strip():
                 raise HTTPException(400, "Say why they are marked hired by hand.")
-        db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
-                            to_stage=body.stage, note=(body.stage_note or "").strip(),
-                            by_email=user["email"], created_at=now))
-        row.stage = body.stage
+        import hiring_decision
+        if body.stage == "decision":
+            # The "Decide on" task for the interviewers and the department head.
+            decision_task = hiring_decision.enter(db, row, user["email"], (body.stage_note or "").strip())
+        else:
+            db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
+                                to_stage=body.stage, note=(body.stage_note or "").strip(),
+                                by_email=user["email"], created_at=now))
+            row.stage = body.stage
+            hiring_decision.close(db, row)           # left Decision - nothing left to decide
         if body.stage in ("rejected", "hired"):
             import hiring_screening
             hiring_screening.close(db, row)          # nothing left to screen
@@ -1052,6 +1128,9 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
     row.updated_at = now
     db.commit()
     db.refresh(row)
+    if decision_task is not None and background is not None:
+        from task_notify import notify_task_event
+        background.add_task(notify_task_event, decision_task.id, "assigned", user["email"])
     out = _ser_candidate(row)
     if created_employee:
         db.refresh(created_employee)
@@ -1602,6 +1681,11 @@ def _graph_token() -> str:
               "client_secret": _AZ_SECRET, "scope": "https://graph.microsoft.com/.default"},
         timeout=15,
     )
+    if 400 <= resp.status_code < 500:
+        # A wrong or expired secret is a setup problem, not a network blip to
+        # retry (it surfaced as "Teams did not answer (HTTPStatusError)").
+        raise HTTPException(502, f"Microsoft sign-in for Nexus failed ({resp.status_code}) - check "
+                                 "AZURE_CLIENT_SECRET on the API (it may have expired).")
     resp.raise_for_status()
     return resp.json()["access_token"]
 
@@ -2519,6 +2603,7 @@ class EntityIn(BaseModel):
     manager_emails:     Optional[list] = None   # company manager(s) (Nexus people or external users, Sep 29) - source of truth
     hr_contact_email:   Optional[str] = ""      # signs + finalizes timesheets (timesheet_review.py)
     signatory_email:    Optional[str] = ""      # the authorized signatory as a Nexus person (HR packets, Oct 14)
+    invoice_recipients: Optional[list] = None   # who gets a contractor's approved invoice by email (Oct 21)
 
 
 class EntityUpdate(BaseModel):
@@ -2545,6 +2630,18 @@ class EntityUpdate(BaseModel):
     manager_emails:     Optional[list] = None
     hr_contact_email:   Optional[str] = None
     signatory_email:    Optional[str] = None
+    invoice_recipients: Optional[list] = None
+
+
+def _norm_emails(emails) -> list:
+    """Free emails (no Nexus login needed): trimmed, lowercased, must carry an
+    @, no repeats, order kept."""
+    out = []
+    for e in emails or []:
+        e = str(e or "").strip().lower()
+        if "@" in e and e not in out:
+            out.append(e)
+    return out
 
 
 def _check_signatory_email(db: Session, email: str) -> str:
@@ -2588,6 +2685,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
         "hrContactEmail": e.hr_contact_email or "",
         "signatoryEmail": getattr(e, "signatory_email", "") or "",
+        "invoiceRecipients": e.invoice_recipients or [],
         "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
 
@@ -2629,6 +2727,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         manager_email=mgr_email, manager_emails=mgr_emails,
         hr_contact_email=(body.hr_contact_email or "").strip().lower(),
         signatory_email=_check_signatory_email(db, body.signatory_email or ""),
+        invoice_recipients=_norm_emails(body.invoice_recipients),
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -2672,6 +2771,8 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             value = value.strip().lower()
         elif key == "signatory_email":
             value = _check_signatory_email(db, value)
+        elif key == "invoice_recipients":
+            value = _norm_emails(value)
         elif key == "manager_emails":
             mgr_email, value = _norm_manager_emails(None, value)
             row.manager_email = mgr_email
@@ -3991,6 +4092,7 @@ def public_holidays(country: str = "US", year: Optional[int] = None, user: dict 
 class CompensationIn(BaseModel):
     compensation: Optional[dict] = None   # {base, payBasis, frequency, currency, effectiveDate, history[]}
     bank:         Optional[list] = None   # [{holder, number, routingOrIfsc, type, bankName}]
+    gstin:        Optional[str] = None    # contractor's GSTIN, kept in compensation JSON beside the bank list (Oct 21)
 
 
 @router.get("/employees/{eid}/compensation")
@@ -4004,10 +4106,13 @@ def get_compensation(eid: str, user: dict = Depends(require_comp_read_or_manager
         # A manager's read-only view of a direct report (Oct 7): pay, history
         # and benefits - never the bank accounts.
         _direct_report_or_404(user, row, db)
-        return {"compensation": row.compensation or {}, "bank": [], "readOnly": True,
+        # The GSTIN is bank-grade (Oct 21): a manager never sees it.
+        return {"compensation": {k: v for k, v in (row.compensation or {}).items() if k != "gstin"},
+                "bank": [], "gstin": "", "readOnly": True,
                 "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
     from own_pay import own_pay_locked
     return {"compensation": row.compensation or {}, "bank": row.bank or [],
+            "gstin": (row.compensation or {}).get("gstin", ""),
             "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row),
             # Your own record: pay is read-only (another admin or HR sets it), bank stays yours.
             "ownPayLocked": own_pay_locked(db, user, row.work_email, min_level=5, module_id="hr_comp")}
@@ -4275,8 +4380,20 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
                 "changedAt": datetime.now(timezone.utc).isoformat(), "changedBy": user["email"],
             })
         incoming["history"] = history
+        # A save of the pay record keeps the GSTIN it did not mention.
+        if "gstin" not in incoming and current.get("gstin"):
+            incoming["gstin"] = current["gstin"]
         row.compensation = incoming
         effective = str(incoming.get("effectiveDate") or "")
+    gstin_in = body.gstin if body.gstin is not None else (row.compensation or {}).get("gstin")
+    gstin = _norm_gstin(gstin_in)   # 400 before anything is committed
+    if gstin != ((row.compensation or {}).get("gstin") or ""):
+        comp = dict(row.compensation or {})
+        if gstin:
+            comp["gstin"] = gstin
+        else:
+            comp.pop("gstin", None)
+        row.compensation = comp
     if body.bank is not None:
         row.bank = body.bank
     row.updated_at = datetime.now(timezone.utc).isoformat()
@@ -4289,6 +4406,7 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
         append_rate_history(db, row, effective, by=user["email"])
     db.commit()
     return {"compensation": row.compensation or {}, "bank": row.bank or [],
+            "gstin": (row.compensation or {}).get("gstin", ""),
             "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
 

@@ -145,7 +145,12 @@ keep the diff minimal.
   body scrolling). Never a small fixed-width box that floats mid-page with
   empty space around it. Phones keep the full-screen sheet. The shared
   `Modal` in `tasks/components.jsx` is already 60vw wide; match it in any
-  hand-rolled overlay.
+  hand-rolled overlay. **The 60% is for content, not blank space** (Pranshu,
+  Oct 21 2026): the popup body is a flex column and the one part that should
+  take the remaining height - the notes textarea's wrapper, the list, the
+  table, the preview - carries `className="nx-fill"` (style.css) so it grows
+  into the space; never leave a short form floating over an empty bottom
+  half.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 
@@ -377,7 +382,12 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   with AM/PM (never 24-hour) - Charmi/Visesh, Aug 4. Use the shared helpers in
   `frontend/src/lib/datetime.js` (formatDate / formatTime / formatDateTime)
   instead of ad-hoc toLocale*/Intl.DateTimeFormat calls so it stays consistent
-  app-wide.
+  app-wide. Date BOXES are `DateField` (`tasks/components.jsx`), never a native
+  `<input type="date">` - that one follows the computer's region and shows
+  20-10-2026 on an Indian laptop (Neil, Oct 19). `npm run lint` (CI) fails on
+  any NEW native date box or toLocaleDateString / toLocaleTimeString /
+  Intl.DateTimeFormat call (`frontend/scripts/check-dates.mjs`; older code is
+  in its baseline and may only go down).
 - **UI text casing (Neil, Jul 28 — supersedes any earlier sentence-case note):
   Titles, headings, tab labels, and buttons use Title Case** ("Punch In",
   "Start Break", "Time Sheet", "Request Time Off"). So do status labels,

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Location on a punch (Visesh, Oct 20 2026): never blocks, always asks.
-// A missed fix shows Share Your Location with Try Again / Punch Without
-// Location; going without reports whether the browser had location blocked.
+// Location on a punch (Neil, Oct 21 2026): the punch never waits or asks -
+// it sends whatever the quick attempt found. Turn On on the red location bar
+// asks the browser, and shows the steps to allow it when that finds nothing.
 const getPosition = vi.fn();
 vi.mock('./geoPosition', () => ({ getPosition: (...a) => getPosition(...a) }));
 const confirm = vi.fn();
@@ -26,49 +26,49 @@ describe('punchLocation', () => {
   });
   afterEach(() => setPermission(null));
 
-  it('keeps the first fix without asking', async () => {
-    const r = await mod.askPunchPosition(Promise.resolve(POS));
-    expect(r).toEqual({ pos: POS, locationOff: false });
+  it('keeps the first fix', async () => {
+    expect(await mod.askPunchPosition(Promise.resolve(POS))).toEqual({ pos: POS, locationOff: false });
+  });
+
+  it('never asks at punch time - no fix punches straight away', async () => {
+    expect(await mod.askPunchPosition(null)).toEqual({ pos: null, locationOff: false });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(getPosition).not.toHaveBeenCalled();
+  });
+
+  it('reports Location Off when the browser blocks it', async () => {
+    setPermission('denied');
+    expect(await mod.askPunchPosition(null)).toEqual({ pos: null, locationOff: true });
     expect(confirm).not.toHaveBeenCalled();
   });
 
-  it('asks to share the location when there is no fix, and Try Again uses the longer timeout', async () => {
-    confirm.mockResolvedValueOnce(true);
+  it('Turn On asks the browser with the longer budget', async () => {
     getPosition.mockResolvedValueOnce(POS);
-    const r = await mod.askPunchPosition(null);
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(confirm.mock.calls[0][1]).toMatchObject({ title: 'Share Your Location', confirmText: 'Try Again', cancelText: 'Punch Without Location' });
+    expect(await mod.turnOnLocation()).toEqual(POS);
     expect(getPosition).toHaveBeenCalledWith(mod.LOCATION_RETRY_MS);
-    expect(r).toEqual({ pos: POS, locationOff: false });
+    expect(confirm).not.toHaveBeenCalled();
   });
 
-  it('keeps asking while Try Again still finds nothing', async () => {
-    confirm.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
-    getPosition.mockResolvedValueOnce(null);
-    const r = await mod.askPunchPosition(null);
-    expect(confirm).toHaveBeenCalledTimes(2);
-    expect(r).toEqual({ pos: null, locationOff: false });
-  });
-
-  it('Punch Without Location goes ahead - Location Off when the browser blocks it', async () => {
+  it('Turn On while blocked shows the steps; Not Now gives up', async () => {
     setPermission('denied');
     confirm.mockResolvedValueOnce(false);
-    const r = await mod.askPunchPosition(null);
-    expect(r).toEqual({ pos: null, locationOff: true });
-    expect(confirm.mock.calls[0][0]).toMatch(/turned off for Nexus/);
-    expect(confirm.mock.calls[0][0]).toMatch(/Location Off on your Time Sheet/);
+    expect(await mod.turnOnLocation()).toBeNull();
+    expect(getPosition).not.toHaveBeenCalled();
+    expect(confirm.mock.calls[0][0]).toMatch(/Set Location to Allow/);
+    expect(confirm.mock.calls[0][1]).toMatchObject({ title: 'Turn On Location', confirmText: 'Try Again', cancelText: 'Not Now' });
   });
 
-  it('a browser with no geolocation punches without asking', async () => {
+  it('Turn On with no fix: Try Again tries once more', async () => {
+    getPosition.mockResolvedValueOnce(null).mockResolvedValueOnce(POS);
+    confirm.mockResolvedValueOnce(true);
+    expect(await mod.turnOnLocation()).toEqual(POS);
+    expect(getPosition).toHaveBeenCalledTimes(2);
+    expect(confirm.mock.calls[0][0]).toMatch(/click Allow/);
+  });
+
+  it('a browser with no geolocation cannot turn it on', async () => {
     Object.defineProperty(navigator, 'geolocation', { configurable: true, value: undefined });
-    const r = await mod.askPunchPosition(null);
+    expect(await mod.turnOnLocation()).toBeNull();
     expect(confirm).not.toHaveBeenCalled();
-    expect(r).toEqual({ pos: null, locationOff: false });
-  });
-
-  it('the ask names the steps for each case', () => {
-    expect(mod.locationHelpText('denied')).toMatch(/Set Location to Allow/);
-    expect(mod.locationHelpText('prompt')).toMatch(/click Allow/);
-    expect(mod.locationHelpText('prompt')).toMatch(/No Location on your Time Sheet/);
   });
 });

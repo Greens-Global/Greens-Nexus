@@ -78,6 +78,20 @@ describe('AddTimeModal', () => {
     expect(chip('2026-10-05').getAttribute('aria-pressed')).toBe('false');
   });
 
+  it('shows every Type as a pill and sends the picked one as the category', async () => {
+    open();
+    await waitFor(() => expect(chip('2026-10-05')).toBeTruthy());
+    const group = screen.getByRole('radiogroup', { name: 'Type' });
+    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Work', 'Sick Day', 'Vacation', 'Personal']);
+    expect(within(group).getByRole('radio', { name: 'Work' }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(within(group).getByRole('radio', { name: 'Sick Day' }));
+    expect(within(group).getByRole('radio', { name: 'Sick Day' }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.change(screen.getByPlaceholderText(/Why this time is being added/), { target: { value: 'Out sick' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Preview/ }));
+    await waitFor(() => expect(apiMock.timeAddTime).toHaveBeenCalledTimes(1));
+    expect(apiMock.timeAddTime.mock.calls[0][0].category).toBe('Sick Day');
+  });
+
   it('previews as a dry run, then adds exactly that, then undoes the batch', async () => {
     const onDone = vi.fn(); const onClose = vi.fn();
     open({ onDone, onClose });

@@ -4,7 +4,7 @@ import {
   Clock, ChevronDown, ChevronRight, MapPin, AlertTriangle, Download,
   Pencil, Plus, X, CheckCircle, Ban,
   Activity, Inbox, Banknote, CalendarOff,
-  Search, Lock,
+  Search, Lock, Receipt,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -18,7 +18,7 @@ import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner, Spinner } from './AsyncState';
 import { formatDate, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
 import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
-import { TIMEOFF_FILTERS, countByStatus, filterAndSortTimeoff, nextSort } from '../lib/timeOffFilter';
+import { TIMEOFF_FILTERS, countByStatus, filterAndSortTimeoff, nextSort, yearsOf, inPeriod } from '../lib/timeOffFilter';
 import { takePendingOpen } from '../lib/pendingOpen';
 import TimesheetsToReview from './TimesheetsToReview';
 import { Avatar } from '../tasks/components';
@@ -31,6 +31,7 @@ import { ForChip } from './DelegateApprovals';
 import CaReview from './CaReview';
 import LongShiftWarning from './LongShiftWarning';
 import { checkLongShift } from '../lib/longShift';
+import ContractorInvoices from './ContractorInvoices';
 
 // Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
 // review and signed in Nexus Sign, so the per-day / per-period Approve
@@ -212,6 +213,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     window.addEventListener('nexus:open-punch-request', onOpenReq);
     return () => { window.removeEventListener('nexus:open-timecard', onOpen); window.removeEventListener('nexus:open-punch-request', onOpenReq); };
   }, [openTimecard, focusPunchRequest]);
+  // Contractor invoices waiting on HR (Oct 21) - the Invoices tab badge. HR only, never the manager tier.
+  const [invoiceDrafts, setInvoiceDrafts] = useState(0);
+  const loadInvoiceDrafts = useCallback(() => {
+    if (hrTeam) return;
+    Promise.resolve().then(() => api.contractorInvoices('draft')).then(r => setInvoiceDrafts((r?.invoices || []).length)).catch(() => {});
+  }, [hrTeam]);
+  useEffect(() => { loadInvoiceDrafts(); }, [loadInvoiceDrafts]);
   const [[start, end], setRange] = useState(() => weekRange(0));
   const [rows, setRows] = useState(null);
   const [open, setOpen] = useState({});          // email -> bool
@@ -513,6 +521,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     try { localStorage.setItem(timeoffFilterKey, f); } catch { /* private window */ }
   };
   const [timeoffSort, setTimeoffSort] = useState(null);   // null = server order (newest first)
+  const [timeoffYear, setTimeoffYear] = useState('');     // '' = all years (Neil, Oct 21)
+  const [timeoffMonth, setTimeoffMonth] = useState('');   // '01'..'12', '' = all months
   const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
 
   // Unsaved-changes guards for the edit/on-behalf/add-punch modals: an
@@ -554,7 +564,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
         {[['payroll', 'Payroll', Banknote],
           ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking, true],
-          ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0]].map(([key, label, Icon, badge, waiting]) => {
+          ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0],
+          ...(hrTeam ? [] : [['invoices', 'Invoices', Receipt, invoiceDrafts, true]])].map(([key, label, Icon, badge, waiting]) => {
           const on = view === key;
           return (
             <button key={key} onClick={() => setView(key)}
@@ -758,6 +769,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} />}
       {/* Retro Pay (Oct 17): back-dated rate changes on finalized periods. Pay - never the manager tier. */}
       {view === 'payroll' && !hrTeam && <RetroPayReport />}
+
+      {/* Contractor invoices (Oct 21): drafted at finalize, approved and emailed here. */}
+      {view === 'invoices' && !hrTeam && <ContractorInvoices toastOk={toastOk} toastErr={toastErr} onChanged={loadInvoiceDrafts} />}
 
 
       {/* Action Log (Neil, 10/06): punch-fix requests and missing punches were two
@@ -1017,8 +1031,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {view === 'timeoff' && (
         <>
         {(() => {
-          const counts = countByStatus(timeoff);
-          const shownRows = filterAndSortTimeoff(timeoff, timeoffFilter, timeoffSort);
+          const inRange = timeoff.filter(r => inPeriod(r, timeoffYear, timeoffMonth));
+          const counts = countByStatus(inRange);
+          const shownRows = filterAndSortTimeoff(inRange, timeoffFilter, timeoffSort);
+          const periodSel = { fontSize: 12, padding: '4px 6px' };
           const chips = TIMEOFF_FILTERS.filter(([k]) => k !== 'cancelled' || counts.cancelled > 0 || timeoffFilter === 'cancelled');
           const sortHead = (key, label, style) => {
             const on = timeoffSort?.key === key;
@@ -1048,6 +1064,15 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
               );
             })}
           </div>
+          <select className="form-input" aria-label="Year" value={timeoffYear} onChange={e => setTimeoffYear(e.target.value)} style={periodSel}>
+            <option value="">All Years</option>
+            {yearsOf(timeoff).map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <select className="form-input" aria-label="Month" value={timeoffMonth} onChange={e => setTimeoffMonth(e.target.value)} style={periodSel}>
+            <option value="">All Months</option>
+            {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+              .map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
+          </select>
           <button className="primary-btn" onClick={() => setObo({ email: '', type: 'vacation', start: '', end: '', note: '', confidential: false })}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}>
             <Plus size={13} /> Request on Behalf
@@ -1063,10 +1088,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           ) : shownRows.length === 0 && (
             <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
               {timeoff.length === 0 ? 'No time-off requests yet.'
+                : timeoffYear || timeoffMonth ? 'No requests in that period.'
                 : timeoffFilter === 'pending' ? 'No requests are waiting for a decision.'
                 : `No ${timeoffFilter} requests.`}
               {timeoff.length > 0 && (
-                <button type="button" className="secondary-btn" onClick={() => setTimeoffFilter('all')}
+                <button type="button" className="secondary-btn" onClick={() => { setTimeoffFilter('all'); setTimeoffYear(''); setTimeoffMonth(''); }}
                   style={{ fontSize: 12, padding: '4px 10px', marginLeft: 8 }}>Show All</button>
               )}
             </div>
@@ -1131,7 +1157,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
             onClick={e => e.target === e.currentTarget && setPerson(null)}>
-            <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 780, maxHeight: 'min(92dvh, 720px)', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
+            <div className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
               <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--wk-brand)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
                   {p.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}
@@ -1229,13 +1255,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {edit && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={e => e.target === e.currentTarget && editGuard.requestClose()}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(430px, 60vw, 700px)', boxShadow: 'var(--shadow-lg)' }}>
+          <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Clock size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Adjust punch - {KIND_LABEL[edit.kind]}</h3>
               <button onClick={editGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
-            <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
+            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}>
               {edit.originalAt && (
                 <p style={{ margin: 0, fontSize: 11.5, color: '#b45309' }}>Original time on record: {localTime(edit.originalAt, edit.timeZone)} (adjusted by {edit.adjustedBy})</p>
               )}
@@ -1244,9 +1270,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   onChange={e => { setLongWarn(null); setEdit(x => ({ ...x, atInput: e.target.value })); }} style={{ width: '100%' }} /></div>
               <div><label style={FL}>Punch note</label>
                 <input className="form-input" value={edit.note || ''} onChange={e => setEdit(x => ({ ...x, note: e.target.value }))} style={{ width: '100%' }} /></div>
-              <div><label style={FL}>Reason for adjustment</label>
-                <input className="form-input" placeholder="Shows in the audit trail" value={edit.adjustNote}
-                  onChange={e => setEdit(x => ({ ...x, adjustNote: e.target.value }))} style={{ width: '100%' }} /></div>
+              <div className="nx-fill"><label style={FL}>Reason for adjustment</label>
+                <textarea className="form-input" rows={3} placeholder="Shows in the audit trail" value={edit.adjustNote}
+                  onChange={e => setEdit(x => ({ ...x, adjustNote: e.target.value }))} style={{ width: '100%', fontFamily: 'inherit' }} /></div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
                 <input type="checkbox" checked={!!edit.voided} onChange={e => setEdit(x => ({ ...x, voided: e.target.checked }))}
                   style={{ width: 15, height: 15, accentColor: '#b91c1c' }} />
@@ -1275,13 +1301,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {obo && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={e => e.target === e.currentTarget && oboGuard.requestClose()}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(430px, 60vw, 700px)', boxShadow: 'var(--shadow-lg)' }}>
+          <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><CalendarOff size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Request Time Off on Behalf</h3>
               <button onClick={oboGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
-            <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
+            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}>
               <div><label style={FL}>Employee</label>
                 <select className="form-input" value={obo.email} onChange={e => setObo(p => ({ ...p, email: e.target.value }))} style={{ width: '100%' }}>
                   <option value="">Choose…</option>
@@ -1299,9 +1325,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 <div><label style={FL}>Last day</label>
                   <input className="form-input" type="date" value={obo.end} onChange={e => setObo(p => ({ ...p, end: e.target.value }))} style={{ width: '100%' }} /></div>
               </div>
-              <div><label style={FL}>Reason</label>
-                <input className="form-input" aria-label="Reason" placeholder="Why they are off, e.g. called in sick this morning" value={obo.note}
-                  onChange={e => setObo(p => ({ ...p, note: e.target.value }))} style={{ width: '100%' }} /></div>
+              <div className="nx-fill"><label style={FL}>Reason</label>
+                <textarea className="form-input" rows={3} aria-label="Reason" placeholder="Why they are off, e.g. called in sick this morning" value={obo.note}
+                  onChange={e => setObo(p => ({ ...p, note: e.target.value }))} style={{ width: '100%', fontFamily: 'inherit' }} /></div>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
                 <input type="checkbox" checked={!!obo.confidential} onChange={e => setObo(p => ({ ...p, confidential: e.target.checked }))} style={{ marginTop: 2 }} />
                 <span>
@@ -1332,22 +1358,22 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {addFor && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={e => e.target === e.currentTarget && addGuard.requestClose()}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(430px, 60vw, 700px)', boxShadow: 'var(--shadow-lg)' }}>
+          <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Plus size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Add punch - {addFor}</h3>
               <button onClick={addGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
-            <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
+            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}>
               <div><label style={FL}>Kind</label>
                 <select className="form-input" value={addP.kind} onChange={e => setAddP(p => ({ ...p, kind: e.target.value }))} style={{ width: '100%' }}>
                   {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                 </select></div>
               <div><label style={FL}>{(() => { const t = zoneTag((rows || []).find(x => x.email === addFor)?.timeZone); return t ? `Time (${t}, the employee's clock)` : 'Time'; })()}</label>
                 <input className="form-input" type="datetime-local" value={addP.at} onChange={e => { setLongWarn(null); setAddP(p => ({ ...p, at: e.target.value })); }} style={{ width: '100%' }} /></div>
-              <div><label style={FL}>Note</label>
-                <input className="form-input" placeholder="e.g. forgot to punch out" value={addP.note}
-                  onChange={e => setAddP(p => ({ ...p, note: e.target.value }))} style={{ width: '100%' }} /></div>
+              <div className="nx-fill"><label style={FL}>Note</label>
+                <textarea className="form-input" rows={3} placeholder="e.g. forgot to punch out" value={addP.note}
+                  onChange={e => setAddP(p => ({ ...p, note: e.target.value }))} style={{ width: '100%', fontFamily: 'inherit' }} /></div>
               <LongShiftWarning issue={longWarn?.form === 'add' ? longWarn.issue : null} manager busy={busy}
                 onFix={() => setLongWarn(null)}
                 onUseSuggestion={(w) => { setLongWarn(null); setAddP(p => ({ ...p, at: w.suggest })); }}

@@ -112,8 +112,8 @@ describe('TimesheetsToReview', () => {
     expect(container.textContent).toBe('');
   });
 
-  // Approve All Clean (Neil, Oct 17).
-  it('approves every clean one after a confirm, and says what stays', async () => {
+  // Review All Clean (Neil, Oct 17; Oct 21: tick what you looked at, only ticked ones go).
+  it('approves only the clean ones ticked as reviewed, and says what stays', async () => {
     waiting.mockResolvedValue({ reviews: [
       row(),
       row({ id: '', employeeEmail: 'ezra@x.com', name: 'Ezra Test', notSubmitted: true, submittedAt: '', note: '' }),
@@ -122,19 +122,32 @@ describe('TimesheetsToReview', () => {
       row({ id: 'r4', employeeEmail: 'max@x.com', name: 'Max Test', agreeBlocker: 'Fix this on the time sheet before you can approve - 09/04/2026: no clock-out - add the out time. Or send it back to the employee to fix.',
         reviewFlag: 'Fix this on the time sheet before you can approve - 09/04/2026: no clock-out - add the out time. Or send it back to the employee to fix.' }),
     ] });
+    bulk.mockResolvedValue({ approved: 1, skipped: 0, failed: 0, results: [] });
     const toastOk = vi.fn();
-    render(<TimesheetsToReview onOpen={() => {}} toastOk={toastOk} />);
-    fireEvent.click(await screen.findByText('Approve All Clean (2)'));
-    const dialog = screen.getByRole('dialog', { name: 'Approve All Clean' });
-    expect(dialog).toHaveTextContent('2 time sheets will be approved and sent to each employee to sign.');
+    const onOpen = vi.fn();
+    render(<TimesheetsToReview onOpen={onOpen} toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('Review All Clean (2)'));
+    const dialog = screen.getByRole('dialog', { name: 'Review All Clean' });
+    expect(dialog).toHaveTextContent('Tick each time sheet once you have looked it over.');
+    expect(dialog.querySelector('[data-bulk="going"]')).toHaveTextContent(/Erin Test.*Ezra Test/);
     expect(dialog).toHaveTextContent('2 time sheets stay here for one-by-one review');
     expect(dialog.querySelector('[data-bulk="skipped"]')).toHaveTextContent(/Olive Test.*Unusually long shift/);
     expect(dialog.querySelector('[data-bulk="skipped"]')).toHaveTextContent(/Max Test.*no clock-out/);
+    // Nothing goes until something is ticked.
+    const go = screen.getByText('Approve Reviewed (0)').closest('button');
+    expect(go.disabled).toBe(true);
+    fireEvent.click(screen.getByLabelText('Reviewed - Ezra Test'));
     expect(bulk).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText('Approve 2 Time Sheets'));
-    await waitFor(() => expect(bulk).toHaveBeenCalledWith([{ id: 'r1' }, { email: 'ezra@x.com', start: '2026-09-01' }], ''));
-    await waitFor(() => expect(toastOk).toHaveBeenCalledWith('2 time sheets approved and sent to sign.'));
+    fireEvent.click(screen.getByText('Approve Reviewed (1)'));
+    await waitFor(() => expect(bulk).toHaveBeenCalledWith([{ email: 'ezra@x.com', start: '2026-09-01' }], ''));
+    await waitFor(() => expect(toastOk).toHaveBeenCalledWith('1 time sheet approved and sent to sign.'));
     await waitFor(() => expect(waiting).toHaveBeenCalledTimes(2));   // the list refreshed
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // Reopened: the ticks start fresh, and Open hands the row to the caller.
+    fireEvent.click(await screen.findByText('Review All Clean (2)'));
+    expect(screen.getByLabelText('Reviewed - Ezra Test').checked).toBe(false);
+    fireEvent.click(screen.getAllByText('Open')[0]);
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ employeeEmail: 'erin@x.com', periodStart: '2026-09-01' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
@@ -142,17 +155,18 @@ describe('TimesheetsToReview', () => {
     bulk.mockResolvedValue({ approved: 0, skipped: 0, failed: 1, results: [{ id: 'r1', status: 'failed', error: 'Storage is down.' }] });
     const toastErr = vi.fn();
     render(<TimesheetsToReview onOpen={() => {}} toastErr={toastErr} />);
-    fireEvent.click(await screen.findByText('Approve All Clean (1)'));
-    fireEvent.click(screen.getByText('Approve 1 Time Sheet'));
+    fireEvent.click(await screen.findByText('Review All Clean (1)'));
+    fireEvent.click(screen.getByLabelText('Reviewed - Erin Test'));
+    fireEvent.click(screen.getByText('Approve Reviewed (1)'));
     await waitFor(() => expect(toastErr).toHaveBeenCalledWith('0 time sheets approved and sent to sign, 1 failed. Storage is down.'));
   });
 
   it('is disabled with the reason when nothing is clean', async () => {
     waiting.mockResolvedValue({ reviews: [row({ reviewFlag: 'Look at this before approving - 09/03/2026: Unusually long shift.' })] });
     render(<TimesheetsToReview onOpen={() => {}} />);
-    const btn = (await screen.findByText('Approve All Clean (0)')).closest('button');
+    const btn = (await screen.findByText('Review All Clean (0)')).closest('button');
     expect(btn.disabled).toBe(true);
-    expect(screen.getByText(/Nothing to approve in one click/)).toBeTruthy();
+    expect(screen.getByText(/Nothing to review in one pass/)).toBeTruthy();
     expect(screen.getByText(/Unusually long shift/)).toBeTruthy();       // the row says why
   });
 });

@@ -1179,6 +1179,41 @@ def _run_migrations():
             "ALTER TABLE ops_competitor_rates ADD COLUMN locked_until VARCHAR DEFAULT ''",
             "ALTER TABLE ops_competitor_rates ADD COLUMN override_reason VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_ops_competitor_rates_survey_id ON ops_competitor_rates (survey_id)",
+            # Hiring Decision step (Neil, Oct 19, hiring_decision.py). models.HrCandidate.
+            "ALTER TABLE hr_candidates ADD COLUMN decision_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision_by VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN decision_note VARCHAR DEFAULT ''",
+            # Checklists by role, and a task per owner (Neil, Oct 19). models.HrChecklistTemplate / HrChecklistItem.
+            "ALTER TABLE hr_checklist_templates ADD COLUMN role_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_checklist_items ADD COLUMN task_id VARCHAR DEFAULT ''",
+            # Payroll / Finance -> Accounting, Equipment -> IT (Neil, Oct 19).
+            "UPDATE hr_checklist_items SET owner_role = 'accounting' WHERE owner_role IN ('payroll', 'finance')",
+            "UPDATE hr_checklist_items SET owner_role = 'it' WHERE owner_role = 'equipment'",
+            # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
+            "ALTER TABLE hr_checklist_items ADD COLUMN owner_emails VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_checklist_items ADD COLUMN comments JSON DEFAULT '[]'",
+            # AMA questions keep the line's Department / Vendor / Custom (Priyanka, Oct 22). models.AccountingAmaThread.
+            "ALTER TABLE accounting_ama_threads ADD COLUMN department VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_ama_threads ADD COLUMN vendor VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_ama_threads ADD COLUMN custom VARCHAR DEFAULT ''",
+            # MRI / MRE feedback (Oct 22): MRI frequency, MRE Egnyte folder, Possibly Ended flags. models.Lease / RecurringExpense.
+            "ALTER TABLE leases ADD COLUMN frequency VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN frequency_months INTEGER DEFAULT 0",
+            "ALTER TABLE leases ADD COLUMN stale_since VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN stale_last_paid VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN stale_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN stale_since VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN stale_last_paid VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN stale_task_id VARCHAR DEFAULT ''",
+            # Accounting > Loans (Charmi, Oct 22) - see the Postgres list.
+            "ALTER TABLE accounting_loan_settings ADD COLUMN loan_number VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN vendor_id VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN vendor_name VARCHAR DEFAULT ''",
+            # Contractor invoices (Oct 21): the company's payer emails. models.HrEntity.
+            "ALTER TABLE hr_entities ADD COLUMN invoice_recipients JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2679,6 +2714,58 @@ def _run_migrations():
         "ALTER TABLE ops_cma_changes ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_cma_snapshots ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_cma_events ENABLE ROW LEVEL SECURITY",
+        # Operations > Customer Map (Oct 21 2026, ops_customer_geo.py): one new
+        # table, rounded points only, explicit RLS. models.OpsCustomerPoint.
+        "ALTER TABLE ops_customer_points ENABLE ROW LEVEL SECURITY",
+        # Hummingbird history (Oct 21 2026, hb_models.py / hb_load.py): the HB
+        # export mirror - nine new tables, explicit RLS.
+        "ALTER TABLE hb_loads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_properties ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_units ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_leases ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_lease_months ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_leads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_report_rows ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_reports ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hb_rate_months ENABLE ROW LEVEL SECURITY",
+        # Hiring Decision step (Neil, Oct 19, hiring_decision.py). models.HrCandidate.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_by VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS decision_note VARCHAR DEFAULT ''",
+        # Checklists by role, and a task per owner (Neil, Oct 19). models.HrChecklistTemplate / HrChecklistItem.
+        "ALTER TABLE hr_checklist_templates ADD COLUMN IF NOT EXISTS role_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS task_id VARCHAR DEFAULT ''",
+        # Payroll / Finance -> Accounting, Equipment -> IT (Neil, Oct 19).
+        "UPDATE hr_checklist_items SET owner_role = 'accounting' WHERE owner_role IN ('payroll', 'finance')",
+        "UPDATE hr_checklist_items SET owner_role = 'it' WHERE owner_role = 'equipment'",
+        # Several owners per step, and step comments (Pranshu, Oct 20). models.HrChecklistItem.
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS owner_emails VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'",
+        # AMA questions keep the line's Department / Vendor / Custom (Priyanka, Oct 22). models.AccountingAmaThread.
+        "ALTER TABLE accounting_ama_threads ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_ama_threads ADD COLUMN IF NOT EXISTS vendor VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_ama_threads ADD COLUMN IF NOT EXISTS custom VARCHAR DEFAULT ''",
+        # MRI / MRE feedback (Oct 22): MRI frequency (''/monthly = as before), MRE Egnyte folder,
+        # Possibly Ended flags set by recurring_stale. Additive only. models.Lease / RecurringExpense.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS frequency VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS frequency_months INTEGER DEFAULT 0",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS stale_since VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS stale_last_paid VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS stale_task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS egnyte_folder VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_since VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_last_paid VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS stale_task_id VARCHAR DEFAULT ''",
+        # Accounting > Loans (Charmi, Oct 22): the real loan number (Loan # showed
+        # the GL account, now its own GL Code column) and the lender's vendor id
+        # that Interest / Principal Paid are read by.
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS loan_number VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS vendor_id VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS vendor_name VARCHAR DEFAULT ''",
+        # Contractor invoices (Oct 21): the company's payer emails. models.HrEntity.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS invoice_recipients JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3425,6 +3512,15 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(leasing_sync_loop()))
         except Exception as e:
             print(f"[startup] leasing sync skipped: {e}")
+        # MRI / MRE Possibly Ended check (Neil, Oct 21): once a day, flags
+        # active lines with nothing posted for N months and opens one
+        # accounting task each. Deployed-worker gated inside; reads async,
+        # writes in a thread (recurring_stale.py).
+        try:
+            from recurring_stale import recurring_stale_loop
+            _tasks.append(_a.create_task(recurring_stale_loop()))
+        except Exception as e:
+            print(f"[startup] recurring stale check skipped: {e}")
         try:
             # Pay period close alerts (Oct 19 2026): every half hour, in a
             # thread - one notice per approver per closed period listing the
@@ -3711,6 +3807,19 @@ async def lifespan(app: FastAPI):
                 print("[startup] weekly ticket report skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] weekly ticket report skipped: {e}")
+        # Customer Map (Operations, Oct 21 2026, ops_customer_geo.py): current
+        # customers' points, looked up once per address through the shared
+        # Nominatim pacer (one request a second with the asset geocode loop).
+        # Deployed worker only; every Cubby / DB / Nominatim call in a thread.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ops_customer_geo import customer_geo_loop
+                _tasks.append(_a.create_task(customer_geo_loop()))
+            else:
+                print("[startup] Customer Map geocode loop skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Customer Map geocode loop skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:
@@ -4211,3 +4320,7 @@ from routers import ops_settings as ops_settings_router  # noqa: E402
 app.include_router(ops_settings_router.router)     # Operations settings: the Push to Cubby switch, OFF by default (Visesh, Oct 21 2026)
 from routers import ops_cma as ops_cma_router  # noqa: E402
 app.include_router(ops_cma_router.router)          # Operations > Rate Management CMA: comp set, surveys, history, review & push (Miranda, Oct 21 2026)
+from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
+app.include_router(ops_customer_map_router.router)  # Operations > Customer Map: current customers around each facility, with rings (Neil, Oct 21 2026)
+from routers import contractor_invoices as contractor_invoices_router  # noqa: E402
+app.include_router(contractor_invoices_router.router)  # Contractor invoices: drafted at Time Sheet finalize, HR approves and sends the PDF (Pranshu + Neil, Oct 21 2026)

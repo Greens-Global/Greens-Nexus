@@ -26,7 +26,6 @@ const INVENTORY_MANAGER_ACTIONS = [
   { sub: 'manage',       label: 'Manage',    Icon: ClipboardList },
   { sub: 'checkouts',    label: 'Checkouts', Icon: ShoppingCart },
   { sub: 'whohasit',     label: 'Who Has',   Icon: Users },
-  { sub: 'purchasereqs', label: 'Purchases', Icon: FileText },
   { sub: 'audit',        label: 'Log',       Icon: History },
 ];
 const INVENTORY_EMPLOYEE_ACTIONS = [

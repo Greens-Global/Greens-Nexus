@@ -33,6 +33,7 @@ import { pairLocalAgent } from '../lib/agentPair';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import DocumentsToSign from '../components/DocumentsToSign';
 import DelegateApprovalsCard from '../components/DelegateApprovals';
+import PurchaseRequests from '../components/PurchaseRequests';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -67,6 +68,8 @@ const TAB_META = {
   overview:  { title: 'Workday',    label: 'Overview' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet' },
   timeoff:   { title: 'Time Off',   label: 'Time Off' },
+  // Moved here from Item Management (Neil, Oct 22 2026) - next to HR and reimbursements.
+  purchase:  { title: 'Purchase Requests', label: 'Purchase Requests' },
 };
 // The Clock tab folded into Overview (Oct 2), and so did your own shifts
 // (Neil, Oct 13 2026: "the personal shift data should move into your
@@ -76,8 +79,9 @@ const TAB_META = {
 // unlocked) carry for the employee - that is the Time Sheet tab (Oct 16: it
 // used to fall through to Overview).
 // "reimbursements" (a reimbursement bell, Oct 18 2026) is the Overview with its panel open.
+// "purchase:new" (the old Purchase view's New Request, Oct 22 2026) is the Purchase Requests tab with its form open.
 const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
-  : sub === 'timecard' ? 'timesheet' : sub);
+  : sub === 'timecard' ? 'timesheet' : /^purchase(:|$)/.test(sub || '') ? 'purchase' : sub);
 // "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
 const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
 // "sign:<party id>" (Oct 18): a Nexus Sign document to sign - Documents to Sign opens it.
@@ -164,13 +168,14 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
        row: chip, then number / label / hint, then the arrow. */
     .wd-statgrid { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
     .wd-statgrid--nohours { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    /* Ask HR + Reimbursements (Oct 18 2026): two compact rows sharing the last
-       cell, so neither squeezes the row to "Document..." - the same tile look,
-       a smaller badge, no pill. */
-    .wd-actions { display: grid; grid-template-rows: 1fr 1fr; gap: 8px; min-width: 0; }
-    .wd-actions > .dk-stat.wd-stat.wd-askhr { padding: 8px 12px; gap: 10px; min-height: 0; box-shadow: 0 3px 10px rgba(43, 69, 225, .08); }
+    /* Ask HR + Reimbursements (Oct 18 2026) + Purchase Request (Oct 22 2026):
+       compact rows sharing the last cell, so none squeezes the row to
+       "Document..." - the same tile look, a smaller badge, no pill. Three
+       rows run a touch tighter than two did. */
+    .wd-actions { display: grid; grid-template-rows: repeat(3, 1fr); gap: 6px; min-width: 0; }
+    .wd-actions > .dk-stat.wd-stat.wd-askhr { padding: 6px 12px; gap: 10px; min-height: 0; box-shadow: 0 3px 10px rgba(43, 69, 225, .08); }
     .wd-actions > .dk-stat.wd-stat.wd-askhr::after { width: 64px; height: 64px; right: -22px; top: -22px; }
-    .wd-actions .wd-askhr-badge { width: 30px; height: 30px; border-radius: 9px; box-shadow: 0 3px 8px rgba(43, 69, 225, .25); }
+    .wd-actions .wd-askhr-badge { width: 28px; height: 28px; border-radius: 9px; box-shadow: 0 3px 8px rgba(43, 69, 225, .25); }
     .wd-actions .wd-askhr-badge svg { width: 15px; height: 15px; }
     .wd-actions .wd-askhr-dot { top: -3px; right: -3px; width: 9px; height: 9px; }
     .wd-actions .wd-askhr-title { font-size: 13.5px; }
@@ -214,11 +219,13 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
          beside an empty cell (Ask HR, cut to "Documents, profile ch...") - it takes the row. */
       .wd-statgrid > .wd-hero ~ :last-child:nth-child(even),
       .wd-statgrid--nohours > :last-child:nth-child(odd) { grid-column: 1 / -1; }
-      /* On their own full-width row the two sit side by side. */
-      .wd-actions { grid-template-rows: none; grid-template-columns: 1fr 1fr; } }
+      /* On their own full-width row the three sit side by side. */
+      .wd-actions { grid-template-rows: none; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 600px) {
       .wd-statgrid { grid-template-columns: 1fr 1fr; gap: 10px; }
       .wd-hero .dk-stat-sub { display: block; }
+      /* Three across a phone cut every title short - they stack. */
+      .wd-actions { grid-template-columns: minmax(0, 1fr); }
 
       .dk-stat.wd-stat { padding: 10px 12px; gap: 10px; }
       .wd-stat .dk-chip { width: 30px; height: 30px; }
@@ -506,6 +513,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // A reimbursement bell lands on "reimbursements": open that panel (Oct 18 2026).
   const [openReimb, setOpenReimb] = useState(() => activeSub === 'reimbursements');
   useEffect(() => { if (activeSub === 'reimbursements') { setOpenReimb(true); window.dispatchEvent(new CustomEvent('nexus:open-reimbursements')); } }, [activeSub]);
+  // "purchase:new" opens the New Purchase Request form (each time it arrives).
+  const [purchaseNewKey, setPurchaseNewKey] = useState(() => (activeSub === 'purchase:new' ? 1 : 0));
+  const [purchaseSeenSub, setPurchaseSeenSub] = useState(activeSub);
+  if (activeSub !== purchaseSeenSub) {
+    setPurchaseSeenSub(activeSub);
+    if (activeSub === 'purchase:new') setPurchaseNewKey((k) => k + 1);
+  }
   const [tab, setTab] = useState(() => {
     const t = tabFor(activeSub) || tabFor(initialTab);
     return TAB_META[t] ? t : 'overview';
@@ -514,7 +528,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const t = tabFor(activeSub);
     if (TAB_META[t] && t !== tab) setTab(t);
     // An old 'clock' or 'shifts' address already shows Overview - rewrite it to say so.
-    else if ((activeSub === 'clock' || activeSub === 'reimbursements' || /^shifts(:|$)/.test(activeSub || '')) && onSubChange) onSubChange(tab);
+    else if ((activeSub === 'clock' || activeSub === 'reimbursements' || /^(shifts|purchase)(:|$)/.test(activeSub || '')) && activeSub !== tab && onSubChange) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
@@ -856,8 +870,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       kind === 'out' ? punchPosition('out') : getPosition(9000),   // out: a recent fix if a fresh one is slow
       kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
     ]);
-    // No fix: the person is asked to share their location (Try Again) or
-    // punch without it - never blocked (Visesh, Oct 20).
+    // No fix: the punch goes without one, never asked or blocked; a clock-in
+    // raises the red Turn On / Skip bar after it lands (Neil, Oct 21).
     const { pos, locationOff } = await askPunchPosition(firstPos);
     // punchDurable retries and, if the server still can't be reached, parks the
     // punch for replay. The Teams message has already gone out by this point, so
@@ -1336,8 +1350,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
              a reviewing manager) - never for the badge count alone, which
              once surfaced a stale "sent back" row of an exempt person's own
              old time sheet as a "1" over an empty tab (Neil, Oct 21 2026). */
-          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
-          : ['overview', 'timesheet', 'timeoff']
+          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'purchase']
+          : ['overview', 'timesheet', 'timeoff', 'purchase']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
 
@@ -1354,7 +1368,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Nexus Sign documents waiting on me, signed here (Oct 18) - Documents needs a grant. */}
       {tab === 'overview' && <DocumentsToSign focusParty={signOf(activeSub)} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'overview' && (
-        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
+        <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenPurchase={() => setTab('purchase')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
       {/* Timesheets submitted to me, not decided yet - above my own timesheet,
@@ -1442,6 +1456,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       }} />
       </>)}
 
+
+      {/* Purchase Requests (moved from Item Management, Neil Oct 22 2026) */}
+      {tab === 'purchase' && (
+        <PurchaseRequests openNewKey={purchaseNewKey} toast={(text, kind) => toast(kind !== 'error', text)} />
+      )}
 
       {/* Time off */}
 
@@ -1659,7 +1678,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {parked && lostModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1440, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div role="alertdialog" aria-modal="true" aria-label="Your punch did not record"
-            style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 480, boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
+            className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
             <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
               <span className="wkc-chip" style={{ color: 'hsl(var(--color-red))' }}><AlertTriangle size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Your Punch Did Not Record</h3>
@@ -1682,7 +1701,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 </div>
               )}
             </div>
-            <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 'auto' }}>
               <button className="secondary-btn" onClick={() => setLostModal(false)}>
                 {parked.held ? 'OK, Keep Trying' : 'Close'}
               </button>
@@ -1699,7 +1718,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           acknowledges before the first in-punch is recorded. */}
       {monGate && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1440, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: 'min(90dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
+          <div className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
             <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
               <span className="wkc-chip"><Monitor size={14} /></span>
               <div style={{ flex: 1 }}>
@@ -1708,7 +1727,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               </div>
               <button onClick={() => setMonGate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
             </div>
-            <div style={{ padding: '16px 22px', overflowY: 'auto', fontSize: 13, color: 'var(--ink)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+            <div style={{ padding: '16px 22px', overflowY: 'auto', flex: 1, minHeight: 0, fontSize: 13, color: 'var(--ink)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
               {monGate.text || 'This is a company-owned device. While you are clocked in, Nexus records your worked time and may capture periodic screenshots of your work screen, the apps and windows you have open, and your overall activity level. This is used only to verify work time and activity - it never captures your keystrokes, and it stops the moment you clock out.'}
             </div>
             <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)' }}>

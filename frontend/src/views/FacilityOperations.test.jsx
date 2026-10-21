@@ -640,3 +640,28 @@ describe('Operations figures', () => {
     expect(pastDueTrend(trend, ['fac_a'])).toHaveLength(2);
   });
 });
+
+// Customer Map (Neil, Oct 21 2026): managers and up only, like ECRI Management.
+vi.mock('../operations/CustomerMap', () => ({ default: ({ facility }) => <div>Customer Map for {facility?.shortName || 'every facility'}</div> }));
+
+describe('Customer Map menu item', () => {
+  it('is in the Dashboard menu for managers and opens the map', async () => {
+    isManager = true;
+    try {
+      render(<FacilityOperations activeSub="customer-map" onSubChange={() => {}} />);
+      expect(await screen.findByText('Customer Map for every facility')).toBeTruthy();
+      const dash = screen.getAllByRole('tab').find((t) => t.textContent === 'Dashboard');
+      expect(dash.dataset.items.split('|')).toEqual(['Overview', 'Ops Budget', 'Portfolio', 'Site Map', 'Customer Map']);
+    } finally {
+      isManager = false;
+    }
+  });
+
+  it('is hidden for everyone else, and its key opens the Overview', async () => {
+    render(<FacilityOperations activeSub="customer-map" onSubChange={() => {}} />);
+    await screen.findByText('Facility Scorecard');
+    const dash = screen.getAllByRole('tab').find((t) => t.textContent === 'Dashboard');
+    expect(dash.dataset.items).not.toMatch(/Customer Map/);
+    expect(screen.queryByText(/Customer Map for/)).toBeNull();
+  });
+});

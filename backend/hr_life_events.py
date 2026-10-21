@@ -1004,7 +1004,7 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
 # company, then the candidate - from their email, no Nexus login -> signed
 # by both = hired, and the hiring packet starts by itself.
 
-OFFER_STAGES = ("applied", "screening", "interview", "offer")
+OFFER_STAGES = ("applied", "screening", "interview", "decision", "offer")
 # What an offer letter can print from the offer form beyond the role, start
 # and pay - the form asks for one only when the letter prints it.
 OFFER_PRINTS = ("address", "permanent_address", "preferred_name", "phone", "work_location", "work_schedule",
@@ -1211,6 +1211,8 @@ def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[d
                             note=f"Offer started - {setting.name or 'offer letter'}", by_email=user["email"],
                             created_at=now))
         cand.stage = "offer"
+        import hiring_decision
+        hiring_decision.close(db, cand)      # the decision is made - the offer is out
     card_from_intake(db, ev)
     db.flush()
     p = hpd.event_plan(db, ev, setting, sender=user["email"], can_see_pay=True)
@@ -1751,9 +1753,11 @@ def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
 
 
 # Details Form answers that have a home on Personal Details. Only these reach
-# People (Pranshu, Oct 16 2026: bank, PAN, nationality and the rest stay on
-# the packet and in the signed documents, never on the profile). Matched on
-# the variable name or its label, first match wins.
+# People (Pranshu, Oct 16 2026: nationality and the rest stay on the packet
+# and in the signed documents, never on the profile; the bank account goes to
+# Pay & Benefits and, since Oct 21, PAN to Compliance - it prints on a
+# contractor's invoices). Matched on the variable name or its label, first
+# match wins.
 _PROFILE_KEYS = {"dob": ("date_of_birth", "dob", "birth_date"), "gender": ("gender", "sex"),
                  "nationalId": ("national_id", "aadhaar_number", "aadhar_number", "aadhaar", "aadhaar_card_number",
                                 "ssn", "social_security_number")}
@@ -1763,6 +1767,10 @@ _BANK_KEYS = {"number": ("bank_account_number", "account_number"),
               "bankName": ("bank_name",),
               "holder": ("account_holder_name", "bank_account_holder", "account_holder_name_as_per_bank_records"),
               "type": ("account_type", "type_of_account", "bank_account_type")}
+# ...and PAN (India), which goes to Compliance (HR-guarded) - uppercased, only
+# when it is in its printed form.
+_PAN_KEYS = ("pan", "pan_number", "pan_card_number", "permanent_account_number", "pan_card")
+_PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 _GENDERS = ("Male", "Female", "Other", "Prefer not to say")
 
 
@@ -1780,10 +1788,11 @@ def _named(fields: list, answers: dict, skip: set) -> dict:
     return out
 
 
-def _profile_from_answers(fields: list, answers: dict, personal: dict, bank: list, holder: str) -> None:
-    """Fill Personal Details and Bank Accounts from the person's own answers.
-    A Sensitive answer only goes where Pay & Benefits guards it (the bank
-    account), never onto Personal Details."""
+def _profile_from_answers(fields: list, answers: dict, personal: dict, bank: list, holder: str,
+                          compliance: dict | None = None) -> None:
+    """Fill Personal Details, Bank Accounts and Compliance (PAN) from the
+    person's own answers. A Sensitive answer only goes where HR guards it (the
+    bank account, Compliance), never onto Personal Details."""
     named = _named(fields, answers, {f["key"] for f in fields if f.get("sensitive")})
     for field, keys in _PROFILE_KEYS.items():
         v = next((named[k] for k in keys if named.get(k)), "")
@@ -1795,6 +1804,9 @@ def _profile_from_answers(fields: list, answers: dict, personal: dict, bank: lis
             v = next((g for g in _GENDERS if g.lower() == v.lower()), v)
         personal[field] = v[:120]
     named = _named(fields, answers, set())
+    pan = next((named[k] for k in _PAN_KEYS if named.get(k)), "").upper().replace(" ", "")
+    if compliance is not None and _PAN_RE.match(pan):
+        compliance["pan"] = pan
     acc = {field: v[:120] for field, keys in _BANK_KEYS.items() if (v := next((named[k] for k in keys if named.get(k)), ""))}
     if not acc.get("number"):
         return                                             # no account number - nothing to file
@@ -1824,13 +1836,15 @@ def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> Non
                                  "relationship": str(i.get("emergency_relationship") or "").strip(),
                                  "phone": str(i.get("emergency_phone") or "").strip()}
     # The packet's Details Form: date of birth, gender and national ID reach
-    # Personal Details, the bank account Pay & Benefits; every other answer
-    # stays on the packet.
+    # Personal Details, the bank account Pay & Benefits, PAN Compliance; every
+    # other answer stays on the packet.
     import hr_packet_docs as hpd
     form = hpd.event_form(db, ev, hpd.event_setting(db, ev))
     bank = [dict(b) for b in (emp.bank or [])]
-    _profile_from_answers(hpd.form_fields(form), hpd.event_answers(ev), personal, bank, ev.subject_name or "")
+    compliance = dict(emp.compliance or {})
+    _profile_from_answers(hpd.form_fields(form), hpd.event_answers(ev), personal, bank, ev.subject_name or "", compliance)
     emp.bank = bank
+    emp.compliance = compliance
     personal.pop("packetDetails", None)                   # the old Hiring Details rows (Oct 14-16)
     emp.personal = personal
     if str(i.get("phone") or "").strip():
@@ -2251,6 +2265,14 @@ def _apply_promotion(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
             + (" The new pay is on Pay & Benefits from that date." if ev.pay else ""))
     for to in {ev.created_by, (emp.manager_email or "").lower(), hr_contact} - {"", emp.work_email.lower()}:
         _notify(db, to, f"{title} Signed - {ev.subject_name}", body, ev)
+    # The Promotion checklist (Neil, Oct 19), with the new role's own steps.
+    import hr_checklists
+    try:
+        if not hr_checklists.open_checklist(db, emp.id, "promotion"):
+            hr_checklists.start(db, emp, "promotion", anchor_date=eff, by=ev.created_by,
+                                role_id=jr.id if jr else "")
+    except ValueError as e:
+        print(f"[life-events] promotion checklist not started for {emp.id}: {e}")
     _notify(db, emp.work_email.lower(), f"Your {title} Is Official",
             f"Your new role, {d.get('job_title')}, takes effect {us_date(eff)}. The signed letter is in "
             f"My HR > My Documents.", ev)

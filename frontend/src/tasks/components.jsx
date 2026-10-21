@@ -133,7 +133,7 @@ export function useEscapeLayer(onEscape, active = true) {
 // the edit away (Aug 18 - "when we click outside... it should ask us for
 // 'Do you want to save'"). With isDirty unset (the default) a modal behaves
 // exactly as before.
-export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 60vw, 980px)', minHeight, isDirty = false, onSave }) {
+export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave }) {
   // Phones get a full-screen sheet, the shape the task drawer already uses
   // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
   // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
@@ -213,9 +213,10 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
         // the keyboard, the visual viewport does.
         ...(isMobile
           ? { width: '100%', maxWidth: '100%', borderRadius: 0, border: 'none', ...(vv ? { height: vv.height } : null) }
+          // Never under 60vw (CLAUDE.md popup rule), whatever width a caller passes.
           // 100% of the overlay's padded box. On a desktop that is the same
           // 86vh as before; pinned to the visual viewport it is what fits.
-          : { width, maxWidth: '100%', maxHeight: vv ? '100%' : '86vh', borderRadius: 16, ...(minHeight ? { minHeight: `min(${minHeight}, 100%)` } : null) }),
+          : { width: `max(60vw, ${typeof width === 'number' ? `${width}px` : width})`, minWidth: 'min(420px, 100%)', maxWidth: '100%', maxHeight: vv ? '100%' : '86vh', borderRadius: 16, ...(minHeight ? { minHeight: `min(${minHeight}, 100%)` } : null) }),
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${NX.border2}`, flexShrink: 0 }}>
           <div id={titleId} style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{title}</div>
@@ -224,7 +225,7 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
         {/* flex:1 + minHeight:0 is what makes THIS the part that scrolls; without
             it a tall body pushes the footer past the panel's clipped edge.
             overscrollBehavior: a swipe past its end stays in the sheet. */}
-        <div className="nx-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, ...(followViewport ? { overscrollBehavior: 'contain' } : null) }}>{children}</div>
+        <div className="nx-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...(followViewport ? { overscrollBehavior: 'contain' } : null) }}>{children}</div>
         {/* The action row never scrolls away, and clears the home indicator. */}
         {footer && <div style={{
           padding: isMobile ? '12px 16px calc(12px + env(safe-area-inset-bottom))' : '12px 20px',
@@ -237,15 +238,15 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
           position: 'fixed', inset: 0, zIndex: 4600, display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'rgba(17,24,39,0.25)',
         }}>
-          <div style={{
-            background: NX.surface, borderRadius: 14, width: 340, maxWidth: '90vw', padding: 20,
+          <div className="nx-popup" style={{
+            background: NX.surface, borderRadius: 14, padding: 20, display: 'flex', flexDirection: 'column',
             boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
           }}>
             <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, marginBottom: 6 }}>Save your changes?</div>
             <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 18, lineHeight: 1.5 }}>
               You have unsaved changes. Closing now will discard them.
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
               <button style={btn('ghost')} onClick={() => setConfirmClose(false)}>Keep Editing</button>
               <button style={btn('ghost')} onClick={exit}>Discard</button>
               <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1, pointerEvents: saving ? 'none' : 'auto' }} onClick={saveAndClose}>

@@ -21,7 +21,8 @@ describe('Add Candidate', () => {
     render(<CandidateFormModal onClose={() => {}} onSaved={onSaved} toastOk={() => {}} toastErr={() => {}} />);
     await waitFor(() => expect(screen.getByText('Greens')).toBeTruthy());
     const add = () => screen.getByText('Add Candidate', { selector: 'button' });
-    expect(screen.getByLabelText('Expected Interview Date *').value).toMatch(/^\d{4}-\d{2}-\d{2}$/);   // prefilled
+    // prefilled, and shown MM/DD/YYYY whatever the computer's region (Neil, Oct 19)
+    expect(screen.getByTitle('Expected Interview Date').textContent).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
     fireEvent.change(screen.getByLabelText('First Name *'), { target: { value: 'Jane' } });
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'co' } });
     await waitFor(() => expect(screen.getByText('Analyst - Accounting')).toBeTruthy());
@@ -31,11 +32,10 @@ describe('Add Candidate', () => {
     fireEvent.change(screen.getByLabelText('Personal Email *'), { target: { value: 'jane@gmail.com' } });
     expect(add().disabled).toBe(true);                                    // still no phone
     fireEvent.change(screen.getByLabelText('Phone *'), { target: { value: '555-0100' } });
-    fireEvent.change(screen.getByLabelText('Expected Interview Date *'), { target: { value: '2030-11-05' } });
     expect(add().disabled).toBe(false);
     fireEvent.click(add());
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(createCandidate.mock.calls[0][0]).toMatchObject({ last_name: 'Doe', email: 'jane@gmail.com', phone: '555-0100',
-      expected_interview_on: '2030-11-05' });
+      expected_interview_on: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
   });
 });

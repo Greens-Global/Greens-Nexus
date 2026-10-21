@@ -177,13 +177,13 @@ describe('Flux explanations (item 26b) and review status (Charmi, 10/15)', () =>
       63000: { note: '', closed: true, closedBy: 'charmi@greensglobal.com' },
     });
     const by = Object.fromEntries(r.rows.filter((x) => x.code).map((x) => [x.code, x]));
-    expect([by[61000].values[4], by[62000].values[4], by[63000].values[4], by[41000].values[4]]).toEqual(['Answered', 'Open', 'Closed', 'Answered']);
+    expect([by[61000].values[4], by[62000].values[4], by[63000].values[4], by[41000].values[4]]).toEqual(['Answered', 'Open', 'Reviewed', 'Answered']);
     expect([by[61000].status, by[62000].status, by[63000].status]).toEqual(['answered', 'open', 'closed']);
     expect(by[61000].explained).toBe(true);
     expect(by[63000].closedBy).toBe('charmi@greensglobal.com');
     expect(by[41000].values[5]).toBe('Steady.');
     expect(r.fluxCounts).toEqual({ open: 1, answered: 2, closed: 1 });
-    expect(r.summary[0].value).toBe('1 Open · 2 Answered · 1 Closed');
+    expect(r.summary[0].value).toBe('1 Open · 2 Answered · 1 Reviewed');
     expect(fluxStatus(true, { note: 'x', closed: false })).toBe('answered');
     expect(fluxStatus(true, { note: '', closed: false })).toBe('open');
     expect(fluxStatus(false, '')).toBe('');

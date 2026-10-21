@@ -39,7 +39,7 @@ const Overlay = ({ children, onClose }) => {
 const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 36, minHeight: 36, padding: 0, borderRadius: 8, flexShrink: 0 };
 
 const Shell = ({ title, sub, onClose, footer, children }) => (
-  <div role="dialog" aria-modal="true" aria-label={title} style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(520px, 60vw, 980px)', maxHeight: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+  <div role="dialog" aria-modal="true" aria-label={title} className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, maxHeight: '100%', minHeight: 'min(60vh, 100%)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
     <div style={{ padding: '9px 12px 9px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{title}</h3>
@@ -159,7 +159,7 @@ function EmailModal({ onClose }) {
             <Label>Subject</Label>
             <input className="form-input" value={subject} onChange={(e) => setSubject(e.target.value)} style={{ width: '100%' }} />
           </div>
-          <div>
+          <div className="nx-fill">
             <Label>Message</Label>
             <textarea className="form-input" value={body} onChange={(e) => setBody(e.target.value)} rows={7}
               style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />
@@ -234,7 +234,7 @@ function EventModal({ onClose }) {
             <input className="form-input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Room, site, or Teams" style={{ width: '100%' }} />
           </div>
           <PeoplePicker value={attendees} onChange={setAttendees} people={people} label="Attendees" placeholder="Add an attendee..." />
-          <div>
+          <div className="nx-fill">
             <Label>Notes</Label>
             <textarea className="form-input" value={body} onChange={(e) => setBody(e.target.value)} rows={4}
               style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />

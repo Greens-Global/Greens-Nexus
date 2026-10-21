@@ -202,6 +202,23 @@ class ScanJob:
 
 _JOBS: dict[tuple, ScanJob] = {}
 _INTERRUPTED = "The ledger scan was interrupted - open again to start it over."
+# Neil's review (Oct 20): a job (with its whole scan result) was dropped only
+# when the same user asked the same scan again, so results per user x as-of x
+# entity pick piled up. Expired jobs go whenever a job starts, and at most
+# this many are kept - the oldest finished (or failed) first; a running scan
+# is never dropped.
+_JOBS_MAX = 200
+
+
+def _sweep_jobs(now: float) -> None:
+    for k in [k for k, j in _JOBS.items() if j.expired(now)]:
+        _JOBS.pop(k, None)
+    if len(_JOBS) < _JOBS_MAX:
+        return
+    for k in [k for k, j in _JOBS.items() if j.result is not None or j.failed()]:
+        if len(_JOBS) < _JOBS_MAX:
+            break
+        _JOBS.pop(k, None)
 
 
 def scan_job(key: tuple, run: Callable[[ScanJob], Any]) -> ScanJob:
@@ -232,6 +249,7 @@ def scan_job(key: tuple, run: Callable[[ScanJob], Any]) -> ScanJob:
                 job.status = 503
 
     job.task = asyncio.create_task(runner())
+    _sweep_jobs(now)
     _JOBS[key] = job
     return job
 
@@ -317,7 +335,14 @@ def _num(v) -> float:
 # entity - "Due to <entity>", intercompany, related party, shareholder,
 # member, officer, affiliate - is an INTERCOMPANY loan with or without a loan
 # word (it used to need one, which dropped every "Due to" account).
-LOAN_WORDS = re.compile(r"\bloans?\b|mortgage|notes? payable|\bn/p\b|\bnotes\b|line of credit|\bloc\b|heloc|financ|promissory|borrow|\bcredit line\b")
+LOAN_WORDS = re.compile(r"\bloans?\b|mortgage|notes? payable|\bn/p\b|\bnotes\b|line of credit|\bloc\b|heloc|financ|promissory|borrow|\bcredit line\b|\bdebt\b")
+# Oct 22 (Charmi, "Add Loans From the Ledger: not all loans show"): the
+# long-term debt range of the chart (26xxx mortgages, 27xxx LOC / auto / credit
+# union loans) is loans by its NUMBER. A mortgage titled only with its lender
+# and property ("Calle Boveda - Pacific Premier - 4410") has no loan word and
+# a lender the name list does not know, so it was never proposed. Working
+# capital titles (_NEVER) still stay out.
+LONG_TERM_DEBT = (26000, 27999)
 LENDER_NAMES = [
     (re.compile(r"\bf\s*&\s*m\b|farmers\s*&?\s*merchants"), "F&M Bank"),
     (re.compile(r"\bciti\b|citibank|citizens"), "Citi"),
@@ -336,11 +361,11 @@ _LENDER_ANY = re.compile("|".join(rx.pattern for rx, _ in LENDER_NAMES))
 _NEVER = re.compile(r"accounts payable|\ba/p\b|credit card|\bamex\b|\bvisa\b|mastercard|discover|payroll|withh|accrued|deferred|unearned|security deposit|customer deposit|tenant deposit|sales tax|tax payable|clearing|suspense|garnish")
 # Never a loan even when a loan word is in the title: the interest owed on one
 # is an accrual ("HELOC Interest Payable" on 25011, live 10/02).
-_NEVER_EVEN_WITH_LOAN_WORD = re.compile(r"interest payable|accrued interest|interest accru")
+_NEVER_EVEN_WITH_LOAN_WORD = re.compile(r"interest payable|accrued interest|interest accru|current portion")
 _INTERCO = re.compile(r"intercompany|inter-company|\bi/c\b|due to|\bdue from\b|related part|shareholder|member loan|\bmember\b|officer|affiliate")
 _STRIP = re.compile(r"\b(loans?|payable|mortgage|notes?|n/p|line of credit|loc|heloc|financing|equipment|promissory|intercompany|inter-company|due|from|to|the|a|an|of|-|–|:)\b", re.I)
-LOOKED_FOR = ["Loan", "Mortgage", "Note Payable / Notes", "Line of Credit / LOC / HELOC", "Financing / Promissory / Borrowing",
-              "Due to another entity / Intercompany / Related Party",
+LOOKED_FOR = ["Loan", "Mortgage", "Note Payable / Notes", "Line of Credit / LOC / HELOC", "Financing / Promissory / Borrowing / Debt",
+              "Due to another entity / Intercompany / Related Party", "any account numbered 26000 - 27999 (long-term debt)",
               "a lender's name (F&M, Citi, Chase, BofA, Wells Fargo, SBA, PNC, US Bank, a bank or credit union)"]
 
 
@@ -375,7 +400,8 @@ def classify_loan_account(section: str, code: str, title: str, entity_names: Opt
         return {"kind": "intercompany", "lender": names_entity or lender or _guess_lender(t)}
     if not says_loan:
         n = _gl_number(code)
-        if not _LENDER_ANY.search(low) or n is None or n < LENDER_ONLY_MIN_GL:
+        in_debt_range = n is not None and LONG_TERM_DEBT[0] <= n <= LONG_TERM_DEBT[1]
+        if not in_debt_range and (not _LENDER_ANY.search(low) or n is None or n < LENDER_ONLY_MIN_GL):
             return None
     return {"kind": "external", "lender": lender or _guess_lender(t)}
 
@@ -494,13 +520,17 @@ def owed(section: str, amount: float) -> float:
     return _r2(-amount) if section == "liability" else _r2(amount)
 
 
-async def _trial(scope: dict, entity: str, from_: str, to: str) -> dict[str, dict]:
+async def _trial(scope: dict, entity: str, from_: str, to: str, vendor: Optional[str] = None) -> dict[str, dict]:
     """GL code -> {title, section, opening, debit, credit, closing} of one
     entity for a window: the accounting app's trial balance (opening before
-    `from`, the movement inside, the closing at `to`; debits positive)."""
+    `from`, the movement inside, the closing at `to`; debits positive). With
+    `vendor` (Oct 22), only the posted lines carrying that Intacct vendor id."""
     location, _ = await _limit(scope, entity, None)
+    params = {"from": from_, "to": to, "location": location}
+    if vendor:
+        params["vendor"] = vendor
     async with _sem():
-        data = await accounting._acct_get("/api/internal/reports/trial-balance", {"from": from_, "to": to, "location": location})
+        data = await accounting._acct_get("/api/internal/reports/trial-balance", params)
     out: dict[str, dict] = {}
     for r in data.get("rows") or []:
         code = str(r.get("account_no") or "").strip()
@@ -513,7 +543,7 @@ async def _trial(scope: dict, entity: str, from_: str, to: str) -> dict[str, dic
 def _line(x: dict) -> dict:
     return {"date": str(x.get("entry_date") or "")[:10], "entryId": x.get("entry_id") or "", "entryNo": x.get("entry_no") or "", "doc": x.get("doc") or "",
             "description": x.get("description") or "", "memo": x.get("memo") or "", "account": x.get("gl_code") or "", "accountName": x.get("account_name") or "",
-            "journal": x.get("journal") or "", "vendor": x.get("vendor_name") or "", "debit": _r2(x.get("debit")), "credit": _r2(x.get("credit"))}
+            "journal": x.get("journal") or "", "vendor": x.get("vendor_name") or "", "vendorId": x.get("vendor_id") or "", "debit": _r2(x.get("debit")), "credit": _r2(x.get("credit"))}
 
 
 async def _lines(location: str, gl: str, from_: Optional[str], to: str, limit: int = 1000) -> dict:
@@ -680,8 +710,42 @@ def _clear_tables_cache() -> None:
         accounting_dashboard._CACHE.pop(k, None)
 
 
+# Two-int-form advisory lock namespace for one loan's Change Loan save (its
+# own keyspace; daily_briefing and accounting_partners use others).
+_LOAN_EDIT_LOCK_NS = 517309285
+
+
+def _save_loan_fresh_sync(loan_id: str, period: str, apply: Callable[[dict], tuple[dict, bool]], by: str) -> tuple[dict, dict]:
+    """Save one fin_loans row from a FRESH read: the row lives in the
+    accounting app, so the lock is a transaction-scoped Postgres advisory lock
+    per loan, held while the row is read (bypassing the tables cache), the
+    request's fields are laid over it and the row-save is sent - two edits to
+    different fields of one loan both survive, whichever worker they reach.
+    No lock on SQLite (local, one process). Returns (the save's answer, the
+    row sent)."""
+    db = database.SessionLocal()
+    try:
+        if db.bind.dialect.name == "postgresql":
+            from sqlalchemy import text
+            db.execute(text("SELECT pg_advisory_xact_lock(CAST(:ns AS integer), hashtext(:key))"), {"ns": _LOAN_EDIT_LOCK_NS, "key": loan_id})
+        data = accounting_dashboard._get_sync({"op": "tables", "period": period})
+        loans = (data.get("tables") or data).get("loans") or [] if isinstance(data, dict) else []
+        fresh = next((r for r in loans if isinstance(r, dict) and str(r.get("id")) == loan_id), None)
+        if not fresh:
+            raise HTTPException(status_code=404, detail="Loan not found - it may have just been removed.")
+        row, _ = apply(fresh)
+        saved = accounting_dashboard._post_sync({"op": "row-save", "table": "fin_loans", "row": row, "by": by})
+        db.commit()        # releases the lock
+        return saved, row
+    finally:
+        db.close()
+
+
 # ── What Nexus keeps per loan (accounting_loan_settings) ────────────────────
-_SETTING_FIELDS = ("interest_account", "original_principal", "internal", "docs_path", "statements_path", "loan_type", "stress_excluded")
+_SETTING_FIELDS = ("interest_account", "original_principal", "internal", "docs_path", "statements_path", "loan_type", "stress_excluded",
+                   "loan_number", "vendor_id", "vendor_name")
+# An Intacct vendor id ("V-00123", "FM BANK"): wired by hand under Change Loan.
+_VENDOR = re.compile(r"^[\w.\-/& ]{1,60}$")
 LOAN_TYPES = ("term", "line_of_credit")
 _LOC = re.compile(r"line of credit|\bloc\b|heloc|credit line|\brevolv", re.I)
 
@@ -927,7 +991,7 @@ async def create_from_ledger(body: CreateBody, user: dict = Depends(_edit), scop
     have = {_set_up_key(r) for r in existing}
     by_key = {(p["entityCode"], p["glAccount"]): p for p in scan["proposals"]}
     accounting_dashboard._require_configured()
-    by = accounting_dashboard._display_name(db, user["email"])
+    by = await asyncio.to_thread(accounting_dashboard._display_name, db, user["email"])
     for it in body.items:
         if it.loanType and it.loanType not in LOAN_TYPES:
             raise HTTPException(status_code=400, detail="Loan type is Term Loan or Line of Credit.")
@@ -1008,7 +1072,7 @@ async def create_manual(body: ManualBody, user: dict = Depends(_edit), scope: di
         if v is not None and v < 0:
             raise HTTPException(status_code=400, detail=f"The {what} cannot be negative.")
     accounting_dashboard._require_configured()
-    by = accounting_dashboard._display_name(db, user["email"])
+    by = await asyncio.to_thread(accounting_dashboard._display_name, db, user["email"])
     row = {"id": str(uuid.uuid4()), "loan_no": body.loanNo.strip()[:40], "kind": "intercompany" if body.internal else "external", "lender": lender, "entity_code": entity,
            "gl_account": "", "balance_source": "manual", "balance": _r2(body.balance), "rate_pct": body.ratePct or 0, "rate_type": body.rateType, "maturity": maturity,
            "monthly_pi": body.monthlyPayment or 0, "dscr": None, "covenant_min": None, "is_active": True, "notes": body.notes.strip()[:200] or "Added by hand in Nexus (not in Intacct)"}
@@ -1021,7 +1085,42 @@ async def create_manual(body: ManualBody, user: dict = Depends(_edit), scope: di
 
 
 # ── Review ──────────────────────────────────────────────────────────────────
-def review_rows(loans: list[dict], settings: dict, tbs: dict, names: dict, originals: Optional[dict] = None) -> list[dict]:
+def display_loan_no(setting: dict, loan: dict) -> str:
+    """The loan's own number (Charmi, Oct 22: "these are GL codes, Loan # will
+    be different"): the number typed under Change Loan, else fin_loans.loan_no
+    unless that is just the GL account (+ Add > From the Ledger stored the
+    account there when the title named no number). '' = none known."""
+    typed = str((setting or {}).get("loan_number") or "").strip()
+    if typed:
+        return typed
+    raw = str(loan.get("loan_no") or "").strip()
+    return "" if raw == str(loan.get("gl_account") or "").strip() else raw
+
+
+def _vendor_figures(f: dict, vp: dict, vy: dict) -> None:
+    """Oct 22 (Charmi: "maybe along with the GL, use the vendor code"): a loan
+    wired to its lender's vendor id reads its figures from that vendor's lines
+    only. Principal paid = that vendor's debits to the principal account;
+    interest = the vendor's net debits to the wired interest account, or to
+    EVERY interest expense account of the entity when none is wired (the
+    vendor is what tells one loan from the next, so an account several loans
+    share - 62601 - is no longer split by balance). The balance stays the
+    whole account's."""
+    if f["wiring"] == "ok":
+        pay, draw = ("credit", "debit") if f["given"] else ("debit", "credit")
+        f["paid"], f["drawn"] = (vp.get(f["gl"]) or {}).get(pay, 0.0), (vp.get(f["gl"]) or {}).get(draw, 0.0)
+        f["paid12"] = (vy.get(f["gl"]) or {}).get(pay, 0.0)
+    wired = str(f["s"].get("interest_account") or "").strip()
+    accts = (wired,) if wired else tuple(sorted({**interest_candidates(vy), **interest_candidates(vp)}))
+    sign = -1 if f["given"] else 1
+
+    def net(tb):
+        return _r2(sum(sign * ((tb.get(c) or {}).get("debit", 0.0) - (tb.get(c) or {}).get("credit", 0.0)) for c in accts))
+    f["accounts"], f["interestSource"] = accts, "vendor"
+    f["interest"], f["interest12"], f["shared"], f["share"] = net(vp), net(vy), 0, 1.0
+
+
+def review_rows(loans: list[dict], settings: dict, tbs: dict, names: dict, originals: Optional[dict] = None, vtbs: Optional[dict] = None) -> list[dict]:
     """The review figures per loan. `tbs` is {(entity, 'period'|'t12'): {gl:
     trial balance row}} for the window shown and the twelve months ending on
     its last day; `settings` is {loan id: what Nexus keeps}; `originals` is
@@ -1033,8 +1132,15 @@ def review_rows(loans: list[dict], settings: dict, tbs: dict, names: dict, origi
     own figure). Interest paid = the net debits to the loan's interest
     account (wired / matched; see match_interest); an account several loans
     share is split by balance. DSCR is the entity's NOI over the entity's
-    whole debt service - the figure a lender looks at."""
+    whole debt service - the figure a lender looks at.
+
+    `vtbs` is {(entity, vendor id, 'period'|'t12'): trial balance of that
+    vendor's lines, or None when it could not be read}: a loan wired to a
+    vendor takes its principal and interest from there (_vendor_figures);
+    every other loan is figured exactly as before, its share of an account
+    still counted against every loan on it."""
     originals = originals or {}
+    vtbs = vtbs or {}
     by_entity: dict[str, list[dict]] = defaultdict(list)
     for l in loans:
         by_entity[str(l.get("entity_code") or "")].append(l)
@@ -1102,6 +1208,16 @@ def review_rows(loans: list[dict], settings: dict, tbs: dict, names: dict, origi
                 share = (max(0.0, m["owed"]) / total) if total > 0 else 1.0 / len(members)
                 m["interest"], m["interest12"], m["shared"] = _r2(month_i * share), _r2(t12_i * share), len(members) - 1
                 m["share"] = round(share, 6)
+        for f in figs:
+            vendor = str(f["s"].get("vendor_id") or "").strip()
+            f["vendor"], f["vendorUnread"] = vendor, False
+            if not vendor:
+                continue
+            vp, vy = vtbs.get((entity, vendor, "period")), vtbs.get((entity, vendor, "t12"))
+            if vp is None or vy is None:
+                f["vendorUnread"] = True      # the read failed: today's figures, and a note
+                continue
+            _vendor_figures(f, vp, vy)
         entity_ds = 0.0
         for f in figs:
             f.setdefault("interest", None)
@@ -1122,7 +1238,9 @@ def review_rows(loans: list[dict], settings: dict, tbs: dict, names: dict, origi
             titles = {c: (tp.get(c) or ty.get(c) or {}).get("title") or cands.get(c, "") for c in f["accounts"]}
             ltype, guessed = loan_type_of(s, f["glTitle"], l.get("lender") or "", l.get("notes") or "")
             out.append({
-                "id": l.get("id"), "loanNo": l.get("loan_no") or "", "lender": l.get("lender") or "", "kind": l.get("kind") or "external",
+                "id": l.get("id"), "loanNo": display_loan_no(s, l), "loanNoStored": l.get("loan_no") or "", "loanNumber": s.get("loan_number") or "",
+                "glCode": f["gl"], "vendorId": f["vendor"], "vendorName": s.get("vendor_name") or "", "vendorUnread": f["vendorUnread"],
+                "lender": l.get("lender") or "", "kind": l.get("kind") or "external",
                 "internal": bool(internal) if internal is not None else (l.get("kind") == "intercompany"), "internalTyped": internal is not None,
                 "entityCode": entity, "entityName": names.get(entity) or entity, "glAccount": f["gl"], "glTitle": f["glTitle"],
                 "balanceSource": l.get("balance_source") or "manual", "wiring": f["wiring"], "closed": f["closed"], "isActive": l.get("is_active", True) is not False,
@@ -1204,18 +1322,29 @@ async def review(from_: Optional[str] = Query(default=None, alias="from"), to: O
     for c in codes:
         reads += [lambda c=c: _trial(scope, c, f, t), lambda c=c: _trial(scope, c, t12, t)]
         labels += [f"{names.get(c) or c} trial balance {f} - {t}", f"{names.get(c) or c} trial balance trailing 12"]
-    results, notes = await gather_tolerant(reads, labels, dict)
+    # The loans wired to a vendor (Oct 22): that vendor's lines, per entity.
+    pairs = sorted({(str(l.get("entity_code") or ""), str((settings.get(str(l.get("id"))) or {}).get("vendor_id") or "").strip()) for l in loans})
+    pairs = [(c, v) for c, v in pairs if c and v]
+    vreads, vlabels = [], []
+    for c, v in pairs:
+        vreads += [lambda c=c, v=v: _trial(scope, c, f, t, v), lambda c=c, v=v: _trial(scope, c, t12, t, v)]
+        vlabels += [f"{names.get(c) or c} vendor {v} {f} - {t}", f"{names.get(c) or c} vendor {v} trailing 12"]
+    (results, notes), (vresults, vnotes) = await asyncio.gather(gather_tolerant(reads, labels, dict), gather_tolerant(vreads, vlabels, lambda: None))
+    notes = notes + vnotes
     tbs = {}
     for i, c in enumerate(codes):
         tbs[(c, "period")], tbs[(c, "t12")] = results[i * 2], results[i * 2 + 1]
-    rows = review_rows(loans, settings, tbs, names)
+    vtbs = {}
+    for i, (c, v) in enumerate(pairs):
+        vtbs[(c, v, "period")], vtbs[(c, v, "t12")] = vresults[i * 2], vresults[i * 2 + 1]
+    rows = review_rows(loans, settings, tbs, names, vtbs=vtbs)
     # The original principal from the ledger: open ledger loans not typed over.
     need = [r for r in rows if r["wiring"] == "ok" and not r["closed"] and not r["originalPrincipalEdited"]]
     firsts, _ = await gather_tolerant([(lambda r=r: _first_credit(scope, r["entityCode"], r["glAccount"], t, r["kind"] == "given")) for r in need],
                                       [f"{r['lender']} original principal" for r in need], lambda: None)
     originals = {str(r["id"]): o for r, o in zip(need, firsts) if o}
     if originals:
-        rows = review_rows(loans, settings, tbs, names, originals)
+        rows = review_rows(loans, settings, tbs, names, originals, vtbs)
     open_rows = [r for r in rows if not r["closed"]]
     return {
         "from": f, "to": t, "asOf": t, "month": t[:7], "trailingFrom": t12, "defaultCovenant": DEFAULT_COVENANT,
@@ -1247,9 +1376,46 @@ async def loan_accounts(entity: str, to: Optional[str] = None, scope: dict = Dep
     return {"entity": entity, "to": t, "principal": principal, "interest": costs}
 
 
+async def _account_vendors(location: str, gl: str, from_: str, to: str) -> list[dict]:
+    """The vendors on one account's lines in one entity (the ledger search's
+    vendor facet: code, name, lines)."""
+    async with _sem():
+        data = await accounting._acct_get("/api/internal/search", {"account": gl, "location": location, "from": from_, "to": to, "book": "accrual", "offset": 0, "limit": 1})
+    return [v for v in ((data.get("facets") or {}).get("vendors") or []) if v.get("code")]
+
+
+@router.get("/vendors")
+async def loan_vendors(entity: str, accounts: Optional[str] = None, to: Optional[str] = None, scope: dict = Depends(entity_scope)):
+    """The vendors a loan of `entity` can be wired to (Change Loan > Vendor,
+    Oct 22): every vendor with lines on the loan's accounts (`accounts`: the
+    principal and interest accounts, up to 8; the entity's interest expense
+    accounts when none are named) in the three years to `to`, most lines
+    first. Read from the entity's own ledger lines, so a person limited to
+    certain entities gets the list too (the whole-ledger vendor list is not
+    open to them)."""
+    entity = (entity or "").strip()
+    if not entity or not _GL.match(entity):
+        raise HTTPException(status_code=400, detail="An entity code is needed.")
+    t = _day(to, "to") if to else date.today().isoformat()
+    start = (date.fromisoformat(t) - timedelta(days=3 * 365)).isoformat()
+    location, _ = await _limit(scope, entity, None)
+    codes = list(dict.fromkeys(c for c in _csv(accounts) if _GL.match(c)))[:8]
+    if not codes:
+        codes = sorted(interest_candidates(await _trial(scope, entity, start, t)))[:8]
+    got, notes = await gather_tolerant([(lambda c=c: _account_vendors(location or entity, c, start, t)) for c in codes], [f"GL {c}" for c in codes], list)
+    merged: dict[str, dict] = {}
+    for c, vendors in zip(codes, got):
+        for v in vendors:
+            cur = merged.setdefault(str(v["code"]), {"code": str(v["code"]), "name": v.get("name") or "", "lines": 0, "accounts": []})
+            cur["lines"] += int(v.get("lines") or 0)
+            cur["accounts"].append(c)
+    out = sorted(merged.values(), key=lambda v: (-v["lines"], v["name"].lower()))
+    return {"entity": entity, "from": start, "to": t, "accounts": codes, "vendors": out, "notes": [f"Not read this time - {n}" for n in notes]}
+
+
 _BY_ENTITY_FIELDS = ("id", "lender", "loanNo", "entityCode", "entityName", "balance", "ratePct", "rateType", "maturity", "monthlyPayment",
                      "dscr", "covenantMin", "belowCovenant", "debtServiceT12", "noiT12", "loanType", "internal",
-                     "docsPath", "docsUrl", "statementsPath", "statementsUrl")
+                     "docsPath", "docsUrl", "statementsPath", "statementsUrl", "glCode")
 
 
 @router.get("/by-entity/{code}")
@@ -1344,6 +1510,11 @@ class LoanEdit(BaseModel):
     docsPath: Optional[str] = None
     statementsPath: Optional[str] = None
     loanType: Optional[str] = None          # term | line_of_credit; '' = guess from the GL title
+    # Oct 22 (Charmi), kept by Nexus too: the real loan number (Loan #; the GL
+    # account is its own GL Code column) and the lender's vendor id ('' = none).
+    loanNumber: Optional[str] = None
+    vendorId: Optional[str] = None
+    vendorName: Optional[str] = None
 
 
 _EDIT_MAP = {"lender": "lender", "loanNo": "loan_no", "ratePct": "rate_pct", "rateType": "rate_type", "maturity": "maturity", "monthlyPi": "monthly_pi",
@@ -1394,34 +1565,53 @@ async def edit_loan(loan_id: str, body: LoanEdit, month: Optional[str] = None, u
         if body.loanType and body.loanType not in LOAN_TYPES:
             raise HTTPException(status_code=400, detail="Loan type is Term Loan or Line of Credit.")
         setting_patch["loan_type"] = body.loanType or ""
+    if "loanNumber" in sent:
+        setting_patch["loan_number"] = (body.loanNumber or "").strip()[:60]
+    if "vendorId" in sent:
+        vid = (body.vendorId or "").strip()
+        if vid and not _VENDOR.match(vid):
+            raise HTTPException(status_code=400, detail="The vendor is an Intacct vendor id.")
+        setting_patch["vendor_id"] = vid
+        setting_patch["vendor_name"] = (body.vendorName or "").strip()[:200] if vid else ""
 
-    row = {k: v for k, v in cur.items() if k not in ("ledger_balance", "ledger_asof")}
-    changed = False
-    for field, col in _EDIT_MAP.items():
-        v = getattr(body, field)
-        if v is None:
-            continue
-        if field == "balance" and (row.get("balance_source") or "manual") == "ledger" and not ("glAccount" in sent and not gl):
-            continue            # a ledger loan's balance is read, never typed
-        if isinstance(v, str):
-            v = v.strip()[:200 if field != "loanNo" else 40]
-        if field == "maturity" and v == "":
-            v = None            # an empty date clears the maturity
-        if field == "covenantMin" and v == 0:
-            v = None            # 0 = back to the 1.35 default
-        row[col] = v
-        changed = True
-    if "glAccount" in sent:
-        # Wiring the principal account makes the balance the ledger's; taking
-        # it off keeps the loan, kept by hand from here.
-        row["gl_account"] = gl
-        row["balance_source"] = "ledger" if gl else "manual"
-        changed = True
-    by = accounting_dashboard._display_name(db, user["email"])
+    def apply(base: dict) -> tuple[dict, bool]:
+        """`base` with only the fields this request sent laid over it."""
+        row = {k: v for k, v in base.items() if k not in ("ledger_balance", "ledger_asof")}
+        changed = False
+        for field, col in _EDIT_MAP.items():
+            v = getattr(body, field, None)
+            if v is None:
+                continue
+            if field == "balance" and (row.get("balance_source") or "manual") == "ledger" and not ("glAccount" in sent and not gl):
+                continue            # a ledger loan's balance is read, never typed
+            if isinstance(v, str):
+                v = v.strip()[:200 if field != "loanNo" else 40]
+            if field == "maturity" and v == "":
+                v = None            # an empty date clears the maturity
+            if field == "covenantMin" and v == 0:
+                v = None            # 0 = back to the 1.35 default
+            row[col] = v
+            changed = True
+        if "glAccount" in sent:
+            # Wiring the principal account makes the balance the ledger's; taking
+            # it off keeps the loan, kept by hand from here.
+            row["gl_account"] = gl
+            row["balance_source"] = "ledger" if gl else "manual"
+            changed = True
+        return row, changed
+
+    by = await asyncio.to_thread(accounting_dashboard._display_name, db, user["email"])
+    row, changed = apply(cur)
     data: dict = {}
     if changed:
         accounting_dashboard._require_configured()
-        data = await asyncio.to_thread(accounting_dashboard._post_sync, {"op": "row-save", "table": "fin_loans", "row": row, "by": by})
+        # Neil's review (Oct 20): the row-save writes the WHOLE fin_loans row,
+        # and `cur` came from a tables read cached for seconds (and cleared
+        # only in the worker that wrote) - a second edit could put back what
+        # the first one changed. The row is read again, fresh, under a per-loan
+        # lock, and only the fields this request sent are laid over it.
+        period = (month and _month(month)) or date.today().isoformat()[:7]
+        data, row = await asyncio.to_thread(_save_loan_fresh_sync, loan_id, period, apply, by)
         _clear_tables_cache()
     if setting_patch:
         await asyncio.to_thread(_save_settings_sync, loan_id, str(cur.get("entity_code") or ""), setting_patch, user["email"])
@@ -1476,7 +1666,7 @@ async def delete_loan(loan_id: str, user: dict = Depends(_edit), scope: dict = D
         raise HTTPException(status_code=404, detail="Loan not found in your entities.")
     await _limit(scope, str(cur.get("entity_code") or "") or None, None)
     accounting_dashboard._require_configured()
-    by = accounting_dashboard._display_name(db, user["email"])
+    by = await asyncio.to_thread(accounting_dashboard._display_name, db, user["email"])
     await asyncio.to_thread(accounting_dashboard._post_sync, {"op": "row-delete", "table": "fin_loans", "match": {"id": loan_id}, "by": by})
     _clear_tables_cache()
     dismiss = (cur.get("balance_source") or "manual") == "ledger" and bool(str(cur.get("gl_account") or "").strip())

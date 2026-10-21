@@ -82,8 +82,8 @@ export default function PolicyGate({ children }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'var(--bg, #f4f5f7)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'Inter,sans-serif' }}>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16,
-        width: '100%', maxWidth: 620, maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+      <div className="nx-popup" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16,
+        display: 'flex', flexDirection: 'column',
         boxShadow: '0 12px 40px rgba(0,0,0,0.25)' }}>
         <div style={{ padding: '20px 26px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 11 }}>
           <ShieldCheck size={22} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />

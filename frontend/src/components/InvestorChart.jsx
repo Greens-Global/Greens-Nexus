@@ -316,7 +316,7 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
       {adding && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={e => e.target === e.currentTarget && addGuard.requestClose()}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(400px, 60vw, 640px)', boxShadow: 'var(--shadow-lg)' }}>
+          <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Briefcase size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Add Investor</h3>

@@ -31,6 +31,7 @@ from routers import shift_requests, timeclock  # noqa: E402
 EMP = "emp.loc@greensglobal.com"
 OTHER = "other.loc@greensglobal.com"
 ADMIN = "admin.loc@greensglobal.com"
+MANAGER = "boss.loc@greensglobal.com"
 CO_ON, CO_OFF = "ent-loc-on", "ent-loc-off"
 HERE = {"lat": "33.4936", "lng": "-117.1484", "accuracy_m": 20}
 
@@ -57,13 +58,15 @@ class PunchLocationNeverBlocks(unittest.TestCase):
         auth.invalidate_role_cache()
         self.db = database.SessionLocal()
         for m in (models.TimePunch, models.TimeBod, models.NexusEmployee, models.HrEntity,
-                  models.NexusRole, models.NexusSetting):
+                  models.NexusRole, models.NexusSetting, models.NexusNotification,
+                  models.NexusGroup, models.NexusGroupMember):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=CO_ON, name="Location Co"))
         self.db.add(models.HrEntity(id=CO_OFF, name="Free Co"))
         for i, (email, co) in enumerate(((EMP, CO_ON), (OTHER, CO_OFF), (ADMIN, CO_ON))):
             self.db.add(models.NexusEmployee(id=f"id-loc-{i}", work_email=email, first_name="T",
-                                             last_name=str(i), company=co, status="active"))
+                                             last_name=str(i), company=co, status="active",
+                                             manager_email=MANAGER))
         self.db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
         # Day messages on record so the BOD / EOD gates never stand in the way.
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -158,6 +161,62 @@ class PunchLocationNeverBlocks(unittest.TestCase):
     def test_location_off_label_on_the_card(self):
         self.assertEqual(timeclock._OFF_SITE_LABEL["location_off"], "Location Off")
         self.assertEqual(timeclock._OFF_SITE_LABEL["no_location"], "No Location")
+
+    # ── the red location bar: Turn On / Skip (Neil, Oct 21 2026) ────────────
+
+    def _manager_notices(self):
+        self.db.expire_all()
+        return self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == MANAGER).all()
+
+    def test_clock_in_without_location_asks(self):
+        self.assertTrue(self._punch("in").json()["locationAsk"])
+        self.assertFalse(self._punch("break_start").json()["locationAsk"])
+
+    def test_clock_in_with_location_does_not_ask(self):
+        self.assertFalse(self._punch("in", **HERE).json()["locationAsk"])
+
+    def test_monitoring_exempt_is_never_asked_and_skip_is_a_no_op(self):
+        self.db.add(models.NexusGroup(id="g-lead", name="Leadership", monitoring_exempt=1))
+        self.db.add(models.NexusGroupMember(group_id="g-lead", email=EMP))
+        self.db.commit()
+        self.assertFalse(self._punch("in").json()["locationAsk"])
+        self.assertFalse(self.client.post("/timeclock/punch-location/skip").json()["skipped"])
+        self.assertEqual(self._manager_notices(), [])
+
+    def test_turn_on_places_the_fix_on_the_clock_in(self):
+        self._punch("in", location_off=True)
+        r = self.client.post("/timeclock/punch-location", json=HERE)
+        self.assertTrue(r.json()["updated"], r.text)
+        last = self._last()
+        self.assertEqual((last.lat, last.lng), (HERE["lat"], HERE["lng"]))
+        self.assertNotIn(last.geo_status, ("no_location", "location_off"))
+
+    def test_turn_on_too_late_leaves_the_punch(self):
+        self._punch("in")
+        p = self._last()
+        p.at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%S")
+        self.db.commit()
+        self.assertFalse(self.client.post("/timeclock/punch-location", json=HERE).json()["updated"])
+        self.assertEqual(self._last().lat, "")
+
+    def test_turn_on_needs_coordinates(self):
+        self._punch("in")
+        self.assertEqual(self.client.post("/timeclock/punch-location", json={"lat": "x", "lng": ""}).status_code, 400)
+
+    def test_skip_marks_location_off_and_tells_the_manager_once_a_day(self):
+        self._punch("in")
+        self.assertTrue(self.client.post("/timeclock/punch-location/skip").json()["skipped"])
+        self.assertEqual(self._last().geo_status, "location_off")
+        self.client.post("/timeclock/punch-location/skip")
+        notes = self._manager_notices()
+        self.assertEqual(len(notes), 1)
+        self.assertIn("Location Off", notes[0].title)
+        self.assertIn("chose not to turn on location", notes[0].body)
+
+    def test_skip_never_touches_a_located_clock_in(self):
+        self._punch("in", **HERE)
+        self.assertFalse(self.client.post("/timeclock/punch-location/skip").json()["skipped"])
+        self.assertEqual(self._manager_notices(), [])
 
 
 class HasCoords(unittest.TestCase):

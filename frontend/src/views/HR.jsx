@@ -312,7 +312,7 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(520px, 60vw, 980px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-green),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <UserPlus size={17} color="hsl(var(--color-green))" />
@@ -476,7 +476,10 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div style={{ gridColumn: '1 / -1' }}>{cInput('SCOPE / ROLE', 'scope', { placeholder: 'what they are engaged to do' })}</div>
                 {cInput('SOW REFERENCE', 'sow_ref', { placeholder: 'SOW doc # / link' })}
-                {cInput('BILLING CLIENT', 'billing_client', { placeholder: 'client this contractor bills to' })}
+                <div>
+                  {cInput('BILLING CLIENT', 'billing_client', { placeholder: 'client name, for reference' })}
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Invoices bill to the person's own company as set on their profile.</div>
+                </div>
                 {cInput('CONTRACT START', 'contract_start', { type: 'date' })}
                 {cInput('CONTRACT END', 'contract_end', { type: 'date' })}
                 {cInput('RATE', 'rate', { placeholder: 'e.g. 85' })}
@@ -493,6 +496,14 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
                   </select>
                 </div>
                 {cInput('ENGAGEMENT AREA', 'engagement_area', { placeholder: 'e.g. Escondido dev / remote' })}
+                <div>
+                  {cInput('NEXT INVOICE NUMBER', 'invoice_next_number', { type: 'number', min: 1, step: 1, placeholder: 'e.g. 1' })}
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Set once - the first invoice Nexus sends uses this number, then it counts up.</div>
+                </div>
+                <div>
+                  {cInput('INVOICE DESCRIPTION', 'invoice_description', { placeholder: 'e.g. IT Development' })}
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>The service line on the invoice, e.g. IT Development. Blank = the scope above.</div>
+                </div>
               </div>
             </div>
           )}
@@ -1008,12 +1019,12 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={ev => ev.target === ev.currentTarget && !busy && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 500, maxHeight: 'min(92dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Provision accounts - {fullName(e)}</h3>
           <button onClick={onClose} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'flex', flexDirection: 'column' }}>
           {!result ? (<>
             <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.55 }}>
               Creates the Microsoft 365 account (with a temp password shown once to you), assigns the license - which
@@ -1029,7 +1040,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
             </select>
             <label style={FL}>LICENSES{picked.size > 0 ? ` (${picked.size} selected)` : ' - none selected: no mailbox'}</label>
             {skus === null ? <Spinner size={16} /> : (
-              <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 220, overflowY: 'auto' }}>
+              <div className="nx-fill" style={{ border: '1px solid var(--line)', borderRadius: 10, overflowY: 'auto' }}>
                 {skus.map((s, i) => {
                   const out = s.available <= 0;
                   return (
@@ -1147,7 +1158,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
   useEffect(() => {
     let live = true;
     api.getCompensation(employee.id)
-      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [] }); } })
+      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [], gstin: r.gstin || '' }); } })
       .catch(e => {
         // Compensation/bank require a fresh step-up MFA - show the Verify gate.
         if (isStepUpRequired(e)) { if (live) setStepLocked(true); return; }
@@ -1249,6 +1260,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
           {!readOnly && (data.bank.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
             : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · '))))}
+          {!readOnly && data.gstin && row2('gstin', 'GSTIN', maskId(data.gstin))}
 
           {sectionLabel('Paystubs')}
           {!readOnly && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
@@ -1393,17 +1405,19 @@ const _accLabel = { fontSize: 10.5, fontWeight: 800, letterSpacing: '.08em', tex
 function AccessPicker({ title, items, onPick, onClose, renderItem }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 1200, padding: 18 }}>
-      <div onClick={ev => ev.stopPropagation()} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: 'min(440px,100%)', maxHeight: '80vh', overflow: 'auto', padding: 18 }}>
+      <div onClick={ev => ev.stopPropagation()} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', padding: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
           <h3 style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{title}</h3>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
+        <div className="nx-fill" style={{ overflowY: 'auto' }}>
         {items.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 14, textAlign: 'center' }}>Nothing to add.</div>
           : items.map(it => (
-            <button key={it.id} onClick={() => onPick(it)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: 'pointer' }}>
+            <button key={it.id} onClick={() => onPick(it)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: 'pointer', flexShrink: 0 }}>
               {renderItem(it)}
             </button>
           ))}
+        </div>
       </div>
     </div>
   );
@@ -2000,6 +2014,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
               {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', formatDate(e.contractor.contract_end))}
               {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
+              {e.employmentType === 'contractor' && e.contractor?.invoice_next_number && row(FileText, 'Next invoice number', String(e.contractor.invoice_next_number))}
+              {e.employmentType === 'contractor' && e.contractor?.invoice_description && row(FileText, 'Invoice description', e.contractor.invoice_description)}
               {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase() ? 'You' : e.managerEmail)}
               {(() => {
                 // Backup Manager (Neil, Oct 13): the one set on the profile, else
@@ -2062,6 +2078,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               ) : '')}
               {row(FileText, 'Document', [DOC_TYPES.find(([v]) => v === e.compliance?.docType)?.[1], e.compliance?.docNumber].filter(Boolean).join(' · '))}
               {row(CalendarDays, 'Issued', formatDate(e.compliance?.issueDate, e.compliance?.issueDate || ''))}
+              {e.compliance?.pan && row(FileText, 'PAN (India)', maskId(e.compliance.pan))}
               {e.compliance?.expiryDate ? (() => {
                 const d = daysUntil(e.compliance.expiryDate); const warn = d !== null && d <= 60;
                 return row(warn ? AlertTriangle : CalendarDays, 'Doc expiry', (
@@ -2243,7 +2260,13 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       setScheduling({ candidate: c, replace: null });     // Interview means a scheduled interview
       return;
     }
-    if (stage === 'offer' && c.stage !== 'interview') { toastErr('Interview them before the offer - schedule the interview first.'); return; }
+    // Decision sits between Interview and Offer (Neil, Oct 19).
+    if (stage === 'decision' && from < to && c.stage !== 'interview') { toastErr('Interview them first - schedule the interview.'); return; }
+    if (stage === 'offer' && c.stage !== 'decision') {
+      toastErr(c.stage === 'interview' ? 'Move them to Decision first - the interviewers and the department head decide before the offer.'
+        : 'Interview them before the offer - schedule the interview first.');
+      return;
+    }
     // Into Offer means making the offer: the offer questions come up (Oct 14).
     if (stage === 'offer' && from < to) { setOfferFor(c); return; }
     if (to < from && !await dialog.confirm(`Move ${candName(c)} back to ${STAGE_META[stage].label}?`, { title: 'Move Back', confirmText: 'Move Back' })) return;
@@ -2476,9 +2499,8 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       {lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); refreshBoard(); }} toastOk={toastOk} toastErr={toastErr}
         onDecision={(kind, cand) => {
+          // The offer and the rejection wait for the Decision step (Oct 19).
           if (kind === 'another') setScheduling({ candidate: cand, replace: null });
-          else if (kind === 'offer') setOfferFor(cand);       // the offer questions come up here (Oct 14)
-          else moveStage(cand, 'rejected', 'Not a fit after the interview');
         }} />}
     </div>
   );
@@ -3160,12 +3182,12 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(480px, 60vw, 900px)', maxHeight: 'min(92dvh, 620px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>New Leave Request</h3>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: 'auto auto auto 1fr', gap: 14 }}>
           <div style={{ gridColumn: '1 / -1' }}><label style={FL}>EMPLOYEE *</label>
             <select className="form-input" style={{ width: '100%' }} value={f.employee_id} onChange={e => set('employee_id', e.target.value)}>
               <option value="">- pick a person -</option>
@@ -3181,7 +3203,7 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
             <input className="form-input" type="date" style={{ width: '100%' }} value={f.start_date} onChange={e => set('start_date', e.target.value)} /></div>
           <div><label style={FL}>TO</label>
             <input className="form-input" type="date" style={{ width: '100%' }} value={f.end_date} onChange={e => set('end_date', e.target.value)} /></div>
-          <div style={{ gridColumn: '1 / -1' }}><label style={FL}>REASON</label>
+          <div className="nx-fill" style={{ gridColumn: '1 / -1' }}><label style={FL}>REASON</label>
             <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.reason} onChange={e => set('reason', e.target.value)} /></div>
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
@@ -3566,6 +3588,9 @@ const COMPANY_TABS = [
   { key: 'departments', label: 'Departments' },
   { key: 'sites', label: 'Locations' },
   { key: 'holidays', label: 'Holiday Calendar' },
+  // Checklist set-up lives with the company (Neil, Oct 19: "it should
+  // absolutely be under company because every company operates very differently").
+  { key: 'checklists', label: 'Checklists' },
 ];
 const COMPANY_ROLES_TAB = { key: 'roles', label: 'Roles' };
 
@@ -3575,7 +3600,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const { can } = useRole();
@@ -3627,6 +3652,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       signatory: en.signatory || '', signatory_email: en.signatoryEmail || '', notes: en.notes || '', domains: en.domains || '',
       manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
       hr_contact_email: en.hrContactEmail || '',
+      invoice_recipients: (en.invoiceRecipients || []).join(', '),
       logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
     setF(seeded); formSnapshotRef.current = seeded; setTab('overview'); setMode(en.id);
   };
@@ -3656,6 +3682,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       const payload = {
         ...rest,
         main_phone: f.main_phone_type === 'phone' && f.main_phone.trim() ? `${dial} ${f.main_phone.trim()}` : f.main_phone.trim(),
+        invoice_recipients: (f.invoice_recipients || '').split(/[,\s;]+/).filter(Boolean),
       };
       if (mode === 'new') await api.createEntity(payload); else await api.updateEntity(mode, payload);
       await onChangedEntities(); toastOk('Company saved.'); setMode(null);
@@ -3771,6 +3798,12 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   </select>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
                 </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL} htmlFor="entity-invoice-recipients">CONTRACTOR INVOICE RECIPIENTS</label>
+                  <input id="entity-invoice-recipients" className="form-input" style={{ width: '100%' }} value={f.invoice_recipients || ''}
+                    onChange={e => set('invoice_recipients', e.target.value)} placeholder="accounts@client.com, another@client.com" />
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Comma-separated. Who receives a contractor's approved invoice by email (for example the client's accounts contacts). They do not need a Nexus login.</div>
+                </div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('PHYSICAL ADDRESS', 'physical_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('MAILING ADDRESS', 'mailing_address', { placeholder: 'if different from the physical address' })}</div>
                 <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 14 }}>
@@ -3862,6 +3895,11 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         {mode !== 'new' && tab === 'holidays' && (
           editingEntity
             ? <CompanyHolidaysTab entity={editingEntity} entities={entities} toastOk={toastOk} toastErr={toastErr} />
+            : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
+        )}
+        {mode !== 'new' && tab === 'checklists' && (
+          editingEntity
+            ? <ChecklistSettings entityId={editingEntity.id} entities={entities} toastOk={toastOk} toastErr={toastErr} />
             : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
         )}
         {mode !== 'new' && tab === 'roles' && can('administrator') && (
@@ -4863,7 +4901,7 @@ function HolidayPolicyEditorModal({ policy, onClose, onSaved, toastOk, toastErr 
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }} onClick={onClose}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 22, width: 640, maxWidth: '92vw', maxHeight: '86vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 22, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <input className="form-input" style={{ flex: 1, fontSize: 14, fontWeight: 700 }} value={name} onChange={e => setName(e.target.value)} />
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
@@ -4905,8 +4943,8 @@ function HolidayPolicyEditorModal({ policy, onClose, onSaved, toastOk, toastErr 
           </div>
         </div>
 
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Holidays in this policy ({draft.length})</div>
+        <div className="nx-fill" style={{ marginBottom: 18, overflowY: 'auto' }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6, flexShrink: 0 }}>Holidays in this policy ({draft.length})</div>
           {draft.length === 0 ? <p style={{ fontSize: 12, color: 'var(--muted)' }}>None yet.</p> : draft.map((h, i) => {
             const tm = HOLIDAY_TYPE_META[h.type] || HOLIDAY_TYPE_META.mandatory;
             return (
@@ -5108,19 +5146,19 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(500px, 60vw, 900px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Change status - {fullName(employee)}</h3>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ padding: '18px 24px', display: 'grid', gap: 14, overflowY: 'auto', flex: 1 }}>
+        <div style={{ padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', flex: 1 }}>
           <div><label style={FL}>NEW STATUS</label>
             <select className="form-input" style={{ width: '100%' }} value={status} onChange={e => setStatus(e.target.value)}>
               {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
             </select>
           </div>
           <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></div>
-          <div><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
+          <div className="nx-fill"><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
 
           {offerChecklist && (
             <div style={{ border: '1px solid var(--wk-brand)', borderRadius: 12, padding: '12px 14px', background: 'var(--wk-brand-tint)', display: 'grid', gap: 10 }}>
@@ -5268,9 +5306,12 @@ function daysUntil(iso) {
   return Math.ceil((d - new Date()) / 86400000);
 }
 
-function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
+export const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+
+export function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   const c0 = employee.compliance || {};
   const [c, setC] = useState({
+    pan: c0.pan || '',
     workAuth: c0.workAuth || '', docType: c0.docType || 'passport', docNumber: c0.docNumber || '',
     issueDate: c0.issueDate || '', expiryDate: c0.expiryDate || '', status: c0.status || 'unverified',
     consents: { bgCheck: false, dataProcessing: false, handbook: false, ...(c0.consents || {}) },
@@ -5281,9 +5322,10 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   const setConsent = (k, v) => setC(prev => ({ ...prev, consents: { ...prev.consents, [k]: v } }));
   const initialCRef = useRef(c);
   const dirty = JSON.stringify(c) !== JSON.stringify(initialCRef.current);
+  const panBad = !!c.pan && !PAN_RE.test(c.pan);
 
   async function save() {
-    if (busy) return; setBusy(true);
+    if (busy || panBad) return; setBusy(true);
     try { const saved = await api.updateEmployee(employee.id, { compliance: c }); onSaved(saved); toastOk('Compliance saved.'); onClose(); }
     catch (e) { toastErr(e?.message || 'Could not save.'); setBusy(false); }
   }
@@ -5292,7 +5334,7 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(580px, 60vw, 980px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ShieldCheck size={17} color="hsl(var(--color-purple))" /></div>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Right to Work - {fullName(employee)}</h3>
@@ -5310,6 +5352,13 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
                 {Object.entries(VERIFY_STATUS).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
               </select>
             </div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL} htmlFor="compliance-pan">PAN (INDIA)</label>
+              <input id="compliance-pan" className="form-input" style={{ width: '100%', borderColor: panBad ? 'hsl(var(--color-red))' : undefined }} value={c.pan} maxLength={10}
+                onChange={e => set('pan', e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="ABCDE1234F" />
+              <div style={{ fontSize: 11.5, color: panBad ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
+                {panBad ? 'PAN is 5 letters, 4 digits and a letter, e.g. ABCDE1234F.' : "Printed on the person's invoices when they are a contractor."}
+              </div>
+            </div>
           </div>
           <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '10px 0 0' }}>Upload the actual passport / visa scan in the Documents section below the profile (private, signed-URL access).</p>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '18px 0 10px' }}>CONSENT CHECKLIST</div>
@@ -5322,7 +5371,7 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save</button>
+          <button className="primary-btn" onClick={save} disabled={busy || panBad} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy || panBad ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save</button>
         </div>
       </div>
       {guard.confirming && (
@@ -5364,7 +5413,7 @@ function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(580px, 60vw, 980px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Contact size={17} color="hsl(var(--color-blue))" /></div>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Personal - {fullName(employee)}</h3>
@@ -5407,6 +5456,7 @@ const PAY_FREQ  = [['monthly', 'Monthly'], ['semimonthly', 'Semi-monthly'], ['bi
 const defaultPayFreq = (payBasis, currency) =>
   payBasis === 'hourly' ? 'biweekly' : (currency === 'INR' ? 'monthly' : 'biweekly');
 const BANK_TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['current', 'Current']];
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 const BENEFIT_TYPES = [['health', 'Health'], ['dental', 'Dental'], ['vision', 'Vision'], ['life', 'Life'], ['disability', 'Disability'], ['retirement', 'Retirement / 401k / PF'], ['other', 'Other']];
 
 // The timecard-only fields live here too since Sep 30 (Charmi: "this should all
@@ -5421,6 +5471,7 @@ const COMP_DEFAULTS = { base: '', payBasis: 'salary', frequency: 'biweekly', cur
 function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const [comp, setComp] = useState(COMP_DEFAULTS);
   const [bank, setBank] = useState([]);
+  const [gstin, setGstin] = useState('');   // India GST number, printed on a contractor's invoices (Oct 21)
   const [payroll, setPayroll] = useState({});   // what the timecard currently uses (read-only context)
   const [ownPayLocked, setOwnPayLocked] = useState(false);   // your own record: another admin or HR sets your pay (Oct 20)
   const [loading, setLoading] = useState(true);
@@ -5442,8 +5493,8 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
         if (nextComp.overtimeRule === undefined || nextComp.overtimeRule === null) nextComp.overtimeRule = '';
         if (!(r.compensation || {}).fullDayHours && pr.fullDayHours) nextComp.fullDayHours = String(pr.fullDayHours);
         const nextBank = r.bank || [];
-        setComp(nextComp); setBank(nextBank); setPayroll(pr); setOwnPayLocked(!!r.ownPayLocked);
-        baselineRef.current = { comp: nextComp, bank: nextBank };
+        setComp(nextComp); setBank(nextBank); setGstin(r.gstin || ''); setPayroll(pr); setOwnPayLocked(!!r.ownPayLocked);
+        baselineRef.current = { comp: nextComp, bank: nextBank, gstin: r.gstin || '' };
       })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
       .finally(() => live && setLoading(false));
@@ -5465,18 +5516,20 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
     setBusy(true);
     try {
       const clean = { ...comp }; delete clean.history;   // server owns history
-      await api.saveCompensation(employee.id, { compensation: clean, bank });
+      // GSTIN rides on the same PUT (the server keeps it beside the bank list).
+      await api.saveCompensation(employee.id, { compensation: clean, bank, gstin });
       toastOk('Compensation saved.'); onClose();
     } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
   }
   const money = (v, cur) => v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-';
-  const dirty = JSON.stringify({ comp, bank }) !== JSON.stringify(baselineRef.current);
+  const gstinBad = !!gstin && !GSTIN_RE.test(gstin);
+  const dirty = JSON.stringify({ comp, bank, gstin }) !== JSON.stringify(baselineRef.current);
   const guard = useUnsavedGuard(dirty, onClose, save);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(620px, 60vw, 980px)', maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-green),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Wallet size={17} color="hsl(var(--color-green))" />
@@ -5578,12 +5631,20 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
               </div>
             ))}
             <button className="secondary-btn" onClick={addBank} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add Bank Account</button>
+            <div style={{ marginTop: 14, maxWidth: 360 }}>
+              <label style={FL} htmlFor="comp-gstin">GSTIN</label>
+              <input id="comp-gstin" className="form-input" style={{ width: '100%', textTransform: 'uppercase', borderColor: gstinBad ? 'hsl(var(--color-red))' : undefined }} value={gstin} maxLength={15}
+                onChange={e => setGstin(e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="e.g. 27ABCDE1234F1Z5" aria-invalid={gstinBad} />
+              <div style={{ fontSize: 10.5, color: gstinBad ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
+                {gstinBad ? 'Not a valid GSTIN - 15 characters, like 27ABCDE1234F1Z5.' : "Printed on the person's invoices when set."}
+              </div>
+            </div>
           </div>
         )}
 
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy || loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading) ? 0.6 : 1 }}>
+          <button className="primary-btn" onClick={save} disabled={busy || loading || gstinBad} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading || gstinBad) ? 0.6 : 1 }}>
             {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
           </button>
         </div>
@@ -5937,7 +5998,7 @@ export default function HR({ activeSub, onSubChange }) {
   // hr-access moved to the Admin module (Pranshu, Sep 9) - old deep links
   // redirect there by the effect below, so it's not in this list any more.
   // Dashboard tiles open the Time tab on a specific inner list.
-  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions' };
+  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
   const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];
@@ -5999,7 +6060,6 @@ export default function HR({ activeSub, onSubChange }) {
   // Open checklists per person ({employeeId: [progress]}) for the directory
   // and profile chips; refreshed when People or Checklists is opened.
   const [clProgress, setClProgress] = useState({});
-  const [clView, setClView] = useState('overview');   // People > Checklists: overview | settings
   const [openTab, setOpenTab] = useState('overview'); // the profile tab a jump should land on
   // Bell / email "Review Request" on a role change (Pranshu, Oct 13) lands on
   // hr-role-change-<id>: open the decision right away, then People.
@@ -6331,20 +6391,14 @@ export default function HR({ activeSub, onSubChange }) {
       {/* Approval Delegations (Oct 17): HR sees and sets everyone's stand-ins. */}
       {sub === 'hr-leave' && <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
+      {/* Operations only (Neil, Oct 19: "once it's set up, we should be just
+          operating it") - the steps are set up in Settings. */}
       {sub === 'hr-checklists' && (
         <>
-          <div role="tablist" aria-label="Checklists" style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)', marginBottom: 16 }}>
-            {[['overview', 'Overview'], ['settings', 'Owners & Templates']].map(([k, l]) => (
-              <button key={k} role="tab" aria-selected={clView === k} onClick={() => setClView(k)}
-                style={{ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 600,
-                  background: clView === k ? 'var(--wk-card)' : 'transparent', color: clView === k ? 'var(--wk-ink)' : 'var(--wk-dim)', boxShadow: clView === k ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
-                {l}
-              </button>
-            ))}
+          <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', marginBottom: 14 }}>
+            Steps are set up in Settings: Company Settings &gt; Checklists for each company, Global Settings &gt; Hiring &gt; Checklist Library for the standard ones, and Team &gt; Role Checklists for a role&apos;s own steps.
           </div>
-          {clView === 'overview'
-            ? <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
-            : <ChecklistSettings entities={entities} toastOk={toastOk} toastErr={toastErr} />}
+          <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
         </>
       )}
 

@@ -20,6 +20,14 @@ vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => true }) }));
 vi.mock('../tasks/components', () => ({
   Modal: ({ title, children, footer }) => <div role="dialog" aria-label={title}>{children}<div>{footer}</div></div>,
+  // Stand-ins for the searchable dropdown and the date picker: a plain select / input.
+  SearchSelect: ({ options, value, onPick, placeholder }) => (
+    <select aria-label="Unit Type" value={value} onChange={(e) => onPick(e.target.value)}>
+      <option value="">{placeholder}</option>
+      {options.map((o) => (o.header ? <option key={o.id} value={o.id} disabled>{`-- ${o.label} --`}</option> : <option key={o.id} value={o.id}>{o.label}</option>))}
+    </select>
+  ),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} value={value} onChange={(e) => onChange(e.target.value)} />,
 }));
 const exportMock = vi.hoisted(() => ({ exportExcel: vi.fn(), exportPdf: vi.fn() }));
 vi.mock('../tasks/exporting', () => exportMock);
@@ -194,7 +202,7 @@ describe('Comp Set & Manual Entry', () => {
 });
 
 describe('Rate History', () => {
-  it('draws the chart, the side cards, the change log and the off workbook upload', async () => {
+  it('draws the chart, the side cards and the change log - no workbook seed', async () => {
     apiMock.getOpsRates.mockResolvedValue(VIEW());
     apiMock.getOpsCmaHistory.mockResolvedValue({
       unitType: "12' x 32' Parking", asOf: '2026-10-20',
@@ -202,15 +210,85 @@ describe('Rate History', () => {
         { date: '2026-10-20', sell: 11450, avgRent: 12274, marketAvg: 12467, marketLow: 11000, marketHigh: 15400, comps: 3, occupied: 92, total: 114 }],
       cards: { gap: -1017, gapPct: -0.0816, comps: 3, asOf: '2026-10-20', avgRent: 12274, sell: 11450, rentVsSell: 824, occupiedThen: 93, occupiedFrom: '2026-08-15', occupiedNow: 92, total: 114 },
       log: [{ at: '2026-10-15T18:00:00Z', date: '2026-10-15', text: 'StorQuest marked closed - removed from averages', source: 'comp_set', by: 'JW' }],
-      workbookImport: { available: false, why: 'Needs a sample workbook.' },
     });
     render(<RateManagement facility={FAC} section="history" onSection={() => {}} />);
     expect(await screen.findByTestId('history-chart')).toBeTruthy();
     expect(screen.getByText('-$10.17 · -8.2%')).toBeTruthy();
     expect(screen.getByText('Existing tenants pay more than new move-ins')).toBeTruthy();
     expect(within(screen.getByTestId('change-log')).getByText('Comp Set')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Upload Workbooks/ })).toBeDisabled();
-    expect(apiMock.getOpsCmaHistory).toHaveBeenCalledWith('fac_f', "8' x 10'");   // the first unit type with comps
+    expect(screen.queryByRole('button', { name: /Upload Workbooks/ })).toBeNull();   // the old Excel CMAs are not wanted (Neil, Oct 21)
+    expect(apiMock.getOpsCmaHistory).toHaveBeenCalledWith('fac_f', "8' x 10'", { start: '', end: '' });   // the first unit type with comps, All History
+  });
+});
+
+describe('Rate History - unit type dropdown', () => {
+  it('lists unit types by full name under Self-Storage / Vehicle Storage, no chips, and switches the history', async () => {
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    apiMock.getOpsCmaHistory.mockResolvedValue({ unitType: "8' x 10'", asOf: '2026-10-20', points: [], cards: { comps: 0, asOf: '2026-10-20', occupiedNow: 0, total: 0 }, log: [] });
+    const { container } = render(<RateManagement facility={FAC} section="history" onSection={() => {}} />);
+    const pick = await screen.findByRole('combobox', { name: 'Unit Type' });
+    const labels = [...pick.querySelectorAll('option')].map((o) => o.textContent);
+    expect(labels).toContain('-- Self-Storage --');
+    expect(labels.some((l) => /Parking/.test(l))).toBe(true);
+    expect(container.querySelector('.cma-pill')).toBeNull();                      // the chip rows are gone
+    const other = [...pick.querySelectorAll('option')].find((o) => !o.disabled && o.value && o.value !== pick.value);
+    fireEvent.change(pick, { target: { value: other.value } });
+    await waitFor(() => expect(apiMock.getOpsCmaHistory).toHaveBeenLastCalledWith('fac_f', other.value, expect.any(Object)));
+  });
+});
+
+describe('Rate History - period filter', () => {
+  it('works out each period from today', async () => {
+    const { periodBounds } = await import('./cma/CmaHistory');
+    const today = new Date(2026, 9, 21);
+    expect(periodBounds({ key: 'all' }, today)).toEqual({ start: '', end: '' });
+    expect(periodBounds({ key: '12m' }, today)).toEqual({ start: '2025-10-21', end: '' });
+    expect(periodBounds({ key: '3m' }, today)).toEqual({ start: '2026-07-21', end: '' });
+    expect(periodBounds({ key: 'ytd' }, today)).toEqual({ start: '2026-01-01', end: '' });
+    expect(periodBounds({ key: 'custom', start: '2024-01-01', end: '2024-12-31' }, today)).toEqual({ start: '2024-01-01', end: '2024-12-31' });
+    expect(periodBounds({ key: 'nonsense' }, today)).toEqual({ start: '', end: '' });
+  });
+
+  it('asks the server for the period picked, remembers it, and says how far the record goes', async () => {
+    localStorage.removeItem('nexus.ops.rateHistory.period');
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    apiMock.getOpsCmaHistory.mockResolvedValue({
+      unitType: "8' x 10'", asOf: '2026-10-20', points: [{ date: '2023-12-31', sell: 11000, avgRent: 10500, comps: 0, occupied: 80, total: 113, source: 'hummingbird' }],
+      cards: { gap: null, gapPct: null, comps: 0, asOf: '2026-10-20', avgRent: null, sell: 11000, rentVsSell: null, occupiedThen: 80, occupiedFrom: '2023-12-31', occupiedNow: 92, total: 114 },
+      log: [], span: { first: '2023-12-31', last: '2026-10-20' }, hummingbird: { first: '2023-12', last: '2026-08' },
+    });
+    render(<RateManagement facility={FAC} section="history" onSection={() => {}} />);
+    expect(await screen.findByText(/History on record 12\/31\/2023 - 10\/20\/2026/)).toBeTruthy();
+    expect(screen.getByText('Hummingbird from 12/01/2023')).toBeTruthy();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Period' }), { target: { value: '24m' } });
+    await waitFor(() => expect(apiMock.getOpsCmaHistory).toHaveBeenLastCalledWith('fac_f', "8' x 10'", expect.objectContaining({ end: '' })));
+    const { start } = apiMock.getOpsCmaHistory.mock.calls.at(-1)[2];
+    expect(start).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(JSON.parse(localStorage.getItem('nexus.ops.rateHistory.period'))).toEqual({ key: '24m' });
+    localStorage.removeItem('nexus.ops.rateHistory.period');
+  });
+});
+
+describe('Rate History - Hummingbird months', () => {
+  it('labels the months before Cubby as Hummingbird in the table and the change log', async () => {
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    apiMock.getOpsCmaHistory.mockResolvedValue({
+      unitType: "12' x 32' Parking", asOf: '2026-10-20',
+      points: [{ date: '2025-11-30', sell: 11000, avgRent: 10500, marketAvg: null, marketLow: null, marketHigh: null, comps: 0, occupied: 80, total: 113, source: 'hummingbird' },
+        { date: '2026-10-20', sell: 11450, avgRent: 12274, marketAvg: 12467, marketLow: 11000, marketHigh: 15400, comps: 3, occupied: 92, total: 114 }],
+      cards: { gap: -1017, gapPct: -0.0816, comps: 3, asOf: '2026-10-20', avgRent: 12274, sell: 11450, rentVsSell: 824, occupiedThen: 80, occupiedFrom: '2025-11-30', occupiedNow: 92, total: 114 },
+      log: [{ at: '2026-01-01', date: '2026-01-01', text: 'Sell rate $110.00 -> $114.50', source: 'hummingbird', by: '' }],
+      hummingbird: { first: '2025-11', last: '2026-01' },
+    });
+    render(<RateManagement facility={FAC} section="history" onSection={() => {}} />);
+    const log = await screen.findByTestId('change-log');
+    expect(within(log).getByText('Hummingbird')).toBeTruthy();
+    expect(within(log).getByText('Sell rate $110.00 -> $114.50')).toBeTruthy();
+    expect(within(log).getByText('01/01/2026')).toBeTruthy();
+    const chart = screen.getByTestId('history-chart');
+    expect(chart.textContent).toContain('11/30/2025');                       // the axis reaches back, in US format
+    expect(screen.getAllByText('Hummingbird').length).toBeGreaterThan(1);    // the table's Source column too
+    expect(screen.getByText('80 → 92')).toBeTruthy();
   });
 });
 

@@ -47,7 +47,7 @@ export function DayStrip({ days, value, onChange, countOf, noteOn, hoursOf }) {
 // column is a share of the row, not a fixed 124px (Oct 17: "Darshana K..."
 // was cut beside an empty right half), and a long name wraps to two lines.
 const CLAMP2 = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' };
-export function PhoneRow({ avatar, name, sub, sub2, isMe = false, onTap, children, style, ...rest }) {
+export function PhoneRow({ avatar, name, sub, sub2, extra = null, isMe = false, onTap, children, style, ...rest }) {
   return (
     <div {...rest} onClick={onTap} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 46%) minmax(0, 1fr)', gap: 8, alignItems: 'center', padding: '7px 10px', borderBottom: '1px solid var(--line)',
       background: isMe ? 'var(--wk-brand-tint)' : undefined, cursor: onTap ? 'pointer' : 'default', ...style }}>
@@ -57,6 +57,7 @@ export function PhoneRow({ avatar, name, sub, sub2, isMe = false, onTap, childre
           <div title={typeof name === 'string' ? name : undefined} style={{ fontSize: 12.5, fontWeight: isMe ? 800 : 700, color: isMe ? 'var(--wk-brand)' : 'var(--ink)', lineHeight: 1.25, ...CLAMP2 }}>{name}</div>
           {sub && <div style={{ fontSize: 10.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{sub}</div>}
           {sub2 && <div style={{ fontSize: 10.5, color: 'var(--muted)', ...CLAMP2 }}>{sub2}</div>}
+          {extra && <div style={{ marginTop: 2 }}>{extra}</div>}
         </span>
       </div>
       <div style={{ minWidth: 0 }}>{children}</div>
@@ -87,11 +88,13 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
       actual={actualOf && email ? actualFor(actualOf(email, ds), s, sole) : null}
       onOpen={(e) => on.openShift(e, s, email, ds)} {...press({ email, date: ds, groupId, shift: s })} />
   );
+  // Hours are a manager's number (Pranshu, Oct 21): staff see status words only.
   const rowSub = (email) => {
-    const hrs = fmtHrs(empWeekMin(email));
+    const hrs = canManage ? fmtHrs(empWeekMin(email)) : '';
     const a = actualOf ? actualOf(email, ds) : null;
     const word = a && a.status && a.status !== 'upcoming' && a.status !== 'on_time' ? actualWord(a.status) : '';
     if (!word) return hrs;
+    if (!hrs) return <span data-actual-word={a.status} style={{ color: actualColor(a.status, 'var(--wk-brand)'), fontWeight: 700 }}>{word}</span>;
     return <>{hrs} · <span data-actual-word={a.status} style={{ color: actualColor(a.status, 'var(--wk-brand)'), fontWeight: 700 }}>{word}</span></>;
   };
   const emptyTap = (email, groupId, editable) => (editable ? () => { if (copied) on.paste(email, ds, groupId); else on.cellClick(email, ds, groupId); } : undefined);
@@ -117,7 +120,7 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
       <div role="list" aria-label={`Schedule for ${formatDate(ds)}`} style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', overflow: 'hidden' }}>
         <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)', background: 'var(--bg)', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <span style={{ fontSize: 13, fontWeight: 800 }}>{d ? dayShort(d) : ''}</span>
-          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{stats.shifts} · {fmtHrs(stats.min)}</span>
+          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{stats.shifts}{canManage ? ` · ${fmtHrs(stats.min)}` : ''}</span>
           {hol && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))' }}>Holiday</span>}
           <WeatherChip w={weather[ds]} size={12} onClick={on?.weather && weather[ds] ? () => on.weather(ds) : null} />
           <span style={{ flex: 1 }} />

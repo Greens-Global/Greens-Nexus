@@ -1275,7 +1275,7 @@ export const api = {
   saveOpsCmaSurvey: (data) => req("/facility-ops/cma/surveys", { method: "POST", body: JSON.stringify(data) }),
   saveOpsCmaOverride: (data) => req("/facility-ops/cma/overrides", { method: "POST", body: JSON.stringify(data) }),
   importOpsCmaRates: (facilityId, rows, commit = false) => req("/facility-ops/cma/import", { method: "POST", body: JSON.stringify({ facility_id: facilityId, rows, commit }), timeoutMs: 60_000 }),
-  getOpsCmaHistory: (facilityId, unitType) => req(`/facility-ops/cma/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  getOpsCmaHistory: (facilityId, unitType, { start = '', end = '' } = {}) => req(`/facility-ops/cma/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}${start ? `&start=${start}` : ''}${end ? `&end=${end}` : ''}`),
   getOpsCmaReview: (facilityId) => req(`/facility-ops/cma/review?facility_id=${encodeURIComponent(facilityId)}`),
   proposeOpsCmaPromo: (data) => req("/facility-ops/cma/promos", { method: "POST", body: JSON.stringify(data) }),
   withdrawOpsCmaPromo: (id) => req(`/facility-ops/cma/promos/${encodeURIComponent(id)}`, { method: "DELETE" }),
@@ -1381,6 +1381,7 @@ export const api = {
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
   candidateResumeUrl:  (id)       => req(`/hr/candidates/${id}/resume-url`),
+  candidateDecision:   (id)       => req(`/hr/candidates/${id}/decision`),   // Decision step votes (Oct 19)
   hiringOptions:       (companyId = '') => req(`/hr/hiring/options?company_id=${encodeURIComponent(companyId || '')}`),
   hiringAllRoles:      ()         => req('/hr/hiring/options?all_roles=true'),
 
@@ -1533,6 +1534,9 @@ export const api = {
   // still reaches the server - the browser keeps the request alive past unload.
   // Body is tiny, well under the 64KB keepalive cap.
   timePunch:         (data)      => req('/timeclock/punch', { method: 'POST', body: JSON.stringify(data), keepalive: true }),
+  // The red location bar after a clock-in with none: Turn On puts the fix on that punch, Skip tells the manager.
+  timePunchLocation:     (pos) => req('/timeclock/punch-location', { method: 'POST', body: JSON.stringify(pos) }),
+  timePunchLocationSkip: ()    => req('/timeclock/punch-location/skip', { method: 'POST', body: '{}' }),
   timeExceptions:    (start, end) => req(`/timeclock/exceptions?start=${start || ''}&end=${end || ''}`),
   // Shared-PC: mint a one-time nonce the local agent claims (over localhost) so
   // clock-in can bind this employee to the physical PC. No agent = no nonce used.
@@ -1683,6 +1687,7 @@ export const api = {
   timeMyChat:        ()          => req('/timeclock/my-chat'),
   timeSchedule:      (start, end) => req(`/timeclock/schedule?start=${start}&end=${end}`),
   timeMySchedule:    (start, end) => req(`/timeclock/my-schedule?start=${start}&end=${end}`),
+  timeMyScheduleLive: () => req('/timeclock/my-schedule/live'),     // who on my group is working / on break right now
   // Shift self-service (Sep 29): open-shift requests, swaps, offers, manager inbox.
   shiftRequestsMine:       (start = '', end = '') => req(`/timeclock/shift-requests/mine?start=${start}&end=${end}`),
   shiftRequestCreate:      (data)      => req('/timeclock/shift-requests', { method: 'POST', body: JSON.stringify(data) }),
@@ -2081,6 +2086,9 @@ export const api = {
   createAccountingPartnerChange: (body) => req('/accounting/partners/changes', { method: 'POST', body: JSON.stringify(body) }),
   decideAccountingPartnerChange: (id, decision, note = '') => req(`/accounting/partners/changes/${encodeURIComponent(id)}/${decision}`, { method: 'POST', body: JSON.stringify({ note }) }),
   exportAccountingPartnerChanges: (status = 'approved', kind = '') => reqBlob(`/accounting/partners/changes/export.csv?status=${status}${kind ? `&kind=${kind}` : ''}`),
+  // One vendor or customer drilled into (Charmi, 10/16): the record, its
+  // change requests and its ledger activity.
+  getAccountingPartnerRecord:   (kind, id) => req(`/accounting/partners/record/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`),
   // The monthly payroll allocation entry: the mapping, a preview for a month,
   // the runs kept, and a run as an Intacct GL import CSV or a workbook.
   getAllocationsMap:    () => req('/accounting/allocations/map'),
@@ -2134,6 +2142,7 @@ export const api = {
   cancelChecklist:        (id)        => req(`/hr/checklists/${id}/cancel`, { method: 'POST' }),
   reopenChecklist:        (id)        => req(`/hr/checklists/${id}/reopen`, { method: 'POST' }),
   updateChecklistItem:    (id, d)     => req(`/hr/checklists/items/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  addChecklistComment:    (id, body)  => req(`/hr/checklists/items/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
   getMyChecklistSteps:    ()          => req('/hr/checklists/mine'),
   getChecklistProgress:   ()          => req('/hr/checklists/progress'),
   getChecklistBoard:      ()          => req('/hr/checklists/board'),
@@ -2142,6 +2151,11 @@ export const api = {
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
   getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
   saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
+  // Copy steps between companies, and a job role's own steps (Neil, Oct 19).
+  copyChecklistTemplates: (d)         => req('/hr/checklists/templates/copy', { method: 'POST', body: JSON.stringify(d) }),
+  getRoleChecklistRoles:  ()          => req('/hr/checklists/role-templates'),
+  getRoleChecklist:       (roleId)    => req(`/hr/checklists/role-templates/${roleId}`),
+  saveRoleChecklist:      (roleId, kind, items) => req(`/hr/checklists/role-templates/${roleId}/${kind}`, { method: 'PUT', body: JSON.stringify({ items }) }),
   // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
   // loan (built or the bank's file) and saved rate stress scenarios
   // (routers/accounting_loan_plans.py).
@@ -2165,6 +2179,13 @@ export const api = {
   getMreVendor:        (vendorId) => req(`/accounting/mre/vendors/${encodeURIComponent(vendorId)}`),
   getMreProposals:     (min = 3, entities = []) => req(`/accounting/mre/from-ledger/proposals?min=${min}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}`),
   createMreFromLedger: (body)     => req('/accounting/mre/from-ledger/create', { method: 'POST', body: JSON.stringify(body) }),
+  // Oct 22: one line's row (the in-place refresh after a save), the shared
+  // MRI / MRE settings, the Possibly Ended check, and a vendor's Egnyte folder.
+  getMreGridRows:      (year, ids = []) => req(`/accounting/mre/grid?year=${year}&ids=${encodeURIComponent(ids.join(','))}`),
+  getRecurringSettings:  () => req('/accounting/mre/settings'),
+  saveRecurringSettings: (body) => req('/accounting/mre/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  runRecurringStaleCheck: () => req('/accounting/mre/stale-check', { method: 'POST' }),
+  suggestMreEgnyteFolder: (vendor) => req(`/accounting/mre/egnyte-suggest?vendor=${encodeURIComponent(vendor)}`),
 
   // PFS file lock + Affiliated Entities + an executive profile per borrower
   // (Charmi, 10/04). routers/pfs_access.py, routers/pfs_affiliates.py.
@@ -2413,6 +2434,13 @@ export const api = {
   createPlannedLoan: (body)     => req('/accounting/loan-plans/planned', { method: 'POST', body: JSON.stringify(body) }),
   updatePlannedLoan: (id, body) => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   deletePlannedLoan: (id)       => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Loans, Oct 22 (Charmi / Neil): the live index rate for the Loan Calculator
+  // (sofr | treasury10 | prime), the vendors a loan can be wired to, and Change
+  // Loan's save with room for a slow accounting app (a PUT is never retried,
+  // so at the 18s default a slow save read as "Can't reach Nexus").
+  getLoanIndexRate:  (index)    => req(`/accounting/loan-plans/index-rate?index=${encodeURIComponent(index)}`),
+  getLoanVendors:    (entity, accounts = [], to = '') => req(`/accounting/loans/vendors?entity=${encodeURIComponent(entity)}${accounts.length ? `&accounts=${encodeURIComponent(accounts.join(','))}` : ''}${to ? `&to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
+  updateLoanSlow:    (id, body) => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body), timeoutMs: 90_000 }),
   // Accounting > Reporting > Profitability and Employee Compensation (10/15).
   getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
   getCompensationPeople: (from, to) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs: 180_000 }),
@@ -2679,6 +2707,16 @@ export const api = {
   getOpsBudgetLoads: (facility = '') => req(`/ops-budget/loads?${new URLSearchParams({ facility })}`),
   getOpsBudgetLoadFile: (id) => reqBlob(`/ops-budget/loads/${encodeURIComponent(id)}/file`),
   runOpsBudgetSnapshot: () => req('/ops-budget/snapshot', { method: 'POST', timeoutMs: 120_000 }),
+  // Operations > Customer Map (Oct 21 2026, routers/ops_customer_map.py): rounded points, counts only.
+  getOpsCustomerMap: ({ facility = 'all', state = '', kind = 'all', since = 'all', band = 'all' } = {}) => req(`/facility-ops/customer-map?${new URLSearchParams({ facility, state, kind, since, band })}`),
+  // Ops Budget > Hummingbird History (Oct 21 2026): what the last HB export load holds, per site (admins only).
+  getOpsHummingbird: () => req('/ops-budget/hummingbird'),
+  // Contractor invoices (Oct 21): drafted when a contractor's Time Sheet is
+  // finalized, approved and emailed by HR from People > Time > Invoices.
+  contractorInvoices:     (status = 'draft') => req(`/contractor-invoices?status=${encodeURIComponent(status)}`),
+  contractorInvoicesMine: ()   => req('/contractor-invoices/mine'),
+  contractorInvoicePdf:   (id) => reqBlob(`/contractor-invoices/${encodeURIComponent(id)}/pdf`),   // bearer-authenticated, so a blob, never a bare link
+  contractorInvoiceSend:  (id) => req(`/contractor-invoices/${encodeURIComponent(id)}/send`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

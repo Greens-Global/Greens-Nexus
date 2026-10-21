@@ -183,13 +183,14 @@ async def action(body: Action, user: dict = Depends(get_current_user), db: Sessi
     """One write: tick a close task, save a note or a view. Reference-data edits need the editor level."""
     if body.op in _EDIT_OPS:
         # Setup-style edits (loans, holdings, close plan...) are for editors and up.
-        require_module_grant("accounting", "editor")(user=user, db=db)
+        # Sync DB lookups run in a thread, never on the event loop (Neil's review, Oct 20).
+        await asyncio.to_thread(require_module_grant("accounting", "editor"), user=user, db=db)
     elif body.op not in _WRITE_OPS:
         raise HTTPException(status_code=400, detail="Unknown dashboard action")
     if body.op == "view-delete" and str(body.payload.get("id") or "") in _ROLE_VIEWS:
         raise HTTPException(status_code=400, detail="Role views cannot be deleted - reset one to its default widgets instead")
     _require_configured()
-    payload = {**body.payload, "op": body.op, "by": _display_name(db, user["email"])}
+    payload = {**body.payload, "op": body.op, "by": await asyncio.to_thread(_display_name, db, user["email"])}
     data = await asyncio.to_thread(_post_sync, payload)
     # The next read must see this write.
     for k in [k for k in _CACHE if k.startswith("op=tables") or k.startswith("op=entities")]:

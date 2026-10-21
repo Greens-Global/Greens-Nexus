@@ -136,7 +136,8 @@ async def _party_names(kind: str) -> dict[str, str]:
 
 
 async def party_months(locations: list[str], from_: str, to: str, kind: str, *, sections: list[str],
-                       accounts: Optional[list[str]] = None, words: Optional[list[str]] = None, book: Optional[str] = None) -> Optional[list[dict]]:
+                       accounts: Optional[list[str]] = None, words: Optional[list[str]] = None, book: Optional[str] = None,
+                       parties: Optional[list[str]] = None) -> Optional[list[dict]]:
     """Amount by entity x account x party x month, from ONE grouped read.
 
     The accounting app's op (defined Oct 7 in the accounting repo):
@@ -166,7 +167,8 @@ async def party_months(locations: list[str], from_: str, to: str, kind: str, *, 
         return None
     location, many = (locations[0], None) if len(locations) == 1 else (None, ",".join(locations))
     params = {"kind": kind, "from": from_, "to": to, "location": location, "locations": many, "sections": ",".join(sections) or None,
-              "accounts": ",".join(accounts) if accounts else None, "words": ",".join(words) if words else None, "book": book}
+              "accounts": ",".join(accounts) if accounts else None, "words": ",".join(words) if words else None, "book": book,
+              "parties": ",".join(parties) if parties else None}
     try:
         data = await accounting._acct_get(AGGREGATE_PATH, params)
     except accounting.UpstreamError as e:

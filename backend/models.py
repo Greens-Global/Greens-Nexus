@@ -979,7 +979,7 @@ class HrCandidate(Base):
     phone          = Column(String, default="")
     role_title     = Column(String, default="")               # role they applied for
     department     = Column(String, default="")
-    stage          = Column(String, default="applied")        # applied|screening|interview|offer|hired|rejected
+    stage          = Column(String, default="applied")        # applied|screening|interview|decision|offer|hired|rejected
     expected_start = Column(String, default="")               # ISO date
     interview_at   = Column(String, default="")               # ISO datetime of the next interview
     source         = Column(String, default="")               # referral, LinkedIn, ...
@@ -999,6 +999,13 @@ class HrCandidate(Base):
     # The "Screen <name>" task for the department head and up (Oct 14,
     # hiring_screening.py) - its due date follows the interview.
     screen_task_id = Column(String, default="")               # Task.id
+    # The Decision step after the interview (Neil, Oct 19, hiring_decision.py):
+    # the "Decide on <name>" task, and the department head's final call.
+    decision_task_id = Column(String, default="")             # Task.id
+    decision       = Column(String, default="")               # '' | hire | reject
+    decision_by    = Column(String, default="")
+    decision_at    = Column(String, default="")
+    decision_note  = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
@@ -1458,6 +1465,10 @@ class HrEntity(Base):
     # HR packet's flow says "Authorized Signatory". `signatory` above stays the
     # printed name/title a letter shows ({{signatory}}).
     signatory_email    = Column(String, default="")
+    # Who receives a contractor's approved invoice by email (Pranshu, Oct 21
+    # 2026): the payer's accounts contacts, no Nexus login needed. Lowercased,
+    # deduped list of emails.
+    invoice_recipients = Column(JSON, default=list)
 
 
 class NexusSetting(Base):
@@ -5109,6 +5120,19 @@ class Lease(Base):
     # None for month to month, N for custom.
     term_type        = Column(String, default="")
     term_months      = Column(Integer, nullable=True)
+    # Oct 22 (Priyanka, Charmi): how often the income falls due - '' or
+    # monthly (every row before Oct 22 is monthly and computes exactly as
+    # before) | quarterly | semi_annual | annual | custom (every N months,
+    # frequency_months), counted from the lease start month like MRE.
+    frequency        = Column(String, default="")
+    frequency_months = Column(Integer, default=0)
+    # Oct 22 (Neil, staleness check): set by the daily recurring_stale scan
+    # only - the day the source was flagged Possibly Ended ('' = not), the
+    # last month anything posted ('' = nothing in twelve months), and the one
+    # accounting task opened for it.
+    stale_since      = Column(String, default="")
+    stale_last_paid  = Column(String, default="")
+    stale_task_id    = Column(String, default="")
 
 
 class LeaseRate(Base):
@@ -5258,8 +5282,10 @@ class HrChecklistTemplate(Base):
     create_all builds it; RLS must be enabled on dev and prod at release."""
     __tablename__ = "hr_checklist_templates"
     id         = Column(String, primary_key=True)                 # uuid
-    kind       = Column(String, default="onboarding", index=True)  # onboarding | offboarding | inactive
+    kind       = Column(String, default="onboarding", index=True)  # onboarding | promotion | offboarding | inactive
     entity_id  = Column(String, default="", index=True)            # HrEntity.id ('' = every company)
+    # A job role's extra steps (Neil, Oct 19: company, then role) - entity_id ''.
+    role_id    = Column(String, default="", index=True)            # NexusGroup.id ('' = company / library)
     name       = Column(String, default="")
     items      = Column(JSON, default=list)
     updated_by = Column(String, default="")
@@ -5313,6 +5339,13 @@ class HrChecklistItem(Base):
     done_at      = Column(String, default="")
     note         = Column(String, default="")
     sort_order   = Column(Integer, default=0)
+    task_id      = Column(String, default="")   # the owner's task for this checklist (hr_checklists.sync_tasks)
+    # Every owner, comma-separated (owner_email is the first): a role can have
+    # several owners, each on the step's task (Pranshu, Oct 20).
+    owner_emails = Column(String, default="")
+    # Comments made while the step had no subtask; the rest live on the subtask
+    # as task comments, so both sides show the same thread (hr_checklists.comments_for).
+    comments     = Column(JSON, default=list)
 
 
 class AccountingLoanSchedule(Base):
@@ -5395,6 +5428,13 @@ class RecurringExpense(Base):
     account_number   = Column(String, default="")                # the account number with the vendor (e.g. utility account)
     account_details  = Column(String, default="")
     contact_info     = Column(String, default="")                # name / phone / email
+    # Oct 22 (Neil): the vendor's contract / document folder in Egnyte
+    # ('' = not wired), and the staleness flags the daily recurring_stale
+    # scan sets (see Lease.stale_*).
+    egnyte_folder    = Column(String, default="")
+    stale_since      = Column(String, default="")
+    stale_last_paid  = Column(String, default="")
+    stale_task_id    = Column(String, default="")
 
 
 class PfsAffiliate(Base):
@@ -5504,6 +5544,13 @@ class AccountingLoanSetting(Base):
     # whether the Stress Test leaves it out (restorable; the loan stays).
     loan_type          = Column(String, default="")
     stress_excluded    = Column(Boolean, default=False)
+    # Oct 22 (Charmi): the real loan number ("these are GL codes, Loan # will be
+    # different" - '' = none typed; fin_loans.loan_no kept the GL account for
+    # loans set up from the ledger), and the lender's Intacct vendor id: when
+    # set, Interest Paid and Principal Paid count only that vendor's lines.
+    loan_number        = Column(String, default="")
+    vendor_id          = Column(String, default="")
+    vendor_name        = Column(String, default="")
 # ── Marketing: Google Business Profile (Oct 2026) ────────────────────────────
 # Neil, call of 10/01: manage the Google listings and reviews from Nexus so he
 # is not the single point of failure (docs/Marketing-Module-Plan.md, Phase 2).
@@ -6544,6 +6591,11 @@ class AccountingAmaThread(Base):
     last_reply_at    = Column(String, default="")
     last_reply_by    = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Oct 22 (Priyanka): the line's Department, Vendor and Custom dimension,
+    # as Intacct's AMA report lists them ("code name").
+    department       = Column(String, default="")
+    vendor           = Column(String, default="")
+    custom           = Column(String, default="")
 
 
 class AccountingAmaMessage(Base):
@@ -7508,3 +7560,50 @@ class OpsCmaEvent(Base):
     unit_type   = Column(String, default="")                        # "" = the whole facility
     text        = Column(String, default="")
     by          = Column(String, default="")
+
+
+class OpsCustomerPoint(Base):
+    """Operations > Customer Map (Neil, Oct 21 2026, ops_customer_geo.py): where
+    one current customer of one facility sits on the map, rounded to about
+    100 m (3 decimals). NO address, name, phone or email - only the point,
+    how it was placed, and a fingerprint that says whether Cubby's address
+    changed since. New table - explicit RLS line in main.py."""
+    __tablename__ = "ops_customer_points"
+    id          = Column(String, primary_key=True)                 # "<facility_id>:<customer_id>"
+    facility_id = Column(String, index=True, nullable=False)
+    customer_id = Column(String, default="")
+    lat         = Column(Float)                                    # rounded to 3 decimals; None = missing
+    lng         = Column(Float)
+    precision   = Column(String, default="missing")                # street | zip | missing
+    fingerprint = Column(String, default="")                       # sha256 of the normalized address
+    geocoded_at = Column(String, default="")                       # UTC iso
+class ContractorInvoice(Base):
+    """A contractor's invoice to their own company (Pranshu + Neil, Oct 21
+    2026): drafted when their Time Sheet is finalized (one per final
+    TimeApproval row - `final_approval_id` is the dedupe key), sent by HR.
+    `snapshot` holds the party blocks and lines exactly as rendered, so a
+    later profile change never alters a sent invoice.
+    RELEASE: `ALTER TABLE contractor_invoices ENABLE ROW LEVEL SECURITY` on
+    dev AND prod (create_all makes it with RLS off)."""
+    __tablename__ = "contractor_invoices"
+    id                = Column(String, primary_key=True)             # uuid
+    employee_email    = Column(String, default="", index=True)
+    company_id        = Column(String, default="", index=True)       # HrEntity.id
+    period_start      = Column(String, default="")                   # YYYY-MM-DD
+    period_end        = Column(String, default="")
+    number            = Column(Integer, default=0)
+    invoice_date      = Column(String, default="")                   # YYYY-MM-DD
+    currency          = Column(String, default="INR")
+    amount            = Column(Float, default=0.0)                   # the final snapshot's totalPay
+    hours             = Column(Float, nullable=True)                 # hourly only
+    rate              = Column(Float, nullable=True)                 # hourly only
+    description       = Column(String, default="")
+    status            = Column(String, default="draft", index=True)  # draft | sent | void
+    snapshot          = Column(JSON, default=dict)
+    pdf_path          = Column(String, default="")                   # hr-docs storage path once sent
+    final_approval_id = Column(String, default="", index=True)       # TimeApproval(kind="final").id
+    created_at        = Column(String, default="")
+    approved_by       = Column(String, default="")
+    sent_at           = Column(String, default="")
+    sent_to           = Column(JSON, default=list)
+    egnyte_path       = Column(String, default="")

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRightLeft, Check, ChevronDown, ChevronUp, Database, FolderUp, GripVertical, KeyRound, Mail, Maximize2, Minimize2, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, Check, ChevronDown, ChevronUp, Database, FolderUp, GripVertical, History as HistoryIcon, KeyRound, Mail, Maximize2, Minimize2, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, Figure } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
@@ -51,7 +51,7 @@ import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, u
 // both names (the left panel is gone, the body is full width); tabs are
 // Statement, Borrower(s), Affiliated Entities, History and Profile, Assets,
 // Liabilities, Real Estate (Schedules tab removed - Schedule E/C still feed
-// the statement and the files); Access Log sits beside the tabs; an Executive
+// the statement and the files); Access Log sits beside Export (Oct 22); an Executive
 // Profile per borrower; a co-borrower photo; every entity picker is the
 // module's own (search by number, no historical entities); a line's share is
 // read from Affiliated Entities unless typed; Liabilities sections from the
@@ -332,8 +332,21 @@ export default function PfsTab({ canEdit = false }) {
                 </select>
               </span>
             )}
-            {profile && fileOpen && (
+            {((profile && fileOpen) || canEdit) && (
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {/* Oct 22 (Urmi, Oct 7; Charmi, Oct 15): the Access Log is a
+                    button on the top bar beside Export, not a link by the tabs -
+                    and it is there before any file is opened. */}
+                {canEdit && (
+                  <button type="button" className="secondary-btn" onClick={() => setShowLog(true)} title="Who opened, viewed and exported each statement, and when"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px', whiteSpace: 'nowrap' }}>
+                    <HistoryIcon size={14} /> Access Log
+                  </button>
+                )}
+              </div>
+            )}
+            {profile && fileOpen && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 {locks.untilOf(profile.id) && <PfsLockNow fileId={profile.id} until={locks.untilOf(profile.id)} onLocked={locks.markLocked} />}
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
                 <input type="date" value={asOf} aria-label="Statement date" style={control} onChange={(e) => e.target.value && setAsOf(e.target.value)} />
@@ -349,7 +362,7 @@ export default function PfsTab({ canEdit = false }) {
               </div>
             )}
           </div>
-          {((profile && fileOpen) || canEdit) && (
+          {profile && fileOpen && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--border-color)', paddingTop: 8 }}>
               {profile && fileOpen ? (
                 <div className="scroll-tabs" style={{ display: 'flex', gap: 4, flex: 1, minWidth: 0 }}>
@@ -361,7 +374,6 @@ export default function PfsTab({ canEdit = false }) {
                   ))}
                 </div>
               ) : <div style={{ flex: 1 }} />}
-              {canEdit && <button type="button" className="acct-drill" onClick={() => setShowLog(true)} style={{ fontSize: '0.76rem', whiteSpace: 'nowrap', flexShrink: 0 }}>Access Log</button>}
             </div>
           )}
         </div>
@@ -1551,7 +1563,7 @@ function LineEditor({ line, profileId, categories, asOf, onClose, onSave }) {
   };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={line.id ? `Change ${line.label}` : 'Add a line'} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 680 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={line.id ? `Change ${line.label}` : 'Add a line'} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{line.id ? 'Change Line' : `Add to ${categories.find((c) => c.key === l.category)?.label || 'the Statement'}`}</h3>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -1689,7 +1701,7 @@ function NewGuarantor({ onClose, onCreate }) {
   );
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <form className="modal-content" role="dialog" aria-modal="true" aria-label="New guarantor" onClick={(e) => e.stopPropagation()} onSubmit={save} style={{ maxWidth: 520 }}>
+      <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="New guarantor" onClick={(e) => e.stopPropagation()} onSubmit={save}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>New Guarantor</h3>

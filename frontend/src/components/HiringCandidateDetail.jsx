@@ -6,7 +6,10 @@
 //                ("the action should not be moved to interview. It should be
 //                schedule an interview")
 //   Interview  - the rounds with date, time and who it is with; Open the
-//                Interview Room when they come in; Move To Offer, or Reject
+//                Interview Room when they come in; Move To Decision, or Reject
+//   Decision   - (Neil, Oct 19) every interviewer answers Yes or No and why on
+//                their "Decide on" task, the department head makes the final
+//                call; then Make Offer (green) or Reject (red)
 //   Offer      - the offer letter (Neil, Oct 14): Move To Offer opens Make An
 //                Offer, the letter is verified and signed by both sides, and
 //                that signature is the hire; another round still possible
@@ -23,7 +26,7 @@
 // and moves the stage.
 import { useEffect, useRef, useState } from 'react';
 import { X, CalendarDays, FileText, FileSignature, XCircle, ChevronRight, Video, ClipboardList,
-         RotateCcw, Trophy, Undo2, Check, CheckCircle2, Circle, AlertTriangle, Settings } from 'lucide-react';
+         RotateCcw, Trophy, Undo2, Check, CheckCircle2, Circle, AlertTriangle, Settings, ThumbsUp, ThumbsDown, Clock } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
@@ -33,11 +36,12 @@ import { useEntities } from '../lib/queries';
 import { RecordingLine } from './Interviews';
 import CandidateNotes from './CandidateNotes';
 
-export const STAGES = ['applied', 'screening', 'interview', 'offer', 'hired'];
+export const STAGES = ['applied', 'screening', 'interview', 'decision', 'offer', 'hired'];
 export const STAGE_META = {
   applied:   { label: 'Applied',   hue: '215,15%,55%' },
   screening: { label: 'Screening', hue: '215,75%,45%' },
   interview: { label: 'Interview', hue: '30,80%,48%' },
+  decision:  { label: 'Decision',  hue: '190,70%,36%' },
   offer:     { label: 'Offer',     hue: '271,60%,48%' },
   hired:     { label: 'Hired',     hue: '142,60%,35%' },
   rejected:  { label: 'Rejected',  hue: '350,65%,48%' },
@@ -101,10 +105,55 @@ function OfferProgress({ events, firstName }) {
   );
 }
 
+// The Decision step (Neil, Oct 19): each interviewer's Yes / No and why, from
+// their "Decide on" task, and the department head's final call.
+function DecisionPanel({ candidateId, refreshKey, onReload }) {
+  const [d, setD] = useState(null);
+  useEffect(() => { api.candidateDecision(candidateId).then(setD).catch(() => setD(false)); }, [candidateId, refreshKey]);
+  if (d === null) return <div style={{ marginBottom: 16 }}><Spinner size={16} /></div>;
+  if (!d) {
+    return (
+      <div style={{ fontSize: 13, color: 'hsl(var(--color-red))', marginBottom: 16 }}>
+        Could not load the interview feedback. <button className="secondary-btn" style={{ fontSize: 12, padding: '2px 10px', marginLeft: 6 }} onClick={onReload}>Try Again</button>
+      </div>
+    );
+  }
+  const final = d.decision === 'hire' ? ['Hire', 'green'] : d.decision === 'reject' ? ['Reject', 'red'] : null;
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 18 }}>
+      <div style={{ fontSize: 13, fontWeight: 800 }}>Interview Feedback</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Answered on the "Decide on" task with Yes or No and why.</div>
+      {d.votes.length === 0 ? (
+        <div style={{ fontSize: 13, color: 'hsl(var(--color-orange))', padding: '8px 0' }}>Nobody to ask - set the department&apos;s lead in Company Settings &gt; Departments.</div>
+      ) : d.votes.map(v => (
+        <div key={v.email} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)', alignItems: 'flex-start' }}>
+          {v.vote === 'yes' ? <ThumbsUp size={15} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 2 }} aria-label="Yes" />
+            : v.vote === 'no' ? <ThumbsDown size={15} style={{ color: 'hsl(var(--color-red))', flexShrink: 0, marginTop: 2 }} aria-label="No" />
+              : <Clock size={15} style={{ color: 'var(--muted)', flexShrink: 0, marginTop: 2 }} aria-label="Waiting" />}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>
+              {v.name}
+              {v.final && <span style={{ marginLeft: 8, padding: '1px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 700, background: 'var(--mist)', color: 'var(--muted)' }}>Final Call</span>}
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', wordBreak: 'break-word', marginTop: 1 }}>{v.vote ? v.note : 'Waiting for their answer'}</div>
+          </div>
+          {v.at && <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(v.at)}</span>}
+        </div>
+      ))}
+      <div style={{ marginTop: 10, fontSize: 13 }}>
+        {final
+          ? <><b style={{ color: `hsl(var(--color-${final[1]}))` }}>Final Call: {final[0]}</b><span style={{ color: 'var(--muted)' }}> - {d.decisionByName}, {formatDateTime(d.decisionAt)}</span></>
+          : <span style={{ color: 'var(--muted)' }}>Waiting on {d.deciderName || 'the department head'} for the final call.</span>}
+      </div>
+    </div>
+  );
+}
+
 const NEXT_STEP = {
   applied: 'Read the resume, then move them to Screening - or reject.',
   screening: 'Add your screening notes, then schedule the interview - or reject.',
-  interview: 'Open the Interview Room when they come in. Afterward, Move To Offer - you answer the offer questions and Nexus fills in the right letter.',
+  interview: 'Open the Interview Room when they come in. When it is over (End Interview, or Nexus sees the meeting has ended) they move to Decision.',
+  decision: 'Everyone who interviewed them answers Yes or No and why on their "Decide on" task, and the department head makes the final call. Then Make Offer - or Reject.',
   offer: 'The offer letter is checked, then signed by the company and by them (no login). When both have signed, they are hired and their hiring packet goes out by itself.',
   rejected: 'Closed. Reopen to put them back in the pipeline, or remove them from the board.',
   hired: 'Hired - their record is in People. Their hiring packet (right to work paperwork) is tracked below and on their Checklist.',
@@ -115,7 +164,9 @@ const ROUND_STATUS = {
 };
 const chip = (tone) => ({ padding: '2px 9px', borderRadius: 12, fontSize: 11, fontWeight: 700,
   background: tone === 'gray' ? 'var(--mist)' : `hsla(var(--color-${tone}),0.12)`, color: tone === 'gray' ? 'var(--muted)' : `hsl(var(--color-${tone}))` });
-const rejectBtn = { background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' };
+// Reject is red and the way forward green (Neil, Oct 19: "red or green").
+const rejectBtn = { background: 'hsl(var(--color-red))', border: '1px solid hsl(var(--color-red))', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, cursor: 'pointer', color: '#fff', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' };
+const goGreen = { background: 'hsl(var(--color-green))', borderColor: 'hsl(var(--color-green))', color: '#fff' };
 
 // The stages as a bar: done, here, still to come. Rejected shows on its own.
 function StageBar({ stage }) {
@@ -172,6 +223,7 @@ export default function CandidateDetailModal({
   const resumeRef = useRef(null);
   // The tab that matters for the stage opens first.
   const [tab, setTab] = useState(() => (c.stage === 'interview' ? 'interviews' : ['offer', 'hired'].includes(c.stage) ? 'documents' : 'overview'));
+  const [decisionKey, setDecisionKey] = useState(0);
 
   useEffect(() => { api.ivList(c.id).then(setRounds).catch(() => setRounds([])); }, [c.id, c.stage, refreshKey]);
 
@@ -180,7 +232,7 @@ export default function CandidateDetailModal({
   const live = (rounds || []).filter(r => r.status !== 'canceled');
   const upcoming = live.filter(r => ['scheduled', 'live'].includes(r.status));
   const hadInterview = live.some(r => ['completed', 'scored'].includes(r.status));
-  const roomAllowed = ['interview', 'offer'].includes(c.stage) && live.length > 0;
+  const roomAllowed = ['interview', 'decision', 'offer'].includes(c.stage) && live.length > 0;
   const packetOut = packetIsActive(packetEvents);
   // HR's own turn on the offer or packet: the footer's Sign & Offer (Pranshu, Oct 8).
   const awaitingMe = (packetEvents || []).find(e => ['offer', 'hire'].includes(e.kind) && e.status === 'awaiting_sender' && e.senderPartyId) || null;
@@ -194,7 +246,7 @@ export default function CandidateDetailModal({
     .then(o => { const list = o.choices || []; setOfferChoices(list); setOfferErr(false); return list; })
     .catch(() => { setOfferErr(true); return null; });
   useEffect(() => {
-    if (!['interview', 'offer'].includes(c.stage) || !onMakeOffer) { setOfferChoices(null); setOfferErr(false); return; }
+    if (!['decision', 'offer'].includes(c.stage) || !onMakeOffer) { setOfferChoices(null); setOfferErr(false); return; }
     loadOfferChoices();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only whether there is an offer flow, not the callback's identity
   }, [c.id, c.stage, refreshKey, !!onMakeOffer]);
@@ -227,7 +279,10 @@ export default function CandidateDetailModal({
     catch (e) { toastErr?.(e?.message || 'Could not cancel it.'); }
   }
   async function toOffer() {
-    if (!hadInterview && !await dialog.confirm('No interview has been completed yet. Make the offer anyway?', { title: 'Move To Offer', confirmText: 'Continue' })) return;
+    if (!hadInterview && !await dialog.confirm('No interview has been completed yet. Make the offer anyway?', { title: 'Make Offer', confirmText: 'Continue' })) return;
+    if (c.stage === 'decision' && c.decision !== 'hire' && !await dialog.confirm(
+      c.decision === 'reject' ? 'The department head said No. Make the offer anyway?' : 'The department head has not made the final call yet. Make the offer anyway?',
+      { title: 'Make Offer', confirmText: 'Continue' })) return;
     // The offer questions come up right here (Neil: "right when you click move
     // to offer, these questions should come up").
     if (!onMakeOffer) { move('offer'); return; }   // a screen with no offer flow
@@ -258,8 +313,8 @@ export default function CandidateDetailModal({
     catch (e) { toastErr?.(e?.message || 'Could not update them.'); }
   }
 
-  const primary = (label, onClick, icon, disabled) => (
-    <button className="primary-btn" onClick={onClick} disabled={busy || disabled} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+  const primary = (label, onClick, icon, disabled, look) => (
+    <button className="primary-btn" onClick={onClick} disabled={busy || disabled} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, ...look }}>
       {busy ? <Spinner size={14} /> : icon} {label}
     </button>
   );
@@ -277,13 +332,17 @@ export default function CandidateDetailModal({
     interview: [reject,
       secondary('Another Round', () => onSchedule(c), <CalendarDays size={13} />),
       roomAllowed && secondary('Interview Room', () => onOpenRoom(c), <ClipboardList size={13} />),
-      primary('Move To Offer', toOffer, <ChevronRight size={14} />)],
+      primary('Move To Decision', () => move('decision'), <ChevronRight size={14} />)],
+    decision: [reject,
+      secondary('Another Round', () => onSchedule(c), <CalendarDays size={13} />),
+      roomAllowed && secondary('Interview Room', () => onOpenRoom(c), <ClipboardList size={13} />),
+      primary('Make Offer', toOffer, <FileSignature size={14} />, false, goGreen)],
     offer: [reject,
       secondary('Another Interview', () => onSchedule(c), <Undo2 size={13} />),
       secondary('Mark Hired By Hand', markHiredByHand, null),
       awaitingMe && onSignPacket && primary('Sign & Offer', () => onSignPacket(awaitingMe.senderPartyId), <FileSignature size={14} />),
       noOfferLetter && secondary('Set Up Offer Letter', goHiringSettings, <Settings size={13} />),
-      !packetOut && offers && !offerSigned && primary('Make Offer', () => onMakeOffer(c), <FileSignature size={14} />, packetEvents === null),
+      !packetOut && offers && !offerSigned && primary('Make Offer', () => onMakeOffer(c), <FileSignature size={14} />, packetEvents === null, goGreen),
       // The hiring packet follows a signed offer (Pranshu, Oct 15): shown, but
       // not clickable, until the candidate and HR have both signed - it then
       // goes out by itself; Send is only for when that could not happen.
@@ -303,7 +362,7 @@ export default function CandidateDetailModal({
 
   const TABS = [
     ['overview', 'Overview & Notes'],
-    ...(live.length > 0 || ['interview', 'offer'].includes(c.stage) ? [['interviews', `Interviews${live.length ? ` (${live.length})` : ''}`]] : []),
+    ...(live.length > 0 || ['interview', 'decision', 'offer'].includes(c.stage) ? [['interviews', `Interviews${live.length ? ` (${live.length})` : ''}`]] : []),
     ...(['offer', 'hired'].includes(c.stage) ? [['documents', 'Offer & Documents']] : []),
   ];
   const shownTab = TABS.some(([k]) => k === tab) ? tab : 'overview';
@@ -316,7 +375,8 @@ export default function CandidateDetailModal({
       <div style={{ fontSize: 13, marginTop: 2, wordBreak: 'break-word', color: missing ? 'hsl(var(--color-orange))' : 'var(--ink)' }}>{value}</div>
     </div>
   );
-  const overview = (
+  const overview = (<>
+    {(c.stage === 'decision' || c.decision) && <DecisionPanel candidateId={c.id} refreshKey={`${refreshKey}-${c.stage}-${decisionKey}`} onReload={() => setDecisionKey(k => k + 1)} />}
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 28px' }}>
       <div style={{ gridColumn: 'span 1', maxWidth: 320 }}>
         {about('Email', c.email || (canEdit ? 'No email yet - add it with Edit' : 'No email yet'), !c.email)}
@@ -343,18 +403,19 @@ export default function CandidateDetailModal({
         {!closed && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>A note still in the box goes with the next move you make here.</div>}
       </div>
     </div>
-  );
+  </>);
 
   const interviews = (
     <div>
       {rounds === null ? <Spinner size={16} /> : live.length === 0 ? (
         <div style={{ fontSize: 13, color: 'var(--muted)' }}>No interview scheduled.</div>
-      ) : live.map(r => {
+      ) : live.map((r, i) => {
         const [label, tone] = ROUND_STATUS[r.status] || [r.status, 'gray'];
         return (
           <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <b style={{ fontSize: 13.5 }}>{formatDateTime(r.at)}</b>
+              <b style={{ fontSize: 13.5 }}>Interview {i + 1}</b>
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDateTime(r.at)}</span>
               <span style={chip(tone)}>{label}</span>
               {r.status === 'scored' && <span style={{ fontSize: 12.5, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{Math.round(r.totalScore)}/100</span>}
               <span style={{ flex: 1 }} />

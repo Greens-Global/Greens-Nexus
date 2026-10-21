@@ -319,7 +319,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
                 <span className="dk-dot dk-dot--up" /> Clocked In Now
                 <b>{teamKpis.clocked_in_now ?? 0}</b>
               </button>
-              <button className="dk-team-row" onClick={() => navTo('manager-dashboard')}>
+              <button className="dk-team-row" onClick={() => navTo('myhr', 'purchase')}>
                 Requisitions to Approve
                 <b className={teamKpis.pending_requisitions > 0 ? 'dk-hot' : ''}>{teamKpis.pending_requisitions ?? 0}</b>
               </button>

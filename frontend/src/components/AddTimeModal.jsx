@@ -13,6 +13,7 @@ import { formatDate } from '../lib/datetime';
 import { DAY_MS, localKey, nextDay, weekday, monthDay, hm, t12, cap, BREAKS, TYPES, TONE, dayNote, planText } from '../lib/addTime';
 import { inputToUtcTz, tzOffsetForInput, formatTimeTz, useDisplayTz, currentTzOption } from '../lib/displayTz';
 import { Spinner } from './AsyncState';
+import ChoicePills from './ChoicePills';
 
 const MAX_DAYS = 31;   // the server's cap (_ADD_TIME_MAX_DAYS)
 const field = { border: '1px solid var(--line)', borderRadius: 8, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit', background: 'var(--card)', color: 'var(--ink)' };
@@ -132,8 +133,8 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
 
   return (
     <div onClick={busy ? undefined : onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}>
-      <div role="dialog" aria-modal="true" aria-label={`Add time for ${who || email}`} onClick={(e) => e.stopPropagation()}
-        style={{ background: 'var(--card)', color: 'var(--ink)', borderRadius: 16, width: 'min(760px, 100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+      <div role="dialog" aria-modal="true" aria-label={`Add time for ${who || email}`} onClick={(e) => e.stopPropagation()} className="nx-popup"
+        style={{ background: 'var(--card)', color: 'var(--ink)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
           <CalendarPlus size={18} style={{ color: 'var(--wk-brand, #15803d)' }} />
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -171,7 +172,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
           </div>
         ) : (
           <>
-            <div style={{ padding: '14px 18px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ padding: '14px 18px', overflow: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
               {/* Days */}
               <div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -213,8 +214,8 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
                   <label style={{ display: 'block' }}><span style={lab}>Clock Out</span><input type="time" value={outT} disabled={perDay} onChange={(e) => { setOutT(e.target.value); touch(); }} style={field} /></label>
                   <label style={{ display: 'block' }}><span style={lab}>Unpaid Break</span>
                     <select value={brk} onChange={(e) => { setBrk(Number(e.target.value)); touch(); }} style={field}>{BREAKS.map((b) => <option key={b} value={b}>{b ? `${b} min` : 'None'}</option>)}</select></label>
-                  <label style={{ display: 'block' }}><span style={lab}>Type</span>
-                    <select value={type} onChange={(e) => { setType(e.target.value); touch(); }} style={field}>{TYPES.map((t) => <option key={t}>{t}</option>)}</select></label>
+                  <div><span style={lab}>Type</span>
+                    <ChoicePills label="Type" value={type} options={TYPES} onChange={(t) => { setType(t); touch(); }} /></div>
                   {shiftHours && !perDay && (
                     <button type="button" className="secondary-btn" onClick={() => { setInT(shiftHours.start); setOutT(shiftHours.end); setBrk(BREAKS.includes(shiftHours.breakMin) ? shiftHours.breakMin : 0); touch(); }}
                       title={`${t12(shiftHours.start)} - ${t12(shiftHours.end)}`} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -265,7 +266,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
               </div>
 
               {/* Reason */}
-              <label style={{ display: 'block' }}>
+              <label className="nx-fill">
                 <span style={lab}>Reason</span>
                 <textarea value={reason} onChange={(e) => { setReason(e.target.value); touch(); }} rows={2} maxLength={300} placeholder="Why this time is being added - it goes on every punch, e.g. forgot to clock in, no signal at the site"
                   style={{ ...field, width: '100%', boxSizing: 'border-box', resize: 'vertical' }} />

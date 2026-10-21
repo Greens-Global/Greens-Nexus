@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
-from auth import _LEVELS, _MODULE_LEVEL_RANK, company_of, get_current_user, require_module_grant
+from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, company_of, get_current_user, level_for, require_module_grant
 from database import get_db
 from routers.accounting import ACCOUNTING_SCOPE_MODULE, ACCOUNTING_SCOPE_TYPE, entity_scope
 
@@ -160,9 +160,13 @@ async def email_report(
         _, sender = await asyncio.to_thread(_send)
     except GraphMailError as e:
         raise HTTPException(status_code=424, detail=f"The email was not sent: {str(e)[:300]}")
-    db.add(models.AuditLog(timestamp=_now(), user_email=me, user_role=user.get("role", ""), action="accounting_report_emailed",
-                           resource_type="accounting_report", resource_id=name, details=json.dumps({"to": recipients, "from": sender, "subject": subject})))
-    db.commit()
+
+    def _audit():
+        db.add(models.AuditLog(timestamp=_now(), user_email=me, user_role=user.get("role", ""), action="accounting_report_emailed",
+                               resource_type="accounting_report", resource_id=name, details=json.dumps({"to": recipients, "from": sender, "subject": subject})))
+        db.commit()
+    # Sync DB write: in a thread, never on the event loop (Neil's review, Oct 20).
+    await asyncio.to_thread(_audit)
     return {"ok": True, "to": recipients, "from": sender}
 
 
@@ -177,7 +181,9 @@ class ShareBody(BaseModel):
 def share_report(body: ShareBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Share the view on screen with a teammate: memorize it shared with the
     team (under the name given, replacing the caller's own of that name) and
-    tell the person on their bell, with a click that opens Reports."""
+    tell the person on their bell, with a click that opens Reports. Only a
+    person who can open Accounting (the grant, or an administrator) gets the
+    bell (Neil's review, Oct 20); anyone else is skipped and counted."""
     me = user["email"].lower()
     recipient = (body.recipient or "").strip().lower()
     if not _EMAIL.match(recipient):
@@ -195,17 +201,20 @@ def share_report(body: ShareBody, user: dict = Depends(get_current_user), db: Se
         row = models.AccountingSavedReport(id=str(uuid.uuid4()), owner_email=me, name=name, config=config, shared=True, created_at=now, updated_at=now)
         db.add(row)
     note = (body.message or "").strip()[:600]
-    db.add(models.NexusNotification(
-        id=str(uuid.uuid4()), type="accounting_report_shared", recipient=recipient,
-        title=f"A Report Was Shared With You: {name}",
-        body=(note + " " if note else "") + "Open Accounting, Reports, then Saved Reports.",
-        ref_id=row.id, item_name=name, requested_by=me,
-        action=json.dumps({"view": "accounting", "sub": "reports"}), actioned=False, read_by="",
-        company=company_of(me, db), created_at=now, priority=0,
-    ))
+    can_open = (level_for(recipient, db) >= _LEVELS["administrator"]
+                or _module_level(recipient, "accounting", db) >= _MODULE_LEVEL_RANK["viewer"])
+    if can_open:
+        db.add(models.NexusNotification(
+            id=str(uuid.uuid4()), type="accounting_report_shared", recipient=recipient,
+            title=f"A Report Was Shared With You: {name}",
+            body=(note + " " if note else "") + "Open Accounting, Reports, then Saved Reports.",
+            ref_id=row.id, item_name=name, requested_by=me,
+            action=json.dumps({"view": "accounting", "sub": "reports"}), actioned=False, read_by="",
+            company=company_of(me, db), created_at=now, priority=0,
+        ))
     db.commit()
     db.refresh(row)
-    return {"report": _report_out(row, me), "recipient": recipient}
+    return {"report": _report_out(row, me), "recipient": recipient, "notified": 1 if can_open else 0, "skipped": 0 if can_open else 1}
 
 
 # ── Memorized reports ────────────────────────────────────────────────────────

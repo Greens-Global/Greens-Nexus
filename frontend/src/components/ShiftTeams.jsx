@@ -15,7 +15,7 @@ const ITEM = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', pad
   cursor: 'pointer', fontSize: 12.5, fontFamily: 'inherit', color: 'var(--ink)', textAlign: 'left' };
 const HEAD = { fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', padding: '8px 12px 4px' };
 const MODAL_BACK = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' };
-const MODAL_CARD = { background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 460, padding: 20, maxHeight: '92dvh', overflowY: 'auto' };
+const MODAL_CARD = { background: 'var(--card)', borderRadius: 14, padding: 20, overflowY: 'auto' };
 
 // Closes a popover on an outside press or Escape.
 function useDismiss(open, onClose) {
@@ -118,7 +118,8 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
   const [picked, setPicked] = useState([]);
   useEffect(() => {
     let live = true;
-    api.getPeopleDirectory().then(rows => { if (live) setPeople(Array.isArray(rows) ? rows : []); }).catch(() => { if (live) setPeople([]); });
+    // External users too (Pranshu, Oct 22) - see ShiftSettingsSections.
+    api.getPeopleDirectory(true).then(rows => { if (live) setPeople(Array.isArray(rows) ? rows : []); }).catch(() => { if (live) setPeople([]); });
     return () => { live = false; };
   }, []);
   const have = useMemo(() => new Set((team.members || []).map(m => m.toLowerCase())), [team]);
@@ -130,7 +131,7 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
   const nav = useListNav(list, { open: !!q.trim(), query: q, onPick: p => toggle(emailOf(p)) });
   return (
     <div style={MODAL_BACK} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Add Members" style={MODAL_CARD}>
+      <div role="dialog" aria-label="Add Members" className="nx-popup" style={MODAL_CARD}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Add Members to {team.name}</span>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
@@ -154,8 +155,7 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
                 <input type="checkbox" checked={picked.includes(em)} onChange={() => toggle(em)} aria-label={`Add ${nameOf(p)}`} />
                 <Avatar name={nameOf(p)} photoUrl={p.photoUrl || p.photo_url || ''} size={24} />
                 <span style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700 }}>{nameOf(p)}</div>
-                  
+                  <div style={{ fontSize: 12.5, fontWeight: 700 }}>{nameOf(p)}{p.external === true && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px' }}>External</span>}</div>
                 </span>
               </label>
             );
@@ -181,7 +181,7 @@ export function ReorderTeamsModal({ groups, busy, onSave, onClose }) {
   const move = (i, d) => setOrder(o => { const n = [...o]; [n[i], n[i + d]] = [n[i + d], n[i]]; return n; });
   return (
     <div style={MODAL_BACK} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Reorder Groups" style={{ ...MODAL_CARD, maxWidth: 400 }}>
+      <div role="dialog" aria-label="Reorder Groups" className="nx-popup" style={MODAL_CARD}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
           <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Reorder Groups</span>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>

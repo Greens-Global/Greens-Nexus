@@ -122,7 +122,10 @@ export default function SendReportDialog({ mode, result, entities, title, config
         onDone(`Saved to Files as ${dest}/${file.name}.`, r?.webUrl);
       } else {
         const r = await api.shareAccountingReport({ recipient, name: name.trim(), config, message });
-        onDone(`Shared "${r.report.name}" - it is under Saved Reports for the whole team, and ${people.find((p) => p.email === recipient)?.name || 'they'} were told.`);
+        const who = people.find((p) => p.email === recipient)?.name || 'they';
+        onDone(r.skipped
+          ? `Shared "${r.report.name}" - it is under Saved Reports for the whole team, but ${who} were not told: they do not have Accounting access.`
+          : `Shared "${r.report.name}" - it is under Saved Reports for the whole team, and ${who} were told.`);
       }
     } catch (err) {
       setError(err?.message || `Could not send the ${what}.`);
@@ -153,7 +156,7 @@ export default function SendReportDialog({ mode, result, entities, title, config
   );
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <form className="modal-content" role="dialog" aria-modal="true" aria-label={TITLES[mode]} onClick={(e) => e.stopPropagation()} onSubmit={send} style={{ maxWidth: 560 }}>
+      <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={TITLES[mode]} onClick={(e) => e.stopPropagation()} onSubmit={send}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>{TITLES[mode]}</h3>

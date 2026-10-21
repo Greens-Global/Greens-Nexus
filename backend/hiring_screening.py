@@ -63,7 +63,7 @@ def department_head(db: Session, cand: models.HrCandidate) -> str:
 
 def screeners(db: Session, cand: models.HrCandidate) -> list:
     """The department head and everyone above them ("manager plus plus"),
-    nearest first; the company's HR contact when nobody is set up."""
+    nearest first, then the company's HR contact."""
     out = []
     email = department_head(db, cand)
     while email and email not in out and len(out) < MAX_CHAIN:
@@ -72,10 +72,12 @@ def screeners(db: Session, cand: models.HrCandidate) -> list:
             break
         out.append(email)
         email = (p.manager_email or "").strip().lower()
-    if not out and cand.company:
+    # HR screens too (Neil, Oct 19: "step 2 is HR and or department head").
+    if cand.company:
         ent = db.query(models.HrEntity).filter(models.HrEntity.id == cand.company).first()
-        if ent is not None and _person(db, ent.hr_contact_email):
-            out.append(ent.hr_contact_email.strip().lower())
+        hr = (ent.hr_contact_email or "").strip().lower() if ent is not None else ""
+        if hr and hr not in out and _person(db, hr):
+            out.append(hr)
     return out
 
 

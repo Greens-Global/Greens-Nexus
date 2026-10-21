@@ -47,7 +47,10 @@ const Q_FUZZY = 0.75;   // one typo
 
 // A section needs at least this much to be shown at all. Calibrated in
 // docsSearch.test.js: real questions land well above it, junk far below.
-export const MIN_SCORE = 3.5;
+// Every new guide entry lowers every score a little (rarity is relative to
+// the guide's size), so the edge pair the tests pin drifts: Oct 21 "vacat"
+// measured 3.495 and the junk "movie times" 3.401, so the floor sits between.
+export const MIN_SCORE = 3.45;
 // Ticket suggestions sit inside a form, so they need to be surer.
 export const TICKET_MIN_SCORE = 4;
 // Results under this share of the best result's score are dropped as noise.

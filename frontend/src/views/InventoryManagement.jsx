@@ -4,7 +4,6 @@ import { ErrorBanner, SkeletonBlocks, Spinner, LoadingState } from '../component
 import ModuleTabs from '../components/ModuleTabs';
 import { useInventory }     from '../contexts/InventoryContext';
 import { useNotifications } from '../contexts/NotificationContext';
-import { useRequisitions }  from '../contexts/RequisitionContext';
 import { useRole }          from '../contexts/RoleContext';
 import { api }              from '../api';
 import { usePeopleDirectory } from '../lib/queries';
@@ -140,23 +139,6 @@ function useEscapeKey(fn) {
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [fn]);
-}
-
-// Renders text with URLs as clickable links (truncated for readability) -
-// requisition reasons carry "Reference: https://…" from the purchase form.
-function Linkify({ text }) {
-  if (!text) return null;
-  const parts = String(text).split(/(https?:\/\/[^\s"']+)/g);
-  return parts.map((part, i) =>
-    /^https?:\/\//.test(part) ? (
-      <a key={i} href={part} target="_blank" rel="noopener noreferrer"
-        onClick={e => e.stopPropagation()}
-        style={{ color:'hsl(var(--color-blue))', fontWeight:600, wordBreak:'break-all' }}
-        title={part}>
-        {part.length > 64 ? `${part.slice(0, 60)}…` : part}
-      </a>
-    ) : part
-  );
 }
 
 function ImageLightbox({ src, alt, onClose }) {
@@ -3675,8 +3657,8 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
         </div>
         {(() => {
           // Neil: top row groups the "do something with items" actions and spans the full
-          // width (no maxWidth cap, no compression). Purchase Request is its own thing, so
-          // it drops to its own row below.
+          // width (no maxWidth cap, no compression). Purchase Request moved to Workday
+          // (Neil, Oct 22 2026), so its card is gone from here.
           const renderCard = ({ Icon, colorVar, title, sub, go, badge }) => (
             <button key={title} onClick={go}
               style={{ display:'flex', alignItems:'flex-start', gap:16, padding:'20px 20px', borderRadius:14, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)', position:'relative' }}
@@ -3702,13 +3684,10 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             // Managers get a Manage card right on the home screen (Neil: no way in from here).
             ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage Items', sub:'Add, edit, assign, import, types and the activity log - the full management tools.', go:onEnterManage, badge:null }] : []),
           ];
-          const purchaseCard = { Icon:ClipboardList, colorVar:'color-orange', title:'Purchase Request', sub:'Need something not in the catalog? Submit a formal purchase request.', go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})), badge:null };
-          // All actions in one responsive grid so every card is the same size
-          // (Purchase request used to sit in its own 380px row, which read as
-          // a shrunken odd-one-out next to the full-width top cards).
+          // All actions in one responsive grid so every card is the same size.
           return (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:16, marginBottom:cart.length ? 28 : 0 }}>
-              {[...topCards, purchaseCard].map(renderCard)}
+              {topCards.map(renderCard)}
             </div>
           );
         })()}
@@ -3950,12 +3929,6 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
               }
             />
           )}
-          <div style={{ marginTop:28, paddingTop:20, borderTop:'1px solid var(--line)', display:'flex', justifyContent:'center' }}>
-            <button onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view:'purchase' } }))}
-              style={{ background:'none', border:'1px solid var(--line)', borderRadius:10, padding:'10px 20px', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:13, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:8 }}>
-              <ClipboardList size={14} /> Need something not in the catalog? Raise a purchase requisition
-            </button>
-          </div>
         </div>
       )}
 
@@ -7273,292 +7246,6 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   );
 });
 
-// ── Purchase Requests Tab ─────────────────────────────────────────────────────
-const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userName, isManager, onAssign, toast }) {
-  const { requisitions, approveRequisition, rejectRequisition, markRequisitionOrdered, fulfillRequisition } = useRequisitions();
-  const [rejectingId,   setRejectingId]   = useState(null);
-  const [rejectReason,  setRejectReason]  = useState('');
-  const [approvingId,   setApprovingId]   = useState(null);
-  const [pickedFulfiller, setPickedFulfiller] = useState('');
-  const [allocators,    setAllocators]    = useState([]);
-  const [orderingId,    setOrderingId]    = useState(null);
-  const [orderNote,     setOrderNote]     = useState('');
-  const [noInvId,       setNoInvId]       = useState(null);
-  const [noInvNote,     setNoInvNote]     = useState('');
-  const [addingForReq,  setAddingForReq]  = useState(null); // requisition → prefilled AddItemModal
-  const [busyId,        setBusyId]        = useState(null);
-
-  useEffect(() => {
-    if (isManager) api.getItemAllocators().then(setAllocators).catch(() => {});
-  }, [isManager]);
-
-  const fmtDate = iso => formatDateLong(iso);
-
-  // manager_approved displays as plain "Approved" in green - the raw status
-  // string leaking into the UI was Neil/Visesh feedback.
-  const STATUS_META = {
-    pending_manager:  { label:'Pending approval', bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
-    manager_approved: { label:'Approved',          bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
-    ordered:          { label:'Ordered',           bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
-    fulfilled:        { label:'Fulfilled',         bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
-    rejected:         { label:'Rejected',          bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
-    asset_allocated:  { label:'Allocated',         bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
-    returned:         { label:'Returned',          bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
-  };
-
-  const visible = isManager
-    ? requisitions
-    : requisitions.filter(r => r.employeeName === userName || (r.employeeEmail || '').toLowerCase() === userEmail);
-
-  const pending  = visible.filter(r => r.status === 'pending_manager');
-  const active   = visible.filter(r => ['manager_approved', 'ordered'].includes(r.status));
-  const resolved = visible.filter(r => !['pending_manager', 'manager_approved', 'ordered'].includes(r.status));
-
-  // The assigned fulfiller (or any manager) gets the procurement actions
-  const canFulfill = r => ['manager_approved', 'ordered'].includes(r.status) &&
-    (isManager || (r.allocatorEmail || '').toLowerCase() === userEmail);
-
-  function submitApprove(r) {
-    const chosen = allocators.find(a => a.email === pickedFulfiller);
-    if (!chosen) return;
-    setBusyId(r.id);
-    Promise.resolve(approveRequisition(r.id, userName, { email: chosen.email, name: chosen.name }))
-      .then(() => { toast?.(`Approved - ${chosen.name} will purchase ${r.item}.`); setApprovingId(null); setPickedFulfiller(''); })
-      .catch(err => toast?.(err?.message || 'Could not approve.', 'error'))
-      .finally(() => setBusyId(null));
-  }
-
-  function submitOrdered(r) {
-    setBusyId(r.id);
-    Promise.resolve(markRequisitionOrdered(r.id, userName, orderNote.trim()))
-      .then(() => { toast?.(`${r.item} marked as ordered.`); setOrderingId(null); setOrderNote(''); })
-      .catch(err => toast?.(err?.message || 'Could not mark as ordered.', 'error'))
-      .finally(() => setBusyId(null));
-  }
-
-  function submitNoInventory(r) {
-    if (!noInvNote.trim()) return;
-    setBusyId(r.id);
-    Promise.resolve(fulfillRequisition(r.id, userName, { note: noInvNote.trim() }))
-      .then(() => { toast?.(`${r.item} fulfilled.`); setNoInvId(null); setNoInvNote(''); })
-      .catch(err => toast?.(err?.message || 'Could not fulfill.', 'error'))
-      .finally(() => setBusyId(null));
-  }
-
-  // The purchase form appends "Reference: <url>" to the reason - split it out
-  // so the link renders as its own clean action instead of a wall of URL text.
-  function splitReason(reason) {
-    const m = (reason || '').match(/\s*Reference:\s*(https?:\/\/\S+)\s*$/i);
-    if (!m) return { text: reason || '', link: null };
-    return { text: (reason || '').replace(m[0], '').trim(), link: m[1] };
-  }
-
-  function renderCard(r) {
-    const sm = STATUS_META[r.status] || { label: r.status, bg:'var(--mist)', fg:'var(--muted)' };
-    const isRej = rejectingId === r.id;
-    const { text: reasonText, link: refLink } = splitReason(r.reason);
-    let refHost = '';
-    if (refLink) { try { refHost = new URL(refLink).hostname.replace(/^www\./, ''); } catch { refHost = 'link'; } }
-    return (
-      <div key={r.id} style={{ border:'1px solid var(--line)', borderRadius:12, padding:'16px 20px', background:'var(--card)', boxShadow:'var(--shadow-sm)', marginBottom:10 }}>
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
-          <div style={{ display:'flex', gap:12, alignItems:'flex-start', flex:1, minWidth:0 }}>
-            <div style={{ width:38, height:38, borderRadius:10, background:'hsla(var(--color-orange),0.12)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-              <ClipboardList size={17} color="hsl(var(--color-orange))" />
-            </div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-                <span style={{ fontWeight:700, fontSize:14 }}>{r.item}</span>
-                <span style={{ fontSize:11, fontWeight:800, color:'hsl(var(--color-blue))', background:'hsla(var(--color-blue),0.10)', borderRadius:20, padding:'2px 9px' }}>×{r.quantity}</span>
-              </div>
-              <div style={{ fontSize:12, color:'var(--muted)', marginTop:3 }}>
-                <strong style={{ color:'var(--ink)', fontWeight:600 }}>{r.employeeName}</strong> · {r.employeeDept}
-                {r.createdAt && <> · {fmtDate(r.createdAt)}</>}
-              </div>
-              {r.allocatorName && ['manager_approved','ordered','fulfilled'].includes(r.status) && (
-                <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
-                  Fulfillment: <strong style={{ color:'hsl(var(--color-purple))', fontWeight:600 }}>{r.allocatorName}</strong>
-                  {r.status === 'ordered' && r.orderedAt && <> · ordered {fmtDate(r.orderedAt)}</>}
-                  {r.status === 'fulfilled' && r.fulfilledAt && <> · fulfilled {fmtDate(r.fulfilledAt)}</>}
-                </div>
-              )}
-              {r.fulfillmentNote && r.status === 'fulfilled' && (
-                <div style={{ fontSize:12, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>{r.fulfillmentNote}</div>
-              )}
-            </div>
-          </div>
-          <span style={{ display:'inline-flex', alignItems:'center', padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg, flexShrink:0 }}>
-            {sm.label}
-          </span>
-        </div>
-        {reasonText && (
-          <div style={{ fontSize:12.5, color:'var(--ink)', marginTop:12, background:'var(--mist)', borderLeft:'3px solid var(--line)', borderRadius:'0 8px 8px 0', padding:'8px 12px', lineHeight:1.5, whiteSpace:'pre-line' }}>
-            <Linkify text={reasonText} />
-          </div>
-        )}
-        {refLink && (
-          <a href={refLink} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
-            style={{ display:'inline-flex', alignItems:'center', gap:6, marginTop:10, padding:'6px 12px', borderRadius:8, border:'1px solid hsla(var(--color-blue),0.3)', background:'hsla(var(--color-blue),0.06)', color:'hsl(var(--color-blue))', fontSize:12, fontWeight:700, textDecoration:'none' }}
-            title={refLink}>
-            <Link2 size={13} /> View reference - {refHost}
-          </a>
-        )}
-        {r.rejectionReason && <div style={{ fontSize:12, color:'hsl(var(--color-red))', marginTop:10 }}>Reason of rejection: "{r.rejectionReason}"</div>}
-        {isManager && r.status === 'pending_manager' && (
-          isRej ? (
-            <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
-              <input className="form-input" autoFocus placeholder="Reason for rejection…" value={rejectReason}
-                onChange={e => setRejectReason(e.target.value)}
-                style={{ fontSize:13, padding:'8px 12px' }} />
-              <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
-                <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setRejectingId(null); setRejectReason(''); }}>Cancel</button>
-                <button className="primary-btn" style={{ fontSize:12, background:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:5 }}
-                  disabled={!rejectReason.trim()}
-                  onClick={() => { rejectRequisition(r.id, userName, rejectReason.trim()); setRejectingId(null); setRejectReason(''); }}>
-                  <XCircle size={13} /> Confirm Reject
-                </button>
-              </div>
-            </div>
-          ) : approvingId === r.id ? (
-            /* Approval = pick who purchases & fulfills (mirrors checkout allocators) */
-            <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
-              <div style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-green))' }}>Who should purchase & fulfill this?</div>
-              <select className="form-input" autoFocus value={pickedFulfiller} onChange={e => setPickedFulfiller(e.target.value)} style={{ fontSize:13, padding:'8px 12px' }}>
-                <option value="">Select a person…</option>
-                {allocators.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
-              </select>
-              <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
-                <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setApprovingId(null); setPickedFulfiller(''); }} disabled={busyId === r.id}>Cancel</button>
-                <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
-                  disabled={!pickedFulfiller || busyId === r.id} onClick={() => submitApprove(r)}>
-                  {busyId === r.id ? <Spinner size={13} /> : <CheckCircle size={13} />} Confirm approval
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
-              <button onClick={() => { setRejectingId(r.id); setRejectReason(''); }}
-                style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif' }}>
-                <XCircle size={12} /> Reject
-              </button>
-              <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px' }}
-                onClick={() => { setApprovingId(r.id); setPickedFulfiller(''); setRejectingId(null); }}>
-                <CheckCircle size={12} /> Approve
-              </button>
-            </div>
-          )
-        )}
-        {/* Fulfillment actions - assigned fulfiller or any manager */}
-        {canFulfill(r) && (
-          orderingId === r.id ? (
-            <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
-              <input className="form-input" autoFocus placeholder="Optional note - vendor, expected arrival…" value={orderNote}
-                onChange={e => setOrderNote(e.target.value)} style={{ fontSize:13, padding:'8px 12px' }} />
-              <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
-                <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setOrderingId(null); setOrderNote(''); }} disabled={busyId === r.id}>Cancel</button>
-                <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
-                  disabled={busyId === r.id} onClick={() => submitOrdered(r)}>
-                  {busyId === r.id ? <Spinner size={13} /> : <Send size={13} />} Confirm Ordered
-                </button>
-              </div>
-            </div>
-          ) : noInvId === r.id ? (
-            <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
-              <input className="form-input" autoFocus placeholder="Required - where did it go? e.g. consumables handed to requester" value={noInvNote}
-                onChange={e => setNoInvNote(e.target.value)} style={{ fontSize:13, padding:'8px 12px' }} />
-              <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
-                <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setNoInvId(null); setNoInvNote(''); }} disabled={busyId === r.id}>Cancel</button>
-                <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
-                  disabled={!noInvNote.trim() || busyId === r.id} onClick={() => submitNoInventory(r)}>
-                  {busyId === r.id ? <Spinner size={13} /> : <CheckCircle size={13} />} Mark Fulfilled
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12, flexWrap:'wrap' }}>
-              {r.status === 'manager_approved' && (
-                <button className="secondary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
-                  onClick={() => { setOrderingId(r.id); setOrderNote(''); }}>
-                  <Send size={12} /> Mark Ordered
-                </button>
-              )}
-              <button className="secondary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, color:'var(--muted)' }}
-                title="For consumables that don't belong in the items list - a note is required"
-                onClick={() => { setNoInvId(r.id); setNoInvNote(''); }}>
-                <CheckCircle size={12} /> Fulfill Without Adding
-              </button>
-              <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
-                title="Item received - add it to the items catalog (and optionally assign it to the requester)"
-                onClick={() => setAddingForReq(r)}>
-                <Package size={12} /> Received - add to items
-              </button>
-            </div>
-          )
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      {/* Managers fulfill here but had no way to RAISE a request - the New
-          Request form lives on the Purchase view, which isn't in the sidebar */}
-      <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
-        <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 16px' }}
-          onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view:'purchase', sub:'new' } }))}>
-          <Plus size={13} /> New Purchase Request
-        </button>
-      </div>
-      {pending.length > 0 && (
-        <>
-          <div style={{ fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', marginBottom:10 }}>
-            Pending Approval - {pending.length}
-          </div>
-          {pending.map(renderCard)}
-        </>
-      )}
-      {active.length > 0 && (
-        <>
-          <div style={{ fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', margin:'20px 0 10px' }}>
-            {active.some(canFulfill) ? 'To Fulfill' : 'In Progress'} - {active.length}
-          </div>
-          {active.map(renderCard)}
-        </>
-      )}
-      {resolved.length > 0 && (
-        <>
-          <div style={{ fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', margin:'20px 0 10px' }}>
-            Past Requests - {resolved.length}
-          </div>
-          {resolved.map(renderCard)}
-        </>
-      )}
-      {visible.length === 0 && (
-        <div style={{ padding:'64px 0', textAlign:'center', color:'var(--muted)' }}>
-          <FileText size={36} style={{ opacity:.15, display:'block', margin:'0 auto 14px' }} />
-          <div style={{ fontWeight:700, fontSize:15, marginBottom:6 }}>No purchase requests yet</div>
-          <div style={{ fontSize:13 }}>Requests submitted via Purchase Requisition will appear here.</div>
-        </div>
-      )}
-      {/* "Received - Add to Inventory": prefilled from the requisition; saving
-          creates the real item, fulfills the requisition, and (via the
-          assign-right-away checkbox) can flow straight into assignment. */}
-      {addingForReq && (
-        <AddItemModal
-          initial={{ name: addingForReq.item, department: addingForReq.employeeDept, ownershipType: 'permanent' }}
-          onClose={() => setAddingForReq(null)}
-          onSave={async (data, opts = {}) => {
-            const created = await api.createItem(data);
-            await fulfillRequisition(addingForReq.id, userName, { note: `Added to Items: ${data.name}`, itemId: created?.id || '' });
-            toast?.(`${data.name} added to Items - requisition fulfilled.`);
-            if (opts.assignNow && created?.id && onAssign) onAssign(created, 'assign');
-          }}
-        />
-      )}
-    </div>
-  );
-});
-
 // Neil: clicking an item under a person shows that item's details and picture
 // as a card - acting on it still routes through Checkouts / Assignments.
 function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabel }) {
@@ -7915,7 +7602,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
 });
 
 // ── Main view ─────────────────────────────────────────────────────────────────
-const INV_VALID_TABS = ['myitems','catalog','manage','checkouts','whohasit','purchasereqs','audit'];
+const INV_VALID_TABS = ['myitems','catalog','manage','checkouts','whohasit','audit'];
 
 export default function InventoryManagement({ activeSub }) {
   const {
@@ -8395,7 +8082,7 @@ export default function InventoryManagement({ activeSub }) {
             <ArrowLeft size={13} /> Exit Manage
           </button>
           <h2>Item Management <span style={{ fontSize:13, fontWeight:700, color:'hsl(var(--color-purple))', verticalAlign:'middle' }}>· Manage</span></h2>
-          <p>Browse company assets, check out what you need, or request a purchase</p>
+          <p>Browse company assets and check out what you need</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
           {/* Filters no longer live in the header - each tab renders them directly
@@ -8428,7 +8115,6 @@ export default function InventoryManagement({ activeSub }) {
           { key:'manage',       label:'Manage',            Icon: ClipboardList                               },
           { key:'checkouts',    label:'Checkouts',         Icon: ShoppingCart, badge: pendingCount + approvedCount },
           { key:'whohasit',     label:'Who Has What',      Icon: Users                                       },
-          { key:'purchasereqs', label:'Purchase Requests', Icon: FileText                                    },
           { key:'audit',        label:'Activity Log',      Icon: History                                     },
         ]}
         active={mainTab} onChange={setMainTab} />
@@ -8554,10 +8240,6 @@ export default function InventoryManagement({ activeSub }) {
       )}
       {mainTab === 'whohasit' && (
         <WhoHasItTab items={items} checkouts={checkouts} onOpenCheckouts={openInCheckouts} />
-      )}
-      {mainTab === 'purchasereqs' && (
-        <PurchaseRequestsTab userEmail={userEmail} userName={userName} isManager={isManager}
-          onAssign={openAssign} toast={toast} />
       )}
       {mainTab === 'audit' && <AuditLogPanel items={items} onChanged={refreshItems}
         onOpenItem={(it) => {

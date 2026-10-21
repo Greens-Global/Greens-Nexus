@@ -166,7 +166,7 @@ export function PfsAccessLog({ files = [], initialFileId = '', onClose }) {
   };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Access log" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 860 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Access log" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}><History size={18} /> Access Log</h3>
@@ -174,7 +174,7 @@ export function PfsAccessLog({ files = [], initialFileId = '', onClose }) {
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ padding: '12px 24px 18px', display: 'grid', gap: 10 }}>
+        <div style={{ padding: '12px 24px 18px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}>
           <select value={fileId} onChange={(e) => { setRows(null); setError(''); setFileId(e.target.value); }} aria-label="File" style={{ ...control, maxWidth: 320 }}>
             <option value="">Every File</option>
             {files.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
@@ -183,7 +183,7 @@ export function PfsAccessLog({ files = [], initialFileId = '', onClose }) {
           {rows === null && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}><Loader2 size={14} className="spin" /> Loading...</div>}
           {rows && !rows.length && !error && <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Nothing yet.</div>}
           {rows && rows.length > 0 && (
-            <div className="acct-lines-wrap" style={{ maxHeight: '60vh' }}>
+            <div className="acct-lines-wrap nx-fill">
               <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
                 <thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">File</th><th scope="col">Action</th><th scope="col">Details</th><th scope="col">IP Address</th></tr></thead>
                 <tbody>
