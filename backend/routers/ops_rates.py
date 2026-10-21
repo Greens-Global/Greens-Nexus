@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 import auth
 import cubby
 import models
+import ops_cma
 import ops_cubby_push
 import ops_market
 import ops_rate_mgmt
@@ -84,20 +85,78 @@ async def _groups(facility_id: str, fresh: bool = False) -> tuple[list, dict, st
         return [], {}, e.message
 
 
-def _observations(db: Session, fid: str, origin: tuple | None = None) -> tuple[list[dict], dict[str, dict]]:
-    """(every competitor rate observation for the facility with the detail the
-    comparison list shows, {active competitor id: {name, distanceMiles}}).
-    `origin` is our facility's (lat, lng): a competitor with no recorded
-    distance gets the straight-line one; None = not known."""
-    comps = {c.id: {"name": c.name, "distanceMiles": ops_rate_mgmt.distance_miles(c.distance_miles, origin, c.lat, c.lng)}
-             for c in db.query(models.OpsCompetitor)
-             .filter(models.OpsCompetitor.facility_id == fid, models.OpsCompetitor.active == True).all()}  # noqa: E712
-    obs = [{"competitor_id": r.competitor_id, "width": r.width, "depth": r.depth, "parking": bool(r.parking),
+def _latest_surveys(db: Session, fid: str) -> dict[str, models.OpsCmaSurvey]:
+    """{competitor id: its newest manual survey} - the special, admin fee and
+    insurance staff last heard."""
+    out: dict[str, models.OpsCmaSurvey] = {}
+    for sv in (db.query(models.OpsCmaSurvey).filter(models.OpsCmaSurvey.facility_id == fid)
+               .order_by(models.OpsCmaSurvey.survey_date, models.OpsCmaSurvey.created_at).all()):
+        out[sv.competitor_id] = sv
+    return out
+
+
+def _obs_dict(r: models.OpsCompetitorRate) -> dict:
+    return {"competitor_id": r.competitor_id, "width": r.width, "depth": r.depth, "parking": bool(r.parking),
             "rate_cents": r.rate_cents, "observed_on": r.observed_on, "created_at": r.created_at,
             "climate": r.climate, "source": r.source or "manual", "online_cents": r.online_cents,
-            "promo_cents": r.promo_cents, "promo": r.promo or "", "space_type": r.space_type or ""}
-           for r in db.query(models.OpsCompetitorRate).filter(models.OpsCompetitorRate.facility_id == fid).all()]
+            "promo_cents": r.promo_cents, "promo": r.promo or "", "space_type": r.space_type or "",
+            "matched_unit_type": r.matched_unit_type or "", "locked_until": r.locked_until or "",
+            "size_note": r.size_note or ""}
+
+
+def _observations(db: Session, fid: str, origin: tuple | None = None) -> tuple[list[dict], dict[str, dict]]:
+    """(every competitor rate observation for the facility with the detail the
+    comparison list shows, {ACTIVE competitor id: name, distance, price
+    source and the newest survey's special / admin fee / insurance}). Closed
+    and removed competitors are not in it, so they count nowhere.
+    `origin` is our facility's (lat, lng): a competitor with no recorded
+    distance gets the straight-line one; None = not known."""
+    surveys = _latest_surveys(db, fid)
+    comps = {}
+    for c in (db.query(models.OpsCompetitor)
+              .filter(models.OpsCompetitor.facility_id == fid, models.OpsCompetitor.active == True).all()):  # noqa: E712
+        sv = surveys.get(c.id)
+        comps[c.id] = {"name": c.name, "distanceMiles": ops_rate_mgmt.distance_miles(c.distance_miles, origin, c.lat, c.lng),
+                       "priceSource": c.price_source or "", "special": (sv.special if sv else "") or "",
+                       "adminFee": sv.admin_fee_cents if sv else None, "insurance": (sv.insurance if sv else "") or "",
+                       "surveyDate": (sv.survey_date if sv else "") or ""}
+    obs = [_obs_dict(r) for r in db.query(models.OpsCompetitorRate).filter(models.OpsCompetitorRate.facility_id == fid).all()]
     return obs, comps
+
+
+def _raw_rows(fid: str) -> tuple[list, list]:
+    """(rent roll, leases) for one facility from the synced Cubby copy, for
+    days vacant. Blocking. Empty when the copy cannot be read."""
+    try:
+        for fac, raw in cubby._rows():
+            if fac.get("facilityId") == fid:
+                return raw.get("rent_roll") or [], raw.get("leases") or []
+    except Exception as e:  # noqa: BLE001 - days vacant is a nice-to-have column, never a 500
+        print(f"[ops-rates] rent roll unavailable for days vacant: {type(e).__name__}")
+    return [], []
+
+
+def _snapshot(db: Session, fid: str, day: str, rows: list[dict]) -> None:
+    """Today's CMA figures per unit type, written once a day by the first view
+    (Rate History's trend lines). Never fails the screen."""
+    try:
+        have = {s.unit_type for s in db.query(models.OpsCmaSnapshot.unit_type)
+                .filter(models.OpsCmaSnapshot.facility_id == fid, models.OpsCmaSnapshot.day == day).all()}
+        added = 0
+        for r in rows:
+            if r["name"] in have or not r["total"]:
+                continue
+            db.add(models.OpsCmaSnapshot(
+                id=f"{fid}:{day}:{r['name']}"[:250], facility_id=fid, day=day, unit_type=r["name"],
+                sell_cents=r["sell"], standard_cents=r["set"], avg_rent_cents=r["avgRent"], total=r["total"],
+                occupied=r["rented"], market_low_cents=r["marketLow"], market_high_cents=r["marketHigh"],
+                market_avg_cents=r["marketAvg"], comps=r["competitors"]))
+            added += 1
+        if added:
+            db.commit()
+    except Exception as e:  # noqa: BLE001 - a second viewer racing the same insert, or a read-only replica
+        db.rollback()
+        print(f"[ops-rates] snapshot skipped: {type(e).__name__}")
 
 
 def _view(db: Session, facility: dict, groups: list, fac: dict, groups_error: str, user: dict) -> dict:
@@ -107,12 +166,18 @@ def _view(db: Session, facility: dict, groups: list, fac: dict, groups_error: st
     market = facility_ops._market(db, {**facility, "unitTypes": types})
     drafts = {d.unit_type: _draft_dict(d) for d in
               db.query(models.OpsRateDraft).filter(models.OpsRateDraft.facility_id == fid).all()}
-    rows = ops_rate_mgmt.build_rows(types, market["rows"], idx, drafts)
+    obs, active = _observations(db, fid, (facility.get("lat"), facility.get("lng")))
+    today = date.fromisoformat(facility["asOf"])
+    cma = {t["name"]: ops_cma.pick_comps(t, obs, active, today) for t in types}
+    rent_roll, leases = _raw_rows(fid)
+    rows = ops_rate_mgmt.build_rows(types, market["rows"], idx, drafts, cma, ops_cma.days_vacant(rent_roll, leases, today))
     comps = market["competitors"]
     closed = (db.query(models.OpsCompetitor)
-              .filter(models.OpsCompetitor.facility_id == fid, models.OpsCompetitor.active == False).count())  # noqa: E712
+              .filter(models.OpsCompetitor.facility_id == fid, models.OpsCompetitor.closed == True).count())  # noqa: E712
 
     def kind(c):
+        if (active.get(c["id"]) or {}).get("priceSource") == "manual":
+            return "manual"
         if c["ratesUrl"] and c["watch"] and c["lastStatus"] == "ok":
             return "web"
         if any(r.get("source") == "stortrack" for r in c["rates"]):
@@ -122,25 +187,30 @@ def _view(db: Session, facility: dict, groups: list, fac: dict, groups_error: st
     pushes = (db.query(models.OpsRatePush).filter(models.OpsRatePush.facility_id == fid)
               .order_by(models.OpsRatePush.pushed_at.desc()).limit(25).all())
     survey = max((r["newestObservation"] for r in rows if r["newestObservation"]), default="")
-    obs, active = _observations(db, fid, (facility.get("lat"), facility.get("lng")))
-    today = date.fromisoformat(facility["asOf"])
+    surveys = _latest_surveys(db, fid)
+    last_survey = max(surveys.values(), key=lambda x: (x.survey_date or "", x.created_at or ""), default=None)
     by_type = {t["name"]: t for t in types}
     comps_by_name = {r["name"]: ops_rate_mgmt.size_comps(by_type.get(r["name"]) or {}, obs, active, today) for r in rows}
     for r in rows:
         r["staleComps"] = sum(1 for c in comps_by_name[r["name"]] if c["stale"])
+        r["comps"] = cma[r["name"]]["comps"]
 
     def last_seen(c):
         return max((x.get("observedOn") or "" for x in c["rates"]), default="")
     competitors = [{"id": c["id"], "name": c["name"], "ratesUrl": c["ratesUrl"], "watch": c["watch"],
                     "address": c["address"], "distanceMiles": (active.get(c["id"]) or {}).get("distanceMiles"),
                     "source": k, "lastUpdated": last_seen(c),
-                    "sizes": sum(1 for lst in comps_by_name.values() if any(x["competitorId"] == c["id"] for x in lst))}
+                    "sizes": sum(1 for x in cma.values() if any(y["competitorId"] == c["id"] for y in x["comps"]))}
                    for c, k in zip(comps, kinds)]
     competitors.sort(key=lambda c: (c["distanceMiles"] is None, c["distanceMiles"] or 0, c["name"]))
+    _snapshot(db, fid, facility["asOf"], rows)
+    open_changes = (db.query(models.OpsCmaChange)
+                    .filter(models.OpsCmaChange.facility_id == fid, models.OpsCmaChange.status == "proposed").count())
     return {
         "facilityId": fid, "facility": facility["shortName"], "name": facility["name"], "asOf": facility["asOf"],
         "address": ops_rate_mgmt.address_of(fac), "billingCycle": (fac or {}).get("billingCycle") or "",
-        "lastSurvey": survey,
+        "lastSurvey": (last_survey.survey_date if last_survey else "") or survey,
+        "lastSurveyBy": (last_survey.surveyed_by if last_survey else "") or "",
         "cubbyGroups": {"ok": not groups_error, "count": len(groups), "error": groups_error},
         "compSet": {"active": len(comps), "web": kinds.count("web"), "stortrack": kinds.count("stortrack"),
                     "manual": kinds.count("manual"), "closed": closed},
@@ -151,8 +221,9 @@ def _view(db: Session, facility: dict, groups: list, fac: dict, groups_error: st
         "staleDays": ops_rate_mgmt.STALE_DAYS,
         "rows": rows,
         "competitors": competitors,
-        "freshDays": market["freshDays"], "minCompetitors": market["minCompetitors"],
+        "freshDays": market["freshDays"], "minCompetitors": ops_cma.MIN_COMPS,
         "pushes": [_push_dict(p) for p in pushes],
+        "proposedPromos": open_changes,
         "canEdit": _can_edit(user, db), "canMark": _can_edit(user, db),
         # Push to Cubby (Oct 21 2026): only with the Operations switch on.
         **ops_cubby_push.status(db), "canPush": user.get("level", 0) >= 3,

@@ -128,6 +128,7 @@ def cubby_api(monkeypatch):
             raise HTTPException(status_code=404, detail="Facility not found")
         return _facility()
     monkeypatch.setattr(facility_ops, "_facility", fake_facility)
+    monkeypatch.setattr(ops_rates, "_raw_rows", lambda fid: ([], []))
     return fake
 
 
@@ -142,7 +143,7 @@ def _comps(db, rates=((10500, 12000, 15000), (18000, 21000))):
     """Three competitors with 8x10 rates, two with 10x20 rates."""
     for i, name in enumerate(("StorQuest", "Extra Space", "Public Storage")):
         db.add(models.OpsCompetitor(id=f"c{i}", facility_id=FAC, name=name, active=True, created_at="1"))
-    db.add(models.OpsCompetitor(id="gone", facility_id=FAC, name="Closed Storage", active=False, created_at="1"))
+    db.add(models.OpsCompetitor(id="gone", facility_id=FAC, name="Closed Storage", active=False, closed=True, created_at="1"))
     for i, cents in enumerate(rates[0]):
         db.add(models.OpsCompetitorRate(id=f"a{i}", competitor_id=f"c{i}", facility_id=FAC, width=8, depth=10,
                                         rate_cents=cents, observed_on="2026-10-15", source="manual", created_at="1"))
@@ -179,7 +180,7 @@ def test_rows_group_by_category_and_price_against_the_sell_rate(db, cubby_api):
     r = v["rows"][0]
     assert (r["set"], r["sell"], r["walkIn"], r["groupId"]) == (11900, 11350, 10200, "pg_810")
     assert (r["marketLow"], r["marketMedian"], r["marketHigh"], r["competitors"]) == (10500, 12000, 15000, 3)
-    assert r["variance"] == 11350 - 12000 and r["suggested"] is not None   # ops_market.compare on the Sell rate
+    assert r["marketAvg"] == 12500 and r["variance"] == 11350 - 12500 and r["suggested"] is not None   # vs the AVERAGE
     assert r["offline"] == 1 and r["occupancy"] == 0.5
     assert v["compSet"] == {"active": 3, "web": 0, "stortrack": 2, "manual": 1, "closed": 1}
     assert v["kpis"]["rateable"] == 2 and v["kpis"]["belowMarket"] == 1 and v["kpis"]["offline"] == 12
@@ -204,7 +205,7 @@ def test_a_draft_is_saved_with_who_and_when_replaced_in_place_and_cleared(db, cu
     r = v["rows"][0]
     assert r["proposed"] == 11500 and r["proposedSet"] == 12050 and r["ready"] is True
     assert r["draft"]["updatedBy"] == "manager@greensglobal.com" and r["draft"]["updatedAt"]
-    assert r["revDelta"] == (11500 - 11350) * 4 and v["kpis"]["ready"] == 1
+    assert r["revDelta"] == (11500 - 11350) * 5 and v["kpis"]["ready"] == 1      # x OCCUPIED units (briefing)
     c.put("/facility-ops/rates/draft", json={"facility_id": FAC, "unit_type": "8' x 10'", "proposed": 118, "proposed_set": 125})
     rows = db.query(models.OpsRateDraft).all()
     assert len(rows) == 1 and (rows[0].proposed_cents, rows[0].proposed_set_cents, rows[0].pricing_group_id) == (11800, 12500, "pg_810")
@@ -438,10 +439,10 @@ def test_summary_headline_gaps_and_competitors(db, cubby_api):
     _comps(db)
     v = _client().get(f"/facility-ops/rates?facility_id={FAC}").json()
     rows = {r["name"]: r for r in v["rows"]}
-    # 8x10 sells at 113.50 vs a 120 median (5% under), 10x20 at 195 vs 195 (at market).
+    # 8x10 sells at 113.50 vs a 125 average (9% under), 10x20 at 195 vs 195 (at market).
     assert rows["8' x 10'"]["position"] == "below" and rows["10' x 20'"]["position"] == "at"
     assert rows["12' x 30' Parking"]["position"] == "offline" and rows["12' x 30' Parking"]["suggested"] is None
-    assert rows["8' x 10'"]["reason"] in ("Vacancy: Raise", "Vacancy: Lower", "Vacancy: Hold")
+    assert rows["8' x 10'"]["reason"] == "Hold" and "below market" in rows["8' x 10'"]["why"]   # 50% occupied
     h = v["headline"]
     assert (h["below"], h["at"], h["above"], h["offline"]) == (1, 1, 0, 1)
     assert h["upside"] == sum(r["suggestedDelta"] for r in v["rows"])
