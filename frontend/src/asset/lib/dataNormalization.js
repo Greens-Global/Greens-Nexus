@@ -2,9 +2,12 @@
 // load from the server or the local cache.
 //   - healPropTeam: migrates legacy "Project Team" snapshot field labels and
 //     contacts to the current vocabulary.
+//   - splitAddress: peels a "City, ST ZIP" tail (often doubled by the old
+//     import) off the free-text address into city / state / zip / county, so
+//     `address` is the street line everywhere.
 //   - VNORM: the workspace-level normalizer (every property through
-//     healPropTeam plus the stale-term renames) - the one entry point
-//     useNexusStore calls.
+//     healPropTeam and splitAddress plus the stale-term renames) - the one
+//     entry point useNexusStore calls.
 // The seed-merge pass and the one-off overrides that used to live here were
 // deleted on Oct 21 2026 with the bundled seed files: nothing imported them.
 
@@ -111,6 +114,59 @@ function renameRvToVehicle(value) {
  *
  * Idempotent and returns the original object unchanged if nothing needed normalizing.
  */
+const ZIP_RE = /^\d{5}(?:-\d{4})?$/;
+const STATE_RE = /^[A-Za-z]{2}$/;
+const STATE_ZIP_RE = /^([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/;
+const sameCity = (segment, city) => {
+  const t = segment.toLowerCase();
+  const c = String(city || '').toLowerCase().replace(/^\s*(city|town)\s+of\s+/, '').trim();
+  return !!c && (t === c || t === `city of ${c}` || t === `town of ${c}`);
+};
+
+/**
+ * Splits a free-text address into its street line and city / state / zip / county.
+ * The old imports stored "123 Main St, Escondido, CA 92026, Escondido, CA, 92026"
+ * in `address` with the city, state and zip ALSO in their own fields, so the
+ * street showed the tail twice. Segments are peeled from the end while they are
+ * a zip, a state (with or without its zip), the known city, or a county; a
+ * segment just before a state is taken as the city when none is known. Returns
+ * the row itself (`===`) when nothing changes, so VNORM can skip it.
+ */
+export function splitAddress(property) {
+  const address = String(property?.address ?? '');
+  if (!address.includes(',')) return property;
+  const segments = address.split(',').map((x) => x.trim()).filter(Boolean);
+  let city = String(property.city || '').trim();
+  let state = String(property.state || '').trim();
+  let zip = String(property.zip || '').trim();
+  let county = String(property.county || '').trim();
+  let end = segments.length;
+  const peek = () => (end > 0 ? segments[end - 1] : '');
+  for (;;) {
+    const seg = peek();
+    if (!seg || end <= 1 && !city && !state) break;
+    let m;
+    if (ZIP_RE.test(seg)) { zip ||= seg; end--; continue; }
+    if ((m = seg.match(STATE_ZIP_RE))) { state ||= m[1].toUpperCase(); zip ||= m[2]; end--; continue; }
+    if (STATE_RE.test(seg) && (state ? seg.toUpperCase() === state.toUpperCase() : /^[A-Z]{2}$/.test(seg))) { state ||= seg.toUpperCase(); end--; continue; }
+    if (sameCity(seg, city)) { end--; continue; }
+    if (/^county\s+of\s+/i.test(seg) || /\bcounty$/i.test(seg)) { county ||= seg.replace(/^county\s+of\s+/i, ''); end--; continue; }
+    // The segment right before a state is the city when the row has none yet -
+    // never the first segment (that is the street).
+    if (!city && state && end > 1 && end < segments.length && !/\d/.test(seg)) { city = seg; end--; continue; }
+    break;
+  }
+  const street = segments.slice(0, end).join(', ').replace(/^(\d+[a-z]?),\s+/i, '$1 ');
+  if (street === address && city === (property.city || '') && state === (property.state || '')
+      && zip === (property.zip || '') && county === (property.county || '')) return property;
+  const next = { ...property, address: street };
+  if (city !== (property.city || '')) next.city = city;
+  if (state !== (property.state || '')) next.state = state;
+  if (zip !== (property.zip || '')) next.zip = zip;
+  if (county !== (property.county || '')) next.county = county;
+  return next;
+}
+
 export function VNORM(state) {
   if (!state || !Array.isArray(state.properties)) return state;
   let stateChanged = false;
@@ -134,7 +190,7 @@ export function VNORM(state) {
     }));
 
     const base = propertyChanged ? { ...property, type: newType, parcelRole: newParcelRole, snapshot } : property;
-    const healed = healPropTeam(base);
+    const healed = splitAddress(healPropTeam(base));
     if (healed !== base || propertyChanged) {
       stateChanged = true;
       return healed;

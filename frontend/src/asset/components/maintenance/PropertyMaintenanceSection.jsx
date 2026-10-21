@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { MoreHorizontal, Plus, SlidersHorizontal, Ticket, ClipboardCheck, LayoutGrid } from 'lucide-react';
+import AnchoredMenu from '../../../components/AnchoredMenu';
+import { MenuRow } from '../shared/MenuRow.jsx';
 import { CollectionTable } from '../shared/CollectionTable.jsx';
 import { ManageUnitsModal } from './ManageUnitsModal.jsx';
 import { PropertyTicketsPanel, TicketSummaryModal } from './PropertyTicketsPanel.jsx';
@@ -18,6 +21,8 @@ import { api } from '../../../api.js';
  * units exist, a pill row scopes the log to "All Units", "Common Areas" (no `unit`) or one unit.
  * Create New Ticket and Start Walkthrough raise tickets for THIS property only - it is fixed in
  * both (Pranshu, 10/06). `ticketFocus` ({ propertyId, ticketId, tab, at }) comes from a bell deep link.
+ * One card (Oct 2026): the tabs, one primary "Log Work", a Filters toggle that shows how many
+ * filters are on, and the rest (new ticket, walkthrough, units) in a more menu.
  */
 // The Maintenance Log's first column: which ticket a record came from - the
 // original of a recurring service in bold with "(Original)", the tickets its
@@ -40,6 +45,10 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
   const [opened, setOpened] = useState(null);          // a ticket summary row
   const [recording, setRecording] = useState(null);    // a Needs Action row being added to the record
   const [logFilter, setLogFilter] = useState(EMPTY_LOG_FILTER);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef(null);
+  const activeFilters = Object.values(logFilter).filter(Boolean).length;
   const tickets = usePropertyTickets(property.id);
   const data = tickets.data;
 
@@ -118,8 +127,27 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
           {tabBtn('closed', `Closed Tickets${count(data?.history?.length || 0)}`)}
           {tabBtn('services', `Recurring Services${count(data?.services?.length || 0)}`)}
         </div>
-        <button className="secondary-btn" onClick={() => setComposing(true)}>Create New Ticket</button>
-        {data?.canWalkthrough && <button className="primary-btn" onClick={() => setWalking(true)}>Start Walkthrough</button>}
+        {tab === 'log' && (
+          <button type="button" className="secondary-btn" onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen || activeFilters > 0}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <SlidersHorizontal size={14} /> Filters{activeFilters > 0 && (
+              <span style={{ padding: '1px 7px', borderRadius: 999, background: 'var(--pine)', color: '#fff', fontSize: '0.72rem', fontWeight: 700 }}>{activeFilters}</span>
+            )}
+          </button>
+        )}
+        <button type="button" className="primary-btn" onClick={onAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Plus size={14} /> Log Work
+        </button>
+        <button ref={moreRef} type="button" className="secondary-btn" onClick={() => setMoreOpen((o) => !o)} aria-label="More maintenance actions"
+          aria-haspopup="menu" aria-expanded={moreOpen} style={{ padding: '7px 9px' }}>
+          <MoreHorizontal size={16} />
+        </button>
+        <AnchoredMenu anchorRef={moreRef} open={moreOpen} onClose={() => setMoreOpen(false)} align="end" minWidth={220}
+          style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
+          <MenuRow icon={Ticket} onClick={() => { setMoreOpen(false); setComposing(true); }}>Create New Ticket</MenuRow>
+          {data?.canWalkthrough && <MenuRow icon={ClipboardCheck} onClick={() => { setMoreOpen(false); setWalking(true); }}>Start Walkthrough</MenuRow>}
+          <MenuRow icon={LayoutGrid} onClick={() => { setMoreOpen(false); setManaging(true); }}>{units.length ? 'Manage Units' : 'Set Up Units'}</MenuRow>
+        </AnchoredMenu>
       </div>
 
       {tab === 'log' && (<>
@@ -140,34 +168,10 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
             {pill('all', 'All Units')}
             {pill('common', 'Common Areas')}
             {units.map((u) => pill(u.label, u.label))}
-            <button
-              onClick={() => setManaging(true)}
-              style={{
-                marginLeft: 'auto',
-                padding: '6px 12px',
-                borderRadius: 8,
-                fontSize: '0.76rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                border: 'none',
-                background: 'transparent',
-                color: 'var(--text-secondary)',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {'⚙ Manage Units'}
-            </button>
           </div>
-        ) : (
-          <button
-            onClick={() => setManaging(true)}
-            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: '0.8rem', fontWeight: 600, padding: 0, marginBottom: 14 }}
-          >
-            + Multi-tenant property? Set up suites/units
-          </button>
-        )}
+        ) : null}
 
-        <MaintenanceLogFilters rows={unitRows} value={logFilter} onChange={setLogFilter} />
+        {(filtersOpen || activeFilters > 0) && <MaintenanceLogFilters rows={unitRows} value={logFilter} onChange={setLogFilter} />}
         <CollectionTable
           coll="maintenance"
           summaryOverride={logSummary(filteredRows.filter((r) => !r._openTicket))}
@@ -177,7 +181,7 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
           filters={filters}
           setFilters={setFilters}
           highlightItem={highlightItem}
-          onAdd={onAdd}
+          onAdd={null}
           onEdit={editRow}
           onQuickAdd={onQuickAdd}
         />

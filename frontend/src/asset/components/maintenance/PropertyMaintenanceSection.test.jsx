@@ -73,6 +73,7 @@ describe('Property Maintenance with tickets', () => {
       await screen.findByText('Yearly check');
       expect(screen.getByText('(Original)')).toBeTruthy();          // #100 is the original of #140's service
       expect(screen.getByText('Total Spend: $420.00 · €200.00')).toBeTruthy();   // never added together
+      fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));   // filters live behind a toggle
       fireEvent.change(screen.getByDisplayValue('All Vendors'), { target: { value: 'Pipe Pros' } });
       expect(screen.queryByText('Replaced HVAC filter')).toBeNull();
       expect(screen.getByText('Yearly check')).toBeTruthy();
@@ -129,8 +130,11 @@ describe('Property Maintenance with tickets', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Closed Tickets (2)' }));
     expect(screen.getAllByText('Recorded').length).toBe(2);         // the count, and the chip on Ticket #100
     expect(screen.getAllByText('Needs Action').length).toBeGreaterThan(1);
-    expect(screen.getByRole('button', { name: 'Create New Ticket' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Start Walkthrough' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Log Work' })).toBeTruthy();   // the one primary
+    fireEvent.click(screen.getByRole('button', { name: 'More maintenance actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Create New Ticket' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Start Walkthrough' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Set Up Units' })).toBeTruthy();
   });
 
   it('a "needs action" bell link opens the property on Needs Action', async () => {

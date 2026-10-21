@@ -40,6 +40,7 @@ import { PropertyMaintenanceSection } from './components/maintenance/PropertyMai
 import { ReviewFlagsPanel } from './components/manage/ReviewFlagsPanel.jsx';
 import { ActivityLog } from './components/manage/ActivityLog.jsx';
 import { DataGapsPanel, TrashPanel } from './components/portfolio/PortfolioPanels.jsx';
+import { MenuRow } from './components/shared/MenuRow.jsx';
 
 import { exportAssetCsvAsFile, exportAssetPdf } from './lib/csvExport.js';
 import { ticketMaintenanceRows } from './lib/propertyTickets.js';
@@ -577,7 +578,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         const row = { id: genId(), parentId: '', siteName: '', ...patch };
         assetId = row.id;
         props.push(row);
-        setTimeout(() => setActiveId(row.id), 0);
+        setTimeout(() => openAsset(row.id, 'property'), 0);
         action = 'added';
         displayName = row.name;
       }
@@ -750,7 +751,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
               style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
               <MenuRow icon={History} onClick={() => { setPortfolioMoreOpen(false); setPanel('activity'); }}>Activity Log{unseenLogCount > 0 ? ` (${unseenLogCount} new)` : ''}</MenuRow>
               <MenuRow icon={Trash2} onClick={() => { setPortfolioMoreOpen(false); setPanel('trash'); }}>Trash{deletedProperties.length ? ` (${deletedProperties.length})` : ''}</MenuRow>
-              <MenuRow icon={Upload} onClick={() => { setPortfolioMoreOpen(false); setModal({ type: 'property', id: null }); }}>Import From a Spreadsheet</MenuRow>
+              <MenuRow icon={Upload} onClick={() => { setPortfolioMoreOpen(false); setModal({ type: 'property', id: null, mode: 'import' }); }}>Import From a Spreadsheet</MenuRow>
             </AnchoredMenu>
           </div>
         </div>
@@ -981,8 +982,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       )}
       {modal?.type === 'property' && (
         <AddAssetModal
-          row={modal.id ? findAsset(modal.id) : null}
-          draft={modal.id ? null : modal.draft}
+          draft={modal.draft}
+          mode={modal.mode || 'add'}
           properties={visibleProperties}
           onSave={(patch, reason, linkOptions, meta) => {
             // New Heavy Equipment or Vehicle asset from the guided wizard (not CSV bulk-import,
@@ -996,7 +997,6 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
             }
             saveAsset(modal.id, patch, reason, linkOptions);
           }}
-          onDelete={() => deleteAsset(modal.id)}
           onClose={() => setModal(null)}
         />
       )}
@@ -1062,13 +1062,3 @@ function CountBadge({ n }) {
   );
 }
 
-function MenuRow({ icon: Icon, onClick, children }) {
-  return (
-    <button type="button" role="menuitem" onClick={onClick}
-      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', cursor: 'pointer', borderRadius: 7, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'inherit' }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--mist)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}>
-      <Icon size={15} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} /> {children}
-    </button>
-  );
-}

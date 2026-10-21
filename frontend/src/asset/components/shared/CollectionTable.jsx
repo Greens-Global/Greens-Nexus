@@ -227,16 +227,18 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
           )}
         </div>
 
-        <button
-          className="primary-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            onAdd();
-          }}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: '0.8rem' }}
-        >
-          <Plus size={14} /> Add
-        </button>
+        {onAdd && (
+          <button
+            className="primary-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAdd();
+            }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: '0.8rem' }}
+          >
+            <Plus size={14} /> Add
+          </button>
+        )}
       </div>
 
       {contentVisible && (

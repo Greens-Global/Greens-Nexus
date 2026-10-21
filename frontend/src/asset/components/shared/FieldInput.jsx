@@ -95,6 +95,7 @@ export function FieldInput({ f, value, onChange, error, propertyId = '' }) {
     readOnly: f.readOnly,
     'aria-invalid': error ? true : undefined,
     'aria-describedby': error ? id + '-err' : undefined,
+    placeholder: f.placeholder || undefined,
     style: {
       fontSize: '0.85rem',
       ...(error ? { borderColor: 'hsl(var(--color-red))' } : {}),
