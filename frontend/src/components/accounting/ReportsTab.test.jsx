@@ -626,7 +626,9 @@ describe('ReportsTab controls', () => {
     expect(screen.getByText('Rental Income').closest('tr').className).not.toContain('acct-flag');
     // Parking Income is not flagged but has an explanation: Answered.
     await screen.findByText('New tenant in suite B.');
-    expect(screen.getByLabelText('Summary').textContent).toContain('Review 1 Open · 1 Answered · 0 Closed');
+    // Oct 22 (Charmi: "what is the Open / Closed column for?"): the header says.
+    expect(screen.getByRole('columnheader', { name: 'Review' }).getAttribute('title')).toMatch(/Mark a line Reviewed once its variance is explained/);
+    expect(screen.getByLabelText('Summary').textContent).toContain('Review 1 Open · 1 Answered · 0 Reviewed');
     // The kept explanation shows; a new one is written in the cell itself (item 26a), no dialog.
     await screen.findByText('New tenant in suite B.');
     fireEvent.click(within(repairs).getByRole('button', { name: /Add explanation for 61000/ }));
@@ -643,18 +645,18 @@ describe('ReportsTab controls', () => {
     expect(within(done).getByText('Answered')).toBeTruthy();
     expect(within(done).queryByText('Open')).toBeNull();
     expect(done.className).toContain('acct-flag');
-    expect(screen.getByLabelText('Summary').textContent).toContain('Review 0 Open · 2 Answered · 0 Closed');
+    expect(screen.getByLabelText('Summary').textContent).toContain('Review 0 Open · 2 Answered · 0 Reviewed');
     // The reviewer closes it; the Review Status filter shows one state at a time.
-    fireEvent.click(within(done).getByRole('button', { name: /Close the review of 61000/ }));
-    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Closed')).toBeTruthy());
+    fireEvent.click(within(done).getByRole('button', { name: /Mark 61000 Repairs Reviewed/ }));
+    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Reviewed')).toBeTruthy());
     expect(api.saveAccountingFluxReview.mock.calls[0][0]).toMatchObject({ entity: 'all', accountNo: '61000', closed: true });
     const status = screen.getByLabelText('Review Status');
-    expect([...status.options].map((o) => o.textContent)).toEqual(['Review: All Lines', 'Flagged (1)', 'Open (0)', 'Answered (1)', 'Closed (1)']);
+    expect([...status.options].map((o) => o.textContent)).toEqual(['Review: All Lines', 'Flagged (1)', 'Open (0)', 'Answered (1)', 'Reviewed (1)']);
     const pnlReads = api.getAccountingPnl.mock.calls.length;
     fireEvent.change(status, { target: { value: 'closed' } });
     await waitFor(() => expect(screen.queryByText('Parking Income')).toBeNull());
     expect(screen.getByText('Repairs')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Remove Review: Closed' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove Review: Reviewed' })).toBeTruthy();
     fireEvent.change(status, { target: { value: 'answered' } });
     await waitFor(() => expect(screen.queryByText('Repairs')).toBeNull());
     expect(screen.getByText('Parking Income')).toBeTruthy();
