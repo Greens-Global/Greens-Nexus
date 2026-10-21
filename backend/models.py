@@ -1465,6 +1465,10 @@ class HrEntity(Base):
     # HR packet's flow says "Authorized Signatory". `signatory` above stays the
     # printed name/title a letter shows ({{signatory}}).
     signatory_email    = Column(String, default="")
+    # Who receives a contractor's approved invoice by email (Pranshu, Oct 21
+    # 2026): the payer's accounts contacts, no Nexus login needed. Lowercased,
+    # deduped list of emails.
+    invoice_recipients = Column(JSON, default=list)
 
 
 class NexusSetting(Base):
