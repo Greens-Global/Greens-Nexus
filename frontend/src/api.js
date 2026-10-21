@@ -2642,6 +2642,21 @@ export const api = {
   intacctCodesApply: (items) => req('/hr/intacct-codes/apply', { method: 'POST', body: JSON.stringify({ items }), timeoutMs: 60_000 }),
   intacctCodesSettings: () => req('/hr/intacct-codes/settings'),
   setIntacctCodesNightly: (companyId, nightly) => req('/hr/intacct-codes/settings', { method: 'PUT', body: JSON.stringify({ companyId, nightly }) }),
+  // Operations > Ops Budget (Oct 21 2026, routers/ops_budget.py): results vs
+  // budget and last year per site. Upload commit=false is a preview; true saves.
+  getOpsBudgetFacilities: () => req('/ops-budget/facilities'),
+  getOpsBudget: ({ facility, segment = 'self_storage', month = '', period = 'month' }) =>
+    req(`/ops-budget?${new URLSearchParams({ facility, segment, month, period })}`),
+  getOpsBudgetTrend: ({ facility, segment = 'self_storage', month = '', months = 24 }) =>
+    req(`/ops-budget/trend?${new URLSearchParams({ facility, segment, month, months: String(months) })}`),
+  uploadOpsBudget: (file, { facilityId = '', commit = false } = {}) => {
+    const fd = new FormData();
+    fd.append('file', file); fd.append('facility_id', facilityId); fd.append('commit', commit ? 'true' : 'false');
+    return req('/ops-budget/upload', { method: 'POST', body: fd, timeoutMs: 120_000 });
+  },
+  getOpsBudgetLoads: (facility = '') => req(`/ops-budget/loads?${new URLSearchParams({ facility })}`),
+  getOpsBudgetLoadFile: (id) => reqBlob(`/ops-budget/loads/${encodeURIComponent(id)}/file`),
+  runOpsBudgetSnapshot: () => req('/ops-budget/snapshot', { method: 'POST', timeoutMs: 120_000 }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
