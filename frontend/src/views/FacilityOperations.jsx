@@ -26,6 +26,8 @@ import { isThirdParty } from '../operations/thirdParty';
 import FacilityPicker from '../operations/FacilityPicker';
 import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
+// Ops Budget (Oct 21): results vs budget and last year per site. Lazy, its own chunk.
+const OpsBudget = lazy(() => import('../operations/OpsBudget'));
 // Site Map (Oct 20): the 3D site model with layers. Lazy, so three.js loads only on that tab.
 const SiteMap = lazy(() => import('../operations/SiteMap'));
 // Pricing Insights (Visesh, Oct 20): insights from Cubby's pricing + the market. Lazy, its own chunk.
@@ -43,6 +45,8 @@ const NOT_CONNECTED = "Cubby is not connected on this server yet. An administrat
 const TABS = [
   { key: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard, items: [
     { key: 'overview',    label: 'Overview',        Icon: LayoutDashboard },
+    // Each site against plan and last year, from the Ops Budget workbook and Cubby (Oct 21).
+    { key: 'budget',      label: 'Ops Budget',      Icon: Target },
     // The Daily Flash for any set of properties, with its own picker and month (Neil, Oct 20).
     { key: 'portfolio',   label: 'Portfolio',       Icon: Gauge },
     { key: 'site-map',    label: 'Site Map',        Icon: MapIcon },
@@ -264,9 +268,13 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
       </div>
       {notice && <p className="ops-note" role="status" style={{ margin: '0 0 12px' }}>{notice}</p>}
 
-      {state.status === 'loading' && <LoadingState size="view" label="Reading the facilities from Cubby" minHeight={320} onRetry={() => load()} />}
+      {screen === 'budget' && (
+        <Suspense fallback={<LoadingState size="section" label="Loading the Ops Budget" minHeight={320} />}><OpsBudget /></Suspense>
+      )}
 
-      {state.status === 'error' && (
+      {screen !== 'budget' && state.status === 'loading' && <LoadingState size="view" label="Reading the facilities from Cubby" minHeight={320} onRetry={() => load()} />}
+
+      {screen !== 'budget' && state.status === 'error' && (
         <ErrorBanner
           message={state.error?.status === 503
             ? 'Cubby is not connected yet. An administrator needs to add the Cubby API key.'
@@ -274,7 +282,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           onRetry={() => load()} />
       )}
 
-      {state.status === 'ready' && !facilities.length && (
+      {screen !== 'budget' && state.status === 'ready' && !facilities.length && (
         <div className="dash-card"><div className="ops-empty">
           {state.data?.syncStatus === 'not_configured' ? NOT_CONNECTED : 'Cubby returned no facilities for this account.'}
         </div></div>
@@ -288,7 +296,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
 
       {state.status === 'ready' && facilities.length > 0 && screen === 'portfolio' && <Portfolio />}
 
-      {state.status === 'ready' && facilities.length > 0 && screen !== 'portfolio' && (
+      {state.status === 'ready' && facilities.length > 0 && screen !== 'portfolio' && screen !== 'budget' && (
         <div className="ops-root">
           <div className="ops-bar-top">
             <FacilityPicker facilities={facilities} value={shown} onChange={setPicked} allowAll={!oneTab} />

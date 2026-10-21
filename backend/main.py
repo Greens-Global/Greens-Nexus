@@ -2641,6 +2641,12 @@ def _run_migrations():
         "UPDATE link_layout_views SET layout = jsonb_set(layout::jsonb, '{filters,department}', '\"Operations\"'::jsonb) WHERE lower(layout::jsonb #>> '{filters,department}') = 'storage'",
         # Tasks Home > Updates: when the card was last looked at. models.NexusPersonPref.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS updates_seen_at VARCHAR DEFAULT ''",
+        # Operations > Ops Budget (Oct 21 2026, ops_budget*.py): four new
+        # tables, explicit RLS. ops_budget_models.py.
+        "ALTER TABLE ops_budget_facilities ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_metric_month ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_budget_loads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_budget_lead_marks ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3555,6 +3561,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] Market watch loop skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Market watch loop skipped: {e}")
+        # Ops Budget (Operations, Oct 21 2026): the Cubby month-end snapshot -
+        # writes this month's actuals from the synced cubby_* tables every 15
+        # minutes (in a thread). Deployed worker only, like the Cubby sync.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ops_budget_cubby import ops_budget_loop
+                _tasks.append(_a.create_task(ops_budget_loop()))
+            else:
+                print("[startup] Ops Budget snapshot loop skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Ops Budget snapshot loop skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
@@ -4143,3 +4161,5 @@ from routers import audit_events as audit_events_router  # noqa: E402
 app.include_router(audit_events_router.router)     # Unified Audit Log: one feed, modules, before/after, record history (Oct 20 2026)
 from routers import hr_intacct_codes as hr_intacct_codes_router  # noqa: E402
 app.include_router(hr_intacct_codes_router.router)  # People > Sync Employee Codes From Intacct (Charmi, Oct 21 2026)
+from routers import ops_budget as ops_budget_router  # noqa: E402 - also registers ops_budget_models before create_all
+app.include_router(ops_budget_router.router)       # Operations > Ops Budget: results vs budget and last year, per site (Oct 21 2026)
