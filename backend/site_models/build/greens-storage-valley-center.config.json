@@ -162,7 +162,7 @@
         32.43
       ],
       "inferred": false,
-      "note": "South row: C053-C071 12x35 drive-ups facing north, with the C045-C052 corner block at its east end. Traced from the Jun 2024 customer map."
+      "note": "South row: C053-C071 12x35 drive-ups facing north, with the C045-C052 corner block at its east end. Traced from the Jun 2024 customer map. Parking stalls P001 and P002 continue the row past C071 at its west end, in the open (Miranda Negrete, Oct 21 2026; parked vehicles visible there in the imagery)."
     },
     {
       "id": "D",
@@ -301,7 +301,7 @@
           789
         ]
       ],
-      "note": "RV and vehicle stalls (N37, P001, P002) in the north field; no plan shows the stalls, so the outline is inferred from imagery."
+      "note": "RV and vehicle stall N37 in the north field; no plan shows the stall, so the outline is inferred from imagery. P001 and P002 are at the west end of Building C2 (after C071), not here."
     }
   ],
   "sources": [
@@ -418,7 +418,9 @@
       "dir": "+v",
       "depth": "-u",
       "units": [
-        "C053-C071"
+        "C053-C071",
+        "P001",
+        "P002"
       ]
     },
     {
