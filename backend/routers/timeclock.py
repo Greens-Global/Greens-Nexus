@@ -7404,6 +7404,75 @@ def check_scheduled(email: str, date: str, start: str, end: str, exclude_id: str
     return {"warnings": conflicts + rules, "conflicts": conflicts, "ruleWarnings": rules}
 
 
+def _visible_shift_groups(db: Session, user: dict, email: str, cfg: dict, manage: bool):
+    """(member_of, scheduler_of, group_ids): the shift groups whose people the
+    caller sees in My Workday / Team > Shifts. ONE rule for /my-schedule and
+    /my-schedule/live, so the schedule and the live status never disagree."""
+    member_of = [m.group_id for m in db.query(ShiftGroupMember)
+                 .filter(ShiftGroupMember.employee_email == email).all()]
+    # Admins can hide teammates' shifts from staff (Sep 29, Teams "see
+    # coworkers' schedules"); swaps still work - routers/shift_requests.py
+    # hands the swap dialog only the shifts it can target.
+    group_ids = list(member_of) if cfg.get("teamSchedules", True) else []
+    # A manager also sees the teams they RUN (Shifts module, Sep 29): groups
+    # they are named scheduler of, and groups holding anyone in their scope
+    # (direct reports; everyone for an unscoped admin). Always shown to
+    # them, whatever the staff setting - it is their schedule to run.
+    scheduler_of = _scheduled_groups(db, email) if manage else []
+    if manage:
+        scope = _visible_emails(db, user)
+        run = {g.id for g in scheduler_of}
+        for m in db.query(ShiftGroupMember).all():
+            em = (m.employee_email or "").lower()
+            if em and (scope is None or em in scope) and em != email:
+                run.add(m.group_id)
+        group_ids = list(dict.fromkeys(group_ids + sorted(run)))
+    return member_of, scheduler_of, group_ids
+
+
+_LIVE_STATE = {"in": "working", "break_end": "working", "break_start": "break", "out": "out"}
+_LIVE_LABEL = {"working": "Working", "break": "On Break", "out": "Clocked Out"}
+
+
+@router.get("/my-schedule/live")
+def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Live clock status of the people in the caller's Group Shifts table
+    (Miranda, Oct 21: see at a glance who is on a break). The same people as
+    /my-schedule; status words and the punch time only - never a location,
+    note or screenshot. Someone with no punch on their current workday is
+    absent, and so is anyone exempt from time tracking."""
+    email = (user.get("email") or "").lower()
+    from routers.shift_requests import settings_for as _sr_settings_for
+    cfg = _sr_settings_for(db, email)
+    _, _, group_ids = _visible_shift_groups(db, user, email, cfg, can_manage_shifts(user))
+    now = datetime.now(timezone.utc)
+    people = {}
+    if group_ids:
+        exempt = time_tracking_exempt_emails(db)
+        members = sorted({(m.employee_email or "").lower() for m in db.query(ShiftGroupMember)
+                          .filter(ShiftGroupMember.group_id.in_(group_ids)).all()} - exempt - {""})
+        last = {}
+        if members:
+            # Two days covers any live shift (16h stale guard) and today's clock-out.
+            since = (now - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S")
+            for p in (db.query(TimePunch)
+                      .filter(func.lower(TimePunch.employee_email).in_(members),
+                              TimePunch.voided == 0, TimePunch.at >= since)
+                      .order_by(TimePunch.at.asc()).all()):
+                last[(p.employee_email or "").lower()] = p   # ascending -> the latest wins
+        for em, p in last.items():
+            state = _LIVE_STATE.get(p.kind)
+            if not state or _stale_open_shift(p):
+                continue
+            off = p.tz_offset_min or 0
+            if state == "out" and _local_date(p.at, off) != _local_date(now.isoformat(), off):
+                continue   # clocked out on an earlier day - nothing live to show
+            # Stored `at` is naive UTC; the Z keeps browsers from reading it as local time.
+            at = p.at if p.at.endswith("Z") or "+" in p.at[10:] else p.at + "Z"
+            people[em] = {"state": state, "label": _LIVE_LABEL[state], "since": at}
+    return {"people": people, "asOf": now.isoformat()}
+
+
 @router.get("/my-schedule")
 def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The signed-in person's own shifts for a date range (My Workday > Shifts,
@@ -7438,34 +7507,16 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
     # Each group carries its members with their default preset, the
     # PUBLISHED shifts placed on them, and their approved time off with the
     # type withheld (a teammate needs to know you are out, not why).
-    member_of = [m.group_id for m in db.query(ShiftGroupMember)
-                 .filter(ShiftGroupMember.employee_email == email).all()]
     manage = can_manage_shifts(user)
-    # Admins can hide teammates' shifts from staff (Sep 29, Teams "see
-    # coworkers' schedules"); swaps still work - routers/shift_requests.py
-    # hands the swap dialog only the shifts it can target.
     from routers.shift_requests import settings_for as _sr_settings_for, _upcoming
     cfg = _sr_settings_for(db, email)   # their own company's settings (Phase 0)
     team_tz = cfg.get("timeZone") or _DEFAULT_TEAM_TZ
-    group_ids = list(member_of) if cfg.get("teamSchedules", True) else []
+    member_of, scheduler_of, group_ids = _visible_shift_groups(db, user, email, cfg, manage)
     # What staff see of a TEAMMATE (Teams "Visibility"): why they are off, and
     # a shift's note, activities and break. A manager always sees both - it is
     # their schedule - and a confidential reason shows to nobody here.
     show_reasons = manage or bool(cfg.get("teamTimeOffReasons"))
     show_details = manage or bool(cfg.get("teamShiftDetails", True))
-    # A manager also sees the teams they RUN (Shifts module, Sep 29): groups
-    # they are named scheduler of, and groups holding anyone in their scope
-    # (direct reports; everyone for an unscoped admin). Always shown to
-    # them, whatever the staff setting - it is their schedule to run.
-    scheduler_of = _scheduled_groups(db, email) if manage else []
-    if manage:
-        scope = _visible_emails(db, user)
-        run = {g.id for g in scheduler_of}
-        for m in db.query(ShiftGroupMember).all():
-            em = (m.employee_email or "").lower()
-            if em and (scope is None or em in scope) and em != email:
-                run.add(m.group_id)
-        group_ids = list(dict.fromkeys(group_ids + sorted(run)))
     teams = []
     if group_ids:
         everyone = [e for e in db.query(NexusEmployee).all() if e.work_email]

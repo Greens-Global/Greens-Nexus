@@ -19,6 +19,7 @@ const weatherCallMyPrefs = vi.fn();
 const weatherCallAck = vi.fn();
 const weatherCallMyPrefsSave = vi.fn();
 const timeSchedActuals = vi.fn();
+const timeMyScheduleLive = vi.fn();
 const timeMyConfirmations = vi.fn();
 const timeSchedConfirm = vi.fn();
 const timeMyPrefsGet = vi.fn();
@@ -31,6 +32,7 @@ vi.mock('../api', () => ({
   api: {
     timeMySchedule: (...a) => timeMySchedule(...a),
     timeSchedActuals: (...a) => timeSchedActuals(...a),
+    timeMyScheduleLive: (...a) => timeMyScheduleLive(...a),
     timeMyConfirmations: (...a) => timeMyConfirmations(...a),
     timeSchedConfirm: (...a) => timeSchedConfirm(...a),
     timeMyPrefsGet: (...a) => timeMyPrefsGet(...a),
@@ -81,6 +83,7 @@ beforeEach(() => {
   weatherCallAck.mockReset().mockResolvedValue({ ok: true });
   weatherCallMyPrefsSave.mockReset().mockResolvedValue({ weatherSms: false, phone: false });
   timeSchedActuals.mockReset().mockResolvedValue({ cells: {}, people: {}, totals: {} });
+  timeMyScheduleLive.mockReset().mockRejectedValue(new Error('API error 404'));
   timeMyConfirmations.mockReset().mockResolvedValue({ pending: [] });
   timeSchedConfirm.mockReset().mockResolvedValue({ ok: true });
   timeMyPrefsGet.mockReset().mockResolvedValue({ shiftCalendar: true, companyOutlookCalendar: true, hasMailbox: true, showAs: 'free' });
@@ -531,5 +534,80 @@ describe('MyShifts confirmations and calendar', () => {
     await screen.findByRole('status', { name: 'Week summary' });
     await waitFor(() => expect(timeMyPrefsGet).toHaveBeenCalled());
     expect(document.querySelector('[data-calendar-row]')).toBeNull();
+  });
+});
+
+describe('MyShifts live status (Miranda, Oct 21 2026)', () => {
+  // Who in the group is working, on a break or clocked out, from today's
+  // punches: a chip under the name, a dot that follows the clock, and a
+  // header line with On Break first. This week only; a failed call is the
+  // schedule as before.
+  const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+  const liveMap = (people) => ({ people, asOf: new Date().toISOString() });
+
+  it('shows Working, On Break with minutes and Clocked Out, and says who is on a break', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, teams: [{ id: 'g', name: 'Store', members: [
+      ...sched.teams[0].members,
+      { email: 'cara@x.com', name: 'Cara Diaz', isMe: false, scheduled: [], timeoff: [] },
+    ] }] });
+    timeMyScheduleLive.mockResolvedValue(liveMap({
+      'me@x.com': { state: 'working', label: 'Working', since: ago(90) },
+      'bob@x.com': { state: 'break', label: 'On Break', since: ago(12) },
+      'cara@x.com': { state: 'out', label: 'Clocked Out', since: ago(30) },
+    }));
+    render(<MyShifts part="team" />);
+    const bob = (await screen.findByText(/^On Break · 1[23]m$/)).closest('[data-member]');
+    expect(bob.getAttribute('data-member')).toBe('bob@x.com');
+    expect(bob.querySelector('[title^="On break since "]').getAttribute('title')).toMatch(/^On break since \d{1,2}:\d{2} (AM|PM)$/);
+    expect(bob.querySelector('[data-on-dot]').getAttribute('data-on-dot')).toBe('break');
+    const me = screen.getByText('Working').closest('[data-member]');
+    expect(me.getAttribute('data-member')).toBe('me@x.com');
+    expect(me.querySelector('[data-on-dot]').getAttribute('data-on-dot')).toBe('working');
+    const cara = screen.getByText('Clocked Out').closest('[data-member]');
+    expect(cara.getAttribute('data-member')).toBe('cara@x.com');
+    expect(cara.querySelector('[data-on-dot]')).toBeNull();
+    const head = document.querySelector('[data-live-summary]');
+    expect(head.textContent).toBe('On Break: Bob · Working: you');
+    expect(head.querySelector('b').textContent).toBe('On Break: Bob');
+    expect(screen.queryByText(/^On shift now/)).toBeNull();
+  });
+
+  it('says nobody is clocked in when the live map has no one working', async () => {
+    timeMyScheduleLive.mockResolvedValue(liveMap({}));
+    render(<MyShifts part="team" />);
+    expect(await screen.findByText('Nobody clocked in right now')).toBeTruthy();
+  });
+
+  it('keeps the schedule and the On shift now line when the live call fails', async () => {
+    render(<MyShifts part="team" />);
+    const grid = await screen.findByRole('table', { name: 'Store schedule' });
+    await waitFor(() => expect(timeMyScheduleLive).toHaveBeenCalled());
+    expect(grid.querySelector('[data-shift="bob1"]')).toBeTruthy();
+    expect(screen.getByText(/^(On shift now: |Nobody on shift right now)/)).toBeTruthy();
+    expect(document.querySelector('[data-live-summary]')).toBeNull();
+    expect(screen.queryByText('Working')).toBeNull();
+  });
+
+  it('shows no live chips on another week', async () => {
+    timeMyScheduleLive.mockResolvedValue(liveMap({ 'bob@x.com': { state: 'break', label: 'On Break', since: ago(5) } }));
+    render(<MyShifts part="team" />);
+    await screen.findByText(/^On Break · /);
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    await screen.findByRole('table', { name: 'Store schedule' });
+    expect(screen.queryByText(/^On Break/)).toBeNull();
+    expect(document.querySelector('[data-live-summary]')).toBeNull();
+  });
+
+  it('on a phone, shows the chip in the day list', async () => {
+    const mm = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
+      matches: /max-width/.test(q), media: q, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
+    }));
+    timeMyScheduleLive.mockResolvedValue(liveMap({ 'bob@x.com': { state: 'break', label: 'On Break', since: ago(3) } }));
+    try {
+      render(<MyShifts part="team" />);
+      const chip = await screen.findByText(/^On Break · [34]m$/);
+      expect(chip.closest('[data-member]').getAttribute('data-member')).toBe('bob@x.com');
+      expect(document.querySelector('[data-member="bob@x.com"] [data-on-dot]').getAttribute('data-on-dot')).toBe('break');
+    } finally { mm.mockRestore(); }
   });
 });

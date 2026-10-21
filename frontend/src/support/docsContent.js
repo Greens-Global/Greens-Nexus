@@ -380,6 +380,7 @@ export const DOCS = [
           'Open Workday from the left menu and find My Schedule on the Overview.',
           'Read your next shift and this week\'s hours at the top, then your week day by day.',
           'To see who else is on, open Team and click Shifts. You are pinned at the top, and a green dot marks who is on shift now.',
+          'This week, each person also shows a live status from the time clock (Working, On Break with how long, or Clocked Out), and the line above the grid names who is on a break right now. It refreshes every minute.',
         ],
       },
       {
