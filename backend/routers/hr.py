@@ -273,6 +273,37 @@ def _with_backup(db: Session, out: dict) -> dict:
 _CONTRACTOR_PAY = ("rate", "rate_type", "currency", "billing_rate", "bill_rate")
 
 
+PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+
+
+def _norm_contractor(c: dict) -> dict:
+    """Contractor invoice settings (Pranshu, Oct 21): the next invoice number
+    is a whole number from 1 - anything else is dropped, never stored."""
+    c = dict(c or {})
+    try:
+        n = int(str(c.get("invoice_next_number", "")).strip())
+    except ValueError:
+        n = 0
+    if n >= 1:
+        c["invoice_next_number"] = n
+    else:
+        c.pop("invoice_next_number", None)
+    return c
+
+
+def _norm_compliance(c: dict) -> dict:
+    """PAN (India) is stored uppercased and only in its printed form."""
+    c = dict(c or {})
+    pan = str(c.get("pan") or "").strip().upper()
+    if pan and not PAN_RE.match(pan):
+        raise HTTPException(400, "PAN must be 5 letters, 4 digits and a letter, e.g. ABCDE1234F")
+    if pan:
+        c["pan"] = pan
+    else:
+        c.pop("pan", None)
+    return c
+
+
 def _team_view(row: dict) -> dict:
     """An employee as a manager sees them in People (Oct 6): Overview as is,
     but no Compliance records and no contractor rate - never pay."""
@@ -315,9 +346,9 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         postal_code=(body.postal_code or "").strip(),
         company=(body.company or "").strip(),
         identity_type=body.identity_type or "internal",
-        contractor=body.contractor or {},
+        contractor=_norm_contractor(body.contractor),
         personal=body.personal or {},
-        compliance=body.compliance or {},
+        compliance=_norm_compliance(body.compliance),
         notes=body.notes or "",
         created_by=user["email"],
         created_at=now,
@@ -360,6 +391,10 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             value = value.strip().lower()
         elif isinstance(value, str) and key != "notes":
             value = value.strip()
+        elif key == "contractor":
+            value = _norm_contractor(value)
+        elif key == "compliance":
+            value = _norm_compliance(value)
         before = getattr(row, key, None)
         if before != value:
             changes[key] = (before, value)
@@ -378,7 +413,8 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
         try:
             import json as _json
             from models import AuditLog
-            _mask = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation", "account")
+            # "compliance", not "pan": that substring is in "company". The PAN sits inside that JSON.
+            _mask = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation", "account", "compliance")
             shown = {k: ("(changed)" if any(m in k.lower() for m in _mask)
                          else [None if v[0] is None else str(v[0])[:120], None if v[1] is None else str(v[1])[:120]])
                      for k, v in changes.items()}
@@ -2556,6 +2592,7 @@ class EntityIn(BaseModel):
     manager_emails:     Optional[list] = None   # company manager(s) (Nexus people or external users, Sep 29) - source of truth
     hr_contact_email:   Optional[str] = ""      # signs + finalizes timesheets (timesheet_review.py)
     signatory_email:    Optional[str] = ""      # the authorized signatory as a Nexus person (HR packets, Oct 14)
+    invoice_recipients: Optional[list] = None   # who gets a contractor's approved invoice by email (Oct 21)
 
 
 class EntityUpdate(BaseModel):
@@ -2582,6 +2619,18 @@ class EntityUpdate(BaseModel):
     manager_emails:     Optional[list] = None
     hr_contact_email:   Optional[str] = None
     signatory_email:    Optional[str] = None
+    invoice_recipients: Optional[list] = None
+
+
+def _norm_emails(emails) -> list:
+    """Free emails (no Nexus login needed): trimmed, lowercased, must carry an
+    @, no repeats, order kept."""
+    out = []
+    for e in emails or []:
+        e = str(e or "").strip().lower()
+        if "@" in e and e not in out:
+            out.append(e)
+    return out
 
 
 def _check_signatory_email(db: Session, email: str) -> str:
@@ -2625,6 +2674,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
         "hrContactEmail": e.hr_contact_email or "",
         "signatoryEmail": getattr(e, "signatory_email", "") or "",
+        "invoiceRecipients": e.invoice_recipients or [],
         "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
 
@@ -2666,6 +2716,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         manager_email=mgr_email, manager_emails=mgr_emails,
         hr_contact_email=(body.hr_contact_email or "").strip().lower(),
         signatory_email=_check_signatory_email(db, body.signatory_email or ""),
+        invoice_recipients=_norm_emails(body.invoice_recipients),
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -2709,6 +2760,8 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             value = value.strip().lower()
         elif key == "signatory_email":
             value = _check_signatory_email(db, value)
+        elif key == "invoice_recipients":
+            value = _norm_emails(value)
         elif key == "manager_emails":
             mgr_email, value = _norm_manager_emails(None, value)
             row.manager_email = mgr_email
