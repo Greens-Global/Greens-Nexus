@@ -1,7 +1,7 @@
 """Operations > Revenue Management (ops_revenue.py + routers/ops_revenue.py):
 eligibility, cap math, preview totals, the batch lifecycle, permissions and
-Entered in Cubby - the only way a row reaches Cubby. Nexus never writes to
-Cubby (Oct 20 2026): httpx.post fails the test on any Cubby call that is not
+Entered in Cubby, and the push behind the Operations switch (OFF by default,
+Oct 21 2026): with it off httpx.post fails the test on any Cubby call that is not
 a read, and no HTTP leaves the test. Runs on the throwaway SQLite conftest
 gives the run. Run alone: python -m pytest test_ops_revenue.py"""
 from datetime import date
@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 import cubby
 import models
+import ops_cubby_push
 import ops_revenue as rev
 from auth import get_current_user
 from database import SessionLocal
@@ -136,16 +137,36 @@ def _is_read(url: str) -> bool:
 
 
 class Guard:
-    """httpx.post for the whole test: a Cubby write fails the test; nothing
-    real is ever sent."""
+    """httpx.post for the whole test: a Cubby write fails the test unless the
+    test turned the switch on and set `writes = True` (then the two lease
+    calls are answered and recorded); nothing real is ever sent."""
 
     def __init__(self):
-        self.calls = []
+        self.calls, self.bodies, self.writes = [], [], False
+        self.when, self.refuse = "2026-12-01", False
 
-    def __call__(self, url, *a, **k):
-        assert _is_read(url), f"Nexus must never write to Cubby, but it called {url}"
+    def __call__(self, url, *a, json=None, **k):
+        assert _is_read(url) or self.writes, f"Nexus must not write to Cubby with the switch off, but it called {url}"
         self.calls.append(url)
-        raise AssertionError("no real HTTP in tests")
+        if not self.writes:
+            raise AssertionError("no real HTTP in tests")
+        path = str(url).rsplit("/v1/", 1)[-1]
+        self.bodies.append((path, json))
+
+        class R:
+            status_code = 200
+        r = R()
+        if path == "leases/get-rent-change-schedules":
+            body = {"data": {"rentChangeSchedules": [{"leaseId": json["leaseIds"][0], "rentChangeDate": self.when,
+                                                       "noticeDate": "2026-11-01"}]}}
+        elif path == "leases/change-rents" and self.refuse:
+            r.status_code, body = 400, {"errors": ["Lease is closed"]}
+        elif path == "leases/change-rents":
+            body = {"data": {}}
+        else:
+            raise AssertionError(path)
+        r.json = lambda: body
+        return r
 
 
 @pytest.fixture
@@ -154,6 +175,7 @@ def client(monkeypatch):
     try:
         for t in TABLES:
             db.query(t).delete()
+        db.query(models.NexusSetting).filter(models.NexusSetting.key == ops_cubby_push.SETTINGS_KEY).delete()
         db.commit()
     finally:
         db.close()
@@ -162,6 +184,7 @@ def client(monkeypatch):
     monkeypatch.setattr(cubby, "_facility_today", lambda fac: TODAY)
     guard = Guard()
     monkeypatch.setattr(httpx, "post", guard)
+    monkeypatch.delenv(ops_cubby_push.WRITE_KEY_ENV, raising=False)
     app = FastAPI()
     app.include_router(router_mod.router)
     user = {"email": "ops.manager@greensglobal.com", "role": "manager", "level": 3}
@@ -192,7 +215,7 @@ def test_supervisors_and_employees_are_refused(client):
 
 def test_tenants_endpoint(client):
     r = client.get("/facility-ops/revenue/tenants?facility_id=fac_t").json()
-    assert len(r["tenants"]) == 8 and r["unitTypes"] == ["10x10", "10x20"] and "writeEnabled" not in r
+    assert len(r["tenants"]) == 8 and r["unitTypes"] == ["10x10", "10x20"] and r["writeEnabled"] is False
     assert client.get("/facility-ops/revenue/tenants?facility_id=nope").status_code == 404
 
 
@@ -262,15 +285,70 @@ def test_batch_lifecycle_and_entered_in_cubby(client):
     assert client.guard.calls == []
 
 
-def test_the_push_route_is_gone(client):
+def _switch(on=True):
+    db = SessionLocal()
+    try:
+        ops_cubby_push.save(db, on, {"email": "admin@greensglobal.com", "role": "administrator"})
+    finally:
+        db.close()
+
+
+def test_the_push_route_refuses_while_the_switch_is_off(client, monkeypatch):
+    monkeypatch.setenv(ops_cubby_push.WRITE_KEY_ENV, "test-key-not-real")   # even with a write key
+    b = client.post("/facility-ops/revenue/batches", json=_plan(client)).json()
+    bid, cid = b["id"], b["changes"][0]["id"]
+    out = client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "approved"}).json()
+    assert out["pushOn"] is False and out["pushReady"] is False
+    r = client.post(f"/facility-ops/revenue/batches/{bid}/changes/{cid}/push", json={})
+    assert r.status_code == 403 and "turned off" in r.json()["detail"]
+    assert not hasattr(rev, "change_rent") and not hasattr(rev, "_write")   # the write path is ops_cubby_push only
+    assert client.guard.calls == []
+
+
+def test_on_without_a_write_key_is_a_clear_503(client):
+    _switch()
     b = client.post("/facility-ops/revenue/batches", json=_plan(client)).json()
     bid, cid = b["id"], b["changes"][0]["id"]
     client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "approved"})
     r = client.post(f"/facility-ops/revenue/batches/{bid}/changes/{cid}/push", json={})
-    assert r.status_code in (404, 405)
-    for name in ("WRITE_KEY_ENV", "write_configured", "_write", "change_rent", "rent_change_schedule"):
-        assert not hasattr(rev, name), name
+    assert r.status_code == 503 and ops_cubby_push.WRITE_KEY_ENV in r.json()["detail"]
     assert client.guard.calls == []
+
+
+def test_push_with_the_switch_on(client, monkeypatch):
+    _switch()
+    monkeypatch.setenv(ops_cubby_push.WRITE_KEY_ENV, "test-key-not-real")
+    client.guard.writes = True
+    assert client.get("/facility-ops/revenue/tenants?facility_id=fac_t").json()["writeEnabled"] is True
+    b = client.post("/facility-ops/revenue/batches", json=_plan(client)).json()
+    bid = b["id"]
+    a1 = next(c for c in b["changes"] if c["unit"] == "A1")
+    push = f"/facility-ops/revenue/batches/{bid}/changes/{a1['id']}/push"
+    assert client.post(push, json={}).status_code == 409                          # not approved yet
+    assert client.post(f"/facility-ops/revenue/batches/{bid}/status", json={"status": "approved"}).json()["pushReady"] is True
+    # Cubby's next date differs: stop and say so, nothing written.
+    client.guard.when = "2026-12-05"
+    r = client.post(push, json={})
+    assert r.status_code == 409 and r.json()["detail"]["cubbyDate"] == "2026-12-05"
+    assert [p for p, _ in client.guard.bodies] == ["leases/get-rent-change-schedules"]
+    client.guard.when = "2026-12-01"
+    client.guard.refuse = True
+    assert client.post(push, json={}).status_code == 424
+    client.guard.refuse = False
+    out = client.post(push, json={}).json()
+    row = next(c for c in out["changes"] if c["id"] == a1["id"])
+    assert row["status"] == "pushed" and row["pushedBy"] == "ops.manager@greensglobal.com"
+    assert client.guard.bodies[-1] == ("leases/change-rents", {"leases": [
+        {"leaseId": "lease_a1", "newRentAmount": 10800, "rentChangeDate": "2026-12-01", "noticeDate": "2026-11-01"}]})
+    assert client.post(push, json={}).status_code == 409                          # never twice
+    actions = [a["action"] for a in out["audit"]]
+    assert actions.count("push_failed") == 1 and "pushed" in actions
+    # Turned off again: the next push is refused before any HTTP.
+    _switch(False)
+    n = len(client.guard.calls)
+    other = next(c for c in b["changes"] if c["id"] != a1["id"])
+    assert client.post(f"/facility-ops/revenue/batches/{bid}/changes/{other['id']}/push", json={}).status_code == 403
+    assert len(client.guard.calls) == n
 
 
 def test_no_endpoint_writes_to_cubby(client):

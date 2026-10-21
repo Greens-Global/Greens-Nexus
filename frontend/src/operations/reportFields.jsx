@@ -137,7 +137,7 @@ export function FacilitiesField({ facilities, value, onChange }) {
   const groups = useMemo(() => {
     const out = [['', facilities.filter((f) => !isThirdParty(f))]];
     facilities.filter(isThirdParty).forEach((f) => {
-      const label = managedLabel(f) || 'Managed by an Operator';
+      const label = managedLabel(f) || 'TPM';
       const g = out.find(([l]) => l === label);
       if (g) g[1].push(f); else out.push([label, [f]]);
     });

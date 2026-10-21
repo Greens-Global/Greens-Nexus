@@ -141,7 +141,7 @@ def test_not_connected_properties_are_listed_never_counted():
     assert meta["cubesmart:pending"]["status"] == op.NOT_CONNECTED
     assert out["selected"] == ["fa"]
     picked = op.build(props, ["fa", "cubesmart:pending"], None)
-    assert picked["notConnected"] == ["CubeSmart-Managed"]
+    assert picked["notConnected"] == ["TPM (CubeSmart)"]
     assert any("not connected yet" in n for n in picked["notes"])
     assert any(p["source"] == "cubesmart" for p in op.third_party_properties())
 

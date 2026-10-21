@@ -62,6 +62,7 @@ import {
   Clock, Users, CloudRain, UserPlus, FileText, ClipboardList,
   MessageSquareText,
   Sparkles,
+  Warehouse,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -111,6 +112,8 @@ const ShiftTypesPanel = lazy(() => import('../components/shifts/ShiftSettingsSec
 const ShiftGroupsPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftGroupsPanel })));
 // Weather Alerts (Weather Call, Oct 2026): the per-company switch and the rain thresholds.
 const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSettings'));
+// Operations (Oct 21 2026): the Push to Cubby switch, OFF by default.
+const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone. Since Oct 20 the
 // tab is the unified Audit Log (components/audit/AuditLog.jsx): every module,
@@ -158,6 +161,8 @@ const GLOBAL_CATEGORIES = [
     desc: 'What goes out when someone is hired, promoted or leaves - built from Documents - and the interview questionnaires for each role. The Hiring board itself is only for moving candidates along.' },
   { key: 'shifts',         label: 'Shifts',         Icon: CalendarClock,
     desc: 'What staff may request and see on the schedule, the team time zone and week start, time-off reasons, the shift types managers place, the groups people are scheduled in, and the weather alerts for their work sites.' },
+  { key: 'operations',     label: 'Operations',     Icon: Warehouse,
+    desc: 'How the storage facilities screens work with Cubby.' },
 ];
 const CATEGORY_KEYS = new Set(GLOBAL_CATEGORIES.map(c => c.key));
 // Categories that were folded into another one - old links still land.
@@ -234,6 +239,9 @@ const GLOBAL_SECTIONS = [
   { id: 'shift-weather', category: 'shifts', icon: CloudRain, title: 'Weather Alerts',
     sub: 'Which companies the weather watch runs for, what counts as major rain, quiet hours, and the heads-up line in Teams. Nexus advises; a manager makes the weather call.',
     keywords: 'weather rain forecast alerts advisory storm thunderstorm warning nws quiet hours deciders weather call' },
+  { id: 'ops-cubby-push', category: 'operations', icon: Warehouse, title: 'Push to Cubby',
+    sub: 'Off by default: Nexus only reads from Cubby and staff mark changes Entered in Cubby. On: approved rate and rent changes can be pushed to Cubby from Nexus.',
+    keywords: 'cubby push sync write rates rent ecri rate management revenue management storage facilities operations locked switch' },
 ];
 const SECTION_META = Object.fromEntries(GLOBAL_SECTIONS.map(s => [s.id, s]));
 
@@ -1094,6 +1102,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'ops-cubby-push':       return <LazyPanelSection key={key} id={id} Panel={OpsSettingsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       default:                     return null;
     }
   }
