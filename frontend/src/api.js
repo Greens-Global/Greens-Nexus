@@ -2679,6 +2679,8 @@ export const api = {
   getOpsBudgetLoads: (facility = '') => req(`/ops-budget/loads?${new URLSearchParams({ facility })}`),
   getOpsBudgetLoadFile: (id) => reqBlob(`/ops-budget/loads/${encodeURIComponent(id)}/file`),
   runOpsBudgetSnapshot: () => req('/ops-budget/snapshot', { method: 'POST', timeoutMs: 120_000 }),
+  // Operations > Customer Map (Oct 21 2026, routers/ops_customer_map.py): rounded points, counts only.
+  getOpsCustomerMap: ({ facility = 'all', state = '' } = {}) => req(`/facility-ops/customer-map?${new URLSearchParams({ facility, state })}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
