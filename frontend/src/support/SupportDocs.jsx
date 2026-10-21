@@ -22,8 +22,9 @@ import {
   ShieldCheck, Lightbulb, BookOpen, X, Rocket,
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark, Users,
-  Megaphone, Gauge, KeyRound, HelpCircle, Settings, Handshake, Receipt,
+  Megaphone, KeyRound, HelpCircle, Settings, Handshake, Receipt,
 } from 'lucide-react';
+import InsightsChart from '../components/icons/InsightsChart';
 import { DOCS, DOC_GROUPS, ROLE_TIERS, ACCESS_LEVELS } from './docsContent';
 import DocShot, { shotLegend } from './DocShots';
 import { useDocAccess } from './docsAccess';
@@ -42,7 +43,7 @@ const ImplementationGuide = lazy(() => import('./ImplementationGuide'));
 const ICONS = {
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   BookOpen, FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark,
-  Users, Megaphone, Gauge, KeyRound, HelpCircle, Settings, Handshake, Receipt,
+  Users, Megaphone, InsightsChart, KeyRound, HelpCircle, Settings, Handshake, Receipt,
 };
 
 const LAST_KEY = 'nexus-support-docs-last';
