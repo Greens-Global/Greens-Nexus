@@ -15,6 +15,7 @@ explained empty state before the API key exists.
 """
 import mimetypes
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
 from pydantic import BaseModel
 
@@ -47,6 +48,14 @@ def _call(fn, *args, **kwargs):
         return fn(*args, **kwargs)
     except svc.EgnyteError as exc:
         raise HTTPException(exc.status, str(exc))
+    except httpx.TimeoutException:
+        # Oct 22 (Charmi, Change Loan > Browse: "Can't reach Nexus right now"):
+        # a slow or unreachable Egnyte escaped as an unhandled 500 - or, past
+        # the browser's own 18-second limit, as no answer at all, which the
+        # app words as Nexus being down. Say what actually happened.
+        raise HTTPException(504, "Egnyte did not answer in time. Try again, or paste the folder's path or Egnyte link instead.")
+    except httpx.HTTPError:
+        raise HTTPException(502, "Could not reach Egnyte just now. Try again, or paste the folder's path or Egnyte link instead.")
 
 
 def _is_privileged(user: dict, db) -> bool:

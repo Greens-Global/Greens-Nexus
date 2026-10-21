@@ -481,6 +481,60 @@ class AccountingAccessTests(unittest.TestCase):
         finally:
             graph_mail.send_mail, graph_mail.graph_configured = real
 
+    def test_share_bells_only_people_who_can_open_accounting(self):
+        """Neil's review (Oct 20): Share told anyone typed in. Someone without
+        the Accounting grant is skipped (and counted); the report is still
+        memorized for the team."""
+        outsider = "no.grant.acct.test@greensglobal.com"
+        _as(OPEN)
+        cfg = {"report": "pnl", "preset": "ytd", "book": "accrual", "entities": ["15000"], "dims": {}}
+        r = self.client.post("/accounting/reports/share", json={"recipient": outsider, "name": "Outsider P&L", "config": cfg})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual((r.json()["notified"], r.json()["skipped"]), (0, 1))
+        self.assertTrue(r.json()["report"]["shared"])
+        r = self.client.post("/accounting/reports/share", json={"recipient": MANAGER, "name": "Manager P&L", "config": cfg})
+        self.assertEqual((r.json()["notified"], r.json()["skipped"]), (1, 0))
+        db = database.SessionLocal()
+        try:
+            got = {n.recipient for n in db.query(models.NexusNotification).filter(models.NexusNotification.type == "accounting_report_shared").all()}
+            db.query(models.NexusNotification).filter(models.NexusNotification.type == "accounting_report_shared").delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+        self.assertIn(MANAGER, got)
+        self.assertNotIn(outsider, got)
+
+    def test_email_audit_write_runs_off_the_event_loop(self):
+        """Neil's review (Oct 20): the audit row of an emailed statement was
+        written and committed on the event loop. It runs in a thread now."""
+        import asyncio
+        import graph_mail
+
+        def on_loop() -> bool:
+            try:
+                asyncio.get_running_loop()
+                return True
+            except RuntimeError:
+                return False
+        seen = []
+        real_audit = models.AuditLog
+
+        def audit(**kw):
+            seen.append((kw.get("action"), on_loop()))
+            return real_audit(**kw)
+        real = (graph_mail.send_mail, graph_mail.graph_configured)
+        graph_mail.send_mail, graph_mail.graph_configured = (lambda **kw: {"messageId": "m1"}), (lambda: True)
+        models.AuditLog = audit
+        try:
+            _as(OPEN)
+            r = self.client.post("/accounting/reports/email", data={"to": "lender@bank.com", "subject": "Statements"},
+                                 files={"file": ("s.pdf", b"%PDF-1.4 test", "application/pdf")})
+        finally:
+            models.AuditLog = real_audit
+            graph_mail.send_mail, graph_mail.graph_configured = real
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([s for s in seen if s[0] == "accounting_report_emailed"], [("accounting_report_emailed", False)])
+
     # ── memorized reports and packages ──────────────────────────────────────
     def test_memorized_reports(self):
         cfg = {"report": "pnl", "preset": "ytd", "book": "cash", "entities": ["15000"], "dims": {"vendor": ["V1"]}}

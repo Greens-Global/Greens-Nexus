@@ -1534,6 +1534,9 @@ export const api = {
   // still reaches the server - the browser keeps the request alive past unload.
   // Body is tiny, well under the 64KB keepalive cap.
   timePunch:         (data)      => req('/timeclock/punch', { method: 'POST', body: JSON.stringify(data), keepalive: true }),
+  // The red location bar after a clock-in with none: Turn On puts the fix on that punch, Skip tells the manager.
+  timePunchLocation:     (pos) => req('/timeclock/punch-location', { method: 'POST', body: JSON.stringify(pos) }),
+  timePunchLocationSkip: ()    => req('/timeclock/punch-location/skip', { method: 'POST', body: '{}' }),
   timeExceptions:    (start, end) => req(`/timeclock/exceptions?start=${start || ''}&end=${end || ''}`),
   // Shared-PC: mint a one-time nonce the local agent claims (over localhost) so
   // clock-in can bind this employee to the physical PC. No agent = no nonce used.
@@ -1684,6 +1687,7 @@ export const api = {
   timeMyChat:        ()          => req('/timeclock/my-chat'),
   timeSchedule:      (start, end) => req(`/timeclock/schedule?start=${start}&end=${end}`),
   timeMySchedule:    (start, end) => req(`/timeclock/my-schedule?start=${start}&end=${end}`),
+  timeMyScheduleLive: () => req('/timeclock/my-schedule/live'),     // who on my group is working / on break right now
   // Shift self-service (Sep 29): open-shift requests, swaps, offers, manager inbox.
   shiftRequestsMine:       (start = '', end = '') => req(`/timeclock/shift-requests/mine?start=${start}&end=${end}`),
   shiftRequestCreate:      (data)      => req('/timeclock/shift-requests', { method: 'POST', body: JSON.stringify(data) }),
@@ -2082,6 +2086,9 @@ export const api = {
   createAccountingPartnerChange: (body) => req('/accounting/partners/changes', { method: 'POST', body: JSON.stringify(body) }),
   decideAccountingPartnerChange: (id, decision, note = '') => req(`/accounting/partners/changes/${encodeURIComponent(id)}/${decision}`, { method: 'POST', body: JSON.stringify({ note }) }),
   exportAccountingPartnerChanges: (status = 'approved', kind = '') => reqBlob(`/accounting/partners/changes/export.csv?status=${status}${kind ? `&kind=${kind}` : ''}`),
+  // One vendor or customer drilled into (Charmi, 10/16): the record, its
+  // change requests and its ledger activity.
+  getAccountingPartnerRecord:   (kind, id) => req(`/accounting/partners/record/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`),
   // The monthly payroll allocation entry: the mapping, a preview for a month,
   // the runs kept, and a run as an Intacct GL import CSV or a workbook.
   getAllocationsMap:    () => req('/accounting/allocations/map'),
@@ -2172,6 +2179,13 @@ export const api = {
   getMreVendor:        (vendorId) => req(`/accounting/mre/vendors/${encodeURIComponent(vendorId)}`),
   getMreProposals:     (min = 3, entities = []) => req(`/accounting/mre/from-ledger/proposals?min=${min}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}`),
   createMreFromLedger: (body)     => req('/accounting/mre/from-ledger/create', { method: 'POST', body: JSON.stringify(body) }),
+  // Oct 22: one line's row (the in-place refresh after a save), the shared
+  // MRI / MRE settings, the Possibly Ended check, and a vendor's Egnyte folder.
+  getMreGridRows:      (year, ids = []) => req(`/accounting/mre/grid?year=${year}&ids=${encodeURIComponent(ids.join(','))}`),
+  getRecurringSettings:  () => req('/accounting/mre/settings'),
+  saveRecurringSettings: (body) => req('/accounting/mre/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  runRecurringStaleCheck: () => req('/accounting/mre/stale-check', { method: 'POST' }),
+  suggestMreEgnyteFolder: (vendor) => req(`/accounting/mre/egnyte-suggest?vendor=${encodeURIComponent(vendor)}`),
 
   // PFS file lock + Affiliated Entities + an executive profile per borrower
   // (Charmi, 10/04). routers/pfs_access.py, routers/pfs_affiliates.py.
@@ -2420,6 +2434,13 @@ export const api = {
   createPlannedLoan: (body)     => req('/accounting/loan-plans/planned', { method: 'POST', body: JSON.stringify(body) }),
   updatePlannedLoan: (id, body) => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   deletePlannedLoan: (id)       => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Loans, Oct 22 (Charmi / Neil): the live index rate for the Loan Calculator
+  // (sofr | treasury10 | prime), the vendors a loan can be wired to, and Change
+  // Loan's save with room for a slow accounting app (a PUT is never retried,
+  // so at the 18s default a slow save read as "Can't reach Nexus").
+  getLoanIndexRate:  (index)    => req(`/accounting/loan-plans/index-rate?index=${encodeURIComponent(index)}`),
+  getLoanVendors:    (entity, accounts = [], to = '') => req(`/accounting/loans/vendors?entity=${encodeURIComponent(entity)}${accounts.length ? `&accounts=${encodeURIComponent(accounts.join(','))}` : ''}${to ? `&to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
+  updateLoanSlow:    (id, body) => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body), timeoutMs: 90_000 }),
   // Accounting > Reporting > Profitability and Employee Compensation (10/15).
   getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
   getCompensationPeople: (from, to) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs: 180_000 }),

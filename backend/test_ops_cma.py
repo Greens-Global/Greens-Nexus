@@ -539,7 +539,12 @@ def test_history_reaches_back_through_hummingbird(db, fake):
     assert h["points"] == sorted(h["points"], key=lambda p: p["date"])
     assert h["points"][-1]["date"] == "2026-10-20"                     # Cubby still owns today
     hb_log = [e for e in h["log"] if e["source"] == "hummingbird"]
-    assert [e["text"] for e in hb_log] == ["Sell rate $110.00 -> $114.50"] and hb_log[0]["date"] == "2026-01-01"
+    sell = [e for e in hb_log if e["text"].startswith("Sell rate")]
+    assert [e["text"] for e in sell] == ["Sell rate $110.00 -> $114.50"] and sell[0]["date"] == "2026-01-01"
+    # What tenants pay and how many there are, month-end to month-end (Oct 21).
+    moved = sorted((e["date"], e["text"]) for e in hb_log if not e["text"].startswith("Sell rate"))
+    assert moved == [("2025-12-31", "Occupied 80 -> 82 of 113 · Avg in-place rent $105.00 -> $106.00"),
+                     ("2026-01-31", "Occupied 82 -> 85 of 113 · Avg in-place rent $106.00 -> $107.00")]
     assert h["cards"]["occupiedThen"] == 80 and h["cards"]["occupiedFrom"] == "2025-11-30"
     assert h["hummingbird"] == {"first": "2025-11", "last": "2026-01"}
     assert h["span"]["first"] == "2025-11-30" and h["span"]["last"] == "2026-10-20"
@@ -549,6 +554,8 @@ def test_history_reaches_back_through_hummingbird(db, fake):
     assert all("2025-12-01" <= e["date"] <= "2026-01-31" for e in w["log"]) and w["log"]
     assert w["span"] == h["span"] and w["range"] == {"start": "2025-12-01", "end": "2026-01-31"}
     assert w["cards"]["occupiedThen"] == 82 and w["cards"]["occupiedFrom"] == "2025-12-31"
+    assert w["cards"]["occupiedNow"] == 85 and w["cards"]["occupiedTo"] == "2026-01-31"   # the card ends with the period
+    assert h["cards"]["occupiedTo"] == "2026-10-20"                                          # no end date: today
     assert c.get(f"/facility-ops/cma/history?facility_id={FAC}&unit_type=12' x 32' Parking&start=12/01/2025").status_code == 400
     assert c.get(f"/facility-ops/cma/history?facility_id={FAC}&unit_type=12' x 32' Parking&start=2026-02-01&end=2026-01-01").status_code == 400
     for m in (hm.HbRateMonth, hm.HbProperty):

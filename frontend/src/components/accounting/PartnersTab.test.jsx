@@ -20,15 +20,24 @@ vi.mock('../../api', () => ({
     createAccountingPartnerChange: vi.fn(async (body) => ({ id: 'c2', ...body, status: 'pending' })),
     decideAccountingPartnerChange: vi.fn(async (id, decision) => ({ id, status: decision === 'approve' ? 'approved' : 'declined' })),
     exportAccountingPartnerChanges: vi.fn(async () => ({ blob: new Blob(['x']), filename: 'partner-changes-approved.csv' })),
+    getAccountingPartnerRecord: vi.fn(async () => ({ kind: 'vendor', source: 'intacct', record: vendors[0], history: changes,
+      activity: { total: 41, debit: 5200.5, credit: 1200, entities: [{ code: '15000', name: 'Greens Escondido', lines: 41, net: 4000.5 }], accounts: [],
+        lines: [{ lineId: 'L1', entryNo: 'AP-9', date: '2026-09-30', entity: '15000', account: '61000', accountName: 'Repairs', memo: 'Invoice 1182 - pipe', debit: 400, credit: 0 }] },
+      activityError: '' })),
+    getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
+    saveAccountingPrefs: vi.fn(async () => ({})),
   },
 }));
 vi.mock('../../ui/dialog', () => ({ dialog: { alert: vi.fn(async () => true), confirm: vi.fn(async () => true), prompt: vi.fn(async () => 'Please') } }));
 
-import PartnersTab, { diffPartner } from './PartnersTab';
+import PartnersTab, { diffPartner, isInactive } from './PartnersTab';
 import { api } from '../../api';
+import { resetAccountingPrefs } from './prefs';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetAccountingPrefs();
+  try { localStorage.clear(); } catch { /* private mode */ }
   globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
   globalThis.URL.revokeObjectURL = vi.fn();
 });
@@ -105,5 +114,43 @@ describe('PartnersTab', () => {
     } finally {
       window.removeEventListener('nexus:accounting-drill', onDrill);
     }
+  });
+
+  // Oct 22 (Charmi, 10/16: "drill down into a vendor - still can't").
+  it('opens a record from its row: fields, ledger activity and change history', async () => {
+    render(<PartnersTab />);
+    fireEvent.click((await screen.findByText('Acme Plumbing')).closest('tr'));
+    const panel = await screen.findByRole('dialog', { name: 'Vendor V00012' });
+    expect(api.getAccountingPartnerRecord).toHaveBeenCalledWith('vendor', 'V00012');
+    expect(within(panel).getByText('Vendor V00012 - Acme Plumbing')).toBeTruthy();
+    expect(within(panel).getByText('Net 30')).toBeTruthy();
+    const activity = await within(panel).findByRole('region', { name: 'Ledger Activity' });
+    expect(within(activity).getByText('41')).toBeTruthy();
+    expect(within(activity).getByText('Invoice 1182 - pipe')).toBeTruthy();
+    expect(within(activity).getByText('09/30/2026')).toBeTruthy();
+    const history = within(panel).getByRole('region', { name: 'Change History' });
+    expect(within(history).getByText('760-555-0199')).toBeTruthy();
+    expect(within(history).getByText('Pending Approval')).toBeTruthy();
+    // The row's own buttons keep their jobs - Edit does not open the record.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Acme Plumbing' }));
+    expect(api.getAccountingPartnerRecord).toHaveBeenCalledTimes(1);
+  });
+
+  // Oct 22 (Charmi): Customize hides inactive records by default.
+  it('hides inactive records until Customize > Show Inactive', async () => {
+    api.getAccountingPartners.mockResolvedValue({ kind: 'vendor', partners: [...vendors, { ...vendors[1], id: 'V00099', name: 'Old Roofing', displayName: 'Old Roofing', status: 'inactive', awaitingIntacct: false }] });
+    render(<PartnersTab />);
+    await screen.findByText('Acme Plumbing');
+    expect(screen.queryByText('Old Roofing')).toBeNull();
+    expect(screen.getByText(/1 inactive vendor hidden/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(screen.getByLabelText(/Show Inactive/));
+    expect(await screen.findByText('Old Roofing')).toBeTruthy();
+    expect(screen.queryByText(/inactive vendor hidden/)).toBeNull();
+    expect(isInactive({ status: 'Inactive' })).toBe(true);
+    expect(isInactive({ status: 'active' })).toBe(false);
+    expect(isInactive({})).toBe(false);
   });
 });
