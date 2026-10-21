@@ -246,6 +246,14 @@ export const DOCS = [
         ],
       },
       {
+        title: 'Ask the Company to Buy Something',
+        steps: [
+          'Click the Purchase Requests tab (or Purchase Request on the Overview).',
+          'Click New Purchase Request. Pick who it is for, the item, quantity, department, a reason, the manager who should approve it and an optional reference link, then click Submit Request.',
+          'It shows under My Requests as Pending Approval, then Approved, Ordered and Fulfilled - or Rejected with the reason. History on a request lists every step.',
+        ],
+      },
+      {
         title: 'Sign Your Time Sheet',
         steps: [
           'After the pay period ends, your manager reviews and approves your hours - you do not have to submit first. You get a bell and an email when it is approved.',
@@ -264,6 +272,7 @@ export const DOCS = [
       { name: 'Time Off', desc: 'Request time off: a Reason (Personal, Sick, Vacation or Medical Appointment), the dates, and an optional Note. Keep this confidential shows your team only that you are out and the reason, never the note. Every request you have made is listed under My Requests as Pending, Approved, Rejected or Cancelled, and you can cancel one that is pending or approved. Past dates are grayed out - click Request for a Past Date to ask for one you missed. Your manager\'s manager is told about every request too.' },
       { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the time sheet to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
       { name: 'Clock in the Left Menu', desc: 'The time clock also sits in the left menu: Play punches in (or ends a break), Pause starts a break, Stop punches out. The dial fills toward 8 hours - green on the clock, amber on a break, red off - and clicking it opens the full clock.' },
+      { name: 'Purchase Requests', desc: 'Formal requests for things the company does not have yet (moved here from Item Management on 10/22/2026). My Requests lists yours with their status, reason, reference link and history. Item Management managers also get Approvals: Approve and pick who purchases and fulfills it, or Reject with a reason. The person picked marks it Ordered, then Fulfill Without Adding (consumables, with a note) or Received - Add to Items, which opens the Add Item form prefilled and fulfills the request once the item is saved.' },
       { name: 'Delegate My Approvals', desc: 'At the bottom of the Time Off tab, collapsed. Only for days you have approved time off: pick who covers your approvals - your manager or someone above, a peer under the same manager, or someone at your level or above, never your own team - and the dates. Your approvals go to them for those days; you keep yours too.' },
       { name: 'California Meal and Rest Breaks', desc: 'For everyone whose Country or Region is the US, hourly and salaried: the signing screen and the signed time sheet carry the statement "I was provided every meal and rest break California law requires.", and signing confirms it. Hourly staff on the California overtime rule who missed a break click Report a Missed Break instead of signing - pick the days and Meal or Rest; your manager adds the premium pay and sends it back to you.' },
     ],
@@ -1056,8 +1065,8 @@ export const DOCS = [
       {
         title: 'Need Something Not in the Catalog?',
         steps: [
-          'Click Purchase Request on the Item Management home.',
-          'Fill in the item, quantity, reason and a reference link, then submit for approval.',
+          'Purchase requests live in Workday now: open Workday > Purchase Requests (or click Purchase Request on the Workday Overview).',
+          'Click New Purchase Request, fill in the item, quantity, reason and a reference link, then submit for approval.',
         ],
       },
     ],
@@ -1068,7 +1077,6 @@ export const DOCS = [
       { name: 'Checkout Stages', desc: 'Requested, Approved, Awaiting Handover, In Use, Returned. The due date counts from handover, not from the request.' },
       { name: 'Permanent Returns', desc: 'Return an assigned item normally, report it dead, report it lost, or return it for reassignment.' },
       { name: 'To Hand Over', desc: 'For allocators: items waiting for you to hand over with a photo.' },
-      { name: 'Purchase Requests', desc: 'Formal requests for items the company does not have yet.' },
     ],
     manager: {
       title: 'Managers, Supervisors & Admins',

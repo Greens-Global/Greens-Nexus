@@ -2681,6 +2681,8 @@ export const api = {
   runOpsBudgetSnapshot: () => req('/ops-budget/snapshot', { method: 'POST', timeoutMs: 120_000 }),
   // Operations > Customer Map (Oct 21 2026, routers/ops_customer_map.py): rounded points, counts only.
   getOpsCustomerMap: ({ facility = 'all', state = '' } = {}) => req(`/facility-ops/customer-map?${new URLSearchParams({ facility, state })}`),
+  // Ops Budget > Hummingbird History (Oct 21 2026): what the last HB export load holds, per site (admins only).
+  getOpsHummingbird: () => req('/ops-budget/hummingbird'),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

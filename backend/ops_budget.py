@@ -4,7 +4,9 @@ against budget and against the same period last year, for owners at a glance.
 Sources -> one table (ops_budget_models.OpsMetricMonth) -> this module -> the
 API (routers/ops_budget.py). The screen never calculates a figure.
 
-  Workbook  budgets, and actuals before Sep 2026 (ops_budget_workbook.py)
+  Workbook  budgets, and actuals before Sep 2026 for whatever HB lacks (ops_budget_workbook.py)
+  HB        Hummingbird actuals before Sep 2026, rebuilt from the HB export
+            (hb_load.py -> hb_* tables -> hb_history.rebuild, source `hummingbird`)
   Cubby     actuals from Sep 2026, derived from the synced cubby_* tables by
             the snapshot job (ops_budget_cubby.py)
   Later     website visitors (analytics) and reviews - "Pending API" until then
@@ -20,8 +22,9 @@ Rules (the ops team's briefing, Oct 19 2026):
   * Variance = actual - comparison. Percentages as points; everything else as
     the difference plus the percent change. Higher-better / lower-better /
     neutral per metric; neutral and even are never colored.
-  * Cubby wins for actuals from Sep 2026 (when it has a value), the workbook
-    before. Tows always come from the workbook.
+  * Cubby wins for actuals from Sep 2026 (when it has a value). Before Sep
+    2026 Hummingbird wins for every metric it provides, then the workbook
+    (Neil, Oct 21 2026). Tows always come from the workbook.
 
 Everything here except `load_rows` / `facilities` is pure, so the tests feed
 it fixed rows. Aggregates only: nothing here knows a tenant.
@@ -40,7 +43,7 @@ WORKBOOK_ONLY = {"tows"}         # never from an API
 SEGMENTS = {"self_storage": "Self-Storage", "vehicle": "Vehicle Storage"}
 SEGMENT_SENTENCE = {"self_storage": "Self-storage", "vehicle": "Vehicle storage"}
 SCENARIOS = ("actual", "budget")
-SOURCES = ("workbook", "cubby_api", "analytics_api", "reviews_api")
+SOURCES = ("workbook", "cubby_api", "analytics_api", "reviews_api", "hummingbird")
 
 # The five Greens sites (operator-managed stores are out of scope).
 FACILITIES = [
@@ -218,8 +221,8 @@ def source_order(metric: str, month: str) -> list[str]:
         return ["workbook"]
     api = BY_KEY.get(metric, {}).get("api")
     if month >= CUBBY_FROM:
-        return [s for s in ("cubby_api", api) if s] + ["workbook"]
-    return ["workbook"] + [s for s in ("cubby_api", api) if s]
+        return [s for s in ("cubby_api", api) if s] + ["workbook", "hummingbird"]
+    return ["hummingbird", "workbook"] + [s for s in ("cubby_api", api) if s]
 
 
 def resolve(by_source: dict, metric: str, month: str, scenario: str = "actual"):
@@ -583,7 +586,8 @@ def build_trend(tbl: dict, *, segment: str, end: str, months: int = 24) -> dict:
 
 
 def notes(segment: str) -> list[str]:
-    out = [f"Actuals come from Cubby from {month_label(CUBBY_FROM, long=True)} on, and from the Ops Budget workbook before.",
+    out = [f"Actuals come from Cubby from {month_label(CUBBY_FROM, long=True)} on. Before that they come from "
+           "Hummingbird where it has the figure, and from the Ops Budget workbook for the rest.",
            "Rates are worked out from the period's counts, never averaged. A dash means a figure is missing."]
     if segment == "vehicle":
         out.append("Tows come from the workbook only.")

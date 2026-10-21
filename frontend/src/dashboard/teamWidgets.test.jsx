@@ -246,7 +246,7 @@ describe('errors and hidden rows', () => {
     expect(screen.queryByText('Item 11')).toBeNull();
     fireEvent.click(screen.getByText('+2 more pending'));
     n.off();
-    expect(n.seen).toEqual([['purchase', null]]);
+    expect(n.seen).toEqual([['myhr', 'purchase']]);   // Workday > Purchase Requests (Oct 22 2026)
   });
 
   it('Out Today: more than eight out today ends in a "+N more" that opens time off', async () => {
