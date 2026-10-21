@@ -122,7 +122,7 @@ const SIG_FONTS = ['"Segoe Script"', '"Brush Script MT"', '"Lucida Handwriting"'
 
 const FL = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.05em', textTransform: 'uppercase' };
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
-const cardStyle = (maxWidth, maxHeight = 'min(94dvh, 880px)') => ({ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth, maxHeight, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' });
+const cardStyle = { background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' };
 
 // Name box that auto-fills the email: type a teammate's name, matching people
 // drop down beneath, picking one populates name + email. Free text stays as a
@@ -226,7 +226,7 @@ function FieldOptionsModal({ field, onSave, onClose }) {
   const guard = useUnsavedGuard(dirty, onClose, clean.length >= 2 ? () => { onSave(clean); onClose(); } : undefined);
   return (
     <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={cardStyle(520)}>
+      <div className="nx-popup" style={cardStyle}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>{FIELD_META[field.type]?.label} options</h3>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
@@ -267,7 +267,7 @@ function MergeFieldModal({ field, onSave, onClose }) {
   const [key, setKey] = useState(field.merge || 'salary');
   return (
     <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={cardStyle(460)}>
+      <div className="nx-popup" style={cardStyle}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Offer Field</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
@@ -302,7 +302,7 @@ function FieldLabelModal({ field, onSave, onClose }) {
   const guard = useUnsavedGuard(dirty, onClose, save);
   return (
     <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={cardStyle(480)}>
+      <div className="nx-popup" style={cardStyle}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Attachment Field</h3>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
@@ -434,7 +434,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
 
   return (
     <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={cardStyle(760)}>
+      <div className="nx-popup" style={cardStyle}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <PenTool size={17} style={{ color: 'var(--pine)' }} />
           <div style={{ flex: 1 }}>
@@ -908,7 +908,7 @@ function HistoryPanel({ loadHistory, onClose }) {
 
   return (
     <div style={{ ...overlayStyle, zIndex: 1450 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={cardStyle(620)}>
+      <div className="nx-popup" style={cardStyle}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <Clock size={17} style={{ color: 'var(--pine)' }} />
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, flex: 1 }}>History</h3>
@@ -1562,7 +1562,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
 
   const paperModal = (
     <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && setPaperStep(0)}>
-      <div style={cardStyle(560)}>
+      <div className="nx-popup" style={cardStyle}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <Printer size={17} style={{ color: 'var(--pine)' }} />
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, flex: 1 }}>Sign on Paper</h3>
@@ -1662,7 +1662,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   // the document exists to decline from.
   const declineModal = (
     <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && declineGuard.requestClose()}>
-      <div style={cardStyle(560)}>
+      <div className="nx-popup" style={cardStyle}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)' }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Sign on Paper Instead</h3>
         </div>
@@ -3603,7 +3603,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
   const sm = req ? (REQ_STATUS[reqStatusKey(req)] || REQ_STATUS.pending) : null;
   return (
     <div style={overlayStyle} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={cardStyle(900, 'min(94dvh, 1020px)')}>
+      <div className="nx-popup" style={cardStyle}>
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <FileSignature size={16} style={{ color: 'var(--pine)' }} />
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{req?.title || '…'}</h3>

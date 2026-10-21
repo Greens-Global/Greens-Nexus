@@ -7,7 +7,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const rounds = [{ id: 'r1', status: 'scheduled', at: '2026-11-02T17:00:00Z', durationMin: 45,
   interviewerNames: ['Neil K'], templateName: 'Analyst' }];
-const ctl = { choices: [], optionsFail: false, events: [] };
+const ctl = { choices: [], optionsFail: false, events: [], decision: { votes: [], decision: '', deciderName: 'Hedy Lead' } };
 vi.mock('../api', () => ({
   api: {
     getCandidateHistory: () => Promise.resolve([]),
@@ -15,6 +15,7 @@ vi.mock('../api', () => ({
     getLifeEvents: () => Promise.resolve(ctl.events),
     hiringPacketOptions: () => Promise.resolve({ picked: null, options: [] }),
     offerOptions: () => (ctl.optionsFail ? Promise.reject(new Error('API error 500')) : Promise.resolve({ choices: ctl.choices })),
+    candidateDecision: () => Promise.resolve(ctl.decision),
   },
 }));
 const confirmMock = vi.fn();
@@ -59,7 +60,23 @@ describe('CandidateDetailModal', () => {
     await waitFor(() => expect(screen.getByText(/With Neil K/)).toBeTruthy());
     expect(screen.getByText(/Questionnaire: Analyst/)).toBeTruthy();
     expect(screen.getByText('Interview Room')).toBeTruthy();
-    expect(screen.getByText('Move To Offer')).toBeTruthy();
+    expect(screen.getByText('Move To Decision')).toBeTruthy();     // Neil, Oct 19: interview over, then a decision
+    expect(screen.queryByText('Make Offer')).toBeNull();
+  });
+
+  it('Decision: shows each Yes / No with why and the final call; Make Offer is green, Reject red', async () => {
+    ctl.decision = { deciderName: 'Hedy Lead', decision: 'hire', decisionByName: 'Hedy Lead', decisionAt: '2026-10-20T15:00:00Z',
+      votes: [{ email: 'neil@x.com', name: 'Neil K', vote: 'no', note: 'No - not enough Intacct', at: '2026-10-20T14:00:00Z' },
+              { email: 'head@x.com', name: 'Hedy Lead', vote: 'yes', note: 'Yes - I will train them', final: true, at: '2026-10-20T15:00:00Z' },
+              { email: 'sam@x.com', name: 'Sam P', vote: '', note: '' }] };
+    render(<CandidateDetailModal {...props} candidate={{ ...base, stage: 'decision', decision: 'hire' }} />);
+    expect(await screen.findByText('No - not enough Intacct')).toBeTruthy();
+    expect(screen.getByText('Yes - I will train them')).toBeTruthy();
+    expect(screen.getByText('Waiting for their answer')).toBeTruthy();
+    expect(screen.getByText('Final Call: Hire')).toBeTruthy();
+    expect(screen.getByText('Make Offer').closest('button').style.background).toContain('--color-green');
+    expect(screen.getByText('Reject').closest('button').style.background).toContain('--color-red');
+    ctl.decision = { votes: [], decision: '', deciderName: 'Hedy Lead' };
   });
 
   it('Offer: the hiring packet is the next step; another interview still possible', async () => {
@@ -79,16 +96,16 @@ describe('CandidateDetailModal', () => {
 
 
 // The offer comes first (Pranshu, Oct 15 2026).
-describe('Move To Offer and the offer progress', () => {
+describe('Make Offer and the offer progress', () => {
   const reset = (over = {}) => { Object.assign(ctl, { choices: [], optionsFail: false, events: [] }, over); confirmMock.mockReset(); };
 
   it('with no offer letter set up, says so instead of moving the stage', async () => {
     reset({ choices: [] });
     confirmMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);   // "no interview yet - continue", then the set-up prompt
     const onStage = vi.fn(), onMakeOffer = vi.fn();
-    render(<CandidateDetailModal {...props} onStage={onStage} onMakeOffer={onMakeOffer} candidate={{ ...base, stage: 'interview' }} />);
-    await waitFor(() => expect(screen.getByText('Move To Offer')).toBeTruthy());
-    fireEvent.click(screen.getByText('Move To Offer'));
+    render(<CandidateDetailModal {...props} onStage={onStage} onMakeOffer={onMakeOffer} candidate={{ ...base, stage: 'decision', decision: 'hire' }} />);
+    await waitFor(() => expect(screen.getByText('Make Offer')).toBeTruthy());
+    fireEvent.click(screen.getByText('Make Offer'));
     await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(2));
     expect(confirmMock.mock.calls[1][1]).toMatchObject({ title: 'Set Up an Offer Letter First', confirmText: 'Open Hiring Documents' });
     expect(onStage).not.toHaveBeenCalled();
@@ -99,8 +116,8 @@ describe('Move To Offer and the offer progress', () => {
     reset({ choices: [{ id: 'o1', name: 'Offer Letter' }] });
     confirmMock.mockResolvedValue(true);
     const onStage = vi.fn(), onMakeOffer = vi.fn();
-    render(<CandidateDetailModal {...props} onStage={onStage} onMakeOffer={onMakeOffer} candidate={{ ...base, stage: 'interview' }} />);
-    fireEvent.click(await screen.findByText('Move To Offer'));
+    render(<CandidateDetailModal {...props} onStage={onStage} onMakeOffer={onMakeOffer} candidate={{ ...base, stage: 'decision', decision: 'hire' }} />);
+    fireEvent.click(await screen.findByText('Make Offer'));
     await waitFor(() => expect(onMakeOffer).toHaveBeenCalled());
     expect(onStage).not.toHaveBeenCalled();
   });
@@ -109,8 +126,8 @@ describe('Move To Offer and the offer progress', () => {
     reset({ optionsFail: true });
     confirmMock.mockResolvedValue(true);
     const onStage = vi.fn(), onMakeOffer = vi.fn(), toastErr = vi.fn();
-    render(<CandidateDetailModal {...props} onStage={onStage} onMakeOffer={onMakeOffer} toastErr={toastErr} candidate={{ ...base, stage: 'interview' }} />);
-    fireEvent.click(await screen.findByText('Move To Offer'));
+    render(<CandidateDetailModal {...props} onStage={onStage} onMakeOffer={onMakeOffer} toastErr={toastErr} candidate={{ ...base, stage: 'decision', decision: 'hire' }} />);
+    fireEvent.click(await screen.findByText('Make Offer'));
     await waitFor(() => expect(toastErr).toHaveBeenCalledWith('Could not check the offer letters for this company - try again.'));
     expect(onStage).not.toHaveBeenCalled();
     expect(onMakeOffer).not.toHaveBeenCalled();

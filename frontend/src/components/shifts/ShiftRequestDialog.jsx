@@ -78,8 +78,8 @@ export default function ShiftRequestDialog({ reqs, myShifts = [], shift = null, 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="New Request"
-        style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 480, padding: 20, maxHeight: '92dvh', overflowY: 'auto', fontFamily: 'Inter,sans-serif' }}>
+      <div role="dialog" aria-label="New Request" className="nx-popup"
+        style={{ background: 'var(--card)', borderRadius: 14, padding: 20, overflowY: 'auto', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
           <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>New Request</span>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>

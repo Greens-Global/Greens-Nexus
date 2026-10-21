@@ -1206,6 +1206,25 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .nx-overlay.is-closing > .nx-panel { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
 .nx-overlay.is-closing > .nx-modal-sheet { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
 
+/* Popups cover 60% of the screen (Pranshu, Oct 15 2026): put .nx-popup on any
+   centered modal / dialog panel. Comes after .modal-content so it wins over
+   that class's max-width; an inline width/maxWidth/minHeight/maxHeight on the
+   panel still beats it, so drop those when adding the class. Phones keep
+   their sheet. The doubled class outranks a panel's own later class rule
+   (.bi-modal and the like) without !important. */
+.nx-popup.nx-popup {
+  width: 60vw;
+  min-width: min(420px, 100%);
+  max-width: 100%;
+  min-height: 60vh;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+@media (max-width: 640px) {
+  .nx-popup.nx-popup { width: 100%; min-width: 0; min-height: 0; max-height: 92vh; }
+}
+
 /* AnchoredMenu: grows out of its trigger corner and shrinks back into it. */
 .nx-anchored { animation: nx-menu-in var(--dur-sm) var(--ease-out); transform-origin: top left; }
 .nx-anchored[data-align="end"] { transform-origin: top right; }
@@ -5998,17 +6017,6 @@ body:has(.docs-root) { overflow-x: clip; }
   [data-theme="dark"] .nx-row-hover[data-selected="true"]:hover { background: rgba(96, 140, 255, 0.26) !important; }
 }
 .nx-row-hover:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
-
-/* The ticket row's Mark Resolved check (the resolved gutter) - faint until the
-   row is hovered, green under the pointer, always reachable by keyboard. */
-.nx-row-resolve {
-  display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
-  border: none; border-radius: 50%; background: transparent; cursor: pointer;
-  color: var(--nx-faint); opacity: .45; transition: opacity .1s ease, color .1s ease, background-color .1s ease;
-}
-.nx-row-hover:hover .nx-row-resolve, .nx-row-resolve:focus-visible { opacity: 1; }
-.nx-row-resolve:hover, .nx-row-resolve:focus-visible { color: #16a34a; background: rgba(22, 163, 74, 0.14); }
-@media (hover: none) { .nx-row-resolve { opacity: 1; } }
 
 /* Latest Comment cell - a button inside a clickable row: its own hover so it
    reads as "opens the conversation", not just "opens the ticket". */

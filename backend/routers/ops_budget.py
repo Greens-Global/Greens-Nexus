@@ -11,6 +11,7 @@
   GET  /ops-budget/loads              uploads and Cubby snapshot runs (admins only)
   GET  /ops-budget/loads/{id}/file    the workbook as uploaded (admins only)
   POST /ops-budget/snapshot           run the Cubby month-end snapshot now (admins only)
+  GET  /ops-budget/hummingbird        what the last Hummingbird history load holds, per site (admins only)
 
 Reads: the Operations door, like /facility-ops (supervisors and above, or an
 Operations grant); every reader sees all five sites until per-site access is
@@ -26,6 +27,8 @@ from sqlalchemy.orm import Session
 import ops_budget as ob
 import ops_budget_cubby
 import ops_budget_workbook as wbk
+import hb_history
+import hb_models  # noqa: F401 - registers the hb_* tables before create_all
 from auth import _module_level, require_level_or_module
 from database import get_db
 from ops_budget_models import OpsBudgetLoad
@@ -80,8 +83,10 @@ def list_facilities(user: dict = Depends(require_read), db: Session = Depends(ge
         f["dataRange"] = ob.data_range(db, f["id"])
         f["lastWorkbookAt"] = last.get((f["id"], "workbook"), "")
         f["lastCubbyAt"] = last.get((f["id"], "cubby"), "")
+        f["lastHummingbirdAt"] = last.get((f["id"], "hummingbird"), "")
     return {"facilities": facs, "defaultMonth": ob.default_month(), "currentMonth": ob.ym(ob.today_local()),
             "historyFrom": ob.HISTORY_FROM, "cubbyFrom": ob.CUBBY_FROM, "segments": ob.SEGMENTS,
+            "hummingbirdTo": ob.add_months(ob.CUBBY_FROM, -1),
             "canUpload": _can_upload(user, db)}
 
 
@@ -153,3 +158,11 @@ def load_file(load_id: str, user: dict = Depends(require_admin), db: Session = D
 def snapshot_now(user: dict = Depends(require_admin)):
     """Write this month's Cubby actuals now instead of waiting for the next run."""
     return {"results": ops_budget_cubby.snapshot_all()}
+
+
+@router.get("/hummingbird")
+def hummingbird(user: dict = Depends(require_admin), db: Session = Depends(get_db)):
+    """The Hummingbird History panel: the last loads (files, counts,
+    warnings) and, per site, the months rebuilt. Loading is the command-line
+    loader (python -m hb_load), never an upload."""
+    return hb_history.status(db)

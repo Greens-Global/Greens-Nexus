@@ -567,7 +567,7 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
 
 from models import HrCandidate, HrStageEvent, HrLeaveRequest, HrLeaveBalance, NexusNotification
 
-_STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
+_STAGES = ("applied", "screening", "interview", "decision", "offer", "hired", "rejected")
 # Moves HR makes by hand (Neil, Oct 8: each stage has its own action). Into
 # Interview only by SCHEDULING one (hr_interviews.schedule_interview) - "the
 # action should not be moved to interview. It should be schedule an interview"
@@ -575,11 +575,15 @@ _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
 # from Offer (the hiring packet hires by itself when signed).
 # Neil, Oct 14: "you should be able to go backwards to different stages" -
 # any earlier stage, by hand or by dragging the card. Hired is final.
+# Neil, Oct 19: "it should be interview over and then you take a decision" -
+# Decision sits between Interview and Offer (hiring_decision.py); the offer
+# itself starts from the offer flow (hr_life_events.start_offer).
 _STAGE_MOVES = {
     "applied":   {"screening", "rejected"},
     "screening": {"applied", "rejected"},
-    "interview": {"offer", "screening", "applied", "rejected"},
-    "offer":     {"hired", "interview", "screening", "applied", "rejected"},
+    "interview": {"decision", "screening", "applied", "rejected"},
+    "decision":  {"offer", "interview", "screening", "applied", "rejected"},
+    "offer":     {"hired", "decision", "interview", "screening", "applied", "rejected"},
     "rejected":  {"applied", "screening"},     # reopen
     "hired":     set(),
 }
@@ -664,6 +668,7 @@ def _ser_candidate(c: HrCandidate) -> dict:
         "expectedStart": c.expected_start, "source": c.source,
         "company": c.company or "", "roleId": c.role_id or "",
         "interviewAt": c.interview_at or "",
+        "decision": c.decision or "", "decisionBy": c.decision_by or "", "decisionAt": c.decision_at or "",
         "resumeUrl": c.resume_url, "notes": c.notes, "employeeId": c.employee_id,
         "createdAt": c.created_at, "updatedAt": c.updated_at,
     }
@@ -712,13 +717,16 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
              if all_roles or not (r.company_id or "") or (r.company_id or "") == company_id]
     if all_roles and scope is not None:        # questionnaire links: every role HR can see
         roles = [r for r in roles if not (r.company_id or "") or r.company_id in scope]
-    depts = []
+    depts, leads = [], {}
     if company_id:
         entity = db.query(HrEntity).filter(HrEntity.id == company_id).first()
         if entity:
             _ensure_departments(db, entity)
-            depts = [d.name for d in db.query(HrDepartment).filter(HrDepartment.company_id == company_id)
-                     .order_by(HrDepartment.sort_order, HrDepartment.name).all()]
+            rows = (db.query(HrDepartment).filter(HrDepartment.company_id == company_id)
+                    .order_by(HrDepartment.sort_order, HrDepartment.name).all())
+            depts = [d.name for d in rows]
+            # The interviewer picker puts the department's lead first (Neil, Oct 19).
+            leads = {d.name: [e.lower() for e in (d.lead_email, d.backup_email) if e] for d in rows}
     for r in roles:          # a role's department is always offered, even if the list lacks it
         if r.department and r.department not in depts:
             depts.append(r.department)
@@ -727,7 +735,7 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
                        "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", ""),
                        "defaultManagerEmail": (r.default_manager_email or "").lower()}
                       for r in roles],
-            "departments": depts, "sources": list(HIRING_SOURCES)}
+            "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES)}
 
 
 def _cand_in_scope(c: Optional[HrCandidate], scope) -> HrCandidate:
@@ -780,6 +788,17 @@ def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends
             "interviewers": [people.get(e, e) for e in (iv.interviewer_emails or [])]}
         out.append(d)
     return out
+
+
+@router.get("/candidates/{cid}/decision")
+def candidate_decision(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The Decision step on the card (Neil, Oct 19): each interviewer's Yes /
+    No and why, who has not answered, and the department head's final call."""
+    cand = _cand_in_scope(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), hr_scope(user, db))
+    if cand is None:
+        raise HTTPException(404, "Candidate not found")
+    import hiring_decision
+    return hiring_decision.summary(db, cand)
 
 
 @router.get("/candidates/{cid}/history")
@@ -983,7 +1002,9 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
     cand.employee_id = emp.id
     # Their onboarding checklist starts with the hire (hr_checklists.py).
     import hr_checklists
-    hr_checklists.start_on_hire(db, emp, actor)
+    # The role they were hired into adds its own steps - passed in, because
+    # cand.employee_id is not flushed yet (autoflush is off).
+    hr_checklists.start_on_hire(db, emp, actor, role_id=cand.role_id or "")
     # Their interview recordings and transcripts come with them onto the
     # profile's Documents (routers/hr_interviews.py).
     try:
@@ -995,7 +1016,8 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
 
 
 @router.patch("/candidates/{cid}")
-def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTasks = None,
+                     user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row:
         raise HTTPException(404, "Candidate not found")
@@ -1005,6 +1027,7 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
         raise HTTPException(403, "You can't move a candidate to a company outside your People access")
     now = datetime.now(timezone.utc).isoformat()
     created_employee = None
+    decision_task = None
 
     if body.stage is not None and body.stage != row.stage:
         if body.stage not in _STAGES:
@@ -1027,10 +1050,16 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
                                          "(on its card), then mark them hired.")
             if not (body.stage_note or "").strip():
                 raise HTTPException(400, "Say why they are marked hired by hand.")
-        db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
-                            to_stage=body.stage, note=(body.stage_note or "").strip(),
-                            by_email=user["email"], created_at=now))
-        row.stage = body.stage
+        import hiring_decision
+        if body.stage == "decision":
+            # The "Decide on" task for the interviewers and the department head.
+            decision_task = hiring_decision.enter(db, row, user["email"], (body.stage_note or "").strip())
+        else:
+            db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
+                                to_stage=body.stage, note=(body.stage_note or "").strip(),
+                                by_email=user["email"], created_at=now))
+            row.stage = body.stage
+            hiring_decision.close(db, row)           # left Decision - nothing left to decide
         if body.stage in ("rejected", "hired"):
             import hiring_screening
             hiring_screening.close(db, row)          # nothing left to screen
@@ -1099,6 +1128,9 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
     row.updated_at = now
     db.commit()
     db.refresh(row)
+    if decision_task is not None and background is not None:
+        from task_notify import notify_task_event
+        background.add_task(notify_task_event, decision_task.id, "assigned", user["email"])
     out = _ser_candidate(row)
     if created_employee:
         db.refresh(created_employee)
@@ -1649,6 +1681,11 @@ def _graph_token() -> str:
               "client_secret": _AZ_SECRET, "scope": "https://graph.microsoft.com/.default"},
         timeout=15,
     )
+    if 400 <= resp.status_code < 500:
+        # A wrong or expired secret is a setup problem, not a network blip to
+        # retry (it surfaced as "Teams did not answer (HTTPStatusError)").
+        raise HTTPException(502, f"Microsoft sign-in for Nexus failed ({resp.status_code}) - check "
+                                 "AZURE_CLIENT_SECRET on the API (it may have expired).")
     resp.raise_for_status()
     return resp.json()["access_token"]
 

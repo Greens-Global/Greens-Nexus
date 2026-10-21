@@ -814,16 +814,13 @@ function EntryCard({ entry, nameOf, onViewDetails, onEdit }) {
           )}
         </div>
 
-        {/* No screenshot: desktop keeps the placeholder that balances the card;
-            a phone drops it rather than spend a screen of height on an empty box. */}
-        {(thumbnail || !isMobile) && <button onClick={() => thumbnail && setPreview(true)} aria-label={thumbnail ? 'View screenshot' : undefined} style={{
+        {/* No screenshot, no box (Neil, Oct 19): an empty grey frame reads as a missing image. */}
+        {thumbnail && <button onClick={() => setPreview(true)} aria-label="View screenshot" style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: isMobile ? '100%' : 224, maxWidth: '100%',
           aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 10, border: `1px solid ${NX.border}`,
-          background: NX.surface2, cursor: thumbnail ? 'zoom-in' : 'default', padding: 0,
+          background: NX.surface2, cursor: 'zoom-in', padding: 0,
         }}>
-          {thumbnail
-            ? <img src={thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
-            : <ImageIcon size={22} style={{ color: NX.faint }} />}
+          <img src={thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
         </button>}
       </div>
 
@@ -1132,9 +1129,9 @@ function TimelineRow({ entry, selected, onClick, compact = false }) {
           <RowResponse entry={entry} />
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 80, flexShrink: 0, aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 8, border: `1px solid ${NX.border}`, background: NX.surface2 }}>
-        {thumbnail ? <img src={thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} /> : <ImageIcon size={16} style={{ color: NX.faint }} />}
-      </div>
+      {thumbnail && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 80, flexShrink: 0, aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 8, border: `1px solid ${NX.border}`, background: NX.surface2 }}>
+        <img src={thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
+      </div>}
       <ChevronRight size={16} style={{ flexShrink: 0, color: NX.faint }} />
     </button>
   );
@@ -1624,14 +1621,14 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
               <div>
                 <h3 style={label11}>Screenshots</h3>
                 <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  {[['Before', entry.beforeImageDataUrl], ['After', entry.afterImageDataUrl]].map(([lbl, src]) => (
+                  {[['Before', entry.beforeImageDataUrl], ['After', entry.afterImageDataUrl]].filter(([, src]) => src).map(([lbl, src]) => (
                     <div key={lbl}>
                       <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 600, color: NX.faint }}>{lbl}</div>
-                      <button onClick={() => src && setPreview(src)} style={{
+                      <button onClick={() => setPreview(src)} style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', aspectRatio: '16 / 9',
-                        overflow: 'hidden', borderRadius: 8, border: `1px dashed ${NX.border}`, background: NX.surface2, cursor: src ? 'zoom-in' : 'default', padding: 0,
+                        overflow: 'hidden', borderRadius: 8, border: `1px solid ${NX.border}`, background: NX.surface2, cursor: 'zoom-in', padding: 0,
                       }}>
-                        {src ? <img src={src} alt={lbl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <ImageIcon size={18} style={{ color: NX.faint }} />}
+                        <img src={src} alt={lbl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       </button>
                     </div>
                   ))}

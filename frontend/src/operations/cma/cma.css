@@ -64,6 +64,7 @@
 .cma-badge-cubby { background: var(--info-bg); color: var(--info-fg); }
 .cma-badge-comp_set { background: #ede9fe; color: #6d28d9; }
 .cma-badge-import { background: #e2e8f0; color: #334155; }
+.cma-badge-hummingbird { background: #fef3c7; color: #92400e; }
 
 .cma-split { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
 .cma-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); gap: 16px; align-items: start; }
@@ -92,3 +93,21 @@
 .cma-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .cma-legend i { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
 .cma-cards { display: flex; flex-direction: column; gap: 12px; }
+
+/* Rate History toolbar (Oct 21 2026): Unit Type (searchable) and Period on one
+   row under the title, the record span on the right. Replaced the chip rows. */
+.cma-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px;
+  margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line, #e5e7eb); }
+.cma-toolbar-group { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; }
+.cma-field { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.cma-field-label { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.cma-unit-select { display: inline-flex; min-width: 300px; max-width: 420px; }
+.cma-unit-select > * { flex: 1; min-width: 0; }
+.cma-select { height: 34px; padding: 0 30px 0 10px; border: 1px solid var(--line, #e5e7eb); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-size: 13px; }
+.cma-range-dates { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.cma-record { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--muted); }
+.cma-record-hb { padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--wk-brand, #2b45e1) 8%, transparent); color: var(--wk-brand, #2b45e1); font-weight: 600; }
+@media (max-width: 700px) {
+  .cma-toolbar-group, .cma-field { width: 100%; }
+  .cma-unit-select { min-width: 0; max-width: none; flex: 1; }
+}

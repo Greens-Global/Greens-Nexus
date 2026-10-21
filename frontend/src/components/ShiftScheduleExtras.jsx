@@ -12,7 +12,7 @@ import { ContextMenu, MenuItem, MenuSep, MenuHead } from './shifts/Menu';
 import { isoDate, dayHeading, shiftTimeText, minutesText, unpaidMinutes, SHIFT_COLORS, DEFAULT_SHIFT_COLOR } from './shifts/shiftLib';
 
 const MODAL_BACK = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' };
-const MODAL_CARD = { background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 480, padding: 20, maxHeight: '92dvh', overflowY: 'auto' };
+const MODAL_CARD = { background: 'var(--card)', borderRadius: 14, padding: 20 };
 
 // ── Shift Types rows (Teams "view by shift") ─────────────────────────────
 // Rows are the shift types instead of people; each cell lists who works it.
@@ -98,7 +98,7 @@ export function ImportModal({ employees, busy, onImport, onClose }) {
 
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Import Schedule" style={MODAL_CARD}>
+      <div role="dialog" aria-label="Import Schedule" className="nx-popup" style={MODAL_CARD}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Import Schedule</span>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>

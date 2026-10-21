@@ -1338,7 +1338,7 @@ export default function SOP({ activeSub, onSubChange }) {
     const page = HELP_PAGES.find(p => p.key === help) || HELP_PAGES[0];
     return (
       <div className="modal-overlay" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '8vh 2vw 2vh' }} onClick={e => { if (e.target === e.currentTarget) setHelp(null); }}>
-        <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 600, maxHeight: '84vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+        <div className="nx-popup" style={{ background: 'var(--bg-card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
             <HelpCircle size={20} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
             <div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: 0 }}>{page.title}</h3></div>
@@ -1821,7 +1821,7 @@ export default function SOP({ activeSub, onSubChange }) {
           const field = (label, node) => <div style={{ marginBottom: 16 }}><h4 style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 7px' }}>{label}</h4>{node}</div>;
           return (
             <div className="modal-overlay" style={{ display: 'flex' }} onClick={e => { if (e.target === e.currentTarget) setDiff(null); }}>
-              <div className="modal-content" style={{ maxWidth: 660 }}>
+              <div className="modal-content nx-popup">
                 <div className="modal-header"><h3>Version History &amp; Diff</h3><button className="close-btn" onClick={() => setDiff(null)}><X size={18} /></button></div>
                 <div style={{ maxHeight: '66vh', overflow: 'auto', padding: '4px 2px' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
@@ -1847,7 +1847,7 @@ export default function SOP({ activeSub, onSubChange }) {
         })()}
         {originalView && (
           <div className="modal-overlay" style={{ display: 'flex' }} onClick={e => { if (e.target === e.currentTarget) setOriginalView(null); }}>
-            <div className="modal-content" style={{ maxWidth: 760 }}>
+            <div className="modal-content nx-popup">
               <div className="modal-header"><h3>Original Source</h3><button className="close-btn" onClick={() => setOriginalView(null)}><X size={18} /></button></div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 2px 10px' }}>The raw text as first imported, before any AI formatting - use this to check whether the published version dropped, changed, or added anything.</div>
               <div style={{ maxHeight: '60vh', overflow: 'auto', padding: '4px 2px' }}>
@@ -1868,7 +1868,7 @@ export default function SOP({ activeSub, onSubChange }) {
         )}
         {signOpen && (
           <div className="modal-overlay" style={{ display: 'flex' }}>
-            <div className="modal-content">
+            <div className="modal-content nx-popup">
               <div className="modal-header"><h3>Acknowledge &amp; Sign Off</h3><button className="close-btn" onClick={() => setSignOpen(false)}><X size={18} /></button></div>
               <div style={{ padding: '4px 0' }}>
                 <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, fontSize: '0.85rem', color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: 14 }}>
@@ -2511,7 +2511,7 @@ export default function SOP({ activeSub, onSubChange }) {
         {/* Full-screen preview of the current draft */}
         {previewOpen && (
           <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setPreviewOpen(false); }}>
-            <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 880, height: '95vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+            <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 'max(60vw, 880px)', height: '95vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
                 <Eye size={18} style={{ flex: '0 0 auto' }} />
                 <h3 style={{ flex: 1, margin: 0 }}>Preview</h3>
@@ -2537,7 +2537,7 @@ export default function SOP({ activeSub, onSubChange }) {
     if (!reviewDoc) return null;
     return (
       <div className="modal-overlay" style={{ display: 'flex' }}>
-        <div className="modal-content">
+        <div className="modal-content nx-popup">
           <div className="modal-header"><h3>Review · {reviewDoc.title}</h3><button className="close-btn" onClick={() => setReviewDoc(null)}><X size={18} /></button></div>
           <div style={{ padding: '4px 0' }}>
             <p style={{ fontSize: '0.83rem', color: 'var(--text-secondary)', marginBottom: 14 }}>Approving publishes this version to the library. Requesting changes returns it to the author with your notes.</p>
@@ -3336,7 +3336,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 };
                 return (
                   <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) assignGuard.requestClose(); }}>
-                    <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 'clamp(600px, 60vw, 900px)', height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 'max(60vw, 600px)', height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
                         <Send size={18} style={{ flex: '0 0 auto' }} />
                         <div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: 0 }}>Assign · {assign.course.title}</h3><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Assign this course to people, with an optional due date.</div></div>
@@ -3383,7 +3383,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 const passes = att ? att.filter(a => a.passed).length : 0;
                 return (
                   <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setCourseReport(null); }}>
-                    <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 860, height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 'max(60vw, 860px)', height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
                         <BarChart3 size={18} style={{ flex: '0 0 auto' }} />
                         <div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: 0 }}>{courseReport.course.title}</h3><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{att ? `${att.length} attempt${att.length === 1 ? '' : 's'} · ${passes} passed` : 'Loading…'}</div></div>
@@ -3568,7 +3568,7 @@ export default function SOP({ activeSub, onSubChange }) {
 
             {certOpen && (
               <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setCertOpen(false); }}>
-                <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 720, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+                <div className="nx-popup" style={{ background: 'var(--bg-card)', borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
                   <div id="kb-cert" style={{ padding: 36, textAlign: 'center', border: '10px solid hsl(145,40%,30%)', margin: 14, borderRadius: 10, background: '#fff', color: '#1a2332' }}>
                     <img src={GREENS_LOGO_URL} alt="Greens Global" style={{ height: 34, width: 'auto', display: 'block', margin: '0 auto 10px' }} />
                     <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700, color: 'hsl(145,40%,30%)' }}>Nexus Learning</div>
@@ -3795,7 +3795,7 @@ export default function SOP({ activeSub, onSubChange }) {
 
             {coursePreview && (
               <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setCoursePreview(false); }}>
-                <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 820, height: '95vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+                <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 'max(60vw, 820px)', height: '95vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
                     <Eye size={18} style={{ flex: '0 0 auto' }} /><h3 style={{ flex: 1, margin: 0 }}>Course Preview</h3>
                     <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', borderRadius: 999, padding: '3px 10px' }}>Not yet published</span>

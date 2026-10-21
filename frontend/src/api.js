@@ -1275,7 +1275,7 @@ export const api = {
   saveOpsCmaSurvey: (data) => req("/facility-ops/cma/surveys", { method: "POST", body: JSON.stringify(data) }),
   saveOpsCmaOverride: (data) => req("/facility-ops/cma/overrides", { method: "POST", body: JSON.stringify(data) }),
   importOpsCmaRates: (facilityId, rows, commit = false) => req("/facility-ops/cma/import", { method: "POST", body: JSON.stringify({ facility_id: facilityId, rows, commit }), timeoutMs: 60_000 }),
-  getOpsCmaHistory: (facilityId, unitType) => req(`/facility-ops/cma/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  getOpsCmaHistory: (facilityId, unitType, { start = '', end = '' } = {}) => req(`/facility-ops/cma/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}${start ? `&start=${start}` : ''}${end ? `&end=${end}` : ''}`),
   getOpsCmaReview: (facilityId) => req(`/facility-ops/cma/review?facility_id=${encodeURIComponent(facilityId)}`),
   proposeOpsCmaPromo: (data) => req("/facility-ops/cma/promos", { method: "POST", body: JSON.stringify(data) }),
   withdrawOpsCmaPromo: (id) => req(`/facility-ops/cma/promos/${encodeURIComponent(id)}`, { method: "DELETE" }),
@@ -1381,6 +1381,7 @@ export const api = {
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
   candidateResumeUrl:  (id)       => req(`/hr/candidates/${id}/resume-url`),
+  candidateDecision:   (id)       => req(`/hr/candidates/${id}/decision`),   // Decision step votes (Oct 19)
   hiringOptions:       (companyId = '') => req(`/hr/hiring/options?company_id=${encodeURIComponent(companyId || '')}`),
   hiringAllRoles:      ()         => req('/hr/hiring/options?all_roles=true'),
 
@@ -2134,6 +2135,7 @@ export const api = {
   cancelChecklist:        (id)        => req(`/hr/checklists/${id}/cancel`, { method: 'POST' }),
   reopenChecklist:        (id)        => req(`/hr/checklists/${id}/reopen`, { method: 'POST' }),
   updateChecklistItem:    (id, d)     => req(`/hr/checklists/items/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  addChecklistComment:    (id, body)  => req(`/hr/checklists/items/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
   getMyChecklistSteps:    ()          => req('/hr/checklists/mine'),
   getChecklistProgress:   ()          => req('/hr/checklists/progress'),
   getChecklistBoard:      ()          => req('/hr/checklists/board'),
@@ -2142,6 +2144,11 @@ export const api = {
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
   getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
   saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
+  // Copy steps between companies, and a job role's own steps (Neil, Oct 19).
+  copyChecklistTemplates: (d)         => req('/hr/checklists/templates/copy', { method: 'POST', body: JSON.stringify(d) }),
+  getRoleChecklistRoles:  ()          => req('/hr/checklists/role-templates'),
+  getRoleChecklist:       (roleId)    => req(`/hr/checklists/role-templates/${roleId}`),
+  saveRoleChecklist:      (roleId, kind, items) => req(`/hr/checklists/role-templates/${roleId}/${kind}`, { method: 'PUT', body: JSON.stringify({ items }) }),
   // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
   // loan (built or the bank's file) and saved rate stress scenarios
   // (routers/accounting_loan_plans.py).
@@ -2681,6 +2688,8 @@ export const api = {
   runOpsBudgetSnapshot: () => req('/ops-budget/snapshot', { method: 'POST', timeoutMs: 120_000 }),
   // Operations > Customer Map (Oct 21 2026, routers/ops_customer_map.py): rounded points, counts only.
   getOpsCustomerMap: ({ facility = 'all', state = '' } = {}) => req(`/facility-ops/customer-map?${new URLSearchParams({ facility, state })}`),
+  // Ops Budget > Hummingbird History (Oct 21 2026): what the last HB export load holds, per site (admins only).
+  getOpsHummingbird: () => req('/ops-budget/hummingbird'),
   // Contractor invoices (Oct 21): drafted when a contractor's Time Sheet is
   // finalized, approved and emailed by HR from People > Time > Invoices.
   contractorInvoices:     (status = 'draft') => req(`/contractor-invoices?status=${encodeURIComponent(status)}`),

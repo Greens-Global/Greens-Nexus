@@ -127,7 +127,7 @@ export default function WeatherCallDialog({ groupId, date, onClose, onChanged, t
   const showForm = data && data.canDecide && (!decision || another);
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Weather Call" style={{ ...MODAL_CARD, maxWidth: 'clamp(460px, 70vw, 820px)' }}>
+      <div role="dialog" aria-label="Weather Call" className="nx-popup" style={MODAL_CARD}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4, gap: 8 }}>
           <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Weather Call{data ? ` - ${data.group.name}` : ''}</span>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>

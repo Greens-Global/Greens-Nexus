@@ -133,8 +133,8 @@ function ViewEditor({ view, onClose, onDone }) {
   return (
     <div role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}>
-      <div role="dialog" aria-modal="true" aria-label={view ? 'Edit Team View' : 'New Team View'}
-        style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 640, maxHeight: 'min(90vh, 100%)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      <div role="dialog" aria-modal="true" aria-label={view ? 'Edit Team View' : 'New Team View'} className="nx-popup"
+        style={{ background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ flex: 1 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{view ? 'Edit Team View' : 'New Team View'}</h3>
