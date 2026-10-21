@@ -15,6 +15,7 @@ import models                                         # noqa: E402
 from routers import property_assets as PA             # noqa: E402
 
 ADMIN = {"email": "neil@greensglobal.com", "role": "administrator", "level": 4}
+STAFF = {"email": "amy@greensglobal.com", "role": "employee", "level": 2}
 
 
 def ws(props, logs=None, base_ts=None):
@@ -165,6 +166,104 @@ class MigrationTests(unittest.TestCase):
         self.assertTrue(payload["images"][0].startswith("https://x/"))
         self.assertTrue(payload["images"][1].endswith("kept.jpg"))
         self.assertFalse(M._migrate_row({"image": "https://x/already.jpg"}, M.PROPERTY_FILE_FIELDS, "photos", "a"))
+
+
+class RowSaveTests(unittest.TestCase):
+    """POST /property-assets/changes: rows are written one by one, a stale row
+    is reported not overwritten, private assets are officers' alone, scope rows
+    narrow what a person reads and writes."""
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        for m in (models.PropertyAsset, models.PropertyRecord, models.PropertyActivityLog, models.PropertyWorkspaceMeta, models.NexusAccessScope):
+            self.db.query(m).delete()
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.close()
+
+    def _changes(self, user=ADMIN, **kw):
+        return PA.post_changes(PA.Changes(**kw), db=self.db, user=user)
+
+    def _get(self, user=ADMIN):
+        return PA.get_workspace(db=self.db, user=user)
+
+    def test_rows_are_written_on_their_own(self):
+        out = self._changes(properties={"upsert": [{"id": "a", "name": "A"}, {"id": "b", "name": "B"}]},
+                            warranties={"upsert": [{"id": "w1", "propertyId": "a", "item": "Roof"}]},
+                            logs={"append": [{"id": "l1", "propertyId": "a", "ts": "2026-10-21T10:00:00Z", "action": "added"}]})
+        self.assertEqual(out["conflicts"], [])
+        self.assertGreater(out["_ts"], 0)
+        self._changes(properties={"upsert": [{"id": "b", "name": "B2"}]})     # touching B leaves A alone
+        ws = self._get()
+        self.assertEqual({p["id"]: p["name"] for p in ws["properties"]}, {"a": "A", "b": "B2"})
+        self.assertEqual(ws["warranties"][0]["item"], "Roof")
+        self.assertTrue(all("_rev" in p for p in ws["properties"]))
+        self._changes(warranties={"delete": ["w1"]})
+        self.assertEqual(self._get()["warranties"], [])
+
+    def test_a_stale_row_is_reported_not_overwritten(self):
+        self._changes(properties={"upsert": [{"id": "a", "name": "A"}]})
+        rev = self._get()["properties"][0]["_rev"]
+        self._changes(properties={"upsert": [{"id": "a", "name": "A by Neil", "_rev": rev}]})
+        out = self._changes(properties={"upsert": [{"id": "a", "name": "A by an old tab", "_rev": rev}]})
+        self.assertEqual(out["conflicts"], ["a"])
+        self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A by Neil")
+        self._changes(properties={"upsert": [{"id": "a", "name": "A again"}]})   # no rev = not checked
+        self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A again")
+
+    def test_private_assets_are_officers_alone(self):
+        self._changes(properties={"upsert": [{"id": "home", "name": "Residence", "private": True}, {"id": "gs", "name": "GS"}]},
+                      warranties={"upsert": [{"id": "w1", "propertyId": "home", "item": "Roof"}]},
+                      logs={"append": [{"id": "l1", "propertyId": "home", "ts": "2026-10-21T10:00:00Z", "action": "edited"}]})
+        staff = self._get(STAFF)
+        self.assertEqual([p["id"] for p in staff["properties"]], ["gs"])
+        self.assertEqual(staff["warranties"], [])
+        self.assertEqual(staff["logs"], [])
+        self.assertEqual([p["id"] for p in self._get()["properties"]], ["home", "gs"])
+        with self.assertRaises(HTTPException) as cm:
+            self._changes(STAFF, properties={"upsert": [{"id": "home", "name": "Residence (edited)"}]})
+        self.assertEqual(cm.exception.status_code, 403)
+        with self.assertRaises(HTTPException):
+            self._changes(STAFF, warranties={"upsert": [{"id": "w2", "propertyId": "home", "item": "Gate"}]})
+        with self.assertRaises(HTTPException):
+            self._changes(STAFF, properties={"delete": ["home"]})
+        with self.assertRaises(HTTPException) as cm:                      # only an officer flips the flag
+            self._changes(STAFF, properties={"upsert": [{"id": "gs", "name": "GS", "private": True}]})
+        self.assertEqual(cm.exception.status_code, 403)
+        self._changes(STAFF, properties={"upsert": [{"id": "gs", "name": "GS (staff edit)"}]})
+        self.assertEqual(self.db.get(models.PropertyAsset, "gs").name, "GS (staff edit)")
+
+    def test_scope_rows_narrow_a_person(self):
+        import uuid
+        self._changes(properties={"upsert": [{"id": "a", "name": "A"}, {"id": "b", "name": "B"}]})
+        self.db.add(models.NexusAccessScope(id=str(uuid.uuid4()), email=STAFF["email"], module_id="property-asset", scope_type="property", scope_id="a"))
+        self.db.commit()
+        self.assertEqual([p["id"] for p in self._get(STAFF)["properties"]], ["a"])
+        with self.assertRaises(HTTPException) as cm:
+            self._changes(STAFF, properties={"upsert": [{"id": "b", "name": "B!"}]})
+        self.assertEqual(cm.exception.status_code, 403)
+        self._changes(STAFF, properties={"upsert": [{"id": "a", "name": "A!"}]})
+        self.assertEqual(self.db.get(models.PropertyAsset, "a").name, "A!")
+
+    def test_the_whole_portfolio_replace_is_an_officers_tool(self):
+        with self.assertRaises(HTTPException) as cm:
+            PA.put_workspace(PA.Workspace(properties=[{"id": "a", "name": "A"}]), db=self.db, user=STAFF)
+        self.assertEqual(cm.exception.status_code, 403)
+
+    def test_deleting_a_property_takes_its_rows_and_the_log_is_capped(self):
+        self._changes(properties={"upsert": [{"id": "a", "name": "A"}]},
+                      inspections={"upsert": [{"id": "i1", "propertyId": "a", "type": "Fire"}]},
+                      logs={"append": [{"id": f"l{i}", "propertyId": "a", "ts": f"2026-01-01T00:{i // 60:02d}:{i % 60:02d}Z"} for i in range(PA.LOG_CAP_PER_ASSET + 10)]})
+        self.assertEqual(self.db.query(models.PropertyActivityLog).count(), PA.LOG_CAP_PER_ASSET)
+        self._changes(properties={"delete": ["a"]})
+        self.assertEqual(self.db.query(models.PropertyRecord).count(), 0)
+        self.assertEqual(self.db.query(models.PropertyActivityLog).count(), 0)
+        self.assertIsNone(self.db.get(models.PropertyAsset, "a"))
 
 
 if __name__ == "__main__":

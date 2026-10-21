@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { idbGet, idbSet } from './idb.js';
-import { STORAGE_KEY, serverGet, pickBest, markHydrated, isHydrated, setLastKnown, queueWrite, wireBackgroundSync } from './sync.js';
+import { STORAGE_KEY, serverGet, pickBest, markHydrated, isHydrated, setLastKnown, queueOps, wireBackgroundSync } from './sync.js';
+import { diffStore } from './diff.js';
 import { VNORM } from './dataNormalization.js';
 
 /** Empty store shape. The original app booted from a large hardcoded seed array of starter
@@ -35,6 +36,8 @@ export function useNexusStore() {
   // mirrored locally but never queued back to the server (that echo used to re-PUT the whole
   // blob on every load/pull, and on a stale client it CLOBBERED newer server data).
   const serverEcho = useRef(false);
+  // The store as last seen (server copy or after the last queued change): the next change is diffed against it.
+  const prevStore = useRef(EMPTY_STORE);
 
   // 1. On mount: hydrate. The server is the source of truth - the workspace lives in a shared
   //    DB that other people edit, so whenever the server answers, its copy wins outright. The
@@ -55,6 +58,7 @@ export function useNexusStore() {
       const cached = VNORM(JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'));
       if (cached && Array.isArray(cached.properties) && cached.properties.length) {
         serverEcho.current = true;
+        prevStore.current = cached;
         setStore(cached);
         setLoading(false);
       }
@@ -65,7 +69,9 @@ export function useNexusStore() {
         if (serverState) {
           serverEcho.current = true;
           setLastKnown(serverState._ts || 0, (serverState.logs && serverState.logs.length) || 0);
-          setStore(VNORM(serverState));
+          const normalized = VNORM(serverState);
+          prevStore.current = normalized;
+          setStore(normalized);
           setServerOk(true);
           return;
         }
@@ -75,8 +81,9 @@ export function useNexusStore() {
         try { idb = idbJson ? JSON.parse(idbJson) : null; } catch { /* ignore */ }
         const best = VNORM(pickBest([local, idb]));
         if (best) {
-          serverEcho.current = true; // display-only fallback - don't push it at the server
+          serverEcho.current = true; // display-only fallback - never pushed as a whole
           setLastKnown(0, 0);        // so the first successful pull always wins
+          prevStore.current = best;
           setStore(best);
         }
       })
@@ -86,22 +93,21 @@ export function useNexusStore() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2. On every store change, once hydrated: mirror to localStorage + IndexedDB, and - for
-  //    user-made changes only (not server echoes) - queue a debounced push to the server.
+  //    user-made changes only (not server echoes) - diff against the last snapshot and
+  //    queue the rows that changed (lib/diff.js -> sync.js queueOps). The server copy that
+  //    arrives through serverEcho becomes the new baseline and queues nothing.
   useEffect(() => {
     if (!isHydrated()) return;
+    const prev = prevStore.current;
+    prevStore.current = store;
     const ts = Date.now();
     let json;
     try { json = JSON.stringify({ ...store, _ts: ts }); } catch (e) { return; }
     try { localStorage.setItem(STORAGE_KEY, json); } catch { /* ignore */ }
     idbSet(STORAGE_KEY, json);
     if (serverEcho.current) { serverEcho.current = false; return; }
-    // Never push an EMPTY portfolio from a client that has not seen the server
-    // this session: a module opened during an outage boots empty, and the first
-    // edit would otherwise replace-all the shared workspace with near-nothing.
-    // (The backend refuses empty-over-populated PUTs too - this avoids even
-    // queueing one.)
-    if (!(store.properties || []).length && !serverOk) return;
-    queueWrite(store);
+    const ops = diffStore(prev, store);
+    if (ops) queueOps(ops);
   }, [store]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 3. Once on mount: wire the background poll/flush/visibility/focus/pagehide/online lifecycle.
@@ -109,7 +115,9 @@ export function useNexusStore() {
   //    form since it doesn't depend on prior state).
   useEffect(() => wireBackgroundSync((serverState) => {
     serverEcho.current = true;
-    setStore(VNORM(serverState));
+    const normalized = VNORM(serverState);
+    prevStore.current = normalized;
+    setStore(normalized);
     setServerOk(true);
   }), []);
 

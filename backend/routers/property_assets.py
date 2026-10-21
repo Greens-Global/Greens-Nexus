@@ -24,7 +24,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import require_module_grant
+from auth import require_module_grant, scoped_ids
+from property_links import can_see_private, viewable
 from models import PropertyAsset, PropertyRecord, PropertyActivityLog, PropertyWorkspaceMeta
 
 router = APIRouter(tags=["Asset Management"])
@@ -60,18 +61,25 @@ def _file_values(payload: Dict[str, Any], keys) -> List[str]:
     return out
 
 
-def _check_files(ws: "Workspace", db: Session) -> None:
-    """400 on a file URL from outside the asset-files bucket, or a data: URL the
-    server has not seen before (one it already holds is still migrating)."""
+def _check_file_rows(rows, db: Session) -> None:
+    """`rows` = [(what, payload, keys)]. 400 on a file URL from outside the
+    asset-files bucket, or a data: URL the server has not seen before (one it
+    already holds is still migrating). The known set is only built when a
+    data: URL is in the payload at all."""
     if not _FILES_PREFIX:
+        return
+    if not any(v.startswith("data:") for _, row, keys in rows for v in _file_values(row, keys)):
+        for what, row, keys in rows:
+            for v in _file_values(row, keys):
+                if not v.startswith(_FILES_PREFIX):
+                    name = row.get("name") or row.get("id") or what
+                    raise HTTPException(status_code=400, detail=f"A photo or document on {name} is not stored in Nexus storage. Upload it again.")
         return
     known: set = set()
     for p in db.query(PropertyAsset).all():
         known.update(v for v in _file_values(p.payload or {}, PROPERTY_FILE_FIELDS) if v.startswith("data:"))
     for r in db.query(PropertyRecord).all():
         known.update(v for v in _file_values(r.payload or {}, RECORD_FILE_FIELDS) if v.startswith("data:"))
-    rows = [("property", p, PROPERTY_FILE_FIELDS) for p in ws.properties]
-    rows += [(c, r, RECORD_FILE_FIELDS) for c in COLLECTIONS for r in (getattr(ws, c) or [])]
     for what, row, keys in rows:
         for v in _file_values(row, keys):
             if v.startswith(_FILES_PREFIX) or v in known:
@@ -83,6 +91,12 @@ def _check_files(ws: "Workspace", db: Session) -> None:
 # vservice/odometer are the vehicle & equipment service/maintenance + odometer logs.
 COLLECTIONS = ["warranties", "inspections", "documents", "ahj", "utilities", "vendors",
                "vservice", "odometer", "vdocs", "maintenance"]
+
+
+def _check_files(ws: "Workspace", db: Session) -> None:
+    rows = [("property", p, PROPERTY_FILE_FIELDS) for p in ws.properties]
+    rows += [(c, r, RECORD_FILE_FIELDS) for c in COLLECTIONS for r in (getattr(ws, c) or [])]
+    _check_file_rows(rows, db)
 
 
 def _now() -> str:
@@ -108,20 +122,49 @@ class Workspace(BaseModel):
     baseTs: Optional[int] = None
 
 
+def _reach(db: Session, user) -> tuple:
+    """(sees_private, allowed_ids or None). Private assets are for officers (the
+    server mirror of App.jsx canSeePrivate, property_links.can_see_private);
+    nexus_access_scopes rows for property-asset narrow a person to listed ids."""
+    user = user or {}
+    return can_see_private(user), scoped_ids(user.get("email", ""), "property-asset", db)
+
+
+def _visible_ids(db: Session, user) -> set:
+    sees_private, allowed = _reach(db, user)
+    out = set()
+    for p in db.query(PropertyAsset).all():
+        if not viewable(p, user):
+            continue
+        if allowed is not None and p.id not in allowed:
+            continue
+        out.add(p.id)
+    return out
+
+
 @router.get("/property-assets/workspace")
 def get_workspace(db: Session = Depends(get_db), user=Depends(require_asset_read)):
-    """Return the whole portfolio workspace in the shape the module renders."""
+    """The portfolio workspace in the shape the module renders - only the assets
+    this caller may see (private ones are officers' alone, scope rows narrow
+    the rest), with their records and log entries; every row carries `_rev`,
+    the server stamp a later row save is checked against."""
     ws: Dict[str, Any] = {"properties": []}
     for c in COLLECTIONS:
         ws[c] = []
+    visible = _visible_ids(db, user)
     for p in db.query(PropertyAsset).all():
+        if p.id not in visible:
+            continue
         obj = dict(p.payload or {})
         obj["id"] = p.id  # the id is the source of truth on the row
+        obj["_rev"] = p.updated_at or ""
         ws["properties"].append(obj)
     for r in db.query(PropertyRecord).all():
-        if r.collection in ws:
-            ws[r.collection].append(r.payload or {})
-    ws["logs"] = [l.payload or {} for l in db.query(PropertyActivityLog).all()]
+        if r.collection in ws and (r.property_id in visible):
+            obj = dict(r.payload or {})
+            obj["_rev"] = r.updated_at or ""
+            ws[r.collection].append(obj)
+    ws["logs"] = [l.payload or {} for l in db.query(PropertyActivityLog).all() if l.property_id in visible]
     # Server-stamped freshness marker - clients pull whenever this moves past the
     # last value they saw (value-only edits move it too, unlike the log count).
     meta = db.get(PropertyWorkspaceMeta, 1)
@@ -146,6 +189,8 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
     request is simplest and matches the module's whole-blob save semantics."""
     now = _now()
     email = (user or {}).get("email", "")
+    if not can_see_private(user):
+        raise HTTPException(status_code=403, detail="Replacing the whole portfolio is an officer's tool - row saves go through /property-assets/changes.")
 
     # Refuse a STALE overwrite: this is a whole-blob replace, so a client whose
     # copy predates the server's would silently erase everything saved since it
@@ -238,6 +283,155 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
 
     db.commit()
     return {"ok": True, "properties": len(ws.properties), "_ts": ts_ms}
+
+
+class RowOps(BaseModel):
+    upsert: List[Dict[str, Any]] = []
+    delete: List[str] = []
+
+
+class LogOps(BaseModel):
+    append: List[Dict[str, Any]] = []
+
+
+class Changes(BaseModel):
+    """One batch of row saves from a tab (Oct 21 2026): each row is written on
+    its own, so two people editing different rows never overwrite each other.
+    A row carries the `_rev` it was read with; a row the server has changed
+    since is skipped and reported in `conflicts` for the tab to re-pull."""
+    properties: RowOps = RowOps()
+    warranties: RowOps = RowOps()
+    inspections: RowOps = RowOps()
+    documents: RowOps = RowOps()
+    ahj: RowOps = RowOps()
+    utilities: RowOps = RowOps()
+    vendors: RowOps = RowOps()
+    vservice: RowOps = RowOps()
+    odometer: RowOps = RowOps()
+    vdocs: RowOps = RowOps()
+    maintenance: RowOps = RowOps()
+    logs: LogOps = LogOps()
+
+
+def _strip_rev(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: v for k, v in row.items() if k != "_rev"}
+
+
+def _trim_logs(db: Session, pid: str) -> None:
+    rows = (db.query(PropertyActivityLog).filter(PropertyActivityLog.property_id == pid)
+            .order_by(PropertyActivityLog.created_at.desc()).all())
+    for old in rows[LOG_CAP_PER_ASSET:]:
+        db.delete(old)
+
+
+@router.post("/property-assets/changes")
+def post_changes(ch: Changes, db: Session = Depends(get_db), user=Depends(require_asset_write)):
+    now = _now()
+    email = (user or {}).get("email", "")
+    sees_private, allowed = _reach(db, user)
+    conflicts: List[str] = []
+
+    def guard(pid: str, existing, payload=None) -> None:
+        """403 for an asset outside the caller's reach: a private one they cannot
+        see, one outside their scope rows, or a Private flag only an officer may
+        set or clear."""
+        if allowed is not None and pid not in allowed:
+            raise HTTPException(status_code=403, detail="That asset is outside your access.")
+        if existing is not None and not viewable(existing, user):
+            raise HTTPException(status_code=403, detail="That asset is outside your access.")
+        if payload is not None and not sees_private:
+            was = bool((existing.payload or {}).get("private")) if existing is not None else False
+            if bool(payload.get("private")) != was:
+                raise HTTPException(status_code=403, detail="Only an officer can mark an asset private or public.")
+
+    rows = [("property", r, PROPERTY_FILE_FIELDS) for r in ch.properties.upsert]
+    rows += [(c, r, RECORD_FILE_FIELDS) for c in COLLECTIONS for r in getattr(ch, c).upsert]
+    _check_file_rows(rows, db)
+
+    meta = db.query(PropertyWorkspaceMeta).filter(PropertyWorkspaceMeta.id == 1).with_for_update().first()
+    if meta is None:
+        meta = PropertyWorkspaceMeta(id=1)
+        db.add(meta)
+
+    touched_logs: set = set()
+    for row in ch.properties.upsert:
+        pid = str(row.get("id") or "").strip()
+        if not pid:
+            continue
+        existing = db.get(PropertyAsset, pid)
+        guard(pid, existing, row)
+        rev = row.get("_rev")
+        if existing is not None and rev is not None and existing.updated_at and str(rev) != existing.updated_at:
+            conflicts.append(pid)
+            continue
+        payload = _strip_rev(row)
+        if existing is None:
+            db.add(PropertyAsset(id=pid, name=str(payload.get("name") or ""), manager=str(payload.get("manager") or ""),
+                                 asset_type=str(payload.get("assetType") or ""), parent_id=str(payload.get("parentId") or ""),
+                                 payload=payload, updated_at=now, updated_by=email))
+        else:
+            existing.name = str(payload.get("name") or "")
+            existing.manager = str(payload.get("manager") or "")
+            existing.asset_type = str(payload.get("assetType") or "")
+            existing.parent_id = str(payload.get("parentId") or "")
+            existing.payload = payload
+            existing.updated_at = now
+            existing.updated_by = email
+    for pid in ch.properties.delete:
+        existing = db.get(PropertyAsset, str(pid))
+        if existing is None:
+            continue
+        guard(existing.id, existing)
+        db.query(PropertyRecord).filter(PropertyRecord.property_id == existing.id).delete()
+        db.query(PropertyActivityLog).filter(PropertyActivityLog.property_id == existing.id).delete()
+        db.delete(existing)
+
+    for c in COLLECTIONS:
+        ops = getattr(ch, c)
+        for row in ops.upsert:
+            rid = str(row.get("id") or "").strip()
+            if not rid:
+                continue
+            pid = str(row.get("propertyId") or "")
+            guard(pid, db.get(PropertyAsset, pid) if pid else None)
+            existing = db.get(PropertyRecord, rid)
+            rev = row.get("_rev")
+            if existing is not None and rev is not None and existing.updated_at and str(rev) != existing.updated_at:
+                conflicts.append(rid)
+                continue
+            payload = _strip_rev(row)
+            if existing is None:
+                db.add(PropertyRecord(id=rid, property_id=pid, collection=c, payload=payload, updated_at=now))
+            else:
+                existing.property_id = pid
+                existing.collection = c
+                existing.payload = payload
+                existing.updated_at = now
+        for rid in ops.delete:
+            existing = db.get(PropertyRecord, str(rid))
+            if existing is None:
+                continue
+            guard(existing.property_id, db.get(PropertyAsset, existing.property_id) if existing.property_id else None)
+            db.delete(existing)
+
+    for entry in ch.logs.append:
+        lid = str(entry.get("id") or "").strip()
+        if not lid or db.get(PropertyActivityLog, lid) is not None:
+            continue
+        pid = str(entry.get("propertyId") or "")
+        guard(pid, db.get(PropertyAsset, pid) if pid else None)
+        db.add(PropertyActivityLog(id=lid, property_id=pid, payload=entry, created_at=str(entry.get("ts") or now)))
+        touched_logs.add(pid)
+    db.flush()
+    for pid in touched_logs:
+        _trim_logs(db, pid)
+
+    ts_ms = int(time.time() * 1000)
+    meta.ts = ts_ms
+    meta.updated_by = email
+    meta.updated_at = now
+    db.commit()
+    return {"ok": True, "_ts": ts_ms, "conflicts": conflicts}
 
 
 def _parse_ymd(s):

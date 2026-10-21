@@ -125,20 +125,27 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         pushToast("Changes aren't syncing yet - retrying. Keep this tab open.", 'mut');
       } else {
         const why = d.status === 403 ? "you don't have edit access to Asset Management"
-          : d.status === 413 ? 'the portfolio is too large to save in one request'
+          : d.status === 400 ? (d.message || 'the server refused the change')
           : d.status === 422 ? 'the server rejected the data shape'
           : `save failed (error ${d.status || 'network'})`;
         pushToast(`Could not save - ${why}. Your last change was not stored.`, 'bad');
       }
     };
+    // A row someone else saved since this tab read it: the server kept theirs,
+    // the workspace was re-pulled; say so rather than overwrite in silence.
+    const onConflict = (e) => {
+      const n = (e?.detail?.ids || []).length || 1;
+      pushToast?.(`${n === 1 ? 'One record was' : n + ' records were'} changed by someone else - reloaded with their version.`, 'mut');
+    };
     window.addEventListener('nexus:asset-save-failed', onSaveFailed);
-    return () => window.removeEventListener('nexus:asset-save-failed', onSaveFailed);
+    window.addEventListener('nexus:asset-save-conflict', onConflict);
+    return () => { window.removeEventListener('nexus:asset-save-failed', onSaveFailed); window.removeEventListener('nexus:asset-save-conflict', onConflict); };
   }, []);
 
   // Officers/execs/admins (role check) can see private-flagged assets; everyone else can't.
   const canSeePrivate = session && (session.level >= 5 || /owner|officer|exec|admin/i.test(session.role || ''));
   const visibleProperties = store.properties.filter((p) => !p.deleted && (!p.private || canSeePrivate));
-  const deletedProperties = store.properties.filter((p) => p.deleted);
+  const deletedProperties = store.properties.filter((p) => p.deleted && (!p.private || canSeePrivate));
   const findAsset = (id) => visibleProperties.find((p) => p.id === id);
   const active = activeId ? findAsset(activeId) : null;
   const recordsFor = (coll) => (store[coll] || []).filter((r) => r.propertyId === activeId);
