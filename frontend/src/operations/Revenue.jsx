@@ -470,9 +470,13 @@ function BatchModal({ batchId, onClose, onChanged }) {
 // ── The tab ───────────────────────────────────────────────────────────────────
 
 // The facility comes from the page's one Facility dropdown (Oct 20).
-export default function Revenue({ facility }) {
+// Operations' top bar picks the view (Revenue Management menu, Oct 21) through
+// `section` / `onSection`; without them the in-page View dropdown does.
+export default function Revenue({ facility, section: sectionProp, onSection }) {
   const facilityId = facility?.id || '';
-  const [section, setSection] = useState('tenants');
+  const [ownSection, setOwnSection] = useState('tenants');
+  const section = sectionProp || ownSection;
+  const setSection = onSection || setOwnSection;
   const [state, setState] = useState({ status: 'idle', data: null, error: null });
   const [strategies, setStrategies] = useState([]);
   const [batches, setBatches] = useState([]);
@@ -517,9 +521,11 @@ export default function Revenue({ facility }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <SectionPicker label="View" value={section} onChange={setSection}
-          options={SECTIONS.map((s) => ({ value: s.key, label: s.label }))} />
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {!onSection && (
+          <SectionPicker label="View" value={section} onChange={setSection}
+            options={SECTIONS.map((s) => ({ value: s.key, label: s.label }))} />
+        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginLeft: 'auto' }}>
           <button type="button" className="primary-btn" disabled={!data} onClick={() => setModal({ kind: 'apply' })}
             style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
             <Plus size={14} aria-hidden="true" /> Apply Strategy{picked.size ? ` (${picked.size})` : ''}

@@ -12,7 +12,7 @@
 // then ONE section at a time picked from a dropdown: Overview, Competitive
 // Pricing, Trends, Standard Rates, ECRI, Revenue at Risk, Discounts. The
 // facility is the page's one Facility dropdown.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Lightbulb } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
@@ -423,12 +423,19 @@ function Discounts({ discounts, b }) {
 
 // `facility` is the page's pick (null = All Facilities). `onPick` changes it;
 // `onGo` switches the Operations tab (Revenue, Collections, Rate Management).
-export default function PricingInsights({ facility, onPick, onGo }) {
+// Operations' top bar picks the section (Pricing menu, Oct 21) through
+// `section` / `onSection`; without them the in-page Section dropdown does.
+export default function PricingInsights({ facility, onPick, onGo, section: sectionProp, onSection }) {
   const facilityId = facility?.id || '';
   const [state, setState] = useState({ status: 'loading', data: null });
-  const [section, setSection] = useState('overview');
+  const [ownSection, setOwnSection] = useState('overview');
+  const section = sectionProp || ownSection;
   const [rateFilter, setRateFilter] = useState('all');
   const [focus, setFocus] = useState({});
+  // An insight's link sets the focus and the section together; any other
+  // section change (the bar, the dropdown) starts the new section unfocused.
+  const fromLink = useRef(false);
+  const setSection = (s) => { if (!fromLink.current) setFocus({}); fromLink.current = false; (onSection || setOwnSection)(s); };
 
   const load = useCallback(async () => {
     // Another facility shows a skeleton, not the last one's sections.
@@ -449,9 +456,10 @@ export default function PricingInsights({ facility, onPick, onGo }) {
       return;
     }
     if (link.facilityId && link.facilityId !== facilityId) onPick?.(link.facilityId);
-    setSection(link.section || 'overview');
     setRateFilter(link.filters?.insight || 'all');
     setFocus({ group: link.filters?.group, column: link.filters?.column });
+    fromLink.current = true;
+    setSection(link.section || 'overview');
   };
 
   if (state.status === 'loading') return <div data-testid="pi-loading"><SkeletonBlocks count={3} height={140} /></div>;
@@ -479,9 +487,11 @@ export default function PricingInsights({ facility, onPick, onGo }) {
 
       <InsightList items={d.insights || []} kinds={d.kinds || []} many={!facilityId} onOpen={open} />
 
-      <div className="ops-bar-top">
-        <Select id="pi-section" label="Section" value={section} onChange={(v) => { setSection(v); setFocus({}); }} options={SECTIONS} />
-      </div>
+      {!onSection && (
+        <div className="ops-bar-top">
+          <Select id="pi-section" label="Section" value={section} onChange={setSection} options={SECTIONS} />
+        </div>
+      )}
 
       {needsOne && (
         <div className="dash-card"><Empty>Pick a facility above to see {SECTIONS.find(([k]) => k === section)?.[1]}.</Empty></div>
