@@ -340,8 +340,23 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   `activeId` from a URL anywhere else.
 - **The street line is the street**: `splitAddress` (`lib/dataNormalization.js`)
   peels "City, ST ZIP" off `address` into city / state / zip / county on every
-  load and on create. Add Asset is one screen (class, name, one address
-  line, type, stage); everything else is filled on the asset.
+  load and on create, keeping the original line as `addressRaw`. Add Asset is
+  one screen (class, name, one address line, type, stage); everything else is
+  filled on the asset.
+- **Nothing is deleted by code, ever** (Neil, Oct 21 2026 - the release must
+  lose no data): the activity log is append-only (the GET bounds what a tab
+  sees, the database keeps everything); Delete Forever works only from the
+  Trash, a live asset is moved there instead, and the log stays; a stamped
+  row is written only with the `_rev` it was read with - a save without one
+  (a cached copy, an old tab) is a conflict, never an overwrite, and deletes
+  carry `deleteRevs`; a change the server did not keep leaves no log entry;
+  only a NEW `data:` file URL is refused (a legacy path or outside link is a
+  link); what the migration or geocoder did to a row travels with a tab's
+  next save (`_carry_over`); `PUT /workspace` is refused on a deployed API
+  unless `NEXUS_ASSET_SEED_PUT` is set; the save queue keeps a batch through
+  404 / 405 / 429 / 401 (a deploy window) and drops only 400 / 403 / 413 /
+  422, with a notice. The release runbook with the backups, the bucket and
+  the verify lists: https://claude.ai/artifact/MZR3srrjuzCQQYHTMERgNU .
 - Equipment and vehicles pair with Item Management (`AddItemModal`) - do not
   build a second warranty/serial system there.
 
