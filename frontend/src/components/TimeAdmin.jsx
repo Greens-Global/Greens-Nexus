@@ -4,7 +4,7 @@ import {
   Clock, ChevronDown, ChevronRight, MapPin, AlertTriangle, Download,
   Pencil, Plus, X, CheckCircle, Ban,
   Activity, Inbox, Banknote, CalendarOff,
-  Search, Lock,
+  Search, Lock, Receipt,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -31,6 +31,7 @@ import { ForChip } from './DelegateApprovals';
 import CaReview from './CaReview';
 import LongShiftWarning from './LongShiftWarning';
 import { checkLongShift } from '../lib/longShift';
+import ContractorInvoices from './ContractorInvoices';
 
 // Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
 // review and signed in Nexus Sign, so the per-day / per-period Approve
@@ -212,6 +213,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     window.addEventListener('nexus:open-punch-request', onOpenReq);
     return () => { window.removeEventListener('nexus:open-timecard', onOpen); window.removeEventListener('nexus:open-punch-request', onOpenReq); };
   }, [openTimecard, focusPunchRequest]);
+  // Contractor invoices waiting on HR (Oct 21) - the Invoices tab badge. HR only, never the manager tier.
+  const [invoiceDrafts, setInvoiceDrafts] = useState(0);
+  const loadInvoiceDrafts = useCallback(() => {
+    if (hrTeam) return;
+    Promise.resolve().then(() => api.contractorInvoices('draft')).then(r => setInvoiceDrafts((r?.invoices || []).length)).catch(() => {});
+  }, [hrTeam]);
+  useEffect(() => { loadInvoiceDrafts(); }, [loadInvoiceDrafts]);
   const [[start, end], setRange] = useState(() => weekRange(0));
   const [rows, setRows] = useState(null);
   const [open, setOpen] = useState({});          // email -> bool
@@ -554,7 +562,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
         {[['payroll', 'Payroll', Banknote],
           ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking, true],
-          ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0]].map(([key, label, Icon, badge, waiting]) => {
+          ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0],
+          ...(hrTeam ? [] : [['invoices', 'Invoices', Receipt, invoiceDrafts, true]])].map(([key, label, Icon, badge, waiting]) => {
           const on = view === key;
           return (
             <button key={key} onClick={() => setView(key)}
@@ -758,6 +767,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} />}
       {/* Retro Pay (Oct 17): back-dated rate changes on finalized periods. Pay - never the manager tier. */}
       {view === 'payroll' && !hrTeam && <RetroPayReport />}
+
+      {/* Contractor invoices (Oct 21): drafted at finalize, approved and emailed here. */}
+      {view === 'invoices' && !hrTeam && <ContractorInvoices toastOk={toastOk} toastErr={toastErr} onChanged={loadInvoiceDrafts} />}
 
 
       {/* Action Log (Neil, 10/06): punch-fix requests and missing punches were two

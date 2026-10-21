@@ -7577,3 +7577,33 @@ class OpsCustomerPoint(Base):
     precision   = Column(String, default="missing")                # street | zip | missing
     fingerprint = Column(String, default="")                       # sha256 of the normalized address
     geocoded_at = Column(String, default="")                       # UTC iso
+class ContractorInvoice(Base):
+    """A contractor's invoice to their own company (Pranshu + Neil, Oct 21
+    2026): drafted when their Time Sheet is finalized (one per final
+    TimeApproval row - `final_approval_id` is the dedupe key), sent by HR.
+    `snapshot` holds the party blocks and lines exactly as rendered, so a
+    later profile change never alters a sent invoice.
+    RELEASE: `ALTER TABLE contractor_invoices ENABLE ROW LEVEL SECURITY` on
+    dev AND prod (create_all makes it with RLS off)."""
+    __tablename__ = "contractor_invoices"
+    id                = Column(String, primary_key=True)             # uuid
+    employee_email    = Column(String, default="", index=True)
+    company_id        = Column(String, default="", index=True)       # HrEntity.id
+    period_start      = Column(String, default="")                   # YYYY-MM-DD
+    period_end        = Column(String, default="")
+    number            = Column(Integer, default=0)
+    invoice_date      = Column(String, default="")                   # YYYY-MM-DD
+    currency          = Column(String, default="INR")
+    amount            = Column(Float, default=0.0)                   # the final snapshot's totalPay
+    hours             = Column(Float, nullable=True)                 # hourly only
+    rate              = Column(Float, nullable=True)                 # hourly only
+    description       = Column(String, default="")
+    status            = Column(String, default="draft", index=True)  # draft | sent | void
+    snapshot          = Column(JSON, default=dict)
+    pdf_path          = Column(String, default="")                   # hr-docs storage path once sent
+    final_approval_id = Column(String, default="", index=True)       # TimeApproval(kind="final").id
+    created_at        = Column(String, default="")
+    approved_by       = Column(String, default="")
+    sent_at           = Column(String, default="")
+    sent_to           = Column(JSON, default=list)
+    egnyte_path       = Column(String, default="")

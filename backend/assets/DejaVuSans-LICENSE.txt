@@ -1,0 +1,9 @@
+DejaVuSans.ttf and DejaVuSans-Bold.ttf are from the DejaVu fonts 2.37
+release (https://dejavu-fonts.github.io/), used so contractor invoices can
+print the rupee sign (the reportlab core fonts cannot).
+
+They are distributed under the DejaVu license (Bitstream Vera Fonts
+Copyright (c) 2003 by Bitstream, Inc.; Arev Fonts Copyright (c) 2006 by
+Tavmjong Bah), a permissive license that allows bundling and
+redistribution with software. Full text:
+https://dejavu-fonts.github.io/License.html
