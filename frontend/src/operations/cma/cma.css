@@ -93,3 +93,7 @@
 .cma-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .cma-legend i { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
 .cma-cards { display: flex; flex-direction: column; gap: 12px; }
+
+/* Rate History period (Oct 21 2026): Period select, a custom From / To, how far the record goes. */
+.cma-range { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 10px; }
+.cma-range-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }

@@ -209,7 +209,38 @@ describe('Rate History', () => {
     expect(screen.getByText('Existing tenants pay more than new move-ins')).toBeTruthy();
     expect(within(screen.getByTestId('change-log')).getByText('Comp Set')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Upload Workbooks/ })).toBeNull();   // the old Excel CMAs are not wanted (Neil, Oct 21)
-    expect(apiMock.getOpsCmaHistory).toHaveBeenCalledWith('fac_f', "8' x 10'");   // the first unit type with comps
+    expect(apiMock.getOpsCmaHistory).toHaveBeenCalledWith('fac_f', "8' x 10'", { start: '', end: '' });   // the first unit type with comps, All History
+  });
+});
+
+describe('Rate History - period filter', () => {
+  it('works out each period from today', async () => {
+    const { periodBounds } = await import('./cma/CmaHistory');
+    const today = new Date(2026, 9, 21);
+    expect(periodBounds({ key: 'all' }, today)).toEqual({ start: '', end: '' });
+    expect(periodBounds({ key: '12m' }, today)).toEqual({ start: '2025-10-21', end: '' });
+    expect(periodBounds({ key: '3m' }, today)).toEqual({ start: '2026-07-21', end: '' });
+    expect(periodBounds({ key: 'ytd' }, today)).toEqual({ start: '2026-01-01', end: '' });
+    expect(periodBounds({ key: 'custom', start: '2024-01-01', end: '2024-12-31' }, today)).toEqual({ start: '2024-01-01', end: '2024-12-31' });
+    expect(periodBounds({ key: 'nonsense' }, today)).toEqual({ start: '', end: '' });
+  });
+
+  it('asks the server for the period picked, remembers it, and says how far the record goes', async () => {
+    localStorage.removeItem('nexus.ops.rateHistory.period');
+    apiMock.getOpsRates.mockResolvedValue(VIEW());
+    apiMock.getOpsCmaHistory.mockResolvedValue({
+      unitType: "8' x 10'", asOf: '2026-10-20', points: [{ date: '2023-12-31', sell: 11000, avgRent: 10500, comps: 0, occupied: 80, total: 113, source: 'hummingbird' }],
+      cards: { gap: null, gapPct: null, comps: 0, asOf: '2026-10-20', avgRent: null, sell: 11000, rentVsSell: null, occupiedThen: 80, occupiedFrom: '2023-12-31', occupiedNow: 92, total: 114 },
+      log: [], span: { first: '2023-12-31', last: '2026-10-20' }, hummingbird: { first: '2023-12', last: '2026-08' },
+    });
+    render(<RateManagement facility={FAC} section="history" onSection={() => {}} />);
+    expect(await screen.findByText(/History on record: 12\/31\/2023 - 10\/20\/2026/)).toBeTruthy();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Period' }), { target: { value: '24m' } });
+    await waitFor(() => expect(apiMock.getOpsCmaHistory).toHaveBeenLastCalledWith('fac_f', "8' x 10'", expect.objectContaining({ end: '' })));
+    const { start } = apiMock.getOpsCmaHistory.mock.calls.at(-1)[2];
+    expect(start).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(JSON.parse(localStorage.getItem('nexus.ops.rateHistory.period'))).toEqual({ key: '24m' });
+    localStorage.removeItem('nexus.ops.rateHistory.period');
   });
 });
 

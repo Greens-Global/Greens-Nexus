@@ -1275,7 +1275,7 @@ export const api = {
   saveOpsCmaSurvey: (data) => req("/facility-ops/cma/surveys", { method: "POST", body: JSON.stringify(data) }),
   saveOpsCmaOverride: (data) => req("/facility-ops/cma/overrides", { method: "POST", body: JSON.stringify(data) }),
   importOpsCmaRates: (facilityId, rows, commit = false) => req("/facility-ops/cma/import", { method: "POST", body: JSON.stringify({ facility_id: facilityId, rows, commit }), timeoutMs: 60_000 }),
-  getOpsCmaHistory: (facilityId, unitType) => req(`/facility-ops/cma/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  getOpsCmaHistory: (facilityId, unitType, { start = '', end = '' } = {}) => req(`/facility-ops/cma/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}${start ? `&start=${start}` : ''}${end ? `&end=${end}` : ''}`),
   getOpsCmaReview: (facilityId) => req(`/facility-ops/cma/review?facility_id=${encodeURIComponent(facilityId)}`),
   proposeOpsCmaPromo: (data) => req("/facility-ops/cma/promos", { method: "POST", body: JSON.stringify(data) }),
   withdrawOpsCmaPromo: (id) => req(`/facility-ops/cma/promos/${encodeURIComponent(id)}`, { method: "DELETE" }),
