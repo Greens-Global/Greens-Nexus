@@ -515,7 +515,7 @@ const sectionHead = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-m
 const segGroup = { display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' };
 const seg = (on) => ({ border: 'none', borderRight: '1px solid var(--border-color)', background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', font: 'inherit', fontSize: '0.74rem', fontWeight: 600, padding: '5px 10px', cursor: 'pointer' });
 
-function Toggle({ checked, onChange, label, hint }) {
+export function Toggle({ checked, onChange, label, hint }) {
   return (
     <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
       <input type="checkbox" checked={!!checked} onChange={(e) => onChange(e.target.checked)} style={{ marginTop: 2 }} />

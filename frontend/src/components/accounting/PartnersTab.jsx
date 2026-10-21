@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Download, List, Pencil, Search, X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
-import { control } from './reportControls';
+import { CustomizeButton, Toggle, control } from './reportControls';
 import { downloadBlob, iso } from './reportModel';
 import { requestReportDrill } from './drill';
-import { formatDateTime } from '../../lib/datetime';
+import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dialog } from '../../ui/dialog';
+import { useAccountingPrefs } from './prefs';
+import Amount from './Amount';
 
 // Accounting > Vendors & Customers (Charmi and Neil, 10/01: "edit a vendor,
 // change all the details and get pushed to manager for approval"). The
@@ -28,6 +30,12 @@ import { dialog } from '../../ui/dialog';
 // lines each has, read-only (no contact details to edit until the full
 // Intacct record is served). Every row opens its ledger lines in Reports.
 // Charmi (10/14): the number is the first column, before the name.
+//
+// Oct 22 (Charmi, 10/16: "drill down into a vendor - still can't"; "a
+// Customize option that hides inactive"): a row opens the record - its
+// fields, entity and status, its change history and its ledger activity
+// (routers/accounting_partners.partner_record). Customize > Show Inactive,
+// off by default, saved with the person's accounting preferences.
 
 const MAX_ROWS = 300;
 const KINDS = [{ key: 'vendor', label: 'Vendors' }, { key: 'customer', label: 'Customers' }];
@@ -48,6 +56,8 @@ const th = { textAlign: 'left', padding: '6px 8px', fontSize: '0.72rem', fontWei
 const td = { padding: '5px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', verticalAlign: 'top' };
 const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const chip = (s) => ({ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: s.fg, background: s.bg, whiteSpace: 'nowrap' });
+/** Inactive in Intacct ("inactive", "Inactive - do not use"). */
+export const isInactive = (r) => /^\s*inactive/i.test(String(r?.status || ''));
 const getField = (rec, f) => (f.startsWith('address.') ? rec.address?.[f.slice(8)] || '' : rec[f] || '');
 const setField = (rec, f, v) => (f.startsWith('address.') ? { ...rec, address: { ...(rec.address || {}), [f.slice(8)]: v } } : { ...rec, [f]: v });
 
@@ -73,6 +83,9 @@ export default function PartnersTab({ canApprove = false }) {
   const [requests, setRequests] = useState(null);
   const [reqStatus, setReqStatus] = useState('pending');
   const [busy, setBusy] = useState('');
+  const [opened, setOpened] = useState(null);       // the record drilled into
+  const [prefs, setPrefs] = useAccountingPrefs();
+  const showInactive = !!prefs.showInactivePartners;
   const seq = useRef(0);
 
   const loadRecords = useCallback((k, text) => {
@@ -97,8 +110,10 @@ export default function PartnersTab({ canApprove = false }) {
 
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return (records || []).filter((r) => !s || [r.displayName, r.name, r.id, r.email, r.phone, r.entity].some((v) => String(v || '').toLowerCase().includes(s)));
-  }, [records, q]);
+    return (records || []).filter((r) => (showInactive || !isInactive(r))
+      && (!s || [r.displayName, r.name, r.id, r.email, r.phone, r.entity].some((v) => String(v || '').toLowerCase().includes(s))));
+  }, [records, q, showInactive]);
+  const hiddenInactive = showInactive ? 0 : (records || []).filter(isInactive).length;
 
   async function submitChange(e) {
     e.preventDefault();
@@ -139,6 +154,11 @@ export default function PartnersTab({ canApprove = false }) {
   const visible = shown.slice(0, MAX_ROWS);
   // The ledger lines of one vendor or customer, every date, in Reports.
   const openLines = (r) => requestReportDrill({ party: { kind, code: r.id, name: r.displayName || r.name || r.id }, from: '', to: iso(new Date()) });
+  // A row opens the record (Charmi, 10/16); its buttons keep their own jobs.
+  const rowOpen = (r) => ({
+    onClick: () => setOpened(r), tabIndex: 0, style: { cursor: 'pointer' }, title: 'Open the record',
+    onKeyDown: (e) => { if (e.key === 'Enter') setOpened(r); },
+  });
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
@@ -160,10 +180,18 @@ export default function PartnersTab({ canApprove = false }) {
           ))}
         </div>
         {section === 'records' ? (
-          <form onSubmit={(e) => { e.preventDefault(); loadRecords(kind, q.trim()); }} style={{ position: 'relative', flex: '1 1 220px', maxWidth: 380 }}>
-            <Search size={13} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--text-muted)' }} />
-            <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${kindLabel}s by number, name, email`} aria-label={`Search ${kindLabel}s`} style={{ ...control, width: '100%', paddingLeft: 28 }} />
-          </form>
+          <>
+            <form onSubmit={(e) => { e.preventDefault(); loadRecords(kind, q.trim()); }} style={{ position: 'relative', flex: '1 1 220px', maxWidth: 380 }}>
+              <Search size={13} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--text-muted)' }} />
+              <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${kindLabel}s by number, name, email`} aria-label={`Search ${kindLabel}s`} style={{ ...control, width: '100%', paddingLeft: 28 }} />
+            </form>
+            <div style={{ marginLeft: 'auto' }}>
+              <CustomizeButton active={showInactive}>
+                <Toggle checked={showInactive} onChange={(v) => setPrefs({ showInactivePartners: !!v })} label="Show Inactive"
+                  hint={`Vendors and customers marked inactive in Intacct are hidden until this is on.`} />
+              </CustomizeButton>
+            </div>
+          </>
         ) : (
           <>
             <select value={reqStatus} onChange={(e) => setReqStatus(e.target.value)} aria-label="Request status" style={control}>
@@ -189,21 +217,26 @@ export default function PartnersTab({ canApprove = false }) {
               The {kindLabel} numbers and names on the ledger. Contact details and edits open once the accounting app serves the full Intacct record.
             </p>
           )}
+          {hiddenInactive > 0 && (
+            <p style={{ margin: '0 0 8px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+              {hiddenInactive.toLocaleString('en-US')} inactive {hiddenInactive === 1 ? kindLabel : `${kindLabel}s`} hidden - Customize &gt; Show Inactive lists them.
+            </p>
+          )}
           <div style={{ ...card, overflow: 'auto' }}>
             {!shown.length ? (
-              <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>No {kindLabel}s{q ? ' match' : ' came back from the ledger'}.</p>
+              <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>No {hiddenInactive && !q ? `active ${kindLabel}s` : `${kindLabel}s`}{q ? ' match' : ' came back from the ledger'}.</p>
             ) : fromLedger ? (
               <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                 <thead><tr><th style={th}>{kind === 'vendor' ? 'Vendor Number' : 'Customer Number'}</th><th style={th}>Name</th><th style={th}>Status</th><th style={{ ...th, textAlign: 'right' }}>Ledger Lines</th><th style={th}></th></tr></thead>
                 <tbody>
                   {visible.map((r) => (
-                    <tr key={r.id}>
+                    <tr key={r.id} {...rowOpen(r)}>
                       <td style={{ ...td, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{r.id}</td>
                       <td style={td}><strong>{r.displayName || r.name}</strong></td>
                       <td style={td}>{r.status || <span style={{ color: 'var(--text-muted)' }} title="The status is on the Intacct record">-</span>}</td>
                       <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Number.isFinite(r.lines) ? r.lines.toLocaleString('en-US') : ''}</td>
                       <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <button type="button" className="secondary-btn" onClick={() => openLines(r)} aria-label={`Ledger lines of ${r.displayName || r.name || r.id}`}
+                        <button type="button" className="secondary-btn" onClick={(e) => { e.stopPropagation(); openLines(r); }} aria-label={`Ledger lines of ${r.displayName || r.name || r.id}`}
                           style={{ fontSize: '0.72rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}><List size={12} /> View Lines</button>
                       </td>
                     </tr>
@@ -215,7 +248,7 @@ export default function PartnersTab({ canApprove = false }) {
                 <thead><tr><th style={th}>{kind === 'vendor' ? 'Vendor Number' : 'Customer Number'}</th><th style={th}>Name</th><th style={th}>Email</th><th style={th}>Phone</th><th style={th}>City</th><th style={th}>Terms</th><th style={th}>Status</th><th style={th}>Entity</th><th style={th}></th></tr></thead>
                 <tbody>
                   {visible.map((r) => (
-                    <tr key={r.id}>
+                    <tr key={r.id} {...rowOpen(r)}>
                       <td style={{ ...td, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{r.id}</td>
                       <td style={td}>
                         <strong>{r.displayName || r.name}</strong>
@@ -224,10 +257,10 @@ export default function PartnersTab({ canApprove = false }) {
                       </td>
                       <td style={td}>{r.email}</td><td style={td}>{r.phone}</td><td style={td}>{r.address?.city}</td><td style={td}>{r.terms}</td><td style={td}>{r.status}</td><td style={td}>{r.entity}</td>
                       <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <button type="button" aria-label={`Ledger lines of ${r.displayName || r.name || r.id}`} title="Ledger lines" onClick={() => openLines(r)}
+                        <button type="button" aria-label={`Ledger lines of ${r.displayName || r.name || r.id}`} title="Ledger lines" onClick={(e) => { e.stopPropagation(); openLines(r); }}
                           style={{ border: 'none', background: 'none', padding: 4, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}><List size={14} /></button>
                         <button type="button" aria-label={`Edit ${r.displayName || r.name}`} disabled={r.pendingChange} title={r.pendingChange ? 'A change is already waiting for approval' : 'Edit - the change goes to a manager for approval'}
-                          onClick={() => setEditing({ before: r, after: { ...r, address: { ...(r.address || {}) } } })}
+                          onClick={(e) => { e.stopPropagation(); setEditing({ before: r, after: { ...r, address: { ...(r.address || {}) } } }); }}
                           style={{ border: 'none', background: 'none', padding: 4, cursor: r.pendingChange ? 'default' : 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}><Pencil size={14} /></button>
                       </td>
                     </tr>
@@ -281,6 +314,11 @@ export default function PartnersTab({ canApprove = false }) {
         </AsyncSection>
       )}
 
+      {opened && (
+        <PartnerRecord kind={kind} row={opened} onClose={() => setOpened(null)} onLines={() => openLines(opened)}
+          onEdit={!fromLedger && !opened.pendingChange ? (rec) => { setOpened(null); setEditing({ before: rec, after: { ...rec, address: { ...(rec.address || {}) } } }); } : null} />
+      )}
+
       {editing && (
         <div role="dialog" aria-modal="true" aria-label={`Edit ${editing.before.displayName || editing.before.name}`} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget) setEditing(null); }}>
           <form onSubmit={submitChange} style={{ ...card, width: 'min(680px, 100%)', maxHeight: '90vh', overflow: 'auto', padding: 18 }}>
@@ -304,6 +342,141 @@ export default function PartnersTab({ canApprove = false }) {
           </form>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── One record, drilled into (Charmi, 10/16) ────────────────────────────────
+const factLabel = { color: 'var(--text-muted)', fontSize: '0.74rem' };
+const sectionTitle = { margin: '0 0 6px', fontSize: '0.84rem', fontWeight: 700 };
+const addressText = (a = {}) => [a.line1, a.line2, [a.city, a.state].filter(Boolean).join(', '), a.zip, a.country].filter(Boolean).join(' · ');
+
+export function PartnerRecord({ kind, row, onClose, onLines, onEdit = null }) {
+  const [state, setState] = useState({ data: null, error: '' });
+  useEffect(() => {
+    let alive = true;
+    api.getAccountingPartnerRecord(kind, row.id)
+      .then((d) => { if (alive) setState({ data: d, error: '' }); })
+      .catch((e) => { if (alive) setState({ data: null, error: e?.message || 'Could not open the record.' }); });
+    return () => { alive = false; };
+  }, [kind, row.id]);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const d = state.data;
+  const rec = d?.record || row;
+  const label = kind === 'vendor' ? 'Vendor' : 'Customer';
+  const fromLedger = (d?.source || '') === 'ledger';
+  const facts = [
+    [`${label} Number`, rec.id], ['Name', rec.name], ['Display Name', rec.displayName !== rec.name ? rec.displayName : ''],
+    ['Status', rec.status], ['Entity', rec.entity], ['Email', rec.email], ['Phone', rec.phone], ['Address', addressText(rec.address)],
+    ['Terms', rec.terms], ['Tax ID (Last 4)', rec.taxId], ['Updated In Intacct', rec.updatedAt ? formatDate(rec.updatedAt) : ''],
+    ['Ledger Lines', Number.isFinite(rec.lines) ? rec.lines.toLocaleString('en-US') : ''],
+  ].filter(([, v]) => v);
+  const a = d?.activity;
+  return (
+    <div className="modal-overlay" role="presentation" onClick={onClose}>
+      <div className="modal-content" role="dialog" aria-modal="true" aria-label={`${label} ${rec.id}`} onClick={(e) => e.stopPropagation()}
+        style={{ width: '60vw', minWidth: 'min(420px, 100vw)', maxWidth: '100vw', minHeight: '60vh', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="modal-header">
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0, fontSize: '1rem' }}>{label} {rec.id} - {rec.displayName || rec.name || rec.id}</h3>
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              {rec.status && <span style={chip(isInactive(rec) ? STATUS.declined : { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' })}>{isInactive(rec) ? 'Inactive' : rec.status[0].toUpperCase() + rec.status.slice(1)}</span>}
+              {rec.awaitingIntacct && <span style={chip(STATUS.approved)}>Awaiting Intacct</span>}
+              {rec.pendingChange && <span style={chip(STATUS.pending)}>Pending Approval</span>}
+            </div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '12px 24px 18px', display: 'grid', gap: 16, alignContent: 'start', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          {state.error && <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{state.error}</div>}
+          <section>
+            <h4 style={sectionTitle}>Record</h4>
+            <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px 16px' }}>
+              {facts.map(([k, v]) => (
+                <div key={k}><dt style={factLabel}>{k}</dt><dd style={{ margin: 0, fontSize: '0.84rem', overflowWrap: 'anywhere' }}>{v}</dd></div>
+              ))}
+            </dl>
+            {rec.awaitingIntacct && (
+              <p style={{ margin: '8px 0 0', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                Approved changes not yet keyed into Intacct: {Object.entries(rec.intacctValues || {}).map(([f, v]) => `${FIELD_LABEL[f] || f} (Intacct has ${v || 'blank'})`).join(', ')}.
+              </p>
+            )}
+            {fromLedger && <p style={{ margin: '8px 0 0', fontSize: '0.76rem', color: 'var(--text-muted)' }}>Contact details show once the accounting app serves the full Intacct record.</p>}
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              <button type="button" className="secondary-btn" onClick={onLines} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><List size={13} /> View All Ledger Lines</button>
+              {onEdit && d && <button type="button" className="secondary-btn" onClick={() => onEdit(rec)} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>}
+            </div>
+          </section>
+
+          <section aria-label="Ledger Activity">
+            <h4 style={sectionTitle}>Ledger Activity</h4>
+            {!d && !state.error ? <SkeletonBlocks count={2} /> : d?.activityError ? (
+              <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>The ledger could not be read: {d.activityError}</p>
+            ) : a && (
+              <>
+                <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: '0.82rem', marginBottom: 8 }}>
+                  <span><span style={factLabel}>Lines </span><strong>{a.total.toLocaleString('en-US')}</strong></span>
+                  <span><span style={factLabel}>Debits </span><strong><Amount value={a.debit} /></strong></span>
+                  <span><span style={factLabel}>Credits </span><strong><Amount value={a.credit} /></strong></span>
+                  {a.entities?.length > 0 && <span><span style={factLabel}>Entities </span>{a.entities.map((e) => e.name ? `${e.code} ${e.name}` : e.code).join(', ')}</span>}
+                </div>
+                {a.lines?.length ? (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                      <thead><tr><th style={th}>Date</th><th style={th}>Entry</th><th style={th}>Entity</th><th style={th}>Account</th><th style={th}>Memo</th><th style={{ ...th, textAlign: 'right' }}>Debit</th><th style={{ ...th, textAlign: 'right' }}>Credit</th></tr></thead>
+                      <tbody>
+                        {a.lines.map((l) => (
+                          <tr key={l.lineId || `${l.entryNo}-${l.date}-${l.debit}-${l.credit}`}>
+                            <td style={{ ...td, whiteSpace: 'nowrap' }}>{formatDate(l.date)}</td>
+                            <td style={{ ...td, whiteSpace: 'nowrap' }}>{l.entryNo}</td>
+                            <td style={{ ...td, whiteSpace: 'nowrap' }}>{l.entity}</td>
+                            <td style={td}>{l.account} {l.accountName}</td>
+                            <td style={{ ...td, maxWidth: 280 }}>{l.memo}</td>
+                            <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}><Amount value={l.debit} zero="blank" /></td>
+                            <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}><Amount value={l.credit} zero="blank" /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {a.total > a.lines.length && <p style={{ margin: '6px 0 0', fontSize: '0.74rem', color: 'var(--text-muted)' }}>The latest {a.lines.length} of {a.total.toLocaleString('en-US')} lines - View All Ledger Lines opens every one in Reports.</p>}
+                  </div>
+                ) : <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No lines on the ledger you can read.</p>}
+              </>
+            )}
+          </section>
+
+          <section aria-label="Change History">
+            <h4 style={sectionTitle}>Change History</h4>
+            {!d && !state.error ? <SkeletonBlocks count={1} /> : !d?.history?.length ? (
+              <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No change has been requested for this {label.toLowerCase()} in Nexus.</p>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                  <thead><tr><th style={th}>Requested</th><th style={th}>Changes</th><th style={th}>Status</th><th style={th}>Note</th></tr></thead>
+                  <tbody>
+                    {d.history.map((h) => (
+                      <tr key={h.id}>
+                        <td style={td}>{h.requestedByName}<div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{formatDateTime(h.requestedAt)}</div></td>
+                        <td style={td}>
+                          {Object.entries(h.changes || {}).map(([f, v]) => (
+                            <div key={f}><span style={{ color: 'var(--text-secondary)' }}>{FIELD_LABEL[f] || f}:</span> <s style={{ color: 'var(--text-muted)' }}>{v.from || '(blank)'}</s> {'->'} <strong>{v.to || '(blank)'}</strong></div>
+                          ))}
+                        </td>
+                        <td style={td}><span style={chip(STATUS[h.status] || STATUS.pending)}>{STATUS[h.status]?.label || h.status}</span>{h.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{h.decidedByName} · {formatDateTime(h.decidedAt)}</div>}</td>
+                        <td style={{ ...td, whiteSpace: 'pre-wrap', maxWidth: 240 }}>{h.note}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
     </div>
   );
 }

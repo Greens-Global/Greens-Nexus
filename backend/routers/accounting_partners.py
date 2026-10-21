@@ -391,3 +391,88 @@ def export_changes(status: str = Query("approved"), kind: str = "", user: dict =
                         _mdy(r.decided_at), r.status, (r.note or "").replace("\n", " ")])
     fname = f"partner-changes-{status}{('-' + kind) if kind else ''}-{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+# ── One vendor or customer, drilled into (Charmi, 10/16) ───────────────────
+
+_ACTIVITY_LINES = 25
+
+
+def _history(db: Session, kind: str, pid: str) -> list[dict]:
+    rows = (db.query(models.AccountingPartnerChange)
+            .filter(models.AccountingPartnerChange.kind == kind, models.AccountingPartnerChange.partner_id == pid)
+            .order_by(models.AccountingPartnerChange.requested_at.desc()).limit(200).all())
+    return [_out(r, db) for r in rows]
+
+
+def _activity_line(r: dict) -> dict:
+    return {"lineId": str(r.get("line_id") or ""), "entryId": r.get("entry_id") or "", "entryNo": r.get("entry_no") or "",
+            "date": str(r.get("entry_date") or "")[:10], "entity": r.get("location") or "", "entityName": r.get("location_name") or "",
+            "account": str(r.get("gl_code") or ""), "accountName": r.get("account_name") or "",
+            "memo": r.get("memo") or r.get("description") or "", "debit": r.get("debit") or 0, "credit": r.get("credit") or 0}
+
+
+async def _activity(kind: str, pid: str, scope: dict) -> dict:
+    """The record's ledger lines, every date, held to the caller's entities:
+    how many, the totals, the entities and accounts they post to, and the
+    latest few lines. Read through the accounting app's search, never the
+    accounting database."""
+    location, locations = await acct._limit(scope, None, None)
+    d = await acct._acct_get("/api/internal/search", {
+        "q": None, "location": location, "locations": locations, "from": None, "to": datetime.now(timezone.utc).date().isoformat(),
+        "party_kind": kind, "party": pid, "offset": 0, "limit": _ACTIVITY_LINES})
+    facets = d.get("facets") or {}
+
+    def pick(key: str) -> list[dict]:
+        return [{"code": f.get("code") or "", "name": f.get("name") or "", "lines": f.get("lines") or 0, "net": f.get("net") or 0}
+                for f in (facets.get(key) or []) if isinstance(f, dict)]
+    return {"total": int(d.get("total") or 0), "debit": d.get("debit") or 0, "credit": d.get("credit") or 0,
+            "entities": pick("entities"), "accounts": pick("accounts"),
+            "lines": [_activity_line(r) for r in (d.get("rows") or []) if isinstance(r, dict)]}
+
+
+@router.get("/record/{kind}/{partner_id}")
+async def partner_record(kind: str, partner_id: str, scope: dict = Depends(entity_scope), db: Session = Depends(get_db)):
+    """One vendor or customer (Charmi, 10/16: "drill down into a vendor - still
+    can't"): its fields as the list has them (approved changes overlaid), its
+    entity and status, every change request filed on it, and its ledger
+    activity. Read-only. Held to the same entity limit as the list: a record
+    of another entity is a 404, and the ledger-only list stays closed to a
+    person limited to certain entities."""
+    k = _kind(kind)
+    pid = (partner_id or "").strip()[:60]
+    if not pid:
+        raise HTTPException(status_code=400, detail="Which vendor or customer?")
+    source = "intacct"
+    try:
+        raw = await _get({"kind": k, "q": pid})
+        found = next((p for p in raw if isinstance(p, dict) and str(p.get("id") or p.get("code") or "") == pid), None)
+        rec = _record(found) if found else None
+        if rec and scope["allowed"] is not None:
+            reach = await _with_children(scope["allowed"]) if scope["allowed"] else set()
+            if rec["entity"] and rec["entity"] not in reach:
+                rec = None
+    except HTTPException as e:
+        if e.status_code != 501:
+            raise
+        source = "ledger"
+        if scope["allowed"] is not None:
+            raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities. The vendor and customer list covers every entity, so it is not available to you yet.")
+        values = await _ledger_dimension(k)
+        v = next((x for x in values if isinstance(x, dict) and str(x.get("code") or x.get("id") or "").strip() == pid), None)
+        rec = _record({"id": pid, "kind": k, "name": str(v.get("name") or ""), "status": v.get("status") or ""}) if v else None
+        if rec:
+            rec["lines"] = v.get("lines") if isinstance(v.get("lines"), int) else v.get("count")
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"No {k} {pid} on the records you can read.")
+    rec["kind"] = rec["kind"] or k
+
+    def work():
+        return _overlay([rec], db, k)[0], _history(db, k, pid)
+    rec, history = await asyncio.to_thread(work)
+    activity, activity_error = None, ""
+    try:
+        activity = await _activity(k, pid, scope)
+    except HTTPException as e:
+        activity_error = str(e.detail)
+    return {"kind": k, "source": source, "record": rec, "history": history, "activity": activity, "activityError": activity_error}
