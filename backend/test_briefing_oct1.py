@@ -177,7 +177,7 @@ class ActionLineTests(_Case):
 
     def test_the_email_uses_the_app_green(self):
         html = self._html({"title": "X", "detail": "", "url": "u", "module": "tasks"})
-        self.assertIn('bgcolor="#248f4b"', html)
+        self.assertIn('bgcolor="#1f7a40"', html)
         self.assertNotIn("#0f3d2e", html)
 
     def test_a_finished_task_can_be_reopened_but_an_approval_is_never_toggled(self):

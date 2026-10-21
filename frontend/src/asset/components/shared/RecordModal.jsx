@@ -114,7 +114,7 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
         </button>
       )}
       {missing > 0 && (
-        <span role="status" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginRight: 'auto' }}>
+        <span role="status" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginRight: row && canDelete ? undefined : 'auto' }}>
           {missing} required {missing === 1 ? 'field' : 'fields'} missing
         </span>
       )}

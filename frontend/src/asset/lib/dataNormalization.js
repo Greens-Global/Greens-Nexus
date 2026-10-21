@@ -1,17 +1,12 @@
-// Data migration / self-healing normalization for asset records.
-//
-// Four independent passes, all safe to re-run on every load (idempotent - running twice
-// produces the same result as running once):
-//   - healPropTeam: migrates legacy "Project Team" snapshot field labels/contacts to current
-//     naming.
-//   - VNORM: module-level normalizer applied whenever we accept a state blob from the server
-//     during sync (renames a stale vocabulary term + re-runs healPropTeam).
-//     every load. This is the most important invariant in the whole data layer - see the long
-//     to specific assets by id, plus flags officer-residence assets as private.
-//
-// All four operate on plain data objects and are pure (no mutation of their inputs) - each
-// returns either the original reference unchanged (when nothing needed fixing, so callers can
-// cheaply skip re-renders via `!==` checks) or a new object.
+// Data normalization for the asset workspace: two passes that run on every
+// load from the server or the local cache.
+//   - healPropTeam: migrates legacy "Project Team" snapshot field labels and
+//     contacts to the current vocabulary.
+//   - VNORM: the workspace-level normalizer (every property through
+//     healPropTeam plus the stale-term renames) - the one entry point
+//     useNexusStore calls.
+// The seed-merge pass and the one-off overrides that used to live here were
+// deleted on Oct 21 2026 with the bundled seed files: nothing imported them.
 
 import { normLabel } from './format.js';
 

@@ -19,6 +19,7 @@ describe('daysUntil', () => {
       expect(daysUntil(shift(-1))).toBe(-1);
       expect(daysUntil(shift(30))).toBe(30);
       expect(daysUntil(shift(0) + 'T23:59:00Z')).toBe(0);   // a full ISO stamp counts its date
+      expect(daysUntil('10/22/2026')).toBe(1);                 // an imported US date
     });
   }
   it('is null for nothing or nonsense', () => {

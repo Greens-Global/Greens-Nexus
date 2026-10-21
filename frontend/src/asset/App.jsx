@@ -1000,7 +1000,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       )}
       {modal?.type === 'plist' && (
         <SimpleRowModal
-          title={modal.field === 'timeline' ? 'Timeline row' : 'Permit row'}
+          title={modal.field === 'timeline' ? 'Timeline Row' : 'Permit Row'}
           fields={modal.fields}
           row={modal.index != null && active ? active[modal.field][modal.index] : null}
           onSave={(patch) => savePropertyListRow(modal.field, modal.index, patch, modal.fields)}

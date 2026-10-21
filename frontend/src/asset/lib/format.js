@@ -39,9 +39,11 @@ export function formatDate(v) {
  *  which made a date due yesterday read "Due Today" until 5 PM Pacific. */
 export function daysUntil(v) {
   if (!v) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v));
-  if (!m) return null;
-  const target = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const str = String(v).trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(str);
+  const us = iso ? null : /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(str);   // an imported MM/DD/YYYY
+  if (!iso && !us) return null;
+  const target = iso ? new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])) : new Date(Number(us[3]), Number(us[1]) - 1, Number(us[2]));
   if (isNaN(target)) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);

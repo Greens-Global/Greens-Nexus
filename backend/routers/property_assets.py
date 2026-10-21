@@ -60,8 +60,8 @@ class Workspace(BaseModel):
     maintenance: List[Dict[str, Any]] = []
     logs: List[Dict[str, Any]] = []
     # Optimistic-concurrency marker: the server _ts this client's copy is based
-    # on. None = legacy client that predates the guard (accepted, so a deploy
-    # doesn't hard-break tabs that haven't reloaded yet).
+    # on. Every client sends one; a save without it is stale once the server
+    # holds anything (it cannot have pulled).
     baseTs: Optional[int] = None
 
 
@@ -162,7 +162,8 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
             ))
 
     # The log is capped per asset (newest first) - it used to grow without bound
-    # and ride every save - and stamped with the server clock on first sight.
+    # and ride every save. An entry keeps the client's stamp (the Activity Log
+    # shows when the person made the change); one without gets the server's.
     seen_logs: Dict[str, int] = {}
     for entry in sorted(ws.logs, key=lambda e: str(e.get("ts") or ""), reverse=True):
         lid = str(entry.get("id") or "").strip()

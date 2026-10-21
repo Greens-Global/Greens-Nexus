@@ -13,7 +13,7 @@ for its header color, logo, button color and footer lines instead of
 hardcoding them.
 
 The defaults ARE today's look. Each family had its own shade of green (the
-dark #0f3d2e band on most mail, #14532d/#15803d on Nexus Sign, #248f4b task
+dark #0f3d2e band on most mail, #14532d/#15803d on Nexus Sign, #1f7a40 task
 buttons); while the saved accent is the default, every family keeps its own
 shade, byte for byte (test_email_theme.py compares against snapshots). Once an
 admin picks a different accent, that one color is used for the header band and
