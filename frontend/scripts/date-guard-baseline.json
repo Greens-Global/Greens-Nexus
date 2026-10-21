@@ -56,6 +56,9 @@
   "components/AddTimeModal.jsx": {
     "type=\"date\"": 2
   },
+  "components/audit/AuditLog.jsx": {
+    "type=\"date\"": 2
+  },
   "components/BodModal.jsx": {
     "toLocaleDateString(": 2
   },
@@ -175,6 +178,15 @@
   },
   "marketing/shared/utils.js": {
     "toLocaleDateString(": 1
+  },
+  "operations/cma/CmaCompSet.jsx": {
+    "type=\"date\"": 1
+  },
+  "operations/cma/CmaReview.jsx": {
+    "type=\"date\"": 3
+  },
+  "operations/cma/ManualRateModal.jsx": {
+    "type=\"date\"": 1
   },
   "operations/Market.jsx": {
     "type=\"date\"": 1
