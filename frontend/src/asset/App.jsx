@@ -60,7 +60,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   // `setStore(updater)`; it never touches localStorage/IndexedDB/the network directly.
   const [store, setStore, loading, serverOk] = useNexusStore();
 
-  const [view, setView] = useState('portfolio');       // 'portfolio' | 'manage' | a TAB_LIST key
+  const [view, setView] = useState('portfolio');       // 'portfolio' | 'manage' | a strip tab or record collection key (lib/navigation.js)
   const [activeId, setActiveId] = useState(null);        // currently open asset's id, or null
   const [leaveAsk, setLeaveAsk] = useState(false);        // "unsaved changes" confirm dialog
   const [pendingNav, setPendingNav] = useState(null);     // navigation to run after that dialog resolves
@@ -105,6 +105,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   };
   // Visiting Manage, or any new log arriving while already on Manage, marks everything read.
   useEffect(() => { if (view === 'manage') markManageSeen(); }, [view, store.logs]);
+  useEffect(() => { if (recordViews.includes(view)) setLastRecord(view); }, [view]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!highlight) return;
@@ -676,11 +677,11 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     : key === 'timeline' ? (active.timeline || []).length
     : key === 'permit' ? (active.permits || []).length
     : key === 'property' ? 0 : recordsFor(key).length;
-  // Records opens on the segment last used, else the first collection with rows.
+  // Records opens on the segment last used, else the first collection with rows;
+  // clicking it while already there is a no-op.
   const openRecords = () => {
-    const target = recordViews.includes(lastRecord) ? lastRecord : (recordViews.find((k) => tabCount(k) > 0) || recordViews[0]);
-    setLastRecord(target);
-    navigate(target);
+    if (onRecords) return;
+    navigate(recordViews.includes(lastRecord) ? lastRecord : (recordViews.find((k) => tabCount(k) > 0) || recordViews[0]));
   };
   const backToPortfolio = () => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')));
   const filterKeysForTab = SHARED_FILTER_GROUPS[view] || [view];
@@ -823,7 +824,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
             const on = view === key;
             const n = tabCount(key);
             return (
-              <button key={key} type="button" role="tab" aria-selected={on} onClick={() => { setLastRecord(key); navigate(key); }}
+              <button key={key} type="button" role="tab" aria-selected={on} onClick={() => navigate(key)}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                   fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
                   background: on ? 'var(--bg-card)' : 'transparent', color: on ? 'var(--text-primary)' : 'var(--text-secondary)', boxShadow: on ? 'var(--shadow-sm)' : 'none' }}>

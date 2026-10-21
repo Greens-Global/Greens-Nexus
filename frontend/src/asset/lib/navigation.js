@@ -1,9 +1,7 @@
 // Tab navigation config for the asset detail page.
 //
-// TAB_LIST order matters: it's the literal left-to-right tab order. Property-only tabs
-// (maintenance, inspections, warranties, documents, utilities, ahj, vendors, permit, timeline)
-// and vehicle/equipment-only tabs (vservice, odometer, vdocs) are filtered per-asset-kind at
-// render time - see visibleTabsFor() below.
+// TAB_LIST is the label lookup for every view key the detail page can hold; the
+// strip itself is stripTabsFor() and the record collections RECORD_VIEWS below.
 export const TAB_LIST = [
   ['portfolio', 'Portfolio'],
   ['property', 'Overview'],
@@ -20,8 +18,6 @@ export const TAB_LIST = [
   ['permit', 'Permits'],
   ['timeline', 'Timeline'],
 ];
-
-const VEHICLE_ONLY_TABS = ['vservice', 'odometer', 'vdocs'];
 
 // The detail page's strip (Neil, Oct 21 2026): Overview, Maintenance, Records,
 // Timeline for a property; Overview, Records for a vehicle or equipment. The
@@ -44,13 +40,6 @@ export function stripTabsFor(assetKind) {
 /** A record collection's segment label: short, Title Case. */
 export function recordLabel(key) {
   return { vservice: 'Service', vdocs: 'Documents', permit: 'Permits' }[key] || (TAB_LIST.find(([k]) => k === key) || [])[1] || key;
-}
-
-/** Real-estate assets see every tab except the vehicle-only ones (and vice versa). */
-export function visibleTabsFor(assetKind) {
-  return TAB_LIST.filter(([key]) => key !== 'portfolio' && (
-    assetKind === 'property' ? !VEHICLE_ONLY_TABS.includes(key) : VEHICLE_ONLY_TABS.concat('property').includes(key)
-  ));
 }
 
 /** Which tabs share ONE search/filter box (e.g. timeline+permit are two views of one query). */
