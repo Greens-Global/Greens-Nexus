@@ -116,7 +116,7 @@ export const PORTFOLIO_SUB = 'asset-portfolio';
 // portfolio has no segment. Ids are URL-encoded so the shell's one-segment
 // path survives whatever an import used as an id.
 export function assetSub(id, view) {
-  return id ? `a:${encodeURIComponent(id)}:${view || 'property'}` : null;
+  return id ? `a:${encodeURIComponent(id).replace(/:/g, '%3A')}:${view || 'property'}` : null;
 }
 export function parseAssetSub(sub) {
   const m = /^a:([^:]+)(?::([^:]+))?$/.exec(sub || '');

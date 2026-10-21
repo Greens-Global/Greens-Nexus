@@ -115,8 +115,15 @@ function renameRvToVehicle(value) {
  * Idempotent and returns the original object unchanged if nothing needed normalizing.
  */
 const ZIP_RE = /^\d{5}(?:-\d{4})?$/;
-const STATE_RE = /^[A-Za-z]{2}$/;
 const STATE_ZIP_RE = /^([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/;
+// A bare two-letter segment is a state only when it IS one - "1600 Pennsylvania
+// Ave, NW" keeps its quadrant, "..., UK" keeps its country.
+const US_STATES = new Set(('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC PR GU VI AS MP').split(' '));
+const isState = (seg) => US_STATES.has(seg.toUpperCase());
+const US_COUNTRY = /^(us|usa|united states|united states of america)$/i;
+const isForeign = (country) => !!String(country || '').trim() && !US_COUNTRY.test(String(country).trim());
+// Not a city: a unit / building / lot line sitting before the state.
+const UNIT_RE = /^(suite|ste\.?|unit|apt\.?|bldg\.?|building|floor|fl\.?|lot|#)\b/i;
 const sameCity = (segment, city) => {
   const t = segment.toLowerCase();
   const c = String(city || '').toLowerCase().replace(/^\s*(city|town)\s+of\s+/, '').trim();
@@ -134,7 +141,7 @@ const sameCity = (segment, city) => {
  */
 export function splitAddress(property) {
   const address = String(property?.address ?? '');
-  if (!address.includes(',')) return property;
+  if (!address.includes(',') || isForeign(property.country)) return property;
   const segments = address.split(',').map((x) => x.trim()).filter(Boolean);
   let city = String(property.city || '').trim();
   let state = String(property.state || '').trim();
@@ -146,14 +153,17 @@ export function splitAddress(property) {
     const seg = peek();
     if (!seg || end <= 1 && !city && !state) break;
     let m;
+    if (US_COUNTRY.test(seg)) { end--; continue; }
     if (ZIP_RE.test(seg)) { zip ||= seg; end--; continue; }
-    if ((m = seg.match(STATE_ZIP_RE))) { state ||= m[1].toUpperCase(); zip ||= m[2]; end--; continue; }
-    if (STATE_RE.test(seg) && (state ? seg.toUpperCase() === state.toUpperCase() : /^[A-Z]{2}$/.test(seg))) { state ||= seg.toUpperCase(); end--; continue; }
-    if (sameCity(seg, city)) { end--; continue; }
-    if (/^county\s+of\s+/i.test(seg) || /\bcounty$/i.test(seg)) { county ||= seg.replace(/^county\s+of\s+/i, ''); end--; continue; }
+    if ((m = seg.match(STATE_ZIP_RE)) && isState(m[1])) { state ||= m[1].toUpperCase(); zip ||= m[2]; end--; continue; }
+    if (isState(seg) && (!state || seg.toUpperCase() === state.toUpperCase())) { state ||= seg.toUpperCase(); end--; continue; }
+    // The city is eaten down to an empty street only for a plain "City, ST" -
+    // "Escondido, Escondido, CA" keeps its first segment as the street.
+    if (sameCity(seg, city) && (end > 1 || segments.length <= 2)) { end--; continue; }
+    if (/^county\s+of\s+/i.test(seg) || /\bcounty$/i.test(seg)) { county ||= seg.replace(/^county\s+of\s+/i, '').replace(/\s+county$/i, ''); end--; continue; }
     // The segment right before a state is the city when the row has none yet -
-    // never the first segment (that is the street).
-    if (!city && state && end > 1 && end < segments.length && !/\d/.test(seg)) { city = seg; end--; continue; }
+    // never the first segment (that is the street) and never a unit line.
+    if (!city && state && end > 1 && end < segments.length && !/\d/.test(seg) && !UNIT_RE.test(seg)) { city = seg; end--; continue; }
     break;
   }
   const street = segments.slice(0, end).join(', ').replace(/^(\d+[a-z]?),\s+/i, '$1 ');

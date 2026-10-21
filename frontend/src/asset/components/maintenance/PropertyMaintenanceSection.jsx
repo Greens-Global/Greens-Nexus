@@ -128,7 +128,7 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
           {tabBtn('services', `Recurring Services${count(data?.services?.length || 0)}`)}
         </div>
         {tab === 'log' && (
-          <button type="button" className="secondary-btn" onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen || activeFilters > 0}
+          <button type="button" className="secondary-btn" onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <SlidersHorizontal size={14} /> Filters{activeFilters > 0 && (
               <span style={{ padding: '1px 7px', borderRadius: 999, background: 'var(--pine)', color: '#fff', fontSize: '0.72rem', fontWeight: 700 }}>{activeFilters}</span>
@@ -171,7 +171,8 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
           </div>
         ) : null}
 
-        {(filtersOpen || activeFilters > 0) && <MaintenanceLogFilters rows={unitRows} value={logFilter} onChange={setLogFilter} />}
+        {filtersOpen && <MaintenanceLogFilters rows={unitRows} value={logFilter}
+          onChange={(v) => { setLogFilter(v); if (v === EMPTY_LOG_FILTER) setFiltersOpen(false); }} />}
         <CollectionTable
           coll="maintenance"
           summaryOverride={logSummary(filteredRows.filter((r) => !r._openTicket))}

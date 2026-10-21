@@ -77,7 +77,9 @@ describe('Property Maintenance with tickets', () => {
       fireEvent.change(screen.getByDisplayValue('All Vendors'), { target: { value: 'Pipe Pros' } });
       expect(screen.queryByText('Replaced HVAC filter')).toBeNull();
       expect(screen.getByText('Yearly check')).toBeTruthy();
-      fireEvent.click(screen.getByRole('button', { name: 'Clear Filters' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Clear Filters' }));   // clearing closes the row
+      expect(screen.queryByPlaceholderText('Search work performed…')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
       fireEvent.change(screen.getByPlaceholderText('Search work performed…'), { target: { value: 'filter' } });
       expect(screen.getByText('Replaced HVAC filter')).toBeTruthy();
       expect(screen.queryByText('Yearly check')).toBeNull();

@@ -27,6 +27,17 @@ describe('splitAddress', () => {
     const b = { address: '123 Main St', city: 'Austin', state: 'TX', zip: '78729' };
     expect(splitAddress(b)).toBe(b);
   });
+  it('keeps street quadrants, country codes, unit lines and a street named like its city', () => {
+    expect(splitAddress({ address: '1600 Pennsylvania Ave, NW', city: '', state: '', zip: '' })).toMatchObject({ address: '1600 Pennsylvania Ave, NW', state: '' });
+    expect(splitAddress({ address: '123 Main St, Austin, TX 78701, US', city: '', state: '', zip: '' })).toMatchObject({ address: '123 Main St', city: 'Austin', state: 'TX', zip: '78701' });
+    const uk = { address: '10 Downing St, London, UK', city: '', state: '', zip: '' };
+    expect(splitAddress(uk)).toBe(uk);
+    const india = { address: 'MG Road, Bengaluru, Karnataka, IN', city: '', state: '', zip: '', country: 'India' };
+    expect(splitAddress(india)).toBe(india);
+    expect(splitAddress({ address: '123 Main St, Building C, TX 78701', city: '', state: '', zip: '' })).toMatchObject({ address: '123 Main St, Building C', city: '' });
+    expect(splitAddress({ address: 'Escondido, Escondido, CA 92026', city: 'Escondido', state: 'CA', zip: '92026' }).address).toBe('Escondido');
+    expect(splitAddress({ address: '1 Oak St, San Diego County, CA 92026', city: '', state: '', zip: '' })).toMatchObject({ address: '1 Oak St', county: 'San Diego' });
+  });
   it('a city-only address with the city known becomes an empty street line', () => {
     expect(splitAddress({ address: 'Chicago, IL', city: 'Chicago', state: 'IL', zip: '' }).address).toBe('');
   });

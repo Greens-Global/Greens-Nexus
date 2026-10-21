@@ -104,8 +104,12 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   // keeps the address it always had.
   const wantSub = assetSub(activeId, view === 'portfolio' ? 'property' : view) || PORTFOLIO_SUB;
   useEffect(() => {
-    if (loading || ticketSub) return;
-    if ((activeSub || PORTFOLIO_SUB) !== wantSub) onSubChange?.(wantSub);
+    if (loading) return;
+    // A ticket link is consumed by the render block above (it sets subSeen); its
+    // state change lands here, where the address is rewritten to the asset's own
+    // URL and subSeen is cleared so the same bell link works again later.
+    if (ticketSub && activeSub !== subSeen) return;
+    if ((activeSub || PORTFOLIO_SUB) !== wantSub) { onSubChange?.(wantSub); if (ticketSub) setSubSeen(null); }
   }, [wantSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (loading || ticketSub) return;
@@ -113,6 +117,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     if (target) {
       if (target.id === activeId && target.view === view) return;
       if (!store.properties.some((p) => p.id === target.id && !p.deleted)) {
+        if (!store.properties.length) return;   // nothing loaded at all: not a verdict on the link
         pushToast?.('That asset is no longer in Asset Management.', 'mut');
         onSubChange?.(PORTFOLIO_SUB);
         return;
