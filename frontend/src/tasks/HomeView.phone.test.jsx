@@ -13,10 +13,18 @@ let mobile = true;
 let savedHome;
 const activity = vi.fn(() => Promise.resolve([]));
 const seen = vi.fn(() => Promise.resolve({ seenAt: '' }));
+const respond = vi.fn(() => Promise.resolve({}));
+const reply = vi.fn(() => Promise.resolve({}));
+const react = vi.fn(() => Promise.resolve({}));
+const editComment = vi.fn(() => Promise.resolve({}));
 
 vi.mock('./TasksContext', () => ({ useTasks: () => store }));
-vi.mock('../api', () => ({ api: { getMyTaskActivity: (...a) => activity(...a), markUpdatesSeen: (...a) => seen(...a) } }));
-vi.mock('./TaskDetailDrawer', () => ({ default: ({ taskId }) => <div data-testid="drawer">{taskId}</div> }));
+vi.mock('../api', () => ({ api: {
+  getMyTaskActivity: (...a) => activity(...a), markUpdatesSeen: (...a) => seen(...a),
+  respondTaskDue: (...a) => respond(...a), addTaskComment: (...a) => reply(...a),
+  reactTaskComment: (...a) => react(...a), editTaskComment: (...a) => editComment(...a),
+} }));
+vi.mock('./TaskDetailDrawer', () => ({ default: ({ taskId, focusComment }) => <div data-testid="drawer">{taskId}{focusComment ? `@${focusComment.id}` : ''}</div> }));
 vi.mock('./ManageView', () => ({ DeletedTasksTab: () => null }));
 vi.mock('../components/AnchoredMenu', () => ({ default: ({ open, children }) => (open ? <div>{children}</div> : null) }));
 vi.mock('./components', async (orig) => {
@@ -47,6 +55,7 @@ beforeEach(() => {
   savedHome = undefined;
   activity.mockReset();
   seen.mockReset();
+  for (const f of [respond, reply, react, editComment]) f.mockClear();
   seen.mockImplementation(() => Promise.resolve({ seenAt: '' }));
   activity.mockImplementation(() => Promise.resolve([
     { id: 'a1', type: 'status_changed', actorId: SAGAR, at: minutesAgo(5), detail: 'changed status to in_progress', taskId: 't1', relation: 'assignee', entityTitle: 'Fix roof' },
@@ -54,10 +63,11 @@ beforeEach(() => {
   ]));
   store = {
     tasks: [
-      { id: 't1', title: 'Fix roof', type: 'task', assigneeIds: [ME], dueOn: '2099-01-01', completed: false },
+      { id: 't1', title: 'Fix roof', type: 'task', assigneeIds: [ME], dueOn: '2099-01-01', completed: false, projectId: 'p1' },
       { id: 't2', title: 'Paint fence', type: 'task', assigneeIds: [SAGAR], followerIds: [ME], completed: false },
     ],
     projects: [], teams: [], notifications: [], bookmarks: new Set(), loading: false,
+    projectName: (id) => ({ p1: 'Operations' }[id] || ''),
     myEmail: ME, nameOf: (e) => ({ [SAGAR]: 'Sagar P', [ME]: 'Neil K' }[e] || ''),
     statusMeta: { in_progress: { label: 'In Progress' } },
     createTask: vi.fn(), toggleComplete: vi.fn(),
@@ -262,6 +272,67 @@ describe('a grouped update', () => {
     expect(rows[1].hasAttribute('data-new')).toBe(false);
     expect(screen.getByText(/1 New/)).toBeTruthy();
     expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers from the row: approve an extension, reply in the thread, like, resolve', async () => {
+    activity.mockImplementation(() => Promise.resolve([
+      grouped({ id: 'e', taskId: 't2', at: minutesAgo(1), forYou: true, ask: 'open',
+        parts: [{ kind: 'extension_ask', count: 1, detail: 'asked to extend the due date from 10/22/2026 to 10/30/2026' }] }),
+      grouped({ id: 'm', at: minutesAgo(2), forYou: true, ask: 'open', preview: 'Call the vendor',
+        comment: { id: 'c1', threadId: 'c1', liked: false, canResolve: true },
+        parts: [{ kind: 'comment_for_you', count: 1 }, { kind: 'commented', count: 1 }] }),
+    ]));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    const calls = activity.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /Approve/ }));
+    await flush(); await flush();
+    expect(respond).toHaveBeenCalledWith('t2', true);
+    expect(activity.mock.calls.length).toBeGreaterThan(calls);   // read again: the server says what is answered
+
+    fireEvent.click(screen.getByRole('button', { name: /Reply/ }));
+    const box = screen.getByRole('textbox', { name: 'Reply' });
+    fireEvent.change(box, { target: { value: 'On it <today>' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await flush();
+    expect(reply).toHaveBeenCalledWith('t1', { body: '<p>On it &lt;today&gt;</p>', parent_id: 'c1' });
+    expect(screen.queryByTestId('drawer')).toBeNull();   // typing in the box never opens the task
+
+    fireEvent.click(screen.getByRole('button', { name: /Like/ }));
+    await flush();
+    expect(react).toHaveBeenCalledWith('c1', '👍');
+    fireEvent.click(screen.getByRole('button', { name: /Resolve/ }));
+    await flush();
+    expect(editComment).toHaveBeenCalledWith('c1', { resolved: true });
+  });
+
+  it('opens the task at the comment, names the project, and dates older days', async () => {
+    const old = new Date(); old.setDate(old.getDate() - 4); old.setHours(12, 0, 0, 0);
+    activity.mockImplementation(() => Promise.resolve([
+      grouped({ id: 'm', at: minutesAgo(2), forYou: true, ask: 'open', comment: { id: 'c9', threadId: 'c1', liked: false, canResolve: false },
+        parts: [{ kind: 'mentioned_you', count: 1 }] }),
+      grouped({ id: 'o', taskId: 't2', at: old.toISOString(), parts: [{ kind: 'completed', count: 1 }] }),
+    ]));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    const rows = document.querySelectorAll('[data-update-row]');
+    expect(rows[0].querySelector('[data-update-project]').textContent).toBe('Operations');
+    expect(screen.queryByText('Earlier')).toBeNull();
+    const mm = String(old.getMonth() + 1).padStart(2, '0'); const dd = String(old.getDate()).padStart(2, '0');
+    expect(screen.getByText(`${mm}/${dd}/${old.getFullYear()}`)).toBeTruthy();
+    fireEvent.click(rows[0]);
+    expect(screen.getByTestId('drawer').textContent).toBe('t1@c9');
+  });
+
+  it('Load More reads further back', async () => {
+    activity.mockImplementation(({ limit } = {}) => Promise.resolve(Array.from({ length: limit || 30 }, (_, i) => grouped({
+      id: `l${i}`, taskId: `t${i + 10}`, at: minutesAgo(i + 1), parts: [{ kind: 'completed', count: 1 }] }))));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByText('Show All 30'));
+    fireEvent.click(screen.getByText('Load More'));
+    await flush();
+    expect(activity).toHaveBeenLastCalledWith({ limit: 60 });
   });
 
   it('caps a stacked card at 8 with Show All, and a wide one scrolls instead', async () => {

@@ -384,5 +384,25 @@ class MyActivityTests(unittest.TestCase):
         self.assertTrue(stamp)
         self.assertEqual(T.mark_updates_seen(user=ME, db=self.db), {"seenAt": stamp})
 
+    def test_a_comment_row_says_which_comment_its_buttons_act_on(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        cid, at = gen_id(), _ago(5)
+        self.db.add(models.TaskComment(id=cid, task_id=t.id, author_email=OTHER, created_at=at, body="<p>Call the vendor</p>",
+                                       assignee_email=ME["email"], reactions={"👍": [ME["email"]]}))
+        self._act(t, OTHER, type="commented", at=at)
+        self.db.commit()
+        row = T.my_task_activity(user=ME, db=self.db)[0]
+        self.assertEqual(row["comment"], {"id": cid, "threadId": cid, "liked": True, "canResolve": True})
+        self.assertEqual(row["ask"], "open")
+
+    def test_an_extension_i_approved_stays_as_answered_without_its_bell(self):
+        t = self._task("TASK-E", assignee_emails=[OTHER], due_agreement="accepted")
+        self._act(t, OTHER, type="due_extension_requested", at=_ago(30),
+                  detail="asked to extend the due date from 10/22/2026 to 10/30/2026 - extension #3, needs approval")
+        self._act(t, ME["email"], type="due_answered", at=_ago(5), detail="approved the extension")
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual([(self._kinds(r), r["ask"]) for r in rows], [([("extension_ask", 1)], "Answered")])
+
 if __name__ == "__main__":
     unittest.main()

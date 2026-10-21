@@ -3488,6 +3488,21 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
             if w:
                 asked.setdefault((n.task_id, n.kind), []).append(w)
 
+    # Date asks I answered (approved / declined / countered): once answered
+    # the proposal is gone, and with it the list of who could approve - my
+    # own answer still says it was put to me.
+    i_answered = {}
+    for i in range(0, len(ids), 500):
+        for m in (db.query(models.TaskActivity.entity_id, models.TaskActivity.at)
+                  .filter(models.TaskActivity.entity_kind == "task",
+                          models.TaskActivity.type == "due_answered",
+                          models.TaskActivity.entity_id.in_(ids[i:i + 500]),
+                          models.TaskActivity.at >= since,
+                          func.lower(func.coalesce(models.TaskActivity.actor_email, "")) == me).all()):
+            w = _when(m.at)
+            if w:
+                i_answered.setdefault(m.entity_id, []).append(w)
+
     def bell_near(task_id, kind, at):
         return at is not None and any(abs((w - at).total_seconds()) <= 120 for w in asked.get((task_id, kind), []))
 
@@ -3502,6 +3517,9 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
 
     def date_ask_for_me(a, at):
         """An extension waiting on my approval, or a date proposed to me."""
+        if a.type in ("due_extension_requested", "due_proposed") and at is not None \
+                and any(w >= at for w in i_answered.get(a.entity_id, [])):
+            return True
         if a.type == "due_extension_requested":
             p = proposal_of(a.entity_id, at)
             return bell_near(a.entity_id, "task_due_extension_requested", at) \
@@ -3642,6 +3660,7 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
             p["count"] += 1
             if not p["detail"] and detail:
                 p["detail"] = detail   # events are newest first: the latest wins
+        aimed_at, said = None, None   # the comment the row is about (an ask's first)
         for a, at in g.pop("_events"):
             t = a.type
             if t in ("created", "assignee_changed"):
@@ -3675,13 +3694,19 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
                         aimed = True
                     if aimed:
                         asks.append(comment_ask(a.entity_id, c, at))
+                        aimed_at = aimed_at or c
+                    said = said or c
                     if not g["preview"]:
                         g["preview"] = _plain(c.body or "")
                 add("commented")
             elif t == "comment_assigned":
                 if (a.detail or "").strip().lower() == handed_to_me:
                     add("comment_for_you")
-                    asks.append(comment_ask(a.entity_id, handed_comment(a, at), at))
+                    hc = handed_comment(a, at)
+                    asks.append(comment_ask(a.entity_id, hc, at))
+                    aimed_at = aimed_at or hc
+                    if hc is not None and not g["preview"]:
+                        g["preview"] = _plain(hc.body or "")
             elif t == "comment_resolved":
                 add("resolved")
             elif t == "attached":
@@ -3698,6 +3723,14 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
         g["forYou"] = bool(asks)
         # Still waiting on me if any of its asks is; else how it was answered.
         g["ask"] = "open" if "open" in asks else (asks[0] if asks else "")
+        # What the row's buttons act on (Oct 21 2026): open the task at this
+        # comment, reply in its thread, a thumbs up, resolve one handed to me.
+        c = aimed_at or said
+        g["comment"] = None if c is None else {
+            "id": c.id, "threadId": c.parent_id or c.id,
+            "liked": me in [e.lower() for e in ((c.reactions or {}).get("👍") or [])],
+            "canResolve": not c.parent_id and (c.assignee_email or "").lower() == me and not c.resolved_at,
+        }
 
     updates += _unblocked_updates(db, me, completions)
     updates.sort(key=lambda u: _when(u.get("at")) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
@@ -3751,7 +3784,7 @@ def _unblocked_updates(db: Session, me: str, completions: dict) -> list:
             out.append({**activity_to_dict(a), "id": f"unblocked:{a.id}:{t.id}", "type": "unblocked",
                         "detail": "", "entityId": t.id, "entityCode": t.code or "",
                         "entityTitle": t.title or "", "taskId": t.id, "relation": "assignee",
-                        "forYou": True, "preview": "",
+                        "forYou": True, "preview": "", "comment": None,
                         "ask": "Started" if any(w > (_when(a.at) or w) for w in moves.get(t.id, [])) else "",
                         "parts": [{"kind": "unblocked", "count": 1, "detail": blockers[b].title or "",
                                    "left": left}]})
