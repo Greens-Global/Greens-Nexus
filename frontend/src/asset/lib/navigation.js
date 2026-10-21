@@ -23,6 +23,29 @@ export const TAB_LIST = [
 
 const VEHICLE_ONLY_TABS = ['vservice', 'odometer', 'vdocs'];
 
+// The detail page's strip (Neil, Oct 21 2026): Overview, Maintenance, Records,
+// Timeline for a property; Overview, Records for a vehicle or equipment. The
+// record collections - seven identical tables for a property, three for a
+// vehicle - live under ONE Records tab with a segmented control; `view` still
+// holds the collection key, so every deep link (bells, Critical Items, the
+// Activity Log's "Go to") lands on the right table unchanged.
+export const RECORD_VIEWS = {
+  property: ['warranties', 'inspections', 'documents', 'utilities', 'ahj', 'vendors', 'permit'],
+  vehicle: ['vservice', 'odometer', 'vdocs'],
+};
+export function recordViewsFor(assetKind) {
+  return assetKind === 'property' ? RECORD_VIEWS.property : RECORD_VIEWS.vehicle;
+}
+export function stripTabsFor(assetKind) {
+  return assetKind === 'property'
+    ? [['property', 'Overview'], ['maintenance', 'Maintenance'], ['records', 'Records'], ['timeline', 'Timeline']]
+    : [['property', 'Overview'], ['records', 'Records']];
+}
+/** A record collection's segment label: short, Title Case. */
+export function recordLabel(key) {
+  return { vservice: 'Service', vdocs: 'Documents', permit: 'Permits' }[key] || (TAB_LIST.find(([k]) => k === key) || [])[1] || key;
+}
+
 /** Real-estate assets see every tab except the vehicle-only ones (and vice versa). */
 export function visibleTabsFor(assetKind) {
   return TAB_LIST.filter(([key]) => key !== 'portfolio' && (

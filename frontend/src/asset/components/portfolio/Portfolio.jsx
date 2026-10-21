@@ -31,7 +31,9 @@ const filterIconLabelStyle = {
   alignItems: 'center',
 };
 
-const selectStyle = { width: '140px', minWidth: 0, maxWidth: '160px', padding: '0 10px', fontSize: '0.8rem', height: 40, boxSizing: 'border-box' };
+// Each select gives way before the row wraps (with the sidebar open at 1440 the
+// fixed 140px selects pushed "All Regions" onto its own line).
+const selectStyle = { flex: '1 1 120px', width: 'auto', minWidth: 110, maxWidth: 170, padding: '0 10px', fontSize: '0.8rem', height: 40, boxSizing: 'border-box' };
 
 // Both the "Clear Filters" button and the "Sorted: X" chip share this exact pill shape - this
 // was a real fix (they used to render with different border-radius/background/font-size before
@@ -176,7 +178,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
     <>
       <div className="gt-filters" style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'nowrap', marginBottom: 20 }}>
         <div className="gt-fmain" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flex: '1 1 auto', minWidth: 0 }}>
-          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
+          <div style={{ position: 'relative', flex: '2 1 220px', minWidth: 200 }}>
             <Search size={17} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
             <input
               className="form-input"

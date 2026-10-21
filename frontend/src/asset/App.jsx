@@ -8,7 +8,7 @@ import { RECORD_TYPES } from './lib/recordTypes.jsx';
 import { normLabel, genId, toNumber, snapMap } from './lib/format.js';
 import { editGuard } from './lib/editGuard.js';
 import { makeLogEntry, appendLog, diffChanges, recordDisplayName } from './lib/logging.js';
-import { TAB_LIST, visibleTabsFor, SHARED_FILTER_GROUPS, LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS } from './lib/navigation.js';
+import { SHARED_FILTER_GROUPS, LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS, recordViewsFor, stripTabsFor, recordLabel } from './lib/navigation.js';
 import { TIMELINE_FIELDS, permitColumns } from './lib/timelineFields.js';
 import { useNexusStore } from './lib/useNexusStore.js';
 import { portfolioStats } from './lib/assetMetrics.js';
@@ -95,6 +95,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const [typeFilter, setTypeFilter] = useState('');
   const moreRef = useRef(null);                                // the header's "more actions" button
   const [moreOpen, setMoreOpen] = useState(false);
+  const [lastRecord, setLastRecord] = useState(null);         // the Records segment last open, per session
 
   const unseenLogCount = (store.logs || []).filter((l) => l.ts > lastManageVisit).length;
   const markManageSeen = () => {
@@ -667,8 +668,20 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
 
   const pulse = view !== 'manage' && !active ? portfolioStats(store) : null;
   const assetKind = active ? inferAssetKind(active) : null;
-  const tabsForActiveAsset = active ? visibleTabsFor(assetKind) : [];
-  const tabCount = (key) => !active ? 0 : key === 'timeline' ? (active.timeline || []).length : key === 'permit' ? (active.permits || []).length : key === 'property' ? 0 : recordsFor(key).length;
+  const recordViews = active ? recordViewsFor(assetKind) : [];
+  const stripTabs = active ? stripTabsFor(assetKind) : [];
+  const onRecords = recordViews.includes(view);
+  const tabCount = (key) => !active ? 0
+    : key === 'records' ? recordViews.reduce((n, k) => n + tabCount(k), 0)
+    : key === 'timeline' ? (active.timeline || []).length
+    : key === 'permit' ? (active.permits || []).length
+    : key === 'property' ? 0 : recordsFor(key).length;
+  // Records opens on the segment last used, else the first collection with rows.
+  const openRecords = () => {
+    const target = recordViews.includes(lastRecord) ? lastRecord : (recordViews.find((k) => tabCount(k) > 0) || recordViews[0]);
+    setLastRecord(target);
+    navigate(target);
+  };
   const backToPortfolio = () => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')));
   const filterKeysForTab = SHARED_FILTER_GROUPS[view] || [view];
   const showTabSearch = view !== 'property' && (filterKeysForTab.length > 0 || ['timeline', 'permit'].includes(view));
@@ -774,12 +787,11 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       {active && (
         <div className="gt-tabs" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, borderBottom: '1px solid var(--wk-line)', flexWrap: 'wrap' }}>
           <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
-            {tabsForActiveAsset.map(([key, defaultLabel]) => {
-              const on = view === key;
-              const label = (key === 'property' && assetKind !== 'property') ? 'Overview' : (key === 'documents' && assetKind !== 'property') ? 'Documents' : defaultLabel;
+            {stripTabs.map(([key, label]) => {
+              const on = key === 'records' ? onRecords : view === key;
               const n = tabCount(key);
               return (
-                <button key={key} type="button" role="tab" aria-selected={on} onClick={() => navigate(key)}
+                <button key={key} type="button" role="tab" aria-selected={on} onClick={() => (key === 'records' ? openRecords() : navigate(key))}
                   aria-label={n ? `${label}, ${n}` : undefined}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 14px', border: 'none', background: 'none',
                     cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: on ? 700 : 600,
@@ -799,6 +811,27 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
               <input className="form-input" placeholder="Search…" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} style={{ width: '100%', fontSize: '0.82rem', padding: '7px 10px 7px 32px' }} />
             </div>
           )}
+        </div>
+      )}
+
+      {/* Records: one segment per collection, counts beside the names, the open
+          one lifted on the track - the same control the Maintenance tab uses for
+          its units. Scrolls sideways on a phone (.scroll-tabs). */}
+      {active && onRecords && (
+        <div className="scroll-tabs" role="tablist" aria-label="Record type" style={{ display: 'flex', gap: 2, padding: 3, marginBottom: 16, borderRadius: 10, background: 'var(--bg-secondary)', width: 'fit-content', maxWidth: '100%' }}>
+          {recordViews.map((key) => {
+            const on = view === key;
+            const n = tabCount(key);
+            return (
+              <button key={key} type="button" role="tab" aria-selected={on} onClick={() => { setLastRecord(key); navigate(key); }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                  fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                  background: on ? 'var(--bg-card)' : 'transparent', color: on ? 'var(--text-primary)' : 'var(--text-secondary)', boxShadow: on ? 'var(--shadow-sm)' : 'none' }}>
+                {recordLabel(key)}
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: on ? 'var(--text-secondary)' : 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+              </button>
+            );
+          })}
         </div>
       )}
 
