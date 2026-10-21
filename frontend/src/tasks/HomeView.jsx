@@ -114,6 +114,9 @@ export default function HomeView({ onNavigate }) {
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
   const [openId, setOpenId] = useState(taskIdFromUrl);
+  // An update opens its task at the comment it is about ({ id, threadId, taskId }).
+  const [openComment, setOpenComment] = useState(null);
+  const openUpdate = (taskId, comment) => { setOpenComment(comment || null); setOpenId(taskId); };
   const [customizing, setCustomizing] = useState(false);
   // Customize / Autofit / Done render into the module bar's slot next to
   // Manage (Sagar, Sept 1 2026), not into a header row of their own down here.
@@ -191,12 +194,22 @@ export default function HomeView({ onNavigate }) {
   // Anything assigned to me, including tasks I share with somebody else.
   const myTasks = useMemo(() => tasks.filter((t) => t.type !== 'section' && taskAssignees(t).includes(myEmail)), [tasks, myEmail]);
   const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+  // An update's project: the task's own, else its parent's (a subtask's is blank).
+  const projectOf = (id) => {
+    const t = taskById.get(id);
+    const pid = t?.projectId || (t?.parentTaskId ? taskById.get(t.parentTaskId)?.projectId : '');
+    return pid && typeof store.projectName === 'function' ? store.projectName(pid) : '';
+  };
 
   // Updates: other people's recent changes to the tasks I am on, from
   // GET /tasks/activity/mine. Read when the card is on the page and again,
   // debounced, whenever the task list moves - a task_events ping refreshes
   // `tasks`, so that is the signal that something happened.
   const [updates, setUpdates] = useState(null);   // null = not read yet
+  // How far back the card reads (Load More adds a page, up to the API's 100),
+  // and a nudge to read again after a row's answer is saved.
+  const [updatesLimit, setUpdatesLimit] = useState(30);
+  const [updatesNonce, setUpdatesNonce] = useState(0);
   const [updatesFailed, setUpdatesFailed] = useState(false);
   const updatesRead = useRef(false);
   // Not before the first task data is in (that load would only trigger a
@@ -205,16 +218,33 @@ export default function HomeView({ onNavigate }) {
   // The 45s poll hands back a new `tasks` array even when nothing changed;
   // this stamp only moves when a task did.
   const tasksStamp = useMemo(() => `${tasks.length}:${tasks.reduce((m, t) => ((t.modifiedAt || '') > m ? t.modifiedAt : m), '')}`, [tasks]);
+  // A task change is debounced (a burst of pings is one read); Load More and
+  // a row's saved answer read at once.
+  const readStamp = useRef(tasksStamp);
   useEffect(() => {
     if (!showUpdates) return undefined;
     let alive = true;
+    const taskMoved = readStamp.current !== tasksStamp;
+    readStamp.current = tasksStamp;
     const timer = setTimeout(() => {
-      api.getMyTaskActivity()
+      api.getMyTaskActivity({ limit: updatesLimit })
         .then((rows) => { if (!alive) return; updatesRead.current = true; setUpdatesFailed(false); setUpdates(Array.isArray(rows) ? rows : []); })
         .catch(() => { if (alive) setUpdatesFailed(true); });
-    }, updatesRead.current ? 800 : 0);
+    }, updatesRead.current && taskMoved ? 800 : 0);
     return () => { alive = false; clearTimeout(timer); };
-  }, [tasksStamp, showUpdates]);
+  }, [tasksStamp, showUpdates, updatesLimit, updatesNonce]);
+  // New since I last looked (Oct 21): stamped on the server once per visit,
+  // after the first read lands; the stamp it replaces marks what is New for
+  // the rest of this visit.
+  const [updatesSeenAt, setUpdatesSeenAt] = useState(null);
+  const seenMarked = useRef(false);
+  useEffect(() => {
+    if (updates === null || seenMarked.current || typeof api.markUpdatesSeen !== 'function') return;
+    seenMarked.current = true;
+    api.markUpdatesSeen()
+      .then((r) => setUpdatesSeenAt(r?.seenAt || ''))
+      .catch(() => {});
+  }, [updates]);
   const rangeDef = RANGES.find((r) => r.key === range);
   const rangeEnd = addDays(todayISO(), rangeDef.days);
   // The My Day / My Week / My Month picker scopes every tile and tab except
@@ -401,8 +431,10 @@ export default function HomeView({ onNavigate }) {
       </>
     );
     if (key === 'updates') return (
-      <UpdatesCard updates={updates} failed={updatesFailed} nameOf={nameOf} statusMeta={store.statusMeta}
-        taskById={taskById} onOpen={setOpenId} fill={coreWide} isMobile={isMobile} />
+      <UpdatesCard updates={updates} failed={updatesFailed} seenAt={updatesSeenAt} nameOf={nameOf} statusMeta={store.statusMeta}
+        taskById={taskById} onOpen={openUpdate} fill={coreWide} isMobile={isMobile}
+        projectOf={projectOf} onChanged={() => setUpdatesNonce((n) => n + 1)}
+        onLoadMore={updates && updates.length >= updatesLimit && updatesLimit < 100 ? () => setUpdatesLimit((n) => Math.min(100, n + 30)) : undefined} />
     );
     if (key === 'projects') return widgetBox(
       <>
@@ -807,7 +839,8 @@ export default function HomeView({ onNavigate }) {
           </MasonryCell>
         ))}
       </div>
-      {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
+      {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)}
+        focusComment={openComment?.taskId === openId ? openComment : null} />}
     </div>
   );
 }

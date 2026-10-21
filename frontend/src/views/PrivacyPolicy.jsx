@@ -50,7 +50,7 @@ export const PRIVACY_SECTIONS = [
     'If we make a material change to this policy or to the monitoring disclosure in Section 3, you will be asked to review and re-accept it the next time you sign in, the same way you did the first time.',
   ]},
   { h: '10. Contact', p: [
-    'Questions about this policy or your data can be sent to your HR or IT team, or to privacy@greensglobal.com.',
+    'Questions about this policy or your data can be sent to your HR or IT team, or to office@greensglobal.com.',
   ]},
 ];
 

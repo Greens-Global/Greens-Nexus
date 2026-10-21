@@ -152,7 +152,10 @@ const CreateTicketModal = lazy(() => import('../tickets/TicketsView').then((m) =
 // `onBackToTicket`: opened from a ticket's Tasks list - its "From Ticket" link
 // then just closes back onto that ticket instead of leaving for the Tickets
 // screen (Oct 14 2026).
-export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview', zIndex = 3500, onBackToTicket = null }) {
+// focusComment ({ id, threadId }, Oct 21 2026): open on the Comments and land
+// on that comment, briefly highlighted - the Tasks Home Updates card opens a
+// mention or a comment handed to me there, not at the top of the task.
+export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview', zIndex = 3500, onBackToTicket = null, focusComment = null }) {
   const store = useTasks();
   const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment, offerUndo } = store;
   // Externals included: Assignee and Collaborators are who does the work, and
@@ -171,8 +174,11 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const [trail, setTrail] = useState([]);
   useEffect(() => { setActiveId(taskId); setTrail([]); }, [taskId]);
   const openSub = (id) => { setTrail((t) => [...t, activeId]); setActiveId(id); };
-  const [tab, setTab] = useState(initialTab);
-  useEffect(() => setTab(initialTab), [activeId, initialTab]);
+  const startTab = focusComment ? 'comments' : initialTab;
+  const [tab, setTab] = useState(startTab);
+  useEffect(() => setTab(startTab), [activeId, startTab]);
+  // Only on the task it was opened for, not a subtask stepped into from it.
+  const focusHere = activeId === taskId ? focusComment : null;
   const [shareOpen, setShareOpen] = useState(false);
   const [converting, setConverting] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
@@ -363,7 +369,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           onOpenTicket={() => (onBackToTicket ? onBackToTicket() : openSourceTicket(task.sourceTicketId, onClose, ticketView))}
         />
       );
-      case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />;
+      case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusHere} />;
       case 'activity':     return <ActivityTab taskId={activeId} nameOf={nameOf} />;
       case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} />;
       case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub} />;
@@ -506,7 +512,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
               ))}
               <DiscussionPane
                 task={task} taskId={activeId} nameOf={nameOf} myEmail={myEmail}
-                getComments={getComments} addComment={addComment}
+                getComments={getComments} addComment={addComment} focusComment={focusHere}
               />
             </>
           ) : paneFor(tab)}
@@ -1509,7 +1515,7 @@ function Approval({ task, patch }) {
 // ── Comments + Activity, as one block (mobile) ───────────────────────────────
 // Mirrors the reference layout: a "Comments | All activity" switcher instead of
 // two separate stacked sections, since they're two views of the same thread.
-function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment }) {
+function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment, focusComment = null }) {
   const [view, setView] = useState('comments');
   const tab = (key, label) => {
     const on = view === key;
@@ -1528,15 +1534,32 @@ function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment
         {tab('activity', 'All activity')}
       </div>
       {view === 'comments'
-        ? <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />
+        ? <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusComment} />
         : <ActivityTab taskId={taskId} nameOf={nameOf} />}
     </section>
   );
 }
 
 // ── Comments ────────────────────────────────────────────────────────────────
-function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
+function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComment = null }) {
   const [comments, setComments] = useState(null);
+  const listRef = useRef(null);
+  const focused = useRef(null);
+  // Land on the comment the drawer was opened for, once its list is in: the
+  // comment itself, else its thread's root (a resolved thread opens folded).
+  useEffect(() => {
+    if (!focusComment || comments === null || !listRef.current) return;
+    // Once per ask to land (a new click is a new object), not on every re-read.
+    if (focused.current === focusComment) return;
+    const find = (id) => (id ? listRef.current.querySelector(`[data-comment-id="${CSS.escape(id)}"]`) : null);
+    const el = find(focusComment.id) || find(focusComment.threadId);
+    if (!el) return;
+    focused.current = focusComment;
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    el.scrollIntoView?.({ block: 'center', behavior: still ? 'auto' : 'smooth' });
+    el.animate?.([{ boxShadow: `0 0 0 2px ${NX.blue}` }, { boxShadow: `0 0 0 2px ${NX.blue}`, offset: 0.7 }, { boxShadow: '0 0 0 2px transparent' }],
+      { duration: still ? 1 : 2400 });
+  }, [focusComment, comments]);
   const [body, setBody] = useState('');
   const [pending, setPending] = useState([]);
   const people = usePeople();
@@ -1581,7 +1604,9 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
       </div>
       {comments === null ? <LoadingState />
         : list.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No comments yet.</div>
-          : list.map((th) => <CommentThread key={th.root.id} thread={th} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />)}
+          : <div ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {list.map((th) => <CommentThread key={th.root.id} thread={th} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />)}
+          </div>}
     </div>
   );
 }

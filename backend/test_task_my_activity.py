@@ -282,5 +282,127 @@ class MyActivityTests(unittest.TestCase):
                          [("TASK-A", [("assigned_you", 1)], True), ("TASK-B", [("assignees", 1)], False)])
 
 
+    # ── Oct 21 2026: what changes what I do next ──────────────────────────
+
+    def test_a_task_i_own_but_handed_off_reports_its_headline_changes(self):
+        t = self._task("TASK-O", assignee_emails=[OTHER], owner_email=ME["email"])
+        self._act(t, OTHER, type="attached", at=_ago(1))
+        self._act(t, OTHER, type="checklist_done", at=_ago(2))
+        self.db.commit()
+        self.assertEqual(T.my_task_activity(user=ME, db=self.db), [])
+        self._act(t, OTHER, type="completed", at=_ago(3))
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual([(r["relation"], self._kinds(r)) for r in rows], [("owner", [("completed", 1)])])
+
+    def test_only_files_and_checklist_ticks_is_not_an_update(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        self._act(t, OTHER, type="attached", at=_ago(1))
+        self._act(t, OTHER, type="checklist_done", at=_ago(2))
+        self.db.commit()
+        self.assertEqual(T.my_task_activity(user=ME, db=self.db), [])
+
+    def test_an_extension_waiting_on_me_is_an_open_ask_until_answered(self):
+        # I approve extensions on a task I am not on (a manager).
+        t = self._task("TASK-E", assignee_emails=[OTHER], due_agreement="extension_requested")
+        at = _ago(5)
+        t.due_proposal = {"dueOn": "2026-10-30", "by": OTHER, "at": at, "kind": "extension",
+                          "approvers": [ME["email"]]}
+        self._act(t, OTHER, type="due_extension_requested", at=at,
+                  detail="asked to extend the due date from 10/22/2026 to 10/30/2026 - extension #3, needs approval")
+        self._act(t, OTHER, type="status_changed", at=_ago(6), detail="changed status to in_progress")
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual([(r["relation"], self._kinds(r), r["forYou"], r["ask"]) for r in rows],
+                         [("mentioned", [("extension_ask", 1)], True, "open")])
+        # Approved: the proposal is gone, the bell remembers it was mine.
+        t.due_proposal, t.due_agreement = None, "accepted"
+        self.db.add(models.TaskNotification(id=gen_id(), kind="task_due_extension_requested", for_email=ME["email"],
+                                            task_id=t.id, created_at=at, title="Extension Needs Your Approval"))
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual([(self._kinds(r), r["ask"]) for r in rows], [([("extension_ask", 1)], "Answered")])
+
+    def test_somebody_elses_date_ask_on_my_task_is_news_not_an_ask(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"], OTHER], due_agreement="proposed",
+                       created_by="dean@greensglobal.com")
+        at = _ago(5)
+        t.due_proposal = {"dueOn": "2026-10-30", "by": OTHER, "at": at}
+        self._act(t, OTHER, type="due_proposed", at=at, detail="asked to move the due date from 10/22/2026 to 10/30/2026")
+        self.db.commit()
+        row = T.my_task_activity(user=ME, db=self.db)[0]
+        self.assertEqual((self._kinds(row), row["forYou"], row["ask"]), ([("date_request", 1)], False, ""))
+
+    def test_a_mention_is_open_until_i_reply_or_it_is_resolved(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        cid, at = gen_id(), _ago(30)
+        self.db.add(models.TaskComment(id=cid, task_id=t.id, author_email=OTHER, created_at=at,
+                                       body=f'<p><a href="mailto:{ME["email"]}">@Neil</a> ok?</p>'))
+        self._act(t, OTHER, type="commented", at=at)
+        self.db.commit()
+        self.assertEqual(T.my_task_activity(user=ME, db=self.db)[0]["ask"], "open")
+        self._act(t, ME["email"], type="commented", at=_ago(10))
+        self.db.commit()
+        self.assertEqual(T.my_task_activity(user=ME, db=self.db)[0]["ask"], "Replied")
+        self.db.query(models.TaskComment).filter(models.TaskComment.id == cid).update({"resolved_at": now_iso()})
+        self.db.commit()
+        self.assertEqual(T.my_task_activity(user=ME, db=self.db)[0]["ask"], "Resolved")
+
+    def test_being_assigned_is_open_until_i_act_on_the_task(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        at = _ago(30)
+        self._act(t, OTHER, type="created", at=at)
+        self.db.add(models.TaskNotification(id=gen_id(), kind="task_assigned", for_email=ME["email"],
+                                            task_id=t.id, created_at=at, title="You Were Assigned a Task"))
+        self.db.commit()
+        self.assertEqual(T.my_task_activity(user=ME, db=self.db)[0]["ask"], "open")
+        self._act(t, ME["email"], type="status_changed", at=_ago(5), detail="changed status to in_progress")
+        self.db.commit()
+        self.assertEqual(T.my_task_activity(user=ME, db=self.db)[0]["ask"], "Started")
+
+    def test_a_blocker_completed_unblocks_my_task_and_counts_what_is_left(self):
+        a = self._task("TASK-B1", assignee_emails=["dean@greensglobal.com"], completed=True)
+        b = self._task("TASK-B2", assignee_emails=["dean@greensglobal.com"])
+        mine = self._task("TASK-M", assignee_emails=[ME["email"]], blocked_by_ids=[a.id, b.id])
+        done = self._task("TASK-D", assignee_emails=[ME["email"]], blocked_by_ids=[a.id], completed=True)
+        self._act(a, "dean@greensglobal.com", type="completed", at=_ago(5))
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual([(r["taskId"], r["type"], r["actorId"], r["forYou"], r["parts"]) for r in rows],
+                         [(mine.id, "unblocked", "dean@greensglobal.com", True,
+                           [{"kind": "unblocked", "count": 1, "detail": "TASK-B1 title", "left": 1}])])
+        self.assertNotIn(done.id, [r["taskId"] for r in rows])   # already finished: nothing to start
+        self._act(mine, ME["email"], type="status_changed", at=_ago(1), detail="changed status to in_progress")
+        self.db.commit()
+        self.assertEqual(T.my_task_activity(user=ME, db=self.db)[0]["ask"], "Started")
+
+    def test_seen_hands_back_the_stamp_it_replaces(self):
+        self.db.query(models.NexusPersonPref).delete()
+        self.db.commit()
+        self.assertEqual(T.mark_updates_seen(user=ME, db=self.db), {"seenAt": ""})
+        stamp = self.db.query(models.NexusPersonPref).filter_by(email=ME["email"]).one().updates_seen_at
+        self.assertTrue(stamp)
+        self.assertEqual(T.mark_updates_seen(user=ME, db=self.db), {"seenAt": stamp})
+
+    def test_a_comment_row_says_which_comment_its_buttons_act_on(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        cid, at = gen_id(), _ago(5)
+        self.db.add(models.TaskComment(id=cid, task_id=t.id, author_email=OTHER, created_at=at, body="<p>Call the vendor</p>",
+                                       assignee_email=ME["email"], reactions={"👍": [ME["email"]]}))
+        self._act(t, OTHER, type="commented", at=at)
+        self.db.commit()
+        row = T.my_task_activity(user=ME, db=self.db)[0]
+        self.assertEqual(row["comment"], {"id": cid, "threadId": cid, "liked": True, "canResolve": True})
+        self.assertEqual(row["ask"], "open")
+
+    def test_an_extension_i_approved_stays_as_answered_without_its_bell(self):
+        t = self._task("TASK-E", assignee_emails=[OTHER], due_agreement="accepted")
+        self._act(t, OTHER, type="due_extension_requested", at=_ago(30),
+                  detail="asked to extend the due date from 10/22/2026 to 10/30/2026 - extension #3, needs approval")
+        self._act(t, ME["email"], type="due_answered", at=_ago(5), detail="approved the extension")
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual([(self._kinds(r), r["ask"]) for r in rows], [([("extension_ask", 1)], "Answered")])
+
 if __name__ == "__main__":
     unittest.main()

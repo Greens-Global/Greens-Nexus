@@ -2402,6 +2402,8 @@ export const api = {
   // Tasks Home > Updates (Oct 14): what other people did lately on the tasks
   // I am assigned to or follow.
   getMyTaskActivity:   ({ limit = 30, days = 14 } = {}) => req(`/tasks/activity/mine?limit=${limit}&days=${days}`),
+  // Oct 21: the card was looked at; answers with the stamp it replaced.
+  markUpdatesSeen:     () => req('/tasks/activity/mine/seen', { method: 'POST' }),
   // Add Time (Oct 14): a manager adds a shift, or a run of them, for someone
   // who did not clock in right - the picker's day states, the batch (dry run
   // = the preview), and the undo of a batch.
