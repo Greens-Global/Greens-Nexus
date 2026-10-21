@@ -12,8 +12,34 @@ import { Download } from 'lucide-react';
 import { api } from '../../api';
 import { ErrorBanner, LoadingState } from '../../components/AsyncState';
 import { formatDate } from '../../lib/datetime';
+import { DateField } from '../../tasks/components';
 import { count } from '../model';
 import { dash, exportRows, pctText, signedUsd, sizeOf, usd } from './cmaModel';
+
+// The period the chart and the change log cover (Visesh, Oct 21: a date filter
+// to see the Hummingbird years). Remembered per viewer on this device.
+const PERIODS = [
+  { key: 'all', label: 'All History' },
+  { key: '3m', label: 'Last 3 Months', months: 3 },
+  { key: '6m', label: 'Last 6 Months', months: 6 },
+  { key: '12m', label: 'Last 12 Months', months: 12 },
+  { key: '24m', label: 'Last 24 Months', months: 24 },
+  { key: 'ytd', label: 'This Year' },
+  { key: 'custom', label: 'Custom Range' },
+];
+const PERIOD_KEY = 'nexus.ops.rateHistory.period';
+const readPeriod = () => { try { return JSON.parse(localStorage.getItem(PERIOD_KEY)) || { key: 'all' }; } catch { return { key: 'all' }; } };
+const savePeriod = (p) => { try { localStorage.setItem(PERIOD_KEY, JSON.stringify(p)); } catch { /* not remembered */ } };
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** {start, end} (YYYY-MM-DD or '') for a period choice. */
+export function periodBounds(p, today = new Date()) {
+  const def = PERIODS.find((x) => x.key === p?.key);
+  if (!def || def.key === 'all') return { start: '', end: '' };
+  if (def.key === 'custom') return { start: p.start || '', end: p.end || '' };
+  if (def.key === 'ytd') return { start: `${today.getFullYear()}-01-01`, end: '' };
+  const from = new Date(today.getFullYear(), today.getMonth() - def.months, today.getDate());
+  return { start: isoDay(from), end: '' };
+}
 
 const SOURCE = { manual: ['manual', 'Manual'], comp_set: ['comp_set', 'Comp Set'], cubby: ['cubby', 'Cubby'], website: ['website', 'Website'], import: ['import', 'Import'], hummingbird: ['hummingbird', 'Hummingbird'] };
 const W = 760; const H = 260; const PAD = { l: 52, r: 16, t: 14, b: 30 };
@@ -83,18 +109,22 @@ export default function CmaHistory({ facility, view, onSection }) {
   const [unit, setUnit] = useState(first?.name || '');
   const [state, setState] = useState({ status: 'loading', data: null, key: '' });
   const [nonce, setNonce] = useState(0);
-  const key = `${facility.id}|${unit}|${nonce}`;
+  const [period, setPeriodState] = useState(readPeriod);
+  const setPeriod = (p) => { setPeriodState(p); savePeriod(p); };
+  const { start, end } = periodBounds(period);
+  const badRange = !!(start && end && start > end);
+  const key = `${facility.id}|${unit}|${start}|${end}|${nonce}`;
   useEffect(() => {
-    if (!unit) return undefined;
+    if (!unit || badRange) return undefined;
     let live = true;
-    api.getOpsCmaHistory(facility.id, unit)
+    api.getOpsCmaHistory(facility.id, unit, { start, end })
       .then((data) => { if (live) setState({ status: 'ready', data, key }); })
       .catch((err) => { console.error('Operations: rate history failed', err); if (live) setState({ status: 'error', data: null, key }); });
     return () => { live = false; };
-  }, [facility.id, unit, key]);
+  }, [facility.id, unit, start, end, badRange, key]);
   const row = types.find((r) => r.name === unit);
   const d = state.key === key ? state.data : null;
-  const loading = state.key !== key;
+  const loading = state.key !== key && !badRange;
   const exportLog = (format) => exportRows(format, {
     title: `Rate History ${unit}`, facility: view.facility, asOf: view.asOf, rows: d.log,
     columns: [{ header: 'Date', get: (e) => formatDate(e.date), width: 12 }, { header: 'What Changed', get: (e) => e.text, width: 60 },
@@ -120,6 +150,28 @@ export default function CmaHistory({ facility, view, onSection }) {
             <div className="cma-sub">Our rates from Cubby&apos;s rate changes and daily snapshots, and from Hummingbird month-ends before Cubby · competitor rates from each website read and manual survey.</div>
           </div>
         </div>
+        <div className="cma-range" role="group" aria-label="Date range">
+          <label className="ops-period">
+            <span>Period</span>
+            <select value={period.key} onChange={(e) => setPeriod(e.target.value === 'custom'
+              ? { key: 'custom', start: start || (d?.span?.first || ''), end: end || '' } : { key: e.target.value })}>
+              {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+            </select>
+          </label>
+          {period.key === 'custom' && (
+            <>
+              <span className="cma-range-field"><span>From</span><DateField value={period.start || ''} onChange={(v) => setPeriod({ ...period, start: v || '' })} placeholder="Start" /></span>
+              <span className="cma-range-field"><span>To</span><DateField value={period.end || ''} onChange={(v) => setPeriod({ ...period, end: v || '' })} placeholder="Today" /></span>
+            </>
+          )}
+          {d?.span?.first && (
+            <span className="cma-sub" style={{ margin: 0 }}>
+              History on record: {formatDate(d.span.first)} - {formatDate(d.span.last)}
+              {d.hummingbird?.first ? ` · Hummingbird ${formatDate(`${d.hummingbird.first}-01`)} on` : ''}
+            </span>
+          )}
+        </div>
+        {badRange && <p className="ops-note" role="alert" style={{ margin: '6px 0 0' }}>The From date is after the To date.</p>}
         <div className="cma-pills" role="group" aria-label="Unit type" style={{ marginTop: 10 }}>
           {pills.map((r) => (
             <button key={r.name} type="button" className="cma-pill" aria-pressed={unit === r.name} onClick={() => setUnit(r.name)} title={r.name}>{sizeOf(r)}{r.parking ? ' P' : ''}</button>

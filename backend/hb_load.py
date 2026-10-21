@@ -47,7 +47,7 @@ from sqlalchemy import delete, insert
 from cubby_sync import _PII as _CONTACT_KEYS
 
 APP_KEYS = ("applicationData",)
-CHUNK = 500
+CHUNK = 1000
 
 # Exact keys (lowercased, underscores removed) that hold a person's name, a
 # free-text note or an access code - on top of cubby_sync._PII's substrings.
@@ -327,12 +327,35 @@ def write(db, model, rows: list[dict], load_id: str) -> int:
     seen = {}
     for r in rows:
         seen[r["id"]] = {**r, "load_id": load_id}
-    rows = list(seen.values())
+    # Every row carries the same keys (a missing one is NULL). SQLAlchemy batches
+    # an executemany into multi-row INSERTs only when the rows share one key set;
+    # mixed rows (some with `rent`, some without) fell back to one INSERT per
+    # row - 63k round trips to Supabase, hours instead of seconds (Oct 21 2026).
+    # A key a row lacks takes the column's own default (what the INSERT stored
+    # before), never NULL - '' means "still in" for end_date, for one.
+    keys = set().union(*(r.keys() for r in seen.values()))
+    cols = model.__table__.c
+
+    def _default(k):
+        d = cols[k].default if k in cols else None
+        if d is None:
+            return None
+        if d.is_scalar:
+            return d.arg
+        if d.is_callable:          # SQLAlchemy wraps default=list / dict to take a context
+            return d.arg(None)
+        return None
+
+    defaults = {k: _default(k) for k in keys}
+    rows = [{k: (r[k] if k in r else defaults[k]) for k in keys} for r in seen.values()]
     ids = [r["id"] for r in rows]
     for i in range(0, len(ids), CHUNK):
         db.execute(delete(model).where(model.id.in_(ids[i:i + CHUNK])))
+    # One multi-row INSERT per chunk (insert().values(list)): a plain
+    # executemany still went out in 1-3 row statements through the Supabase
+    # pooler, about a second each from here.
     for i in range(0, len(rows), CHUNK):
-        db.execute(insert(model), rows[i:i + CHUNK])
+        db.execute(insert(model).values(rows[i:i + CHUNK]))
     db.commit()
     return len(rows)
 

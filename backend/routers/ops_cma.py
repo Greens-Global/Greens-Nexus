@@ -35,6 +35,7 @@ discounts/search, read-only), so promotions are recorded, approved and then
 entered in Cubby by hand - never pushed.
 """
 import asyncio
+import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Optional
@@ -424,7 +425,7 @@ async def import_rates(body: ImportIn, user: dict = Depends(require_editor), db:
 
 # ── Rate History ─────────────────────────────────────────────────────────────
 
-def _history(db: Session, facility: dict, unit_type: str, groups: list) -> dict:
+def _history(db: Session, facility: dict, unit_type: str, groups: list, start: str = "", end: str = "") -> dict:
     fid = facility["id"]
     today = date.fromisoformat(facility["asOf"])
     t = next((x for x in facility["unitTypes"] if x["name"] == unit_type), None)
@@ -487,6 +488,11 @@ def _history(db: Session, facility: dict, unit_type: str, groups: list) -> dict:
     taken = {p["date"] for p in points}
     hb_points = [p for p in hb["points"] if p["date"] not in taken]
     points = sorted(hb_points + points, key=lambda p: p["date"])
+    # The whole span on record, then the period asked for (Visesh, Oct 21: a
+    # date filter to see the Hummingbird years). Both ends optional, inclusive.
+    span = {"first": points[0]["date"] if points else "", "last": points[-1]["date"] if points else ""}
+    if start or end:
+        points = [p for p in points if (not start or p["date"] >= start) and (not end or p["date"] <= end)]
     cur = ops_cma.pick_comps(t, obs, active, today)
     rented = t.get("rented") or 0
     avg_rent = round((t.get("rentSum") or 0) / rented) if rented else None
@@ -519,18 +525,26 @@ def _history(db: Session, facility: dict, unit_type: str, groups: list) -> dict:
         log.append({"at": d, "date": d, "source": "website", "by": "Nexus",
                     "text": f"Website sync - {n} competitor {'price' if n == 1 else 'prices'} for this size"})
     log += hb["log"]
+    if start or end:
+        log = [e for e in log if (not start or (e["date"] or "") >= start) and (not end or (e["date"] or "") <= end)]
     log.sort(key=lambda x: x["at"] or "", reverse=True)
     return {"unitType": unit_type, "asOf": facility["asOf"], "points": points, "cards": cards,
-            "comps": cur["comps"], "log": log[:200], "groupId": gid,
+            "comps": cur["comps"], "log": log[:500], "groupId": gid, "span": span,
+            "range": {"start": start, "end": end},
             "hummingbird": {"first": hb_points[0]["date"][:7] if hb_points else "",
                             "last": hb_points[-1]["date"][:7] if hb_points else ""}}
 
 
 @router.get("/history")
-async def history(facility_id: str, unit_type: str, db: Session = Depends(get_db)):
+async def history(facility_id: str, unit_type: str, start: str = "", end: str = "", db: Session = Depends(get_db)):
+    for v in (start, end):
+        if v and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+            raise HTTPException(status_code=400, detail="Dates must be YYYY-MM-DD")
+    if start and end and start > end:
+        raise HTTPException(status_code=400, detail="The start date is after the end date")
     facility = await facility_ops._facility(facility_id)
     groups, _fac, _err = await ops_rates._groups(facility_id)
-    return await asyncio.to_thread(_history, db, facility, unit_type, groups)
+    return await asyncio.to_thread(_history, db, facility, unit_type, groups, start, end)
 
 
 # ── Review & Push ────────────────────────────────────────────────────────────
