@@ -148,3 +148,10 @@ def test_a_facility_carries_its_map_position_for_the_nearby_search():
     assert (text["lat"], text["lng"]) == (33.4936, -117.1484)
     for bad in ("", "n/a", "912.5"):
         assert cubby.summarize_facility({**FAC, "latitude": bad, "longitude": bad}, _raw())["lat"] is None
+
+
+def test_a_facility_carries_its_state_for_the_state_filter():
+    # Operations' State filter (Oct 21): from the map pin, since Nexus keeps no address.
+    assert cubby.summarize_facility({**FAC, "latitude": 33.5, "longitude": -117.15}, _raw())["state"] == "CA"
+    assert cubby.summarize_facility({**FAC, "latitude": 30.27, "longitude": -97.74}, _raw())["state"] == "TX"
+    assert cubby.summarize_facility(FAC, _raw())["state"] == ""

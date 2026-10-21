@@ -314,7 +314,7 @@ function Ecri({ b }) {
   const [all, setAll] = useState(false);
   const cands = all ? e.candidates : e.candidates.slice(0, 25);
   return (
-    <Card title="ECRI" sub="Existing customer rate increases. Enter rent changes in Cubby; build them in Revenue Management."
+    <Card title="ECRI" sub="Existing customer rate increases. Enter rent changes in Cubby; build them in ECRI Management."
       right={<Select id="pi-ecri-view" label="Show" value={view} onChange={setView}
         options={[['candidates', `Candidates (${e.candidateCount})`], ['scheduled', `Scheduled (${e.scheduled.length})`], ['survival', 'Monthly Survival']]} />}>
       <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
-// Operations > Revenue Management (Oct 20 2026): the tab renders the tenant
+// Operations > ECRI Management (Oct 20 2026; was Revenue Management): the tab renders the tenant
 // table, a strategy can be built, and the preview shows the revenue impact.
 // The numbers come from the server; these tests check the screen draws them.
 // Nexus never writes to Cubby (Oct 20 2026): a row reaches Cubby only when
@@ -18,7 +18,7 @@ vi.mock('../tasks/components', () => ({
   Modal: ({ title, children, footer }) => <div role="dialog" aria-label={title}>{children}<div>{footer}</div></div>,
 }));
 
-const { default: Revenue, filterTenants, defaultEffective, toBody, blankStrategy } = await import('./Revenue');
+const { default: Revenue, filterTenants, defaultEffective, toBody, blankStrategy, overUnderPct, overUnderText } = await import('./Revenue');
 
 const FAC = { id: 'fac_t', shortName: 'Temecula' };
 const tenant = (key, extra = {}) => ({
@@ -45,20 +45,29 @@ beforeEach(() => {
   api.opsRevenueBatches.mockResolvedValue({ batches: [] });
 });
 
-describe('Revenue Management', () => {
+describe('ECRI Management', () => {
   it('points at the page Facility dropdown when none is picked, and has no picker of its own', () => {
     render(<Revenue facility={null} />);
-    expect(screen.getByText(/Pick a facility above to see Revenue Management/)).toBeTruthy();
+    expect(screen.getByText(/Pick a facility above to see ECRI Management/)).toBeTruthy();
     expect(screen.queryByLabelText('Facility')).toBeNull();
   });
 
-  it('renders the tenant table with the gap, balance and last change', async () => {
+  it('renders the tenant table with the over/under percent, balance and last change', async () => {
     render(<Revenue facility={FAC} />);
     expect(await screen.findByText('Tenant a1')).toBeTruthy();
-    expect(screen.getAllByText('$50.00 (33.3%)')).toHaveLength(2);
+    // Cubby's words (Miranda, Oct 21): Current Rate, Current Standard Rate, Over/Under Standard Rate.
+    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads).toEqual(expect.arrayContaining(['Current Rate', 'Current Standard Rate', 'Over/Under Standard Rate']));
+    expect(heads).not.toContain('Rent');
+    expect(heads).not.toContain('Street Rate');
+    // A percent, not dollars: ($100 - $150) / $150. Under the standard rate is red.
+    const under = screen.getAllByText('-33.3%');
+    expect(under).toHaveLength(2);
+    expect(under[0]).toHaveAttribute('data-under', 'true');
+    expect(under[0].style.color).toBe('var(--bad-fg)');
     expect(screen.getByText('$50.00 Past Due')).toBeTruthy();
     expect(screen.getByText('05/01/2026')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('Under street by more than percent'), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText('Under standard rate by more than percent'), { target: { value: '10' } });
     expect(screen.queryByText('Tenant a2')).toBeNull();
   });
 
@@ -127,6 +136,18 @@ describe('Revenue helpers', () => {
     expect(filterTenants(DATA.tenants, { unitType: '10x20' }).map((t) => t.key)).toEqual(['b1']);
     expect(filterTenants(DATA.tenants, { stayed: '12' }).map((t) => t.key)).toEqual(['a1', 'b1']);
     expect(filterTenants(DATA.tenants, { noIncrease: '12' }).map((t) => t.key)).toEqual(['a1']);
+    expect(filterTenants(DATA.tenants, { underPct: '10' }).map((t) => t.key)).toEqual(['a1', 'b1']);
+  });
+
+  it('shows over/under the standard rate as a signed percent', () => {
+    expect(overUnderPct({ rent: 10000, street: 15000 })).toBe(-33.3);
+    expect(overUnderPct({ rent: 16000, street: 15000 })).toBe(6.7);
+    expect(overUnderPct({ rent: 15000, street: 15000 })).toBe(0);
+    expect(overUnderPct({ rent: 15000, street: 0 })).toBeNull();
+    expect(overUnderText(-33.3)).toBe('-33.3%');
+    expect(overUnderText(6.7)).toBe('+6.7%');
+    expect(overUnderText(0)).toBe('0.0%');
+    expect(overUnderText(null)).toBe('-');
   });
 
   it('picks the first of the month after the notice period', () => {

@@ -114,6 +114,10 @@
 
 /* Facility dropdown on the left, lookup and period on the right. */
 .ops-bar-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* State filter + Facility picker, side by side (Oct 21). */
+.ops-bar-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.ops-state .ops-facility-box select { min-width: 130px; }
+@media (max-width: 700px) { .ops-bar-left { width: 100%; } }
 .ops-period { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); font-weight: 500; }
 .ops-period select { font: 500 13px/1 'Inter', sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; cursor: pointer; }
 .ops-period select:focus-visible, .ops-search input:focus-visible { outline: 2px solid var(--ops-s1); outline-offset: 2px; }
@@ -197,10 +201,37 @@
 .ops-facility-box svg { position: absolute; pointer-events: none; color: var(--muted); }
 .ops-facility-icon { left: 10px; }
 .ops-facility-chev { right: 10px; }
+/* The facility list (Oct 21, Miranda): our own listbox so "All Facilities"
+   and each TPM heading share one left edge and every facility sits exactly
+   one indent in. */
+.ops-facility-btn {
+  box-sizing: border-box; height: 32px; min-width: 210px; max-width: 300px; padding: 0 30px 0 32px;
+  border: 1px solid var(--border-color, var(--line)); border-radius: 8px;
+  background: var(--card); color: var(--ink); font: 400 13px/1 'Inter', sans-serif;
+  cursor: pointer; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.ops-facility-btn[data-active="true"] { border-color: var(--wk-brand, #2b45e1); color: var(--wk-brand, #2b45e1); font-weight: 600; }
+.ops-facility-btn:focus-visible { outline: 2px solid var(--ops-s1); outline-offset: 2px; }
+.ops-fp-pop {
+  position: absolute; left: 0; top: calc(100% + 4px); z-index: 30; min-width: 100%; width: max-content; max-width: min(360px, calc(100vw - 32px));
+  max-height: 340px; overflow-y: auto; margin: 0; padding: 6px; list-style: none; box-sizing: border-box;
+}
+.ops-fp-pop:focus { outline: none; }
+.ops-fp-pop:focus-visible { outline: 2px solid var(--ops-s1); outline-offset: 2px; }
+.ops-fp-group { list-style: none; margin: 0; padding: 0; }
+.ops-fp-opt, .ops-fp-head { padding: 7px 10px; border-radius: 6px; font: 400 13px/1.3 'Inter', sans-serif; color: var(--ink); white-space: nowrap; }
+.ops-fp-opt { cursor: pointer; }
+.ops-fp-opt[data-active="true"] { background: var(--mist); }
+.ops-fp-opt[aria-selected="true"] { color: var(--wk-brand, #2b45e1); font-weight: 600; }
+.ops-fp-all { font-weight: 700; }
+/* One indent for every facility, under All Facilities and under a TPM heading alike. */
+.ops-fp-in { padding-left: 26px; }
+.ops-fp-head { margin-top: 4px; padding-top: 9px; border-top: 1px solid var(--line); border-radius: 0; font-weight: 700; color: var(--muted); cursor: default; }
 .ops-facility .ops-pill-tag { margin-left: 0; }
 .ops-facility-asof { font-size: 12px; color: var(--muted); }
 @media (max-width: 700px) {
-  .ops-facility, .ops-facility-box, .ops-facility-box select { width: 100%; max-width: none; }
+  .ops-facility, .ops-facility-box, .ops-facility-box select, .ops-facility-btn { width: 100%; max-width: none; }
+  .ops-fp-pop { width: 100%; max-width: none; }
 }
 /* Section / layer / category dropdowns (SectionPicker.jsx, Oct 20): the
    Facility picker's box, a little narrower; MultiPicker is a button in it. */

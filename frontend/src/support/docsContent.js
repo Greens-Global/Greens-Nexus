@@ -1001,7 +1001,7 @@ export const DOCS = [
       { name: 'Overview', desc: 'Units by facility, Needs Attention, rented units over time, move-ins and move-outs, and the Facility Scorecard.' },
       { name: 'Collections', desc: 'Past Due by Age, Tenants Past Due, Failed Payments (the last 31 days) and the past-due balance over time.' },
       { name: 'Units & Pricing', desc: 'Unit types by empty rent, Tenants Under Street Rate (rent-increase candidates) and Off-Market Units with the reason.' },
-      { name: 'Worklist', desc: 'Overlocks to place, locks to remove, open tasks and leads from Cubby, scheduled move-outs and upcoming move-ins.' },
+      { name: 'Facility Tasks', desc: 'Overlocks to place, locks to remove, open tasks and leads from Cubby, scheduled move-outs and upcoming move-ins.' },
       { name: 'Market Rates', desc: 'Our street rate by unit size against nearby competitors: market low, median and high, where we sit, and a suggested rate (the market median moved by how full we are, held to a 10% step). Competitor rates pages are read once a day.' },
       { name: 'Reports', desc: 'Download any list as a CSV, plus Cubby\'s Rent Roll and Aged Receivables. Follows the facility picker.' },
       { name: 'Find a Unit or Tenant', desc: 'The search box at the top looks across every facility.' },

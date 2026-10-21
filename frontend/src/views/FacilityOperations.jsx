@@ -23,7 +23,7 @@ import Revenue from '../operations/Revenue';
 import Portfolio from '../operations/Portfolio';
 import ThirdPartyPanel from '../operations/ThirdPartyPanel';
 import { isThirdParty } from '../operations/thirdParty';
-import FacilityPicker from '../operations/FacilityPicker';
+import FacilityPicker, { StatePicker } from '../operations/FacilityPicker';
 import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
 // Site Map (Oct 20): the 3D site model with layers. Lazy, so three.js loads only on that tab.
@@ -50,7 +50,8 @@ const TABS = [
   { key: 'facilities', label: 'Facilities', Icon: Warehouse, items: [
     { key: 'collections', label: 'Collections',     Icon: HandCoins },
     { key: 'units',       label: 'Units & Pricing', Icon: Warehouse },
-    { key: 'worklist',    label: 'Worklist',        Icon: ListChecks },
+    // Cubby's own name for it (Miranda, Oct 21); the key stays for links and bookmarks.
+    { key: 'worklist',    label: 'Facility Tasks',  Icon: ListChecks },
   ] },
   // Ranked insights from Cubby's pricing, the rent roll and the market (Visesh,
   // Oct 20) - same door as Rate Management - one menu item per section.
@@ -65,7 +66,8 @@ const TABS = [
     { key: 'pricing-discounts',   label: 'Discounts',           Icon: Percent },
   ] },
   // Rent changes for existing tenants (Neil, Oct 20) - managers and admins, or an Operations Full grant.
-  { key: 'revenue-menu', label: 'Revenue Management', Icon: TrendingUp, items: [
+  // "ECRI Management", Cubby's word for it (Miranda, Oct 21: "0 confusion"); the keys stay.
+  { key: 'revenue-menu', label: 'ECRI Management', Icon: TrendingUp, items: [
     { key: 'revenue',            label: 'Tenants',      Icon: Users },
     { key: 'revenue-strategies', label: 'Strategies',   Icon: Target },
     { key: 'revenue-batches',    label: 'Rent Changes', Icon: TrendingUp },
@@ -103,6 +105,14 @@ const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? t.items.map((i) => i.k
 const FACILITY_KEY = 'nexus.ops.facility';
 const readFacility = () => { try { return localStorage.getItem(FACILITY_KEY) || 'all'; } catch { return 'all'; } };
 const saveFacility = (id) => { try { localStorage.setItem(FACILITY_KEY, id); } catch { /* not remembered */ } };
+// The State filter (Neil, Oct 21: CA vs TX), remembered the same way. '' = All States.
+const STATE_KEY = 'nexus.ops.state';
+const readState = () => { try { return localStorage.getItem(STATE_KEY) || ''; } catch { return ''; } };
+const saveState = (s) => { try { localStorage.setItem(STATE_KEY, s); } catch { /* not remembered */ } };
+// The states the facilities are in ("CA", "TX"), sorted. Each facility's
+// `state` comes from the server (Cubby: the map pin; TPM stores: their record);
+// one with none shows under All States only.
+const statesOf = (list) => [...new Set(list.map((f) => f.state).filter(Boolean))].sort();
 
 export default function FacilityOperations({ activeSub, onSubChange }) {
   const [state, setState] = useState({ status: 'loading', data: null, error: null });
@@ -110,6 +120,8 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   // The ONE facility choice for every tab (Oct 20), remembered on this device.
   const [picked, setPickedState] = useState(readFacility);
   const setPicked = useCallback((id) => { setPickedState(id); saveFacility(id); }, []);
+  const [usState, setUsStateRaw] = useState(readState);
+  const setUsState = useCallback((v) => { setUsStateRaw(v); saveState(v); }, []);
   const [period, setPeriod] = useState('this-month');
   // Where the last KPI / chart bar pointed: the card to scroll to and, for the
   // past-due table, what to narrow it to. `n` changes on every click so the
@@ -199,7 +211,16 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   // on screen stay put until the new ones arrive.
   useEffect(() => pollWhileVisible(() => load(), 5 * 60 * 1000), [load]);
 
-  const facilities = useMemo(() => [...(state.data?.facilities || []), ...thirdParty], [state.data, thirdParty]);
+  const everyFacility = useMemo(() => [...(state.data?.facilities || []), ...thirdParty], [state.data, thirdParty]);
+  // The State filter narrows every tab: "All Facilities" means all of them in
+  // that state. Shown only when the facilities span more than one state; a
+  // remembered state that is not on the list reads as All States.
+  const states = useMemo(() => statesOf(everyFacility), [everyFacility]);
+  const stateOn = states.length > 1 && states.includes(usState) ? usState : '';
+  const facilities = useMemo(
+    () => (stateOn ? everyFacility.filter((f) => f.state === stateOn) : everyFacility),
+    [everyFacility, stateOn],
+  );
 
   // True while the Site Map is on screen with its own search box.
   const [mapSearch, setMapSearch] = useState(false);
@@ -220,8 +241,8 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   const oneTab = ONE_FACILITY.has(screen);
   const firstOne = useMemo(() => {
     if (screen === 'site-map') return modelIds ? facilities.find((f) => modelIds.includes(f.id)) : null;
-    return (state.data?.facilities || [])[0] || facilities[0];
-  }, [screen, modelIds, facilities, state.data]);
+    return facilities.find((f) => !isThirdParty(f)) || facilities[0];
+  }, [screen, modelIds, facilities]);
   const shown = oneTab && current === 'all' ? (firstOne?.id || 'all') : current;
   const scope = useMemo(
     () => (shown === 'all' ? facilities : facilities.filter((f) => f.id === shown)),
@@ -251,7 +272,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           <h2>Operations</h2>
           <p>
             {state.data
-              ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} managed by an operator` : ''}, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
+              ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
               : 'Storage facility figures from Cubby'}
           </p>
         </div>
@@ -274,24 +295,28 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           onRetry={() => load()} />
       )}
 
-      {state.status === 'ready' && !facilities.length && (
+      {state.status === 'ready' && !everyFacility.length && (
         <div className="dash-card"><div className="ops-empty">
           {state.data?.syncStatus === 'not_configured' ? NOT_CONNECTED : 'Cubby returned no facilities for this account.'}
         </div></div>
       )}
 
-      {state.status === 'ready' && facilities.length > 0 && state.data?.cubbyConfigured === false && canSeeKeyHint && (
+      {state.status === 'ready' && everyFacility.length > 0 && state.data?.cubbyConfigured === false && canSeeKeyHint && (
         <p className="ops-note" role="status" style={{ margin: '0 0 12px' }}>
           Cubby is not connected on this server, so these figures are from the last sync and will not update. An administrator needs to set CUBBY_API_KEY in the API's app settings.
         </p>
       )}
 
-      {state.status === 'ready' && facilities.length > 0 && screen === 'portfolio' && <Portfolio />}
+      {state.status === 'ready' && everyFacility.length > 0 && screen === 'portfolio' && <Portfolio />}
 
-      {state.status === 'ready' && facilities.length > 0 && screen !== 'portfolio' && (
+      {state.status === 'ready' && everyFacility.length > 0 && screen !== 'portfolio' && (
         <div className="ops-root">
           <div className="ops-bar-top">
-            <FacilityPicker facilities={facilities} value={shown} onChange={setPicked} allowAll={!oneTab} />
+            <div className="ops-bar-left">
+              {states.length > 1 && <StatePicker states={states} value={stateOn} onChange={setUsState} />}
+              <FacilityPicker facilities={facilities} value={shown} onChange={setPicked} allowAll={!oneTab}
+                allLabel={stateOn ? `All ${stateOn} Facilities` : 'All Facilities'} />
+            </div>
             <div className="ops-bar-right">
               {/* The Site Map has its own search on the map (units here, tenants anywhere) - one box, not two.
                   Until that map is on screen (loading, failed, no site model) this Lookup stands in. */}
@@ -322,7 +347,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {screen === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} section={view} onSection={onView('reports')} />}
           {screen === 'revenue' && (canRevenue
             ? <Revenue facility={single} section={view} onSection={onView('revenue')} />
-            : <div className="dash-card"><div className="ops-empty">Revenue Management is for managers and administrators.</div></div>)}
+            : <div className="dash-card"><div className="ops-empty">ECRI Management is for managers and administrators.</div></div>)}
           {screen === 'site-map' && (current === 'all' && modelIds === null
             ? <LoadingState size="section" label="Loading the site map" minHeight={420} />
             : <Suspense fallback={<LoadingState size="section" label="Loading the site map" minHeight={420} />}><SiteMap facility={single} facilities={facilities} onPick={setPicked} modelIds={modelIds} onMapSearch={setMapSearch} /></Suspense>)}

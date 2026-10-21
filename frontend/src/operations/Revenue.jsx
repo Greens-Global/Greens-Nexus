@@ -1,4 +1,5 @@
-// Operations > Revenue Management (Neil, Oct 20 2026): rent changes for
+// Operations > ECRI Management (Neil, Oct 20 2026; renamed from Revenue
+// Management to Cubby's words, Miranda, Oct 21 2026): rent changes for
 // EXISTING tenants (in self storage, the existing-customer rate increase).
 //
 // "Does the rate need to go up or down? And what pricing strategy am I
@@ -25,6 +26,25 @@ import SectionPicker from './SectionPicker';
 import { csvName, downloadCsv } from './csv';
 
 const cash = (c) => money(c, { exact: true });
+
+// Over/Under Standard Rate (Miranda, Oct 21 2026: Cubby's words, as a percent):
+// (current rate - current standard rate) / current standard rate. Negative =
+// the tenant pays under the standard rate. null when there is no standard rate.
+export function overUnderPct(t) {
+  if (!t?.street) return null;
+  return Math.round(((t.rent - t.street) / t.street) * 1000) / 10;
+}
+export const overUnderText = (p) => (p == null ? '-' : `${p > 0 ? '+' : ''}${p.toFixed(1)}%`);
+// Under the standard rate reads red; at or over it, the table's own color.
+function OverUnderCell({ t }) {
+  const p = overUnderPct(t);
+  return (
+    <td data-th="Over/Under Standard Rate" className="num" data-under={p != null && p < 0}
+      style={p != null && p < 0 ? { color: 'var(--bad-fg)', fontWeight: 600 } : undefined}>
+      {overUnderText(p)}
+    </td>
+  );
+}
 const signed = (c) => `${c > 0 ? '+' : c < 0 ? '-' : ''}${cash(Math.abs(c))}`;
 const SECTIONS = [
   { key: 'tenants', label: 'Tenants' },
@@ -40,7 +60,7 @@ const ROW_STATUS = {
   pending: ['pill-muted', 'Not Yet in Cubby'], pushed: ['status-approved', 'In Cubby'],
   entered: ['status-approved', 'Entered in Cubby'], failed: ['pill-muted', 'Not Yet in Cubby'], removed: ['pill-muted', 'Removed'],
 };
-const CAP_LABEL = { street: 'Capped at street rate', street_plus: 'Capped at street +', none: 'No cap' };
+const CAP_LABEL = { street: 'Capped at standard rate', street_plus: 'Capped at standard rate +', none: 'No cap' };
 
 function stay(months) {
   if (months == null) return '-';
@@ -62,7 +82,10 @@ export function filterTenants(rows, f) {
   return rows.filter((t) => {
     if (f.unitType && t.unitType !== f.unitType) return false;
     if (q && !`${t.tenant} ${t.unit}`.toLowerCase().includes(q)) return false;
-    if (f.underPct !== '' && f.underPct != null && !(t.gapPct != null && t.gapPct > Number(f.underPct))) return false;
+    if (f.underPct !== '' && f.underPct != null) {
+      const p = overUnderPct(t);     // the column's own figure: under by more than X% = below -X%
+      if (!(p != null && -p > Number(f.underPct))) return false;
+    }
     if (f.stayed !== '' && f.stayed != null && !((t.monthsStayed ?? -1) > Number(f.stayed))) return false;
     if (f.noIncrease !== '' && f.noIncrease != null) {
       const since = t.monthsSinceIncrease ?? t.monthsStayed ?? 0;
@@ -147,13 +170,13 @@ function StrategyFields({ f, set }) {
           : <Field label="Increase $"><input className="form-input" type="number" min="0" step="1" value={f.increase_dollars} onChange={up('increase_dollars')} aria-label="Increase dollars" /></Field>}
         <Field label="Cap">
           <select className="form-input" value={f.cap_mode} onChange={up('cap_mode')} aria-label="Cap">
-            <option value="street">At Street Rate</option>
-            <option value="street_plus">At Street Rate + %</option>
+            <option value="street">At Current Standard Rate</option>
+            <option value="street_plus">At Current Standard Rate + %</option>
             <option value="none">No Cap</option>
           </select>
         </Field>
         {f.cap_mode === 'street_plus' && (
-          <Field label="Street + %"><input className="form-input" type="number" min="0" max="100" step="0.5" value={f.cap_pct} onChange={up('cap_pct')} aria-label="Cap percent over street" /></Field>
+          <Field label="Standard Rate + %"><input className="form-input" type="number" min="0" max="100" step="0.5" value={f.cap_pct} onChange={up('cap_pct')} aria-label="Cap percent over standard rate" /></Field>
         )}
       </div>
       <div style={grid}>
@@ -325,17 +348,17 @@ function ApplyModal({ facilityId, data, strategies, selected, onClose, onSaved }
             <div className="req-table-wrapper">
               <table className="req-table stack-table">
                 <thead><tr>
-                  <th>Tenant</th><th>Unit</th><th className="num">Current</th><th className="num">Street</th>
-                  <th className="num">New Rent</th><th className="num">Change</th><th>Why Not</th>
+                  <th>Tenant</th><th>Unit</th><th className="num">Current Rate</th><th className="num">Current Standard Rate</th>
+                  <th className="num">New Rate</th><th className="num">Change</th><th>Why Not</th>
                 </tr></thead>
                 <tbody>
                   {result.rows.map((r) => (
                     <tr key={r.key} style={r.eligible ? undefined : { color: 'var(--muted)' }}>
                       <td>{r.tenant}</td>
                       <td data-th="Unit">{r.unit} <span style={{ color: 'var(--muted)' }}>{r.unitType}</span></td>
-                      <td data-th="Current" className="num">{cash(r.rent)}</td>
-                      <td data-th="Street" className="num">{cash(r.street)}</td>
-                      <td data-th="New Rent" className="num">{r.eligible ? <strong>{cash(r.newRent)}</strong> : '-'}</td>
+                      <td data-th="Current Rate" className="num">{cash(r.rent)}</td>
+                      <td data-th="Current Standard Rate" className="num">{cash(r.street)}</td>
+                      <td data-th="New Rate" className="num">{r.eligible ? <strong>{cash(r.newRent)}</strong> : '-'}</td>
                       <td data-th="Change" className="num">{r.eligible ? `${signed(r.increase)} (${r.increasePct}%)${r.capped ? ' Capped' : ''}` : '-'}</td>
                       <td data-th="Why Not">{r.reasons.join('; ')}</td>
                     </tr>
@@ -421,7 +444,7 @@ function BatchModal({ batchId, onClose, onChanged }) {
         <div className="req-table-wrapper">
           <table className="req-table stack-table">
             <thead><tr>
-              <th>Tenant</th><th>Unit</th><th className="num">Current</th><th className="num">New Rent</th>
+              <th>Tenant</th><th>Unit</th><th className="num">Current Rate</th><th className="num">New Rate</th>
               <th className="num">Change</th><th>Cubby</th><th aria-label="Actions" />
             </tr></thead>
             <tbody>
@@ -429,8 +452,8 @@ function BatchModal({ batchId, onClose, onChanged }) {
                 <tr key={c.id} style={c.status === 'removed' ? { color: 'var(--muted)', textDecoration: 'line-through' } : undefined}>
                   <td>{c.url ? <a href={c.url} target="_blank" rel="noreferrer">{c.tenant}</a> : c.tenant}</td>
                   <td data-th="Unit">{c.unit} <span style={{ color: 'var(--muted)' }}>{c.unitType}</span></td>
-                  <td data-th="Current" className="num">{cash(c.rent)}</td>
-                  <td data-th="New Rent" className="num">{cash(c.newRent)}</td>
+                  <td data-th="Current Rate" className="num">{cash(c.rent)}</td>
+                  <td data-th="New Rate" className="num">{cash(c.newRent)}</td>
                   <td data-th="Change" className="num">{signed(c.increase)}</td>
                   <td data-th="Cubby">
                     <Badge map={ROW_STATUS} value={c.status} />
@@ -470,7 +493,7 @@ function BatchModal({ batchId, onClose, onChanged }) {
 // ── The tab ───────────────────────────────────────────────────────────────────
 
 // The facility comes from the page's one Facility dropdown (Oct 20).
-// Operations' top bar picks the view (Revenue Management menu, Oct 21) through
+// Operations' top bar picks the view (ECRI Management menu, Oct 21) through
 // `section` / `onSection`; without them the in-page View dropdown does.
 export default function Revenue({ facility, section: sectionProp, onSection }) {
   const facilityId = facility?.id || '';
@@ -513,7 +536,7 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
     return (
       <div className="dash-card">
         <div className="dash-card-title">Pick a Facility</div>
-        <div className="dash-card-sub">Pick a facility above to see Revenue Management. Rent changes are planned one facility at a time.</div>
+        <div className="dash-card-sub">Pick a facility above to see ECRI Management. Rent changes are planned one facility at a time.</div>
       </div>
     );
   }
@@ -541,7 +564,7 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
           <div className="dash-card-head"><div>
             <div className="dash-card-title">Current Tenants</div>
             <div className="dash-card-sub">
-              Each tenant&apos;s rent against today&apos;s street rate, from Cubby as of {formatDate(data.asOf)}. Tick tenants to apply a strategy to just them.
+              Each tenant&apos;s current rate against today&apos;s current standard rate, from Cubby as of {formatDate(data.asOf)}. Tick tenants to apply a strategy to just them.
             </div>
           </div></div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '4px 0 12px' }}>
@@ -550,8 +573,8 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
               <option value="">All Unit Types</option>
               {data.unitTypes.map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
-            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Under Street By More Than
-              <input className="form-input" type="number" min="0" value={filters.underPct} onChange={setF('underPct')} aria-label="Under street by more than percent" style={{ width: 70 }} />%</label>
+            <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Under Standard Rate By More Than
+              <input className="form-input" type="number" min="0" value={filters.underPct} onChange={setF('underPct')} aria-label="Under standard rate by more than percent" style={{ width: 70 }} />%</label>
             <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>Stayed More Than
               <input className="form-input" type="number" min="0" value={filters.stayed} onChange={setF('stayed')} aria-label="Stayed more than months" style={{ width: 70 }} />Months</label>
             <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>No Increase In
@@ -563,8 +586,8 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
                 <thead><tr>
                   <th><input type="checkbox" aria-label="Select all shown" checked={allPicked}
                     onChange={() => setPicked((s) => { const n = new Set(s); rows.forEach((t) => (allPicked ? n.delete(t.key) : n.add(t.key))); return n; })} /></th>
-                  <th>Tenant</th><th>Unit</th><th>Move-In</th><th className="num">Stay</th><th className="num">Rent</th>
-                  <th className="num">Street Rate</th><th className="num">Under Street</th><th>Last Rent Change</th><th className="num">Balance</th><th>Status</th>
+                  <th>Tenant</th><th>Unit</th><th>Move-In</th><th className="num">Stay</th><th className="num">Current Rate</th>
+                  <th className="num">Current Standard Rate</th><th className="num">Over/Under Standard Rate</th><th>Last Rent Change</th><th className="num">Balance</th><th>Status</th>
                 </tr></thead>
                 <tbody>
                   {rows.map((t) => (
@@ -574,9 +597,9 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
                       <td data-th="Unit">{t.unit} <span style={{ color: 'var(--muted)' }}>{t.unitType}</span></td>
                       <td data-th="Move-In">{formatDate(t.moveIn, '-')}</td>
                       <td data-th="Stay" className="num">{stay(t.monthsStayed)}</td>
-                      <td data-th="Rent" className="num">{cash(t.rent)}</td>
-                      <td data-th="Street Rate" className="num">{cash(t.street)}</td>
-                      <td data-th="Under Street" className="num">{t.gap > 0 ? `${cash(t.gap)} (${t.gapPct}%)` : t.gap < 0 ? `Over by ${cash(-t.gap)}` : '-'}</td>
+                      <td data-th="Current Rate" className="num">{cash(t.rent)}</td>
+                      <td data-th="Current Standard Rate" className="num">{cash(t.street)}</td>
+                      <OverUnderCell t={t} />
                       <td data-th="Last Rent Change">{t.lastIncrease ? `${formatDate(t.lastIncrease)}${t.lastIncreaseSource === 'nexus' ? ' (Nexus)' : ''}` : 'None'}</td>
                       <td data-th="Balance" className="num" style={t.pastDue ? { color: 'var(--bad-fg)', fontWeight: 600 } : undefined}>
                         {t.balance ? `${cash(t.balance)}${t.pastDue ? ' Past Due' : ''}` : '-'}
