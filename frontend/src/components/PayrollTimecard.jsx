@@ -14,6 +14,7 @@ import { PHONE_QUERY } from '../lib/keys';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
+import ChoicePills from './ChoicePills';
 import BreakPremiums from './BreakPremiums';
 import GeofencePunchModal from './GeofencePunchModal';
 import AddTimeModal from './AddTimeModal';
@@ -2821,13 +2822,10 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
           {/* In self mode only the MISSING punch is editable - an existing time stays
               shown (disabled) for context but can't be silently overwritten here. */}
           {showType && (
-            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Type
-              <select className="form-input" value={type} onChange={e => pickType(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
-                <option value="Regular">Regular</option>
-                {canAddBreak && <option value="Break">Break</option>}
-                {LEAVE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </label>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Type
+              <ChoicePills label="Type" value={type} onChange={pickType}
+                options={['Regular', ...(canAddBreak ? ['Break'] : []), ...LEAVE_TYPES]} />
+            </div>
           )}
           {(!self || needIn) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>{isBreak ? 'Break start time' : 'Clock in time'}<input autoFocus={self && needIn} type="datetime-local" className="form-input" value={inAt} disabled={self && !needIn} onChange={e => setInAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needIn ? 0.6 : 1 }} /></label>}
           {(!self || needOut) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>{isBreak ? 'Break end time' : 'Clock out time'}<input autoFocus={self && needOut && !needIn} type="datetime-local" className="form-input" value={outAt} disabled={self && !needOut} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needOut ? 0.6 : 1 }} /></label>}
