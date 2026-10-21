@@ -452,9 +452,6 @@ export default function TicketsView() {
   // path into Resolved/Closed - the row's status cell, a board drag, the bulk
   // bar - opens the Resolve dialog instead of saving straight away.
   const [resolveReq, setResolveReq] = useState(null);   // { ids, status, mode? }
-  // The row's Mark Resolved: `mode` is 'self_resolve' for the requester (an
-  // optional "What fixed it?") or 'resolve' for the desk (a written resolution).
-  const requestResolve = useCallback((tk, mode = 'resolve') => setResolveReq({ ids: [tk.id], status: 'resolved', mode }), []);
   // Read through a ref so the callback stays stable for the memoized rows.
   const ticketsRef = useRef(tickets);
   useEffect(() => { ticketsRef.current = tickets; }, [tickets]);
@@ -708,7 +705,7 @@ export default function TicketsView() {
                 {g.rows.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
                     myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
-                    onResolve={requestResolve} people={people}
+                    people={people}
                     checked={selected.has(t.id)} onToggle={toggleSel} band={idx % 2 === 1} mobile />
                 ))}
                 {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -729,7 +726,7 @@ export default function TicketsView() {
                 {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
                     myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
-                    onResolve={requestResolve} people={people}
+                    people={people}
                     checked={selected.has(t.id)} onToggle={toggleSel} band={idx % 2 === 1} mobile />
                 ))}
                 {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
@@ -778,7 +775,7 @@ export default function TicketsView() {
                   {g.rows.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
                     myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
-                    onResolve={requestResolve} people={people}
+                    people={people}
                       checked={selected.has(t.id)} onToggle={toggleSel} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -801,7 +798,7 @@ export default function TicketsView() {
                   {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
                     myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={openTicket}
-                    onResolve={requestResolve} people={people}
+                    people={people}
                       checked={selected.has(t.id)} onToggle={toggleSel} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}

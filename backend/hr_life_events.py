@@ -1004,7 +1004,7 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
 # company, then the candidate - from their email, no Nexus login -> signed
 # by both = hired, and the hiring packet starts by itself.
 
-OFFER_STAGES = ("applied", "screening", "interview", "offer")
+OFFER_STAGES = ("applied", "screening", "interview", "decision", "offer")
 # What an offer letter can print from the offer form beyond the role, start
 # and pay - the form asks for one only when the letter prints it.
 OFFER_PRINTS = ("address", "permanent_address", "preferred_name", "phone", "work_location", "work_schedule",
@@ -1211,6 +1211,8 @@ def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[d
                             note=f"Offer started - {setting.name or 'offer letter'}", by_email=user["email"],
                             created_at=now))
         cand.stage = "offer"
+        import hiring_decision
+        hiring_decision.close(db, cand)      # the decision is made - the offer is out
     card_from_intake(db, ev)
     db.flush()
     p = hpd.event_plan(db, ev, setting, sender=user["email"], can_see_pay=True)
@@ -2251,6 +2253,14 @@ def _apply_promotion(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
             + (" The new pay is on Pay & Benefits from that date." if ev.pay else ""))
     for to in {ev.created_by, (emp.manager_email or "").lower(), hr_contact} - {"", emp.work_email.lower()}:
         _notify(db, to, f"{title} Signed - {ev.subject_name}", body, ev)
+    # The Promotion checklist (Neil, Oct 19), with the new role's own steps.
+    import hr_checklists
+    try:
+        if not hr_checklists.open_checklist(db, emp.id, "promotion"):
+            hr_checklists.start(db, emp, "promotion", anchor_date=eff, by=ev.created_by,
+                                role_id=jr.id if jr else "")
+    except ValueError as e:
+        print(f"[life-events] promotion checklist not started for {emp.id}: {e}")
     _notify(db, emp.work_email.lower(), f"Your {title} Is Official",
             f"Your new role, {d.get('job_title')}, takes effect {us_date(eff)}. The signed letter is in "
             f"My HR > My Documents.", ev)

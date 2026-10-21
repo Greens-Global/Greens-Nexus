@@ -13,8 +13,9 @@ import { api } from '../api';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { Spinner } from './AsyncState';
-import { SchedulingFields, emptySchedule, scheduleBody, scheduleProblems } from './HiringSchedule';
+import { SchedulingFields, emptySchedule, scheduleBody, scheduleProblems, leadsFor } from './HiringSchedule';
 import { useRole } from '../contexts/RoleContext';
+import { DateField } from '../tasks/components';
 
 const OTHER = '__other__';
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
@@ -158,6 +159,13 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
     <div><label style={FL} htmlFor={`cf-${key}`}>{label}</label>
       <input id={`cf-${key}`} className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
   );
+  // A date box that reads MM/DD/YYYY whatever the computer's region (Neil, Oct 19).
+  const dateInput = (label, key) => (
+    <div><label style={FL}>{label}</label>
+      <div className="form-input" style={{ width: '100%', display: 'flex', alignItems: 'center' }}>
+        <DateField value={f[key]} onChange={x => set(key, x || '')} placeholder="MM/DD/YYYY" title={label.replace(' *', '')} style={{ width: '100%' }} />
+      </div></div>
+  );
   const companyName = entities.find(e => e.id === f.company)?.name;
 
   return (
@@ -215,10 +223,10 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
                 {role ? (role.department || 'The role has no department set') : 'Set by the role'}
               </div></div>
           )}
-          {input('Expected Start', 'expected_start', { type: 'date' })}
+          {dateInput('Expected Start', 'expected_start')}
           {!scheduleNow && (
             <div>
-              {input(editing ? 'Expected Interview Date' : 'Expected Interview Date *', 'expected_interview_on', { type: 'date' })}
+              {dateInput(editing ? 'Expected Interview Date' : 'Expected Interview Date *', 'expected_interview_on')}
               <div style={hint}>When the interview should happen - screening is due one business day before it.</div>
             </div>
           )}
@@ -254,7 +262,8 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
                 Schedule The Interview Now
               </label>
               <div style={hint}>Already screened? Book the interview with the Teams invite in one go - they go straight to Interview.</div>
-              {scheduleNow && <div style={{ marginTop: 12 }}><SchedulingFields value={sched} onChange={setSched} roleId={f.role_id === OTHER ? '' : f.role_id} tpls={tpls} /></div>}
+              {scheduleNow && <div style={{ marginTop: 12 }}><SchedulingFields value={sched} onChange={setSched} roleId={f.role_id === OTHER ? '' : f.role_id} tpls={tpls}
+                department={f.department} leads={leadsFor(opts.departmentLeads, f.department)} /></div>}
             </div>
           )}
         </div>

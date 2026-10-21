@@ -19,7 +19,7 @@ import { inferFieldDef } from '../lib/extractVariables';
 // dropdown, validation, default) stays in DefineMergeFieldModal, reached from
 // the pencil - one editor for that, not two.
 const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1290, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
-const card = { background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 700, maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' };
+const card = { background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' };
 const rowStyle = { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 130px 150px auto auto', gap: 10, alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--line)' };
 const selectStyle = { fontSize: 12.5, fontFamily: 'inherit', border: '1px solid var(--line)', borderRadius: 7, padding: '6px 8px', background: 'var(--card)', color: 'var(--ink)', width: '100%', cursor: 'pointer' };
 
@@ -41,7 +41,7 @@ export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highl
 
   return (
     <div style={overlay} onClick={onClose}>
-      <div style={card} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Template Fields">
+      <div className="nx-popup" style={card} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Template Fields">
         <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Template Fields</div>

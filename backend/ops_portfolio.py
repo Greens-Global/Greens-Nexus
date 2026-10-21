@@ -187,7 +187,7 @@ def register_source(loader: Callable[[], list[dict]]) -> None:
 # Until the CubeSmart tables land, the CubeSmart-managed properties are one
 # placeholder line in the picker: listed, never counted.
 CUBESMART_PLACEHOLDER = {
-    "id": "cubesmart:pending", "name": "CubeSmart-Managed Properties", "shortName": "CubeSmart-Managed",
+    "id": "cubesmart:pending", "name": "TPM Properties (CubeSmart)", "shortName": "TPM (CubeSmart)",
     "source": "cubesmart", "managedBy": "CubeSmart", "state": "", "market": "", "connected": False,
 }
 

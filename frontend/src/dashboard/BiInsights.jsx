@@ -295,7 +295,7 @@ function DrilldownModal({ request, onClose }) {
   const go = () => { onClose(); if (request.nav) navigate(request.nav); };
   return (
     <div className="bi-scrim" onClick={onClose} role="presentation">
-      <div className="bi-modal" role="dialog" aria-modal="true" aria-label={state.title || request.label} onClick={(e) => e.stopPropagation()}>
+      <div className="bi-modal nx-popup" role="dialog" aria-modal="true" aria-label={state.title || request.label} onClick={(e) => e.stopPropagation()}>
         <div className="bi-modal-head">
           <div style={{ minWidth: 0 }}>
             <div className="dash-card-title">{state.title || request.label}</div>

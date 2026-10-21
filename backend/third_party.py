@@ -32,7 +32,10 @@ import third_party_parse as tpp
 from third_party_models import (ThirdPartyFlashDay, ThirdPartyImport, ThirdPartyProperty, ThirdPartyRentRoll,
                                 ThirdPartySreMonth)
 
-SOURCES = {"cubesmart": {"label": "CubeSmart", "managed": "CubeSmart Managed"}}
+# "managed" is the label the screen shows. Third-party management is "TPM" in
+# the industry and applies to any operator (Neil, Oct 21 2026), so the concept
+# leads and the operator's name is the detail.
+SOURCES = {"cubesmart": {"label": "CubeSmart", "managed": "TPM · CubeSmart"}}
 
 # The three Texas stores CubeSmart runs for Greens (store numbers from the
 # Financials workbooks and the Site Models). Seeded on first read; the site
@@ -45,6 +48,11 @@ SEED = (
     {"id": "cubesmart-6093", "source": "cubesmart", "store_number": "6093", "name": "Greens Storage Georgetown",
      "short_name": "Georgetown", "site_model_id": "greens-storage-georgetown"},
 )
+# The state each store is in, for the Operations State filter (Neil, Oct 21
+# 2026: CA vs TX). The property table keeps no address; every store CubeSmart
+# runs for Greens is in Texas, and a new one with no entry here shows under
+# All States only.
+STATES = {"cubesmart-6992": "TX", "cubesmart-4568": "TX", "cubesmart-6093": "TX"}
 STALE_AFTER_DAYS = 2        # a Daily Flash older than this is flagged on screen
 HISTORY_MONTHS = 36
 
@@ -90,7 +98,7 @@ def properties(db: Session, include_disabled: bool = False) -> List[ThirdPartyPr
 
 
 def property_json(p: ThirdPartyProperty) -> Dict[str, Any]:
-    src = SOURCES.get(p.source, {"label": p.source.title(), "managed": f"{p.source.title()} Managed"})
+    src = SOURCES.get(p.source, {"label": p.source.title(), "managed": f"TPM · {p.source.title()}"})
     return {"id": p.id, "source": p.source, "sourceLabel": src["label"], "managedLabel": src["managed"],
             "storeNumber": p.store_number, "name": p.name, "shortName": p.short_name,
             "siteModelId": p.site_model_id or "", "propertyAssetId": p.property_asset_id or "",
@@ -388,7 +396,7 @@ def facility_block(p: ThirdPartyProperty, sre: List[ThirdPartySreMonth], flash: 
     else:
         as_of = ""
     stale = (not as_of) or (today - date.fromisoformat(as_of)).days > STALE_AFTER_DAYS
-    src = SOURCES.get(p.source, {"label": p.source.title(), "managed": f"{p.source.title()} Managed"})
+    src = SOURCES.get(p.source, {"label": p.source.title(), "managed": f"TPM · {p.source.title()}"})
 
     def trio(prefix):
         return {"mtd": cents(getattr(fl, f"{prefix}_mtd")) if getattr(fl, f"{prefix}_mtd") is not None else None,
@@ -424,6 +432,7 @@ def facility_block(p: ThirdPartyProperty, sre: List[ThirdPartySreMonth], flash: 
     return {
         **b,
         "id": f"tp:{p.id}", "name": p.name, "shortName": p.short_name, "asOf": as_of or today.isoformat(),
+        "state": STATES.get(p.id, ""),
         "syncedAt": (last_import.created_at if last_import else ""),
         "managedBy": p.source, "managedLabel": src["managed"],
         "thirdParty": {

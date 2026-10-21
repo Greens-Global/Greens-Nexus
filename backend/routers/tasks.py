@@ -1909,6 +1909,14 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # Keeps `completed`, its timestamp and `status` in step regardless of which
     # one the caller actually sent.
     _apply_completion(t, new_completed, prev_completed)
+    if bool(new_completed) != bool(prev_completed):
+        # An HR checklist task closes (or reopens) its checklist steps (Oct 20).
+        import hr_checklists
+        hr_checklists.task_completed(db, t, bool(new_completed), user["email"])
+    if (t.due_on or "")[:10] != (auto_before.get("due_on") or ""):
+        # ...and a checklist subtask's new due date moves its step (Oct 20).
+        import hr_checklists
+        hr_checklists.task_due_changed(db, t, user["email"])
 
     _sync_reciprocal_dependencies(db, t, data)
 
@@ -2491,6 +2499,12 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             auto_results.append(auto)
         _apply_completion(t, new_completed, prev_completed)
         t.modified_at = now_iso()
+        if bool(new_completed) != bool(prev_completed):
+            import hr_checklists
+            hr_checklists.task_completed(db, t, bool(new_completed), user["email"])
+        if (t.due_on or "")[:10] != (auto_before[t.id].get("due_on") or ""):
+            import hr_checklists
+            hr_checklists.task_due_changed(db, t, user["email"])
 
     # Activity + notifications. Bulk previously did NEITHER: reassigning fifty
     # tasks told nobody and left no audit trail, while the same edit made one at
@@ -2654,9 +2668,12 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
                        body=body.body or "", notify=notify, defer=background_tasks.add_task,
                        parent_id=body.parent_id or "",
                        assignee_email=assert_person_on_task(db, t, body.assignee_email or ""))
-    # A comment on a candidate's screening task is a screening note (Oct 15).
+    # A comment on a candidate's screening task is a screening note (Oct 15);
+    # on their "Decide on" task it is a vote and maybe the final call (Oct 19).
     import hiring_screening
-    if hiring_screening.note_from_comment(db, t.id, user["email"], c.body or ""):
+    import hiring_decision
+    if (hiring_screening.note_from_comment(db, t.id, user["email"], c.body or "")
+            or hiring_decision.vote_from_comment(db, t.id, user["email"], c.body or "")):
         db.commit()
     return comment_to_dict(c)
 

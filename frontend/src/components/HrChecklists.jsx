@@ -1,12 +1,16 @@
-// Onboarding / offboarding / leave checklists (HR roadmap Section C:
+// Onboarding / promotion / offboarding / leave checklists (HR roadmap Section C:
 // "Onboarding checklist per hire ... each with owner + due date").
 //
 //   ChecklistSection   - the Checklist tab on a People profile (HR)
 //   MyChecklistSteps   - the steps the signed-in person owns, on My HR. A
 //                        manager, IT or the new hire ticks their own steps here
 //                        without People access; renders nothing when empty.
-//   ChecklistSettings  - People > Checklists: who owns each role per company,
-//                        and the template rows every new checklist is built from
+//   ChecklistSettings  - who owns each role and the steps every new checklist
+//                        is built from: the Checklist Library (Global Settings >
+//                        Hiring) or one company (Company Settings > Checklists),
+//                        with copy from / to other companies (Neil, Oct 19)
+//   RoleChecklists     - Team > Role Checklists: a job role's own extra steps,
+//                        kept by its department head (Neil, Oct 19)
 //
 // The server (backend/hr_checklists.py) resolves owners and due dates and
 // ticks steps it can see for itself (a finished provisioning run, a signed
@@ -16,14 +20,16 @@ import {
   ListChecks, CheckCircle2, Circle, MinusCircle, AlertTriangle, CalendarDays,
   Pencil, X, ChevronDown, ChevronRight, Sparkles, Play, RotateCcw, Plus,
   Trash2, ArrowUp, ArrowDown, Save, Ban, UserPlus, UserMinus, PauseCircle,
-  Check, UserCog, Users, Laptop, Banknote, Package, Landmark,
+  Check, UserCog, Users, Laptop, Banknote, TrendingUp, Copy,
 } from 'lucide-react';
 import { api } from '../api';
-import { formatDate, toDateInputValue } from '../lib/datetime';
+import { formatDate, formatDateTime, toDateInputValue } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
-import { usePeopleDirectory } from '../lib/queries';
+import { usePeopleDirectory, useEntities } from '../lib/queries';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
+import { Modal, DateField, ChipMultiSelect } from '../tasks/components';
+import { COUNTRIES, countryName } from '../lib/countries';
 
 // Work OS tokens (style.css --wk-*), so the light themes and dark mode come
 // for free. Status colors carry meaning only: red = late, orange = due soon,
@@ -41,12 +47,14 @@ const LIST_META = {
 };
 const KIND_LOOK = {
   onboarding:  { Icon: UserPlus,    chip: 'dk-chip--green',  anchor: 'Starts',      verb: 'start date' },
+  promotion:   { Icon: TrendingUp,  chip: 'dk-chip--blue',   anchor: 'Effective',   verb: 'effective date' },
   offboarding: { Icon: UserMinus,   chip: 'dk-chip--orange', anchor: 'Last day',    verb: 'exit date' },
   inactive:    { Icon: PauseCircle, chip: 'dk-chip--purple', anchor: 'Leave from',  verb: 'leave start' },
 };
-const ANCHOR_LABEL = { onboarding: 'Start Date', offboarding: 'Exit Date', inactive: 'Leave Starts' };
+const ANCHOR_LABEL = { onboarding: 'Start Date', promotion: 'Effective Date', offboarding: 'Exit Date', inactive: 'Leave Starts' };
 const KIND_BLURB = {
   onboarding: 'From offer accepted to the 90-day check-in.',
+  promotion: 'A new role: the letter, pay, access and training for it.',
   offboarding: 'From notice received to final pay and access removed.',
   inactive: 'Leave of absence, suspension or garden leave.',
 };
@@ -116,11 +124,14 @@ function Avatar({ name, empty }) {
 
 // --- One step --------------------------------------------------------------
 
-function StepRow({ step, canEdit, canAct, people, onChanged, toastErr }) {
+function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, toastErr }) {
+  const comments = step.comments || [];
   const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState(false);
+  // A step with comments stays open so the thread is in view (Pranshu, Oct 20).
+  const [open, setOpen] = useState(comments.length > 0);
   const [mode, setMode] = useState('');      // '' | 'owner' | 'date'
   const [due, setDue] = useState(step.dueDate || '');
+  const [comment, setComment] = useState('');
   const closed = isClosed(step);
   const days = daysFromToday(step.dueDate);
   const late = step.overdue;
@@ -139,10 +150,25 @@ function StepRow({ step, canEdit, canAct, people, onChanged, toastErr }) {
     const why = await dialog.prompt(`Why does "${step.title}" not apply?`, { title: 'Mark As N/A', required: true, placeholder: 'e.g. No background check for this role' });
     if (why) patch({ status: 'na', note: why });
   }
-  async function editNote() {
-    const note = await dialog.prompt('Note on this step', { title: 'Add A Note', defaultValue: step.note || '', multiline: true });
-    if (note !== null) patch({ note });
+  // One thread with the step's subtask in Tasks: a comment here posts there,
+  // and one made there shows here.
+  async function addComment() {
+    const text = comment.trim();
+    if (!text) return;
+    setBusy(true);
+    try {
+      const r = await api.addChecklistComment(step.id, text);
+      setComment('');
+      onChanged(r.item, r.checklistStatus, 'Comment added.');
+    } catch (e) { toastErr(e?.message || 'Could not add the comment.'); }
+    setBusy(false);
   }
+  // Change Owner: whoever holds this step's role first, then everyone else.
+  const roleSet = new Set(roleOwners);
+  const ownerGroups = [
+    { label: `${step.ownerRoleLabel} Owners`, people: people.filter(p => roleSet.has(p.email)) },
+    { label: 'Nexus People', people: people.filter(p => !roleSet.has(p.email)) },
+  ];
 
   const dueColor = late ? 'var(--wk-red)' : soon ? 'var(--wk-orange)' : 'var(--wk-dim)';
   return (
@@ -194,7 +220,35 @@ function StepRow({ step, canEdit, canAct, people, onChanged, toastErr }) {
         <div style={{ padding: '0 12px 12px 42px', display: 'grid', gap: 10 }}>
           {step.hint && <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.55, maxWidth: '70ch' }}>{step.hint}</div>}
           {step.signal && <div style={{ fontSize: 12, color: 'var(--wk-brand)', display: 'flex', gap: 6, alignItems: 'center' }}><Sparkles size={12} /> Nexus marks this done by itself when: {step.signalLabel.charAt(0).toLowerCase() + step.signalLabel.slice(1)}</div>}
-          {step.note && <div style={{ fontSize: 12.5, color: 'var(--wk-ink)', padding: '8px 10px', background: 'var(--wk-card)', border: '1px solid var(--wk-line2)', borderRadius: 6, whiteSpace: 'pre-wrap', maxWidth: '70ch' }}>{step.note}</div>}
+          {step.note && (
+            <div style={{ fontSize: 12.5, color: 'var(--wk-ink)', padding: '8px 10px', background: 'var(--wk-card)', border: '1px solid var(--wk-line2)', borderRadius: 6, whiteSpace: 'pre-wrap', maxWidth: '70ch' }}>
+              <b style={{ fontWeight: 600 }}>{step.status === 'na' ? 'N/A Reason: ' : 'Note: '}</b>{step.note}
+            </div>
+          )}
+          {comments.length > 0 && (
+            <div style={{ display: 'grid', gap: 8, maxWidth: '70ch' }} aria-label="Comments">
+              {comments.map(c => (
+                <div key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <Avatar name={c.authorName || c.author} />
+                  <div style={{ flex: 1, minWidth: 0, padding: '7px 10px', background: 'var(--wk-card)', border: '1px solid var(--wk-line2)', borderRadius: 8 }}>
+                    <div style={{ fontSize: 12, color: 'var(--wk-dim)', marginBottom: 3 }}>
+                      <b style={{ fontWeight: 600, color: 'var(--wk-ink)' }}>{c.authorName || c.author}</b> · {formatDateTime(c.at)}{c.editedAt ? ' · Edited' : ''}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--wk-ink)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{c.body}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {canAct && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', maxWidth: '70ch' }}>
+              <textarea value={comment} onChange={e => setComment(e.target.value)} rows={1} placeholder="Add a comment - it shows on the task too"
+                aria-label="Add a comment" disabled={busy}
+                onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addComment(); } }}
+                style={{ ...inputStyle, flex: 1, minHeight: 36, resize: 'vertical', fontFamily: FONT }} />
+              <button className="primary-btn" onClick={addComment} disabled={busy || !comment.trim()} style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>Add Comment</button>
+            </div>
+          )}
           {closed && step.doneAt && (
             <div style={{ fontSize: 12, color: 'var(--wk-dim)' }}>
               {step.status === 'na' ? 'Marked N/A' : 'Done'} {step.doneBy === 'Nexus' ? 'by Nexus' : step.doneBy ? `by ${step.doneBy}` : ''} on {formatDate(step.doneAt)}
@@ -203,7 +257,6 @@ function StepRow({ step, canEdit, canAct, people, onChanged, toastErr }) {
           {canAct && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {!closed && <button onClick={markNa} disabled={busy} style={ghostBtn}><Ban size={13} /> Mark N/A</button>}
-              <button onClick={editNote} disabled={busy} style={ghostBtn}><Pencil size={13} /> {step.note ? 'Edit Note' : 'Add Note'}</button>
               {canEdit && !closed && <button onClick={() => setMode(m => m === 'owner' ? '' : 'owner')} style={{ ...ghostBtn, borderColor: mode === 'owner' ? 'var(--wk-brand)' : 'var(--wk-line)' }}><UserCog size={13} /> Change Owner</button>}
               {canEdit && !closed && <button onClick={() => { setDue(step.dueDate || ''); setMode(m => m === 'date' ? '' : 'date'); }} style={{ ...ghostBtn, borderColor: mode === 'date' ? 'var(--wk-brand)' : 'var(--wk-line)' }}><CalendarDays size={13} /> Change Date</button>}
             </div>
@@ -211,13 +264,13 @@ function StepRow({ step, canEdit, canAct, people, onChanged, toastErr }) {
           {mode === 'owner' && canEdit && (
             <div style={{ maxWidth: 360 }}>
               <PersonSearchSelect placeholder={ownerText(step) ? `${ownerText(step)} - type to change` : 'Pick who owns this step'}
-                groups={[{ label: 'Nexus People', people }]}
+                groups={ownerGroups}
                 onPick={email => { setMode(''); patch({ owner_email: email }, 'Owner changed.'); }} />
             </div>
           )}
           {mode === 'date' && canEdit && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input type="date" value={due} onChange={e => setDue(e.target.value)} aria-label="New due date" style={inputStyle} />
+              <DateField value={due} onChange={v => setDue(v || '')} placeholder="MM/DD/YYYY" title="New due date" style={{ minWidth: 150 }} />
               <button className="primary-btn" disabled={busy} onClick={() => { setMode(''); patch({ due_date: due }, 'Due date changed.'); }} style={{ fontSize: 12.5 }}>Save Date</button>
             </div>
           )}
@@ -385,10 +438,11 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             const state = phasesAll[idx].steps.every(isClosed) ? 'done' : idx === currentIdx ? 'current' : 'upcoming';
             return (
               <PhaseBlock key={`${filter}:${p.name}`} phase={p} isLast={i === phases.length - 1} state={state}
-                defaultOpen={filter !== 'all' || state === 'current' || (state === 'upcoming' && idx === currentIdx + 1) || p.steps.some(s => s.overdue)}
+                defaultOpen={filter !== 'all' || state === 'current' || (state === 'upcoming' && idx === currentIdx + 1) || p.steps.some(s => s.overdue || s.comments?.length)}
                 renderStep={s => (
                   <StepRow key={s.id} step={s} canEdit={canEdit && cl.status !== 'cancelled'} people={people}
-                    canAct={cl.status !== 'cancelled' && (canEdit || (!!me && s.ownerEmail === me))}
+                    roleOwners={cl.roleOwners?.[s.ownerRole] || []}
+                    canAct={cl.status !== 'cancelled' && (canEdit || (!!me && (s.ownerEmails || [s.ownerEmail]).includes(me)))}
                     onChanged={onStepChanged} toastErr={toastErr} />
                 )} />
             );
@@ -412,7 +466,7 @@ function StartForm({ employee, meta, onStarted, onClose, toastErr }) {
   }
   const needDate = kind !== 'onboarding';
   const ready = (!needDate || date) && (kind !== 'offboarding' || exitType);
-  const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }];
+  const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'promotion', label: 'Promotion' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }];
   return (
     <section style={{ ...card, padding: 18, marginBottom: 16, display: 'grid', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -440,8 +494,10 @@ function StartForm({ employee, meta, onStarted, onClose, toastErr }) {
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <label style={{ display: 'grid', gap: 5 }}>
           <span style={capLabel}>{ANCHOR_LABEL[kind]}</span>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} disabled={kind === 'onboarding'} style={inputStyle}
-            title={kind === 'onboarding' ? 'Onboarding counts from the start date on the profile - change it there' : ''} />
+          <span style={{ ...inputStyle, display: 'flex', alignItems: 'center', minWidth: 170 }}>
+            <DateField value={date} onChange={v => setDate(v || '')} disabled={kind === 'onboarding'} placeholder="MM/DD/YYYY" style={{ width: '100%' }}
+              title={kind === 'onboarding' ? 'Onboarding counts from the start date on the profile - change it there' : ANCHOR_LABEL[kind]} />
+          </span>
         </label>
         {kind === 'offboarding' && (
           <label style={{ display: 'grid', gap: 5 }}>
@@ -457,6 +513,7 @@ function StartForm({ employee, meta, onStarted, onClose, toastErr }) {
         {kind === 'onboarding' && (employee.startDate ? 'Steps count from the start date on the profile and move with it when it changes.' : 'No start date on the profile yet - steps will get their dates once it is added.')}
         {kind === 'offboarding' && 'Start it the day notice is received. Steps already past their date are due today. This changes nothing in Microsoft 365 - Left still happens from Change Status.'}
         {kind === 'inactive' && 'Inactive itself changes nothing in Microsoft 365, so the access steps are listed for IT.'}
+        {kind === 'promotion' && "Steps count from the day the new role takes effect, and the role's own steps are added. A signed promotion letter starts this checklist by itself."}
       </div>
       <div>
         <button className="primary-btn" onClick={go} disabled={!ready || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -576,7 +633,7 @@ export function ChecklistChip({ p, onClick, compact = false }) {
     : <span title={label} aria-label={label} style={style}>{body}</span>;
 }
 
-// --- People > Checklists > Overview -----------------------------------------
+// --- People > Checklists (the board) -----------------------------------------
 
 function BoardTile({ Icon, chip, label, value, sub, active, onClick }) {
   return (
@@ -597,7 +654,8 @@ function anchorPhrase(r) {
   const d = daysFromToday(r.anchorDate);
   if (!r.anchorDate) return r.kind === 'onboarding' ? 'No start date yet' : 'No date';
   const when = d === 0 ? 'today' : d > 0 ? `in ${d} day${d === 1 ? '' : 's'}` : `${-d} day${d === -1 ? '' : 's'} ago`;
-  const verb = r.kind === 'onboarding' ? (d >= 0 ? 'Starts' : 'Started') : r.kind === 'offboarding' ? (d >= 0 ? 'Leaves' : 'Left') : 'Leave from';
+  const verb = r.kind === 'onboarding' ? (d >= 0 ? 'Starts' : 'Started') : r.kind === 'offboarding' ? (d >= 0 ? 'Leaves' : 'Left')
+    : r.kind === 'promotion' ? 'New role from' : 'Leave from';
   return `${verb} ${formatDate(r.anchorDate)} · ${when}`;
 }
 
@@ -635,6 +693,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
     <div style={{ fontFamily: FONT }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
         <BoardTile Icon={UserPlus} chip="dk-chip--green" label="Onboarding" value={count('onboarding')} sub="people joining" active={kind === 'onboarding'} onClick={() => pickKind('onboarding')} />
+        <BoardTile Icon={TrendingUp} chip="dk-chip--blue" label="Promotion" value={count('promotion')} sub="people moving up" active={kind === 'promotion'} onClick={() => pickKind('promotion')} />
         <BoardTile Icon={UserMinus} chip="dk-chip--orange" label="Offboarding" value={count('offboarding')} sub="people leaving" active={kind === 'offboarding'} onClick={() => pickKind('offboarding')} />
         <BoardTile Icon={PauseCircle} chip="dk-chip--purple" label="On Leave" value={count('inactive')} sub="leave or suspension" active={kind === 'inactive'} onClick={() => pickKind('inactive')} />
         <BoardTile Icon={AlertTriangle} chip="dk-chip--red" label="Steps Overdue" value={overdue} sub={overdue ? 'across everyone' : 'nothing late'} active={focus === 'overdue'} onClick={() => pickFocus('overdue')} />
@@ -695,7 +754,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
               {/* What and when */}
               <span style={{ display: 'grid', gap: 3, flex: '1 1 190px', minWidth: 0 }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>
-                  <look.Icon size={13} style={{ color: `var(--wk-${r.kind === 'onboarding' ? 'green' : r.kind === 'offboarding' ? 'orange' : 'brand'})` }} />
+                  <look.Icon size={13} style={{ color: `var(--wk-${r.kind === 'onboarding' ? 'green' : r.kind === 'offboarding' ? 'orange' : r.kind === 'promotion' ? 'blue' : 'brand'})` }} />
                   {r.kindLabel}{r.exitType ? ` · ${EXIT_LABEL[r.exitType] || r.exitType}` : ''}
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{anchorPhrase(r)}</span>
@@ -729,7 +788,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
     </div>
   );
 }
-const KIND_LABEL_OF = k => ({ onboarding: 'Onboarding', offboarding: 'Offboarding', inactive: 'On Leave' }[k] || 'All');
+const KIND_LABEL_OF = k => ({ onboarding: 'Onboarding', promotion: 'Promotion', offboarding: 'Offboarding', inactive: 'On Leave' }[k] || 'All');
 
 // --- My HR: steps I own ----------------------------------------------------
 
@@ -798,16 +857,15 @@ export function MyChecklistSteps() {
   );
 }
 
-// --- People > Checklists: owners + templates -------------------------------
+// --- Owners + templates (Checklist Library / Company Settings) --------------
 
+// Neil, Oct 19: payroll is Accounting, equipment is IT, there is no Finance.
 const ROLE_LOOK = {
-  hr:        { label: 'HR',        Icon: Users,    chip: 'dk-chip--brand',  hint: 'Used when a company has no HR contact in Company Setup.' },
-  it:        { label: 'IT',        Icon: Laptop,   chip: 'dk-chip--blue',   hint: 'Provisioning, licenses, mailbox and sign-in steps.' },
-  payroll:   { label: 'Payroll',   Icon: Banknote, chip: 'dk-chip--green',  hint: 'Tax forms, final pay and leave payout.' },
-  equipment: { label: 'Equipment', Icon: Package,  chip: 'dk-chip--orange', hint: 'Laptops and phones in Item Management.' },
-  finance:   { label: 'Finance',   Icon: Landmark, chip: 'dk-chip--purple', hint: 'Accounting, bank and vendor portals, company cards.' },
+  hr:         { label: 'HR',         Icon: Users,    chip: 'dk-chip--brand', hint: 'Used when a company has no HR contact in Company Setup.' },
+  it:         { label: 'IT',         Icon: Laptop,   chip: 'dk-chip--blue',  hint: 'Provisioning, licenses, sign-in, and laptops and phones in Item Management.' },
+  accounting: { label: 'Accounting', Icon: Banknote, chip: 'dk-chip--green', hint: 'Tax forms, payroll, final pay and leave payout, systems outside Microsoft 365.' },
 };
-const OWNER_ROLES = ['hr', 'it', 'payroll', 'equipment', 'finance'];
+const OWNER_ROLES = ['hr', 'it', 'accounting'];
 
 // A sticky bar that appears only while there is something to save.
 function SaveBar({ label, busy, onDiscard, onSave, saveText }) {
@@ -833,7 +891,10 @@ function OwnersCard({ entityId, people, toastOk, toastErr }) {
     api.getChecklistOwners(entityId).then(r => { setData(r); setDraft(r.owners || {}); }).catch(() => setData(false));
   }, [entityId]);
   const nameOf = em => people.find(p => p.email === em)?.name || em;
-  const dirty = data && JSON.stringify(Object.fromEntries(Object.entries(draft).filter(([, v]) => v))) !== JSON.stringify(Object.fromEntries(Object.entries(data.owners || {}).filter(([, v]) => v)));
+  // Several people per role (Pranshu, Oct 20) - each role is a list.
+  const listOf = v => (Array.isArray(v) ? v : v ? [v] : []);
+  const norm = o => JSON.stringify(Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k, listOf(v)]).filter(([, v]) => v.length)));
+  const dirty = data && norm(draft) !== norm(data.owners);
   async function save() {
     setBusy(true);
     try { const r = await api.saveChecklistOwners(entityId, draft); setData(d => ({ ...d, ...r })); setDraft(r.owners || {}); toastOk('Checklist owners saved.'); }
@@ -845,17 +906,18 @@ function OwnersCard({ entityId, people, toastOk, toastErr }) {
   return (
     <section style={{ ...card, padding: 18, marginBottom: 18 }}>
       <div style={{ marginBottom: 14 }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: FONT, color: 'var(--wk-ink)' }}>Who Owns Each Role</h3>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: FONT, color: 'var(--wk-ink)' }}>Role Owners</h3>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
-          Manager and Employee steps go to each person&apos;s reports-to and to the person. HR steps go to the company&apos;s HR contact{data.hrContact ? ` (${nameOf(data.hrContact)})` : ''} first.
+          Pick one or more people per role. Several owners share one task per checklist - any of them closing it closes the step.
+          Manager and Employee steps go to each person&apos;s reports-to and to the person. HR steps go to the HR owners here, or the company&apos;s HR contact{data.hrContact ? ` (${nameOf(data.hrContact)})` : ''} when none is set.
           {entityId ? ' A role left blank here uses the default.' : ''}
         </p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
         {OWNER_ROLES.map(role => {
           const look = ROLE_LOOK[role];
-          const own = draft[role];
-          const inherited = !own && data.effective?.[role];
+          const own = listOf(draft[role]);
+          const inherited = own.length ? [] : listOf(data.effective?.[role]);
           const isEditing = editing === role;
           return (
             <div key={role} style={{ border: `1px solid ${isEditing ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 'var(--wk-r)', padding: 14, display: 'grid', gap: 10, alignContent: 'start', background: 'var(--wk-card)' }}>
@@ -866,19 +928,30 @@ function OwnersCard({ entityId, people, toastOk, toastErr }) {
                   <div style={{ fontSize: 12, color: 'var(--wk-dim)', lineHeight: 1.45 }}>{look.hint}</div>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 30 }}>
-                <Avatar name={nameOf(own || inherited || '')} empty={!own && !inherited} />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {own ? <b style={{ fontWeight: 600, color: 'var(--wk-ink)' }}>{nameOf(own)}</b>
-                    : inherited ? <span style={{ color: 'var(--wk-dim)' }}>{nameOf(inherited)} <span style={{ color: 'var(--wk-faint)' }}>(default)</span></span>
-                      : <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>Not set</span>}
-                </span>
-                {own && <button onClick={() => setDraft(d => ({ ...d, [role]: '' }))} aria-label={`Clear ${look.label} owner`} style={{ ...ghostBtn, padding: 5 }}><X size={12} /></button>}
-                <button onClick={() => setEditing(isEditing ? '' : role)} style={ghostBtn}>{isEditing ? 'Close' : own ? 'Change' : 'Set'}</button>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {own.map(em => (
+                  <div key={em} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 28 }}>
+                    <Avatar name={nameOf(em)} />
+                    <b style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</b>
+                    <button onClick={() => setDraft(d => ({ ...d, [role]: own.filter(x => x !== em) }))} aria-label={`Remove ${nameOf(em)} as ${look.label} owner`} style={{ ...ghostBtn, padding: 5 }}><X size={12} /></button>
+                  </div>
+                ))}
+                {!own.length && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 28 }}>
+                    <Avatar name={nameOf(inherited[0] || '')} empty={!inherited.length} />
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {inherited.length ? <span style={{ color: 'var(--wk-dim)' }}>{inherited.map(nameOf).join(', ')} <span style={{ color: 'var(--wk-faint)' }}>(default)</span></span>
+                        : <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>Not set</span>}
+                    </span>
+                  </div>
+                )}
+                <div>
+                  <button onClick={() => setEditing(isEditing ? '' : role)} style={ghostBtn}>{isEditing ? 'Close' : own.length ? 'Add Another' : 'Add Owner'}</button>
+                </div>
               </div>
               {isEditing && (
-                <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people }]}
-                  onPick={em => { setDraft(d => ({ ...d, [role]: em })); setEditing(''); }} />
+                <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people: people.filter(p => !own.includes(p.email)) }]}
+                  onPick={em => { setDraft(d => ({ ...d, [role]: [...own, em] })); setEditing(''); }} />
               )}
             </div>
           );
@@ -889,9 +962,11 @@ function OwnersCard({ entityId, people, toastOk, toastErr }) {
   );
 }
 
-const TYPE_CHOICES = [['employee', 'Employees'], ['contractor', 'Contractors'], ['intern', 'Interns']];
-const COUNTRY_CHOICES = [['US', 'US'], ['IN', 'India']];
-const ANCHOR_NOUN = { onboarding: 'start', offboarding: 'last day', inactive: 'leave start' };
+// The worker types hr_checklists._applies understands ('employee' = anyone but a contractor).
+const TYPE_CHOICES = [['employee', 'Employees (Any)'], ['full_time', 'Full-Time'], ['part_time', 'Part-Time'],
+  ['intern', 'Interns'], ['contractor', 'Contractors']];
+const COUNTRY_OPTIONS = COUNTRIES.map(c => ({ id: c.code, label: c.name }));
+const ANCHOR_NOUN = { onboarding: 'start', promotion: 'effective date', offboarding: 'last day', inactive: 'leave start' };
 
 // "7 days before start", "3 business days after start", "No due date".
 function timingText(r, kind) {
@@ -899,14 +974,15 @@ function timingText(r, kind) {
   const n = Math.abs(Number(r.offset) || 0);
   const unit = r.bd ? (n === 1 ? 'business day' : 'business days') : (n === 1 ? 'day' : 'days');
   if (r.anchor === 'created') return n ? `${n} ${unit} after it starts` : 'When the checklist starts';
-  const noun = r.anchor === 'X' ? ANCHOR_NOUN[kind === 'onboarding' ? 'offboarding' : kind] : 'start';
+  const noun = r.anchor === 'X' ? ANCHOR_NOUN[['onboarding', 'promotion'].includes(kind) ? 'offboarding' : kind]
+    : kind === 'promotion' ? ANCHOR_NOUN.promotion : 'start';
   if (!n) return `On the ${noun === 'start' ? 'start date' : noun}`;
   return `${n} ${unit} ${r.offset < 0 ? 'before' : 'after'} ${noun}`;
 }
 function appliesText(a, meta) {
   const bits = [];
   (a?.types || []).forEach(t => bits.push(TYPE_CHOICES.find(([v]) => v === t)?.[1] || t));
-  (a?.countries || []).forEach(c => bits.push(c === 'IN' ? 'India' : `${c} only`));
+  (a?.countries || []).forEach(c => bits.push(countryName(c)));
   (a?.exit_types || []).forEach(t => bits.push(EXIT_LABEL[t] || meta?.exitTypes?.find(x => x.value === t)?.label || t));
   return bits;
 }
@@ -921,7 +997,7 @@ const tag = (text, tone) => (
     background: tone === 'brand' ? 'var(--wk-brand-tint)' : 'var(--wk-hover)', color: tone === 'brand' ? 'var(--wk-brand)' : 'var(--wk-dim)' }}>{text}</span>
 );
 
-function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, toggleIn, onDone }) {
+function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, setApplies, onDone }) {
   const roles = meta?.roles || [];
   const signals = meta?.signals || [];
   const field = (label, el) => <label style={{ display: 'grid', gap: 5 }}><span style={capLabel}>{label}</span>{el}</label>;
@@ -938,7 +1014,7 @@ function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, toggleI
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         {field('Due', (
           <select value={r.anchor} onChange={e => set(i, { anchor: e.target.value })} style={inputStyle}>
-            <option value="S">Counted From The Start Date</option>
+            <option value="S">{kind === 'promotion' ? 'Counted From The Effective Date' : 'Counted From The Start Date'}</option>
             <option value="X">Counted From The Exit Date / Leave Start</option>
             <option value="created">Counted From The Day It Starts</option>
             <option value="none">No Due Date</option>
@@ -952,25 +1028,22 @@ function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, toggleI
         )}
         <span style={{ fontSize: 12.5, color: 'var(--wk-brand)', fontWeight: 600, paddingBottom: 8 }}>{timingText(r, kind)}</span>
       </div>
-      <div style={{ display: 'grid', gap: 6 }}>
-        <span style={capLabel}>Who gets this step <span style={{ color: 'var(--wk-faint)' }}>(nothing ticked = everyone)</span></span>
-        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13 }}>
-          {TYPE_CHOICES.map(([v, l]) => (
-            <label key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <input type="checkbox" checked={(r.applies?.types || []).includes(v)} onChange={() => toggleIn(i, 'types', v)} /> {l}
-            </label>
-          ))}
-          {COUNTRY_CHOICES.map(([v, l]) => (
-            <label key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <input type="checkbox" checked={(r.applies?.countries || []).includes(v)} onChange={() => toggleIn(i, 'countries', v)} /> {l}
-            </label>
-          ))}
-          {kind === 'offboarding' && (meta?.exitTypes || []).map(t => (
-            <label key={t.value} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <input type="checkbox" checked={(r.applies?.exit_types || []).includes(t.value)} onChange={() => toggleIn(i, 'exit_types', t.value)} /> {EXIT_LABEL[t.value] || t.label}
-            </label>
-          ))}
-        </div>
+      {/* Who gets this step: searchable dropdowns, every country in the world
+          (Pranshu, Oct 20 - it was US / India checkboxes). Nothing picked = everyone. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        {field(<>Worker Type <span style={{ color: 'var(--wk-faint)' }}>(none = everyone)</span></>, (
+          <ChipMultiSelect value={r.applies?.types || []} options={TYPE_CHOICES.map(([id, label]) => ({ id, label }))}
+            onChange={v => setApplies(i, 'types', v)} placeholder="Every worker type" searchPlaceholder="Search worker types…" />
+        ))}
+        {field(<>Country <span style={{ color: 'var(--wk-faint)' }}>(none = every country)</span></>, (
+          <ChipMultiSelect value={r.applies?.countries || []} options={COUNTRY_OPTIONS}
+            onChange={v => setApplies(i, 'countries', v)} placeholder="Every country" searchPlaceholder="Search countries…" />
+        ))}
+        {kind === 'offboarding' && field(<>Exit Type <span style={{ color: 'var(--wk-faint)' }}>(none = every exit)</span></>, (
+          <ChipMultiSelect value={r.applies?.exit_types || []}
+            options={(meta?.exitTypes || []).map(t => ({ id: t.value, label: EXIT_LABEL[t.value] || t.label }))}
+            onChange={v => setApplies(i, 'exit_types', v)} placeholder="Every exit type" searchPlaceholder="Search exit types…" />
+        ))}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
         {field('How It Gets Marked Done', (
@@ -1002,7 +1075,9 @@ function TriCheck({ checked, indeterminate = false, onChange, label }) {
   );
 }
 
-function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr }) {
+// `saveItems` / `resetItems` replace the company-template calls (a role's
+// steps save elsewhere); `resetLabel` names the reset button.
+function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, saveItems, resetItems, resetLabel, emptyText }) {
   const [rows, setRows] = useState(template.items || []);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -1012,11 +1087,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr }
   const set = (i, patch) => { setRows(r => r.map((x, j) => j === i ? { ...x, ...patch } : x)); touch(); };
   const move = (i, d) => { setRows(r => { const n = [...r]; const t = n[i]; n[i] = n[i + d]; n[i + d] = t; return n; }); setEditIdx(i + d); setPicked(new Set()); touch(); };
   const remove = (i) => { setRows(x => x.filter((_, j) => j !== i)); setEditIdx(-1); setPicked(new Set()); touch(); };
-  const toggleIn = (i, field, value) => {
-    const cur = rows[i].applies?.[field] || [];
-    const next = cur.includes(value) ? cur.filter(v => v !== value) : [...cur, value];
-    set(i, { applies: { ...(rows[i].applies || {}), [field]: next } });
-  };
+  const setApplies = (i, field, list) => set(i, { applies: { ...(rows[i].applies || {}), [field]: list } });
   async function renamePhase(oldName) {
     const name = await dialog.prompt('Phase name', { title: 'Rename Phase', defaultValue: oldName, required: true });
     if (!name || !name.trim() || name.trim() === oldName) return;
@@ -1028,7 +1099,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr }
     if (name && name.trim()) addStep(name.trim());
   }
   const addStep = (phase) => {
-    const blank = { key: '', phase, title: '', owner: 'hr', anchor: template.kind === 'onboarding' ? 'S' : 'X', offset: 0, bd: false, applies: {}, signal: '', hint: '' };
+    const blank = { key: '', phase, title: '', owner: 'hr', anchor: ['onboarding', 'promotion'].includes(template.kind) ? 'S' : 'X', offset: 0, bd: false, applies: {}, signal: '', hint: '' };
     const lastInPhase = rows.map(r => r.phase).lastIndexOf(phase);
     const at = lastInPhase === -1 ? rows.length : lastInPhase + 1;
     setRows(r => [...r.slice(0, at), blank, ...r.slice(at)]);
@@ -1073,17 +1144,21 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr }
 
   async function save() {
     if (rows.some(r => !r.title.trim())) { toastErr('Every step needs a title.'); return; }
-    if (!rows.length) { toastErr('A template needs at least one step.'); return; }
+    if (!rows.length && !saveItems) { toastErr('A template needs at least one step.'); return; }
     setBusy(true);
-    try { onSaved(await api.saveChecklistTemplate(template.kind, entityId, { items: rows })); setDirty(false); setEditIdx(-1); setPicked(new Set()); toastOk('Template saved. New checklists use it; ones already started keep their steps.'); }
-    catch (e) { toastErr(e?.message || 'Could not save the template.'); }
+    try {
+      onSaved(await (saveItems ? saveItems(rows) : api.saveChecklistTemplate(template.kind, entityId, { items: rows })));
+      setDirty(false); setEditIdx(-1); setPicked(new Set());
+      toastOk('Steps saved. New checklists use them; ones already started keep their steps.');
+    } catch (e) { toastErr(e?.message || 'Could not save the steps.'); }
     setBusy(false);
   }
   async function reset() {
-    const msg = entityId ? 'Go back to the default template for this company?' : 'Put the default template back to the steps Nexus shipped with?';
-    if (!await dialog.confirm(msg, { title: 'Reset Template', confirmText: 'Reset', danger: true })) return;
-    try { onSaved(await api.resetChecklistTemplate(template.kind, entityId)); toastOk('Template reset.'); }
-    catch (e) { toastErr(e?.message || 'Could not reset the template.'); }
+    if (resetItems) { await resetItems(); return; }
+    const msg = entityId ? 'Go back to the Checklist Library\'s steps for this company?' : 'Put the Checklist Library back to the steps Nexus shipped with?';
+    if (!await dialog.confirm(msg, { title: 'Reset Steps', confirmText: 'Reset', danger: true })) return;
+    try { onSaved(await api.resetChecklistTemplate(template.kind, entityId)); toastOk('Steps reset.'); }
+    catch (e) { toastErr(e?.message || 'Could not reset the steps.'); }
   }
 
   const phases = [];
@@ -1100,14 +1175,17 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr }
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        <TriCheck label="Select every step" checked={rows.length > 0 && picked.size === rows.length} indeterminate={picked.size > 0}
-          onChange={e => togglePick(allIdx, e.target.checked)} />
+        {rows.length > 0 && <TriCheck label="Select every step" checked={picked.size === rows.length} indeterminate={picked.size > 0}
+          onChange={e => togglePick(allIdx, e.target.checked)} />}
         <span style={{ fontSize: 13, color: 'var(--wk-dim)', flex: 1, minWidth: 220, lineHeight: 1.5 }}>
           {template.inherited
-            ? <>This company uses the <b style={{ color: 'var(--wk-ink)' }}>default</b> steps. Saving a change makes a copy just for this company.</>
-            : <>{rows.length} steps in {phases.length} phases. Click a step to edit it, or tick several to change them together.</>}
+            ? <>This company uses the <b style={{ color: 'var(--wk-ink)' }}>Checklist Library</b> steps. Saving a change makes a copy just for this company.</>
+            : !rows.length ? (emptyText || 'No steps yet.')
+              : <>{rows.length} steps in {phases.length} phases. Click a step to edit it, or tick several to change them together.</>}
         </span>
-        <button onClick={reset} style={ghostBtn}><RotateCcw size={13} /> {entityId && !template.inherited ? 'Use Default' : 'Reset'}</button>
+        {(resetItems ? rows.length > 0 : !template.inherited) && (
+          <button onClick={reset} style={ghostBtn}><RotateCcw size={13} /> {resetLabel || (entityId ? 'Use The Library Again' : 'Reset')}</button>
+        )}
       </div>
 
       {/* Bulk action bar: only while something is ticked. */}
@@ -1161,7 +1239,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr }
             <div style={{ marginLeft: 19, paddingLeft: 14, borderLeft: '1px solid var(--wk-line)', marginTop: 4 }}>
               {p.rows.map(({ r, i }) => (editIdx === i ? (
                 <TemplateRowEditor key={i} r={r} i={i} total={rows.length} kind={template.kind} meta={meta}
-                  set={set} move={move} remove={remove} toggleIn={toggleIn} onDone={() => setEditIdx(-1)} />
+                  set={set} move={move} remove={remove} setApplies={setApplies} onDone={() => setEditIdx(-1)} />
               ) : (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--wk-line2)', background: picked.has(i) ? 'var(--wk-hover)' : 'transparent' }}>
                   <TriCheck label={`Select ${r.title || 'untitled step'}`} checked={picked.has(i)} onChange={e => togglePick([i], e.target.checked)} />
@@ -1187,7 +1265,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr }
           </section>
         );
       })}
-      <button onClick={addPhase} style={ghostBtn}><Plus size={13} /> Add A Phase</button>
+      <button onClick={addPhase} style={ghostBtn}><Plus size={13} /> {rows.length ? 'Add A Phase' : 'Add The First Step'}</button>
       {dirty && <SaveBar label="Template changes not saved yet" busy={busy} saveText="Save Template"
         onDiscard={() => { setRows(template.items || []); setDirty(false); setEditIdx(-1); setPicked(new Set()); }} onSave={save} />}
     </div>
@@ -1195,11 +1273,77 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr }
 }
 
 
-export function ChecklistSettings({ entities = [], toastOk, toastErr }) {
-  const [entityId, setEntityId] = useState('');
+// Copy steps between companies (Neil, Oct 19: "copy from company or have a
+// common library ... and an option to copy to multiple companies and
+// standardize it"). `direction` 'from' = into this company from one other
+// (or the library), 'to' = from here onto several.
+function CopyStepsModal({ direction, entityId, entities, kinds, kind, onClose, onDone, toastOk, toastErr }) {
+  const others = entities.filter(e => e.id !== entityId);
+  const [picked, setPicked] = useState(() => new Set(direction === 'from' ? [''] : []));
+  const [which, setWhich] = useState(() => new Set([kind]));
+  const [busy, setBusy] = useState(false);
+  const flip = (set, setter, v, single) => setter(single ? new Set([v]) : (set.has(v) ? new Set([...set].filter(x => x !== v)) : new Set([...set, v])));
+  const from = direction === 'from' ? [...picked][0] : entityId;
+  const to = direction === 'from' ? [entityId] : [...picked];
+  const nameOf = id => (id ? entities.find(e => e.id === id)?.name || id : 'Checklist Library');
+  async function go() {
+    if (busy || !to.length || !which.size) return;
+    if (direction === 'to' && !await dialog.confirm(
+      `Replace the ${[...which].map(k => kinds.find(x => x.value === k)?.label || k).join(', ')} steps of ${to.map(nameOf).join(', ')} with ${nameOf(from)}'s? Checklists already started keep theirs.`,
+      { title: 'Copy Steps', confirmText: 'Copy' })) return;
+    setBusy(true);
+    try {
+      const r = await api.copyChecklistTemplates({ kinds: [...which], from_entity_id: from || '', to_entity_ids: to });
+      toastOk(`Copied - ${r.companies.length} compan${r.companies.length === 1 ? 'y' : 'ies'} now ${r.companies.length === 1 ? 'has' : 'have'} the same steps.`);
+      onDone();
+    } catch (e) { toastErr(e?.message || 'Could not copy the steps.'); setBusy(false); }
+  }
+  const box = (on, label, onClick, key) => (
+    <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: `1px solid ${on ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, cursor: 'pointer', fontSize: 13 }}>
+      <input type={direction === 'from' && key?.startsWith('c:') ? 'radio' : 'checkbox'} checked={on} onChange={onClick} /> {label}
+    </label>
+  );
+  return (
+    <Modal title={direction === 'from' ? `Copy Steps Into ${nameOf(entityId)}` : `Copy ${nameOf(entityId)}'s Steps To Other Companies`} onClose={onClose}
+      footer={<>
+        <button onClick={onClose} style={ghostBtn}>Cancel</button>
+        <button className="primary-btn" onClick={go} disabled={busy || !to.length || !which.size} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {busy ? <Spinner size={13} /> : <Copy size={13} />} Copy Steps
+        </button>
+      </>}>
+      <div style={{ display: 'grid', gap: 18, fontFamily: FONT }}>
+        <div>
+          <div style={capLabel}>{direction === 'from' ? 'Copy From' : 'Copy To'}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, marginTop: 6 }}>
+            {direction === 'from' && box(picked.has(''), 'Checklist Library (the standard steps)', () => flip(picked, setPicked, '', true), 'c:')}
+            {others.map(e => box(picked.has(e.id), e.name, () => flip(picked, setPicked, e.id, direction === 'from'), `c:${e.id}`))}
+          </div>
+          {direction === 'to' && others.length > 1 && (
+            <button onClick={() => setPicked(new Set(picked.size === others.length ? [] : others.map(e => e.id)))} style={{ ...ghostBtn, marginTop: 8 }}>
+              {picked.size === others.length ? 'Clear All' : 'Pick Every Company'}
+            </button>
+          )}
+        </div>
+        <div>
+          <div style={capLabel}>Which Checklists</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8, marginTop: 6 }}>
+            {kinds.map(k => box(which.has(k.value), k.label, () => flip(which, setWhich, k.value, false), `k:${k.value}`))}
+          </div>
+        </div>
+        <p style={{ margin: 0, fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
+          Each company gets its own copy, so you can still change one later. Checklists already started keep their steps.
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
+export function ChecklistSettings({ entityId = '', entities = [], toastOk, toastErr }) {
   const [loaded, setLoaded] = useState({ entityId: null, templates: null });
   const [kind, setKind] = useState('onboarding');
   const [meta, setMeta] = useState(null);
+  const [copying, setCopying] = useState('');         // 'from' | 'to'
+  const [reloadKey, setReloadKey] = useState(0);
   const { data: dir = [] } = usePeopleDirectory();
   const people = useMemo(() => dir.map(p => ({ email: (p.email || '').toLowerCase(), name: p.name || p.email })), [dir]);
   useEffect(() => { api.getChecklistMeta().then(setMeta).catch(() => setMeta(null)); }, []);
@@ -1207,39 +1351,41 @@ export function ChecklistSettings({ entities = [], toastOk, toastErr }) {
     api.getChecklistTemplates(entityId)
       .then(r => setLoaded({ entityId, templates: r.templates || [] }))
       .catch(() => setLoaded({ entityId, templates: false }));
-  }, [entityId]);
+  }, [entityId, reloadKey]);
   const templates = loaded.entityId === entityId ? loaded.templates : null;
   const setTemplates = fn => setLoaded(l => ({ ...l, templates: fn(l.templates || []) }));
   const tpl = (templates || []).find(t => t.kind === kind);
-  const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }];
-  const companyName = entityId ? (entities.find(e => e.id === entityId)?.name || 'This company') : 'Every company';
+  const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'promotion', label: 'Promotion' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }];
+  const companyName = entityId ? (entities.find(e => e.id === entityId)?.name || 'This company') : '';
   return (
     <div style={{ fontFamily: FONT }}>
       {/* What these settings apply to, stated once at the top. */}
       <section style={{ ...card, padding: '14px 18px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
         <span className="dk-chip dk-chip--brand"><ListChecks /></span>
         <div style={{ flex: '1 1 260px', minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>Checklist Settings For {companyName}</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>{entityId ? `Checklists For ${companyName}` : 'Checklist Library'}</div>
           <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
-            {entityId ? 'Anything this company does not set itself comes from the default.' : 'The default for every company. A company can override owners and steps.'}
+            {entityId
+              ? 'Each role builds its own onboarding, promotion, offboarding and leave steps (Roles tab > a role > Checklists). Below: which roles are built and what is still missing. Steps every hire gets, whatever the role, are in Global Settings > Hiring > Checklist Library.'
+              : 'The standard steps every new checklist starts with, whatever the role. Each role\'s own steps are built on the role (Company Settings > Roles > a role > Checklists).'}
           </div>
         </div>
-        <label style={{ display: 'grid', gap: 4 }}>
-          <span style={capLabel}>Company</span>
-          <select value={entityId} onChange={e => setEntityId(e.target.value)} style={{ ...inputStyle, minWidth: 220 }}>
-            <option value="">Default (Every Company)</option>
-            {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-          </select>
-        </label>
+        {!entityId && entities.length > 0 && (
+          <button onClick={() => setCopying('to')} style={ghostBtn}><Copy size={13} /> Copy To Companies…</button>
+        )}
       </section>
 
       <OwnersCard key={entityId || 'default'} entityId={entityId} people={people} toastOk={toastOk} toastErr={toastErr} />
 
+      {/* A company's own steps are its roles' (Pranshu, Oct 20: "we are
+          already adding phase and steps according to role ... just see an
+          audit here"). The library keeps the steps every hire gets. */}
+      {entityId ? <RoleAudit entityId={entityId} companyName={companyName} kinds={kinds} toastOk={toastOk} toastErr={toastErr} /> : (
       <section style={{ ...card, padding: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
           <div style={{ flex: '1 1 240px' }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Checklist Templates</h3>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>The steps every new checklist is built from.</p>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Steps Every Hire Gets</h3>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>Added to every checklist, before the role&apos;s own steps.</p>
           </div>
           <div className="scroll-tabs" role="tablist" aria-label="Checklist kind"
             style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)', maxWidth: '100%' }}>
@@ -1259,11 +1405,248 @@ export function ChecklistSettings({ entities = [], toastOk, toastErr }) {
           </div>
         </div>
         {templates === null && <SkeletonBlocks count={3} height={56} />}
-        {templates === false && <div style={{ fontSize: 13, color: 'var(--wk-dim)' }}>Could not load the templates.</div>}
+        {templates === false && <div style={{ fontSize: 13, color: 'var(--wk-dim)' }}>Could not load the steps.</div>}
         {tpl && (
           <TemplateEditor key={`${tpl.kind}:${entityId}:${tpl.updatedAt}:${tpl.entityId}`} template={tpl} meta={meta} entityId={entityId} toastOk={toastOk} toastErr={toastErr}
             onSaved={saved => setTemplates(prev => prev.map(t => t.kind === saved.kind ? saved : t))} />
         )}
+      </section>
+      )}
+      {copying && (
+        <CopyStepsModal direction={copying} entityId={entityId} entities={entities} kinds={kinds} kind={kind}
+          onClose={() => setCopying('')} onDone={() => { setCopying(''); setReloadKey(k => k + 1); }} toastOk={toastOk} toastErr={toastErr} />
+      )}
+    </div>
+  );
+}
+
+// Company Settings > Checklists: is every role's checklist built? One row per
+// role the company offers (its own and the shared ones), a cell per checklist
+// - its steps, or Missing - and Build opens that role's steps right here.
+function RoleAudit({ entityId, companyName, kinds, toastOk, toastErr }) {
+  const [roles, setRoles] = useState(null);
+  const [gapsOnly, setGapsOnly] = useState(false);
+  const [building, setBuilding] = useState(null);      // { role, kind }
+  useEffect(() => {
+    api.getRoleChecklistRoles()
+      .then(r => setRoles((r.roles || []).filter(x => !x.companyId || x.companyId === entityId)))
+      .catch(() => setRoles(false));
+  }, [entityId]);
+  if (roles === null) return <SkeletonBlocks count={3} height={48} />;
+  if (roles === false) return <div style={{ ...card, padding: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load the roles.</div>;
+  const missing = r => kinds.filter(k => !(r.counts?.[k.value] > 0));
+  const done = roles.filter(r => !missing(r).length).length;
+  const shown = (gapsOnly ? roles.filter(r => missing(r).length) : roles)
+    .slice().sort((a, b) => missing(b).length - missing(a).length || a.roleName.localeCompare(b.roleName));
+  const setCounts = (roleId, counts) => setRoles(rs => rs.map(r => (r.roleId === roleId ? { ...r, counts } : r)));
+  const cell = { padding: '10px 12px', borderBottom: '1px solid var(--wk-line2)', fontSize: 13, verticalAlign: 'middle' };
+  return (
+    <section style={{ ...card, padding: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ flex: '1 1 260px' }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Role Checklists</h3>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>
+            {roles.length
+              ? <><b style={{ color: done === roles.length ? 'var(--wk-green)' : 'var(--wk-ink)' }}>{done} of {roles.length}</b> roles at {companyName} have all four checklists built.</>
+              : `${companyName} has no roles yet - add them on the Roles tab.`}
+          </p>
+        </div>
+        {roles.length > 0 && done < roles.length && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--wk-ink)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={gapsOnly} onChange={e => setGapsOnly(e.target.checked)} /> Only Roles With Something Missing
+          </label>
+        )}
+      </div>
+      {roles.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FONT }}>
+            <thead>
+              <tr>
+                {['Role', ...kinds.map(k => k.label), ''].map((h, i) => (
+                  <th key={i} style={{ ...cell, textAlign: 'left', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-dim)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map(r => {
+                const gaps = missing(r);
+                return (
+                  <tr key={r.roleId}>
+                    <td style={cell}>
+                      <div style={{ fontWeight: 700, color: 'var(--wk-ink)' }}>{r.roleName}</div>
+                      <div style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{[r.department, r.companyId ? '' : 'Shared role'].filter(Boolean).join(' · ')}</div>
+                    </td>
+                    {kinds.map(k => {
+                      const n = r.counts?.[k.value] || 0;
+                      return (
+                        <td key={k.value} style={cell}>
+                          {n > 0
+                            ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontWeight: 600 }}><CheckCircle2 size={14} /> {n} {n === 1 ? 'step' : 'steps'}</span>
+                            : <button onClick={() => setBuilding({ role: r, kind: k.value })} title={`Build the ${k.label.toLowerCase()} steps for ${r.roleName}`}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-orange)', fontWeight: 600, fontFamily: FONT, fontSize: 13 }}>
+                                <AlertTriangle size={14} /> Missing
+                              </button>}
+                        </td>
+                      );
+                    })}
+                    <td style={{ ...cell, textAlign: 'right' }}>
+                      <button className={gaps.length ? 'primary-btn' : undefined} style={gaps.length ? { fontSize: 12.5 } : ghostBtn}
+                        onClick={() => setBuilding({ role: r, kind: gaps[0]?.value || 'onboarding' })}>
+                        {gaps.length ? 'Build' : 'Open'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {building && (
+        <Modal title={`${building.role.roleName} - Checklist Steps`} onClose={() => setBuilding(null)} minHeight="60vh">
+          <RoleStepsEditor roleId={building.role.roleId} roleName={building.role.roleName} initialKind={building.kind}
+            toastOk={toastOk} toastErr={toastErr} onCounts={c => setCounts(building.role.roleId, c)} />
+        </Modal>
+      )}
+    </section>
+  );
+}
+
+// Global Settings > Hiring > Checklist Library: the standard steps.
+export function ChecklistLibrary({ toastOk, toastErr }) {
+  const { data: entities = [] } = useEntities();
+  return <ChecklistSettings entityId="" entities={entities} toastOk={toastOk} toastErr={toastErr} />;
+}
+
+// --- Team > Role Checklists (Neil, Oct 19) ----------------------------------
+// "It really has to be a role-based thing and then we'll give it to a
+// department head to build out ... so the department head can build it, edit
+// it, and manage it." A role's steps are added after the company's whenever
+// one of its people starts a checklist.
+const countsOf = d => Object.fromEntries((d?.templates || []).map(t => [t.kind, (t.items || []).length]));
+
+// One role's extra steps: the kind tabs and the editor. Used by Team > Role
+// Checklists and by Company Settings > Roles (a role's Checklists tab, and
+// the Checklists button on shared roles). `onCounts` gets {kind: steps} after
+// the load and after every save so a parent can refresh its counts.
+export function RoleStepsEditor({ roleId, roleName, toastOk, toastErr, onCounts, heading = null, initialKind = 'onboarding' }) {
+  const [data, setData] = useState(null);
+  const [kind, setKind] = useState(initialKind);
+  const [meta, setMeta] = useState(null);
+  useEffect(() => { api.getChecklistMeta().then(setMeta).catch(() => setMeta(null)); }, []);
+  useEffect(() => {
+    if (!roleId) { setData(null); return undefined; }
+    let live = true;
+    setData(null);
+    api.getRoleChecklist(roleId)
+      .then(d => { if (!live) return; setData(d); onCounts?.(countsOf(d)); })
+      .catch(() => { if (live) setData(false); });
+    return () => { live = false; };
+  }, [roleId]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'promotion', label: 'Promotion' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }];
+  const counts = countsOf(data);
+  const tpl = data?.templates?.find(t => t.kind === kind);
+  const saveItems = async items => {
+    const saved = await api.saveRoleChecklist(roleId, kind, items);
+    const next = { ...data, templates: data.templates.map(t => (t.kind === kind ? saved : t)) };
+    setData(next);
+    onCounts?.(countsOf(next));
+    return saved;
+  };
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+        {heading}
+        <div className="scroll-tabs" role="tablist" aria-label="Checklist kind"
+          style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)', maxWidth: '100%' }}>
+          {kinds.map(k => {
+            const look = KIND_LOOK[k.value] || KIND_LOOK.onboarding;
+            const on = kind === k.value;
+            const n = counts[k.value] || 0;
+            return (
+              <button key={k.value} role="tab" aria-selected={on} onClick={() => setKind(k.value)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: FONT, fontSize: 13, fontWeight: 600,
+                  background: on ? 'var(--wk-card)' : 'transparent', color: on ? 'var(--wk-ink)' : 'var(--wk-dim)', boxShadow: on ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
+                <look.Icon size={14} /> {k.label}
+                {n > 0 && <span style={{ fontSize: 11.5, color: 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {data === null && <SkeletonBlocks count={2} height={56} />}
+      {data === false && <div style={{ fontSize: 13, color: 'var(--wk-dim)' }}>Could not load this role&apos;s steps.</div>}
+      {tpl && (
+        <TemplateEditor key={`${roleId}:${kind}:${tpl.updatedAt}`} template={tpl} meta={meta} entityId="" toastOk={toastOk} toastErr={toastErr}
+          onSaved={() => {}} saveItems={saveItems} resetLabel="Remove All Steps"
+          emptyText={`${roleName || 'This role'} has no ${(kinds.find(k => k.value === kind)?.label || 'checklist').toLowerCase()} steps yet. Until you add some, people in this role get only the standard steps from the Checklist Library.`}
+          resetItems={async () => {
+            if (!await dialog.confirm(`Remove every ${kinds.find(k => k.value === kind)?.label.toLowerCase()} step of ${roleName}?`, { title: 'Remove All Steps', confirmText: 'Remove', danger: true })) return;
+            try { await saveItems([]); toastOk('Steps removed.'); } catch (e) { toastErr(e?.message || 'Could not remove them.'); }
+          }} />
+      )}
+    </>
+  );
+}
+
+export function RoleChecklists({ toastOk, toastErr }) {
+  const [roles, setRoles] = useState(null);
+  const [roleId, setRoleId] = useState('');
+  const loadRoles = useCallback(() => api.getRoleChecklistRoles()
+    .then(r => { setRoles(r.roles || []); setRoleId(id => id || r.roles?.[0]?.roleId || ''); })
+    .catch(() => setRoles(false)), []);
+  useEffect(() => { loadRoles(); }, [loadRoles]);
+  if (roles === null) return <SkeletonBlocks count={3} height={56} />;
+  if (roles === false) return <div style={{ ...card, padding: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load your roles.</div>;
+  if (!roles.length) {
+    return (
+      <div style={{ ...card, padding: 24, fontSize: 13.5, color: 'var(--wk-dim)', lineHeight: 1.6, fontFamily: FONT }}>
+        <b style={{ color: 'var(--wk-ink)' }}>No roles to look after yet.</b> The head of a department keeps the extra checklist steps for its
+        roles - set department heads in Company Settings &gt; Departments.
+      </div>
+    );
+  }
+  const role = roles.find(r => r.roleId === roleId);
+  const groups = [];
+  roles.forEach(r => {
+    const label = `${r.companyName || 'Shared Roles'}${r.department ? ` - ${r.department}` : ''}`;
+    let g = groups.find(x => x.label === label);
+    if (!g) { g = { label, roles: [] }; groups.push(g); }
+    g.roles.push(r);
+  });
+  const onCounts = c => setRoles(rs => rs.map(r => (r.roleId === roleId ? { ...r, counts: { ...r.counts, ...c } } : r)));
+  return (
+    <div style={{ fontFamily: FONT }}>
+      <section style={{ ...card, padding: '14px 18px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <span className="dk-chip dk-chip--brand"><ListChecks /></span>
+        <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>Role Checklists</div>
+          <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
+            The extra steps one role needs - its training, its tools. They are added after the company&apos;s steps whenever someone in the role is onboarded, promoted into it, leaves or goes on leave.
+          </div>
+        </div>
+        <label style={{ display: 'grid', gap: 4 }}>
+          <span style={capLabel}>Role</span>
+          <select value={roleId} onChange={e => setRoleId(e.target.value)} style={{ ...inputStyle, minWidth: 260 }}>
+            {groups.map(g => (
+              <optgroup key={g.label} label={g.label}>
+                {g.roles.map(r => {
+                  const n = Object.values(r.counts || {}).reduce((a, b) => a + b, 0);
+                  return <option key={r.roleId} value={r.roleId}>{r.roleName}{n ? ` (${n} steps)` : ''}</option>;
+                })}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+      </section>
+      <section style={{ ...card, padding: 18 }}>
+        <RoleStepsEditor roleId={roleId} roleName={role?.roleName} toastOk={toastOk} toastErr={toastErr} onCounts={onCounts}
+          heading={(
+            <div style={{ flex: '1 1 240px' }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>{role?.roleName || 'Role'} Steps</h3>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>{[role?.department, role?.companyName || 'Shared role'].filter(Boolean).join(' · ')}</p>
+            </div>
+          )} />
       </section>
     </div>
   );

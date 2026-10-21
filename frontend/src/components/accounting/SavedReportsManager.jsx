@@ -63,7 +63,7 @@ export default function SavedReportsManager({ reports, activeId, nameOf, onOpen,
   const mine = reports.filter((r) => r.mine).length;
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Saved Reports" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'min(1180px, 96vw)', maxHeight: '92vh' }}>
+      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Saved Reports" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'min(1180px, 96vw)', minHeight: '60vh', maxHeight: '92vh' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>Saved Reports</h3>

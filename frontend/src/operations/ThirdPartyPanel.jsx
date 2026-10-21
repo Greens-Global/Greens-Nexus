@@ -130,7 +130,7 @@ export default function ThirdPartyPanel({ facilities = [], canUpload = false, on
     <div className="dash-card" data-testid="tp-panel">
       <div className="dash-card-head">
         <div>
-          <div className="dash-card-title">{one ? `${one.shortName} - ${managedLabel(one)}` : 'Operator-Managed Stores'}</div>
+          <div className="dash-card-title">{one ? `${one.shortName} - ${managedLabel(one)}` : 'TPM Stores'}</div>
           <div className="dash-card-sub">
             {one
               ? <AsOf f={one} />

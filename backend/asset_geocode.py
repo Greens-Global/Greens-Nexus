@@ -25,7 +25,7 @@ from typing import Optional
 from database import SessionLocal
 from models import PropertyAsset, PropertyWorkspaceMeta
 
-PACE_SECONDS = 1.1          # Nominatim: at most one request a second
+PACE_SECONDS = 1.1          # Nominatim: at most one request a second (enforced by nominatim_pace)
 BATCH = 25                  # assets per pass
 RETRY_MISS_DAYS = 30
 _UA = "GreensNexus/1.0 (asset portfolio map; one lookup per address)"
@@ -70,11 +70,19 @@ def _nominatim_search(query: str) -> Optional[tuple]:
     return float(rows[0]["lat"]), float(rows[0]["lon"])
 
 
+def paced_search(query: str) -> Optional[tuple]:
+    """_nominatim_search behind the process-wide pacer (nominatim_pace.py),
+    shared with the Customer Map loop, so the two together stay at one a second."""
+    import nominatim_pace
+    nominatim_pace.wait_turn()
+    return _nominatim_search(query)
+
+
 def geocode_pending(db, fetch=None, limit: int = BATCH, pace=None) -> int:
     """Looks up assets whose address has no point yet; how many it wrote.
     `fetch(query) -> (lat, lng) | None` and `pace()` are injectable for tests."""
-    fetch = fetch or _nominatim_search
-    pace = pace if pace is not None else (lambda: time.sleep(PACE_SECONDS))
+    fetch = fetch or paced_search                   # waits its turn with every other loop
+    pace = pace if pace is not None else (lambda: None)
     now = datetime.now(timezone.utc)
     done = 0
     for p in db.query(PropertyAsset).all():

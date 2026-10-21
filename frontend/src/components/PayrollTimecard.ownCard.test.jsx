@@ -36,7 +36,8 @@ vi.mock('../api', () => {
 });
 
 const realMatchMedia = window.matchMedia;
-beforeEach(() => {
+beforeEach(async () => {
+  (await import('./PayrollTimecard')).clearTimecardCache();
   window.matchMedia = (q) => ({ matches: false, media: q, onchange: null,
     addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false });
   try { sessionStorage.clear(); } catch { /* jsdom */ }

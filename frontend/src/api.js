@@ -1265,6 +1265,27 @@ export const api = {
   markOpsRatesEntered: (facilityId, unitTypes, seen = {}) => req("/facility-ops/rates/entered", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, seen }) }),
   getOpsRateHistory: (facilityId, unitType) => req(`/facility-ops/rates/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
   getOpsRateComps: (facilityId, unitType) => req(`/facility-ops/rates/comps?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  // Push to Cubby (Oct 21 2026): only when Settings > Global Settings > Operations > Push to Cubby is on; the server refuses otherwise.
+  pushOpsRates: (facilityId, unitTypes) => req("/facility-ops/rates/push", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, confirm: true }), timeoutMs: 180_000 }),
+  // Rate Management as a CMA (Miranda, Oct 21 2026): comp set, surveys, overrides, import, history, review & push.
+  getOpsCmaCompset: (facilityId) => req(`/facility-ops/cma/compset?facility_id=${encodeURIComponent(facilityId)}`),
+  addOpsCmaCompetitor: (data) => req("/facility-ops/cma/competitors", { method: "POST", body: JSON.stringify(data) }),
+  updateOpsCmaCompetitor: (id, data) => req(`/facility-ops/cma/competitors/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  closeOpsCmaCompetitor: (id, closed, note = '') => req(`/facility-ops/cma/competitors/${encodeURIComponent(id)}/close`, { method: "POST", body: JSON.stringify({ closed, note }) }),
+  saveOpsCmaSurvey: (data) => req("/facility-ops/cma/surveys", { method: "POST", body: JSON.stringify(data) }),
+  saveOpsCmaOverride: (data) => req("/facility-ops/cma/overrides", { method: "POST", body: JSON.stringify(data) }),
+  importOpsCmaRates: (facilityId, rows, commit = false) => req("/facility-ops/cma/import", { method: "POST", body: JSON.stringify({ facility_id: facilityId, rows, commit }), timeoutMs: 60_000 }),
+  getOpsCmaHistory: (facilityId, unitType, { start = '', end = '' } = {}) => req(`/facility-ops/cma/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}${start ? `&start=${start}` : ''}${end ? `&end=${end}` : ''}`),
+  getOpsCmaReview: (facilityId) => req(`/facility-ops/cma/review?facility_id=${encodeURIComponent(facilityId)}`),
+  proposeOpsCmaPromo: (data) => req("/facility-ops/cma/promos", { method: "POST", body: JSON.stringify(data) }),
+  withdrawOpsCmaPromo: (id) => req(`/facility-ops/cma/promos/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  applyOpsCmaReview: (data) => req("/facility-ops/cma/review/apply", { method: "POST", body: JSON.stringify(data), timeoutMs: 180_000 }),
+  rejectOpsCmaReview: (data) => req("/facility-ops/cma/review/reject", { method: "POST", body: JSON.stringify(data) }),
+  markOpsCmaEntered: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/entered`, { method: "POST" }),
+  retryOpsCmaChange: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/retry`, { method: "POST", timeoutMs: 120_000 }),
+  revertOpsCmaChange: (id) => req(`/facility-ops/cma/changes/${encodeURIComponent(id)}/revert`, { method: "POST", timeoutMs: 120_000 }),
+  getOpsSettings: () => req("/facility-ops/settings"),
+  saveOpsSettings: (data) => req("/facility-ops/settings", { method: "PUT", body: JSON.stringify(data) }),
   // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
   getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
   // Operations > Pricing Insights (Oct 20): ranked insights + sections from Cubby's pricing and the market. '' = every facility.
@@ -1360,6 +1381,7 @@ export const api = {
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
   candidateResumeUrl:  (id)       => req(`/hr/candidates/${id}/resume-url`),
+  candidateDecision:   (id)       => req(`/hr/candidates/${id}/decision`),   // Decision step votes (Oct 19)
   hiringOptions:       (companyId = '') => req(`/hr/hiring/options?company_id=${encodeURIComponent(companyId || '')}`),
   hiringAllRoles:      ()         => req('/hr/hiring/options?all_roles=true'),
 
@@ -2114,6 +2136,7 @@ export const api = {
   cancelChecklist:        (id)        => req(`/hr/checklists/${id}/cancel`, { method: 'POST' }),
   reopenChecklist:        (id)        => req(`/hr/checklists/${id}/reopen`, { method: 'POST' }),
   updateChecklistItem:    (id, d)     => req(`/hr/checklists/items/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  addChecklistComment:    (id, body)  => req(`/hr/checklists/items/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
   getMyChecklistSteps:    ()          => req('/hr/checklists/mine'),
   getChecklistProgress:   ()          => req('/hr/checklists/progress'),
   getChecklistBoard:      ()          => req('/hr/checklists/board'),
@@ -2122,6 +2145,11 @@ export const api = {
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
   getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
   saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
+  // Copy steps between companies, and a job role's own steps (Neil, Oct 19).
+  copyChecklistTemplates: (d)         => req('/hr/checklists/templates/copy', { method: 'POST', body: JSON.stringify(d) }),
+  getRoleChecklistRoles:  ()          => req('/hr/checklists/role-templates'),
+  getRoleChecklist:       (roleId)    => req(`/hr/checklists/role-templates/${roleId}`),
+  saveRoleChecklist:      (roleId, kind, items) => req(`/hr/checklists/role-templates/${roleId}/${kind}`, { method: 'PUT', body: JSON.stringify({ items }) }),
   // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
   // loan (built or the bank's file) and saved rate stress scenarios
   // (routers/accounting_loan_plans.py).
@@ -2543,6 +2571,7 @@ export const api = {
   opsRevenueSetStatus:  (id, status, note = '') => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/status`, { method: 'POST', body: JSON.stringify({ status, note }) }),
   opsRevenueRemoveChange: (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}`, { method: 'DELETE' }),
   opsRevenueEntered:    (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/entered`, { method: 'POST' }),
+  opsRevenuePush:       (id, cid, useCubbyDate = false) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/push`, { method: 'POST', body: JSON.stringify({ use_cubby_date: useCubbyDate }), timeoutMs: 60_000 }),
   opsRevenueExport:     (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/export`),
   opsRevenueLetters:    (id) => reqBlob(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/letters.pdf`),
   // Operations: stores another operator runs (CubeSmart, Oct 20 2026). Upload
@@ -2643,6 +2672,25 @@ export const api = {
   intacctCodesApply: (items) => req('/hr/intacct-codes/apply', { method: 'POST', body: JSON.stringify({ items }), timeoutMs: 60_000 }),
   intacctCodesSettings: () => req('/hr/intacct-codes/settings'),
   setIntacctCodesNightly: (companyId, nightly) => req('/hr/intacct-codes/settings', { method: 'PUT', body: JSON.stringify({ companyId, nightly }) }),
+  // Operations > Ops Budget (Oct 21 2026, routers/ops_budget.py): results vs
+  // budget and last year per site. Upload commit=false is a preview; true saves.
+  getOpsBudgetFacilities: () => req('/ops-budget/facilities'),
+  getOpsBudget: ({ facility, segment = 'self_storage', month = '', period = 'month' }) =>
+    req(`/ops-budget?${new URLSearchParams({ facility, segment, month, period })}`),
+  getOpsBudgetTrend: ({ facility, segment = 'self_storage', month = '', months = 24 }) =>
+    req(`/ops-budget/trend?${new URLSearchParams({ facility, segment, month, months: String(months) })}`),
+  uploadOpsBudget: (file, { facilityId = '', commit = false } = {}) => {
+    const fd = new FormData();
+    fd.append('file', file); fd.append('facility_id', facilityId); fd.append('commit', commit ? 'true' : 'false');
+    return req('/ops-budget/upload', { method: 'POST', body: fd, timeoutMs: 120_000 });
+  },
+  getOpsBudgetLoads: (facility = '') => req(`/ops-budget/loads?${new URLSearchParams({ facility })}`),
+  getOpsBudgetLoadFile: (id) => reqBlob(`/ops-budget/loads/${encodeURIComponent(id)}/file`),
+  runOpsBudgetSnapshot: () => req('/ops-budget/snapshot', { method: 'POST', timeoutMs: 120_000 }),
+  // Operations > Customer Map (Oct 21 2026, routers/ops_customer_map.py): rounded points, counts only.
+  getOpsCustomerMap: ({ facility = 'all', state = '' } = {}) => req(`/facility-ops/customer-map?${new URLSearchParams({ facility, state })}`),
+  // Ops Budget > Hummingbird History (Oct 21 2026): what the last HB export load holds, per site (admins only).
+  getOpsHummingbird: () => req('/ops-budget/hummingbird'),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

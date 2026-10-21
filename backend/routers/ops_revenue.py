@@ -3,9 +3,11 @@ existing tenants. The calculation lives in `ops_revenue.py`; this is the door.
 
 Managers and above, or an Operations grant at Full - tighter than the rest of
 Operations (supervisors read the figures; only managers change rents).
-Nexus never writes to Cubby (Visesh, Oct 20 2026): staff enter each new rent
-in Cubby by hand and mark the row Entered in Cubby here - the only way a row
-reaches Cubby. There is no push route and there must never be one again.
+Pushing to Cubby is locked behind the Operations "Push to Cubby" switch
+(ops_cubby_push.py, OFF by default - Visesh, Oct 21 2026). While it is off the
+push route refuses (403) and staff enter each new rent in Cubby by hand, then
+mark the row Entered in Cubby here. With it on, a person pushes one row at a
+time, audited.
 Nothing here emails a tenant (CLAUDE.md) and nothing runs on a timer.
 """
 import asyncio
@@ -20,6 +22,7 @@ from sqlalchemy.orm import Session
 
 import cubby
 import models
+import ops_cubby_push
 import ops_revenue as rev
 from auth import get_current_user, require_level_or_module
 from database import get_db
@@ -83,6 +86,7 @@ async def tenants(facility_id: str, db: Session = Depends(get_db)):
         "facilityId": facility_id, "facility": cubby._short(fac), "asOf": today.isoformat(),
         "tenants": rows, "unitTypes": sorted({t["unitType"] for t in rows}),
         "defaults": rev.DEFAULT_STRATEGY,
+        "writeEnabled": await asyncio.to_thread(lambda: ops_cubby_push.status(db)["pushReady"]),
     }
 
 
@@ -246,6 +250,7 @@ def _batch_out(db: Session, b, full: bool = False) -> dict:
         "count": len(live), "monthlyIncrease": monthly, "annualIncrease": monthly * 12,
         "inCubby": sum(1 for c in live if c.status in rev.IN_CUBBY),
     }
+    out.update(ops_cubby_push.status(db))   # pushOn / writeConfigured / pushReady (Oct 21 2026)
     if full:
         out["changes"] = [{
             "id": c.id, "leaseId": c.lease_id, "tenant": c.tenant_name, "unit": c.unit_name, "unitType": c.unit_type,
@@ -374,10 +379,72 @@ def remove_change(bid: str, cid: str, user: dict = Depends(get_current_user), db
     return _batch_out(db, b, full=True)
 
 
+class PushBody(BaseModel):
+    use_cubby_date: bool = False   # accept Cubby's next possible date when it differs from the batch's
+
+
+@router.post("/batches/{bid}/changes/{cid}/push")
+def push_change(bid: str, cid: str, body: PushBody, user: dict = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    """Schedule ONE tenant's new rent in Cubby (leases/change-rents). Refused
+    (403) while the Push to Cubby switch is off - nothing is sent. Asks Cubby
+    for the lease's next possible change date first and stops when it differs
+    from the batch's effective date, unless the person accepts it. Every
+    attempt is audited."""
+    ops_cubby_push.require_push(db)
+    b = _get_batch(db, bid, lock=True)
+    if b.status not in ("approved", "notified"):
+        raise HTTPException(status_code=409, detail="Approve the batch before pushing changes to Cubby")
+    c = _get_change(db, b, cid, lock=True)
+    if c.status in rev.IN_CUBBY:
+        raise HTTPException(status_code=409, detail="This change is already in Cubby")
+    if c.status == "removed":
+        raise HTTPException(status_code=409, detail="This tenant was removed from the batch")
+    if not c.lease_id:
+        raise HTTPException(status_code=409, detail="Cubby has no lease for this unit. Enter the change in Cubby by hand.")
+
+    def fail(msg, status=424):
+        c.status, c.push_detail = "failed", msg[:500]
+        _audit(db, b.id, user["email"], "push_failed", change_id=c.id, unit=c.unit_name, error=msg[:500])
+        db.commit()
+        raise HTTPException(status_code=status, detail=msg)
+    try:
+        sched = ops_cubby_push.rent_change_schedule(db, c.lease_id)
+    except ops_cubby_push.PushOff as e:
+        db.rollback()
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except cubby.CubbyError as e:
+        fail(f"Cubby did not give a rent change date: {e.message}")
+    if not sched or not sched.get("rentChangeDate"):
+        fail("Cubby did not give a rent change date for this lease")
+    when, notice = sched["rentChangeDate"], sched.get("noticeDate") or ""
+    if when != b.effective_date and not body.use_cubby_date:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "message": (f"Cubby's next possible rent change date for this lease is {rev.us_date(when)}, not "
+                        f"{rev.us_date(b.effective_date)}. Push anyway to use Cubby's date."),
+            "cubbyDate": when, "cubbyNoticeDate": notice})
+    try:
+        ops_cubby_push.change_rent(db, c.lease_id, c.new_cents, when, notice or rev.notice_date(
+            rev._d(when), int((b.strategy or {}).get("noticeDays") or rev.DEFAULT_NOTICE_DAYS)).isoformat())
+    except ops_cubby_push.PushOff as e:
+        db.rollback()
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except cubby.CubbyError as e:
+        fail(f"Cubby refused the change: {e.message}")
+    c.status, c.push_detail = "pushed", ""
+    c.cubby_change_date, c.cubby_notice_date = when, notice
+    c.pushed_by, c.pushed_at = user["email"], rev.now_iso()
+    _audit(db, b.id, user["email"], "pushed", change_id=c.id, unit=c.unit_name, leaseId=c.lease_id,
+           fromCents=c.current_cents, toCents=c.new_cents, rentChangeDate=when, noticeDate=notice)
+    db.commit()
+    return _batch_out(db, b, full=True)
+
+
 @router.post("/batches/{bid}/changes/{cid}/entered")
 def mark_entered(bid: str, cid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Staff entered this change in Cubby by hand (from the checklist). The
-    only way a row reaches Cubby - Nexus never writes there itself."""
+    """Staff entered this change in Cubby by hand (from the checklist) - the
+    way a row reaches Cubby while the Push to Cubby switch is off."""
     b = _get_batch(db, bid, lock=True)
     if b.status not in ("approved", "notified"):
         raise HTTPException(status_code=409, detail="Approve the batch before entering changes in Cubby")

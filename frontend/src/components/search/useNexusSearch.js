@@ -193,7 +193,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       if (match(r.item, r.employeeName, r.id)) reqRows.push({
         key: `req:${r.id}`, Icon: ShoppingCart, title: `${r.item} - ${r.employeeName}`,
         detail: [r.id, statusLabel(r.status)].filter(Boolean).join(' · '),
-        run: () => navigate('purchase', 'log'),
+        run: () => navigate('myhr', 'purchase'),
       });
     }
     add('requests', 'Purchase Requests', reqRows);

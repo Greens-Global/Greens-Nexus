@@ -76,7 +76,7 @@ export function PersonalLinkModal({ modal, setModal, save, saving, existingLinks
 
   return (
     <div className="modal-overlay" onClick={() => !saving && guard.requestClose()}>
-      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content nx-popup" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{mode === 'add' ? 'Add Personal Link' : 'Edit Personal Link'}</h3>
           <button className="close-btn" onClick={guard.requestClose}><X size={16} /></button>

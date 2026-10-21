@@ -1,8 +1,9 @@
-"""Default onboarding / offboarding / leave checklist templates (HR roadmap
+"""Default onboarding / promotion / offboarding / leave checklist templates (HR roadmap
 Section C: "Onboarding checklist per hire").
 
 These are the starting rows a company gets the first time anyone opens the
-checklists; HR edits them afterward in People > Checklist Templates. Each row:
+checklists; HR edits them afterward in Settings > Global Settings > Hiring >
+Checklist Library (and per company in Company Settings > Checklists). Each row:
 
   key       stable id inside the template (ON-01, OFF-14, ...) - completion
             signals and history refer to it, so never reuse a key for a
@@ -11,8 +12,10 @@ checklists; HR edits them afterward in People > Checklist Templates. Each row:
   title     the step (Title Case); hint = one sentence of how-to (sentence case)
   owner     a ROLE, resolved per person when the checklist is created:
             hr (the company's HR contact), manager (reports-to), employee,
-            it, payroll, equipment, finance (set per company in Checklist Owners)
-  anchor    S (start date), X (exit date / leave start), created (the day the
+            it, accounting (set per company in Checklist Owners; Neil, Oct 19:
+            payroll is Accounting, equipment is IT, there is no Finance)
+  anchor    S (start date - the effective date on a promotion), X (exit date /
+            leave start), created (the day the
             checklist was started), none (no due date - set by hand)
   offset    days from the anchor; bd=True counts business days (skips weekends
             and the company's holidays), otherwise a date landing on a weekend
@@ -66,9 +69,9 @@ ONBOARDING = [
     _row("ON-04", P1, "Pre-Boarding Packet Signed", "hr", "S", -10,
          signal="envelope:nda,handbook_ack",
          hint="One Nexus Sign envelope to the personal email: NDA, handbook or contractor policy, IT policy, new hire information form. No ID numbers in it."),
-    _row("ON-05", P1, "Payroll Provider Onboarding (Tax Forms, Direct Deposit)", "payroll", "S", -10, applies=EMP,
+    _row("ON-05", P1, "Payroll Provider Onboarding (Tax Forms, Direct Deposit)", "accounting", "S", -10, applies=EMP,
          hint="W-4, state withholding, direct deposit and full tax IDs go into the payroll provider, never Nexus."),
-    _row("ON-06", P1, "W-9 (US) Or PAN (India) Sent To Accounting", "finance", "S", -7, applies=CONTRACTOR),
+    _row("ON-06", P1, "W-9 (US) Or PAN (India) Sent To Accounting", "accounting", "S", -7, applies=CONTRACTOR),
     _row("ON-07", P1, "Contract End Date On The Profile", "hr", "S", -7, applies=CONTRACTOR,
          signal="contract_end", hint="Nexus reminds HR from this date."),
     _row("ON-08", P1, "Emergency Contact, Address And Date Of Birth On The Profile", "hr", "S", -7,
@@ -81,7 +84,7 @@ ONBOARDING = [
 
     _row("ON-12", P2, "Microsoft 365 Account Provisioned", "it", "S", -3, signal="provisioned",
          hint="Check the work email domain for the hiring company and the usage location (IN for India) before pressing Provision. The temporary password is shown once."),
-    _row("ON-13", P2, "Equipment Assigned In Item Management", "equipment", "S", -3, signal="item_assigned",
+    _row("ON-13", P2, "Equipment Assigned In Item Management", "it", "S", -3, signal="item_assigned",
          hint="Remote hires: assign and ship by 5 days before the start date."),
     _row("ON-14", P2, "Nexus Access Granted", "manager", "S", -1),
     _row("ON-15", P2, "Time Clock And Leave Balances Set Up", "hr", "S", -1, applies=EMP),
@@ -104,10 +107,10 @@ ONBOARDING = [
     _row("ON-24", P4, "Right-To-Work Recorded On The Compliance Tab", "hr", "S", 3, bd=True,
          hint="Dates only, no document numbers."),
     _row("ON-25", P4, "Benefits Notice And Enrollment", "hr", "S", 14, applies=US_EMP),
-    _row("ON-26", P4, "PF And ESI Enrollment", "payroll", "none", applies=IN_EMP,
+    _row("ON-26", P4, "PF And ESI Enrollment", "accounting", "none", applies=IN_EMP,
          hint="Before the first payroll. Only the last 4 digits of the UAN go in Nexus."),
-    _row("ON-27", P4, "First Paystub Checked", "payroll", "none", applies=EMP),
-    _row("ON-28", P4, "State New-Hire Report", "payroll", "S", 20, applies=US_EMP,
+    _row("ON-27", P4, "First Paystub Checked", "accounting", "none", applies=EMP),
+    _row("ON-28", P4, "State New-Hire Report", "accounting", "S", 20, applies=US_EMP,
          hint="Many payroll providers file this automatically - confirm yours does."),
     _row("ON-29", P4, "30-Day Check-In", "manager", "S", 30),
     _row("ON-30", P4, "Required Training", "hr", "S", 30, applies=EMP,
@@ -122,7 +125,7 @@ Q1, Q2, Q3 = "Notice Period", "Last Day", "After The Last Day"
 
 OFFBOARDING = [
     _row("OFF-01", Q1, "Resignation In Writing And Exit Details Recorded", "hr", "created", 0),
-    _row("OFF-02", Q1, "Final Pay Date Confirmed For The Work State", "payroll", "created", 1, applies=EMP,
+    _row("OFF-02", Q1, "Final Pay Date Confirmed For The Work State", "accounting", "created", 1, applies=EMP,
          hint="California: involuntary exits are paid on the last day. For a state you are not sure of, pay on the last day."),
     _row("OFF-03", Q1, "Separation Confirmation Letter Sent", "hr", "created", 2, applies={"types": ["employee"], **NOT_DEATH}),
     _row("OFF-04", Q1, "Knowledge Handover Plan", "manager", "X", -10, applies=NOT_DEATH),
@@ -130,19 +133,19 @@ OFFBOARDING = [
          hint="Anyone outsiders email gets a shared mailbox with an auto-reply. If an export is needed, test it now from the Documents tab."),
     _row("OFF-06", Q1, "Direct Reports And Company Roles Reassigned", "hr", "X", -5, signal="roles_clear",
          hint="Reports-to of their team, the company HR contact or manager, approver and allocator roles, accounting scopes."),
-    _row("OFF-07", Q1, "Equipment Return Arranged", "equipment", "X", -5,
+    _row("OFF-07", Q1, "Equipment Return Arranged", "it", "X", -5,
          hint="Remote staff get a prepaid return label and a box."),
     _row("OFF-08", Q1, "Open Nexus Sign Envelopes Re-Routed Or Voided", "hr", "X", -3),
     _row("OFF-09", Q1, "Exit Interview (Optional)", "hr", "X", -3,
          applies={"types": ["employee"], "exit_types": ["resignation", "retirement", "end_of_contract"]}),
-    _row("OFF-10", Q1, "Paid Leave Balance For Payout", "payroll", "X", -2, applies=EMP),
+    _row("OFF-10", Q1, "Paid Leave Balance For Payout", "accounting", "X", -2, applies=EMP),
     _row("OFF-11", Q1, "Separation Agreement (Only If Severance Is Offered)", "hr", "X", -1, applies=EMP,
          hint="Counsel drafts it. Mark N/A when no severance is offered."),
     _row("OFF-12", Q1, "Final Time Sheet Submitted Before Lockout", "employee", "X", 0,
          applies={"types": ["employee"], **NOT_DEATH},
          hint="Mid-period leavers submit; the manager writes the final hours on the exit record and Payroll pays from them."),
 
-    _row("OFF-13", Q2, "Equipment Collected", "equipment", "X", 0),
+    _row("OFF-13", Q2, "Equipment Collected", "it", "X", 0),
     _row("OFF-14", Q2, "Exit Acknowledgement Signed", "hr", "X", 0, applies=NOT_DEATH,
          hint="Send it to the personal email so it still works after the lockout."),
     _row("OFF-15", Q2, "Mailbox Exported, OneDrive Moved And Auto-Reply Set", "it", "X", 0,
@@ -151,24 +154,45 @@ OFFBOARDING = [
          hint="Left runs the moment you press Apply. Always pick the task handover person by name."),
     _row("OFF-17", Q2, "Sessions Revoked, MFA Reset, Group Licenses Removed", "it", "X", 0,
          hint="Entra admin center: Revoke Sessions. Critical for terminations."),
-    _row("OFF-18", Q2, "Access Outside Microsoft 365 Removed", "finance", "X", 0,
+    _row("OFF-18", Q2, "Access Outside Microsoft 365 Removed", "accounting", "X", 0,
          hint="Accounting, banking and vendor portals, company cards, building access, shared passwords."),
-    _row("OFF-19", Q2, "Returned Items Recorded In Item Management", "equipment", "X", 2, signal="no_items"),
+    _row("OFF-19", Q2, "Returned Items Recorded In Item Management", "it", "X", 2, signal="no_items"),
     _row("OFF-20", Q2, "License Removed After Shared Mailbox Conversion", "it", "X", 1,
          hint="Mark N/A when the mailbox was removed instead."),
 
-    _row("OFF-21", Q3, "Final Pay Issued", "payroll", "X", 0, applies=EMP,
+    _row("OFF-21", Q3, "Final Pay Issued", "accounting", "X", 0, applies=EMP,
          hint="Per the work-state rule. Upload the final paystub to the profile."),
     _row("OFF-22", Q3, "Separation Notices (US)", "hr", "X", 0, applies=US_EMP,
          hint="California: For Your Benefit pamphlet and change-in-status notice. Never send benefit cancellation notices through Nexus Sign."),
-    _row("OFF-23", Q3, "Full And Final Settlement", "payroll", "X", 2, bd=True, applies=IN_EMP),
+    _row("OFF-23", Q3, "Full And Final Settlement", "accounting", "X", 2, bd=True, applies=IN_EMP),
     _row("OFF-24", Q3, "Relieving And Experience Letters", "hr", "X", 7, applies=IN_EMP),
-    _row("OFF-25", Q3, "Contractor Final Invoice And Deliverables", "finance", "X", 30, applies=CONTRACTOR),
+    _row("OFF-25", Q3, "Contractor Final Invoice And Deliverables", "accounting", "X", 30, applies=CONTRACTOR),
     _row("OFF-26", Q3, "Mailbox Export Stored And License State Checked", "it", "X", 2),
     _row("OFF-27", Q3, "Dated Documents Re-Filed Without Expiry", "hr", "X", 7,
          hint="Otherwise Nexus keeps sending document-expiry notices for a leaver."),
     _row("OFF-28", Q3, "Rehire Eligibility Noted", "hr", "X", 7, applies=NOT_DEATH),
     _row("OFF-29", Q3, "Shared Mailbox Access Reviewed", "manager", "X", 90),
+]
+
+# Promotion (Neil, Oct 19: "you need to add onboarding, promo, offboarding,
+# leave ... promo is a step that happens in between"). S = the effective date.
+# The new role's own steps (its training, its tools) are added from the role's
+# checklist, which its department head keeps (Team > Role Checklists).
+T1, T2, T3 = "Before It Takes Effect", "Effective Date", "First 30 Days"
+
+PROMOTION = [
+    _row("PR-01", T1, "Promotion Letter Signed", "hr", "S", -5, signal="envelope:promotion",
+         hint="Send it from the person's profile (Promote / Change Role) - Nexus applies the new role, title and pay once it is signed."),
+    _row("PR-02", T1, "New Pay Set Up In Payroll", "accounting", "S", -2, applies=EMP),
+    _row("PR-03", T1, "Contractor Rate Or Agreement Updated", "accounting", "S", -2, applies=CONTRACTOR),
+    _row("PR-04", T2, "Reporting Line And Department Updated In Nexus", "hr", "S", 0),
+    _row("PR-05", T2, "Access For The New Role Granted", "it", "S", 0,
+         hint="Licenses, shared mailboxes, Teams and anything outside Microsoft 365 the new role uses."),
+    _row("PR-06", T2, "Equipment For The New Role Assigned (If Any)", "it", "S", 0),
+    _row("PR-07", T2, "Team Told About The Change", "manager", "S", 0),
+    _row("PR-08", T3, "Access The Old Role No Longer Needs Removed", "it", "S", 5, bd=True),
+    _row("PR-09", T3, "Training For The New Role Planned", "manager", "S", 5, bd=True),
+    _row("PR-10", T3, "30-Day Check-In In The New Role", "manager", "S", 30),
 ]
 
 R1, R2 = "Leave Starts", "Return"
@@ -182,7 +206,7 @@ INACTIVE = [
     _row("IN-04", R1, "Sign-In Blocked And Sessions Revoked (If Blocking)", "it", "X", 0,
          hint="Do not remove licenses - the mailbox would start the 30-day deletion countdown."),
     _row("IN-05", R1, "Trustee Mailbox Access Granted (If Needed)", "it", "X", 0),
-    _row("IN-06", R1, "Access Outside Microsoft 365 Suspended (If Blocking)", "finance", "X", 0),
+    _row("IN-06", R1, "Access Outside Microsoft 365 Suspended (If Blocking)", "accounting", "X", 0),
     _row("IN-07", R1, "Approvals And Envelopes Re-Routed", "hr", "X", 2),
     _row("IN-08", R1, "Return-Date And Compliance Reminders Set", "hr", "X", 0,
          hint="Compliance-tab reminders stop while a person is Inactive; upload a dated expiry record to the Documents tab."),
@@ -192,6 +216,7 @@ INACTIVE = [
 
 DEFAULTS = {
     "onboarding": ("Onboarding", ONBOARDING),
+    "promotion": ("Promotion", PROMOTION),
     "offboarding": ("Offboarding", OFFBOARDING),
     "inactive": ("Leave or Suspension", INACTIVE),
 }

@@ -76,9 +76,9 @@ const C = (name) => `hsl(var(--color-${name}))`;
 export const KPI_CATALOG = {
   open_tasks:           { label: 'Open Tasks',              color: 'blue',   Icon: ListTodo,      hint: 'Across your team',     nav: { view: 'tasks' } },
   my_open_tasks:        { label: 'My Open Tasks',           color: 'blue',   Icon: ListTodo,      hint: 'Assigned to you',      nav: { view: 'tasks' } },
-  pending_requisitions: { label: 'Requisitions to Approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'inventory', sub: 'purchasereqs' } },
+  pending_requisitions: { label: 'Requisitions to Approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'myhr', sub: 'purchase' } },
   pending_inventory:    { label: 'Inventory Requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'inventory', sub: 'checkouts' } },
-  open_purchases:       { label: 'Open Purchases',          color: 'purple', Icon: Package,       hint: 'In progress',          nav: { view: 'purchase' } },
+  open_purchases:       { label: 'Open Purchases',          color: 'purple', Icon: Package,       hint: 'In progress',          nav: { view: 'myhr', sub: 'purchase' } },
   my_checkouts:         { label: 'My Active Checkouts',     color: 'green',  Icon: Boxes,         hint: 'Currently with you',   nav: { view: 'inventory', sub: 'checkouts' } },
   my_assignments:       { label: 'Items Assigned to Me',    color: 'green',  Icon: Package,       hint: 'Your equipment',       nav: { view: 'inventory' } },
   unread_notifications: { label: 'Unread Notifications',    color: 'blue',   Icon: Bell,          hint: 'Tap to review' },
@@ -101,7 +101,7 @@ export const SHORTCUT_TARGETS = [
   { view: 'inventory',        label: 'Item Management',   Icon: Package,      color: 'orange' },
   { view: 'inventory', sub: 'catalog',   label: 'Item Management · Browse Catalog', Icon: Boxes,     color: 'orange' },
   { view: 'inventory', sub: 'checkouts', label: 'Item Management · Checkouts',      Icon: HandCoins, color: 'orange' },
-  { view: 'purchase',         label: 'Purchase Requests', Icon: ShoppingCart, color: 'purple' },
+  { view: 'myhr', sub: 'purchase', label: 'Workday · Purchase Requests', Icon: ShoppingCart, color: 'purple' },
   { view: 'property-asset',   label: 'Asset Management',  Icon: Building2,    color: 'brand' },
   { view: 'sop',              label: 'Knowledge Base',    Icon: BookOpen,     color: 'brand' },
   { view: 'hr',               label: 'HR',                Icon: Users,        color: 'green' },
@@ -319,7 +319,7 @@ function LinksFolderTile({ link, color, onOpen, style }) {
 function LinksFolderAllModal({ title, links, itemType, colorFor, onOpen, onClose }) {
   return createPortal((
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ width: 'max(60vw, min(100%, 560px))', maxWidth: '100%' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content nx-popup" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
@@ -647,7 +647,7 @@ export const QUICK_ACTIONS = [
   { key: 'time-off',      label: 'Request Time Off',  view: 'timeclock', sub: 'timeoff',   color: 'orange', Icon: CalendarClock },
   { key: 'punch-fix',     label: 'Punch Correction',  view: 'timeclock', sub: 'timesheet', color: 'green',  Icon: Timer },
   { key: 'ask-hr',        label: 'Ask HR',            view: 'myhr',                        color: 'blue',   Icon: Contact },
-  { key: 'purchase',      label: 'New Purchase Request', view: 'purchase',                 color: 'purple', Icon: ShoppingCart },
+  { key: 'purchase',      label: 'New Purchase Request', view: 'myhr', sub: 'purchase:new', color: 'purple', Icon: ShoppingCart },
   { key: 'timeclock',     label: 'Time Clock',        view: 'timeclock',    color: 'green',  Icon: Clock },
   { key: 'kb',            label: 'Knowledge Base',    view: 'sop',          color: 'brand',  Icon: BookOpen },
   // More places to reach in one tap (Neil, 10/13). `module` names the Access
@@ -761,7 +761,7 @@ function QuickActionRows({ actions, onRun, onNote }) {
 function QuickActionsSheet({ actions, onRun, onNote, onClose }) {
   return createPortal((
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ width: 360, maxWidth: '92vw' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content nx-popup" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Quick Actions</h3>
           <button className="close-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>

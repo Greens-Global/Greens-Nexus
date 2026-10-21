@@ -192,7 +192,7 @@ function AffiliateEditor({ row, borrowers, meta, onClose, onSave }) {
   const field = (id, text, input) => (<div><label style={label} htmlFor={id}>{text}</label>{input}</div>);
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <form className="modal-content" role="dialog" aria-modal="true" aria-label={row.id ? `Change ${row.name}` : 'Add an affiliated entity'} onClick={(e) => e.stopPropagation()} onSubmit={save} style={{ maxWidth: 680 }}>
+      <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={row.id ? `Change ${row.name}` : 'Add an affiliated entity'} onClick={(e) => e.stopPropagation()} onSubmit={save}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{row.id ? 'Change Entity' : 'Add Entity'}</h3>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
