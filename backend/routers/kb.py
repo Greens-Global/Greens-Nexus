@@ -217,6 +217,8 @@ def _page_card(db: Session, d: models.KbDocument, user: dict, pins: set | None =
         "status": d.status, "version": d.version or "", "collection_id": d.collection_id or "",
         "collection": _collection_path(db, d.collection_id), "owner_email": (d.owner_email or "").lower(),
         "owner_name": d.owner_name or _name(db, d.owner_email), "reviewer_email": (d.reviewer_email or "").lower(),
+        "reviewer_name": (d.reviewer_name or _name(db, d.reviewer_email)) if d.reviewer_email else "",
+        "verified_by_name": _name(db, d.verified_by) if d.verified_by else "",
         "tags": _tags(d), "verified_at": d.verified_at or "", "verified_by": d.verified_by or "",
         "updated_at": d.updated_at or "", "published_at": d.published_at or "", "views": int(d.views or 0),
         "require_ack": bool(d.require_ack), "stale": rs["stale"], "next_review": rs["next_review"],
@@ -336,9 +338,10 @@ def _set_reviewer(db: Session, d: models.KbDocument, email: str) -> None:
 def _me_info(db: Session, user: dict) -> dict:
     me = (user["email"] or "").lower()
     owned = [c.id for c in db.query(models.KbCollection).filter(models.KbCollection.owner_email == me).all()]
-    return {"email": me, "name": _name(db, me), "can_author": kb_access.is_author(user, db),
+    author = kb_access.is_author(user, db)
+    return {"email": me, "name": _name(db, me), "can_author": author,
             "can_manage": kb_access.is_manage(user, db), "owned_collections": owned, "ai": kb_ai.available(),
-            "storage": kb_media.configured()}
+            "storage": kb_media.configured(), "review_count": len(_review_queue(db, user)) if author else 0}
 
 
 # ----------------------------------------------------------------- me / home
@@ -1363,7 +1366,8 @@ def _run_import(job_id: str) -> None:
         try:
             if not kb_ai.available():
                 raise kb_ai.AiError("Nexus is not available on this server")
-            blocks = kb_ai.format_text(sec["text"], title=inp.get("title") or "", page_type=inp.get("page_type") or "", position=pos)
+            shots = [v for v in images.values()] if (i == 1 and len(text) < 400 and images) else []
+            blocks = kb_ai.format_text(sec["text"], title=inp.get("title") or "", page_type=inp.get("page_type") or "", position=pos, images=shots)
             blocks = kb_blocks.sanitize(blocks, image_ok=lambda u: True)
         except kb_ai.AiError as e:
             warnings.append(f"Section {i} ({sec['title'] or 'untitled'}): {e}. Its text is kept as plain paragraphs.")
@@ -1686,10 +1690,13 @@ def people(user: dict = Depends(get_current_user), db: Session = Depends(get_db)
 @router.get("/print/{doc_id}", response_class=HTMLResponse)
 def print_page(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """A clean printable copy (Share > Print)."""
+    import html as _html
     d = kb_access.get_page(db, doc_id, user)
     blocks = kb_blocks.loads(d.blocks)
-    text = kb_blocks.plain_text(blocks).replace("&", "&amp;").replace("<", "&lt;")
+    text = _html.escape(kb_blocks.plain_text(blocks))
     paras = "".join(f"<p>{ln}</p>" for ln in text.split("\n") if ln.strip())
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>{d.title}</title>
+    title = _html.escape(d.title or "")
+    meta = _html.escape(f"{d.doc_code or ''} · v{d.version} · verified {d.verified_at or ''} · Greens Global Knowledge Base")
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>{title}</title>
 <style>body{{font-family:Inter,Segoe UI,Arial,sans-serif;max-width:760px;margin:40px auto;color:#0f172a;line-height:1.5}}h1{{font-size:24px}}.meta{{color:#64748b;font-size:13px}}</style></head>
-<body><h1>{d.title}</h1><div class="meta">{d.doc_code or ''} · v{d.version} · verified {d.verified_at or ''} · Greens Global Knowledge Base</div>{paras}</body></html>"""
+<body><h1>{title}</h1><div class="meta">{meta}</div>{paras}</body></html>"""

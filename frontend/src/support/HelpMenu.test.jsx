@@ -33,8 +33,8 @@ const TICKETS = [
 const apiState = { kbFail: false, tickets: TICKETS };
 vi.mock('../api', () => {
   const handlers = {
-    getKbDocs: () => (apiState.kbFail ? Promise.reject(new Error('down')) : Promise.resolve(KB_DOCS)),
-    getKbCourses: () => (apiState.kbFail ? Promise.reject(new Error('down')) : Promise.resolve(KB_COURSES)),
+    kbCorpusDocs: () => (apiState.kbFail ? Promise.reject(new Error('down')) : Promise.resolve(KB_DOCS)),
+    kbCorpusCourses: () => (apiState.kbFail ? Promise.reject(new Error('down')) : Promise.resolve(KB_COURSES)),
     getMyTickets: () => Promise.resolve(apiState.tickets),
   };
   return { api: new Proxy(handlers, { get: (t, k) => t[k] || (() => Promise.resolve([])) }) };
@@ -244,7 +244,7 @@ describe('Help widget', () => {
     fireEvent.change(input, { target: { value: 'forklift operator training' } });
     fireEvent.click(await screen.findByRole('button', { name: /Forklift Operator Training/ }));
     window.removeEventListener('nexus:navigate', onNav);
-    expect(navs).toEqual([{ view: 'sop', sub: 'lms' }]);
+    expect(navs).toEqual([{ view: 'sop', sub: 'course:crs1' }]);
   });
 
   it('with no search, lists the guide to browse, Getting Started first', async () => {

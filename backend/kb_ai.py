@@ -47,7 +47,24 @@ class AiError(RuntimeError):
     pass
 
 
-def _call(system: str, user: str, *, max_tokens: int = 4000, timeout: float = 110, use_fast: bool = False) -> str:
+_DATA_URL = re.compile(r"^data:(image/(?:png|jpeg|gif|webp));base64,(.+)$", re.DOTALL)
+
+
+def _content(user: str, images: list[str] | None) -> Any:
+    """Text, or text plus image blocks (screenshot imports)."""
+    if not images:
+        return user
+    parts: list[dict] = []
+    for u in images[:20]:
+        m = _DATA_URL.match(u or "")
+        if m:
+            parts.append({"type": "image", "source": {"type": "base64", "media_type": m.group(1), "data": m.group(2)}})
+    parts.append({"type": "text", "text": user})
+    return parts
+
+
+def _call(system: str, user: str, *, max_tokens: int = 4000, timeout: float = 110, use_fast: bool = False,
+          images: list[str] | None = None) -> str:
     key = os.getenv("ANTHROPIC_API_KEY", "")
     if not key:
         raise AiError("Nexus is not set up on this server (no API key)")
@@ -55,7 +72,7 @@ def _call(system: str, user: str, *, max_tokens: int = 4000, timeout: float = 11
         "model": fast_model() if use_fast else model(),
         "max_tokens": max_tokens,
         "system": system,
-        "messages": [{"role": "user", "content": user}],
+        "messages": [{"role": "user", "content": _content(user, images)}],
     }
     try:
         with httpx.Client(timeout=timeout) as c:
@@ -99,15 +116,18 @@ _BLOCK_SCHEMA = """Return ONLY a JSON object: {"type":"doc","content":[...]} usi
 Keep the author's wording. Do not invent facts. Do not add an introduction. Fix obvious typos only."""
 
 
-def format_text(section: str, *, title: str = "", page_type: str = "", position: str = "") -> dict:
-    """One section of source text -> blocks. Raises AiError; the caller keeps
-    the raw text when that happens."""
+def format_text(section: str, *, title: str = "", page_type: str = "", position: str = "", images: list[str] | None = None) -> dict:
+    """One section of source text -> blocks. With `images` (screenshots of a
+    printed SOP) the model reads the pictures too. Raises AiError; the
+    caller keeps the raw text when that happens."""
     section = (section or "")[:MAX_SECTION_CHARS]
     system = ("You turn company source material into a clean Knowledge Base page for Greens Global, a self-storage operator. "
               + _BLOCK_SCHEMA + "\nAmerican English. Title Case for headings. Dates as MM/DD/YYYY.")
     user = (f"Page title: {title or '(none yet)'}\nPage type: {page_type or 'unknown'} (how_to | sop | policy | reference)\n"
             f"This is {position or 'a section'} of the source.\n[[TABLE]]...[[/TABLE]] blocks are tables, rows separated by newlines, cells by |.\n\nSOURCE:\n\"\"\"\n{section}\n\"\"\"")
-    out = _json(_call(system, user, max_tokens=8000))
+    if images:
+        user += "\n\nThe images are screenshots or photos of the source, in order. Read them in full; the text above is only a hint."
+    out = _json(_call(system, user, max_tokens=8000, timeout=170 if images else 110, images=images))
     if not isinstance(out, dict) or out.get("type") != "doc":
         raise AiError("Nexus did not return a page")
     return out

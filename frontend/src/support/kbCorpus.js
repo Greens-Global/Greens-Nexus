@@ -25,7 +25,7 @@ export function loadKbCorpus() {
   if (state.status === 'ready' || state.status === 'error') return Promise.resolve(state);
   if (inflight) return inflight;
   set({ status: 'loading', corpus: null });
-  inflight = Promise.allSettled([api.getKbDocs(), api.getKbCourses()]).then(([docs, courses]) => {
+  inflight = Promise.allSettled([api.kbCorpusDocs(), api.kbCorpusCourses()]).then(([docs, courses]) => {
     const okDocs = docs.status === 'fulfilled' ? docs.value : null;
     const okCourses = courses.status === 'fulfilled' ? courses.value : null;
     // Half an answer is still worth searching; only both failing is an error.
