@@ -1158,7 +1158,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
   useEffect(() => {
     let live = true;
     api.getCompensation(employee.id)
-      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [] }); } })
+      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [], gstin: r.gstin || '' }); } })
       .catch(e => {
         // Compensation/bank require a fresh step-up MFA - show the Verify gate.
         if (isStepUpRequired(e)) { if (live) setStepLocked(true); return; }
@@ -1260,6 +1260,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
           {!readOnly && (data.bank.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
             : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · '))))}
+          {!readOnly && data.gstin && row2('gstin', 'GSTIN', maskId(data.gstin))}
 
           {sectionLabel('Paystubs')}
           {!readOnly && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
@@ -5440,6 +5441,7 @@ const PAY_FREQ  = [['monthly', 'Monthly'], ['semimonthly', 'Semi-monthly'], ['bi
 const defaultPayFreq = (payBasis, currency) =>
   payBasis === 'hourly' ? 'biweekly' : (currency === 'INR' ? 'monthly' : 'biweekly');
 const BANK_TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['current', 'Current']];
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 const BENEFIT_TYPES = [['health', 'Health'], ['dental', 'Dental'], ['vision', 'Vision'], ['life', 'Life'], ['disability', 'Disability'], ['retirement', 'Retirement / 401k / PF'], ['other', 'Other']];
 
 // The timecard-only fields live here too since Sep 30 (Charmi: "this should all
@@ -5454,6 +5456,7 @@ const COMP_DEFAULTS = { base: '', payBasis: 'salary', frequency: 'biweekly', cur
 function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const [comp, setComp] = useState(COMP_DEFAULTS);
   const [bank, setBank] = useState([]);
+  const [gstin, setGstin] = useState('');   // India GST number, printed on a contractor's invoices (Oct 21)
   const [payroll, setPayroll] = useState({});   // what the timecard currently uses (read-only context)
   const [ownPayLocked, setOwnPayLocked] = useState(false);   // your own record: another admin or HR sets your pay (Oct 20)
   const [loading, setLoading] = useState(true);
@@ -5475,8 +5478,8 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
         if (nextComp.overtimeRule === undefined || nextComp.overtimeRule === null) nextComp.overtimeRule = '';
         if (!(r.compensation || {}).fullDayHours && pr.fullDayHours) nextComp.fullDayHours = String(pr.fullDayHours);
         const nextBank = r.bank || [];
-        setComp(nextComp); setBank(nextBank); setPayroll(pr); setOwnPayLocked(!!r.ownPayLocked);
-        baselineRef.current = { comp: nextComp, bank: nextBank };
+        setComp(nextComp); setBank(nextBank); setGstin(r.gstin || ''); setPayroll(pr); setOwnPayLocked(!!r.ownPayLocked);
+        baselineRef.current = { comp: nextComp, bank: nextBank, gstin: r.gstin || '' };
       })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
       .finally(() => live && setLoading(false));
@@ -5498,12 +5501,14 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
     setBusy(true);
     try {
       const clean = { ...comp }; delete clean.history;   // server owns history
-      await api.saveCompensation(employee.id, { compensation: clean, bank });
+      // GSTIN rides on the same PUT (the server keeps it beside the bank list).
+      await api.saveCompensation(employee.id, { compensation: clean, bank, gstin });
       toastOk('Compensation saved.'); onClose();
     } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
   }
   const money = (v, cur) => v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-';
-  const dirty = JSON.stringify({ comp, bank }) !== JSON.stringify(baselineRef.current);
+  const gstinBad = !!gstin && !GSTIN_RE.test(gstin);
+  const dirty = JSON.stringify({ comp, bank, gstin }) !== JSON.stringify(baselineRef.current);
   const guard = useUnsavedGuard(dirty, onClose, save);
 
   return (
@@ -5611,12 +5616,20 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
               </div>
             ))}
             <button className="secondary-btn" onClick={addBank} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add Bank Account</button>
+            <div style={{ marginTop: 14, maxWidth: 360 }}>
+              <label style={FL} htmlFor="comp-gstin">GSTIN</label>
+              <input id="comp-gstin" className="form-input" style={{ width: '100%', textTransform: 'uppercase', borderColor: gstinBad ? 'hsl(var(--color-red))' : undefined }} value={gstin} maxLength={15}
+                onChange={e => setGstin(e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="e.g. 27ABCDE1234F1Z5" aria-invalid={gstinBad} />
+              <div style={{ fontSize: 10.5, color: gstinBad ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
+                {gstinBad ? 'Not a valid GSTIN - 15 characters, like 27ABCDE1234F1Z5.' : "Printed on the person's invoices when set."}
+              </div>
+            </div>
           </div>
         )}
 
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy || loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading) ? 0.6 : 1 }}>
+          <button className="primary-btn" onClick={save} disabled={busy || loading || gstinBad} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading || gstinBad) ? 0.6 : 1 }}>
             {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
           </button>
         </div>
@@ -5970,7 +5983,7 @@ export default function HR({ activeSub, onSubChange }) {
   // hr-access moved to the Admin module (Pranshu, Sep 9) - old deep links
   // redirect there by the effect below, so it's not in this list any more.
   // Dashboard tiles open the Time tab on a specific inner list.
-  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions' };
+  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
   const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];

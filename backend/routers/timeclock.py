@@ -2139,6 +2139,13 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         leave_balances.record_period(db, email, body.start, body.end, row.id, user["email"])
     except Exception as _leave_err:  # noqa: BLE001
         print(f"[leave] could not record {email} {body.start}-{body.end}: {_leave_err}")
+    # A contractor's invoice for the period (contractor_invoices.py, Oct 21):
+    # a draft and a bell to HR only - the email goes on HR's click, never here.
+    try:
+        from routers import contractor_invoices
+        contractor_invoices.draft_for(db, email, row)
+    except Exception as _inv_err:  # noqa: BLE001
+        print(f"[contractor-invoices] could not draft {email} {body.start}-{body.end}: {_inv_err}")
     db.commit()
     return {"finalized": {"by": row.approved_by, "at": row.approved_at, "workedMin": worked}}
 
@@ -2213,6 +2220,8 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administr
     # Its leave rows go with it; finalizing again writes them afresh.
     import leave_balances
     leave_balances.remove_period(db, row.id)
+    from routers import contractor_invoices
+    contractor_invoices.void_for_final(db, row.id)   # its draft invoice goes; a sent one stays
     # A period signed through Nexus Sign keeps its review row as "completed",
     # which refused every new submission - so an unlocked period could never be
     # re-agreed or re-signed (Oct 16). Close that review out as "unlocked"; the
@@ -10222,6 +10231,7 @@ def payroll_timecard(email: str, start: str, end: str,
         # The Notes column is on the monthly card too (Sep 29).
         card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
         card["zoneKey"] = _employee_zone_key(db, em)   # India staff open in India time (Oct 20)
+        card.update(_invoice_keys(db, em, card["periodStart"], card["periodEnd"]))
         return _no_pay(db, user, card)
     card = _compute_timecard(db, em, start, end)
     if em == (user.get("email") or "").lower():
@@ -10235,7 +10245,18 @@ def payroll_timecard(email: str, start: str, end: str,
     # India-based staff read in India time, US staff in California time,
     # unless the viewer picked the other one (lib/displayTz.js).
     card["zoneKey"] = _employee_zone_key(db, em)
+    card.update(_invoice_keys(db, em, start, end))
     return _no_pay(db, user, card)
+
+
+def _invoice_keys(db: Session, em: str, start: str, end: str) -> dict:
+    """`contractor` and `invoice` on a card (contractor_invoices.py, Oct 21)."""
+    try:
+        from routers import contractor_invoices
+        return contractor_invoices.card_keys(db, em, start, end)
+    except Exception as e:  # noqa: BLE001 - the card must still load
+        print(f"[contractor-invoices] card keys failed for {em}: {type(e).__name__}: {e}")
+        return {"contractor": False, "invoice": None}
 
 
 def _timecard_notes(db: Session, email: str, start: str, end: str, *, own: bool = False) -> dict:
@@ -10379,6 +10400,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
         # Only the employee's OWN notes - never the manager/HR note (Oct 12).
         card["notes"] = _timecard_notes(db, user["email"], card["periodStart"], card["periodEnd"], own=True)
         card["zoneKey"] = _employee_zone_key(db, user["email"])
+        card.update(_invoice_keys(db, user["email"], card["periodStart"], card["periodEnd"]))
         return card
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
@@ -10393,6 +10415,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
     card["periodDays"] = _PAYPERIOD_DAYS
     card["notes"] = _timecard_notes(db, user["email"], p_start, p_end, own=True)
     card["zoneKey"] = _employee_zone_key(db, user["email"])
+    card.update(_invoice_keys(db, user["email"], p_start, p_end))
     return card
 
 

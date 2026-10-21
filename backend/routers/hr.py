@@ -304,6 +304,17 @@ def _norm_compliance(c: dict) -> dict:
     return c
 
 
+GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+
+
+def _norm_gstin(v) -> str:
+    """A contractor's GSTIN (Pranshu, Oct 21): uppercased, printed form only; '' clears it."""
+    g = str(v or "").strip().upper()
+    if g and not GSTIN_RE.match(g):
+        raise HTTPException(400, "GSTIN must be 15 characters, e.g. 29ABCDE1234F1Z5")
+    return g
+
+
 def _team_view(row: dict) -> dict:
     """An employee as a manager sees them in People (Oct 6): Overview as is,
     but no Compliance records and no contractor rate - never pay."""
@@ -4044,6 +4055,7 @@ def public_holidays(country: str = "US", year: Optional[int] = None, user: dict 
 class CompensationIn(BaseModel):
     compensation: Optional[dict] = None   # {base, payBasis, frequency, currency, effectiveDate, history[]}
     bank:         Optional[list] = None   # [{holder, number, routingOrIfsc, type, bankName}]
+    gstin:        Optional[str] = None    # contractor's GSTIN, kept in compensation JSON beside the bank list (Oct 21)
 
 
 @router.get("/employees/{eid}/compensation")
@@ -4057,10 +4069,13 @@ def get_compensation(eid: str, user: dict = Depends(require_comp_read_or_manager
         # A manager's read-only view of a direct report (Oct 7): pay, history
         # and benefits - never the bank accounts.
         _direct_report_or_404(user, row, db)
-        return {"compensation": row.compensation or {}, "bank": [], "readOnly": True,
+        # The GSTIN is bank-grade (Oct 21): a manager never sees it.
+        return {"compensation": {k: v for k, v in (row.compensation or {}).items() if k != "gstin"},
+                "bank": [], "gstin": "", "readOnly": True,
                 "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
     from own_pay import own_pay_locked
     return {"compensation": row.compensation or {}, "bank": row.bank or [],
+            "gstin": (row.compensation or {}).get("gstin", ""),
             "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row),
             # Your own record: pay is read-only (another admin or HR sets it), bank stays yours.
             "ownPayLocked": own_pay_locked(db, user, row.work_email, min_level=5, module_id="hr_comp")}
@@ -4328,8 +4343,20 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
                 "changedAt": datetime.now(timezone.utc).isoformat(), "changedBy": user["email"],
             })
         incoming["history"] = history
+        # A save of the pay record keeps the GSTIN it did not mention.
+        if "gstin" not in incoming and current.get("gstin"):
+            incoming["gstin"] = current["gstin"]
         row.compensation = incoming
         effective = str(incoming.get("effectiveDate") or "")
+    gstin_in = body.gstin if body.gstin is not None else (row.compensation or {}).get("gstin")
+    gstin = _norm_gstin(gstin_in)   # 400 before anything is committed
+    if gstin != ((row.compensation or {}).get("gstin") or ""):
+        comp = dict(row.compensation or {})
+        if gstin:
+            comp["gstin"] = gstin
+        else:
+            comp.pop("gstin", None)
+        row.compensation = comp
     if body.bank is not None:
         row.bank = body.bank
     row.updated_at = datetime.now(timezone.utc).isoformat()
@@ -4342,6 +4369,7 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
         append_rate_history(db, row, effective, by=user["email"])
     db.commit()
     return {"compensation": row.compensation or {}, "bank": row.bank or [],
+            "gstin": (row.compensation or {}).get("gstin", ""),
             "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
 

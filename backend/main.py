@@ -4215,3 +4215,5 @@ from routers import ops_settings as ops_settings_router  # noqa: E402
 app.include_router(ops_settings_router.router)     # Operations settings: the Push to Cubby switch, OFF by default (Visesh, Oct 21 2026)
 from routers import ops_cma as ops_cma_router  # noqa: E402
 app.include_router(ops_cma_router.router)          # Operations > Rate Management CMA: comp set, surveys, history, review & push (Miranda, Oct 21 2026)
+from routers import contractor_invoices as contractor_invoices_router  # noqa: E402
+app.include_router(contractor_invoices_router.router)  # Contractor invoices: drafted at Time Sheet finalize, HR approves and sends the PDF (Pranshu + Neil, Oct 21 2026)

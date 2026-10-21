@@ -2679,6 +2679,12 @@ export const api = {
   getOpsBudgetLoads: (facility = '') => req(`/ops-budget/loads?${new URLSearchParams({ facility })}`),
   getOpsBudgetLoadFile: (id) => reqBlob(`/ops-budget/loads/${encodeURIComponent(id)}/file`),
   runOpsBudgetSnapshot: () => req('/ops-budget/snapshot', { method: 'POST', timeoutMs: 120_000 }),
+  // Contractor invoices (Oct 21): drafted when a contractor's Time Sheet is
+  // finalized, approved and emailed by HR from People > Time > Invoices.
+  contractorInvoices:     (status = 'draft') => req(`/contractor-invoices?status=${encodeURIComponent(status)}`),
+  contractorInvoicesMine: ()   => req('/contractor-invoices/mine'),
+  contractorInvoicePdf:   (id) => reqBlob(`/contractor-invoices/${encodeURIComponent(id)}/pdf`),   // bearer-authenticated, so a blob, never a bare link
+  contractorInvoiceSend:  (id) => req(`/contractor-invoices/${encodeURIComponent(id)}/send`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
