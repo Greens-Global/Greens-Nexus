@@ -635,50 +635,49 @@ async def _subtrees(codes: list[str]) -> dict[str, set]:
     return out
 
 
-async def _grid_payments(scope: dict, pairs: list[tuple[str, str]], year: int) -> tuple[dict, list[tuple[str, str]]]:
+async def _grid_payments(scope: dict, pairs: list[tuple[str, str]], year: int, accounts: set[str]) -> tuple[dict, list[tuple[str, str]]]:
     """({(entity, vendor): {'YYYY-MM': {gl: debit - credit}}}, the pairs it could not answer).
-    Same book (accrual), same accounts (all) and same entity cover as the
-    one-pair buckets read in `_vendor_months`."""
+    Same book (accrual) and entity cover as the one-pair buckets read in
+    `_vendor_months`; only the lines' own expense accounts are read, the only
+    ones the grid counts as paid.
+
+    No entity filter: on prod the op answers a year of these accounts for
+    every entity in about 1.3 s, while any entity filter (even one entity for
+    a quarter) ran past the accounting app's ~9 s statement limit (Oct 22).
+    Rows are mapped to the lines' entities here, a parent with its children;
+    rows of other entities are dropped and never leave the server."""
     if not pairs or not acct_scan.aggregate_available():
         return {}, list(pairs)
     codes = sorted({e for e, _ in pairs})
     vendors = sorted({v for _, v in pairs})
     await _limit(scope, None, ",".join(codes))
+    if not accounts:      # no expense accounts on any line: nothing can count as paid
+        return {p: {} for p in pairs}, []
     try:
         trees = await _subtrees(codes)
+        async with _sem():
+            rows = await acct_scan.party_months([], f"{year}-01-01", f"{year}-12-31", "vendor", sections=[], accounts=sorted(accounts),
+                                                parties=vendors if len(vendors) <= _PARTY_CAP else None)
     except Exception as e:  # noqa: BLE001 - the one-pair reads stand in
-        print(f"[mre] grid: entity list unavailable ({type(e).__name__}); one read per line")
+        print(f"[mre] grid: grouped read failed ({type(e).__name__}); one read per line", flush=True)
         return {}, list(pairs)
-    owners_of: dict[str, list[str]] = defaultdict(list)    # a line's entity -> the picked entities that cover it
+    if rows is None:
+        return {}, list(pairs)
+    owners_of: dict[str, list[str]] = defaultdict(list)    # a line's entity -> the lines' entities that cover it
     for c, tree in trees.items():
         for t in tree:
             owners_of[t].append(c)
     out: dict[tuple, dict] = {p: {} for p in pairs}
-    answered: set[str] = set()
-    for i in range(0, len(codes), _AGG_CHUNK):
-        chunk = codes[i:i + _AGG_CHUNK]
-        mine = set(chunk)
-        try:
-            async with _sem():
-                rows = await acct_scan.party_months(chunk, f"{year}-01-01", f"{year}-12-31", "vendor", sections=[],
-                                                    parties=vendors if len(vendors) <= _PARTY_CAP else None)
-        except Exception as e:  # noqa: BLE001 - the one-pair reads stand in
-            print(f"[mre] grid: grouped read failed ({type(e).__name__}); one read per line")
-            rows = None
-        if rows is None:
+    for r in rows:
+        vendor, gl, month = r["party"], r["account_no"], r["month"]
+        if not (vendor and gl and month):
             continue
-        answered.update(chunk)
-        for r in rows:
-            vendor, gl, month = r["party"], r["account_no"], r["month"]
-            if not (vendor and gl and month):
-                continue
-            for c in owners_of.get(r["entity"], ()):
-                cell = out.get((c, vendor)) if c in mine else None
-                if cell is not None:
-                    m = cell.setdefault(month, {})
-                    m[gl] = _r2(m.get(gl, 0) + _spent(r))
-    missing = [p for p in pairs if p[0] not in answered]
-    return {p: v for p, v in out.items() if p[0] in answered}, missing
+        for c in owners_of.get(r["entity"], ()):
+            cell = out.get((c, vendor))
+            if cell is not None:
+                m = cell.setdefault(month, {})
+                m[gl] = _r2(m.get(gl, 0) + _spent(r))
+    return out, []
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -702,7 +701,7 @@ async def get_grid(year: Optional[int] = None, entities: Optional[str] = None, i
     live = [l for l in lines if not (l["endDate"] and l["endDate"][:7] < first) and not (l["startDate"] and l["startDate"][:7] > last)
             and not (l["status"] == "ended" and not l["endDate"])]
     pairs = sorted({(l["entityCode"], l["vendorId"]) for l in live})
-    payments, slow = await _grid_payments(scope, pairs, year)
+    payments, slow = await _grid_payments(scope, pairs, year, {a for l in live for a in l["expenseAccounts"] or []})
     parts, notes = await gather_tolerant([(lambda p=p: _vendor_months(scope, p[0], p[1], f"{year}-01-01", f"{year}-12-31")) for p in slow],
                                          [f"{v} at {e}" for e, v in slow], lambda: None)
     payments.update({p: part for p, part in zip(slow, parts) if part is not None})

@@ -165,7 +165,8 @@ async def party_months(locations: list[str], from_: str, to: str, kind: str, *, 
     caller then scans. Other failures raise, so the caller reports the batch."""
     if not aggregate_available():
         return None
-    location, many = (locations[0], None) if len(locations) == 1 else (None, ",".join(locations))
+    # No locations = every entity (the caller maps rows to its own entities).
+    location, many = (locations[0], None) if len(locations) == 1 else (None, ",".join(locations) or None)
     params = {"kind": kind, "from": from_, "to": to, "location": location, "locations": many, "sections": ",".join(sections) or None,
               "accounts": ",".join(accounts) if accounts else None, "words": ",".join(words) if words else None, "book": book,
               "parties": ",".join(parties) if parties else None}

@@ -206,6 +206,7 @@ class EndpointTests(unittest.TestCase):
         self.slow_codes: set = set()     # entities whose reads hang
         self.aggregate = False           # whether the accounting app answers the aggregate op ("broken": it errors)
         self.aggregate_reads = 0
+        self.aggregate_asked = []
         acct_scan._AGG_DOWN.clear()
         self._ceilings = (acct_scan.READ_CEILING, acct_scan.SCAN_CEILING)
 
@@ -223,14 +224,17 @@ class EndpointTests(unittest.TestCase):
                 rows = []
                 secs = clean["sections"].split(",") if clean.get("sections") else list(acct_scan.SECTIONS)
                 parties = set(clean["parties"].split(",")) if clean.get("parties") else None
-                asked = [clean["location"]] if clean.get("location") else clean["locations"].split(",")
-                for ent in sorted({c for a in asked for c in _cover(a)}):     # an entity brings its children
+                accts = set(clean["accounts"].split(",")) if clean.get("accounts") else None
+                asked = [clean["location"]] if clean.get("location") else clean["locations"].split(",") if clean.get("locations") else None
+                ents = sorted(self.postings) if asked is None else sorted({c for a in asked for c in _cover(a)})   # an entity brings its children
+                self.aggregate_asked.append(asked)
+                for ent in ents:
                     for vendor, months in self.postings.get(ent, {}).items():
                         if parties is not None and vendor not in parties:
                             continue
                         for m, cell in months.items():
                             for acct, v in cell.items():
-                                if _in(m, clean["from"], clean["to"]) and TITLES[acct][0] in secs:
+                                if _in(m, clean["from"], clean["to"]) and TITLES[acct][0] in secs and (accts is None or acct in accts):
                                     rows.append({"location": ent, "gl_code": acct, "title": TITLES[acct][1], "section": TITLES[acct][0], "party": vendor,
                                                  "month": m, "debit": v, "credit": 0, "lines": 1})
                 return {"ok": True, "kind": clean["kind"], "rows": rows}
@@ -420,6 +424,12 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(fast, slow)
         self.assertNotIn("warning", d)
         self.assertEqual((self.aggregate_reads, [c for c in self.calls if c[0].endswith("/reports/buckets")]), (1, []))
+        # No entity filter (prod: any entity filter ran past the accounting app's
+        # statement limit); only the lines' own expense accounts.
+        [read] = [c[1] for c in self.calls if c[0].endswith("/reports/party-months")]
+        self.assertEqual((self.aggregate_asked, read.get("location"), read.get("locations"), read["accounts"]), ([None], None, None, "62100,62500,65000"))
+        # Another entity's postings for the same vendor never land on our lines.
+        self.assertEqual(fast[("15000", "V-SDGE")][LAST], 410.0)
         self.assertEqual(fast[("12027", "V-EDISON")][LAST], 250.0)      # the child's line counts on the parent
         self.assertEqual(fast[("15000", "V-SDGE")][LAST], 410.0)
 
