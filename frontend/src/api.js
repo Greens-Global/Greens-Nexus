@@ -615,6 +615,8 @@ export const api = {
   createTaskCustomField: (data) => req("/task-custom-fields", { method: "POST", body: JSON.stringify(data) }),
   updateTaskCustomField: (id, data) => req(`/task-custom-fields/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskCustomField: (id) => req(`/task-custom-fields/${id}`, { method: "DELETE" }),
+  // Past the 409 that lists the formula columns using it (Oct 22 2026).
+  deleteTaskCustomFieldForced: (id) => req(`/task-custom-fields/${id}?force=true`, { method: "DELETE" }),
   // Tickets
   getTaskTickets: () => req("/task-tickets"),
   // The requester's own tickets, scoped server-side - the Support page's list.

@@ -67,6 +67,29 @@ class ParserTests(unittest.TestCase):
                 with self.assertRaises(F.FormulaError) as e:
                     F.parse(src)
                 self.assertIn(fragment, str(e.exception))
+        for name, key in cases["keys"]:
+            with self.subTest(key=repr(name)):
+                self.assertEqual(F.field_key(name), key)
+        for c in cases["repeat"]:
+            src = c["prefix"] + c["unit"] * c["times"] + c["suffix"]
+            with self.subTest(rep=(c["unit"], c["times"])):
+                if c["error"] is None:
+                    F.parse(src)
+                else:
+                    with self.assertRaisesRegex(F.FormulaError, c["error"]):
+                        F.parse(src)
+
+    def test_field_names_that_cannot_be_used(self):
+        self.assertEqual(F.field_name_problem("Budget"), "")
+        self.assertIn("{ or }", F.field_name_problem("Spent}x"))
+        self.assertIn("{ or }", F.field_name_problem("{Spent"))
+        self.assertIn("built-in", F.field_name_problem("  progress "))
+        self.assertIn("built-in", F.field_name_problem("Due Date"))
+
+    def test_loop_through_a_same_named_formula_is_caught(self):
+        pairs = [("X", "{Budget}"), ("X", "{Y} + 1")]   # two "X" columns, two projects
+        with self.assertRaisesRegex(F.FormulaError, "Circular reference"):
+            F.validate("{X} * 2", self_name="Y", field_names=["X", "Budget"], formula_fields=pairs)
 
     def test_precedence_shape(self):
         self.assertEqual(F.parse("1 + 2 * 3"), ("bin", "+", ("num", 1.0), ("bin", "*", ("num", 2.0), ("num", 3.0))))
@@ -280,6 +303,61 @@ class FormulaFieldRouteTests(RouteBase):
         self.assertEqual(self.row(out["id"]).formula, "{Budget} - {Spent}")
 
 
+class RenameAndDeleteTests(RouteBase):
+    def setUp(self):
+        super().setUp()
+        # Two projects each with their own "Cost" column - two fields, one name.
+        self.db.add(models.TaskCustomField(id="c1", name="Cost", type="number", project_ids=["p-mine"],
+                                           applies_to='["task"]'))
+        self.db.add(models.TaskCustomField(id="c2", name="Cost", type="number", project_ids=["p-other"],
+                                           applies_to='["task"]'))
+        self.db.commit()
+
+    def test_patch_returns_the_formulas_it_rewrote(self):
+        left = self.create(BOSS, name="Left", type="formula", formula="{Budget} - {Spent}")
+        out = self.update(BOSS, "f-spent", name="Actual")
+        self.assertEqual([g["id"] for g in out["rewrittenFormulas"]], [left["id"]])
+        self.assertEqual(out["rewrittenFormulas"][0]["formula"], "{Budget} - {Actual}")
+        # A rename nothing names returns no list.
+        self.assertNotIn("rewrittenFormulas", self.update(BOSS, "c1", name="Hard Cost"))
+
+    def test_renaming_one_of_two_same_named_fields_leaves_the_name_alone(self):
+        double = self.create(BOSS, name="Double", type="formula", formula="{Cost} * 2", project_ids=["p-other"])
+        out = self.update(BOSS, "c1", name="Hard Cost")
+        self.assertEqual(self.row(double["id"]).formula, "{Cost} * 2")   # still means p-other's Cost
+        self.assertNotIn("rewrittenFormulas", out)
+
+    def test_a_rename_that_would_break_a_formula_is_refused_by_name(self):
+        self.create(BOSS, name="Left", type="formula", formula="{Spent} + 1")
+        code, msg = self.refused(self.update, BOSS, "f-spent", name="Left")
+        self.assertEqual(code, 422)
+        self.assertIn('the formula in "Left"', msg)
+        self.assertEqual(self.row("f-spent").name, "Spent")
+
+    def test_braces_and_built_in_names_are_refused(self):
+        left = self.create(BOSS, name="Left", type="formula", formula="{Spent} + 1")
+        for bad in ("Spent}x", "{Spent", "Progress", " due  date "):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.refused(self.update, BOSS, "f-spent", name=bad)[0], 422)
+                self.assertEqual(self.refused(self.create, BOSS, name=bad, type="number")[0], 422)
+        self.assertEqual(self.row(left["id"]).formula, "{Spent} + 1")
+
+    def test_delete_names_the_formulas_that_use_it_unless_forced(self):
+        left = self.create(BOSS, name="Left", type="formula", formula="{Budget} - {Spent}")
+        with self.assertRaises(HTTPException) as e:
+            C.delete_custom_field("f-spent", user=BOSS, db=self.db)
+        self.db.rollback()
+        self.assertEqual(e.exception.status_code, 409)
+        self.assertEqual(e.exception.detail["formulas"], ["Left"])
+        self.assertEqual(e.exception.detail["count"], 1)
+        C.delete_custom_field("f-spent", force=True, user=BOSS, db=self.db)
+        self.assertIsNone(self.row("f-spent"))
+        self.assertIsNotNone(self.row(left["id"]))
+        # Nothing names it: no question asked.
+        C.delete_custom_field("c1", user=BOSS, db=self.db)
+        self.assertIsNone(self.row("c1"))
+
+
 class FormulaTemplateTests(RouteBase):
     def test_a_project_template_carries_the_formula(self):
         from routers import task_projects as P
@@ -326,6 +404,16 @@ class FormulaWallTests(RouteBase):
         # Shared fields still resolve.
         out = self.create(AMGR, name="Mine", type="formula", formula="{Budget} + 1", project_ids=["p-a"])
         self.assertEqual(self.row(out["id"]).company_id, COA)
+
+    def test_a_shared_formula_names_only_shared_fields(self):
+        # A Global Admin's formula with no project is shared by every company,
+        # so it cannot lean on one company's field - even one they can see.
+        ga = {"email": "ga@greensglobal.com", "level": 4}
+        code, msg = self.refused(self.create, ga, name="Shared", type="formula", formula="{Margin} * 2")
+        self.assertEqual(code, 422)
+        self.assertIn("Unknown field {Margin}", msg)
+        out = self.create(ga, name="Shared", type="formula", formula="{Budget} * 2")
+        self.assertEqual(self.row(out["id"]).company_id, "")
 
     def test_another_companys_formula_is_404_to_edit(self):
         self.assertEqual(self.refused(self.update, AMGR, "f-b-formula", formula="1")[0], 404)

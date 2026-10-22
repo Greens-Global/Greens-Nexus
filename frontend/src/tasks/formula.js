@@ -24,8 +24,13 @@ import { localISO, todayISO, fieldsForTask } from './lib';
 export const MAX_LENGTH = 2000;
 const MAX_TOKENS = 600;
 const MAX_DEPTH = 40;
-const MAX_NAME = 120;
+const MAX_NAME = 120;     // code points, as Python counts them
 const MAX_STRING = 500;
+// The longest text a formula may build (Oct 22 2026 review): a chain of
+// formulas each joining the last one many times over would otherwise grow
+// without bound and freeze the list.
+export const MAX_TEXT = 10000;
+const codePoints = (s) => Array.from(s).length;
 
 // The task's own fields, named in braces like a custom field. Only what the
 // task really carries; a built-in name wins over a custom field that shares it.
@@ -102,6 +107,16 @@ export const fieldKey = (name) => String(name ?? '').split(/\s+/).filter(Boolean
 const BUILTIN_KEYS = new Set(BUILTIN_FIELDS.map((b) => fieldKey(b.name)));
 export const isBuiltinField = (name) => BUILTIN_KEYS.has(fieldKey(name));
 
+/** Why `name` cannot be a custom field's name, or '' - the server's
+ *  field_name_problem: braces would end a {reference} early, and a built-in
+ *  field's name could never be reached from a formula. */
+export function fieldNameProblem(name) {
+  const n = String(name ?? '');
+  if (n.includes('{') || n.includes('}')) return 'A field name cannot contain { or }.';
+  if (isBuiltinField(n)) return `"${n.split(/\s+/).filter(Boolean).join(' ')}" is a built-in field name - pick another.`;
+  return '';
+}
+
 // ── Tokenizer ────────────────────────────────────────────────────────────────
 const isDigit = (c) => c >= '0' && c <= '9';
 const isAlpha = (c) => /^[\p{L}_]$/u.test(c);
@@ -139,7 +154,7 @@ function tokenize(src) {
         if (ch === '"') { i += 1; break; }
         buf += ch; i += 1;
       }
-      if (buf.length > MAX_STRING) throw new FormulaError(`A text value can be at most ${MAX_STRING} characters.`);
+      if (codePoints(buf) > MAX_STRING) throw new FormulaError(`A text value can be at most ${MAX_STRING} characters.`);
       out.push({ k: 'str', v: buf });
       continue;
     }
@@ -150,7 +165,7 @@ function tokenize(src) {
       if (inner.includes('{')) throw new FormulaError('Field names cannot contain {.');
       const name = inner.split(/\s+/).filter(Boolean).join(' ');
       if (!name) throw new FormulaError('Empty field name {}.');
-      if (name.length > MAX_NAME) throw new FormulaError(`A field name can be at most ${MAX_NAME} characters.`);
+      if (codePoints(name) > MAX_NAME) throw new FormulaError(`A field name can be at most ${MAX_NAME} characters.`);
       i = close + 1;
       out.push({ k: 'field', v: name });
       continue;
@@ -290,6 +305,8 @@ export function formulaFieldRefs(src) {
 /** The editor's check - the server's validate(): parses, every field exists,
  *  no field names itself, no loop through other formulas. Returns '' when
  *  it is fine, else the sentence to show. */
+// formulaFields: {name: expression}, or [name, expression] pairs - pairs keep
+// two same-named formula columns apart, so a loop through either is caught.
 export function checkFormula(src, { selfName = '', fieldNames = [], formulaFields = {} } = {}) {
   try {
     parseFormula(src);
@@ -302,12 +319,12 @@ export function checkFormula(src, { selfName = '', fieldNames = [], formulaField
       if (!known.has(fieldKey(r))) return `Unknown field {${r}}.`;
     }
     const graph = new Map();
-    for (const [name, expr] of Object.entries(formulaFields || {})) {
+    for (const [name, expr] of (Array.isArray(formulaFields) ? formulaFields : Object.entries(formulaFields || {}))) {
       let names = [];
       try { names = formulaFieldRefs(expr || '').filter((x) => !isBuiltinField(x)).map(fieldKey); } catch { names = []; }
       graph.set(fieldKey(name), new Set([...(graph.get(fieldKey(name)) || []), ...names]));
     }
-    graph.set(me, new Set(refs.filter((x) => !isBuiltinField(x)).map(fieldKey)));
+    graph.set(me, new Set([...(graph.get(me) || []), ...refs.filter((x) => !isBuiltinField(x)).map(fieldKey)]));
     const state = new Map();
     const loop = (node) => {
       if (state.get(node) === 1) return true;
@@ -347,6 +364,14 @@ function dayToIso(n) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 export const dateValue = (iso) => { const n = isoToDay(iso); return n === null ? null : new FDate(n); };
+// 01/01/0001 .. 12/31/9999 as day numbers. Date math past either end is an
+// error, not a nonsense date (or an Invalid Date when it is shown).
+const MIN_DAY = -719162;
+const MAX_DAY = 2932896;
+function makeDate(n) {
+  if (!Number.isFinite(n) || n < MIN_DAY || n > MAX_DAY) throw new FormulaError('The date is out of range.');
+  return new FDate(n);
+}
 // A timestamp (createdAt, completedAt) is read on the viewer's own calendar.
 const localDayOf = (stamp) => {
   if (!stamp) return null;
@@ -374,12 +399,16 @@ function toDay(v) {
   throw new FormulaError(`Expected a date but got ${kindOf(v)}.`);
 }
 const plainNumber = (n) => String(Number(n.toPrecision(12)));
+function capText(s) {
+  if (s.length > MAX_TEXT) throw new FormulaError(`Text is too long (over 10,000 characters).`);
+  return s;
+}
 export function toText(v) {
   if (isBlank(v)) return '';
   if (typeof v === 'number') return plainNumber(v);
   if (typeof v === 'boolean') return v ? 'True' : 'False';
   if (v instanceof FDate) return formatDate(v.iso);
-  return String(v);
+  return capText(String(v));
 }
 const truthy = (v) => {
   if (isBlank(v)) return false;
@@ -399,8 +428,8 @@ function arith(op, a, b) {
         if (op === '-') return a.n - b.n;
         throw new FormulaError('Two dates cannot be added - subtract them to get days.');
       }
-      if (da) return new FDate(op === '+' ? a.n + Math.trunc(toNum(b)) : a.n - Math.trunc(toNum(b)));
-      if (op === '+') return new FDate(b.n + Math.trunc(toNum(a)));
+      if (da) return makeDate(op === '+' ? a.n + Math.trunc(toNum(b)) : a.n - Math.trunc(toNum(b)));
+      if (op === '+') return makeDate(b.n + Math.trunc(toNum(a)));
       // number - date: a date-looking string on the left is still a date.
       if (typeof a === 'string' && isoToDay(a.trim()) !== null) return isoToDay(a.trim()) - b.n;
       throw new FormulaError('A date cannot be subtracted from a number.');
@@ -491,7 +520,7 @@ function evaluate(node, env) {
     case 'bin': {
       const a = evaluate(node.a, env);
       const b = evaluate(node.b, env);
-      if (node.op === '&') return toText(a) + toText(b);
+      if (node.op === '&') return capText(toText(a) + toText(b));
       if (COMPARE.has(node.op)) return compare(node.op, a, b);
       return arith(node.op, a, b);
     }
@@ -511,7 +540,7 @@ function call(node, env) {
       const vals = all().filter((v) => !isBlank(v));
       if (!vals.length) return null;
       const pick = node.fn === 'MIN' ? Math.min : Math.max;
-      if (vals.every((v) => v instanceof FDate)) return new FDate(pick(...vals.map((v) => v.n)));
+      if (vals.every((v) => v instanceof FDate)) return makeDate(pick(...vals.map((v) => v.n)));
       return pick(...numbersOf(vals));
     }
     case 'ROUND': {
@@ -535,9 +564,13 @@ function call(node, env) {
       if (a === null || b === null) return null;
       return a <= b ? workdaysInclusive(a, b) : -workdaysInclusive(b, a);
     }
-    case 'CONCAT': return all().map(toText).join('');
-    case 'UPPER': return toText(ev(0)).toUpperCase();
-    case 'LOWER': return toText(ev(0)).toLowerCase();
+    case 'CONCAT': {
+      let out = '';
+      for (const v of all()) out = capText(out + toText(v));
+      return out;
+    }
+    case 'UPPER': return capText(toText(ev(0)).toUpperCase());
+    case 'LOWER': return capText(toText(ev(0)).toLowerCase());
     default: throw new FormulaError(`Unknown function ${node.fn}.`);
   }
 }
@@ -547,6 +580,7 @@ export function runFormula(src, { field = () => { throw new FormulaError('No fie
   try {
     const value = evaluate(parsedOnce(src), { field, today });
     if (typeof value === 'number' && !Number.isFinite(value)) return { value: null, error: 'The result is not a number.' };
+    if (typeof value === 'string') capText(value);   // a long text field passed straight through
     return { value, error: '' };
   } catch (e) {
     return { value: null, error: e instanceof FormulaError ? e.message : 'This formula could not be worked out.' };
@@ -735,13 +769,36 @@ export function formulaMatches(r, wanted) {
 }
 
 // ── The editor's helpers ─────────────────────────────────────────────────────
+/** The field list after PATCH /task-custom-fields/{id} answered `res`: the
+ *  field itself, and every formula column the rename rewrote
+ *  (`rewrittenFormulas`) - so those read right at once, not #Error until
+ *  the next load. */
+export function applyFieldUpdate(list, id, res) {
+  const { rewrittenFormulas = [], ...field } = res || {};
+  const byId = new Map([[id, field], ...(rewrittenFormulas || []).map((g) => [g.id, g])]);
+  return (list || []).map((x) => byId.get(x.id) || x);
+}
+
+/** The formula columns whose {name} means `field` - they name it and no
+ *  other field carries that name (the server's _formulas_naming, without
+ *  the company check the browser cannot make). For the delete question. */
+export function formulasUsing(customFields, field) {
+  const key = fieldKey(field?.name);
+  if (!key) return [];
+  if ((customFields || []).some((o) => o.id !== field.id && fieldKey(o.name) === key)) return [];
+  return (customFields || []).filter((g) => {
+    if (g.type !== 'formula' || g.id === field.id || !g.formula) return false;
+    try { return formulaFieldRefs(g.formula).some((r) => fieldKey(r) === key); } catch { return false; }
+  });
+}
+
 /** Names and expressions the editor checks against: every task field the
  *  workspace has except this one. */
 export function formulaContext(customFields, selfId) {
   const others = (customFields || []).filter((f) => f.id !== selfId && (f.appliesTo || ['task']).includes('task'));
   return {
     fieldNames: others.map((f) => f.name).filter(Boolean),
-    formulaFields: Object.fromEntries(others.filter((f) => f.type === 'formula').map((f) => [f.name, f.formula || ''])),
+    formulaFields: others.filter((f) => f.type === 'formula').map((f) => [f.name, f.formula || '']),
   };
 }
 
@@ -791,7 +848,7 @@ export function customFieldExportColumns(fields, store) {
   return (fields || []).map((f) => {
     if (f.type === 'formula') {
       return {
-        header: f.name, width: 14,
+        header: f.name, width: 14, optional: true, z: excelFormat(f.formulaFormat),
         get: (r) => formulaExportValue(engine.result(r.task, f), f.formulaFormat),
         display: (r) => { const res = engine.result(r.task, f); return res.error ? '#Error' : formatFormulaValue(res.value, f.formulaFormat); },
       };
@@ -809,6 +866,15 @@ export function customFieldExportColumns(fields, store) {
         default: return String(v);
       }
     };
-    return { header: f.name, width: 14, get };
+    return { header: f.name, width: 14, optional: true, get };
   });
+}
+
+/** Excel's number format code for a formula column, or undefined. */
+export function excelFormat(fmt) {
+  const { format, decimals } = normalizeFormat(fmt);
+  const frac = decimals ? `.${'0'.repeat(decimals)}` : '';
+  if (format === 'percent') return `0${frac}%`;
+  if (format === 'currency') return `"$"#,##0${frac}`;
+  return undefined;
 }

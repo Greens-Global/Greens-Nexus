@@ -10,10 +10,11 @@ import { Modal } from './components';
 import { fieldsForProject } from './lib';
 import {
   BUILTIN_FIELDS, FORMULA_FUNCTIONS, FORMULA_OPERATORS, RESULT_FORMATS, MAX_LENGTH,
-  checkFormula, formatFormulaValue, normalizeFormat, fieldKey, formulaContext, previewRows,
+  checkFormula, formatFormulaValue, normalizeFormat, fieldKey, formulaContext, previewRows, fieldNameProblem,
 } from './formula';
 
 const label = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
+const CELL_MAX = 200;   // characters a formula cell shows
 
 /** One formula cell: the computed value, or a muted "#Error" whose tooltip
  *  says why. Never throws - the engine has already caught everything. */
@@ -25,7 +26,10 @@ export function FormulaValue({ task, field, engine, align = 'center', size = 12.
         style={{ fontSize: size, color: NX.faint, fontStyle: 'italic', cursor: 'help' }}>#Error</span>
     );
   }
-  const text = formatFormulaValue(r.value, field.formulaFormat);
+  const full = formatFormulaValue(r.value, field.formulaFormat);
+  // A cell shows a line, not a document: long text is cut here rather than
+  // putting thousands of characters into every row's DOM.
+  const text = full.length > CELL_MAX ? `${full.slice(0, CELL_MAX)}…` : full;
   return (
     <span title={field.formula ? `= ${field.formula}` : undefined}
       style={{ fontSize: size, color: text ? NX.ink : NX.faint, textAlign: align, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
@@ -214,7 +218,8 @@ export function FormulaFieldModal({ field = null, store, lockedProjectId = '', p
     ? previewRows({ draft, store, tasks: previewTasks, projectIds: draft.projectIds }) : null;
   const dirty = name !== (field?.name || 'Formula') || description !== (field?.description || '')
     || formula !== (field?.formula || '') || JSON.stringify(format) !== JSON.stringify(normalizeFormat(field?.formulaFormat));
-  const canSave = !readOnly && !!name.trim() && !problem && !busy;
+  const nameProblem = fieldNameProblem(name);
+  const canSave = !readOnly && !!name.trim() && !nameProblem && !problem && !busy;
   const save = async () => {
     if (!canSave) return;
     setBusy(true); setSaveError('');
@@ -243,7 +248,9 @@ export function FormulaFieldModal({ field = null, store, lockedProjectId = '', p
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 220px' }}>
             <label style={label} htmlFor="nx-formula-name">Column Name</label>
-            <input id="nx-formula-name" autoFocus={!field} value={name} readOnly={readOnly} onChange={(e) => setName(e.target.value)} style={inputStyle} />
+            <input id="nx-formula-name" autoFocus={!field} value={name} readOnly={readOnly} onChange={(e) => setName(e.target.value)} style={inputStyle}
+              aria-invalid={!!nameProblem || undefined} />
+            {nameProblem && !readOnly && <div style={{ marginTop: 4, fontSize: 12, color: NX.red }}>{nameProblem}</div>}
           </div>
           <div style={{ flex: '2 1 280px' }}>
             <label style={label} htmlFor="nx-formula-desc">Description</label>

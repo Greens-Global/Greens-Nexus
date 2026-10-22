@@ -93,6 +93,23 @@ export function computeTotal(tasks, colKey, agg, { field = null, engine = null }
   }
 }
 
+// computeTotal, remembered per (rows, column, total): every render of the
+// list used to recount every footer cell. Keyed on the row array, the field
+// definition and the formula engine, all of which are replaced (never
+// changed in place) when their data changes - so a stale entry is never read.
+const memo = new WeakMap();
+const NONE = {};
+const nested = (map, key) => { let m = map.get(key); if (!m) { m = new WeakMap(); map.set(key, m); } return m; };
+export function totalFor(tasks, colKey, agg, { field = null, engine = null } = {}) {
+  if (!agg || !tasks) return computeTotal(tasks, colKey, agg, { field, engine });
+  const byField = nested(nested(memo, tasks), field || NONE);
+  let byKey = byField.get(engine || NONE);
+  if (!byKey) { byKey = new Map(); byField.set(engine || NONE, byKey); }
+  const key = `${colKey}\u0000${agg}`;
+  if (!byKey.has(key)) byKey.set(key, computeTotal(tasks, colKey, agg, { field, engine }));
+  return byKey.get(key);
+}
+
 /** A total as the column would show it: hours as hours, a formula in its own
  *  currency/percent format, counts as whole numbers. */
 export function formatTotal(value, agg, colKey, field) {

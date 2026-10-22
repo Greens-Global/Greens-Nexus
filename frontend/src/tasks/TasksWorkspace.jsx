@@ -325,7 +325,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               { header: 'Completed', width: 10, get: (r) => (r.task.completed ? 'Yes' : 'No') },
               // The list's custom columns too, formulas as their computed
               // values (Oct 22 2026).
-              ...customFieldExportColumns(activeFields, store),
+              // The ones showing in the list - a column hidden there stays out.
+              ...customFieldExportColumns(activeFields.filter((f) => !hiddenCols.has(f.id)), store),
             ]}
           />
         </div>

@@ -28,6 +28,8 @@ A name is either one of the fixed FUNCTIONS below or an error.
 """
 from __future__ import annotations
 
+import re
+
 MAX_LENGTH = 2000        # characters in one expression
 MAX_TOKENS = 600
 MAX_DEPTH = 40           # nesting of parentheses / calls / unary signs
@@ -69,14 +71,37 @@ class FormulaError(ValueError):
         self.pos = pos
 
 
+# Whitespace inside a field name, spelled out so it is EXACTLY JavaScript's
+# \s (formula.js splits on /\s+/): Python's str.split() also splits on the
+# \x1c-\x1f and \x85 separators and not on ﻿, which would let one name
+# key differently on the two sides.
+_WS = re.compile("[\t\n\v\f\r    -     　﻿]+")
+
+
+def _squash(name) -> str:
+    return " ".join(p for p in _WS.split(str(name or "")) if p)
+
+
 def field_key(name) -> str:
     """How field names compare: trimmed, case-insensitive, inner runs of
     spaces collapsed - {Budget}, { budget } and {BUDGET} are one field."""
-    return " ".join(str(name or "").split()).lower()
+    return _squash(name).lower()
 
 
 def is_builtin(name) -> bool:
     return field_key(name) in _BUILTIN_KEYS
+
+
+def field_name_problem(name) -> str:
+    """Why `name` cannot be a custom field's name, or '' if it can. Braces
+    would end the {reference} early, and a built-in field's name would be
+    unreachable from a formula (the built-in always wins)."""
+    n = str(name or "")
+    if "{" in n or "}" in n:
+        return "A field name cannot contain { or }."
+    if is_builtin(n):
+        return f"\"{_squash(n)}\" is a built-in field name - pick another."
+    return ""
 
 
 # ── Tokenizer ──────────────────────────────────────────────────────────────
@@ -134,7 +159,7 @@ def tokenize(src: str) -> list:
             inner = src[i + 1:close]
             if "{" in inner:
                 raise FormulaError("Field names cannot contain {.", start)
-            name = " ".join(inner.split())
+            name = _squash(inner)
             if not name:
                 raise FormulaError("Empty field name {}.", start)
             if len(name) > MAX_NAME:
@@ -361,8 +386,10 @@ def validate(src: str, *, self_name: str, field_names, formula_fields) -> list:
     """Check `src` before it is saved on the formula field named `self_name`.
 
     `field_names` - the names of every custom field the formula may refer to.
-    `formula_fields` - {name: expression} of the OTHER formula fields among
-    them, for the circular-reference check.
+    `formula_fields` - the OTHER formula fields among them, for the
+    circular-reference check: {name: expression}, or (name, expression)
+    pairs when two formula fields share a name - both are kept, so a loop
+    through either one is caught.
 
     Returns the field names the formula refers to. Raises FormulaError with
     the sentence to show. A built-in field name always resolves to the
@@ -381,14 +408,15 @@ def validate(src: str, *, self_name: str, field_names, formula_fields) -> list:
     # Circular references: walk formula -> the formulas it names. Two fields
     # can share a name (different projects), so a name stands for all of
     # them - the conservative reading, which can only refuse more.
+    pairs = list(_pairs(formula_fields))
     graph: dict = {}
-    for name, expr in (formula_fields or {}).items():
+    for name, expr in pairs:
         try:
             names = {field_key(r) for r in field_refs(expr or "") if not is_builtin(r)}
         except FormulaError:
             names = set()
         graph.setdefault(field_key(name), set()).update(names)
-    graph[me] = {field_key(r) for r in refs if not is_builtin(r)}
+    graph.setdefault(me, set()).update(field_key(r) for r in refs if not is_builtin(r))
 
     path: list = []
     state: dict = {}
@@ -396,7 +424,7 @@ def validate(src: str, *, self_name: str, field_names, formula_fields) -> list:
     def visit(node):
         if state.get(node) == 1:
             loop = path[path.index(node):] + [node]
-            raise FormulaError("Circular reference: " + " -> ".join(f"{{{_display(n, refs, formula_fields, self_name)}}}"
+            raise FormulaError("Circular reference: " + " -> ".join(f"{{{_display(n, refs, pairs, self_name)}}}"
                                                                      for n in loop) + ".")
         if state.get(node) == 2:
             return
@@ -412,9 +440,15 @@ def validate(src: str, *, self_name: str, field_names, formula_fields) -> list:
     return refs
 
 
-def _display(key, refs, formula_fields, self_name) -> str:
+def _pairs(formula_fields):
+    if isinstance(formula_fields, dict):
+        return list(formula_fields.items())
+    return [(n, e) for n, e in (formula_fields or [])]
+
+
+def _display(key, refs, pairs, self_name) -> str:
     """The name as someone typed it, for the circular-reference message."""
-    for n in [self_name, *refs, *(formula_fields or {}).keys()]:
+    for n in [self_name, *refs, *(name for name, _e in pairs)]:
         if field_key(n) == key:
-            return " ".join(str(n).split())
+            return _squash(n)
     return key

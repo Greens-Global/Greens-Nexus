@@ -84,7 +84,43 @@ describe('exports carry computed values', () => {
   });
 });
 
+describe('Excel number formats on formula columns', () => {
+  it('a percent column reads 25% and a currency one $70.00 in the sheet', async () => {
+    const XLSX = await import('xlsx');
+    const RealBlob = globalThis.Blob;
+    const parts = [];
+    globalThis.Blob = class extends RealBlob { constructor(p, o) { super(p, o); parts.push(p[0]); } };
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
+    globalThis.URL.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const pct = { id: 'f-pct', name: 'Used', type: 'formula', formula: '{Spent} / {Budget}', formulaFormat: { format: 'percent' } };
+    const s2 = { ...store, customFields: [...fields, pct] };
+    const cols = customFieldExportColumns([left, pct], s2);
+    try {
+      await exportExcel({ title: 'T', columns: cols, rows: [{ task: tasks[0] }] });
+    } finally {
+      globalThis.Blob = RealBlob;
+    }
+    const book = XLSX.read(new Uint8Array(parts.at(-1)), { type: 'array', cellNF: true });
+    const sheet = book.Sheets[book.SheetNames[0]];
+    expect(sheet.A2.v).toBe(70);
+    expect(sheet.A2.z).toBe('"$"#,##0.00');
+    expect(sheet.B2.v).toBe(0.3);
+    expect(sheet.B2.z).toBe('0%');
+  });
+});
+
 describe('the formula editor popup', () => {
+  it('refuses a column name with braces or a built-in name', () => {
+    render(<FormulaFieldModal store={store} previewTasks={tasks} onClose={() => {}} onSave={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Formula'), { target: { value: '{Budget}' } });
+    fireEvent.change(screen.getByLabelText('Column Name'), { target: { value: 'Progress' } });
+    expect(screen.getByText(/is a built-in field name - pick another/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Add Column/ })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Column Name'), { target: { value: 'Left}' } });
+    expect(screen.getByText(/cannot contain \{ or \}/)).toBeInTheDocument();
+  });
+
   const openModal = (props = {}) => {
     const onSave = vi.fn(() => Promise.resolve({}));
     const onClose = vi.fn();

@@ -25,7 +25,7 @@ import {
 import { taskStats, topLevel, fmtDateTime, teamProjectIds, todayISO } from './lib';
 import TasksWorkspace from './TasksWorkspace';
 import { FormulaEditor } from './FormulaColumn';
-import { checkFormula, normalizeFormat, formulaContext, previewRows } from './formula';
+import { checkFormula, normalizeFormat, formulaContext, previewRows, fieldNameProblem, formulasUsing } from './formula';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
 
@@ -609,6 +609,22 @@ function FieldsTab({ store }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const projectName = (id) => projects.find((p) => p.id === id)?.name || '';
+  // Formula columns that name the field would show #Error once it is gone
+  // (Oct 22 2026), so the question lists them. The server asks too (409 with
+  // the ones this screen did not know about) - answered the same way.
+  const deleteFieldAsking = async (f) => {
+    const uses = formulasUsing(customFields, f);
+    const ask = (names) => confirm(names.length
+      ? `Delete field "${f.name}"?\n\nThese formula columns use it and will show #Error: ${names.join(', ')}.`
+      : `Delete field "${f.name}"?`);
+    if (!ask(uses.map((g) => g.name))) return;
+    try {
+      await deleteCustomField(f.id, { force: uses.length > 0 });
+    } catch (e) {
+      if (e?.status !== 409) { alert(e?.message || 'The field could not be deleted.'); return; }
+      if (ask(e.detail?.formulas || [])) await deleteCustomField(f.id, { force: true }).catch((err) => alert(err?.message || 'The field could not be deleted.'));
+    }
+  };
 
   return (
     <div>
@@ -660,7 +676,7 @@ function FieldsTab({ store }) {
           {f.readOnly && f.type !== 'formula' && <span title="Calculated in Asana - imported but never pushed back" style={chip(NX.dim, NX.border2)}>Read-only</span>}
           <span style={chip(NX.dim, NX.border2)}>{FIELD_TYPES.find((t) => t.value === f.type)?.label || f.type}</span>
           <IconButton icon={Pencil} title="Edit Field" onClick={() => setEditing(f)} />
-          <IconButton icon={Trash2} title="Delete Field" danger onClick={() => { if (confirm(`Delete field "${f.name}"?`)) deleteCustomField(f.id); }} />
+          <IconButton icon={Trash2} title="Delete Field" danger onClick={() => deleteFieldAsking(f)} />
         </RowCard>
       ))}
       {adding && <FieldModal projects={projects} store={store} onClose={() => setAdding(false)} onSave={async (d) => { await createCustomField(d); setAdding(false); }} />}
@@ -693,6 +709,9 @@ export function FieldModal({ projects = [], field = null, onClose, onSave, store
   const isFormula = type === 'formula';
   const fctx = useMemo(() => formulaContext(store?.customFields || [], field?.id || '__draft'), [store?.customFields, field?.id]);
   const formulaProblem = isFormula ? checkFormula(formula, { selfName: name.trim(), ...fctx }) : '';
+  // Only a NEW name is held to it - an older field keeps whatever it is called.
+  const nameProblem = name !== (field?.name || '') ? fieldNameProblem(name) : '';
+  const blocked = formulaProblem || nameProblem;
   // A field can apply to tasks, projects, or both at once.
   const [appliesTo, setAppliesTo] = useState(field?.appliesTo?.length ? field.appliesTo : ['task']);
   const [options, setOptions] = useState(() => {
@@ -741,14 +760,14 @@ export function FieldModal({ projects = [], field = null, onClose, onSave, store
     || formula !== (field?.formula || '')
     || JSON.stringify(formulaFormat) !== JSON.stringify(normalizeFormat(field?.formulaFormat));
 
-  const setOpt =(i, patch) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
+  const setOpt = (i, patch) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
   // At least one kind must stay checked - a field that applies to nothing
   // can't show up anywhere to be edited again.
   const toggleAppliesTo = (kind) => setAppliesTo((prev) => (prev.includes(kind)
     ? (prev.length > 1 ? prev.filter((k) => k !== kind) : prev)
     : [...prev, kind]));
   const save = () => {
-    if (!name.trim()) return;
+    if (!name.trim() || nameProblem) return;
     if (isFormula) {
       if (formulaProblem) return;
       // Task-side, never required, no options - the server holds it to that too.
@@ -774,13 +793,16 @@ export function FieldModal({ projects = [], field = null, onClose, onSave, store
   };
 
   return (
-    <Modal title={field ? 'Edit Custom Field' : 'New Custom Field'} onClose={onClose} isDirty={dirty} onSave={name.trim() && !formulaProblem ? save : undefined} footer={
+    <Modal title={field ? 'Edit Custom Field' : 'New Custom Field'} onClose={onClose} isDirty={dirty} onSave={name.trim() && !blocked ? save : undefined} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={{ ...btn('primary'), opacity: formulaProblem ? 0.5 : 1 }} disabled={!!formulaProblem} onClick={save}>{field ? 'Save Field' : 'Add Field'}</button>
+        <button style={{ ...btn('primary'), opacity: blocked ? 0.5 : 1 }} disabled={!!blocked} onClick={save}>{field ? 'Save Field' : 'Add Field'}</button>
       </>
     }>
-      <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points, Location" style={inputStyle} /></Field>
+      <Field label="Name">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points, Location" style={inputStyle} aria-invalid={!!nameProblem || undefined} />
+        {nameProblem && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 4 }}>{nameProblem}</div>}
+      </Field>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" style={inputStyle} /></Field>
       {!isFormula && <Field label="Applies To">
         <div style={{ display: 'flex', gap: 16 }}>

@@ -3,8 +3,11 @@ import cases from './formula.cases.json';
 import {
   parseFormula, runFormula, checkFormula, createFormulaEngine, formulaEngineFor, formatFormulaValue,
   formatNumberAs, formulaSortValue, formulaExportValue, formulaMatches, normalizeFormat, dateValue,
-  FormulaError, FDate, formulaFieldRefs,
+  FormulaError, FDate, formulaFieldRefs, fieldKey, fieldNameProblem, formulasUsing, applyFieldUpdate,
+  excelFormat, formulaContext, MAX_TEXT,
 } from './formula';
+import { pdfColumns, PDF_MAX_COLS } from './exporting';
+import { totalFor } from './totals';
 
 // Evaluate with a fixed field table and today.
 const run = (src, fields = {}, today = '2026-10-22') => runFormula(src, {
@@ -31,6 +34,16 @@ describe('grammar (shared with the server)', () => {
       let msg = '';
       try { parseFormula(src); } catch (e) { msg = e.message; }
       expect(msg, src).toContain(fragment);
+    }
+  });
+  it('compares field names and counts lengths like the server', () => {
+    for (const [name, key] of cases.keys) expect(fieldKey(name), JSON.stringify(name)).toBe(key);
+    for (const c of cases.repeat) {
+      const src = c.prefix + c.unit.repeat(c.times) + c.suffix;
+      let msg = '';
+      try { parseFormula(src); } catch (e) { msg = e.message; }
+      if (c.error === null) expect(msg, `${c.unit} x${c.times}`).toBe('');
+      else expect(msg, `${c.unit} x${c.times}`).toContain(c.error);
     }
   });
   it('refuses very long input and over-deep nesting', () => {
@@ -271,5 +284,91 @@ describe('checkFormula (the editor)', () => {
     expect(checkFormula('{Left}', opts)).toMatch(/itself/);
     expect(checkFormula('{Other} * 2', opts)).toMatch(/Circular reference/);
     expect(checkFormula('SUM(', opts)).toBe('The formula ends too soon.');
+  });
+});
+
+describe('review fixes (Oct 22 2026)', () => {
+  it('catches a loop through one of two same-named formula columns', () => {
+    const fields = [
+      { id: 'x1', name: 'X', type: 'formula', formula: '{Budget}', appliesTo: ['task'] },
+      { id: 'x2', name: 'X', type: 'formula', formula: '{Y} + 1', appliesTo: ['task'] },
+      { id: 'b', name: 'Budget', type: 'number', appliesTo: ['task'] },
+    ];
+    const ctx = formulaContext(fields, '__draft');
+    expect(ctx.formulaFields).toHaveLength(2);
+    expect(checkFormula('{X} * 2', { selfName: 'Y', ...ctx })).toMatch(/Circular reference/);
+  });
+
+  it('caps text: a nested chain of joins errors instead of exploding', () => {
+    const many = (name, n) => Array.from({ length: n }, () => `{${name}}`).join('&');
+    const fields = [
+      { id: 't', name: 'T', type: 'text' },
+      { id: 'a', name: 'A', type: 'formula', formula: many('T', 50) },
+      { id: 'b', name: 'B', type: 'formula', formula: many('A', 300) },
+      { id: 'c', name: 'C', type: 'formula', formula: many('B', 300) },
+      { id: 'u', name: 'U', type: 'formula', formula: 'UPPER({A}) & LOWER({A})' },
+      { id: 'k', name: 'K', type: 'formula', formula: `CONCAT(${Array.from({ length: 80 }, () => '{A}').join(', ')})` },
+    ];
+    const e = createFormulaEngine({ customFields: fields });
+    const task = { id: 'x', customFieldValues: { t: 'x'.repeat(100) } };
+    const get = (id) => e.result(task, fields.find((f) => f.id === id));
+    expect(get('a').value).toHaveLength(5000);
+    const t0 = Date.now();
+    expect(get('b').error).toMatch(/Text is too long/);
+    expect(get('c').error).toMatch(/\{B\} has an error/);
+    expect(Date.now() - t0).toBeLessThan(500);
+    expect(get('u').value).toHaveLength(10000);
+    expect(get('k').error).toMatch(/Text is too long/);
+    expect(run('{T}', { T: 'y'.repeat(MAX_TEXT + 1) }).error).toMatch(/Text is too long/);
+  });
+
+  it('dates past 12/31/9999 or before 01/01/0001 are an error, not a bad date', () => {
+    expect(err('{D} + 100000000000', { D: dateValue('2026-01-01') })).toBe('The date is out of range.');
+    expect(err('{D} - 1000000', { D: dateValue('2026-01-01') })).toBe('The date is out of range.');
+    expect(val('{D} + 1', { D: dateValue('9999-12-30') })).toBe('9999-12-31');
+  });
+
+  it('names a custom field may not have', () => {
+    expect(fieldNameProblem('Budget')).toBe('');
+    expect(fieldNameProblem('Spent}x')).toMatch(/\{ or \}/);
+    expect(fieldNameProblem(' due   DATE ')).toMatch(/built-in/);
+  });
+
+  it('lists the formulas a delete would break, unless the name lives on in another field', () => {
+    const spent = { id: 's', name: 'Spent', type: 'number' };
+    const left = { id: 'l', name: 'Left', type: 'formula', formula: '{Budget} - { spent }' };
+    expect(formulasUsing([spent, left], spent).map((f) => f.id)).toEqual(['l']);
+    expect(formulasUsing([spent, left, { id: 's2', name: 'Spent', type: 'number' }], spent)).toEqual([]);
+  });
+
+  it('a rename puts the rewritten formula columns in place', () => {
+    const list = [{ id: 's', name: 'Spent' }, { id: 'l', name: 'Left', formula: '{Spent}' }, { id: 'o', name: 'Other' }];
+    const next = applyFieldUpdate(list, 's', { id: 's', name: 'Actual', rewrittenFormulas: [{ id: 'l', name: 'Left', formula: '{Actual}' }] });
+    expect(next.map((f) => f.name)).toEqual(['Actual', 'Left', 'Other']);
+    expect(next[1].formula).toBe('{Actual}');
+    expect(next[0]).not.toHaveProperty('rewrittenFormulas');
+    expect(next[2]).toBe(list[2]);
+  });
+
+  it('exports: Excel number formats and the PDF column cap', () => {
+    expect(excelFormat({ format: 'percent', decimals: 1 })).toBe('0.0%');
+    expect(excelFormat({ format: 'percent', decimals: 0 })).toBe('0%');
+    expect(excelFormat({ format: 'currency' })).toBe('"$"#,##0.00');
+    expect(excelFormat({ format: 'number' })).toBeUndefined();
+    const base = Array.from({ length: 12 }, (_, i) => ({ header: `B${i}` }));
+    const extra = Array.from({ length: 5 }, (_, i) => ({ header: `C${i}`, optional: true }));
+    const { columns, dropped } = pdfColumns([...base, ...extra]);
+    expect(columns).toHaveLength(PDF_MAX_COLS);
+    expect(dropped).toBe(3);
+    expect(pdfColumns(base.slice(0, 3)).dropped).toBe(0);
+  });
+
+  it('remembers a total per (rows, column, total)', () => {
+    const rows = [{ estimateHours: 1 }, { estimateHours: 2 }];
+    const a = totalFor(rows, 'estimate', 'sum');
+    rows.push({ estimateHours: 5 });   // same array: the remembered answer stands
+    expect(totalFor(rows, 'estimate', 'sum')).toBe(a);
+    expect(totalFor([...rows], 'estimate', 'sum')).toBe(8);
+    expect(totalFor(rows, 'estimate', 'max')).toBe(5);
   });
 });

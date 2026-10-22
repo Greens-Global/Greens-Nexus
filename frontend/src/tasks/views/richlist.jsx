@@ -19,8 +19,8 @@ import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsBut
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar, localTodayISO, useIsMobile } from '../components';
 import { FormulaValue, FormulaFieldModal } from '../FormulaColumn';
-import { formulaEngineFor } from '../formula';
-import { totalKind, aggsFor, aggLabel, computeTotal, formatTotal, useColumnTotals } from '../totals';
+import { formulaEngineFor, fieldNameProblem } from '../formula';
+import { totalKind, aggsFor, aggLabel, totalFor, formatTotal, useColumnTotals } from '../totals';
 import { emailToName, rootZoom } from '../../lib/utils';
 import { matchPeople } from '../../lib/peopleSearch';
 import { useListNav } from '../../lib/listNav';
@@ -653,13 +653,14 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
   };
   const pickType = (t) => {
     if (t.storage === 'formula') { reset(); close(); setFormulaOpen(true); return; }
-    setPicked(t); setName(t.label); setStep('config');
+    // "Progress" is a built-in formula field, so that type starts as "Progress Value".
+    setPicked(t); setName(fieldNameProblem(t.label) ? `${t.label} Value` : t.label); setStep('config');
   };
   // Waits for the save and throws on a refusal, so the popup can say why
   // (the server re-checks the formula).
   const createFormula = (d) => createCustomField({ ...d, ...(lockedProjectId ? { projectIds: [lockedProjectId] } : {}) });
   const create = () => {
-    if (!picked || !name.trim()) return;
+    if (!picked || !name.trim() || fieldNameProblem(name)) return;
     const needsOptions = picked.storage === 'select' || picked.storage === 'multiselect';
     const opts = needsOptions ? options.map((o) => o.trim()).filter(Boolean) : [];
     // Made from a project's list, the field belongs to that project - which is
@@ -753,6 +754,7 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
                 <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: NX.dim, marginBottom: 4 }}>Column name</label>
                 <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
                   style={{ ...inputStyle, fontSize: 13, padding: '6px 8px' }} onKeyDown={(e) => e.key === 'Enter' && create()} />
+                {fieldNameProblem(name) && <div role="alert" style={{ marginTop: 4, fontSize: 12, color: NX.red }}>{fieldNameProblem(name)}</div>}
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: NX.dim, marginBottom: 4 }}>Column description (optional)</label>
@@ -778,7 +780,7 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
               )}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 2 }}>
                 <button onClick={close} style={{ ...btn('ghost'), fontSize: 12.5, padding: '5px 10px' }}>Cancel</button>
-                <button onClick={create} disabled={!name.trim()} style={{ ...btn('primary'), fontSize: 12.5, padding: '5px 12px', opacity: name.trim() ? 1 : 0.5 }}>Add Column</button>
+                <button onClick={create} disabled={!name.trim() || !!fieldNameProblem(name)} style={{ ...btn('primary'), fontSize: 12.5, padding: '5px 12px', opacity: name.trim() && !fieldNameProblem(name) ? 1 : 0.5 }}>Add Column</button>
               </div>
             </div>
           )}
@@ -1620,7 +1622,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
         const agg = chosen && aggsFor(kind).some((a) => a.key === chosen) ? chosen : '';
         return (
           <TotalCell key={c.key} kind={kind} agg={agg} colKey={c.key} field={field} placeholder={overall}
-            value={agg ? computeTotal(tasks, c.key, agg, { field, engine: formula }) : null}
+            value={agg ? totalFor(tasks, c.key, agg, { field, engine: formula }) : null}
             onPick={(a) => totals.setAgg(c.key, a)} />
         );
       })}

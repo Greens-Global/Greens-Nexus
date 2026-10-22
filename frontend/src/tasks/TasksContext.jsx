@@ -13,6 +13,7 @@ import { celebrateCompletion } from './celebrate';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { loadTaskData, taskSnapshot, rememberTaskData, FIRST_PAINT } from './taskStore';
 import { noteStatusChanges } from './recentChanges';
+import { applyFieldUpdate } from './formula';
 
 function tasksReducer(prev, v) {
   const next = typeof v === 'function' ? v(prev) : v;
@@ -773,8 +774,22 @@ export function TasksProvider({ children }) {
     // Editing was never wired up, so fixing a field's name meant deleting and
     // recreating it - and task values are keyed by field id, so every value
     // already captured was orphaned by the rename.
-    updateCustomField: mkUpd(api.updateTaskCustomField, setCustomFields),
-    deleteCustomField: mkDel(api.deleteTaskCustomField, setCustomFields),
+    // A rename also rewrites the formula columns that name the field (Oct 22
+    // 2026); the server sends those back so they are right at once, not
+    // #Error until the next load.
+    updateCustomField: async (id, patch) => {
+      const res = await api.updateTaskCustomField(id, toBody(patch));
+      setCustomFields((p) => applyFieldUpdate(p, id, res));
+      const r = { ...(res || {}) };
+      delete r.rewrittenFormulas;
+      return r;
+    },
+    // { force: true } = the caller has already said yes to breaking the
+    // formula columns that use it (the server otherwise answers 409).
+    deleteCustomField: async (id, { force = false } = {}) => {
+      await (force ? api.deleteTaskCustomFieldForced(id) : api.deleteTaskCustomField(id));
+      setCustomFields((p) => p.filter((x) => x.id !== id));
+    },
     // A merge deletes rows and rewrites the survivor's scope, so the list is
     // re-read rather than patched in place.
     dedupeCustomStatuses: async () => { const r = await api.dedupeTaskCustomStatuses(); await loadCore(); return r; },
