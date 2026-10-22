@@ -170,8 +170,10 @@ class PeriodCloseAlertTests(unittest.TestCase):
         self.assertIn("Ann Test.", n.body)
         n.read_by = MGR
         self.db.commit()
-        # Ben's period is unlocked by HR: his sheet waits on Max again.
-        tc.unfinalize_timecard(tc.FinalizeIn(email=B, start=PS, end=PE), user=ADMIN, db=self.db)
+        # Ben's finalization goes (Oct 22: HR's Unlock is a correction HR owns,
+        # so revoke the row itself): his sheet waits on Max again.
+        self.db.query(models.TimeApproval).filter_by(employee_email=B, kind="final").update({"revoked": 1})
+        self.db.commit()
         self._scan(_at(2026, 10, 19, 19))
         self.db.refresh(n)
         self.assertIn("2 time sheets", n.body)

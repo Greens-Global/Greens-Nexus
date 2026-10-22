@@ -250,6 +250,29 @@ def finalize_unsigned(body: FinalizeUnsignedIn, user: dict = Depends(get_current
     return tsr.state_for(db, r.employee_email, r.period_start, me, True)
 
 
+@router.post("/{rid}/send-correction")
+def send_correction(rid: str, request: Request, user: dict = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """HR: the corrected card of an unlocked period goes to the employee to
+    sign (Neil, Oct 22). is_hr is checked in tsr.send_correction."""
+    r = _review(db, rid)
+    me = (user.get("email") or "").lower()
+    ip, ua = _client_meta(request)
+    tsr.send_correction(db, r, me, ip=ip, user_agent=ua)
+    db.commit()
+    return tsr.state_for(db, r.employee_email, r.period_start, me, True)
+
+
+@router.post("/{rid}/relock")
+def relock(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """HR: unlocked, nothing changed - locked again with no new signature."""
+    r = _review(db, rid)
+    me = (user.get("email") or "").lower()
+    tsr.relock(db, r, me)
+    db.commit()
+    return tsr.state_for(db, r.employee_email, r.period_start, me, True)
+
+
 @router.post("/{rid}/sign")
 def employee_sign(rid: str, request: Request, user: dict = Depends(get_current_user),
                   db: Session = Depends(get_db)):

@@ -2541,6 +2541,9 @@ export const api = {
   timesheetReviewSign:          (id) => req(`/timesheet-review/${id}/sign`, { method: 'POST' }),
   // HR: Finalize Without Employee Signature (Oct 17) - left, or never signed.
   timesheetReviewFinalizeUnsigned: (email, start, reason) => req('/timesheet-review/finalize-unsigned', { method: 'POST', body: JSON.stringify({ email, start: start || '', reason }) }),
+  // HR's correction of a finalized period (Neil, Oct 22): send the corrected card to sign, or re-lock it unchanged.
+  timesheetReviewSendCorrection: (id) => req(`/timesheet-review/${id}/send-correction`, { method: 'POST' }),
+  timesheetReviewRelock:         (id) => req(`/timesheet-review/${id}/relock`, { method: 'POST' }),
   timeExportIifFinalized:       (start, end, company) =>
     reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company || '')}&finalized_only=true`, { timeoutMs: 120_000 }),
   // Approve All Clean (Oct 17): items are [{id}] or [{email, start}], at most

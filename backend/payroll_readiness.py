@@ -289,6 +289,7 @@ NOT_APPROVED_WORDS = {
     "with_manager": "Waiting on the manager's approval",
     "with_employee": "Sent back to the employee - not approved yet",
     "unlocked": "Unlocked by HR - needs the manager's approval again",
+    "correcting": "Unlocked by HR for corrections - waiting on HR, then the employee's signature",
 }
 
 

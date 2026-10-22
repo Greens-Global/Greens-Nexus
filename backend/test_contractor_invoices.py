@@ -168,7 +168,7 @@ class ContractorInvoices(unittest.TestCase):
         self._finalize(EMP)
         self.assertEqual(self._invoices(EMP), [])
         # Unfinalize voids the draft; finalizing again drafts number 8.
-        tc.unfinalize_timecard(tc.FinalizeIn(email=CON, start=PS, end=PE), user=HR_USER, db=self.db)
+        tc.unfinalize_timecard(tc.FinalizeIn(email=CON, start=PS, end=PE, reason="Wrong lunch on Monday"), user=HR_USER, db=self.db)
         self.db.expire_all()
         self.assertEqual(self.db.get(models.ContractorInvoice, inv.id).status, "void")
         self._finalize(CON)

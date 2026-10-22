@@ -2114,6 +2114,7 @@ class FinalizeIn(BaseModel):
     start: str
     end: str
     allow_exceptions: bool = False   # override unresolved missing/unmatched punches
+    reason: str = ""                 # /unfinalize: why HR unlocks it (required there)
 
 
 @router.post("/finalize")
@@ -2299,9 +2300,22 @@ def _notify_period_ready(db: Session, email: str, start: str, end: str, is_fixed
 
 
 @router.post("/unfinalize")
-def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrator),
+def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(get_current_user),
                         db: Session = Depends(get_db)):
+    """HR / Global Admin unlocks a finalized period to correct it (Neil, Oct
+    22 2026: "HR should always be able to unlock and modify ... supervisor
+    shouldn't be the one making a change like that"). timesheet_review.is_hr
+    is the gate - the company's HR contact, an administrator or the Full HR
+    grant, never on their own card. The reason is required and printed in the
+    approval log; the employee signs the corrected card again
+    (timesheet_review.start_correction)."""
+    import timesheet_review as _tsr
     email = body.email.strip().lower()
+    if not _tsr.is_hr(db, user["email"], email):
+        raise HTTPException(403, "Only HR or a Global Admin can unlock a finalized time sheet.")
+    reason = (body.reason or "").strip()
+    if len(reason) < 5:
+        raise HTTPException(422, "Say why the time sheet is being unlocked - it is logged on the time sheet.")
     row = (db.query(TimeApproval)
            .filter(TimeApproval.employee_email == email, TimeApproval.revoked == 0,
                    TimeApproval.kind == "final",
@@ -2316,20 +2330,9 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administr
     leave_balances.remove_period(db, row.id)
     from routers import contractor_invoices
     contractor_invoices.void_for_final(db, row.id)   # its draft invoice goes; a sent one stays
-    # A period signed through Nexus Sign keeps its review row as "completed",
-    # which refused every new submission - so an unlocked period could never be
-    # re-agreed or re-signed (Oct 16). Close that review out as "unlocked"; the
-    # employee's next Submit starts a fresh round and a fresh envelope.
-    import timesheet_review as _tsr
-    _rv = _tsr.active_review(db, email, body.start)
-    if _rv is not None and _rv.status == "completed":
-        _rv.status = "unlocked"
-        _tsr._round(db, _rv, by=user["email"], action="unlocked",
-                    note="Period unlocked by HR for corrections - submit it again when the hours are right")
-        _hr_notify(db, email, "Time Sheet Unlocked",
-                   f"HR unlocked your time sheet for {_us_span(body.start, body.end)} for corrections. "
-                   f"Once the hours are right, submit it again for review and signatures.",
-                   action={"view": "timeclock", "sub": "timesheet"})
+    # The review is HR's to correct until the employee signs again (or the
+    # corrected card is accepted after the wait) - never back to the manager.
+    _tsr.start_correction(db, email, body.start, body.end, user["email"], reason[:500])
     db.commit()
     return {"unfinalized": True}
 

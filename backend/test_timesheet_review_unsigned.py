@@ -82,7 +82,7 @@ class FinalizeUnsignedTests(MatrixCase):
                 self.assertIn("manager approves", r.json()["detail"])
 
     def test_someone_who_left_is_finalized_from_any_open_state(self):
-        for state in ("not_submitted", "with_manager", "with_employee", "signing", "approved", "unlocked"):
+        for state in ("not_submitted", "with_manager", "with_employee", "signing", "approved", "correcting"):
             with self.subTest(state=state):
                 self._fresh()
                 self._to(state)
@@ -127,9 +127,9 @@ class FinalizeUnsignedTests(MatrixCase):
         self.assertEqual(r.status_code, 409)
         self.assertIn("already finalized", r.json()["detail"])
         # HR's Unlock still works, and the period can be finalized again.
-        timeclock.unfinalize_timecard(timeclock.FinalizeIn(email=EMP, start=self.ps, end=self.pe),
+        timeclock.unfinalize_timecard(timeclock.FinalizeIn(email=EMP, start=self.ps, end=self.pe, reason="Wrong lunch on Monday"),
                                       user={"email": HR, "level": 4}, db=self.db)
-        self.assertEqual(self._status(), "unlocked")
+        self.assertEqual(self._status(), "correcting")
         self.assertEqual(self._post(HR).status_code, 200)
         self._assert_finalized(HR)
 
