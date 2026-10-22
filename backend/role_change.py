@@ -212,7 +212,7 @@ def request_change(db: Session, user: dict, emp: models.NexusEmployee, role_id: 
     open_req = _pending_for(db, emp.id).first()
     if open_req:
         raise RoleChangeError(f"A role change to {open_req.to_role_name} is already waiting for approval - "
-                              f"cancel it on their Access tab first.", 409)
+                              f"cancel it on their Role tab first.", 409)
     approvers = approvers_for(db, emp, user["email"])
     if not approvers:
         raise RoleChangeError(f"Nobody can approve this: {emp.first_name} needs a manager, or their company an HR "

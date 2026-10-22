@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
-import { InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
+import { InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus, usDay } from '../components/HiringPacket';
 import PacketReview from '../components/PacketReview';
 import OfferModal from '../components/OfferModal';
@@ -16,7 +16,7 @@ import {
   Building2, Trash2, MapPinned, Wallet, Receipt, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
-  ListChecks, RefreshCw, Video, Hourglass,
+  ListChecks, RefreshCw, Hourglass,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -279,13 +279,13 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
       // profile "Saved"/M365 message.
       let wageWarn = '';
       // New hire + a chosen job role → set their access + tier now. Needs a work
-      // email; if not provisioned yet, prompt to set it later on the Access tab.
+      // email; if not provisioned yet, prompt to set it later on the Role tab.
       if (!editing && jobRoleId) {
         if (wemail) {
           try { await api.assignJobRole(jobRoleId, wemail); toastOk?.(`${fullName(saved)} added - job role & access assigned.`); }
-          catch (err) { toastErr(err?.message || 'Employee added, but the job role could not be assigned - set it on their Access tab.'); }
+          catch (err) { toastErr(err?.message || 'Employee added, but the job role could not be assigned - set it on their Role tab.'); }
         } else {
-          toastOk?.('Employee added - assign their job role from the Access tab once a work email is set.');
+          toastOk?.('Employee added - assign their job role from the Role tab once a work email is set.');
         }
       } else if (!editing && !saved.entra) {
         toastOk?.('Employee added.');   // plain add (no job role, no M365) had no confirmation before
@@ -536,73 +536,6 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
 
 // ── Documents (Phase 3) - private bucket, viewed via short-lived signed URLs ──
 const DOC_KINDS = [['resume', 'Resume'], ['id', 'ID'], ['contract', 'Contract'], ['certificate', 'Certificate'], ['other', 'Other']];
-
-// Mailbox export - start a Graph-backed .eml zip and poll it to completion.
-function MailboxExportSection({ employee, toastOk, toastErr }) {
-  const [job, setJob] = useState(undefined);   // undefined = loading, null = none
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { api.getMailboxExport(employee.id).then(setJob).catch(() => setJob(null)); }, [employee.id]);
-  const active = job && (job.status === 'pending' || job.status === 'running');
-  useEffect(() => {
-    if (!active) return;
-    const t = setInterval(() => { api.getExportStatus(job.id).then(setJob).catch(() => {}); }, 3000);
-    return () => clearInterval(t);
-  }, [active, job?.id]);
-
-  if (!employee.m365Id) return null;   // export needs a linked M365 mailbox
-
-  async function start() {
-    if (busy) return; setBusy(true);
-    try { const j = await api.startMailboxExport(employee.id); setJob(j); toastOk('Mailbox export started - this can take a while for large mailboxes.'); }
-    catch (e) { toastErr(e?.message || 'Could not start export.'); }
-    setBusy(false);
-  }
-  async function download() {
-    try { const { url } = await api.getExportUrl(job.id); window.open(url, '_blank', 'noopener'); }
-    catch (e) { toastErr(e?.message || 'Could not get download link.'); }
-  }
-
-  const pct = active && job?.total > 0 ? Math.min(100, Math.round((job.count / job.total) * 100)) : null;
-  const status = job === undefined ? '' :
-    !job ? 'No export yet.' :
-    job.status === 'done' ? `Ready · ${job.message} · ${formatDate((job.updatedAt || '').slice(0, 10))}` :
-    job.status === 'error' ? `Failed · ${job.message}` :
-    job.total > 0 ? `Exporting… ${job.count} of ${job.total} messages (${pct}%)` :
-    job.count > 0 ? `Exporting… ${job.count} messages so far` :
-    'Starting… counting the mailbox';
-
-  return (
-    <div style={{ marginTop: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
-          <Mail size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Mailbox export
-        </span>
-        {job?.status === 'done' && (
-          <button className="secondary-btn" onClick={download} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
-            <FileText size={12} /> Download .zip
-          </button>
-        )}
-        <button className="secondary-btn" onClick={start} disabled={busy || active}
-          style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
-          {(busy || active) ? <Spinner size={12} /> : <History size={12} />} {job?.status === 'done' ? 'Re-export' : 'Export emails'}
-        </button>
-      </div>
-      <div style={{ fontSize: 12.5, color: job?.status === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
-        {status}{status && ' '}
-        {job?.status === 'error' && /Mail\.Read/i.test(job.message || '') && <em>Grant the Mail.Read app permission in Entra, then re-export.</em>}
-      </div>
-      {active && (
-        <div style={{ marginTop: 8, height: 6, borderRadius: 6, background: 'var(--line)', overflow: 'hidden' }}>
-          <div style={{
-            height: '100%', borderRadius: 6, background: 'hsl(var(--color-green))',
-            width: pct !== null ? `${pct}%` : '15%',
-            transition: 'width .4s ease',
-          }} />
-        </div>
-      )}
-    </div>
-  );
-}
 
 // Live read of what a person holds in Item Management (Section B5). No data is
 // stored here - Items stays the single source of truth; this deep-links into it.
@@ -1775,30 +1708,31 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value || '-'}</span>
     </div>
   );
-  // A manager looking at their team (Oct 6) gets five tabs, read only - plus
-  // Pay & Benefits, read only, for their DIRECT reports (Oct 7).
+  // A manager looking at their team (Oct 6) gets a short read-only strip -
+  // plus Pay & Benefits and Reimbursements for their DIRECT reports (Oct 7).
+  // Order and the Access -> Role label are Neil's (Oct 22 2026); the key stays
+  // 'access' so jumps into it keep working.
   const directReport = teamView && !!mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase();
   const tabs = (teamView ? [
     ['overview', 'Overview', Contact],
+    ['access', 'Role', Shield],
     directReport && ['pay', 'Pay & Benefits', Wallet],
-    directReport && ['expenses', 'Expenses', Receipt],
+    directReport && ['expenses', 'Reimbursements', Receipt],
     ['assets', 'Assets', Briefcase],
     ['location', 'Work Mode', MapPinned],
-    ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
   ] : [
     ['overview', 'Overview', Contact],
+    // Everyone in People sees Role (Pranshu, Oct 14): the pending role
+    // change and the role history; managing access stays admin-only.
+    ['access', 'Role', Shield],
     canSeeComp && ['pay', 'Pay & Benefits', Wallet],
-    ['expenses', 'Expenses', Receipt],
+    ['expenses', 'Reimbursements', Receipt],
     ['compliance', 'Compliance', ShieldCheck],
     ['assets', 'Assets', Briefcase],
     ['location', 'Work Mode', MapPinned],
     ['documents', 'Documents', FileText],
-    ['interviews', 'Interviews', Video],
     ['checklist', 'Checklist', ListChecks],
-    // Everyone in People sees Access (Pranshu, Oct 14): the pending role
-    // change and the role history; managing access stays admin-only.
-    ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
   ]).filter(Boolean);
   const expiry = nextExpiry(e);
@@ -2121,8 +2055,6 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'checklist' && <ChecklistSection employee={e} canEdit={canEditChecklist && !isRemoved} myEmail={viewerEmail} toastOk={toastOk} toastErr={toastErr} />}
 
-        {tab === 'interviews' && <EmployeeInterviews employeeId={e.id} toastErr={toastErr} />}
-
         {tab === 'documents' && (
           <>
             <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
@@ -2135,7 +2067,6 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 <EgnytePersonFolder email={e.workEmail} personName={fullName(e)} />
               </div>
             )}
-            <MailboxExportSection employee={e} toastOk={toastOk} toastErr={toastErr} />
           </>
         )}
       </div>

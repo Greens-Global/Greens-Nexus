@@ -2,7 +2,7 @@
 // is a REQUEST: the employee's manager or their company's HR contact reads the
 // reason and approves (the role changes then) or declines. Shown two ways:
 //
-//   RoleChangeRequestCard  - on the person's Access tab (People and
+//   RoleChangeRequestCard  - on the person's Role tab in People (Access in
 //                            Settings > Access): the pending request, with
 //                            Approve / Decline for an approver and Cancel
 //                            Request for whoever asked or HR.

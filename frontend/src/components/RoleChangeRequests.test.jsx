@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Role change approvals (Pranshu, Oct 13): the manager or HR sees the reason
-// and approves or declines - on the Access tab or straight from the bell.
+// and approves or declines - on the Role tab or straight from the bell.
 
 const base = {
   id: 'rq1', employeeId: 'e1', employeeName: 'Erin Lee', fromTitle: 'Tester', toRoleName: 'Accounting Associate',
