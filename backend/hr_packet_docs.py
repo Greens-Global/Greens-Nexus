@@ -1275,6 +1275,25 @@ def form_view(db: Session, setting: Optional[HrPacketSetting], template_ids: Opt
     return FormView(setting, snaps)
 
 
+def intake_preview(db: Session, template_ids: list, details_form) -> dict:
+    """What the new hire will be asked, for a packet as its editor has it now
+    (saved or not): the SAME FormView the intake page reads, each field with
+    the documents that print it, plus what HR answers at the offer. Raises
+    PacketProblem for a Details Form that would not save."""
+    import hr_life_events as hle
+    own = clean_form(details_form)
+    snaps, problems = load_snaps(db, list(dict.fromkeys(t for t in template_ids or [] if t)))
+    view = FormView(SimpleNamespace(details_form=own), snaps)
+
+    def printed_in(token):
+        return [s.name for s in snaps if token and token in s.tokens]
+    return {"standard": hle.intake_standard_fields(),
+            "form": [{**f, "documents": printed_in(f.get("key")), "packetOnly": f.get("key") not in view.derived_keys}
+                     for f in view.details_form],
+            "hrAtOffer": [{**q, "documents": printed_in(q["token"])} for q in hr_questions(snaps)],
+            "problems": problems}
+
+
 # ── building blocks (Oct 14) ────────────────────────────────────────────────
 # Neil: "there's a different confidentiality and non-disclosure agreement for
 # each team ... Pranshu can now connect it to a role." A packet is its common

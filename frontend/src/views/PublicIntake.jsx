@@ -14,13 +14,17 @@ import DetailsFormFields from '../components/DetailsFormFields';
 // and every document fills itself in. Renders OUTSIDE the sign-in gate like
 // /sign/{token}: the emailed token is the credential (stored hashed, used
 // once, dead after its date). Never shows pay.
+//
+// `preview` (Oct 23): the packet editor's Preview Intake Form renders this
+// same page from the packet's computed form (POST /hr/packets/intake-preview)
+// - inert, nothing is fetched or sent - so HR sees exactly what the hire sees.
 
-const LABELS = {
+export const LABELS = {
   first_name: 'Legal First Name', last_name: 'Legal Last Name', preferred_name: 'Preferred Name',
   phone: 'Phone', address: 'Current Address', permanent_address: 'Permanent Address',
   emergency_name: 'Name', emergency_relationship: 'Relationship', emergency_phone: 'Phone',
 };
-const SECTIONS = [
+export const SECTIONS = [
   ['About You', User, ['first_name', 'last_name', 'preferred_name', 'phone']],
   ['Your Address', MapPin, ['address', 'permanent_address']],
   ['Emergency Contact', HeartPulse, ['emergency_name', 'emergency_relationship', 'emergency_phone']],
@@ -33,8 +37,8 @@ const lbl = { fontSize: 12, fontWeight: 700, color: muted, display: 'block', mar
 const input = { width: '100%', boxSizing: 'border-box', border: '1px solid var(--line, #d1d5db)', borderRadius: 10, padding: '11px 12px', fontSize: 16, fontFamily: 'Inter,sans-serif', background: 'var(--card, #fff)', color: ink };
 const head = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 800, color: ink, margin: '22px 0 2px', paddingTop: 14, borderTop: '1px solid var(--line, #e5e7eb)' };
 
-export default function PublicIntake({ token }) {
-  const [page, setPage] = useState(null);
+export default function PublicIntake({ token, preview }) {
+  const [page, setPage] = useState(preview || null);
   const [error, setError] = useState('');
   const [v, setV] = useState({});
   const [sameAddress, setSameAddress] = useState(true);
@@ -43,6 +47,7 @@ export default function PublicIntake({ token }) {
   const [done, setDone] = useState(false);
 
   useEffect(() => {
+    if (preview) return;
     fetchPublicIntake(token)
       .then(p => {
         setPage(p);
@@ -51,7 +56,7 @@ export default function PublicIntake({ token }) {
         setSameAddress(!known.permanent_address || known.permanent_address === known.address);
       })
       .catch(e => setError(e.message || 'This link is not valid - please contact HR.'));
-  }, [token]);
+  }, [token, preview]);
 
   const required = useMemo(() => new Set((page?.fields || []).filter(f => f.required).map(f => f.key)), [page]);
   const keys = useMemo(() => new Set((page?.fields || []).map(f => f.key)), [page]);
@@ -64,6 +69,7 @@ export default function PublicIntake({ token }) {
 
   async function submit(e) {
     e.preventDefault();
+    if (preview) return;
     setBusy(true); setProblem('');
     const values = { ...v, ...(sameAddress ? { permanent_address: v.address || '' } : {}) };
     try { await submitPublicIntake(token, values); setDone(true); }
@@ -72,7 +78,7 @@ export default function PublicIntake({ token }) {
   }
 
   const shell = (children) => (
-    <div style={{ minHeight: '100dvh', background: 'var(--bg, #f3f4f6)', fontFamily: 'Inter,sans-serif', padding: '24px 16px 40px' }}>
+    <div style={{ minHeight: preview ? 0 : '100dvh', background: 'var(--bg, #f3f4f6)', fontFamily: 'Inter,sans-serif', padding: '24px 16px 40px' }}>
       <div style={{ maxWidth: 640, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: '#14532d', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15 }}>
@@ -126,7 +132,7 @@ export default function PublicIntake({ token }) {
   };
 
   return shell(
-    <form onSubmit={submit}>
+    <form onSubmit={submit} inert={!!preview}>
       <div style={{ fontSize: 20, fontWeight: 800, color: ink }}>{page.afterOffer ? 'Your Onboarding Details' : 'Complete Your Details'}</div>
       <div style={{ fontSize: 14, color: muted, marginTop: 6, lineHeight: 1.6 }}>
         {page.afterOffer
@@ -178,7 +184,7 @@ export default function PublicIntake({ token }) {
       )}
       <button type="submit" disabled={busy}
         style={{ marginTop: 22, width: '100%', border: 'none', borderRadius: 12, padding: '13px 16px', background: '#14532d', color: '#fff', fontSize: 15.5, fontWeight: 700, cursor: busy ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'Inter,sans-serif', opacity: busy ? 0.7 : 1 }}>
-        {busy ? <Spinner size={16} /> : <Send size={16} />} {page.afterOffer ? 'Send - Prepare My Documents' : 'Send To HR'}
+        {busy ? <Spinner size={16} /> : <Send size={16} />} {preview ? 'Preview Only - Nothing Is Sent' : page.afterOffer ? 'Send - Prepare My Documents' : 'Send To HR'}
       </button>
       <div style={{ fontSize: 12, color: muted, textAlign: 'center', marginTop: 12, lineHeight: 1.5 }}>
         No account or password needed. This link is unique to you - please do not share it.

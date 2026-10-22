@@ -889,6 +889,7 @@ def send_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
 
 INTAKE_FIELDS = ("first_name", "last_name", "preferred_name", "phone", "address", "permanent_address",
                  "emergency_name", "emergency_relationship", "emergency_phone")
+INTAKE_REQUIRED = ("first_name", "last_name", "phone", "address")
 _INTAKE_MAX = {"address": 300, "permanent_address": 300}
 
 
@@ -1443,6 +1444,11 @@ def intake_by_token(db: Session, token: str, lock: bool = False) -> Optional[HrL
     return q.with_for_update().first() if lock else q.first()
 
 
+def intake_standard_fields() -> list:
+    """The details every intake form asks, whatever the packet."""
+    return [{"key": k, "required": k in INTAKE_REQUIRED} for k in INTAKE_FIELDS]
+
+
 def intake_public(db: Session, ev: HrLifeEvent) -> dict:
     """What the candidate's page shows: no pay, nothing beyond the role."""
     entity = db.query(HrEntity).filter(HrEntity.id == ev.entity_id).first() if ev.entity_id else None
@@ -1466,7 +1472,7 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
             "phone": (cand.phone if cand else "") or "", "role": (ev.inputs or {}).get("job_title", ""),
             "expiresOn": ev.intake_expires_on or "", "prefill": known,
             "afterOffer": bool((ev.inputs or {}).get("after_offer")),
-            "fields": [{"key": k, "required": k in ("first_name", "last_name", "phone", "address")} for k in INTAKE_FIELDS],
+            "fields": intake_standard_fields(),
             # The packet's own Details Form (Oct 14) - any country, any field.
             "form": form}
 
@@ -1481,7 +1487,7 @@ def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
     if info["state"] != "open":
         raise PacketError("This link is no longer active - please contact HR.", 410)
     person = clean_intake(values)
-    missing = [k.replace("_", " ") for k in ("first_name", "last_name", "phone", "address") if not person.get(k)]
+    missing = [k.replace("_", " ") for k in INTAKE_REQUIRED if not person.get(k)]
     if missing:
         raise PacketError("Please fill in: " + ", ".join(missing) + ".")
     try:
