@@ -10,7 +10,8 @@ import EntryDetail from './EntryDetail';
 import SavedReportsManager from './SavedReportsManager';
 import SendReportDialog from './SendReportDialog';
 import { linesFile } from './linesExport';
-import { takePendingDrill } from './drill';
+import { clearParkedReport, peekParkedReport, takePendingDrill } from './drill';
+import { isBuilderConfig } from './builderModel';
 import { useAccountingPrefs } from './prefs';
 import { useColumnWidths, useCustomizePrefs } from './tableHooks';
 import Amount, { Figure } from './Amount';
@@ -100,7 +101,12 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // Prior Year, Budget vs. Actual MTD - with the period and columns set.
   // Oct 22 (item 07): `link` opens Credit Card / Bank Activity on one account
   // (parseActivitySub - Dashboard > Overview > Account Reconciliations).
-  const [config, setConfig] = useState(() => (report ? resolveConfig({ ...defaultConfig(), report, ...viewConfig(view), ...activityConfig(link) }) : defaultConfig()));
+  // Oct 23 (item 05): a memorized report opened from the Report Center waits
+  // in drill.js and opens here as if picked from Saved Reports.
+  const [parked] = useState(() => peekParkedReport(false));
+  useEffect(() => { if (parked) clearParkedReport(parked); }, [parked]);
+  const [config, setConfig] = useState(() => (parked ? resolveConfig(parked.config)
+    : report ? resolveConfig({ ...defaultConfig(), report, ...viewConfig(view), ...activityConfig(link) }) : defaultConfig()));
   const [entities, setEntities] = useState([]);
   const [limited, setLimited] = useState(false);
   const [result, setResult] = useState(null);
@@ -277,8 +283,10 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // Memorized reports.
   const [saved, setSaved] = useState([]);
   const [savedState, setSavedState] = useState({ loading: true, error: '' });
+  // Report Builder definitions are memorized reports too; they open in the
+  // builder (Report Center), never as a statement here.
   const loadSaved = useCallback(() => api.getAccountingSavedReports()
-    .then((list) => { setSaved(list || []); setSavedState({ loading: false, error: '' }); })
+    .then((list) => { setSaved((list || []).filter((r) => !isBuilderConfig(r.config))); setSavedState({ loading: false, error: '' }); })
     .catch((e) => setSavedState({ loading: false, error: e?.message || 'Could not load the saved reports.' })), []);
   useEffect(() => { loadSaved(); }, [loadSaved]);
   const activeSaved = useMemo(() => saved.find((r) => sameView(resolveConfig(r.config), config)), [saved, config]);
@@ -286,7 +294,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // The memorized report on screen, as it was opened. Once the controls
   // differ from it, a bar offers to keep the changes (Charmi, 09/29 call:
   // "do you want to save your changes?").
-  const [opened, setOpened] = useState(null);   // { id, name, mine, config }
+  const [opened, setOpened] = useState(() => (parked ? { id: parked.id, name: parked.name, mine: parked.mine, config } : null));   // { id, name, mine, config }
   const openSaved = (r) => { closeSearch(); setCollapsed(new Set()); const c = resolveConfig(r.config); setConfig(c); setOpened({ id: r.id, name: r.name, mine: r.mine, config: c }); };
   const changed = !!opened && saved.some((r) => r.id === opened.id) && !sameView(opened.config, config);
   const [saveAs, setSaveAs] = useState(null);   // '' | text - the Save as New name being typed

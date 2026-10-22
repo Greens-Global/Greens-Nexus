@@ -467,7 +467,7 @@ function fetchStatement(api, config, range, book) {
   if (config.report === 'balance-sheet') return api.getAccountingBalanceSheet(range.asof, location, dims, book);
   return readTrialBalance(api, range.from, range.to, location, dims, book);
 }
-function fetchBuckets(api, config, range, by, book, entities = []) {
+export function fetchBuckets(api, config, range, by, book, entities = []) {
   // One entity picked and split By Entity: its sub-entities are the columns
   // (the entity itself keeps a column for what is posted straight to it).
   // Several entities picked: one column each (the accounting service puts
@@ -494,7 +494,7 @@ const keyOf = (a) => a.account_no || `~${a.title}`;
 
 const monthLabel = (key) => parse(key).toLocaleString('en-US', { month: 'short', year: 'numeric' });
 const NONE = { entity: 'No Entity', department: 'No Department', vendor: 'No Vendor', customer: 'No Customer', employee: 'No Employee', project: 'No Project-Job', item: 'No Item' };
-function bucketLabel(mode, key, labels) {
+export function bucketLabel(mode, key, labels) {
   if (mode === 'month') return monthLabel(key);
   if (mode === 'quarter') { const d = parse(key); return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`; }
   if (mode === 'year') return key.slice(0, 4);
@@ -504,7 +504,7 @@ function bucketLabel(mode, key, labels) {
 }
 // Period columns run latest-first, so this month is the first column (Urmi,
 // Sep 17); the rest read alphabetically with "No Vendor" last.
-function sortKeys(mode, keys, labels) {
+export function sortKeys(mode, keys, labels) {
   if (PERIOD_MODES.includes(mode)) return [...keys].sort().reverse();
   // Vendors and customers still read alphabetically by name, their number first.
   const sortText = (k) => (mode === 'vendor' || mode === 'customer' ? labels?.[k] || k : bucketLabel(mode, k, labels));

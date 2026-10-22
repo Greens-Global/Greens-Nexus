@@ -413,7 +413,9 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
 
 // Which accounts the statement shows: every account it could show, by
 // section, with a tick per account. Nothing ticked = all of them.
-export function AccountsPicker({ accounts, value, onChange, showHistorical = false, align = 'left' }) {
+// Oct 23 (Report Builder): `allLabel` names an empty pick ("No accounts yet"
+// on a row group) and `ariaLabel` tells several pickers on one screen apart.
+export function AccountsPicker({ accounts, value, onChange, showHistorical = false, align = 'left', allLabel = 'All accounts', ariaLabel = 'Accounts' }) {
   const [open, setOpen, ref] = usePopover();
   const options = useMemo(() => {
     const known = new Set(accounts.map((a) => a.code));
@@ -425,16 +427,16 @@ export function AccountsPicker({ accounts, value, onChange, showHistorical = fal
     value.forEach((code) => { if (!known.has(code)) list.push({ code, name: '', group: 'Not on this statement' }); });
     return list;
   }, [accounts, value, showHistorical]);
-  const label = !value.length ? 'All accounts' : value.length === 1 ? `Account ${value[0]}` : `${value.length} accounts`;
+  const label = !value.length ? allLabel : value.length === 1 ? `Account ${value[0]}` : `${value.length} accounts`;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Accounts" title={label}>
+      <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} title={label}>
         <ListFilter size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Accounts" aria-multiselectable="true" style={panel(480)}>
-        <OptionList options={options} value={value} onChange={onChange} allLabel="All accounts" codeFirst
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} aria-multiselectable="true" style={panel(480)}>
+        <OptionList options={options} value={value} onChange={onChange} allLabel={allLabel} codeFirst
           placeholder="Search account by name or GL code" empty="No accounts with activity for this selection." />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Totals add up the picked accounts only.{showHistorical ? '' : ' Customize > Show historical accounts lists the (H) ones too.'}</span>

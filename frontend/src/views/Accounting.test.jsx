@@ -13,6 +13,7 @@ vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@greensglobal.com', canAccessModule: (m) => m === 'accounting' }) }));
 vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => () => 'Neil Kadakia' }));
 vi.mock('../components/accounting/ReportsTab', () => ({ default: ({ search }) => <div data-testid="reports">{`reports:${search?.text || ''}`}</div> }));
+vi.mock('../components/accounting/ReportCenter', () => ({ default: () => <div data-testid="report-center">report-center</div> }));
 vi.mock('../components/accounting/PackagesTab', () => ({ default: () => <div>packages-tab</div> }));
 vi.mock('../components/accounting/AccessTab', () => ({ default: () => <div>access-tab</div> }));
 vi.mock('../components/accounting/PfsTab', () => ({ default: () => <div>pfs-tab</div> }));
@@ -49,7 +50,8 @@ describe('Accounting view', () => {
     apiMock.getMyAccountingAccess.mockResolvedValue({ limited: true });
     const onSubChange = vi.fn();
     render(<Accounting activeSub={undefined} onSubChange={onSubChange} />);
-    expect(await screen.findByTestId('reports')).toBeTruthy();
+    // Oct 23: `reports` is the Report Center, the catalogue of every report.
+    expect(await screen.findByTestId('report-center')).toBeTruthy();
     // No Dashboard group for an entity-limited reader: Reports leads, on the Report Center.
     expect(tabNames()[0]).toBe('Reports');
     expect(tabNames().some((t) => /^Dashboard/.test(t))).toBe(false);
@@ -74,7 +76,8 @@ describe('Accounting view', () => {
     await screen.findByText('cash-tab');
     fireEvent.change(screen.getByLabelText('Search the ledger'), { target: { value: 'sunbelt' } });
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
-    expect(onSubChange).toHaveBeenCalledWith('reports');
+    // Oct 23: the statements screen, on the Income Statement (`reports` is the Report Center now).
+    expect(onSubChange).toHaveBeenCalledWith('rpt-pnl');
     vi.useRealTimers();
   });
 });

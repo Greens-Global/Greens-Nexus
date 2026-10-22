@@ -39,6 +39,9 @@ import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { Hammer, ListChecks } from 'lucide-react';
 import { REPORTS, REPORT_VIEWS, parseActivitySub } from '../components/accounting/reportModel';
 import { CreditCard } from 'lucide-react';
+import ReportCenter from '../components/accounting/ReportCenter';
+import ReportBuilder from '../components/accounting/ReportBuilder';
+import { STATEMENTS_SUB } from '../components/accounting/drill';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -183,8 +186,13 @@ const LIMITED_TABS = ['reports', 'report-builder', 'packages', 'mri', 'mre', 'lo
 // Links made before a rename still land; a group's own key opens its first item.
 const ALIAS = { leasing: 'mri', financing: 'loans' };
 const leafKeys = (items) => items.flatMap((t) => (t.items ? leafKeys(t.items) : [t.key]));
-/** Reports, or one of the statements opened straight from the Reports menu. */
-const isReports = (key) => key === 'reports' || String(key || '').startsWith('rpt-');
+/**
+ * The statements screen (ReportsTab): a `rpt-` key. Oct 23 (Neil, item 05):
+ * `reports` is the Report Center, the catalogue of every report; the ledger
+ * search typed anywhere else lands on the statements, opened on the Income
+ * Statement (STATEMENTS_SUB) as `reports` used to open them.
+ */
+const isReports = (key) => String(key || '').startsWith('rpt-');
 // The part before any `:` - an activity report's account rides after it.
 const rptKey = (key) => (String(key || '').startsWith('rpt-') ? key.slice(4).split(':')[0] : null);
 /** The menu item a sub key lights: `rpt-bank-activity:11310` lights Bank Activity. */
@@ -273,7 +281,7 @@ export default function Accounting({ activeSub, onSubChange }) {
   const searchTimer = useRef(null);
   const goSearch = (text) => {
     if (text.trim().length < 2) return;
-    if (!isReports(sub)) onSubChange?.('reports');
+    if (!isReports(sub)) onSubChange?.(STATEMENTS_SUB);
   };
   useEffect(() => {
     clearTimeout(searchTimer.current);
@@ -287,11 +295,15 @@ export default function Accounting({ activeSub, onSubChange }) {
   }, [sub]);
   // Reports on one statement from the Reports menu; picking another report
   // in its own Report box moves the bar along (a statement in the menu lights
-  // that item, any other lights the Report Center).
+  // that item; any other is still its own `rpt-` key, the Report Center being
+  // the catalogue since Oct 23).
   const onReportPicked = (report) => {
-    const next = leaves.includes(`rpt-${report}`) ? `rpt-${report}` : 'reports';
+    const next = `rpt-${report}`;
     if (next !== sub) onSubChange?.(next);
   };
+  // The Report Center lists what the Reports menu holds for this person.
+  const reportGroups = tabs.find((t) => t.key === 'reporting')?.items || [];
+  const reportCenter = sub === 'reports' && <ReportCenter groups={reportGroups} limited={limited} onOpen={(to) => onSubChange?.(to)} />;
   const reportsTab = isReports(sub) && (
     <ReportsTab report={reportOf(sub)} view={viewOf(sub)} link={parseActivitySub(sub)} onReportChange={onReportPicked} canEdit={canEdit}
       searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />
@@ -302,8 +314,9 @@ export default function Accounting({ activeSub, onSubChange }) {
     cash: 'Consolidated cash position, monthly cash plan by category, and the near-term forecast',
     performance: 'Actuals against budget and prior year, ranked by what matters, with commentary',
     close: 'Month-end close: checklist, reconciliations, balance sheet flux and controls',
-    reports: 'Financial reports from the Nexus Accounting ledger',
-    'report-builder': 'Custom reports built from the GL accounts and dimensions you pick',
+    reports: 'Every report in one place - the standard ones, the memorized ones and the custom reports from the Report Builder',
+    statements: 'Financial reports from the Nexus Accounting ledger',
+    'report-builder': 'Custom reports built from the GL accounts, row groups and dimensions you pick - saved for you or published to the team',
     packages: 'Sets of memorized reports, built into one PDF for a lender',
     mri: 'Monthly recurring income - leases, and the interest and loan payments coming in',
     loans: 'Every loan from the ledger - balances, principal and interest paid, NOI and DSCR against the covenant',
@@ -321,7 +334,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     'mgmt-fees': 'Asset management agreements - the fee per managed entity, billed against expected',
     profitability: 'Revenue, NOI, net income and cash flow after debt service per entity, against the prior year',
     compensation: 'Hours and gross wages per employee from Time Clock, with payroll expense on the ledger',
-  }[isReports(sub) ? 'reports' : sub === 'customers' ? 'partners' : sub];
+  }[isReports(sub) ? 'statements' : sub === 'customers' ? 'partners' : sub];
   const partnersTab = (sub === 'partners' || sub === 'customers') && (
     <PartnersTab canApprove={canApprovePartners} initialKind={sub === 'customers' ? 'customer' : 'vendor'} />
   );
@@ -372,8 +385,9 @@ export default function Accounting({ activeSub, onSubChange }) {
         // No dashboard provider for a limited person: it loads the
         // consolidated ledger the moment it mounts.
         <div style={{ marginTop: 8 }}>
+          {reportCenter}
           {reportsTab}
-          {sub === 'report-builder' && <ReportBuilderSoon />}
+          {sub === 'report-builder' && <ReportBuilder canEdit={canEdit} />}
           {sub === 'packages' && <PackagesTab />}
           {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'loans' && <LoansTab canEdit={canEdit} />}
@@ -388,14 +402,16 @@ export default function Accounting({ activeSub, onSubChange }) {
         </div>
       ) : (
         <DashProvider>
-          <DashNav.Provider value={(to) => onSubChange?.(to)}>
+          {/* The dashboard's "open the report" links mean the statements (they predate the Report Center). */}
+          <DashNav.Provider value={(to) => onSubChange?.(to === 'reports' ? STATEMENTS_SUB : to)}>
             <div style={{ marginTop: 8 }} className={DASH_SUBS.includes(sub) ? `acct-dash acct-dash--${dashDensity}` : undefined}>
               {sub === 'overview' && <OverviewTab canEdit={canEdit} />}
               {sub === 'cash' && <CashTab />}
               {sub === 'performance' && <PerformanceTab canEdit={canEdit} />}
               {sub === 'close' && <CloseTab canEdit={canEdit} meName={meName} />}
+              {reportCenter}
               {reportsTab}
-              {sub === 'report-builder' && <ReportBuilderSoon />}
+              {sub === 'report-builder' && <ReportBuilder canEdit={canEdit} />}
               {sub === 'packages' && <PackagesTab />}
               {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'loans' && <LoansTab canEdit={canEdit} />}
@@ -417,21 +433,6 @@ export default function Accounting({ activeSub, onSubChange }) {
           </DashNav.Provider>
         </DashProvider>
       )}
-    </div>
-  );
-}
-
-// Report Builder (Neil, 10/22: pick GL accounts and dimensions, save and
-// publish a report - in place of Intacct's paid module). Its place in the
-// menu is set; the builder itself is its own piece of work.
-function ReportBuilderSoon() {
-  return (
-    <div className="card" style={{ padding: 24, display: 'grid', gap: 8, maxWidth: 640 }}>
-      <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}><Hammer size={18} /> Report Builder</h3>
-      <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.88rem' }}>
-        Coming soon: choose GL accounts and dimensions, run the report for a period, and save it under a name for the team.
-        Until then, the Report Center opens every report, and a statement set up there can be memorized.
-      </p>
     </div>
   );
 }

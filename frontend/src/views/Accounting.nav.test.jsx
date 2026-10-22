@@ -30,6 +30,12 @@ vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => () => '' }));
 // The screens themselves have their own tests; here they only say who they are.
 const stub = vi.hoisted(() => (name) => ({ default: () => <div data-testid={`tab-${name}`} /> }));
 vi.mock('../components/accounting/ReportsTab', () => ({ default: ({ searchText, report, view, link }) => <div data-testid="tab-reports" data-report={report || ''} data-view={view || ''} data-link={link ? JSON.stringify(link) : ''}>{`search:${searchText}`}</div> }));
+vi.mock('../components/accounting/ReportCenter', () => ({ default: ({ groups, onOpen }) => (
+  <div data-testid="tab-report-center" data-groups={groups.map((g) => g.label).join('|')}>
+    <button type="button" onClick={() => onOpen('rpt-balance-sheet')}>Open Memorized</button>
+  </div>
+) }));
+vi.mock('../components/accounting/ReportBuilder', () => ({ default: ({ canEdit }) => <div data-testid="tab-report-builder" data-edit={canEdit ? 'yes' : 'no'} /> }));
 vi.mock('../components/accounting/PackagesTab', () => stub('packages'));
 vi.mock('../components/accounting/AccessTab', () => stub('access'));
 vi.mock('../components/accounting/PfsTab', () => stub('pfs'));
@@ -310,11 +316,52 @@ describe('Accounting navigation', () => {
       const box = screen.getByRole('textbox', { name: 'Search the ledger' });
       fireEvent.change(box, { target: { value: 'chase' } });
       await act(async () => { vi.advanceTimersByTime(700); });
-      expect(screen.getByTestId('sub').textContent).toBe('reports');
+      // Oct 23: `reports` is the Report Center; the words land on the statements (Income Statement).
+      expect(screen.getByTestId('sub').textContent).toBe('rpt-pnl');
       expect(screen.getByTestId('tab-reports').textContent).toBe('search:chase');
       expect(screen.getByRole('textbox', { name: 'Search the ledger' }).value).toBe('chase');
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('sends header search words from the Report Center to the statements too (Oct 23)', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<Harness start="reports" />);
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.getByTestId('tab-report-center')).toBeTruthy();
+      fireEvent.change(screen.getByRole('textbox', { name: 'Search the ledger' }), { target: { value: 'sunbelt' } });
+      await act(async () => { vi.advanceTimersByTime(700); });
+      expect(screen.getByTestId('sub').textContent).toBe('rpt-pnl');
+      expect(screen.getByTestId('tab-reports').textContent).toBe('search:sunbelt');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens the Report Center catalogue and the Report Builder from the Report Center flyout (Oct 23, item 05)', async () => {
+    render(<Harness start="overview" />);
+    await choose(/^Reports/, 'Report Center', 'Report Center');
+    expect(screen.getByTestId('sub').textContent).toBe('reports');
+    const center = await screen.findByTestId('tab-report-center');
+    expect(screen.queryByTestId('tab-reports')).toBeNull();
+    expect(center.getAttribute('data-groups')).toBe('Report Center|Financial|Banking & Credit Cards|Budget|Payroll & People|Audit & Insights');
+    // A memorized report opened from the catalogue lands on its statement.
+    fireEvent.click(screen.getByRole('button', { name: 'Open Memorized' }));
+    expect(screen.getByTestId('sub').textContent).toBe('rpt-balance-sheet');
+    expect((await screen.findByTestId('tab-reports')).getAttribute('data-report')).toBe('balance-sheet');
+    await choose(/^Reports/, 'Report Center', 'Report Builder');
+    expect(screen.getByTestId('sub').textContent).toBe('report-builder');
+    expect((await screen.findByTestId('tab-report-builder')).getAttribute('data-edit')).toBe('yes');
+  });
+
+  it('gives a limited person the Report Center and the Report Builder', async () => {
+    role.limited = true;
+    render(<Harness start="report-builder" />);
+    expect(await screen.findByTestId('tab-report-builder')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Report Center' }));
+    expect(menuLabels('Report Center')).toEqual(['Report Center', 'Report Builder', 'Packages', 'PFS', 'Management Fees']);
   });
 });
