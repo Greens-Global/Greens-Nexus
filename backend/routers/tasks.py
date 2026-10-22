@@ -974,7 +974,8 @@ def _check_move_section(db: Session, section_id: str, project_id: str) -> None:
 
 
 def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
-                section_id=None, keep_team: bool = False, place: bool = True) -> str:
+                section_id=None, keep_team: bool = False, place: bool = True,
+                history_self: bool = False) -> str:
     """What a move does beyond the parent pointers (_sync_hierarchy keeps
     those), on rows already locked:
       * `t` lands LAST among its new siblings, or at the end of its
@@ -991,9 +992,15 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
         parent, so a task made top-level drops it.
     Nobody's access_level changes: a moved task keeps its own. Each row it
     touches is stamped modified, so GET /tasks/delta hands it to every other
-    open client. Returns the activity id."""
+    open client. Each subtree row's project / section move goes into its
+    field history (Oct 22 2026) - `t`'s own is recorded by the edit that moved
+    it, unless `history_self` (a child moved by its parent's edit).
+    Returns the activity id."""
     parent, src, dest = plan["parent"], plan["src"], plan["dest"]
     moved_project = dest != src
+    tracked = {"projectId", "sectionId"}
+    self_before = task_history.snapshot(t) if history_self else None
+    sub_before = {row.id: task_history.snapshot(row) for row in plan["subtree"]} if moved_project else {}
     if parent is not None:
         if place:
             sibs = [r[0] for r in db.query(models.Task.position)
@@ -1026,6 +1033,9 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
             row.team_id = ""
             if not row.deleted_at:
                 row.modified_at = now
+            task_history.record(db, row, sub_before.get(row.id), user["email"], only=tracked)
+    if self_before is not None:
+        task_history.record(db, t, self_before, user["email"], only=tracked)
     # The parent is named only when everybody who sees this task's history
     # may see it: a private parent's code is not this task's to give away.
     if parent is None:
@@ -2600,7 +2610,7 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
 
 
 def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict, db: Session,
-                 before_commit=None, check_people: bool = False):
+                 before_commit=None, check_people: bool = False, quiet: bool = False):
     """create_task's body. `before_commit(task)` runs on the new row just
     before the one commit, so a caller's own writes land in the same
     transaction - a ticket's "Create Task from Ticket" links both sides there,
@@ -2610,7 +2620,12 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     assignee and collaborator named in the body must be a current directory
     person on the task's side of the company wall. Off for the in-process
     callers that bring their own people rules (a ticket's desk assignee and
-    watchers, a Knowledge Base SOP task)."""
+    watchers, a Knowledge Base SOP task).
+
+    `quiet` (a task an automation rule makes during a task import, Oct 22
+    2026): nobody is told - no assignment bell, no "created" email, no
+    project-follower notice. The import tells people once for the lot
+    (task_automation.run_after_commit)."""
     now = now_iso()
     tid = body.id or gen_id()
     # No explicit access_level -> inherit the project's (so a task in a
@@ -2714,7 +2729,7 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
                                    actor=task_automation.AUTOMATION_ACTOR, source="automation")
     # Everyone assigned gets told, not just the first - the others would
     # otherwise carry work they were never notified about.
-    for who in task_assignees(t):
+    for who in ([] if quiet else task_assignees(t)):
         if who != user["email"].lower():
             task_notify(db, kind="task_assigned", for_email=who,
                         title="You Were Assigned a Task",
@@ -2725,8 +2740,9 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     db.commit()
     db.refresh(t)
     fire_task_event(tid, "created")
-    background_tasks.add_task(notify_task_event, tid, "created", user["email"])
-    task_automation.run_after_commit(db, auto, background_tasks.add_task)
+    if not quiet:
+        background_tasks.add_task(notify_task_event, tid, "created", user["email"])
+    task_automation.run_after_commit(db, auto, background_tasks.add_task, notify=not quiet)
     out = task_to_dict(t)
     if dropped_people:
         out["droppedPeople"] = [{**d, "taskId": t.id} for d in dropped_people]
@@ -2892,7 +2908,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         child = db.query(models.Task).filter(models.Task.id == cid).first()
         if child is not None:
             child.activity_ids = list(child.activity_ids or []) + [
-                _apply_move(db, user, child, plan, now_iso(), place=False)]
+                _apply_move(db, user, child, plan, now_iso(), place=False, history_self=True)]
 
     # APPROVAL BEFORE AUTOMATION (Oct 22 2026, automation gaps review). The
     # person's own due-date move is decided HERE, before the rules run: the
@@ -2904,13 +2920,22 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # one. The hold is filed (request_extension) further down, after the
     # activity list is rebuilt, where it always was. Only the person's part
     # is decided here; a rule's own move off the real date is privileged.
-    held_due, person_ask = "", []
+    # A start date sent in the same edit moves WITH the due date (a Calendar
+    # or Timeline drag keeps the task's length, Oct 22 2026), so it waits
+    # with it - put back here too, so the rules and the field history see
+    # the real start, never the held one (the approval moves it and records
+    # it, task_due._answer_extension).
+    held_due, person_ask, wanted_start = "", [], ""
     if "due_on" in data and (t.due_on or "")[:10] != prev_due:
         person_ask = task_due.needs_approval(db, t, prev_due, t.due_on or "", user["email"],
                                              privileged=is_manager(user))
         if person_ask:
             held_due = (t.due_on or "")[:10]
             t.due_on = prev_due
+            if "start_on" in data:
+                if (t.start_on or "") != prev_start:
+                    wanted_start = t.start_on or ""
+                t.start_on = prev_start
 
     # Automation rules (task_automation.py) see the row as this edit leaves it
     # and write onto the same row. Whatever they changed is merged into `data`
@@ -3001,16 +3026,11 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         task_due.settle_agreement(t, user["email"])
     if person_ask:
         # The person's held move (decided before the rules, above). A start
-        # date sent in the same edit moves WITH the due date (a Calendar or
-        # Timeline drag keeps the task's length, Oct 22 2026), so it waits
-        # with it: moving the start alone would stretch or squash the task
+        # date sent in the same edit waits with it (put back above, with the
+        # due date): moving the start alone would stretch or squash the task
         # while the due date is still being asked about.
         held = {"Due date changed"}
-        wanted_start = ""
         if "start_on" in data:
-            if (t.start_on or "") != prev_start:
-                wanted_start = t.start_on or ""
-            t.start_on = prev_start
             held.add("Start date changed")
         task_due.request_extension(db, t, user["email"], held_due, person_ask, start_on=wanted_start)
         modified_kinds = [k for k in modified_kinds if k not in held]
@@ -3275,6 +3295,10 @@ def undo_due(task_id: str, body: DueUndo, user: dict = Depends(get_current_user)
         # back only this one would leave them where it pushed them.
         raise HTTPException(409, "A move made on the Timeline can't be undone here - drag it back instead.")
     at = last["at"]
+    # The field history tells the Undo too (the move's own rows stay - it
+    # happened): the due date back, and the start date it took with it.
+    hist_before = task_history.snapshot(t)
+    undone_from = (t.due_on or "")[:10]
     t.due_on = (last.get("from") or "")[:10]
     if "startTo" in undo and (t.start_on or "") == undo.get("startTo"):
         t.start_on = undo.get("startFrom") or ""
@@ -3284,7 +3308,9 @@ def undo_due(task_id: str, body: DueUndo, user: dict = Depends(get_current_user)
     if last.get("extension"):
         t.due_extension_count = max(0, int(t.due_extension_count or 0) - 1)
     task_due._log(db, t, "due_changed", me, f"undid the due date change (back to {task_due.us_date(t.due_on)})"
-                  if t.due_on else "undid the due date change (no due date again)")
+                  if t.due_on else "undid the due date change (no due date again)",
+                  change=task_history.due_change(undone_from, t.due_on or ""))
+    task_history.record(db, t, hist_before, me, only={"startOn"})
     # Withdraw what the move told people: the requester's bell, a manager's
     # extension alert, and the "updated" email still waiting in the batch.
     kinds = ("task_due_changed", "task_due_extended")
@@ -3869,7 +3895,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     auto_results: list = []
     auto_changed: dict[str, dict] = {}   # task id -> fields the rules wrote on that row
     auto_budget: dict = {}   # create_task caps for the whole batch (task_automation.MAX_CREATES_PER_REQUEST)
-    held_due: dict = {}      # task id -> (wanted date, approvers): a due move held for approval
+    held_due: dict = {}      # task id -> (wanted date, approvers, wanted start): a due move held for approval
     actor = (user["email"] or "").lower()
     for t in rows:
         prev_status, prev_completed, _ = before[t.id]
@@ -3925,7 +3951,15 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             ask = task_due.needs_approval(db, t, before_due[t.id], t.due_on or "", actor,
                                           privileged=is_manager(user))
             if ask:
-                held_due[t.id] = ((t.due_on or "")[:10], ask)
+                # A start date moved with it waits too (see update_task) -
+                # put back now, so the rules and the field history see the
+                # real start; it moves on approval.
+                wanted_start = ""
+                if "start_on" in {**patch, **row_dates.get(t.id, {})}:
+                    if (t.start_on or "") != before_start[t.id]:
+                        wanted_start = t.start_on or ""
+                    t.start_on = before_start[t.id]
+                held_due[t.id] = ((t.due_on or "")[:10], ask, wanted_start)
                 t.due_on = before_due[t.id]
         # Same engine pass update_task makes, per row - a rule on "status
         # changes to X" fires whether twenty cards were dragged or one.
@@ -3996,21 +4030,16 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         # rule's move is off the real date and lands as the automation's.
         auto_due = "due_on" in auto_changed.get(t.id, {})
         sent = {**patch, **row_dates.get(t.id, {})}
-        wanted_due, ask = held_due.get(t.id, ("", []))
+        wanted_due, ask, wanted_start = held_due.get(t.id, ("", [], ""))
         if ask:
             # Held for approval like a single edit (decided before the rules
             # ran, held_due above); the approvers get one bell for the whole
             # batch, below. A rule's own move off the real date is recorded
-            # first. A start date moved with it waits too, and moves on
-            # approval (see update_task).
+            # first. A start date moved with it waits too (put back with the
+            # due date, above), and moves on approval (see update_task).
             if auto_due:
                 task_due.record_due_change(db, t, before_due[t.id], t.due_on or "",
                                            actor=task_automation.AUTOMATION_ACTOR, source="automation")
-            wanted_start = ""
-            if "start_on" in sent:
-                if (t.start_on or "") != before_start[t.id]:
-                    wanted_start = t.start_on or ""
-                t.start_on = before_start[t.id]
             task_due.request_extension(db, t, actor, wanted_due, ask, notify=False, start_on=wanted_start)
             held_count += 1
             for who in ask:

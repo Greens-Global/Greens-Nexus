@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
-import { descendantIds, moveTargets, moveRule, moveUndoBody, withSubtasks, nestSubtaskRows, EMPTY_FILTER } from './lib';
+import { descendantIds, moveTargets, moveRule, moveUndoBody, withSubtasks, nestSubtaskRows, importedSubtaskFilter, EMPTY_FILTER } from './lib';
 
 // Move To... and Show Subtasks (Neil, Oct 22 2026).
 //  - The Move To picker offers only tasks this person can edit, never the
@@ -92,6 +92,25 @@ describe('show subtasks rows', () => {
     const f = { ...EMPTY_FILTER, priorities: ['high'] };
     expect(withSubtasks([], tasks, f, byId).map((t) => t.id)).toEqual(['kid']);
     expect(withSubtasks([tasks[0]], tasks, EMPTY_FILTER, byId).map((t) => t.id)).toEqual(['a', 'kid', 'kid2']);
+  });
+
+  it('keeps a formula-column filter for subtasks too (Oct 22 integration review)', () => {
+    const tasks = [T('a'), T('kid', { parentTaskId: 'a', customFieldValues: { n: 5 } }), T('kid2', { parentTaskId: 'a' })];
+    const byId = Object.fromEntries(tasks.map((t) => [t.id, t]));
+    const f = { ...EMPTY_FILTER, customFields: { fx: ['big'] } };
+    // The formula engine answers for the formula column; without it every
+    // subtask would fail the filter.
+    const formulaMatch = (t, fid, wanted) => fid === 'fx' && wanted.includes('big') && t.id === 'kid';
+    expect(withSubtasks([], tasks, f, byId, formulaMatch).map((t) => t.id)).toEqual(['kid']);
+  });
+
+  it('under the import banner keeps only the imported tasks\' subtasks', () => {
+    const tasks = [T('mine'), T('old'), T('kid', { parentTaskId: 'mine' }), T('grand', { parentTaskId: 'kid' }),
+      T('other', { parentTaskId: 'old' })];
+    const byId = Object.fromEntries(tasks.map((t) => [t.id, t]));
+    const keep = importedSubtaskFilter(new Set(['mine']), byId);
+    expect(withSubtasks([byId.mine], tasks, EMPTY_FILTER, byId, null, keep).map((t) => t.id)).toEqual(['mine', 'kid', 'grand']);
+    expect(importedSubtaskFilter(null, byId)).toBeNull();
   });
 
   it('nests subtasks right under their parent in its own order', () => {

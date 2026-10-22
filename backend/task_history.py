@@ -149,9 +149,10 @@ def _custom_defs(db: Session, ids) -> dict:
 
 
 def _records_custom(f) -> bool:
-    """A task field a person sets. A read-only (formula) field is computed,
-    and a project-level field's values live on the project."""
-    if f is None or f.read_only:
+    """A task field a person sets. A read-only field and a formula field are
+    computed (a formula field is not stored read_only - its type says it), and
+    a project-level field's values live on the project."""
+    if f is None or f.read_only or (f.type or "").strip().lower() == "formula":
         return False
     from routers.task_config import _parse_applies_to
     return "task" in _parse_applies_to(f.applies_to)

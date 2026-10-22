@@ -258,6 +258,31 @@ def event_recipients(db: Session, t, event_type: str, actor_email: str, extra: d
     return out
 
 
+def import_recipients(db: Session, p, t, actor_email: str, cache: dict | None = None) -> dict:
+    """{email: project} - the followers of `p` to tell about a task import
+    into it (one grouped notice for the whole import, Oct 22 2026). `t` is
+    one of the imported top-level tasks (they share the project and its
+    access level): the same checks as any follower event - current, not
+    muted, can see the project and the task - and never the importer."""
+    if p is None or t is None or p.archived or (p.deleted_at or ""):
+        return {}
+    cache = {} if cache is None else cache
+    actor = (actor_email or "").strip().lower()
+    out: dict = {}
+    for who in followers(p):
+        if who == actor or who in out:
+            continue
+        person = _person(db, who, cache)
+        if person.active() and not person.muted(t, p) and can_receive(db, who, t, p, person):
+            out[who] = p
+    return out
+
+
+def import_line(actor_name: str, count: int, project_name: str) -> str:
+    n = int(count or 0)
+    return f"{actor_name or 'Someone'} imported {n} task{'' if n == 1 else 's'} into {project_name or 'the project'}"
+
+
 def receiving_project(db: Session, email: str, t, cache: dict | None = None,
                       prefs: dict | None = None):
     """For a batched email about to go out: the live project of `t`'s that
@@ -333,17 +358,18 @@ def bell_id(project_id: str, day: str, email: str) -> str:
 
 
 def ring_bells(db: Session, t, event_type: str, actor_name: str, recipients: dict,
-               cache: dict | None = None) -> None:
+               cache: dict | None = None, line: str | None = None) -> None:
     """One Tasks-bell notice per follower per project per day, grown in place
     (newest line on top, unread again, back to the top of the list).
     Recipients are walked in a fixed (sorted) order so two events locking the
     same notices cannot deadlock; the row id is deterministic, so a first
     notice raced by another event lands as one row (the loser of the insert
-    grows the winner's). Commits."""
+    grows the winner's). `line` replaces the per-task line (a task import's
+    one "imported N tasks" line). Commits."""
     if not recipients:
         return
     now = datetime.now(timezone.utc).isoformat()
-    line = bell_line(event_type, actor_name, t.title)
+    line = line or bell_line(event_type, actor_name, t.title)
     N = models.TaskNotification
     for who, p in sorted(recipients.items(), key=lambda kv: kv[0]):
         day = _local_day(_person(db, who, cache))

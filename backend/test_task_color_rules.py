@@ -498,5 +498,24 @@ class CopyAndTemplateTests(Base):
         self.assertEqual(out["colorRules"], [])
 
 
+    def test_a_rule_on_missed_survives_duplicate_and_template(self):
+        # "missed" is not a project status but a color rule may name it
+        # (task_projects.RULE_STATUSES) - a copy keeps the condition as is.
+        p = self.project(name="Src")
+        self.put(p, OWNER, [
+            rule(id="r-missed", name="Missed", conditions=[{"field": "status", "op": "is", "value": "missed"}]),
+            rule(id="r-any", name="Late Or Missed",
+                 conditions=[{"field": "status", "op": "is_any_of", "value": ["missed", "in_progress"]}]),
+        ])
+        out = P.duplicate_project(p.id, P.DuplicateProjectBody(name="Copy"), user=OWNER, db=self.db)
+        rules = {r["id"]: r for r in out["colorRules"]}
+        self.assertEqual(rules["r-missed"]["conditions"][0]["value"], "missed")
+        self.assertEqual(rules["r-any"]["conditions"][0]["value"], ["missed", "in_progress"])
+        tpl = P.create_project_template(P.ProjectTemplateBody(project_id=p.id, name="T"), user=OWNER, db=self.db)
+        out = P.use_project_template(tpl["id"], P.UseTemplateBody(name="New"), user=OWNER, db=self.db)
+        rules = {r["id"]: r for r in out["colorRules"]}
+        self.assertEqual(rules["r-missed"]["conditions"][0]["value"], "missed")
+
+
 if __name__ == "__main__":
     unittest.main()

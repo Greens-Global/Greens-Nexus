@@ -338,12 +338,22 @@ export function moveUndoBody(before) {
 // ── Show Subtasks on the Board and Timeline (Neil, Oct 22 2026) ────────────
 /** `visible` (the view's own rows - top-level unless person-scoped) plus
  *  every subtask that matches the same filter, wherever its parent is: a
- *  subtask whose parent is filtered out still shows. */
-export function withSubtasks(visible, tasks, filter, taskById) {
+ *  subtask whose parent is filtered out still shows. `formulaMatch` is the
+ *  view's formula-column filter (the same one `visible` was filtered with);
+ *  `keep(subtask)` narrows further (the import banner keeps only the
+ *  imported tasks' subtasks). */
+export function withSubtasks(visible, tasks, filter, taskById, formulaMatch = null, keep = null) {
   const have = new Set((visible || []).map((t) => t.id));
   const extra = (tasks || []).filter((t) => t.parentTaskId && !have.has(t.id) && !isSection(t)
-    && matchesFilter(t, filter, taskById));
+    && matchesFilter(t, filter, taskById, formulaMatch) && (!keep || keep(t)));
   return extra.length ? [...(visible || []), ...extra] : (visible || []);
+}
+
+/** The `keep` for withSubtasks under the import banner: only subtasks whose
+ *  top-level task is one of `importedIds` (a Set). null = no narrowing. */
+export function importedSubtaskFilter(importedIds, taskById) {
+  if (!importedIds) return null;
+  return (t) => importedIds.has(rootParent(t, taskById)?.id);
 }
 
 /** Timeline rows with subtasks nested directly under their parent:

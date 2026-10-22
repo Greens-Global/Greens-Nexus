@@ -52,6 +52,14 @@ anything unless Notify Assignees is ticked, and then it is one bell per
 person for the whole import and one batched email per person
 (task_notify.queue_bulk_assignments) - never one per task. Comments an
 automation rule adds are posted silently for the same reason.
+
+The 'created' rules' after-commit work (Oct 22 2026 integration review)
+follows the same switch: a silent import runs no rule email and creates rule
+tasks quietly (no bell, email or project-follower notice); a notifying one
+sends the rule emails, and the people a rule-made task is assigned to are
+folded into the same one-bell-per-person / one-email-per-person notice. The
+project's followers hear ONE grouped "<Actor> imported N tasks into
+<Project>" (task_notify.notify_project_import) - only when notifying.
 """
 from __future__ import annotations
 
@@ -680,11 +688,32 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
         db.rollback()
         log.exception("task import failed")
         raise HTTPException(500, "The import failed. Check the project before trying again.")
-    if defer is not None and made["assigned"]:
-        defer(_queue_assignment_mail, ctx.actor, made["assigned"])
-    # Comments the 'created' rules asked for - silently (see the docstring).
+    notify = bool(body.notify_assignees)
+    # What the 'created' rules asked for once the rows exist (see the
+    # docstring): rule emails only when notifying, comments silently, and a
+    # rule-made task's people collected into `assigned` so they are told
+    # once, with the import's own assignments.
+    assigned: dict = {who: list(ids) for who, ids in made["assigned"].items()}
     for auto in made["autos"]:
-        task_automation.run_after_commit(db, auto, defer, notify=False)
+        task_automation.run_after_commit(db, auto, defer, notify=notify, assigned=assigned)
+    if notify and assigned:
+        try:
+            _ring_assignment_bells(db, ctx.project, assigned)
+        except Exception:
+            db.rollback()
+            log.exception("import assignment bells failed")
+        if defer is not None:
+            defer(_queue_assignment_mail, ctx.actor, assigned)
+    if notify and ctx.project.follower_emails:
+        # The project's followers: one grouped notice for the whole import.
+        # About one imported top-level task (an open one when there is one:
+        # a batched follower email about a completed task is dropped).
+        top = [r.task_id for r in sorted(good, key=lambda r: ((r.status or "") == "completed", r.index))
+               if r.parent is None]
+        if top:
+            import task_notify as _mail   # the module (task_notify here is the bell helper)
+            (defer or (lambda fn, *a, **k: fn(*a, **k)))(
+                _mail.notify_project_import, ctx.project.id, top[0], ctx.actor, len(good))
     fire_task_event("", "bulk")
     return {
         "dryRun": False, "created": len(good), "skipped": len(bad), "errors": report["errors"],
@@ -835,18 +864,9 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
                 if who != actor:
                     assigned.setdefault(who, []).append(t)
 
-    # One bell per person for the whole import, as a bulk assignment.
-    for who, tasks in assigned.items():
-        if len(tasks) == 1:
-            task_notify(db, kind="task_assigned", for_email=who, title="You Were Assigned a Task",
-                        body=tasks[0].title or "", task_id=tasks[0].id,
-                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
-        else:
-            task_notify(db, kind="task_assigned", for_email=who,
-                        title=f"You Were Assigned {len(tasks)} Tasks",
-                        body=f"In {project.name}: " + ", ".join(x.title or "Untitled task" for x in tasks[:5])
-                             + (f" and {len(tasks) - 5} more" if len(tasks) > 5 else ""),
-                        nexus_action={"view": "tasks", "sub": "mine", "label": "View tasks"})
+    # The bells (one per person for the whole import) are rung by run_import
+    # once the rules' after-commit work has run, so a task a rule makes for
+    # the same person joins the same notice (_ring_assignment_bells).
 
     name = (body.file_name or "").strip()[:200] or "a file"
     aid = import_key or gen_id()
@@ -864,6 +884,33 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
     assigned_ids = {who: [t.id for t in tasks] for who, tasks in assigned.items()}
     db.commit()
     return {"assigned": assigned_ids, "autos": autos}
+
+
+def _ring_assignment_bells(db: Session, project, assigned: dict) -> None:
+    """One bell per person for the whole import - its own rows and any task a
+    'created' rule made for them - as a bulk assignment. `assigned` =
+    {email: [task id]}. Commits."""
+    ids = sorted({i for v in assigned.values() for i in v})
+    tasks = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(ids)).all()} if ids else {}
+    for who, tids in assigned.items():
+        mine = [tasks[i] for i in dict.fromkeys(tids) if i in tasks]
+        if not mine:
+            continue
+        if len(mine) == 1:
+            task_notify(db, kind="task_assigned", for_email=who, title="You Were Assigned a Task",
+                        body=mine[0].title or "", task_id=mine[0].id,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+            continue
+        # "In <Project>" only when every one of them is in it - a rule can
+        # make its task in another project.
+        where = (f"In {project.name}: " if all((t.project_id or "") == project.id for t in mine)
+                 else f"From the import into {project.name}: ")
+        task_notify(db, kind="task_assigned", for_email=who,
+                    title=f"You Were Assigned {len(mine)} Tasks",
+                    body=where + ", ".join(x.title or "Untitled task" for x in mine[:5])
+                         + (f" and {len(mine) - 5} more" if len(mine) > 5 else ""),
+                    nexus_action={"view": "tasks", "sub": "mine", "label": "View tasks"})
+    db.commit()
 
 
 def _queue_assignment_mail(actor: str, assigned: dict) -> None:

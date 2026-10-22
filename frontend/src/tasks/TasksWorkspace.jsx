@@ -5,7 +5,7 @@ import { lazy, Suspense, useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin, Palette, Upload } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, projectRoleWithTeams, roleAtLeast, todayISO, withSubtasks, topLevel, taskInProject } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, projectRoleWithTeams, roleAtLeast, todayISO, withSubtasks, topLevel, taskInProject, importedSubtaskFilter } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, UnassignedAvatar, ExportMenu } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -171,12 +171,15 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   // of its own (personScoped), so there the switch would do nothing - none.
   const flatScope = !!(filter.assigneeIds?.length || filter.collaboratorIds?.length || (filter.search || '').trim());
   const showBoardSubs = !flatScope && !!subsPref.board, showTimelineSubs = !flatScope && !!subsPref.timeline;
-  const boardTasks = useMemo(() => (showBoardSubs ? withSubtasks(visible, tasks, filter, store.taskById) : visible),
+  // The same formula filter `visible` used, and - under the import banner -
+  // only the subtasks of the tasks just imported.
+  const keepSub = useMemo(() => importedSubtaskFilter(importedIds, store.taskById), [importedIds, store.taskById]);
+  const boardTasks = useMemo(() => (showBoardSubs ? withSubtasks(visible, tasks, filter, store.taskById, formulas.formulaMatch, keepSub) : visible),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [showBoardSubs, visible, tasks, store.taskById]);
-  const timelineTasks = useMemo(() => (showTimelineSubs ? withSubtasks(visible, tasks, filter, store.taskById) : visible),
+    [showBoardSubs, visible, tasks, store.taskById, formulas, keepSub]);
+  const timelineTasks = useMemo(() => (showTimelineSubs ? withSubtasks(visible, tasks, filter, store.taskById, formulas.formulaMatch, keepSub) : visible),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [showTimelineSubs, visible, tasks, store.taskById]);
+    [showTimelineSubs, visible, tasks, store.taskById, formulas, keepSub]);
 
   // Export rows: `visible` plus each row's subtasks, nested - see
   // taskExportRows in lib.js for why the file must not inherit the list's
@@ -222,9 +225,14 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   // project has them here - the person's own rules live on My Tasks.
   const colorRules = lockedProject?.colorRules || NO_RULES;
   const ruleCtx = useRuleContext({ projectId: lockedProjectId || '', sections: lockedProjectId ? sec.sections : null, sectionOf: sec.sectionOf });
-  const rowScope = useRowColorScope({ rules: colorRules, tasks: visible, ruleCtx });
+  // The map covers the rows this view draws - the Board's and Timeline's
+  // subtask cards and bars included when Show Subtasks is on.
+  const shownTasks = view === 'board' ? boardTasks : view === 'timeline' ? timelineTasks : visible;
+  const rowScope = useRowColorScope({ rules: colorRules, tasks: shownTasks, ruleCtx });
   const editorCtx = useMemo(() => ({ ...ruleCtx, people }), [ruleCtx, people]);
-  const canEditColors = !!lockedProject && roleAtLeast(projectRoleOf(lockedProject, myEmail, canManage), 'editor');
+  // Editor or better, team roles counted - the same check Import uses (and
+  // the server's, which counts team access too).
+  const canEditColors = !!lockedProject && roleAtLeast(projectRoleWithTeams(lockedProject, myEmail, teams, canManage), 'editor');
   const [colorsOpen, setColorsOpen] = useState(false);
   // What the editor's live count runs over: the project's rows as its list
   // shows them, before any filter.

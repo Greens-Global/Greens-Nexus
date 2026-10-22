@@ -719,11 +719,14 @@ def _apply_action(db: Session, t: models.Task, action: dict, res: Result, *, tod
         text = _fill(str(value or ""), db, t)
         body = "<p>" + html.escape(text).replace("\n", "<br>") + "</p>"
 
-        def _post(db2: Session, defer=None, notify: bool = True, _tid=t.id, _body=body):
+        def _post(db2: Session, defer=None, notify: bool = True, assigned=None, _tid=t.id, _body=body):
+            # Inside a grouped run (`assigned`, the task import) a comment is
+            # posted silently: the import is the one announcement, not a
+            # comment bell per imported task.
             task = db2.query(models.Task).filter(models.Task.id == _tid).first()
             if task is not None:
                 create_comment(db2, task, actor_email=AUTOMATION_ACTOR, body=_body, defer=defer,
-                               notify=notify)
+                               notify=notify and assigned is None)
         res.after_commit.append(_post)
         return "added a comment"
     return ""
@@ -779,11 +782,16 @@ def _queue_create_task(db: Session, t: models.Task, spec: dict, res: Result, run
 
 def _create_after_commit(db: Session, defer=None, *, task_id: str, spec: dict, title: str, actor: str,
                          ref: dict, line: str, rule_id: str, rule_name: str, rule_company: str, today: date,
-                         fallbacks: tuple = (), notify: bool = True) -> None:
+                         fallbacks: tuple = (), notify: bool = True, assigned: dict | None = None) -> None:
     """Create the task through routers.tasks._create_task (the POST /tasks
     path) as the person whose change fired the rule. Only when nobody made
     the change (the scheduled scan) is it the task's owner, else its creator
-    (`fallbacks`). Any refusal is written onto the run; nothing is raised."""
+    (`fallbacks`). Any refusal is written onto the run; nothing is raised.
+
+    `notify=False` (a silent task import) creates it quietly: no bell, no
+    email, no project-follower notice. `assigned` ({email: [task id]}, a
+    grouped run - the task import) creates it quietly too and adds the people
+    it was assigned to, so the caller tells each of them ONCE for the lot."""
     from routers.tasks import _create_task, TaskCreate
     from routers.task_util import project_for_task
 
@@ -851,7 +859,13 @@ def _create_after_commit(db: Session, defer=None, *, task_id: str, spec: dict, t
                 task_title=new.title or "", trigger_type="", event=SPAWNED_EVENT,
                 actions=[f"created from task {src.code or src.id}"], status="applied",
                 dedupe_key=f"{SPAWNED_EVENT}:{new.id}", at=now_iso()))
-        _create_task(body, _Later(defer), user, db, before_commit=_note, check_people=True)
+        quiet = not notify or assigned is not None
+        made = _create_task(body, _Later(defer), user, db, before_commit=_note, check_people=True, quiet=quiet)
+        if notify and assigned is not None:
+            me = (user.get("email") or "").strip().lower()
+            for who in made.get("assigneeIds") or []:
+                if who and who != me:
+                    assigned.setdefault(who, []).append(made["id"])
         where = " as a subtask" if as_sub else (f" in {project.name}" if project is not None else "")
         note = (f" (left off {', '.join(left_off)}: cannot see the task it came from)" if left_off else "")
         _amend_run(db, ref, line, f'created task "{title}"{where}{note}')
@@ -912,7 +926,7 @@ def _queue_email(t: models.Task, spec: dict, res: Result, run: _RunCtx) -> str:
 
 
 def _email_after_commit(db: Session, defer=None, *, task_id: str, spec: dict, ref: dict, line: str,
-                        actor: str = "", notify: bool = True) -> None:
+                        actor: str = "", notify: bool = True, assigned=None) -> None:
     """Resolve the recipients against the committed task and hand the email
     to notify_task_event as an "automation" event - mutes, batching and the
     retry log all apply. Never sends mail itself. `notify=False` (a silent
@@ -987,9 +1001,13 @@ def _move_to_project(db: Session, t: models.Task, spec: dict, res: Result, run: 
             now = now_iso()
             for d in _live_descendants(db, [t.id]):
                 if (d.project_id or "") == old:
+                    # The task's own move is recorded by the engine pass; each
+                    # subtask's goes on its own history (Oct 22 2026).
+                    d_before = task_history.snapshot(d)
                     d.project_id, d.section_id, d.team_id = pid, "", ""
                     d.project_ids = _extra_project_ids(d.project_ids, pid)
                     d.modified_at = now
+                    task_history.record(db, d, d_before, AUTOMATION_ACTOR, only={"projectId", "sectionId"})
     return f"moved to {project.name}" + (f" ({sec.name})" if sec is not None else "")
 
 
@@ -1175,15 +1193,27 @@ def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
     return res
 
 
-def run_after_commit(db: Session, res: Result, defer=None, notify: bool = True) -> None:
-    """Run the comment posts an engine pass handed back. `defer` is the
-    request's BackgroundTasks.add_task when there is one (the emails are Graph
-    calls); a worker thread passes nothing and they run inline. `notify=False`
-    posts them silently (the task import: the import is the one announcement,
-    not a comment bell per imported task)."""
+def run_after_commit(db: Session, res: Result, defer=None, notify: bool = True,
+                     assigned: dict | None = None) -> None:
+    """Run the after-commit work an engine pass handed back (comments, rule
+    emails, rule-created tasks). `defer` is the request's
+    BackgroundTasks.add_task when there is one (the emails are Graph calls); a
+    worker thread passes nothing and they run inline.
+
+    `notify=False` (a silent task import) tells nobody anything: comments
+    posted silently, rule emails skipped, created tasks made quietly.
+    `assigned` (a dict the caller owns - the task import) groups the run:
+    comments are silent, created tasks quiet with their assignees collected
+    into it ({email: [task id]}) for the caller's one notice per person, and
+    rule emails go out as `notify` says."""
+    kw: dict = {}
+    if not notify:
+        kw["notify"] = False
+    if assigned is not None:
+        kw["assigned"] = assigned
     for fn in res.after_commit:
         try:
-            fn(db, defer) if notify else fn(db, defer, notify=False)
+            fn(db, defer, **kw)
         except Exception:
             db.rollback()
 

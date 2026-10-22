@@ -493,6 +493,58 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
         db.close()
 
 
+def notify_project_import(project_id: str, task_id: str, actor_email: str, count: int) -> None:
+    """A task import into a followed project (Oct 22 2026): ONE notice per
+    follower for the whole import - "<Actor> imported N tasks into
+    <Project>" - never one per task. The bell grows the follower's day notice
+    (task_project_follow.ring_bells); the email is a project-follower row in
+    their batch like any other follower FYI (re-checked at send time by
+    _drop_reason; sent at once only when the company batches nothing), about
+    `task_id`, one of the imported top-level tasks. Same people as any
+    follower event (import_recipients). Only called when the import was set
+    to notify. Never raises."""
+    db = SessionLocal()
+    try:
+        cfg = get_settings(db)
+        p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
+        t = db.query(models.Task).filter(models.Task.id == task_id).first()
+        if p is None or t is None:
+            return
+        people: dict = {}
+        recipients = project_follow.import_recipients(db, p, t, actor_email, cache=people)
+        if not recipients:
+            return
+        line = project_follow.import_line(_name_of(db, actor_email), count, p.name)
+        try:
+            project_follow.ring_bells(db, t, "created", "", recipients, cache=people, line=line)
+        except Exception as e:
+            db.rollback()
+            _log_notify_error(db, task_id, f"Project follower bell failed (import): {e}")
+        if not cfg["enabledEvents"].get("created", True):
+            return
+        queued = []
+        for who in sorted(recipients):
+            if not _is_sendable(db, who):
+                continue
+            pr = prefs_mod.load(db, who)
+            if not pr.get("followedProjects", True) or not prefs_mod.wants_event(pr, "created", t):
+                continue
+            _enqueue(db, recipient=who, role="project_follower", task_id=t.id, event_type="created",
+                     actor_email=actor_email, payload={"import_summary": line})
+            queued.append(who)
+        if queued and not batch_window_minutes(cfg):
+            now = datetime.now(timezone.utc)
+            for who in queued:
+                try:
+                    _flush_recipient(db, who, cfg, now)
+                except Exception:
+                    db.rollback()
+    except Exception as e:
+        _log_notify_error(db, task_id, f"Notification pipeline error (import): {e}")
+    finally:
+        db.close()
+
+
 def _log_notify_error(db: Session, task_id: str, detail: str) -> None:
     """A notify_error row on the task's activity - never raises."""
     try:
@@ -878,7 +930,8 @@ def _sends_now(t, event_type: str, cfg: dict) -> bool:
 # due_entry_at: the due_history entry a "modified" email reports, so an Undo
 # of that move (tasks.undo_due) drops exactly its email (Oct 22 2026).
 _PAYLOAD_KEYS = ("update_kind", "comment_body", "new_follower", "due_entry_at",
-                 "auto_subject", "auto_body")   # auto_*: an automation rule's email (event "automation")
+                 "auto_subject", "auto_body",   # auto_*: an automation rule's email (event "automation")
+                 "import_summary")   # a task import's one follower line (notify_project_import)
 
 
 def _enqueue(db: Session, *, recipient: str, role: str, task_id: str, event_type: str,
@@ -974,6 +1027,8 @@ def _drop_reason(db: Session, q, t, p: dict, follow: dict | None = None) -> str:
 def _event_line(q, actor_name: str) -> str:
     """One readable line for a queued event, e.g. "Neil assigned this to you"."""
     pl = q.payload if isinstance(q.payload, dict) else {}
+    if pl.get("import_summary"):
+        return pl["import_summary"]
     if q.event_type == "created":
         return f"{actor_name} created this task" + (" for you" if q.role == "assignee" else "")
     if q.event_type == "assigned":
@@ -1080,7 +1135,9 @@ def _flush_recipient(db: Session, recipient: str, cfg: dict, now: datetime) -> i
         return 0
 
     logo_url = cfg.get("logoUrl") or ""
-    if len(kept) == 1:
+    # A task import's follower row is about the import, not its first task:
+    # it always reads as a batch item ("<Actor> imported N tasks into ...").
+    if len(kept) == 1 and not (kept[0].payload or {}).get("import_summary"):
         q = kept[0]
         t = tasks[q.task_id]
         ctx = _task_context(db, t, q.actor_email)

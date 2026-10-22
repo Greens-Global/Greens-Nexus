@@ -220,7 +220,12 @@ class PatchTests(Base):
         self.field("multiselect", options=[{"id": "m1", "label": "Red"}, {"id": "m2", "label": "Blue"}])
         self.field("people")
         self.field("text", id="cf-formula", name="Calculated", read_only=True)
-        t = self.task(custom_field_values={"cf-select": "o1", "cf-formula": "1"})
+        # A real formula field is NOT stored read_only - its type says it is
+        # computed. A value left on a task from before (it was a text field
+        # once) is never history, whatever the save does to it.
+        self.field("formula", id="cf-fx", name="Calc", formula="1+1")
+        t = self.task(custom_field_values={"cf-select": "o1", "cf-formula": "1",
+                                           "cf-fx": "stale value from when it was text"})
         self.patch(t, custom_field_values={
             "cf-text": "hello", "cf-number": "3", "cf-date": "2026-10-30", "cf-checkbox": True,
             "cf-select": "o2", "cf-multiselect": ["m2", "m1"], "cf-people": [ASSIGNEE["email"]],
@@ -234,6 +239,8 @@ class PatchTests(Base):
         self.assertEqual(got["cf-multiselect"], (None, ["m1", "m2"]))
         self.assertEqual(got["cf-people"], (None, [ASSIGNEE["email"]]))
         self.assertNotIn("cf-formula", got)
+        self.assertNotIn("cf-fx", got)
+        self.assertEqual(self.history(t, field="cf-fx"), [])
         sel = self.history(t, field="cf-select")
         self.assertEqual(len(sel), 1)
         self.assertEqual(sel[0]["labels"]["o1"], {"label": "Austin", "color": "#f00"})
@@ -594,6 +601,65 @@ class DiffUnitTests(Base):
         t.tags = None
         t.custom_field_values = {"cf-x": ""}
         self.assertEqual(task_history.diff(self.db, before, task_history.snapshot(t)), [])
+
+
+class MovedSubtreeTests(Base):
+    """Oct 22 2026 integration review: a move into another project takes the
+    whole subtree with it, and each moved row's history says so."""
+
+    def _projects(self):
+        a = models.TaskProject(id=gen_id(), name="Alpha", created_at=now_iso())
+        b = models.TaskProject(id=gen_id(), name="Beta", created_at=now_iso())
+        self.db.add_all([a, b])
+        self.db.commit()
+        return a, b
+
+    def _tree(self, a):
+        sec = models.TaskSection(id=gen_id(), project_id=a.id, name="Doing", created_at=now_iso())
+        self.db.add(sec)
+        self.db.commit()
+        p = self.task(title="P", project_id=a.id, section_id=sec.id)
+        s = self.task(title="S", project_id=a.id, parent_task_id=p.id)
+        ss = self.task(title="SS", project_id=a.id, parent_task_id=s.id, section_id=sec.id)
+        p.subtask_ids = [s.id]
+        s.subtask_ids = [ss.id]
+        self.db.commit()
+        return sec, p, s, ss
+
+    def test_a_moved_subtree_records_each_rows_project_and_section(self):
+        a, b = self._projects()
+        sec, p, s, ss = self._tree(a)
+        self.patch(s, user=MANAGER, parent_task_id="", project_id=b.id)
+        got = [c for c in self.changes(ss) if c[0] in ("projectId", "sectionId")]
+        self.assertEqual(got, [("projectId", a.id, b.id, MANAGER["email"], "field_changed"),
+                               ("sectionId", sec.id, None, MANAGER["email"], "field_changed")])
+        mine = [c for c in self.changes(s) if c[0] == "projectId"]
+        self.assertEqual(mine, [("projectId", a.id, b.id, MANAGER["email"], "field_changed")])
+        # Read back through the endpoint with the project names kept.
+        rows = self.history(ss, user=MANAGER, field="projectId")
+        self.assertEqual(rows[0]["labels"][b.id]["label"], "Beta")
+
+    def test_a_child_moved_by_its_new_parents_edit_records_its_project(self):
+        a, b = self._projects()
+        sec, p, s, ss = self._tree(a)
+        x = self.task(title="X", project_id=b.id)
+        self.patch(x, user=MANAGER, subtask_ids=[s.id])
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.Task, s.id).project_id, b.id)
+        self.assertIn(("projectId", a.id, b.id, MANAGER["email"], "field_changed"), self.changes(s))
+        self.assertIn(("projectId", a.id, b.id, MANAGER["email"], "field_changed"), self.changes(ss))
+
+    def test_a_rules_move_records_the_subtasks_as_the_automation(self):
+        a, b = self._projects()
+        sec, p, s, ss = self._tree(a)
+        self.rule({"type": "status_changed", "value": "in_progress"},
+                  [{"type": "move_to_project", "value": {"projectId": b.id}}])
+        self.patch(p, user=MANAGER, status="in_progress")
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.Task, ss.id).project_id, b.id)
+        self.assertIn(("projectId", a.id, b.id, AUTO, "field_changed"), self.changes(s))
+        self.assertIn(("projectId", a.id, b.id, AUTO, "field_changed"), self.changes(ss))
+        self.assertIn(("sectionId", sec.id, None, AUTO, "field_changed"), self.changes(ss))
 
 
 if __name__ == "__main__":

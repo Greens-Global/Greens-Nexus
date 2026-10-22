@@ -389,7 +389,12 @@ def _answer_extension(db: Session, t: models.Task, actor: str, accept: bool, not
         t.due_agreement = "accepted"      # the date being replaced is the agreed one
         t.due_on = prop.get("dueOn") or old
         if prop.get("startOn"):
-            t.start_on = prop["startOn"]  # moved with it, so the task keeps its length
+            # Moved with it, so the task keeps its length - and recorded now,
+            # credited like the due move below: the edit that asked for it
+            # recorded nothing while it was held (routers/tasks.update_task).
+            start_before = task_history.snapshot(t)
+            t.start_on = prop["startOn"]
+            task_history.record(db, t, start_before, actor, only={"startOn"})
         record_due_change(db, t, old, t.due_on, actor=actor, source="approved", note=note)
         title, detail = "Extension Approved", f"approved the extension to {us_date(t.due_on)}"
     else:

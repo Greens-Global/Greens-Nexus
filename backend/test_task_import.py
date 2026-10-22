@@ -675,10 +675,6 @@ class ReviewFixTests(Base):
         self.assertEqual(labels, ["Design", "Other", "Build"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ImportAutomationGapTests(Base):
     """The import and the automation gaps together (Oct 22 2026): a 'created'
     rule's Create Task runs as the importer under one budget for the whole
@@ -719,3 +715,109 @@ class ImportAutomationGapTests(Base):
         runs = self.db.query(models.TaskAutomationRun).filter(models.TaskAutomationRun.rule_id.isnot(None)).all()
         lines = [ln for r in runs for ln in (r.actions or [])]
         self.assertTrue(any("skipped: the import was set not to notify anyone" in ln for ln in lines), lines)
+
+    # -- Oct 22 2026 integration review --------------------------------------
+    def _rule(self, name, actions):
+        self.db.add(models.TaskAutomationRule(id=gen_id(), name=name, enabled=True, trigger={"type": "created"},
+                                              conditions=[], actions=actions, created_at=now_iso()))
+        self.db.commit()
+
+    def _rule_lines(self):
+        self.db.expire_all()
+        runs = self.db.query(models.TaskAutomationRun).filter(models.TaskAutomationRun.rule_id.isnot(None)).all()
+        return [ln for r in runs for ln in (r.actions or [])]
+
+    def test_a_notifying_import_sends_the_rule_email(self):
+        self._rule("Mail", [{"type": "send_email", "value": {"to": ANA, "subject": "New {title}", "body": "Hi"}}])
+        bg = BackgroundTasks()
+        self.run_import([{"title": "Loud", "assignees": ANA}], bg=bg, notify_assignees=True)
+        self._drain(bg)
+        lines = self._rule_lines()
+        self.assertFalse(any("set not to notify" in ln for ln in lines), lines)
+        self.assertTrue(any("queued an email to " + ANA in ln for ln in lines), lines)
+        auto = self.db.query(models.TaskEmailQueue).filter_by(recipient=ANA, event_type="automation").all()
+        self.assertEqual(len(auto), 1)
+        self.assertEqual(auto[0].payload.get("auto_subject"), "New Loud")
+
+    def test_a_silent_import_makes_rule_tasks_quietly(self):
+        self._rule("Prep", [{"type": "create_task", "value": {"title": "Prep {title}", "assignee": BEN}}])
+        p = self.project(name="Open", access_level="org", follower_emails=[ANA],
+                         member_roles={EDITOR["email"]: "editor", BEN: "editor", ANA: "viewer"})
+        bg = BackgroundTasks()
+        self.run_import([{"title": f"T{i}"} for i in range(3)], bg=bg, project=p)
+        self._drain(bg)
+        self.db.expire_all()
+        self.assertEqual(len([t for t in self.tasks() if t.title.startswith("Prep ")]), 3)
+        self.assertEqual(self.db.query(models.TaskNotification).count(), 0)
+        self.assertEqual(self.db.query(models.NexusNotification).count(), 0)
+        self.assertEqual(self.db.query(models.TaskEmailQueue).count(), 0)
+
+    def test_a_notifying_import_tells_each_person_once_for_rule_tasks_too(self):
+        self._rule("Prep", [{"type": "create_task", "value": {"title": "Prep {title}", "assignee": BEN}}])
+        bg = BackgroundTasks()
+        with mock.patch("task_notify.notify_task_event") as per_task:
+            self.run_import([{"title": "T0", "assignees": BEN}, {"title": "T1"}, {"title": "T2"}],
+                            bg=bg, notify_assignees=True)
+            self._drain(bg)
+        per_task.assert_not_called()   # no "created" email / follower ring per rule-made task
+        self.db.expire_all()
+        bells = self.db.query(models.TaskNotification).filter_by(for_email=BEN).all()
+        self.assertEqual(len(bells), 1)
+        self.assertEqual(bells[0].title, "You Were Assigned 4 Tasks")
+        self.assertIn("Prep T1", bells[0].body)
+        self.assertEqual(self.db.query(models.NexusNotification).filter_by(recipient=BEN).count(), 1)
+        # One batched email for the lot: four queued assignment rows, one person.
+        q = self.db.query(models.TaskEmailQueue).filter_by(recipient=BEN).all()
+        self.assertEqual({x.event_type for x in q}, {"assigned"})
+        self.assertEqual(len(q), 4)
+
+    def _followed(self):
+        return self.project(name="Open", access_level="org", follower_emails=[ANA, EDITOR["email"]],
+                            member_roles={EDITOR["email"]: "editor", ANA: "viewer"})
+
+    def test_project_followers_hear_one_grouped_notice_per_import(self):
+        import task_notify
+        p = self._followed()
+        bg = BackgroundTasks()
+        self.run_import([{"title": f"T{i}"} for i in range(3)], bg=bg, notify_assignees=True, project=p)
+        self._drain(bg)
+        self.db.expire_all()
+        bells = self.db.query(models.TaskNotification).filter_by(for_email=ANA).all()
+        self.assertEqual(len(bells), 1)
+        self.assertEqual(bells[0].kind, "project_follow")
+        self.assertEqual(bells[0].body, "Ed Editor imported 3 tasks into Open")
+        # The importer follows too, and hears nothing about their own import.
+        self.assertEqual(self.db.query(models.TaskNotification).filter_by(for_email=EDITOR["email"]).count(), 0)
+        q = self.db.query(models.TaskEmailQueue).filter_by(recipient=ANA).all()
+        self.assertEqual(len(q), 1)
+        self.assertEqual((q[0].role, q[0].event_type), ("project_follower", "created"))
+        self.assertEqual(q[0].payload, {"import_summary": "Ed Editor imported 3 tasks into Open"})
+        # The batched email says it - about the import, not its first task.
+        sent = []
+        with mock.patch.object(task_notify, "_send_one", side_effect=lambda db, **kw: sent.append(kw)):
+            task_notify._flush_recipient(self.db, ANA, task_notify.get_settings(self.db),
+                                         task_notify.datetime.now(task_notify.timezone.utc))
+        self.assertEqual(len(sent), 1)
+        self.assertIn("Ed Editor imported 3 tasks into Open", sent[0]["html"])
+
+    def test_a_silent_import_tells_project_followers_nothing(self):
+        p = self._followed()
+        bg = BackgroundTasks()
+        self.run_import([{"title": f"T{i}"} for i in range(3)], bg=bg, project=p)
+        self._drain(bg)
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.TaskNotification).count(), 0)
+        self.assertEqual(self.db.query(models.TaskEmailQueue).count(), 0)
+
+    def test_a_follower_who_cannot_see_the_project_hears_nothing(self):
+        p = self.project(name="Closed", follower_emails=[OUTSIDER["email"]])
+        bg = BackgroundTasks()
+        self.run_import([{"title": "T"}], bg=bg, notify_assignees=True, project=p)
+        self._drain(bg)
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.TaskNotification).filter_by(for_email=OUTSIDER["email"]).count(), 0)
+        self.assertEqual(self.db.query(models.TaskEmailQueue).filter_by(recipient=OUTSIDER["email"]).count(), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -145,7 +145,7 @@ export function FieldHistoryButton({ field, label, nameOf }) {
           style={{ width: 340, maxWidth: 'calc(100vw - 16px)', background: NX.surface, border: `1px solid ${NX.border}`,
             borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 6 }}>
           <div ref={focusPanel} tabIndex={-1}
-            style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink, padding: '4px 8px 6px', outline: 'none' }}>{name} History</div>
+            style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink, padding: '4px 8px 6px' }}>{name} History</div>
           <div style={{ maxHeight: 320, overflowY: 'auto' }}>
             <FieldHistoryList taskId={hist.taskId} field={field} nameOf={who} />
           </div>

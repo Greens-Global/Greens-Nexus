@@ -72,6 +72,28 @@ describe('Row colors in a project', () => {
   });
 });
 
+describe('Row colors across the Oct 22 features', () => {
+  it('a team editor gets Row Colors, the same check Import uses', () => {
+    store = { ...makeStore('viewer'), teams: [{ id: 'tm', name: 'Crew', projectIds: ['p1'], memberIds: [ME], accessRole: 'editor', approvalStatus: 'approved' }] };
+    render(<TasksWorkspace lockedProjectId="p1" />);
+    expect(screen.getByRole('button', { name: /Row Colors/ })).toBeInTheDocument();
+  });
+
+  it('colors subtask cards on the Board with Show Subtasks on', async () => {
+    const withKid = [
+      { ...tasks[0] }, { ...tasks[1], subtaskIds: ['k1'] },
+      { ...base, id: 'k1', code: 'T-3', title: 'Late kid', parentTaskId: 't2', dueOn: '2020-01-01' },
+    ];
+    store = { ...makeStore('editor'), tasks: withKid, taskById: Object.fromEntries(withKid.map((t) => [t.id, t])) };
+    render(<TasksWorkspace lockedProjectId="p1" />);
+    await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: /^Board$/ })[0]); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Show Subtasks/ })); });
+    const card = document.querySelector('[data-subtask-card="k1"]');
+    expect(card).toBeTruthy();
+    expect(card.getAttribute('data-row-color')).toBe('r1');
+  });
+});
+
 describe('My Tasks: the person\'s own rules', () => {
   const mineTasks = tasks.map((t) => ({ ...t, assigneeIds: [ME], assigneeId: ME }));
   const myStore = () => ({ ...makeStore('editor'), tasks: mineTasks, taskById: Object.fromEntries(mineTasks.map((t) => [t.id, t])) });

@@ -621,5 +621,80 @@ class ReviewLowTests(Base):
             lock.assert_called_once()
 
 
+class FieldHistoryAcrossFeaturesTests(Base):
+    """Oct 22 2026 integration review: the field history and the held /
+    undone date moves agree with what the task really holds."""
+
+    def hist(self, t, field):
+        return T.task_field_history(t.id, field=field, user=MANAGER, db=self.db)["items"]
+
+    def _held_single(self):
+        t = self.task(start_on="2026-10-26", due_on="2026-10-30", due_extension_count=2)
+        T.update_task(t.id, T.TaskUpdate(start_on="2026-10-29", due_on="2026-11-02"), BackgroundTasks(),
+                      user=SAGAR, db=self.db)
+        return self.fresh(t)
+
+    def test_a_held_single_edit_records_no_start_change(self):
+        t = self._held_single()
+        self.assertEqual(t.start_on, "2026-10-26")
+        self.assertEqual(self.hist(t, "startOn"), [])
+        self.assertEqual(self.hist(t, "dueOn"), [])
+
+    def test_a_held_bulk_shift_records_no_start_change(self):
+        t = self.task(start_on="2026-10-26", due_on="2026-10-30", due_extension_count=2)
+        self.dates([t.id], op="shift", days=3)
+        t = self.fresh(t)
+        self.assertEqual(t.start_on, "2026-10-26")
+        self.assertEqual(t.due_proposal["startOn"], "2026-10-29")
+        self.assertEqual(self.hist(t, "startOn"), [])
+
+    def test_the_approval_records_the_start_move_as_the_approver(self):
+        t = self._held_single()
+        T.respond_due(T.DueAnswer(accept=True), t.id, user=MANAGER, db=self.db)
+        t = self.fresh(t)
+        rows = self.hist(t, "startOn")
+        self.assertEqual([(r["from"], r["to"], r["actorId"]) for r in rows],
+                         [("2026-10-26", "2026-10-29", MANAGER["email"])])
+        due = self.hist(t, "dueOn")
+        self.assertEqual((due[0]["from"], due[0]["to"], due[0]["actorId"]),
+                         ("2026-10-30", "2026-11-02", MANAGER["email"]))
+
+    def test_a_decline_records_nothing(self):
+        t = self._held_single()
+        T.respond_due(T.DueAnswer(accept=False), t.id, user=MANAGER, db=self.db)
+        t = self.fresh(t)
+        self.assertEqual(self.hist(t, "startOn"), [])
+        self.assertEqual(self.hist(t, "dueOn"), [])
+
+    def test_a_held_move_leaves_the_rules_on_the_real_start(self):
+        # A rule reading the task after a held drag sees the start it has.
+        seen = []
+        real = T.task_automation.run_for_change
+
+        def spy(db, t, **kw):
+            seen.append(t.start_on)
+            return real(db, t, **kw)
+        with mock.patch.object(T.task_automation, "run_for_change", side_effect=spy):
+            self._held_single()
+        self.assertEqual(seen, ["2026-10-26"])
+
+    def test_undo_of_a_drag_is_in_the_history(self):
+        t = self.task(start_on="2026-10-26", due_on="2026-10-30")
+        T.update_task(t.id, T.TaskUpdate(start_on="2026-10-29", due_on="2026-11-02"), BackgroundTasks(),
+                      user=SAGAR, db=self.db)
+        t = self.fresh(t)
+        T.undo_due(t.id, T.DueUndo(at=t.due_history[-1]["at"]), user=SAGAR, db=self.db)
+        t = self.fresh(t)
+        self.assertEqual((t.start_on, t.due_on), ("2026-10-26", "2026-10-30"))
+        due = self.hist(t, "dueOn")
+        start = self.hist(t, "startOn")
+        # Newest first: the undo, then the move it took back.
+        self.assertEqual([(r["from"], r["to"]) for r in due],
+                         [("2026-11-02", "2026-10-30"), ("2026-10-30", "2026-11-02")])
+        self.assertEqual([(r["from"], r["to"]) for r in start],
+                         [("2026-10-29", "2026-10-26"), ("2026-10-26", "2026-10-29")])
+        self.assertEqual(due[0]["actorId"], SAGAR["email"])
+
+
 if __name__ == "__main__":
     unittest.main()
