@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { useCanEditTask } from '../canEditTask';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
-import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor } from '../lib';
+import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor, effectiveProjectId } from '../lib';
 import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
@@ -197,11 +197,12 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
       }
       return out;
     }
-    // project
+    // project - a subtask's is its parent's (it may only reach it that way)
+    const pid = (t) => effectiveProjectId(t, store.taskById);
     const seen = new Map();
-    for (const t of visible) if (t.projectId && !seen.has(t.projectId)) seen.set(t.projectId, store.projectName(t.projectId));
-    const out = [...seen.entries()].map(([id, label]) => ({ key: id, label, match: (t) => t.projectId === id }));
-    if (visible.some((t) => !t.projectId)) out.push({ key: '__none', label: 'No project', match: (t) => !t.projectId });
+    for (const t of visible) if (pid(t) && !seen.has(pid(t))) seen.set(pid(t), store.projectName(pid(t)));
+    const out = [...seen.entries()].map(([id, label]) => ({ key: id, label, match: (t) => pid(t) === id }));
+    if (visible.some((t) => !pid(t))) out.push({ key: '__none', label: 'No project', match: (t) => !pid(t) });
     return out;
   }, [swimlane, visible, ctx, store, boardFields]);
 
@@ -303,7 +304,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
                 style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 11.5, fontWeight: 600, color: NX.blue, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
                 {parent.title}
               </button>
-            ) : <span style={{ fontWeight: 600 }}>a task you cannot open</span>}
+            ) : <span style={{ fontWeight: 600 }}>Private Task</span>}
           </div>
         )}
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>

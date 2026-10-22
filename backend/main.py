@@ -1252,6 +1252,12 @@ def _run_migrations():
             "ALTER TABLE task_templates ADD COLUMN company_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_intake_forms ADD COLUMN company_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_custom_fields ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # HR checklist tasks (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN hr_checklist BOOLEAN DEFAULT 0",
+            "UPDATE tasks SET hr_checklist = 1 WHERE COALESCE(hr_checklist, 0) = 0 AND ("
+            "id IN (SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') != '') OR "
+            "id IN (SELECT parent_task_id FROM tasks WHERE id IN "
+            "(SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') != '')))",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2874,6 +2880,14 @@ def _run_migrations():
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_intake_forms ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # HR checklist tasks (Oct 22 2026): models.Task.hr_checklist - a step's
+        # subtask or the parent over an owner's steps. Stamped by the checklist
+        # sync from now on; this marks the ones already there (a no-op once done).
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS hr_checklist BOOLEAN DEFAULT FALSE",
+        "UPDATE tasks SET hr_checklist = TRUE WHERE hr_checklist IS NOT TRUE AND ("
+        "id IN (SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') <> '') OR "
+        "id IN (SELECT parent_task_id FROM tasks WHERE id IN "
+        "(SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') <> '')))",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -13,6 +13,7 @@ import { celebrateCompletion } from './celebrate';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { loadTaskData, taskSnapshot, rememberTaskData, FIRST_PAINT } from './taskStore';
 import { noteStatusChanges } from './recentChanges';
+import { moveUndoBody } from './lib';
 
 function tasksReducer(prev, v) {
   const next = typeof v === 'function' ? v(prev) : v;
@@ -416,7 +417,9 @@ export function TasksProvider({ children }) {
   const tasksRef = useRef(tasks);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
-  const updateTask = useCallback(async (id, patch) => {
+  // `quiet`: the caller says what went wrong itself (Move To's dialog), so
+  // no alert here as well.
+  const updateTask = useCallback(async (id, patch, { quiet = false } = {}) => {
     // Snapshot the fields this patch touches, so a refused save can put them
     // back. The delta refetch alone cannot: it only returns rows that CHANGED
     // on the server, and a refused row did not - the optimistic value stuck.
@@ -443,7 +446,7 @@ export function TasksProvider({ children }) {
       // Surfaces things like a dependency-gate rejection (blocked by an
       // unfinished FS/SS/FF/SF task) - the optimistic change above was just
       // put back, so silence here would look like nothing happened.
-      if (e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
+      if (!quiet && e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
       throw e;
     }
   }, [patchLocalTask, refetchTasks, announceHeld]);
@@ -497,20 +500,20 @@ export function TasksProvider({ children }) {
   // project unless `projectId` says otherwise, filed into `sectionId`). The
   // server moves the whole subtree with it (PATCH parent_task_id), so the
   // other rows it changed - both parents, the subtasks - come in through a
-  // delta refetch. Undo moves it back where it was.
-  const moveTask = useCallback(async (id, { parentTaskId = '', projectId, sectionId } = {}, { undo = true } = {}) => {
+  // delta refetch. A refusal is the caller's to show (no alert). Undo moves
+  // it back with what the move changed on it: its place, section, team and
+  // a subtask's "skip this occurrence" rule.
+  const moveTask = useCallback(async (id, { parentTaskId = '', projectId, sectionId } = {}) => {
     const before = tasksRef.current.find((t) => t.id === id);
     const body = { parentTaskId: parentTaskId || '' };
     if (!parentTaskId) {
       if (projectId !== undefined) body.projectId = projectId || '';
       if (sectionId !== undefined) body.sectionId = sectionId || '';
     }
-    const saved = await updateTask(id, body);
+    const saved = await updateTask(id, body, { quiet: true });
     refetchTasks().catch(() => {});
-    if (undo && before) {
-      const back = before.parentTaskId
-        ? { parentTaskId: before.parentTaskId }
-        : { parentTaskId: '', projectId: before.projectId || '', sectionId: before.sectionId || '' };
+    if (before) {
+      const back = moveUndoBody(before);
       const target = parentTaskId ? tasksRef.current.find((t) => t.id === parentTaskId) : null;
       offerUndo(
         target ? `Moved under "${(target.title || '').slice(0, 40)}"` : 'Made a top-level task',

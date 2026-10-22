@@ -128,6 +128,11 @@ class Task(Base):
     # Kept in step with TaskTicket.task_ids by routers/tickets.py, server-side
     # only; never taken from a task payload.
     source_ticket_id  = Column(String, default="", index=True)
+    # An HR checklist's task - a step's subtask or the parent task over an
+    # owner's steps (Oct 22 2026). Stamped by hr_checklists.sync_tasks, never
+    # taken from a payload; the task list reads it to hide Move To, and Move
+    # To refuses these (routers/tasks._is_hr_checklist_task).
+    hr_checklist      = Column(Boolean, default=False)
 
 
 class PurchaseRequest(Base):

@@ -114,6 +114,11 @@ def task_to_dict(t: models.Task) -> dict:
         # Checklist counters - see models.Task / _recount_checklist.
         "checklistTotal":   int(t.checklist_total or 0),
         "checklistDone":    int(t.checklist_done or 0),
+        # An HR checklist's task: Move To is not offered (Oct 22 2026).
+        "hrChecklist":      bool(getattr(t, "hr_checklist", False)),
+        # Who raised it: with the owner, who may open a private task up -
+        # Move To offers only moves the server takes (Oct 22 2026).
+        "createdBy":        _nz(t.created_by),
         # Time entries - see models.TaskTimeEntry / _recount_time.
         "timeEntryCount":   int(t.time_entry_count or 0),
     }
@@ -765,6 +770,8 @@ def _check_hierarchy_patch(db: Session, user: dict, t: models.Task, data: dict) 
             row = db.query(models.Task).filter(models.Task.id == child).first()
             if row is not None and (row.parent_task_id or "") == t.id:
                 _require_may_move(db, user, child)
+                if _is_hr_checklist_task(db, row):
+                    raise HTTPException(422, "HR checklist tasks stay where the checklist puts them.")
     return plans
 
 
@@ -807,6 +814,11 @@ def _sync_hierarchy(db: Session, t: models.Task, data: dict, prev_parent: str, p
             child.parent_task_id, child.modified_at = t.id, now
         for child in (db.query(models.Task).filter(models.Task.id.in_(removed)).all() if removed else []):
             if (child.parent_task_id or "") == t.id:
+                # It keeps the project it reached through this task, written
+                # out now that it stands on its own (Oct 22 2026).
+                if not child.project_id:
+                    home = project_for_task(db, child)
+                    child.project_id = home.id if home is not None else ""
                 child.parent_task_id, child.modified_at = "", now
 
 
@@ -852,32 +864,66 @@ def _subtree_rows(db: Session, root_id: str) -> tuple:
     return out, height
 
 
+def _is_hr_checklist_task(db: Session, t) -> bool:
+    """An HR checklist's task (Oct 22 2026): a step's subtask (linked from
+    HrChecklistItem.task_id) or the parent task the checklist sync keeps over
+    those steps. The sync owns where they sit - Move To never moves one, nor
+    puts anything under one."""
+    if t is None:
+        return False
+    if getattr(t, "hr_checklist", False):
+        return True
+    kids = [r[0] for r in db.query(models.Task.id).filter(models.Task.parent_task_id == t.id).all()]
+    return db.query(models.HrChecklistItem.id).filter(
+        models.HrChecklistItem.task_id.in_([t.id, *kids])).first() is not None
+
+
+def _require_open_up_for_move(db: Session, user: dict, rows: list, dest_id: str) -> None:
+    """A move never makes a restricted row more visible than it was (Oct 22
+    2026). Into another project, a restricted row becomes visible to that
+    project's people - the same widening as opening it to the organization,
+    so it takes the same person (_may_open_up: a manager, its owner or
+    creator, or an editor of the project it is in now) for EVERY restricted
+    row that goes, or the whole move is refused."""
+    if not dest_id:
+        return
+    for row in rows:
+        if row.deleted_at or (row.access_level or "org") == "org":
+            continue
+        if not _may_open_up(db, user, row):
+            raise HTTPException(403, "You can't move private tasks into a project where more people can see "
+                                     "them - ask their owner or a project editor.")
+
+
 def _plan_move(db: Session, user: dict, t: models.Task, new_parent_id: str, project_hint=None) -> dict:
     """Check a move of `t` - and everything under it - to `new_parent_id`
     ('' = a top-level task), and say what it changes. The new parent's own
     checks (live, the caller can see and edit it, no loop) are
     _check_hierarchy_patch's and validate_task_payload's; this adds:
-      * depth: the moved subtree must still fit within MAX_SUBTASK_DEPTH;
+      * HR checklist tasks are the checklist sync's - never moved, never a
+        new parent;
+      * depth and loops (_check_move_shape - run again once the rows are
+        locked, as two crossing moves could otherwise make a loop);
       * the company wall: while it is up a task moves only under a task of
         its own company, so a subtree never straddles two tenants;
       * leaving a project takes editor on it by the project's own roles -
         being assigned a task is a grant to do the work, not to take it out
         of its project. Editor on the project it joins is checked by the
-        caller (_check_update_access / _require_destination_projects).
+        caller (_check_update_access / _require_destination_projects);
+      * no restricted row becomes more visible (_require_open_up_for_move).
     `project_hint`: where a task made top-level lands (default: the project
-    it is in now). Returns {parent, src, dest, subtree}."""
+    it is in now). Returns {parent, src, dest, subtree, new_parent}."""
+    if _is_hr_checklist_task(db, t):
+        raise HTTPException(422, "HR checklist tasks stay where the checklist puts them.")
     src = project_for_task(db, t)
     src_id = src.id if src is not None else ""
     parent = None
-    subtree, height = _subtree_rows(db, t.id)
     if new_parent_id:
         parent = db.query(models.Task).filter(models.Task.id == new_parent_id).first()
         if parent is None:
             raise HTTPException(422, "That parent task does not exist or is in the Recycle Bin.")
-        if new_parent_id == t.id or new_parent_id in {r.id for r in subtree}:
-            raise HTTPException(422, "A task cannot move under itself or one of its own subtasks.")
-        if _tree_depth(db, new_parent_id) + 1 + height > MAX_SUBTASK_DEPTH:
-            raise HTTPException(422, f"Subtasks can nest at most {MAX_SUBTASK_DEPTH} levels deep.")
+        if _is_hr_checklist_task(db, parent):
+            raise HTTPException(422, "A task cannot move under an HR checklist task.")
         import auth
         if auth._company_walls_on(db) and row_company(db, parent) != row_company(db, t):
             raise HTTPException(422, "A task can only move under a task of the same company.")
@@ -885,9 +931,31 @@ def _plan_move(db: Session, user: dict, t: models.Task, new_parent_id: str, proj
         dest_id = dest.id if dest is not None else ""
     else:
         dest_id = src_id if project_hint is None else (project_hint or "")
-    if dest_id != src_id and src is not None:
-        require_project_access(db, user, src, "editor")
-    return {"parent": parent, "src": src_id, "dest": dest_id, "subtree": subtree}
+    plan = {"parent": parent, "src": src_id, "dest": dest_id, "new_parent": new_parent_id or ""}
+    _check_move_shape(db, t, plan)
+    if dest_id != src_id:
+        if src is not None:
+            require_project_access(db, user, src, "editor")
+        _require_open_up_for_move(db, user, [t, *plan["subtree"]], dest_id)
+    return plan
+
+
+def _check_move_shape(db: Session, t: models.Task, plan: dict) -> None:
+    """The move's loop and depth checks, against the rows as stored right now
+    (column reads, so a row changed by another request since this session
+    loaded it is seen as it is). Run when the move is planned and again once
+    its rows are locked: X-under-P and P-under-X landing together would
+    otherwise both pass and leave a loop nobody can see. Refreshes
+    plan["subtree"]."""
+    subtree, height = _subtree_rows(db, t.id)
+    plan["subtree"] = subtree
+    pid = plan["new_parent"]
+    if not pid:
+        return
+    if pid == t.id or pid in {r.id for r in subtree} or _walk_reaches(db, [pid], t.id, models.Task.parent_task_id):
+        raise HTTPException(422, "A task cannot move under itself or one of its own subtasks.")
+    if _tree_depth(db, pid) + 1 + height > MAX_SUBTASK_DEPTH:
+        raise HTTPException(422, f"Subtasks can nest at most {MAX_SUBTASK_DEPTH} levels deep.")
 
 
 def _check_move_section(db: Session, section_id: str, project_id: str) -> None:
@@ -904,18 +972,20 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
     """What a move does beyond the parent pointers (_sync_hierarchy keeps
     those), on rows already locked:
       * `t` lands LAST among its new siblings, or at the end of its
-        project's manual order as a top-level task (`place`);
+        project's manual order as a top-level task (`place`; an Undo sends
+        the position it had instead);
       * a subtask carries no section; a top-level task goes into `section_id`
-        (or none, when it changed project);
+        (or none, when it changed project), and names its project outright -
+        a subtask that only reached it through its parent fills it in here,
+        after the checks, as no project changes;
       * into another project, the whole subtree goes with it - every row that
         names a project names the new one (a blank one keeps reaching it
         through its parent), and leaves the old project's section and team;
-      * under a restricted parent, what moves becomes restricted the same way
-        (never the other way round - widening is _may_open_up's);
       * a "skip this occurrence" rule only means something under a repeating
         parent, so a task made top-level drops it.
-    Each row it touches is stamped modified, so GET /tasks/delta hands it to
-    every other open client. Returns the activity id."""
+    Nobody's access_level changes: a moved task keeps its own. Each row it
+    touches is stamped modified, so GET /tasks/delta hands it to every other
+    open client. Returns the activity id."""
     parent, src, dest = plan["parent"], plan["src"], plan["dest"]
     moved_project = dest != src
     if parent is not None:
@@ -934,25 +1004,30 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
         rec = t.recurrence if isinstance(t.recurrence, dict) else None
         if rec and rec.get("skip") and not rec.get("freq"):
             t.recurrence = None
+        if not moved_project and not t.project_id and dest:
+            t.project_id = dest
+            t.project_ids = _extra_project_ids(t.project_ids, dest)
     if moved_project:
         t.project_id = dest
         t.project_ids = _extra_project_ids(t.project_ids, dest)
         if not keep_team:
             t.team_id = ""
-    restrict = parent.access_level if parent is not None and (parent.access_level or "org") != "org" else ""
-    for row in [t, *plan["subtree"]]:
-        if row is not t and moved_project:
+        for row in plan["subtree"]:
             if row.project_id:
                 row.project_id = dest
                 row.project_ids = _extra_project_ids(row.project_ids, dest)
             row.section_id = ""
             row.team_id = ""
-        if restrict and (row.access_level or "org") == "org":
-            row.access_level = restrict
-        if row is not t and not row.deleted_at and (moved_project or restrict):
-            row.modified_at = now
-    detail = (f"moved this task under {parent.code or parent.title}" if parent is not None
-              else "made this a top-level task")
+            if not row.deleted_at:
+                row.modified_at = now
+    # The parent is named only when everybody who sees this task's history
+    # may see it: a private parent's code is not this task's to give away.
+    if parent is None:
+        detail = "made this a top-level task"
+    elif (parent.access_level or "org") == "org" and parent.code:
+        detail = f"moved this task under {parent.code}"
+    else:
+        detail = "moved this task under another task"
     return log_activity(db, type="moved", actor_email=user["email"], entity_id=t.id,
                         entity_code=t.code, entity_title=t.title, detail=detail)
 
@@ -2171,7 +2246,10 @@ def search_everything(q: str = "", limit: int = 6,
                 "completed": bool(t.completed), "assigneeId": _nz(t.assignee_email),
                 "projectId": _nz(t.project_id),
                 "projectName": project_names.get(proj_id, ""),
-                "parentTitle": (parent.title if parent else "")}
+                # Only a parent the caller may see is named (Oct 22 2026): a
+                # subtask can sit under a private task its viewer cannot open.
+                "parentTitle": (parent.title if parent is not None
+                                and (manager or task_visible_to(db, user, parent, visible)) else "")}
 
     return {
         "tasks": [shape_task(t) for t in top(tasks, lambda t: t.title)],
@@ -2582,17 +2660,20 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     if "parent_task_id" in data and (data["parent_task_id"] or "") != prev_parent:
         new_parent = data["parent_task_id"] or ""
         move = _plan_move(db, user, t, new_parent, data.get("project_id") if "project_id" in data else None)
-        # A subtask's project is its parent's; a task made top-level states
-        # its own (it may have reached it only through the parent before).
-        if (new_parent and move["dest"] != move["src"]) or (not new_parent and (t.project_id or "") != move["dest"]):
+        # Only a real change of project goes through `data`, where
+        # _check_update_access judges the project it joins. Staying in the
+        # same project asks nothing more: a subtask that reached its project
+        # only through its parent has it filled in by _apply_move (a viewer
+        # of the project who is assigned the subtask may still lift it out).
+        if move["dest"] != move["src"]:
             data["project_id"] = move["dest"]
-        elif new_parent:
+        else:
             data.pop("project_id", None)
         if new_parent:
             data["section_id"] = ""
         elif "section_id" in data:
             _check_move_section(db, data["section_id"] or "", move["dest"])
-        elif (t.project_id or "") != move["dest"]:
+        elif move["dest"] != move["src"]:
             data["section_id"] = ""
     if move is not None or child_moves:
         # Every row the move writes - both parents, the subtree(s) - locked
@@ -2605,6 +2686,12 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
             row = db.query(models.Task.parent_task_id).filter(models.Task.id == row_id).first()
             lock.append(row[0] if row else "")
         _lock_task_rows(db, lock)
+        # Again now that nobody else can move these rows: a crossing move
+        # that committed while this one was being checked is seen here.
+        if move is not None:
+            _check_move_shape(db, t, move)
+        for cid, plan in child_moves.items():
+            _check_move_shape(db, db.query(models.Task).filter(models.Task.id == cid).first(), plan)
     _check_update_access(db, user, t, data)
     prev_assignees = set(task_assignees(t))
     prev_status = t.status
@@ -2676,7 +2763,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         t.activity_ids = list(t.activity_ids or []) + [_apply_move(
             db, user, t, move, now_iso(),
             section_id=(data.get("section_id") if "section_id" in data else None) if not move["parent"] else None,
-            keep_team="team_id" in data)]
+            keep_team="team_id" in data, place="position" not in data)]
     for cid, plan in child_moves.items():
         child = db.query(models.Task).filter(models.Task.id == cid).first()
         if child is not None:

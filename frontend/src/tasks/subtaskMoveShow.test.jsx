@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
-import { descendantIds, moveTargets, withSubtasks, nestSubtaskRows, EMPTY_FILTER } from './lib';
+import { descendantIds, moveTargets, moveRule, moveUndoBody, withSubtasks, nestSubtaskRows, EMPTY_FILTER } from './lib';
 
 // Move To... and Show Subtasks (Neil, Oct 22 2026).
 //  - The Move To picker offers only tasks this person can edit, never the
@@ -167,6 +167,102 @@ describe('MoveTaskModal', () => {
   });
 });
 
+// ── Review fixes (Oct 22 2026): only moves the server takes ────────────────
+describe('move rule', () => {
+  const rule = (task, tasks, roles, extra = {}) => {
+    const store = makeStore(tasks, { roles });
+    return moveRule(task, { tasks, projects: store.projects, teams: [], taskById: store.taskById, email: ME, ...extra });
+  };
+
+  it('into another project takes editor on both projects by role - an assignee is not enough', () => {
+    const mine = T('mine', { assigneeIds: [ME] });
+    const there = T('there', { projectId: 'p2' });
+    const here = T('here');
+    expect(rule(mine, [mine, there, here], { p1: 'editor', p2: 'editor' })(there)).toBe(true);
+    expect(rule(mine, [mine, there, here], { p1: 'viewer', p2: 'editor' })(there)).toBe(false);
+    expect(rule(mine, [mine, there, here], { p1: 'viewer', p2: 'editor' })(here)).toBe(false);   // here: viewer, not assigned
+    expect(rule(mine, [mine, there, here], { p1: 'editor', p2: 'viewer' })(there)).toBe(false);
+    // Assigned the target in a project you only view: same project, so its
+    // own editor grant is enough.
+    const assigned = T('assigned', { assigneeIds: [ME] });
+    expect(rule(mine, [mine, assigned], { p1: 'viewer' })(assigned)).toBe(true);
+  });
+
+  it('never an HR checklist task, at either end, and never a project it cannot see', () => {
+    const t = T('t');
+    const hr = T('hr', { hrChecklist: true });
+    expect(rule(t, [t, hr], { p1: 'editor' })(hr)).toBe(false);
+    expect(rule(hr, [t, hr], { p1: 'editor' })(t)).toBe(false);
+    const unknown = T('unknown', { projectId: 'p9' });
+    expect(rule(t, [t, unknown], { p1: 'editor' })(unknown)).toBe(false);
+  });
+
+  it('a private row in the subtree that this person may not open up stops cross-project moves only', () => {
+    const top = T('top', { projectId: '', createdBy: ME });
+    const theirs = T('theirs', { parentTaskId: 'top', projectId: '', accessLevel: 'restricted', createdBy: 'boss@x.com' });
+    const there = T('there', { projectId: 'p2' });
+    const loose = T('loose', { projectId: '' });
+    const r = rule(top, [top, theirs, there, loose], { p2: 'editor' });
+    expect(r(there)).toBe(false);
+    expect(r(loose)).toBe(true);
+    const asOwner = rule(top, [top, { ...theirs, ownerId: ME }, there, loose], { p2: 'editor' });
+    expect(asOwner(there)).toBe(true);
+    expect(rule(top, [top, theirs, there], { p2: 'editor' }, { isManager: true })(there)).toBe(true);
+  });
+});
+
+describe('move undo', () => {
+  it('puts back the place, section, team and skip rule the move changed', () => {
+    expect(moveUndoBody({ parentTaskId: 'p', position: 3, teamId: 't1', recurrence: { skip: true } }))
+      .toEqual({ parentTaskId: 'p', teamId: 't1', position: 3, recurrence: { skip: true } });
+    expect(moveUndoBody({ parentTaskId: '', projectId: 'p1', sectionId: 's1', position: 7, teamId: '', recurrence: { freq: 'weekly' } }))
+      .toEqual({ parentTaskId: '', projectId: 'p1', sectionId: 's1', teamId: '', position: 7 });
+  });
+});
+
+describe('MoveTaskModal review fixes', () => {
+  it('says the subtasks leave their sections when it crosses projects', async () => {
+    const tasks = [T('a'), T('far', { projectId: 'p2' })];
+    state = makeStore(tasks);
+    const { default: MoveTaskModal } = await import('./MoveTaskModal');
+    render(<MoveTaskModal taskId="a" onClose={() => {}} />);
+    expect(screen.queryByTestId('move-crossing')).toBeNull();
+    fireEvent.click(within(screen.getByTestId('move-targets')).getByText('FAR'));
+    expect(screen.getByTestId('move-crossing').textContent).toContain('Office');
+  });
+
+  it('shows a refused move once, in the dialog', async () => {
+    const tasks = [T('a'), T('b')];
+    state = makeStore(tasks);
+    state.moveTask = vi.fn(() => Promise.reject(Object.assign(new Error('That parent is gone.'), { status: 422 })));
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const { default: MoveTaskModal } = await import('./MoveTaskModal');
+    const onClose = vi.fn();
+    render(<MoveTaskModal taskId="a" onClose={onClose} />);
+    fireEvent.click(within(screen.getByTestId('move-targets')).getByText('B'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Move' })); });
+    expect(screen.getByRole('alert').textContent).toBe('That parent is gone.');
+    expect(alert).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+});
+
+describe('list row menu', () => {
+  it('has no Move To on an HR checklist task', async () => {
+    const tasks = [T('plain', { title: 'Plain task' }), T('step', { title: 'Collect I-9', hrChecklist: true })];
+    state = makeStore(tasks);
+    const store = { ...state, customFields: [], statusMeta: state.statusMeta, statusOrder: state.statusOrder,
+      teamById: () => null, teamName: () => '', loading: false };
+    const { default: RichListView } = await import('./views/richlist');
+    render(<RichListView visible={tasks} group="none" ctx={{ nameOf: (e) => e, projectName: () => 'Plant', teamName: () => '', customFields: [] }}
+      store={store} people={[]} selected={new Set()} toggleSel={() => {}} onOpen={() => {}} onSelectAll={() => {}}
+      lockedProjectId="" hidden={new Set()} setHidden={() => {}} />);
+    expect(screen.getByLabelText('More actions for Plain task')).toBeTruthy();
+    expect(screen.queryByLabelText('More actions for Collect I-9')).toBeNull();
+  });
+});
+
 // ── Board ───────────────────────────────────────────────────────────────────
 describe('Board with Show Subtasks', () => {
   const parent = T('parent', { title: 'Pour slab' });
@@ -193,6 +289,22 @@ describe('Board with Show Subtasks', () => {
     expect(onOpen).toHaveBeenCalledWith('parent');
     // In its own status column: In Progress counts it, Not Started does not.
     expect(screen.getAllByText('1').length).toBeGreaterThan(0);
+  });
+
+  it('names no parent this person cannot open', async () => {
+    state = makeStore([kid]);
+    const { default: BoardView } = await import('./views/board');
+    render(<BoardView visible={[kid]} ctx={ctx} store={state} onOpen={() => {}} lockedProjectId="p1" showSubtasks onToggleSubtasks={() => {}} />);
+    const line = screen.getByTestId('subtask-of');
+    expect(line.textContent).toContain('Private Task');
+    expect(line.textContent).not.toContain('Pour slab');
+  });
+
+  it('has no switch where none is offered (a person-scoped or searched list)', async () => {
+    state = makeStore([parent, kid]);
+    const { default: BoardView } = await import('./views/board');
+    render(<BoardView visible={[parent, kid]} ctx={ctx} store={state} onOpen={() => {}} lockedProjectId="p1" />);
+    expect(screen.queryByRole('button', { name: /Show Subtasks/ })).toBeNull();
   });
 
   it('a read-only person sees the cards but cannot drag them', async () => {

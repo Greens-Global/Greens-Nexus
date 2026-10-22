@@ -478,7 +478,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   {/* Filed as a task when it is really a request for a team
                       (Neil, 10/05: "employees ... may still do it as a task"). */}
                   {canEdit && <MenuItem icon={<Copy size={14} />} onClick={() => { close(); setDuplicating(true); }}>Duplicate Task</MenuItem>}
-                  {canEdit && <MenuItem icon={<MoveRight size={14} />} onClick={() => { close(); setMoving(activeId); }}>Move To...</MenuItem>}
+                  {canEdit && !task.hrChecklist && <MenuItem icon={<MoveRight size={14} />} onClick={() => { close(); setMoving(activeId); }}>Move To...</MenuItem>}
                   <MenuItem icon={<Ticket size={14} />} onClick={() => { setConverting(true); close(); }}>Convert to Ticket</MenuItem>
                   {canEdit && <MenuItem icon={<LayoutTemplate size={14} />} onClick={() => { close(); setSavingTemplate(true); }}>Save as Template</MenuItem>}
                   {canEdit && <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
@@ -530,7 +530,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: NX.blue, textAlign: 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {parent.title}
                 </button>
-              ) : <span style={{ fontWeight: 600 }}>a task you cannot open</span>}
+              ) : <span style={{ fontWeight: 600 }}>Private Task</span>}
             </div>
           )}
           {/* Tabs are desktop-only. A phone has no room for seven of them, so
@@ -2118,7 +2118,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
                 repeat={subRepeat(s.recurrence, (r) => setSubRecurrence(s, r), s.dueOn)} />
             </span>
             {/* Move To... (Oct 22 2026): under another task, or up to the top. */}
-            {onMoveSub && rowEditable(s) && (
+            {onMoveSub && rowEditable(s) && !s.hrChecklist && (
               <button type="button" onClick={(e) => { e.stopPropagation(); onMoveSub(s.id); }}
                 title="Move To..." aria-label={`Move ${s.title} to another task`}
                 style={{ border: 'none', background: 'transparent', padding: 0, display: 'flex', color: NX.faint, cursor: 'pointer', flexShrink: 0 }}>

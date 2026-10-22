@@ -731,6 +731,62 @@ class ChecklistTests(unittest.TestCase):
         finally:
             task_notify.notify_task_event = real
 
+    # Move To (Oct 22 2026): the checklist's tasks are the sync's. A step
+    # moved out under an org-wide task was shown to everyone, and moving
+    # every step under somebody's own task let the next sync rewrite it.
+    def _org_task_for_manager(self):
+        db = database.SessionLocal()
+        try:
+            db.merge(models.TaskProject(id="orgproj", name="Org", access_level="org", owner_email=IT,
+                                      created_at="2026-10-01", modified_at="2026-10-01"))
+            db.commit()
+        finally:
+            db.close()
+        _as(MANAGER)
+        r = self.client.post("/tasks", json={"title": "Weekly report", "project_id": "orgproj",
+                                             "assignee_emails": [MANAGER], "description": "mine"})
+        self.assertEqual(r.status_code, 201, r.text)
+        return r.json()["id"]
+
+    def test_a_checklist_step_cannot_be_moved_out(self):
+        self._grant_tasks(MANAGER, IT)
+        cl = self._start(self._person())
+        rows, subs, parents = self._tasks_of(cl["id"], MANAGER)
+        mine = self._org_task_for_manager()
+        step = rows[0].task_id
+        r = self.client.patch(f"/tasks/{step}", json={"parent_task_id": mine})
+        self.assertEqual(r.status_code, 422, r.text)
+        r = self.client.patch(f"/tasks/{step}", json={"parent_task_id": ""})
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertIn(self._task(step).parent_task_id, parents)
+        _as(IT)
+        self.assertNotIn(step, {t["id"] for t in self.client.get("/tasks").json()})
+        # Nor pulled out through the other end of the link.
+        _as(MANAGER)
+        r = self.client.patch(f"/tasks/{mine}", json={"subtask_ids": [step]})
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertIn(self._task(step).parent_task_id, parents)
+
+    def test_nothing_moves_under_a_checklist_task_and_its_parent_stays(self):
+        self._grant_tasks(MANAGER, IT)
+        cl = self._start(self._person())
+        rows, subs, parents = self._tasks_of(cl["id"], MANAGER)
+        parent = parents.pop()
+        mine = self._org_task_for_manager()
+        self.assertEqual(self.client.patch(f"/tasks/{mine}", json={"parent_task_id": parent}).status_code, 422)
+        self.assertEqual(self.client.patch(f"/tasks/{parent}", json={"parent_task_id": mine}).status_code, 422)
+        self.assertEqual(self.client.patch(f"/tasks/{parent}", json={"subtask_ids": []}).status_code, 422)
+        # The payload says so, so the list can leave Move To off.
+        listed = {t["id"]: t for t in self.client.get("/tasks").json()}
+        self.assertTrue(listed[parent]["hrChecklist"])
+        self.assertTrue(listed[rows[0].task_id]["hrChecklist"])
+        self.assertFalse(listed[mine]["hrChecklist"])
+        # The sync keeps writing to the checklist's own task, never to mine.
+        r = self.client.patch(f"/hr/checklists/items/{rows[1].id}", json={"status": "done"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._task(mine).title, "Weekly report")
+        self.assertEqual(self._task(rows[0].task_id).parent_task_id, parent)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -145,7 +145,10 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
 
   // The Board / Timeline with Show Subtasks on: every subtask that passes the
   // same filter joins the view's rows (lib.withSubtasks).
-  const showBoardSubs = !!subsPref.board, showTimelineSubs = !!subsPref.timeline;
+  // A person-scoped or searched list already holds every subtask as a row
+  // of its own (personScoped), so there the switch would do nothing - none.
+  const flatScope = !!(filter.assigneeIds?.length || filter.collaboratorIds?.length || (filter.search || '').trim());
+  const showBoardSubs = !flatScope && !!subsPref.board, showTimelineSubs = !flatScope && !!subsPref.timeline;
   const boardTasks = useMemo(() => (showBoardSubs ? withSubtasks(visible, tasks, filter, store.taskById) : visible),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [showBoardSubs, visible, tasks, store.taskById]);
@@ -350,12 +353,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (
           <BoardView visible={boardTasks} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate}
-            showSubtasks={showBoardSubs} onToggleSubtasks={() => toggleSubtasks('board')} />
+            showSubtasks={showBoardSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('board')} />
         ) : view === 'calendar' ? (
           <CalendarView tasks={visible} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
         ) : view === 'timeline' ? (
           <TimelineView tasks={timelineTasks} onOpen={setOpenId} nameOf={nameOf} taskById={store.taskById}
-            showSubtasks={showTimelineSubs} onToggleSubtasks={() => toggleSubtasks('timeline')} />
+            showSubtasks={showTimelineSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('timeline')} />
         ) : view === 'files' ? (
           <FilesView tasks={visible} onOpen={setOpenId} nameOf={nameOf} />
         ) : (view === 'workload' && showWorkload) ? (

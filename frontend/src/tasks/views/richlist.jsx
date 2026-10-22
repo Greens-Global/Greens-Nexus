@@ -1543,7 +1543,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                   {groupHeader(g)}
                   {g.tasks.slice(0, groupBudgets[gi] ?? g.tasks.length).map((t, ri) => (
                     <TaskRow key={t.id} t={t} band={ri % 2 === 1} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onPick={pickRow} onOpen={onOpen}
-                      onMove={store.moveTask && canEditTask(t) ? setMoving : null}
+                      onMove={store.moveTask && !t.hrChecklist && canEditTask(t) ? setMoving : null}
                       personWidth={personWidth} groupColor={gc} projectOptions={projectOptions} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); setDropRow(null); }}
                       onRowDragOver={manualSort ? rowDragOver(t) : undefined}
                       onRowDrop={manualSort ? rowDrop(g, t) : undefined}

@@ -282,6 +282,53 @@ export function moveTargets(task, tasks, { canEdit = () => true, taskById = null
       || String(a.title || '').localeCompare(String(b.title || ''), 'en', { sensitivity: 'base', numeric: true }));
 }
 
+/** The server's Move To rule as a predicate over targets (backend
+ *  routers/tasks._plan_move): (target) => would moving `task` under it be
+ *  accepted? `target` null = Make Top-Level Task (same project).
+ *    - never an HR checklist task, either end;
+ *    - editor on the task itself and on the target (an assignee counts, as
+ *      on the server; a role this browser cannot work out does not);
+ *    - into another project: editor on both projects by their own roles
+ *      (team roles included, an assignee does not count), and every private
+ *      row that goes must be one this person may open up - a manager, its
+ *      owner or creator, or an editor of the project it leaves. */
+export function moveRule(task, { tasks = [], projects = [], teams = [], taskById = null, email = '', isManager = false } = {}) {
+  const opts = { projects, teams, taskById, email, isManager };
+  const isEditor = (r) => !!r && roleAtLeast(r, 'editor');
+  const projectEditor = (pid) => isEditor(taskRoleFor({ id: '', projectId: pid, parentTaskId: '' }, { ...opts, countAssignee: false }));
+  if (!task || task.hrChecklist || !isEditor(taskRoleFor(task, opts))) return () => false;
+  const home = effectiveProjectId(task, taskById);
+  const below = descendantIds(task.id, tasks);
+  const rows = [task, ...(tasks || []).filter((t) => below.has(t.id))];
+  const me = (email || '').toLowerCase();
+  const mayOpenUp = (row) => isManager || (home && projectEditor(home))
+    || [row.ownerId, row.createdBy].some((e) => (e || '').toLowerCase() === me && !!me);
+  const privateRowsOk = rows.every((r) => (r.accessLevel || 'org') === 'org' || mayOpenUp(r));
+  return (target) => {
+    if (!target) return true;
+    if (target.hrChecklist || !isEditor(taskRoleFor(target, opts))) return false;
+    const dest = effectiveProjectId(target, taskById);
+    if (dest === home) return true;
+    if (home && !projectEditor(home)) return false;
+    if (dest && !projectEditor(dest)) return false;
+    return !dest || privateRowsOk;
+  };
+}
+
+/** The PATCH that puts a moved task back (Move To's Undo): under its old
+ *  parent, or top-level in its old project and section - with the place,
+ *  team and "skip this occurrence" rule the move changed. `before` is the
+ *  task as it was. */
+export function moveUndoBody(before) {
+  const back = before.parentTaskId
+    ? { parentTaskId: before.parentTaskId }
+    : { parentTaskId: '', projectId: before.projectId || '', sectionId: before.sectionId || '' };
+  back.teamId = before.teamId || '';
+  if (before.position != null) back.position = before.position;
+  if (before.recurrence?.skip && !before.recurrence?.freq) back.recurrence = before.recurrence;
+  return back;
+}
+
 // ── Show Subtasks on the Board and Timeline (Neil, Oct 22 2026) ────────────
 /** `visible` (the view's own rows - top-level unless person-scoped) plus
  *  every subtask that matches the same filter, wherever its parent is: a

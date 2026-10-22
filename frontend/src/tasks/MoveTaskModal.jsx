@@ -2,15 +2,16 @@
 // subtask a top-level task. Opened from the task drawer's header menu, from
 // each subtask row in the drawer, and from a list row's menu. The server does
 // the work (PATCH parent_task_id - the whole subtree goes with it); this
-// picks the destination. Only tasks this person can edit are offered, never
-// the task itself or anything under it.
+// picks the destination. Only moves the server would take are offered
+// (lib.moveRule): never the task itself or anything under it, never an HR
+// checklist task, and into another project only with editor on both ends.
 import { useMemo, useState } from 'react';
 import { CornerDownRight, ArrowUpToLine, Search, Check } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { useCanEditTask } from './canEditTask';
+import { useRole } from '../contexts/RoleContext';
 import { Modal, SearchSelect } from './components';
 import { NX, FONT, btn, input as inputStyle } from './theme';
-import { moveTargets, effectiveProjectId, rootParent } from './lib';
+import { moveTargets, moveRule, effectiveProjectId, rootParent } from './lib';
 import { useCustomSections } from './customSections';
 
 // Matches rendered at once - the workspace can hold thousands of tasks.
@@ -21,7 +22,11 @@ export default function MoveTaskModal({ taskId, onClose, onMoved }) {
   const store = useTasks();
   const { tasks, taskById, projectName, moveTask } = store;
   const task = taskById[taskId];
-  const canEdit = useCanEditTask(store);
+  const { canAccessModule } = useRole() || {};
+  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'owner');
+  const accepts = useMemo(() => moveRule(task, {
+    tasks, projects: store.projects, teams: store.teams, taskById, email: store.myEmail, isManager,
+  }), [task, tasks, store.projects, store.teams, taskById, store.myEmail, isManager]);
   const homeProject = task ? effectiveProjectId(task, taskById) : '';
   const sec = useCustomSections(homeProject);
   const [q, setQ] = useState('');
@@ -30,14 +35,19 @@ export default function MoveTaskModal({ taskId, onClose, onMoved }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const targets = useMemo(() => moveTargets(task, tasks, { canEdit, taskById }), [task, tasks, canEdit, taskById]);
+  const targets = useMemo(() => moveTargets(task, tasks, { canEdit: accepts, taskById }), [task, tasks, accepts, taskById]);
   const query = q.trim().toLowerCase();
   const matches = useMemo(() => (query
     ? targets.filter((t) => `${t.title || ''} ${t.code || ''}`.toLowerCase().includes(query))
     : targets), [targets, query]);
 
   if (!task) return null;
-  const isSub = !!task.parentTaskId;
+  const isSub = !!task.parentTaskId && accepts(null);
+  // Into another project the subtasks follow and leave their sections and
+  // teams behind - said before the move, not discovered after.
+  const picked = pick && pick !== TOP ? taskById[pick] : null;
+  const intoProject = picked ? effectiveProjectId(picked, taskById) : homeProject;
+  const crossing = !!picked && intoProject !== homeProject;
   const where = (t) => {
     const top = rootParent(t, taskById);
     const proj = projectName(effectiveProjectId(t, taskById)) || 'No project';
@@ -54,7 +64,7 @@ export default function MoveTaskModal({ taskId, onClose, onMoved }) {
       onMoved?.(pick === TOP ? '' : pick);
       onClose();
     } catch (e) {
-      // updateTask already said why in an alert; keep the dialog open.
+      // Said here only (moveTask does not alert as well); the dialog stays.
       setError(e?.message || 'That move did not save. Try again.');
       setBusy(false);
     }
@@ -136,6 +146,11 @@ export default function MoveTaskModal({ taskId, onClose, onMoved }) {
             </div>
           )}
         </div>
+        {crossing && (
+          <div data-testid="move-crossing" style={{ fontSize: 12.5, color: NX.dim }}>
+            This moves it and its subtasks into {projectName(intoProject) || 'no project'}. Their sections and teams there are cleared.
+          </div>
+        )}
         {error && <div role="alert" style={{ fontSize: 12.5, color: NX.red }}>{error}</div>}
       </div>
     </Modal>

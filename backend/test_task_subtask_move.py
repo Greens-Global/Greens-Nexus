@@ -10,9 +10,14 @@
   - behind the company wall a task moves only under a task of its company;
   - the whole subtree goes into the new project, trashed rows included, so
     a restore lands in the right place;
-  - under a restricted parent the moved rows become restricted too;
-  - an activity line says what happened; every row the move touched is in
-    the next GET /tasks/delta.
+  - a move never changes anyone's access level, and never moves a private
+    row into a wider project unless the mover could open it up anyway;
+  - two crossing moves cannot make a loop (checked again after the lock);
+  - an Undo puts back position, section, team and a skip rule;
+  - an activity line says what happened (never naming a private parent);
+    every row the move touched is in the next GET /tasks/delta;
+  - search never names a parent the caller cannot see.
+HR checklist tasks are covered in test_hr_checklists.py.
 
 Throwaway SQLite, no network.  python -m pytest test_task_subtask_move.py
 """
@@ -214,6 +219,72 @@ class MoveTests(Base):
         self.assertEqual(self.row(nxt_id).parent_task_id, b.id)
 
 
+    def test_crossing_moves_cannot_make_a_loop(self):
+        # X-under-P is checked, then - before its rows are locked - another
+        # request lands P-under-X. The check after the lock sees it.
+        x = self.task("X", project_id=self.ops.id)
+        p = self.task("P", project_id=self.ops.id)
+        real = T._lock_task_rows
+        fired = []
+
+        def racing_lock(db, ids, skip_locked=False):
+            if not fired:
+                fired.append(1)
+                other = database.SessionLocal()
+                try:
+                    row = other.query(models.Task).filter(models.Task.id == p.id).first()
+                    row.parent_task_id = x.id
+                    other.commit()
+                finally:
+                    other.close()
+            return real(db, ids, skip_locked)
+
+        T._lock_task_rows = racing_lock
+        try:
+            self.assertEqual(self.code(lambda: self.move(x, parent_task_id=p.id)), 422)
+        finally:
+            T._lock_task_rows = real
+        self.assertEqual(self.row(x.id).parent_task_id, "")
+        self.assertEqual(self.row(p.id).parent_task_id, x.id)
+
+    def test_undo_puts_back_the_place_section_team_and_skip_rule(self):
+        sec = models.TaskSection(id=gen_id(), project_id=self.ops.id, name="Later", custom=True)
+        self.db.add(sec)
+        self.db.commit()
+        a = self.task("A", project_id=self.ops.id, recurrence={"freq": "weekly", "interval": 1})
+        kid = self.task("Kid", parent=a, recurrence={"skip": True}, position=3)
+        self.move(kid, parent_task_id="")
+        self.assertIsNone(self.row(kid.id).recurrence)
+        # The Undo sends what the task had.
+        self.move(self.row(kid.id), parent_task_id=a.id, position=3, recurrence={"skip": True})
+        r = self.row(kid.id)
+        self.assertEqual((r.parent_task_id, r.position, r.recurrence), (a.id, 3, {"skip": True}))
+        top = self.task("Top", project_id=self.ops.id, section_id=sec.id, team_id="team-1", position=7)
+        self.move(top, parent_task_id=a.id)
+        self.move(self.row(top.id), parent_task_id="", project_id=self.ops.id, section_id=sec.id,
+                  team_id="team-1", position=7)
+        r = self.row(top.id)
+        self.assertEqual((r.parent_task_id, r.section_id, r.team_id, r.position), ("", sec.id, "team-1", 7))
+
+    def test_a_subtree_keeps_its_sections_when_the_project_does_not_change(self):
+        sec = models.TaskSection(id=gen_id(), project_id=self.ops.id, name="Now", custom=True)
+        self.db.add(sec)
+        self.db.commit()
+        a = self.task("A", project_id=self.ops.id)
+        b = self.task("B", project_id=self.ops.id)
+        kid = self.task("Kid", parent=a)
+        grand = self.task("Grand", parent=kid, section_id=sec.id)
+        self.move(kid, parent_task_id=b.id)
+        self.assertEqual(self.row(grand.id).section_id, sec.id)
+
+    def test_a_blank_child_taken_off_the_list_keeps_its_project(self):
+        a = self.task("A", project_id=self.ops.id)
+        kid = self.task("Kid", parent=a, project_id="")
+        self.move(a, subtask_ids=[])
+        r = self.row(kid.id)
+        self.assertEqual((r.parent_task_id, r.project_id), ("", self.ops.id))
+
+
 class CrossProjectTests(Base):
     def setUp(self):
         super().setUp()
@@ -279,15 +350,66 @@ class CrossProjectTests(Base):
         self.assertFalse(self.row(leaf.id).deleted_at)
         self.assertEqual(self.row(leaf.id).parent_task_id, kid.id)
 
-    def test_a_restricted_parent_restricts_what_moves_under_it(self):
+    def test_a_move_never_changes_anyones_access_level(self):
+        # Under a restricted parent and back out again (the Undo): every row
+        # keeps the level it had - nothing sticks restricted, nothing opens.
+        a = self.task("A", created_by=EDITOR["email"], access_level="org")
+        c = self.task("C", parent=a, created_by=OWNER["email"], access_level="org")
+        r = self.task("Private parent", created_by=EDITOR["email"], access_level="restricted")
+        self.move(a, user=EDITOR, parent_task_id=r.id)
+        self.assertEqual((self.row(a.id).access_level, self.row(c.id).access_level), ("org", "org"))
+        self.assertEqual(self.activity(a.id), ["moved this task under another task"],
+                         "a private parent's code stays out of the history")
+        self.move(self.row(a.id), user=EDITOR, parent_task_id="")
+        self.assertEqual((self.row(a.id).access_level, self.row(c.id).access_level), ("org", "org"))
+
+    def test_private_tasks_do_not_move_into_a_wider_project(self):
+        # Assigned a restricted standalone task (editor on THAT task), but not
+        # its owner or creator: may not widen it directly, nor by moving it
+        # under a task in an org-wide project.
+        org = self.project("Org", access_level="org")
+        x = self.task("Org task", project_id=org.id, created_by=EDITOR["email"])
+        secret = self.task("Secret", created_by=OWNER["email"], owner_email=OWNER["email"],
+                           access_level="restricted", assignee_email=EDITOR["email"],
+                           assignee_emails=[EDITOR["email"]])
+        kid = self.task("Secret kid", parent=secret, created_by=OWNER["email"], access_level="restricted")
+        self.assertEqual(self.code(lambda: self.move(secret, user=EDITOR, access_level="org")), 403)
+        self.assertEqual(self.code(lambda: self.move(self.row(secret.id), user=EDITOR, parent_task_id=x.id)), 403)
+        s, k = self.row(secret.id), self.row(kid.id)
+        self.assertEqual((s.parent_task_id, s.project_id, k.project_id), ("", "", ""))
+        # Its owner may.
+        self.move(self.row(secret.id), user=OWNER, parent_task_id=x.id)
+        self.assertEqual(self.row(secret.id).project_id, org.id)
+        self.assertEqual(self.row(secret.id).access_level, "restricted")
+
+    def test_one_private_subtask_is_enough_to_refuse(self):
         a, kid, leaf, binned, target = self._tree()
-        target.access_level = "restricted"
-        open_task = self.task("Open", project_id=self.dst.id, access_level="org")
-        open_kid = self.task("Open kid", parent=open_task, access_level="org")
+        # Owner-created private step somewhere down the tree: a project editor
+        # of the source may move it (the same person may open it up).
+        leaf.access_level = "restricted"
         self.db.commit()
-        self.move(open_task, user=EDITOR, parent_task_id=target.id)
-        self.assertEqual(self.row(open_task.id).access_level, "restricted")
-        self.assertEqual(self.row(open_kid.id).access_level, "restricted")
+        self.move(kid, user=EDITOR, parent_task_id=target.id)
+        self.assertEqual(self.row(leaf.id).access_level, "restricted")
+        # A standalone tree has no project editor: a private row in it needs
+        # its owner, creator or a manager.
+        top = self.task("Mine", created_by=EDITOR["email"])
+        self.task("Theirs", parent=top, created_by=OWNER["email"], access_level="restricted")
+        self.assertEqual(self.code(lambda: self.move(top, user=EDITOR, parent_task_id=target.id)), 403)
+        self.move(self.row(top.id), user=MANAGER, parent_task_id=target.id)
+        self.assertEqual(self.row(top.id).parent_task_id, target.id)
+
+    def test_an_assignee_who_only_views_the_project_can_lift_a_blank_subtask_out(self):
+        p = self.project("Restricted", member_roles={EDITOR["email"]: "viewer"}, member_emails=[EDITOR["email"]])
+        top = self.task("Top", project_id=p.id)
+        sub = self.task("Sub", parent=top, project_id="", assignee_email=EDITOR["email"],
+                        assignee_emails=[EDITOR["email"]])
+        self.move(sub, user=EDITOR, parent_task_id="")
+        r = self.row(sub.id)
+        self.assertEqual((r.parent_task_id, r.project_id), ("", p.id))
+        sub2 = self.task("Sub2", parent=top, project_id=p.id, assignee_email=EDITOR["email"],
+                         assignee_emails=[EDITOR["email"]])
+        self.move(sub2, user=EDITOR, parent_task_id="", project_id=p.id)   # the hint the client sends
+        self.assertEqual(self.row(sub2.id).parent_task_id, "")
 
     def test_the_delta_hands_every_moved_row_to_other_clients(self):
         a, kid, leaf, binned, target = self._tree()
@@ -306,6 +428,18 @@ class CrossProjectTests(Base):
         r = self.row(kid.id)
         self.assertEqual((r.parent_task_id, r.project_id), (target.id, self.dst.id))
         self.assertEqual(self.activity(kid.id), [f"moved this task under {target.code}"])
+
+
+class PrivateParentTests(Base):
+    def test_search_does_not_name_a_parent_the_caller_cannot_see(self):
+        hidden = self.project("HR")
+        secret = self.task("Salary review", project_id=hidden.id, access_level="restricted")
+        open_kid = self.task("Quarterly survey", parent=secret, project_id="", access_level="org")
+        out = T.search_everything(q="quarterly", limit=6, user=VIEWER, db=self.db)
+        [hit] = [t for t in out["tasks"] if t["id"] == open_kid.id]
+        self.assertEqual(hit["parentTitle"], "")
+        out = T.search_everything(q="quarterly", limit=6, user=MANAGER, db=self.db)
+        self.assertEqual([t["parentTitle"] for t in out["tasks"]], ["Salary review"])
 
 
 class WallTests(Base):
