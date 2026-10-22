@@ -2106,6 +2106,9 @@ export const api = {
   getAccountingJournals:   ()               => req('/accounting/journals'),
   // Oct 23 (CR-12): Records > General Ledger Accounts - the chart ({source, accounts}).
   getAccountingAccounts:   ()               => req('/accounting/accounts'),
+  // Oct 23 (CR-10): Audit & Insights > Manual Journal Entries - who keyed each entry, read from Intacct.
+  getManualJournalEntries: ({ from, to, locations = [], journals = [], user = '', edited = true }) =>
+    req(`/accounting/manual-entries?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${journals.length ? `&journals=${encodeURIComponent(journals.join(','))}` : ''}${user ? `&user=${encodeURIComponent(user)}` : ''}${edited ? '' : '&edited=false'}`, { timeoutMs: 120_000 }),
   getAccountingFluxNotes:  (entity, period) => req(`/accounting/flux-notes?entity=${encodeURIComponent(entity || 'all')}&period=${encodeURIComponent(period)}`),
   saveAccountingFluxNote:  (body)           => req('/accounting/flux-notes', { method: 'PUT', body: JSON.stringify(body) }),
 

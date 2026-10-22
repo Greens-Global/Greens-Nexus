@@ -129,6 +129,19 @@ export const T12_MONTHS = 12;
 // full months AND the current month to date as a 13th column. Off.
 export const T12_INCLUDE_CURRENT_MONTH = false;
 
+// ── CR-10 Manual Journal Entries ────────────────────────────────────────────
+// Which entries count as manual is the server's (backend MANUAL_JE_* in
+// accounting_assumptions.py; a system entry a person changed counts - team
+// answer, 23 Oct). These are only how the screen opens.
+
+// CR-10 (assumption, Charmi to confirm): opens on Last Month - the month a
+// controller reviews at close; the stepper changes it.
+export const MANUAL_JE_DEFAULT_PRESET = 'last-month';
+// CR-10 (assumption, Charmi to confirm): the list opens grouped by the person
+// who keyed each entry, since spotting one person's pattern is the point
+// (Neil: "most companies review their manual entries").
+export const MANUAL_JE_GROUP_BY_USER = true;
+
 // ── CR-12 Records menu ──────────────────────────────────────────────────────
 // Team answer, 23 Oct - Charmi's edited Teams post: "Under Records - Change
 // Chart of Accounts to General Ledger Accounts and also add Journals and under

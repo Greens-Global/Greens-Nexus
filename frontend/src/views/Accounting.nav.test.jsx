@@ -49,6 +49,7 @@ vi.mock('../components/accounting/AskAccountantTab', () => ({ default: ({ limite
 vi.mock('../components/accounting/ManagementFeesTab', () => stub('mgmt-fees'));
 vi.mock('../components/accounting/CompensationReport', () => stub('compensation'));
 vi.mock('../components/accounting/RecordsLists', () => ({ GlAccountsTab: () => <div data-testid="tab-gl-accounts" />, EntitiesTab: () => <div data-testid="tab-entities" /> }));
+vi.mock('../components/accounting/ManualJournalEntries', () => stub('manual-je'));
 vi.mock('../components/accounting/JournalTab', () => ({ default: ({ symbol }) => <div data-testid="tab-journal" data-symbol={symbol} /> }));
 vi.mock('../components/accounting/dashboard/OverviewTab', () => stub('overview'));
 vi.mock('../components/accounting/dashboard/CashTab', () => stub('cash'));
@@ -119,6 +120,15 @@ describe('Accounting navigation', () => {
     expect(menuLabels('Records')).toEqual(['Vendors', 'Customers', 'General Ledger Accounts', 'Entities', 'Journals']);
   });
 
+  it('opens Manual Journal Entries from Audit & Insights, for a limited person too (CR-10)', async () => {
+    role.limited = true;
+    render(<Harness start="overview" />);
+    await choose(/^Reports/, 'Audit & Insights', 'Manual Journal Entries');
+    expect(screen.getByTestId('sub').textContent).toBe('manual-je');
+    expect(await screen.findByTestId('tab-manual-je')).toBeTruthy();
+    expect(screen.getByText(/Journal entries a person keyed in Intacct/)).toBeTruthy();
+  });
+
   it('opens General Ledger Accounts, Entities and every configured journal from Records (CR-12)', async () => {
     render(<Harness start="overview" />);
     await choose(/^Records/, 'General Ledger Accounts');
@@ -172,7 +182,8 @@ describe('Accounting navigation', () => {
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Payroll & People' }));
     expect(menuLabels('Payroll & People')).toEqual(['Compensation']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
-    expect(menuLabels('Audit & Insights')).toEqual(['Flux Analysis', 'MRE', 'MRI', 'AMA', 'Profitability', 'Management Fees']);
+    // CR-10 / CR-04: Neil's six in his order, then Management Fees.
+    expect(menuLabels('Audit & Insights')).toEqual(['Flux Analysis', 'MRE', 'MRI', 'AMA', 'Manual Journal Entries', 'Profitability', 'Management Fees']);
     fireEvent.click(screen.getByRole('menuitem', { name: 'MRE' }));
     expect(await screen.findByTestId('tab-mre')).toBeTruthy();
   });

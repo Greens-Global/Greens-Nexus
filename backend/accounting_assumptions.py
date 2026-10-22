@@ -170,6 +170,54 @@ BUILDER_COMPARE_KEYS = ("prior_period", "prior_year")
 # level; no editor check). Publishing never shares: `shared` (everyone) is
 # set only by Share With Everyone, and sharing publishes.
 
+# ── CR-10: Manual Journal Entries ────────────────────────────────────────────
+# Team answer, Teams 23 Oct (Neil), on "Should a system-created entry that a
+# person later edited count as manual?": "Yes". Who keyed an entry is read
+# from Intacct's journal entry header (GLBATCH CREATEDBY / MODIFIEDBY, as
+# login IDs through USERINFO) - read only (intacct_client.read_entry_audit).
+
+def _logins(name: str, default: tuple) -> tuple:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return tuple(x.strip().lower() for x in raw.split(",") if x.strip())
+
+
+# CR-10 (assumption, Charmi to confirm): the users who are NOT people - an
+# entry they created is not manual. "system" is what Intacct's History shows
+# for a bank-feed or rule entry (change-10-b). Override with
+# NEXUS_MANUAL_JE_EXCLUDED_USERS="system,other.login".
+MANUAL_JE_EXCLUDED_USERS = _logins("NEXUS_MANUAL_JE_EXCLUDED_USERS", ("system",))
+
+# CR-10 (assumption, Charmi to confirm): the Web Services user Nexus and the
+# accounting app sign in as (INTACCT_USER_ID) is a system user too - what it
+# writes (an approved AMA reclass) was approved in Nexus, not keyed in Intacct.
+MANUAL_JE_API_USER_IS_SYSTEM = _flag("NEXUS_MANUAL_JE_API_USER_IS_SYSTEM", True)
+
+# CR-10 (assumption, Charmi to confirm): an entry whose header names a source
+# or rule (any GLBATCH field with SOURCE or RULE in its name - "Transaction
+# source: Rule", a Rule ID) containing one of these words was not created by
+# hand, whoever Intacct names as its creator.
+MANUAL_JE_EXCLUDED_SOURCES = _logins("NEXUS_MANUAL_JE_EXCLUDED_SOURCES", ("rule", "bank feed", "bankfeed", "recurring", "allocation"))
+
+# CR-10 (confirmed by team, 23 Oct): a system-created entry a person later
+# changed (MODIFIEDBY is a person) counts as manual, marked "Changed by a
+# person". Note: Intacct also stamps MODIFIEDBY when a person only POSTS a
+# rule's draft - the header cannot tell the two apart; the screen says so.
+MANUAL_JE_EDITED_COUNTS = _flag("NEXUS_MANUAL_JE_EDITED_COUNTS", True)
+
+# CR-10 (assumption, Charmi to confirm): only entries the General Ledger owns
+# (MODULE "2.GL"; blank when not returned) - a bill or deposit posted from
+# AP, AR or Cash Management is a subledger document, not a journal entry.
+MANUAL_JE_MODULES = ("2.GL", "GL", "")
+
+# CR-10 (assumption, Charmi to confirm): the longest range one run reads
+# (Intacct is read live) - a year.
+MANUAL_JE_MAX_DAYS = _env_int("NEXUS_MANUAL_JE_MAX_DAYS", 366)
+
+# CR-10: how long one range's read is kept before Intacct is asked again.
+MANUAL_JE_CACHE_SECONDS = _env_int("NEXUS_MANUAL_JE_CACHE_SECONDS", 300)
+
 # ── CR-13: AMA (Ask My Accountant) reclass flow ─────────────────────────────
 # Team answers, Teams 23 Oct 2026 ~02:22 IST (Neil): "Show all offsetting
 # accounts. Bookkeepers are currently Charmi, Neil, Urmi Priyanka and Vinod,

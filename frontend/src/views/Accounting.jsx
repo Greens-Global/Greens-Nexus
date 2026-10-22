@@ -45,7 +45,8 @@ import { STATEMENTS_SUB } from '../components/accounting/drill';
 import { BUILDER_PUBLISH_MIN_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
 import { EntitiesTab, GlAccountsTab } from '../components/accounting/RecordsLists';
 import JournalTab from '../components/accounting/JournalTab';
-import { Building2, Library } from 'lucide-react';
+import ManualJournalEntries from '../components/accounting/ManualJournalEntries';
+import { Building2, Library, UserPen } from 'lucide-react';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -148,6 +149,8 @@ const BASE_TABS = [
       // Oct 15 (Neil: "AMA means Ask My Accountant"): questions on ledger lines
       // and the lines parked on the Ask My Accountant account.
       { key: 'ama', label: 'AMA', Icon: MessageCircleQuestion },
+      // Oct 23 (Neil, CR-10): the entries a person keyed in Intacct - who and when.
+      { key: 'manual-je', label: 'Manual Journal Entries', Icon: UserPen },
       // Oct 15: per-entity NOI / net income / debt service vs prior year.
       { key: 'profitability', label: 'Profitability', Icon: ChartColumn },
     ] },
@@ -210,7 +213,7 @@ function placeItems(items, placement = REPORT_MENU_PLACEMENT) {
 }
 const TABS = placeItems(BASE_TABS);
 // Every `rpt-` key (a statement or a quick view) is Reports, open to a limited person too.
-const LIMITED_TABS = ['reports', 'report-builder', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'customers', 'imports', 'ama', 'mgmt-fees', 'profitability', 'gl-accounts', 'entities'];
+const LIMITED_TABS = ['reports', 'report-builder', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'customers', 'imports', 'ama', 'mgmt-fees', 'profitability', 'gl-accounts', 'entities', 'manual-je'];
 // Links made before a rename still land; a group's own key opens its first item.
 const ALIAS = { leasing: 'mri', financing: 'loans' };
 const leafKeys = (items) => items.flatMap((t) => (t.items ? leafKeys(t.items) : [t.key]));
@@ -365,6 +368,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     profitability: 'Revenue, NOI, net income and cash flow after debt service per entity, against the prior year',
     compensation: 'Hours and gross wages per employee from Time Clock, with payroll expense on the ledger',
     'gl-accounts': 'The chart of accounts - every general ledger account, read-only',
+    'manual-je': 'Journal entries a person keyed in Intacct - who created and posted each one, for review',
     entities: 'The entities (Intacct locations) on the ledger, with their parents',
     journal: 'One journal\'s lines, with every report filter, search and column',
   }[isReports(sub) ? 'statements' : sub === 'customers' ? 'partners' : journalOf(sub) ? 'journal' : sub];
@@ -373,6 +377,7 @@ export default function Accounting({ activeSub, onSubChange }) {
       {sub === 'gl-accounts' && <GlAccountsTab />}
       {sub === 'entities' && <EntitiesTab />}
       {journalOf(sub) && <JournalTab key={sub} symbol={journalOf(sub)} />}
+      {sub === 'manual-je' && <ManualJournalEntries />}
     </>
   );
   const partnersTab = (sub === 'partners' || sub === 'customers') && (

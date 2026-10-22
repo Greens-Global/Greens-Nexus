@@ -379,14 +379,14 @@ def _open(post: Optional[Poster], verb: str):
     return post, url, creds, f"<sessionid>{escape(sid.strip())}</sessionid>"
 
 
-def _query_all(conn, obj: str, query: str, fields: str = "*") -> list:
+def _query_all(conn, obj: str, query: str, fields: str = "*", max_pages: int = 20) -> list:
     post, url, creds, sess = conn
     result = _call(post, url, creds, sess, f"<readByQuery><object>{obj}</object><fields>{escape(fields)}</fields>"
                                            f"<query>{escape(query)}</query><pagesize>{PAGE_SIZE}</pagesize></readByQuery>")
     rows, result_id, remaining = _rows(result)
     pages = 1
     while remaining > 0 and result_id:
-        if pages >= 20:
+        if pages >= max_pages:
             raise IntacctError(f"Intacct kept returning more {obj} rows than expected. Nothing was changed.")
         result = _call(post, url, creds, sess, f"<readMore><resultId>{escape(result_id)}</resultId></readMore>")
         more, next_id, remaining = _rows(result)
@@ -510,3 +510,84 @@ def update_gl_batch(update: dict, post: Optional[Poster] = None) -> str:
             if el.tag.upper() == "RECORDNO" and (el.text or "").strip():
                 return el.text.strip()
     return "success"
+
+
+# ── Who keyed an entry (CR-10, Oct 23) ───────────────────────────────────────
+# Reports > Audit & Insights > Manual Journal Entries. Neither the Nexus
+# Accounting ledger copy nor its sync keeps who created an entry, so the
+# journal entry headers (GLBATCH) are read here, READ ONLY, for a date range:
+# every field ("*"), so CREATEDBY, MODIFIEDBY, WHENCREATED, WHENMODIFIED and
+# whatever source / rule fields the company exposes come back. Intacct
+# answers CREATEDBY / MODIFIEDBY as a user's record number; USERINFO turns
+# those into login IDs ("vinod.bhole", "system"). Lines (GLENTRY) are read
+# only for the entries a caller keeps, for their amount and entities.
+_ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_SYMBOL = re.compile(r"^[A-Za-z0-9_-]{1,20}$")
+AUDIT_MAX_PAGES = 100      # 100,000 entry headers in one range at most
+_LINE_CHUNK = 100          # BATCHNO IN (...) values per GLENTRY read
+
+
+def _us_day(iso: str) -> str:
+    if not _ISO_DAY.match(iso or ""):
+        raise IntacctError("Pick a from and a to date. Nothing was read.")
+    return f"{iso[5:7]}/{iso[8:10]}/{iso[0:4]}"
+
+
+def _audit_head(row: dict) -> dict:
+    """A GLBATCH row as the audit read keeps it; `sourceFields` = every
+    header field whose name speaks of a source or a rule (as read)."""
+    return {
+        "recordNo": row.get("RECORDNO", ""), "batchNo": row.get("BATCHNO", "") or row.get("BATCH_NUMBER", ""),
+        "journal": row.get("JOURNAL", ""), "date": _iso_us(row.get("BATCH_DATE", "")), "title": row.get("BATCH_TITLE", ""),
+        "state": row.get("STATE", ""), "module": row.get("MODULE", ""),
+        "createdBy": row.get("CREATEDBY", ""), "modifiedBy": row.get("MODIFIEDBY", ""),
+        "whenCreated": row.get("WHENCREATED", ""), "whenModified": row.get("WHENMODIFIED", ""),
+        "sourceFields": {k: v for k, v in row.items() if ("SOURCE" in k or "RULE" in k) and str(v or "").strip()},
+    }
+
+
+def _quoted(values) -> str:
+    return ",".join(f"'{v}'" for v in values)
+
+
+def read_entry_audit(from_iso: str, to_iso: str, journals=None, keep=None, post: Optional[Poster] = None) -> dict:
+    """{entries, users}: the journal entry headers dated from..to (optionally
+    of some journals) with who created and last changed each one, as login
+    IDs; for the entries `keep(entry)` accepts (all when None), `amount` (the
+    debits) and `locations` (the entities of its lines). Reads only."""
+    syms = [str(s).strip().upper() for s in (journals or []) if str(s or "").strip()]
+    if any(not _SYMBOL.match(s) for s in syms):
+        raise IntacctError("A journal symbol is letters and numbers only. Nothing was read.")
+    query = f"BATCH_DATE >= '{_us_day(from_iso)}' AND BATCH_DATE <= '{_us_day(to_iso)}'"
+    if syms:
+        query += f" AND JOURNAL IN ({_quoted(syms)})"
+    conn = _open(post, "read")
+    heads = [_audit_head(r) for r in _query_all(conn, "GLBATCH", query, max_pages=AUDIT_MAX_PAGES)]
+    users = {}
+    for u in _query_all(conn, "USERINFO", "", "RECORDNO,LOGINID,DESCRIPTION", max_pages=AUDIT_MAX_PAGES):
+        login = str(u.get("LOGINID") or "").strip()
+        if login:
+            users[str(u.get("RECORDNO") or "").strip()] = login
+    for h in heads:
+        for k in ("createdBy", "modifiedBy"):
+            v = str(h[k] or "").strip()
+            h[k] = users.get(v, v)
+    kept = [h for h in heads if keep is None or keep(h)]
+    keys = [str(h["recordNo"]) for h in kept if _NUM.match(str(h["recordNo"] or ""))]
+    totals: dict = {}
+    for i in range(0, len(keys), _LINE_CHUNK):
+        chunk = keys[i:i + _LINE_CHUNK]
+        for ln in _query_all(conn, "GLENTRY", f"BATCHNO IN ({_quoted(chunk)})", "BATCHNO,TR_TYPE,AMOUNT,TRX_AMOUNT,LOCATION", max_pages=AUDIT_MAX_PAGES):
+            t = totals.setdefault(str(ln.get("BATCHNO") or ""), {"amount": 0.0, "locations": set()})
+            if str(ln.get("TR_TYPE") or "").strip() != "-1":
+                try:
+                    t["amount"] += abs(float(ln.get("AMOUNT") or ln.get("TRX_AMOUNT") or 0))
+                except ValueError:
+                    pass
+            if str(ln.get("LOCATION") or "").strip():
+                t["locations"].add(str(ln["LOCATION"]).strip())
+    for h in kept:
+        t = totals.get(str(h["recordNo"]), {"amount": 0.0, "locations": set()})
+        h["amount"] = round(t["amount"], 2)
+        h["locations"] = sorted(t["locations"])
+    return {"entries": kept, "users": users}

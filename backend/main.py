@@ -4509,3 +4509,5 @@ from routers import contractor_invoices as contractor_invoices_router  # noqa: E
 app.include_router(contractor_invoices_router.router)  # Contractor invoices: drafted at Time Sheet finalize, HR approves and sends the PDF (Pranshu + Neil, Oct 21 2026)
 from routers import accounting_ask_review  # noqa: E402
 app.include_router(accounting_ask_review.router)   # Accounting > AMA: the other side of each line, Notes, GL reclass approved and pushed by a bookkeeper (Charmi, CR-13, Oct 23 2026)
+from routers import accounting_manual_je  # noqa: E402
+app.include_router(accounting_manual_je.router)    # Accounting > Audit & Insights > Manual Journal Entries: who keyed each entry, read from Intacct (Neil + Charmi, CR-10, Oct 23 2026)
