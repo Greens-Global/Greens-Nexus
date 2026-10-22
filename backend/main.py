@@ -1272,6 +1272,8 @@ def _run_migrations():
             "ALTER TABLE task_custom_fields ADD COLUMN formula_format JSON DEFAULT '{}'",
             # Tasks conditional row colors (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
+            # My Day (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_table_prefs ADD COLUMN my_day JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2924,6 +2926,10 @@ def _run_migrations():
         # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
         # the _enable_rls_everywhere sweep. models.TimecardBonus.
         "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
+        # My Day (Oct 22 2026): the person's list for today on their own
+        # task_table_prefs row, models.TaskTablePref.my_day. Additive; NULL =
+        # nothing planned.
+        "ALTER TABLE task_table_prefs ADD COLUMN IF NOT EXISTS my_day JSONB",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4340,6 +4346,8 @@ app.include_router(files_router.router)   # Authenticated viewer for the private
 
 from routers import task_prefs             # noqa: E402
 app.include_router(task_prefs.router)     # Per-user column arrangement for the Task module's lists
+from routers import task_my_day            # noqa: E402
+app.include_router(task_my_day.router)    # Tasks > My Day: the person's own list for today (Oct 22 2026)
 
 from routers import user_tours             # noqa: E402
 app.include_router(user_tours.router)     # Per-user guided-tour "seen" state (server-side, follows the person not the browser)

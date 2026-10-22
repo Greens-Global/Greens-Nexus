@@ -525,6 +525,13 @@ export const api = {
   withdrawTaskDue: (id) => req(`/tasks/${id}/due/withdraw`, { method: "POST" }),
   // Undo the caller's own just-made due-date move (Oct 22 2026): `at` names its history entry.
   undoTaskDue: (id, at) => req(`/tasks/${id}/due/undo`, { method: "POST", body: JSON.stringify({ at }) }),
+  // My Day (Oct 22 2026, routers/task_my_day.py): the person's own list for
+  // `day` (their local date, tasks/lib.js todayISO). Each answers with the
+  // whole list and its suggestions.
+  getMyDay: (day) => req(`/tasks/my-day?day=${encodeURIComponent(day)}`),
+  addToMyDay: (day, taskId) => req("/tasks/my-day/add", { method: "POST", body: JSON.stringify({ day, task_id: taskId }) }),
+  removeFromMyDay: (day, taskId) => req("/tasks/my-day/remove", { method: "POST", body: JSON.stringify({ day, task_id: taskId }) }),
+  reorderMyDay: (day, taskIds) => req("/tasks/my-day/order", { method: "PUT", body: JSON.stringify({ day, task_ids: taskIds }) }),
   // Sections & custom statuses (board columns)
   getTaskSections: () => req("/tasks/meta/sections"),
   createTaskSection: (data) => req("/tasks/meta/sections", { method: "POST", body: JSON.stringify(data) }),

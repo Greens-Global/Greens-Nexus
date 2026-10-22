@@ -13,6 +13,7 @@ import {
   History, Upload, HardDrive,
 } from 'lucide-react';
 import MoveTaskModal from './MoveTaskModal';
+import MyDayToggle from './MyDayToggle';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { formulaEngineFor } from './formula';
@@ -482,6 +483,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
               style={{ ...btn('ghost'), padding: 7, color: shared ? NX.green : NX.dim, cursor: 'default' }}>
               {shared ? <Globe size={16} /> : <Lock size={16} />}
             </span>
+            {/* My Day (Oct 22 2026): the person's own list - any task they can see. */}
+            <MyDayToggle task={task} />
             <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); }} title="Copy Task Link" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><Link2 size={16} /></button>
             {!isMobile && (
               <button onClick={toggleExpand} title={expanded ? 'Collapse' : 'Expand'} style={{ ...btn('ghost'), padding: 7, color: NX.faint }}>

@@ -4802,6 +4802,14 @@ class TaskTablePref(Base):
     prefs       = Column(JSON, default=dict)
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+    # My Day (Oct 22 2026, routers/task_my_day.py): the person's own list for
+    # today - {"day": "YYYY-MM-DD" (their local date), "added": [task ids, in
+    # their order], "dismissed": [due-today task ids they took off]}. Its own
+    # column, not a key in `prefs`: "Restore all" resets prefs, every list
+    # fetches prefs on load, and a prefs save rewrites that whole document -
+    # none of which may touch today's list. A stored day that is not today
+    # reads as empty; nothing ever clears it on a schedule.
+    my_day      = Column(JSON, nullable=True)
 
 
 class UserTourState(Base):
