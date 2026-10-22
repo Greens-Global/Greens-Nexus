@@ -139,6 +139,25 @@ class ContractorInvoices(unittest.TestCase):
         self.assertNotIn("gstin", r.json()["compensation"])
         self.assertEqual(hr._norm_gstin("29ABCDE1234F1Z5"), "29ABCDE1234F1Z5")
 
+    def test_pan_on_pay_and_benefits_is_the_compliance_pan(self):
+        # Pranshu, Oct 23: PAN is edited beside the GSTIN too - one field, compliance.pan.
+        self.db.query(models.NexusRole).filter(models.NexusRole.email == ADMIN).update({"role": "owner"})
+        self.db.commit()
+        auth.invalidate_role_cache()
+        self.assertEqual(self.client.get("/hr/employees/id-ci-con/compensation").json()["pan"], "ABCDE1234F")
+        r = self.client.put("/hr/employees/id-ci-con/compensation", json={"pan": "bad"})
+        self.assertEqual(r.status_code, 400, r.text)
+        r = self.client.put("/hr/employees/id-ci-con/compensation", json={"pan": " pqrst6789z "})
+        self.assertEqual((r.status_code, r.json()["pan"]), (200, "PQRST6789Z"))
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.NexusEmployee, "id-ci-con").compliance["pan"], "PQRST6789Z")
+        # A save that does not mention it keeps it; the next invoice prints it.
+        self.client.put("/hr/employees/id-ci-con/compensation", json={"gstin": ""})
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.NexusEmployee, "id-ci-con").compliance["pan"], "PQRST6789Z")
+        self._finalize(CON)
+        self.assertEqual(self._invoices()[0].snapshot["billedBy"]["pan"], "PQRST6789Z")
+
     # ── draft at finalize ────────────────────────────────────────────────
 
     def test_draft_for_a_contractor_only_once_and_void_on_unfinalize(self):
@@ -238,6 +257,24 @@ class ContractorInvoices(unittest.TestCase):
         r = self.client.get("/contractor-invoices", params={"status": "sent", "company": CO})
         self.assertEqual(r.json()["invoices"][0]["sentTo"], ["ap@ggcon.in"])
         self.assertEqual(r.json()["invoices"][0]["employeeName"], "Dev One")
+
+    def test_the_email_reads_like_a_filing_name(self):
+        # Pranshu, Oct 23: subject "<invoice date> - <contractor> (<total>)"; the
+        # body names the month for a monthly fee, the dates for a bi-weekly one,
+        # and the approver by name with their email.
+        inv = models.ContractorInvoice(number=7, invoice_date="2026-10-19", currency="INR", amount=42500.0,
+                                       period_start="2026-10-04", period_end="2026-10-17")
+        subject, html = ci.invoice_email(inv, "Arjun Mehta", "Hana Test", "hana.hr@greensglobal.com")
+        self.assertEqual(subject, "10/19/2026 - Arjun Mehta (INR 42,500.00)")
+        self.assertEqual(html, "<p>Please find attached invoice 7 from Arjun Mehta from 10/04/2026 to 10/17/2026: "
+                               "INR 42,500.00.</p><p>Approved in Nexus by Hana Test (hana.hr@greensglobal.com).</p>")
+        inv.period_start, inv.period_end = "2026-09-01", "2026-09-30"
+        _s, html = ci.invoice_email(inv, "Arjun Mehta", "Hana Test", "hana.hr@greensglobal.com")
+        self.assertIn("invoice 7 from Arjun Mehta for September 2026: INR 42,500.00.", html)
+        inv.period_start, inv.period_end = "2024-02-01", "2024-02-29"      # a leap February is a whole month
+        self.assertIn("for February 2024", ci.invoice_email(inv, "A", "", "x@y.com")[1])
+        self.assertIn("Approved in Nexus by x@y.com.", ci.invoice_email(inv, "A", "", "x@y.com")[1])
+        self.assertIn("&lt;b&gt;", ci.invoice_email(inv, "<b>", "", "x@y.com")[1])   # names are escaped
 
     def test_pdf_has_the_rupee_sign_font(self):
         self.assertEqual(ci._fonts(), ("DejaVu", "DejaVu-Bold"))

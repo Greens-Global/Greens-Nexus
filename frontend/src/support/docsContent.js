@@ -1629,7 +1629,7 @@ export const DOCS = [
     manager: {
       title: 'HR & Admins',
       points: [
-        'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant. A contractor\'s GSTIN is entered under Bank Accounts on Pay, Benefits & Bank and prints on their invoices.',
+        'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant. A contractor\'s PAN and GSTIN are entered under Bank Accounts on Pay, Benefits & Bank and print on their invoices - the PAN is the same one Compliance shows, so changing it in either place changes both. Approve & Send emails the invoice to the company\'s Contractor Invoice Recipients with the contractor in cc, subject "<invoice date> - <contractor> (<total>)"; the email says which month it covers (or which dates, for a bi-weekly contractor) and who approved it.',
         'The Manager tier with the People grant sees only their own team (everyone below them in Reports To), read only. Pay shows only on the Pay & Benefits tab of their DIRECT reports, read only and without bank accounts - never in Time, and the Compensation grant does not widen it. HR staff who need everyone should be Global Admins.',
         'Offboarding: start the offboarding checklist the day notice is received, hand over their tasks, set mailbox handling, then mark them Left. Left logs them out of Nexus on every device straight away and, when the mailbox is removed or shared, ends their Microsoft 365 sessions too (Outlook and Teams on their phone stop working).',
         'Changing a status asks for a reason, and every change is kept in history.',
