@@ -44,8 +44,14 @@ router = APIRouter(
 # Every key of REPORTS in frontend/src/components/accounting/reportModel.js
 # (test_accounting_reports.py holds the two lists together): Flux Analysis
 # (10/02) and the Statement of Cash Flows (item 26c, 10/07) included.
-_REPORTS = ("pnl", "balance-sheet", "trial-balance", "cash-position", "general-ledger", "flux", "cash-flow", "budget")
+_REPORTS = ("pnl", "balance-sheet", "trial-balance", "general-ledger", "card-activity", "bank-activity", "cash-position", "flux", "cash-flow", "budget")
 _CONFIG_MAX = 8000     # characters of JSON - filters, never figures
+# Oct 23 (Neil, 10/22 call, items 05 / 11): a Report Builder definition is a
+# memorized report too - `kind: "builder"` with a `version` - so it is listed,
+# shared and deleted like every other. It holds GL accounts and named row
+# groups (a Schedule C Charmi maps herself), so it may run longer.
+_BUILDER_VERSIONS = (1,)
+_BUILDER_MAX = 24000
 _PREFS_MAX = 6000      # characters of JSON - one person's column layout
 _PACKAGE_MAX = 40      # statements in one package
 
@@ -239,7 +245,25 @@ class SavedReportBody(BaseModel):
     shared: Optional[bool] = False
 
 
+def _builder_config(config: dict) -> dict:
+    if config.get("version") not in _BUILDER_VERSIONS:
+        raise HTTPException(status_code=400, detail="This Report Builder version is not supported.")
+    accounts = config.get("accounts", [])
+    groups = config.get("groups", [])
+    if not isinstance(accounts, list) or not all(isinstance(a, str) for a in accounts):
+        raise HTTPException(status_code=400, detail="The accounts must be a list of GL account numbers.")
+    if not isinstance(groups, list) or not all(
+            isinstance(g, dict) and isinstance(g.get("name", ""), str) and isinstance(g.get("accounts", []), list)
+            and all(isinstance(a, str) for a in g.get("accounts", [])) for g in groups):
+        raise HTTPException(status_code=400, detail="Each row group needs a name and a list of GL account numbers.")
+    if len(json.dumps(config)) > _BUILDER_MAX:
+        raise HTTPException(status_code=400, detail="That report has too many accounts and groups to save.")
+    return config
+
+
 def _config(config: dict) -> dict:
+    if config.get("kind") == "builder":
+        return _builder_config(config)
     if config.get("report") not in _REPORTS:
         raise HTTPException(status_code=400, detail="Unknown report.")
     if len(json.dumps(config)) > _CONFIG_MAX:

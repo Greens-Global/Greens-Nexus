@@ -187,6 +187,28 @@ class SavedReportKeysTests(unittest.TestCase):
         for k in keys:
             self.assertEqual(accounting_saved._config({"report": k})["report"], k)
 
+    # Oct 23 (items 05 / 11): a Report Builder definition is memorized as a
+    # versioned config; the statements' configs are checked as before.
+    def test_report_builder_configs_are_versioned(self):
+        from fastapi import HTTPException
+        good = {"kind": "builder", "version": 1, "accounts": ["60100"], "groups": [{"name": "Line 8 Advertising", "accounts": ["61000", "61010"]}]}
+        self.assertEqual(accounting_saved._config(good), good)
+        self.assertEqual(accounting_saved._config({"kind": "builder", "version": 1})["kind"], "builder")
+        for bad in (
+            {**good, "version": 2},
+            {"kind": "builder"},
+            {**good, "accounts": "60100"},
+            {**good, "accounts": [60100]},
+            {**good, "groups": [{"name": "Line 8", "accounts": "61000"}]},
+            {**good, "groups": ["Line 8"]},
+            {**good, "accounts": [f"{n:05d}" for n in range(5000)]},
+        ):
+            with self.assertRaises(HTTPException):
+                accounting_saved._config(bad)
+        # Not a builder config: still needs a known report.
+        with self.assertRaises(HTTPException):
+            accounting_saved._config({"kind": "other", "version": 1})
+
 
 if __name__ == "__main__":
     unittest.main()
