@@ -52,6 +52,7 @@ vi.mock('../api', () => ({
     getChecklistBoard: vi.fn(() => Promise.resolve({ rows: BOARD })),
     getChecklistOwners: vi.fn(() => Promise.resolve({ owners: { it: 'it@greensglobal.com' }, effective: { it: 'it@greensglobal.com' }, hrContact: '' })),
     copyChecklistTemplates: vi.fn(() => Promise.resolve({ copied: 1, kinds: ['onboarding'], companies: ['co-a'] })),
+    saveChecklistTemplate: vi.fn((kind, entityId, d) => Promise.resolve({ id: 't1', kind, kindLabel: 'Onboarding', name: 'Onboarding', entityId, inherited: false, updatedAt: 'z', items: d.items, openUpdated: 2 })),
     copyRoleChecklist: vi.fn(() => Promise.resolve({ roleId: 'r-acct', roleName: 'Accounting Associate', companyName: 'Greens', copied: 2, templates: [
       { kind: 'onboarding', kindLabel: 'Onboarding', entityId: '', inherited: false, updatedAt: 'y', baseline: { source: 'library', items: [] },
         items: [{ key: 'ROW-1', phase: 'Accounting Associate Steps', title: 'Intacct Training', owner: 'manager', anchor: 'S', offset: 5, bd: false, applies: {}, signal: '', hint: '' },
@@ -317,7 +318,7 @@ describe('Building a role on the baseline', () => {
     fireEvent.click(await screen.findByRole('radio', { name: /AP Clerk/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Copy Steps' }));
     await waitFor(() => expect(api.copyRoleChecklist).toHaveBeenCalledWith('r-acct', { from_role_id: 'r-ap', kinds: ['onboarding'], mode: 'append' }));
-    expect(ok).toHaveBeenCalledWith('Copied 2 steps from AP Clerk.');
+    expect(ok).toHaveBeenCalledWith(expect.stringMatching(/^Copied 2 steps from AP Clerk\. /));
     expect(await screen.findByText('Bank Portal Access')).toBeInTheDocument();
     api.getRoleChecklistRoles.mockImplementation(() => Promise.resolve({ isHr: false, roles: [
       { roleId: 'r-acct', roleName: 'Accounting Associate', department: 'Accounting', companyId: 'co-a', companyName: 'Greens',
@@ -331,5 +332,17 @@ describe('Building a role on the baseline', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Copy From/ })[0]);
     expect(await screen.findByText('Copy Steps Into Greens')).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /Checklist Library/ })).toBeChecked();
+  });
+});
+
+// Neil, Oct 22: "Is it dynamic or is it fixed?" - a save reaches open checklists.
+describe('Live templates', () => {
+  it('a save says how many open checklists it updated', async () => {
+    const ok = vi.fn();
+    render(<ChecklistSettings entities={[]} toastOk={ok} toastErr={() => {}} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select every step in Offer Accepted' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Change owner of selected steps' }), { target: { value: 'it' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Save Template/ }));
+    await waitFor(() => expect(ok).toHaveBeenCalledWith('Steps saved. 2 open checklists updated - steps already done stay as they were.'));
   });
 });

@@ -439,6 +439,174 @@ def open_checklist(db, employee_id: str, kind: str):
             .first())
 
 
+def _dedupe_keys(keys: list, role_id: str) -> list:
+    """Step keys made unique across the baseline and the role: a role step
+    whose key the baseline (or an earlier step) already uses reads as
+    "<key>~<role>". The same rule maps a checklist's own steps, so one started
+    before Oct 23 with a repeated key still matches its template rows."""
+    seen, out = set(), []
+    for k in keys:
+        if k and k in seen:
+            k = f"{k}~{(role_id or 'role')[:8]}"
+        seen.add(k)
+        out.append(k)
+    return out
+
+
+def template_rows(db, kind: str, company: str, role_id: str) -> tuple:
+    """(company / library template, rows) - the steps a checklist of `kind`
+    follows today: the company's own (else the Checklist Library's), then the
+    job role's, with keys unique across both."""
+    tpl = get_template(db, kind, company or "")
+    role_tpl = role_template(db, kind, role_id)
+    role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first() if role_tpl else None
+    rows = norm_items(tpl.items) + [
+        {**r, "phase": r.get("phase") or f"{role.name if role else 'Role'} Steps"}
+        for r in norm_items(role_tpl.items if role_tpl else [])]
+    for r, k in zip(rows, _dedupe_keys([r.get("key", "") for r in rows], role_id)):
+        r["key"] = k
+    return tpl, rows
+
+
+class _StepContext:
+    """What turning a template row into a person's step needs: holidays,
+    owners, the company and the country - looked up once per checklist."""
+
+    def __init__(self, db, cl: HrChecklist, emp: NexusEmployee):
+        self.db, self.cl, self.emp = db, cl, emp
+        self.hol = _holidays(db, cl.company or "")
+        self.owners = role_owners(db, cl.company or "")
+        self.entity = db.query(HrEntity).filter(HrEntity.id == cl.company).first() if cl.company else None
+        self.country = person_country(db, emp)
+        self.created = (cl.created_at or "")[:10] or _today().isoformat()
+
+    def due(self, row: dict) -> str:
+        return due_for(self.cl.anchor_date, self.created, row.get("anchor", "S"),
+                       int(row.get("offset") or 0), bool(row.get("bd")), self.hol)
+
+    def owners_for(self, role: str) -> list:
+        return resolve_owners(self.db, role, self.emp, self.owners, self.entity)
+
+    def new_item(self, row: dict, sort_order: int) -> HrChecklistItem:
+        it = HrChecklistItem(
+            id=str(uuid.uuid4()), checklist_id=self.cl.id, key=row.get("key", ""),
+            phase=row.get("phase", ""), title=row.get("title", ""), hint=row.get("hint", ""),
+            owner_role=row.get("owner", "hr"),
+            anchor=row.get("anchor", "S"), offset=int(row.get("offset") or 0),
+            business_days=bool(row.get("bd")), due_date=self.due(row),
+            signal=row.get("signal", ""), status="open", sort_order=sort_order, comments=[],
+        )
+        set_owners(it, self.owners_for(row.get("owner", "hr")))
+        return it
+
+
+def reconcile(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus") -> bool:
+    """Bring an OPEN checklist in line with its templates as they are now
+    (Neil, Oct 22: "Is it dynamic or is it fixed? ... it needs to fix on task
+    also"). Steps match their template rows by key:
+      - a row the person gets that the checklist lacks -> a new open step
+        (date, owners; sync_tasks then gives it a subtask)
+      - a row that changed -> its OPEN step takes the new title, hint, phase,
+        owner role, timing and conditions; a hand-set owner or date stays
+      - a step whose row is gone (or no longer applies to them) and is still
+        open -> N/A with a note, never deleted; its subtask completes
+    Done and N/A steps are history and never change. Flushes; caller commits.
+    Returns True when anything changed."""
+    if cl.status != "open":
+        return False
+    emp = emp or db.query(NexusEmployee).filter(NexusEmployee.id == cl.employee_id).first()
+    if emp is None:
+        return False
+    changed = False
+    if cl.role_id is None:               # started before Oct 23: the role they hold now
+        cl.role_id, changed = role_for(db, emp) or "", True
+    _, rows = template_rows(db, cl.kind, cl.company or "", cl.role_id)
+    ctx = _StepContext(db, cl, emp)
+    every = {r["key"] for r in rows}
+    rows = [r for r in rows if _applies(r, emp, ctx.country, cl.exit_type)]
+    want = {r["key"]: r for r in rows}
+    items = sorted(db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all(),
+                   key=lambda x: x.sort_order or 0)
+    have = {k: it for k, it in zip(_dedupe_keys([i.key or "" for i in items], cl.role_id), items) if k}
+    n = max([i.sort_order or 0 for i in items] or [0])
+    retitled = []
+    for r in rows:
+        it = have.get(r["key"])
+        if it is None:
+            n += 1
+            db.add(ctx.new_item(r, n))
+            changed = True
+            continue
+        if it.status != "open":
+            continue
+        for field, val in (("title", r.get("title", "")), ("hint", r.get("hint", "")),
+                           ("phase", r.get("phase", "")), ("signal", r.get("signal", ""))):
+            if (getattr(it, field) or "") != val:
+                setattr(it, field, val)
+                changed = True
+                if field in ("title", "hint") and it not in retitled:
+                    retitled.append(it)
+        role = r.get("owner", "hr")
+        if norm_role(it.owner_role) != role:
+            it.owner_role, changed = role, True
+            if not it.owner_manual:
+                set_owners(it, ctx.owners_for(role))
+        timing = (r.get("anchor", "S"), int(r.get("offset") or 0), bool(r.get("bd")))
+        if (it.anchor, it.offset or 0, bool(it.business_days)) != timing:
+            it.anchor, it.offset, it.business_days = timing
+            if not it.due_manual:
+                it.due_date = ctx.due(r)
+            changed = True
+    stamp = us_date(_today().isoformat())
+    for k, it in have.items():
+        if k not in want and it.status == "open":
+            it.status, it.done_by, it.done_at, it.done_reason = "na", "Nexus", _now(), ""
+            it.note = (f"Removed from the template on {stamp}" if k not in every
+                       else f"No longer applies to this person - the template changed on {stamp}")
+            changed = True
+    if retitled:                         # the subtasks read like their steps
+        import models
+        import task_history
+        steps = {i.task_id: i for i in retitled if i.task_id}
+        for t in db.query(models.Task).filter(models.Task.id.in_(list(steps))).all() if steps else []:
+            before = task_history.snapshot(t)
+            t.title, t.description, t.modified_at = steps[t.id].title, steps[t.id].hint or "", _now()
+            task_history.record(db, t, before, by)
+    if changed:
+        db.flush()
+    return changed
+
+
+def reconcile_open(db, kind: str, *, entity_id: str = None, role_id: str = None, by: str = "nexus") -> int:
+    """After a template save: every open checklist that template feeds takes
+    it now (reconcile), with its tasks. `role_id` = a role's steps changed;
+    `entity_id` = a company's ('' = the Checklist Library - the companies with
+    no copy of their own). Returns how many open checklists changed; the new
+    tasks' email goes out after commit. Caller commits."""
+    q = db.query(HrChecklist).filter(HrChecklist.status == "open", HrChecklist.kind == kind)
+    if role_id is None and entity_id:
+        q = q.filter(HrChecklist.company == entity_id)
+    n, created = 0, []
+    for cl in q.all():
+        emp = db.query(NexusEmployee).filter(NexusEmployee.id == cl.employee_id).first()
+        if emp is None:
+            continue
+        if role_id is not None:
+            if cl.role_id is None:
+                cl.role_id = role_for(db, emp) or ""
+            if cl.role_id != role_id:
+                continue
+        elif entity_id == "" and cl.company and own_template(db, kind, cl.company) is not None:
+            continue                     # that company keeps its own steps
+        if reconcile(db, cl, emp, by=by):
+            n += 1
+            sync(db, cl, emp)
+            db.flush()
+            created += sync_tasks(db, cl, emp, by=by)
+    email_tasks_after_commit(db, created, by)
+    return n
+
+
 def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type: str = "",
           by: str = "", role_id: str = None) -> HrChecklist:
     """Create `emp`'s checklist of `kind`: the company's steps, then the job
@@ -461,39 +629,19 @@ def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type
     if kind != "onboarding" and not anchor_date:
         raise ValueError("Pick the date the checklist counts from")
 
-    tpl = get_template(db, kind, emp.company or "")
     role_id = role_for(db, emp) if role_id is None else role_id
-    role_tpl = role_template(db, kind, role_id)
-    role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first() if role_tpl else None
-    rows = norm_items(tpl.items) + [
-        {**r, "phase": r.get("phase") or f"{role.name if role else 'Role'} Steps"}
-        for r in norm_items(role_tpl.items if role_tpl else [])]
-    created = _today().isoformat()
+    tpl, rows = template_rows(db, kind, emp.company or "", role_id)
     cl = HrChecklist(id=str(uuid.uuid4()), employee_id=emp.id, kind=kind, template_id=tpl.id,
                      company=emp.company or "", anchor_date=anchor_date[:10], exit_type=exit_type,
-                     status="open", created_by=by, created_at=_now())
+                     status="open", created_by=by, created_at=_now(), role_id=role_id or "")
     db.add(cl)
-    hol = _holidays(db, emp.company or "")
-    owners = role_owners(db, emp.company or "")
-    entity = db.query(HrEntity).filter(HrEntity.id == emp.company).first() if emp.company else None
-    country = person_country(db, emp)
+    ctx = _StepContext(db, cl, emp)
     n = 0
     for row in rows:
-        if not _applies(row, emp, country, exit_type):
+        if not _applies(row, emp, ctx.country, exit_type):
             continue
         n += 1
-        it = HrChecklistItem(
-            id=str(uuid.uuid4()), checklist_id=cl.id, key=row.get("key", ""),
-            phase=row.get("phase", ""), title=row.get("title", ""), hint=row.get("hint", ""),
-            owner_role=row.get("owner", "hr"),
-            anchor=row.get("anchor", "S"), offset=int(row.get("offset") or 0),
-            business_days=bool(row.get("bd")),
-            due_date=due_for(cl.anchor_date, created, row.get("anchor", "S"),
-                             int(row.get("offset") or 0), bool(row.get("bd")), hol),
-            signal=row.get("signal", ""), status="open", sort_order=n, comments=[],
-        )
-        set_owners(it, resolve_owners(db, row.get("owner", "hr"), emp, owners, entity))
-        db.add(it)
+        db.add(ctx.new_item(row, n))
     db.flush()
     # The owners' tasks, and their "task assigned" email once this commits -
     # a hire or a signed promotion starts here from inside a signing request,
@@ -1190,6 +1338,7 @@ def run_daily() -> int:
             if emp is None:
                 continue
             try:
+                reconcile(db, cl, emp)       # a template change missed by a save (safety net)
                 sync(db, cl, emp)
                 db.flush()
                 new_tasks += sync_tasks(db, cl, emp)

@@ -483,8 +483,12 @@ def save_template(kind: str, body: TemplateIn, entity_id: str = "",
     row = _put_template(db, kind, entity_id, items, user["email"])
     if body.name is not None and body.name.strip():
         row.name = body.name.strip()[:120]
+    db.flush()
+    # Open checklists take the change now, tasks too (Neil, Oct 22: "is it
+    # dynamic or is it fixed?"); done steps stay as they were.
+    n = hc.reconcile_open(db, kind, entity_id=entity_id, by=user["email"].lower())
     db.commit()
-    return _ser_template(row, entity_id)
+    return {**_ser_template(row, entity_id), "openUpdated": n}
 
 
 def _put_template(db: Session, kind: str, entity_id: str, items: list, by: str) -> HrChecklistTemplate:
@@ -512,7 +516,7 @@ def copy_templates(body: CopyIn, user: dict = Depends(require_hr_write), db: Ses
     they stay the same (Neil, Oct 19: "an option to copy to multiple companies
     and standardize it ... we added 19 steps on company A, but company B only
     18 - no one will ever remember"). Each target gets its own copy; checklists
-    already started keep their steps."""
+    open at those companies take it (done steps stay)."""
     kinds = [k for k in (body.kinds or hc.KINDS) if k in hc.KINDS]
     if not kinds:
         raise HTTPException(400, "Pick which checklists to copy")
@@ -525,18 +529,21 @@ def copy_templates(body: CopyIn, user: dict = Depends(require_hr_write), db: Ses
     if not targets:
         raise HTTPException(400, "Pick at least one company to copy to")
     targets = [_entity_for_settings(db, t, user) for t in targets]
+    n = 0
     for kind in kinds:
         items = hc.norm_items(hc.get_template(db, kind, src).items)
         for t in targets:
             _put_template(db, kind, t, items, user["email"])
+            db.flush()
+            n += hc.reconcile_open(db, kind, entity_id=t, by=user["email"].lower())
     db.commit()
-    return {"copied": len(kinds) * len(targets), "kinds": kinds, "companies": targets}
+    return {"copied": len(kinds) * len(targets), "kinds": kinds, "companies": targets, "openUpdated": n}
 
 
 @router.delete("/templates/{kind}")
 def reset_template(kind: str, entity_id: str = "", user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """A company's own template -> back to the default. The default itself goes
-    back to the shipped rows. Checklists already started keep their rows."""
+    back to the shipped rows. Open checklists follow (done steps stay)."""
     if kind not in hc.KINDS:
         raise HTTPException(404, "Unknown checklist kind")
     entity_id = _entity_for_settings(db, entity_id, user)
@@ -547,8 +554,10 @@ def reset_template(kind: str, entity_id: str = "", user: dict = Depends(require_
         else:
             row.items = [dict(i) for i in hr_checklist_seed.DEFAULTS[kind][1]]
             row.updated_by, row.updated_at = user["email"], hc._now()
+    db.flush()
+    n = hc.reconcile_open(db, kind, entity_id=entity_id, by=user["email"].lower())
     db.commit()
-    return _ser_template(hc.get_template(db, kind, entity_id), entity_id)
+    return {**_ser_template(hc.get_template(db, kind, entity_id), entity_id), "openUpdated": n}
 
 
 # --- Role owners -----------------------------------------------------------
@@ -755,7 +764,7 @@ def copy_role_template(role_id: str, body: RoleCopyIn, user: dict = Depends(get_
     kinds = [k for k in (body.kinds or hc.KINDS) if k in hc.KINDS]
     if not kinds:
         raise HTTPException(400, "Pick which checklists to copy")
-    copied = 0
+    copied, changed = 0, []
     for kind in kinds:
         st = hc.role_template(db, kind, src.id)
         t = hc.role_template(db, kind, role.id)
@@ -773,6 +782,7 @@ def copy_role_template(role_id: str, body: RoleCopyIn, user: dict = Depends(get_
             continue
         items = hc.clean_template_items(mine + new)
         copied += len(new)
+        changed.append(kind)
         if not items:
             if t is not None:
                 db.delete(t)
@@ -782,8 +792,10 @@ def copy_role_template(role_id: str, body: RoleCopyIn, user: dict = Depends(get_
                                     name=f"{role.name} - {hc.KIND_LABELS[kind]}", created_at=hc._now())
             db.add(t)
         t.items, t.updated_by, t.updated_at = items, user["email"], hc._now()
+    db.flush()
+    n = sum(hc.reconcile_open(db, k, role_id=role.id, by=user["email"].lower()) for k in changed)
     db.commit()
-    return {**_role_out(db, role), "copied": copied}
+    return {**_role_out(db, role), "copied": copied, "openUpdated": n}
 
 
 @router.put("/role-templates/{role_id}/{kind}")
@@ -798,17 +810,22 @@ def save_role_template(role_id: str, kind: str, body: TemplateIn, user: dict = D
     except ValueError as e:
         raise HTTPException(400, str(e))
     t = hc.role_template(db, kind, role.id)
+    me = user["email"].lower()
     if not items:
         if t is not None:
             db.delete(t)
+        db.flush()
+        n = hc.reconcile_open(db, kind, role_id=role.id, by=me)
         db.commit()
         return {"kind": kind, "kindLabel": hc.KIND_LABELS[kind], "items": [], "updatedBy": "", "updatedAt": "",
-                "entityId": "", "inherited": False}
+                "entityId": "", "inherited": False, "openUpdated": n}
     if t is None:
         t = HrChecklistTemplate(id=str(uuid.uuid4()), kind=kind, entity_id="", role_id=role.id,
                                 name=f"{role.name} - {hc.KIND_LABELS[kind]}", created_at=hc._now())
         db.add(t)
     t.items, t.updated_by, t.updated_at = items, user["email"], hc._now()
+    db.flush()
+    n = hc.reconcile_open(db, kind, role_id=role.id, by=me)
     db.commit()
     return {"kind": kind, "kindLabel": hc.KIND_LABELS[kind], "items": items, "updatedBy": t.updated_by,
-            "updatedAt": t.updated_at, "entityId": "", "inherited": False}
+            "updatedAt": t.updated_at, "entityId": "", "inherited": False, "openUpdated": n}

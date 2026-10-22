@@ -1274,6 +1274,8 @@ def _run_migrations():
             "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
             # Checklist steps ticked by Nexus say why (Oct 23 2026) - see the Postgres list.
             "ALTER TABLE hr_checklist_items ADD COLUMN done_reason VARCHAR DEFAULT ''",
+            # A checklist remembers its job role (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklists ADD COLUMN role_id VARCHAR",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2929,6 +2931,10 @@ def _run_migrations():
         # Checklist steps ticked by Nexus say which condition did it (Neil, Oct
         # 22: several conditions per step). models.HrChecklistItem.done_reason.
         "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS done_reason VARCHAR DEFAULT ''",
+        # A checklist remembers its job role so a role's template change reaches
+        # it (Oct 23 2026). No default on purpose: NULL = started before this,
+        # filled lazily by hr_checklists.reconcile. models.HrChecklist.role_id.
+        "ALTER TABLE hr_checklists ADD COLUMN IF NOT EXISTS role_id VARCHAR",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -973,6 +973,89 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(self.client.post("/hr/checklists/role-templates/role-site/copy",
                                           json={"from_role_id": src}).status_code, 404)
 
+    # --- Live templates (Neil, Oct 22: "is it dynamic or is it fixed? ... it
+    # needs to fix on task also") - edits reach OPEN checklists and their tasks.
+
+    def _items_of(self, cl_id):
+        db = database.SessionLocal()
+        try:
+            return {i.key: i for i in db.query(models.HrChecklistItem).filter_by(checklist_id=cl_id).all()}
+        finally:
+            db.close()
+
+    def test_a_template_edit_reaches_open_checklists_and_their_tasks(self):
+        url = f"/hr/checklists/templates/onboarding?entity_id={CO_B}"
+        row = lambda k, t, **x: {"key": k, "title": t, "owner": "manager", "anchor": "S", "offset": 0, **x}  # noqa: E731
+        self.client.put(url, json={"items": [row("A", "Desk Ready"), row("B", "Buddy Named"), row("C", "Parking Pass")]})
+        cl = self._start(self._person("emp-live", company=CO_B))
+        ids = {i["key"]: i["id"] for i in cl["items"]}
+        self.client.patch(f"/hr/checklists/items/{ids['A']}", json={"status": "done"})
+        pinned = (date.today() + timedelta(days=60)).isoformat()
+        self.client.patch(f"/hr/checklists/items/{ids['B']}", json={"due_date": pinned})
+        r = self.client.put(url, json={"items": [row("A", "Desk And Chair Ready"),
+                                                 row("B", "Buddy And Mentor Named", hint="Pick someone senior", offset=5, owner="it"),
+                                                 row("D", "Team Lunch")]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["openUpdated"], 1)
+        items = self._items_of(cl["id"])
+        self.assertEqual((items["A"].title, items["A"].status), ("Desk Ready", "done"))      # done = history
+        self.assertEqual((items["B"].title, items["B"].offset, items["B"].due_date),
+                         ("Buddy And Mentor Named", 5, pinned))                                # a pinned date stays
+        self.assertEqual((items["B"].owner_role, items["B"].owner_email), ("it", IT))         # a new owner role
+        self.assertEqual(self._task(items["B"].task_id).assignee_email, IT)
+        self.assertEqual(self._task(items["B"].task_id).title, "Buddy And Mentor Named")      # the subtask follows
+        self.assertEqual(items["C"].status, "na")
+        self.assertTrue(items["C"].note.startswith("Removed from the template on "))
+        self.assertTrue(self._task(items["C"].task_id).completed)
+        self.assertEqual((items["D"].status, items["D"].owner_email), ("open", MANAGER))
+        self.assertTrue(items["D"].task_id)                                                   # a subtask of its own
+        self.assertTrue(self._task(items["D"].task_id).parent_task_id)
+
+    def test_the_library_reaches_only_companies_without_their_own_copy(self):
+        lib = next(t for t in self.client.get("/hr/checklists/templates").json()["templates"] if t["kind"] == "onboarding")
+        self.client.put(f"/hr/checklists/templates/onboarding?entity_id={CO_B}",
+                        json={"items": [{"key": "B-1", "title": "Site Induction", "owner": "manager"}]})
+        a = self._start(self._person("emp-a"))                       # CO_A follows the library
+        b = self._start(self._person("emp-b2", company=CO_B))
+        items = lib["items"] + [{"key": "LIB-NEW", "title": "Welcome Video", "owner": "hr", "anchor": "created"}]
+        r = self.client.put("/hr/checklists/templates/onboarding", json={"items": items})
+        self.assertEqual(r.json()["openUpdated"], 1)
+        self.assertIn("LIB-NEW", self._items_of(a["id"]))
+        self.assertNotIn("LIB-NEW", self._items_of(b["id"]))
+
+    def test_a_role_change_reaches_that_roles_checklists_and_keys_never_collide(self):
+        rid = self._role()
+        put = lambda rows: self.client.put(f"/hr/checklists/role-templates/{rid}/onboarding", json={"items": rows})  # noqa: E731
+        put([{"key": "ON-01", "title": "Intacct Training", "owner": "manager"}])   # the same key as a library step
+        eid = self._person("emp-role", work_email=NEWBIE)
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroupMember(group_id=rid, email=NEWBIE))
+            db.commit()
+        finally:
+            db.close()
+        cl = self._start(eid)
+        keys = [i["key"] for i in cl["items"]]
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertIn("ON-01", keys)
+        self.assertIn(f"ON-01~{rid[:8]}", keys)
+        db = database.SessionLocal()
+        try:                                      # a checklist started before Oct 23 has no role recorded
+            db.query(models.HrChecklist).filter_by(id=cl["id"]).update({"role_id": None})
+            db.commit()
+        finally:
+            db.close()
+        r = put([{"key": "ON-01", "title": "Intacct Training", "owner": "manager"},
+                 {"key": "ACC-2", "title": "Bank Portal Access", "owner": "it"}])
+        self.assertEqual(r.json()["openUpdated"], 1)
+        items = self._items_of(cl["id"])
+        self.assertEqual(items["ACC-2"].status, "open")
+        self.assertEqual(items["ON-01"].title, next(i["title"] for i in cl["items"] if i["key"] == "ON-01"))
+        r = put([])                               # the role's steps all go: open ones turn N/A, never deleted
+        items = self._items_of(cl["id"])
+        self.assertEqual((items["ACC-2"].status, items[f"ON-01~{rid[:8]}"].status), ("na", "na"))
+        self.assertNotEqual(items["ON-01"].status, "na")                                   # the library step stays
+
 
 if __name__ == "__main__":
     unittest.main()

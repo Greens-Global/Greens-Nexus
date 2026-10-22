@@ -92,6 +92,8 @@ function initials(name) {
 }
 const isClosed = s => s.status === 'done' || s.status === 'na';
 const lowerFirst = t => (t ? t.charAt(0).toLowerCase() + t.slice(1) : '');
+// Template saves reach open checklists (Neil, Oct 22: "is it dynamic or is it fixed?").
+const openUpdatedText = n => (n ? `${n} open checklist${n === 1 ? '' : 's'} updated - steps already done stay as they were.` : 'No open checklist needed a change.');
 // A step's automatic conditions, joined by "|" (hr_checklists.SIG_SEP) - any one ticks it.
 const sigList = s => (s || '').split('|').map(x => x.trim()).filter(Boolean);
 function ownerText(s) {
@@ -1179,7 +1181,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
   }
   async function bulkDelete() {
     const n = picked.size;
-    if (!await dialog.confirm(`Delete ${n} step${n === 1 ? '' : 's'} from this template? Checklists already started keep theirs.`,
+    if (!await dialog.confirm(`Delete ${n} step${n === 1 ? '' : 's'} from this template? Open checklists mark them N/A (steps already done stay as they were).`,
       { title: 'Delete Steps', confirmText: `Delete ${n}`, danger: true })) return;
     setRows(r => r.filter((_, j) => !picked.has(j)));
     setPicked(new Set()); setEditIdx(-1); touch();
@@ -1190,9 +1192,10 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
     if (!rows.length && !saveItems) { toastErr('A template needs at least one step.'); return; }
     setBusy(true);
     try {
-      onSaved(await (saveItems ? saveItems(rows) : api.saveChecklistTemplate(template.kind, entityId, { items: rows })));
+      const res = await (saveItems ? saveItems(rows) : api.saveChecklistTemplate(template.kind, entityId, { items: rows }));
+      onSaved(res);
       setDirty(false); setEditIdx(-1); setPicked(new Set());
-      toastOk('Steps saved. New checklists use them; ones already started keep their steps.');
+      toastOk(`Steps saved. ${openUpdatedText(res?.openUpdated)}`);
     } catch (e) { toastErr(e?.message || 'Could not save the steps.'); }
     setBusy(false);
   }
@@ -1200,7 +1203,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
     if (resetItems) { await resetItems(); return; }
     const msg = entityId ? 'Go back to the Checklist Library\'s steps for this company?' : 'Put the Checklist Library back to the steps Nexus shipped with?';
     if (!await dialog.confirm(msg, { title: 'Reset Steps', confirmText: 'Reset', danger: true })) return;
-    try { onSaved(await api.resetChecklistTemplate(template.kind, entityId)); toastOk('Steps reset.'); }
+    try { const res = await api.resetChecklistTemplate(template.kind, entityId); onSaved(res); toastOk(`Steps reset. ${openUpdatedText(res?.openUpdated)}`); }
     catch (e) { toastErr(e?.message || 'Could not reset the steps.'); }
   }
 
@@ -1336,12 +1339,12 @@ function CopyStepsModal({ direction, entityId, entities, kinds, kind, onClose, o
   async function go() {
     if (busy || !to.length || !which.size) return;
     if (!await dialog.confirm(
-      `Replace the ${[...which].map(k => kinds.find(x => x.value === k)?.label || k).join(', ')} steps of ${to.map(nameOf).join(', ')} with ${nameOf(from)}'s? Checklists already started keep theirs.`,
+      `Replace the ${[...which].map(k => kinds.find(x => x.value === k)?.label || k).join(', ')} steps of ${to.map(nameOf).join(', ')} with ${nameOf(from)}'s? Open checklists there update too (steps already done stay as they were).`,
       { title: 'Copy Steps', confirmText: 'Copy' })) return;
     setBusy(true);
     try {
       const r = await api.copyChecklistTemplates({ kinds: [...which], from_entity_id: from || '', to_entity_ids: to });
-      toastOk(`Copied - ${r.companies.length} compan${r.companies.length === 1 ? 'y' : 'ies'} now ${r.companies.length === 1 ? 'has' : 'have'} the same steps.`);
+      toastOk(`Copied - ${r.companies.length} compan${r.companies.length === 1 ? 'y' : 'ies'} now ${r.companies.length === 1 ? 'has' : 'have'} the same steps. ${openUpdatedText(r.openUpdated)}`);
       onDone();
     } catch (e) { toastErr(e?.message || 'Could not copy the steps.'); setBusy(false); }
   }
@@ -1378,7 +1381,7 @@ function CopyStepsModal({ direction, entityId, entities, kinds, kind, onClose, o
           </div>
         </div>
         <p style={{ margin: 0, fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
-          Each company gets its own copy, so you can still change one later. Checklists already started keep their steps.
+          Each company gets its own copy, so you can still change one later. Open checklists there update too; steps already done stay as they were.
         </p>
       </div>
     </Modal>
@@ -1712,7 +1715,7 @@ function CopyRoleStepsModal({ roleId, roleName, kind, kinds, onClose, onDone, to
     setBusy(true);
     try {
       const r = await api.copyRoleChecklist(roleId, { from_role_id: from, kinds: [...which], mode });
-      toastOk(r.copied ? `Copied ${r.copied} step${r.copied === 1 ? '' : 's'} from ${src.roleName}.` : `Nothing new to copy - ${roleName} already has those steps.`);
+      toastOk(r.copied ? `Copied ${r.copied} step${r.copied === 1 ? '' : 's'} from ${src.roleName}. ${openUpdatedText(r.openUpdated)}` : `Nothing new to copy - ${roleName} already has those steps.`);
       onDone(r);
     } catch (e) { toastErr(e?.message || 'Could not copy the steps.'); setBusy(false); }
   }
@@ -1832,7 +1835,7 @@ export function RoleStepsEditor({ roleId, roleName, toastOk, toastErr, onCounts,
           emptyText={`${roleName || 'This role'} has no ${(kinds.find(k => k.value === kind)?.label || 'checklist').toLowerCase()} steps yet. Until you add some, people in this role get only the standard steps from the Checklist Library.`}
           resetItems={async () => {
             if (!await dialog.confirm(`Remove every ${kinds.find(k => k.value === kind)?.label.toLowerCase()} step of ${roleName}?`, { title: 'Remove All Steps', confirmText: 'Remove', danger: true })) return;
-            try { await saveItems([]); toastOk('Steps removed.'); } catch (e) { toastErr(e?.message || 'Could not remove them.'); }
+            try { const res = await saveItems([]); toastOk(`Steps removed. ${openUpdatedText(res?.openUpdated)}`); } catch (e) { toastErr(e?.message || 'Could not remove them.'); }
           }} />
       )}
     </>

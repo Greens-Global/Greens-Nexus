@@ -5431,6 +5431,10 @@ class HrChecklist(Base):
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
     closed_at   = Column(String, default="")
+    # The job role whose steps it carries (Oct 23 2026), so a role's template
+    # change reaches it (hr_checklists.reconcile). '' = no role; NULL = started
+    # before the column - filled from the role the person holds on first use.
+    role_id     = Column(String, nullable=True)
 
 
 class HrChecklistItem(Base):
