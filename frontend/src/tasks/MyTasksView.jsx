@@ -4,9 +4,9 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus, Clock } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus, Clock, Palette } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate, todayISO } from './lib';
+import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate, todayISO, fieldsForProject } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle, isMissed, MISSED_TITLE } from './theme';
 import { Avatar, EmptyState, useIsMobile, DateField, TaskCountBadges, SearchSelect, ExportMenu, usePeople } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
@@ -30,6 +30,9 @@ import DueBadge from './DueBadge';
 import AnchoredMenu from '../components/AnchoredMenu';
 import ChangeFlash from '../components/ChangeFlash';
 import { changedRecently } from './recentChanges';
+import { RowColorsProvider, useRowColorScope, useRuleContext, useMyColorRules, useRowColor, rowColorAttrs, boldTitleStyle, srOnly, onTint } from './rowColorState';
+import { RowColorLegend } from './RowColors';
+import ColorRulesEditor from './ColorRulesEditor';
 
 const VIEW_TABS = [
   { key: 'list', label: 'List', icon: ListIcon },
@@ -200,6 +203,9 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
     : t.dueOn === today ? 'rgba(232,163,61,0.16)'
     : NX.surface2;
   const rowBg = selected ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : 'transparent';
+  // The person's own row colors (Oct 22 2026) - accent bar + faint tint.
+  const rc = useRowColor(t.id);
+  const rcAttrs = rowColorAttrs(rc);
   // Cells are keyed and rendered in the header's order, not in source order -
   // once columns can be dragged, a row that renders them in a fixed sequence
   // puts every value under the wrong heading.
@@ -213,7 +219,8 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
             (Sagar, Sept 1 2026): a bare swatch named nothing on its own, and
             Status is already a column you can add. */}
         <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} title={isMissed(t) ? MISSED_TITLE : t.completed ? 'Completed' : 'Mark Complete'} style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: isMissed(t) ? NX.faint : t.completed ? NX.green : NX.faint }}>{isMissed(t) ? <XCircle size={17} /> : t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none', ...boldTitleStyle(rc, t.completed) }}>{t.title}</span>
+        {rc && <span style={srOnly}>, colored {rc.name}</span>}
         {/* Same badges the Task List shows. Without them the same task looked
             emptier here than there, which is the kind of difference that reads
             as data missing rather than as a different screen. */}
@@ -226,7 +233,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
       // the row's right edge instead of the left-aligned default, so it isn't
       // stranded in a sea of empty space between it and the name column.
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, ...(isMobilePortrait ? { justifyContent: 'flex-end', width: '100%' } : null) }}>
-        <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={dueColor(t.dueOn, t.completed)}
+        <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={onTint(dueColor(t.dueOn, t.completed), rc)}
           title="Due Date" compact
           style={t.dueOn ? { fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' } : undefined} />
         <DueBadge task={t} nameOf={store.nameOf} compact />
@@ -274,7 +281,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
         e.preventDefault();
         onPick(t.id, e);
       }}
-      className="stack-table-row nx-row-hover" data-selected={selected ? 'true' : undefined} data-task-row style={{ position: 'relative', display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}>
+      className={`stack-table-row nx-row-hover${rcAttrs.className ? ` ${rcAttrs.className}` : ''}`} data-selected={selected ? 'true' : undefined} data-task-row data-row-color={rc?.id} style={{ position: 'relative', display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg, ...rcAttrs.style }}>
       <ChangeFlash value={`${t.status}:${!!t.completed}`} color={store.statusMeta?.[t.status]?.color} isFresh={() => changedRecently(t.id)} />
       <SelectBox checked={selected} onClick={(e) => onPick(t.id, e)} title={selected ? 'Deselect' : 'Select'} />
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
@@ -408,6 +415,18 @@ export default function MyTasksView({ onNavigate }) {
   const someSel = !allSel && selected.size > 0;
   const selectAll = () => setPicked(allSel ? new Set() : new Set(visibleIds));
 
+  // Row colors (Neil, Oct 22 2026): the person's OWN rules here, kept in
+  // their profile with the rest of their My Tasks settings - nobody else sees
+  // them. Evaluated over every row any view here can show (the Board keeps
+  // completed work). Only fields that apply everywhere can be conditions:
+  // a project's own field means nothing on a task outside that project.
+  const [myRules, saveMyRules] = useMyColorRules();
+  const ruleCtx = useRuleContext({ projectId: '', sections: sec.sections, sectionOf: sec.sectionOf });
+  const rowScope = useRowColorScope({ rules: myRules, tasks: allMine, ruleCtx });
+  const editorCtx = useMemo(() => ({ ...ruleCtx, people: directory }), [ruleCtx, directory]);
+  const globalFields = useMemo(() => fieldsForProject(store.customFields || [], ''), [store.customFields]);
+  const [colorsOpen, setColorsOpen] = useState(false);
+
   // Collapsed group keys, persisted per person like the rest of this table's
   // settings (view/group/sort) - see richlist.jsx's identical pattern.
   const [collapsedList, setCollapsedList] = useTableSetting('mytasks', 'collapsed', []);
@@ -446,6 +465,12 @@ export default function MyTasksView({ onNavigate }) {
             columns={MY_TASK_EXPORT_COLS(store, nameOf)}
           />
         )}
+        {!isMobile && (
+          <button type="button" onClick={() => setColorsOpen(true)} title="Color your rows by their data - only you see these"
+            style={{ ...btn('outline'), padding: '0 10px', height: CONTROL_H, fontSize: CONTROL_FS, color: NX.dim, gap: 5 }}>
+            <Palette size={13} />Row Colors
+          </button>
+        )}
       </div>
 
       {/* Desktop: view tabs + toolbar. Mobile: replaced by the floating MobileTaskBar. */}
@@ -474,7 +499,12 @@ export default function MyTasksView({ onNavigate }) {
       </div>
       )}
 
+      {(view === 'list' || view === 'board' || view === 'calendar') && (
+        <RowColorLegend scope={rowScope} canEdit onEdit={() => setColorsOpen(true)} compact={isMobile} />
+      )}
+
       {/* Body */}
+      <RowColorsProvider map={rowScope.map}>
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: view === 'list' ? 16 : 0, paddingBottom: isMobile ? 88 : 76 }}>
         {view === 'list' ? (
           <div className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
@@ -537,7 +567,7 @@ export default function MyTasksView({ onNavigate }) {
                 whoever creates it (CreateTaskModal). */}
           </div>
         ) : view === 'calendar' ? (
-          <CalendarView tasks={mine} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
+          <CalendarView tasks={mine} store={store} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
         ) : view === 'files' ? (
           <FilesView tasks={allMine} onOpen={setOpenId} nameOf={nameOf} />
         ) : view === 'time' ? (
@@ -552,6 +582,22 @@ export default function MyTasksView({ onNavigate }) {
         )}
         {view === 'list' && mine.length === 0 && group !== 'date' && <EmptyState icon={CheckCircle2} title="No Tasks" hint="You're all caught up." />}
       </div>
+      </RowColorsProvider>
+
+      {colorsOpen && (
+        <ColorRulesEditor
+          title="Row Colors - Your Tasks"
+          rules={myRules}
+          onSave={saveMyRules}
+          onClose={() => setColorsOpen(false)}
+          ctx={editorCtx}
+          customFields={globalFields}
+          statusOrder={ruleCtx.statusOrder}
+          countTasks={allMine}
+          scopeNoun="in your tasks"
+          personal
+        />
+      )}
 
       {view === 'list' && (
         <BulkActionBar selected={selected} clearSel={clearSel} store={store} people={directory} isMobile={isMobile} sections={sec} />
@@ -567,6 +613,7 @@ export default function MyTasksView({ onNavigate }) {
               filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
               group={group} setGroup={setGroup} groupOptions={MY_GROUP_OPTIONS} hideAssignee
               current={{ view, group }} onApplyView={(v) => { if (v.group) setGroup(v.group); }}
+              rowColors={() => setColorsOpen(true)}
               onClose={onClose}
             />
           )}

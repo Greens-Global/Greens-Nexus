@@ -31,7 +31,7 @@ import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
 import TasksLoading from '../tasks/TasksLoading';
 import { useTasks } from '../tasks/TasksContext';
 import PersonView from '../tasks/PersonView';
-import { EMPTY_FILTER, taskIdFromUrl } from '../tasks/lib';
+import { EMPTY_FILTER, taskIdFromUrl, projectIdFromUrl } from '../tasks/lib';
 import { buildTaskTourSteps } from '../tasks/taskTourSteps';
 import { api } from '../api';
 import { registerTour } from '../lib/tours';
@@ -109,7 +109,9 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   // empty store ("0 Tasks", "No Tasks") - see TasksLoading.jsx.
   const { loading } = useTasks();
   const [tour, setTour] = useState(false);
-  const [projectId, setProjectId] = useState(null);
+  // Seeded from ?project=<id> (a followed project's email - see the effect
+  // below), so the link lands inside that project.
+  const [projectId, setProjectId] = useState(() => projectIdFromUrl() || null);
   const [searchTaskId, setSearchTaskId] = useState(null);   // task opened from header search
   const [person, setPerson] = useState(null);               // { email, name } from header search
   const [personTasks, setPersonTasks] = useState(false);    // their page -> the full workspace
@@ -225,6 +227,22 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     if (ALL_SUBS.includes(a)) return go(a);
     return onNavigate ? onNavigate(a, b) : undefined;
   };
+
+  // A project link (?project=<id>, Oct 22 2026): the "You follow <Project>"
+  // line in a followed project's email opens the project itself, where its
+  // Follow button turns the emails off. projectId is seeded from it above;
+  // here the module moves to the project's task list and the parameter is
+  // taken off the URL so a refresh does not drill in again.
+  useEffect(() => {
+    if (!projectIdFromUrl()) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('project');
+      window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+    } catch { /* the drill-in below still happens */ }
+    onSubChange?.('tasks');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Tab styling matches the SOP module's Playbook/Learn bar exactly: Plus
   // Jakarta Sans, var(--text-primary)/var(--text-secondary), a 2.5px rounded

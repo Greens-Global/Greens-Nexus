@@ -5,7 +5,7 @@
 // TasksContext store. The export's store had applyTemplate/submitIntakeForm/
 // saveView helpers; here those are expressed directly via createTask/createSavedView.
 import { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, X, ListChecks, CalendarRange, LayoutGrid, ChevronRight, Search } from 'lucide-react';
+import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, X, ListChecks, CalendarRange, LayoutGrid, ChevronRight, Search, Palette } from 'lucide-react';
 import { BottomSheet } from './MobileTaskBar';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, useIsMobile, DateField } from './components';
@@ -16,6 +16,7 @@ import { useListNav } from '../lib/listNav';
 import { requiredFieldsFor, isBlankValue } from './lib';
 import { recurrenceLabel } from './recurrence';
 import { CustomFieldInput } from './TaskDetailDrawer';
+import { FORMULA_FILTERS } from './formula';
 
 const SORT_OPTIONS = [
   { key: 'manual', label: 'Manual' }, { key: 'dueOn', label: 'Due Date' },
@@ -102,8 +103,11 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
   // checkbox list possible at all. Text and number fields would need operators.
   // Multiselect filters the same way a select does - the value is a list, and
   // matchesFilter treats a hit on any chosen option as a match.
+  // A formula column (Oct 22 2026) filters on what its computed value IS -
+  // has a value, blank, or an error - since its values are not a fixed list.
   const filterFields = (customFields || []).filter(
-    (f) => (f.type === 'select' || f.type === 'multiselect') && (f.options || []).length);
+    (f) => ((f.type === 'select' || f.type === 'multiselect') && (f.options || []).length) || f.type === 'formula');
+  const filterOptions = (f) => (f.type === 'formula' ? FORMULA_FILTERS : (f.options || []));
   const cfSelected = (fid) => (filters.customFields || {})[fid] || [];
   const toggleCf = (fid, optId) => {
     const cur = cfSelected(fid);
@@ -240,7 +244,7 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
         <div key={f.id}>
           <div style={groupHead}>{f.name}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {(f.options || []).map((o) => {
+            {filterOptions(f).map((o) => {
               const opt = typeof o === 'string' ? { id: o, label: o, color: '' } : o;
               const on = cfSelected(f.id).includes(opt.id);
               return (
@@ -391,7 +395,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
 // `columnControls` - the List view's Hide / + Column pair. On desktop they sit
 // in the toolbar; there is no toolbar on mobile, so they ride along at the
 // bottom of this sheet rather than being unreachable on a phone.
-export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, current, onApplyView, search, setSearch, lockedProjectId, hideAssignee, columnControls, customFields = [], sortFieldOptions = [], onClose }) {
+export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, current, onApplyView, search, setSearch, lockedProjectId, hideAssignee, columnControls, rowColors = null, customFields = [], sortFieldOptions = [], onClose }) {
   const store = useTasks();
   const { savedViews, createSavedView, deleteSavedView, projects, teams } = store;
   const people = usePeople();
@@ -429,6 +433,16 @@ export function MobileFilters({ filters, setFilters, sort, setSort, group, setGr
               <ChevronRight size={18} style={{ color: NX.faint }} />
             </button>
           ))}
+          {/* Row Colors (Oct 22 2026): the project's color rules editor, for
+              its editors - the desktop button lives in the project header,
+              which a phone does not show. */}
+          {rowColors && (
+            <button onClick={() => { onClose?.(); rowColors(); }} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '14px 6px', border: 'none', borderBottom: `1px solid ${NX.border2}`, background: 'transparent', cursor: 'pointer', fontSize: 15, fontWeight: 600, color: NX.ink, fontFamily: FONT, textAlign: 'left' }}>
+              <Palette size={18} style={{ color: NX.dim }} />
+              <span style={{ flex: 1 }}>Row Colors</span>
+              <ChevronRight size={18} style={{ color: NX.faint }} />
+            </button>
+          )}
           {columnControls && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 6px 2px' }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim, flex: 1 }}>Columns</span>

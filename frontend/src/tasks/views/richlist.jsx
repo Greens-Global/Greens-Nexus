@@ -11,13 +11,19 @@ import {
   // The subtask/comment/attachment icons moved with their badges into
   // components.TaskCountBadges, which My Tasks renders too.
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
-  Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown, ChevronRight, Search,
+  Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown, ChevronRight, Search, Sigma, MoreHorizontal, MoveRight, Maximize2,
 } from 'lucide-react';
+import AnchoredMenu from '../../components/AnchoredMenu';
+import MoveTaskModal from '../MoveTaskModal';
+import { useCanEditTask } from '../canEditTask';
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees, requiredFieldsFor, projectTracksTime, taskTracksTime, todayISO, withTaskFields } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey, isMissed, MISSED_TITLE } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
-import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar, localTodayISO } from '../components';
+import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar, localTodayISO, useIsMobile } from '../components';
+import { FormulaValue, FormulaFieldModal } from '../FormulaColumn';
+import { formulaEngineFor, fieldNameProblem } from '../formula';
+import { totalKind, aggsFor, aggLabel, totalFor, formatTotal, useColumnTotals } from '../totals';
 import { emailToName, rootZoom } from '../../lib/utils';
 import { matchPeople } from '../../lib/peopleSearch';
 import { useListNav } from '../../lib/listNav';
@@ -28,6 +34,7 @@ import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
 import { StatusLabel, PrioritySignal } from '../../components/StatusLabel';
+import { useRowColor, rowColorAttrs, boldTitleStyle, srOnly, onTint } from '../rowColorState';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -95,6 +102,11 @@ const TYPE_GROUPS = [
     { key: 'created_date', label: 'Created Date', icon: CalendarPlus, storage: 'date' },
     { key: 'modified_date', label: 'Modified Date', icon: CalendarClock, storage: 'date' },
     { key: 'duration', label: 'Duration', icon: Timer, storage: 'number' },
+  ] },
+  // Worked out from other fields, never typed in (Oct 22 2026) - opens the
+  // formula editor instead of the name/options step.
+  { label: 'Calculated', types: [
+    { key: 'formula', label: 'Formula', icon: Sigma, storage: 'formula' },
   ] },
 ];
 const FIELD_PALETTE = [NX.blue, NX.purple, NX.green, NX.teal, NX.amber, NX.red, NX.pink, NX.dim];
@@ -295,7 +307,7 @@ function projOptsFor(options, projectId, store) {
   return [...options, { id: projectId, label: `${store.projectName(projectId) || projectId} (archived)` }];
 }
 
-function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSel, onPick, onOpen, groupColor, onDragStartRow, onDragEndRow, onRowDragOver, onRowDrop, onRowDragLeave, dropEdge = null, band = false, personWidth = 120, projectOptions = [] }) {
+function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSel, onPick, onOpen, onMove = null, groupColor, onDragStartRow, onDragEndRow, onRowDragOver, onRowDrop, onRowDragLeave, dropEdge = null, band = false, personWidth = 120, projectOptions = [], formula = null }) {
   // Only a person-scoped list hands a subtask to this row; then its parent and
   // its parent's project are what the title/project cells show.
   const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
@@ -332,6 +344,10 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
   // something to ride from the title out to the last cell. Selection and hover
   // both win over it, so they restore to the row's own band, not to transparent.
   const rowBg = selected ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : 'transparent';
+  // Conditional row color (Oct 22 2026): an accent bar and a faint tint over
+  // the band; selection and hover still win (style.css .nx-rc).
+  const rc = useRowColor(t.id);
+  const rcAttrs = rowColorAttrs(rc);
       // Cells are keyed and rendered in the HEADER's order, not in source
       // order - once columns can be dragged, a row that renders them in a fixed
       // sequence puts every value under the wrong heading. `cols` is already
@@ -356,7 +372,8 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
             {isMissed(t) ? <XCircle size={15} /> : t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}
           </button>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
-          <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
+          <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none', ...boldTitleStyle(rc, t.completed) }}>{t.title}</span>
+          {rc && <span style={srOnly}>, colored {rc.name}</span>}
           {t.checklistTotal > 0 && (
             <span title={`Checklist ${t.checklistDone || 0} of ${t.checklistTotal} done`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600, flexShrink: 0, color: t.checklistDone === t.checklistTotal ? NX.green : NX.faint }}>
               <ListChecks size={12} />{t.checklistDone || 0}/{t.checklistTotal}
@@ -377,6 +394,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
               that opened the drawer/file-picker regardless of whether the
               task had anything to show. */}
           <TaskCountBadges t={t} store={store} />
+          {onMove && <RowMenu t={t} onOpen={onOpen} onMove={onMove} />}
         </div>
         ),
         // assignee - monday Person cell: avatar + follower stack, spread to
@@ -449,7 +467,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         due: (
         <div className="rl-cell" style={{ ...editCell, gap: 4, justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
           {/* Repeat rides in the calendar, as on the task itself (Oct 14 2026). */}
-          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={dueColor(t.dueOn, t.completed)} title="Due Date" compact style={{ fontSize: 12 }}
+          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={onTint(dueColor(t.dueOn, t.completed), rc)} title="Due Date" compact style={{ fontSize: 12 }}
             repeat={repeatOption({
               value: t.recurrence, seedDate: t.dueOn, subtask: !!t.parentTaskId,
               mainRule: t.parentTaskId ? store.taskById?.[t.parentTaskId]?.recurrence || null : null,
@@ -516,6 +534,15 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
   const cfCell = (key) => {
     const f = customFields.find((x) => x.id === key);
     if (!f) return null;
+    // A formula is worked out, never typed (Oct 22 2026): read-only, and a
+    // click on it opens the task like any other read-only cell.
+    if (f.type === 'formula') {
+      return (
+        <div className="rl-cell" style={{ ...editCell, justifyContent: 'center' }}>
+          <FormulaValue task={t} field={f} engine={formula} />
+        </div>
+      );
+    }
     return (
       <div className="rl-cell" style={{ ...editCell, justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
         <FieldCell field={f} value={(t.customFieldValues || {})[f.id]} people={people}
@@ -549,12 +576,12 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         e.preventDefault();
         onPick(t.id, e);
       }}
-      data-task-row data-row-id={t.id} data-flip={t.id} draggable className="nx-row-hover" data-selected={selected ? 'true' : undefined}
+      data-task-row data-row-id={t.id} data-flip={t.id} draggable className={`nx-row-hover${rcAttrs.className ? ` ${rcAttrs.className}` : ''}`} data-selected={selected ? 'true' : undefined} data-row-color={rc?.id}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
       onDragEnd={() => onDragEndRow?.()}
       onDragOver={onRowDragOver} onDrop={onRowDrop} onDragLeave={onRowDragLeave}
       style={{
-        position: 'relative', borderBottom: `1px solid ${NX.border2}`, background: rowBg, cursor: 'pointer',
+        position: 'relative', borderBottom: `1px solid ${NX.border2}`, background: rowBg, cursor: 'pointer', ...rcAttrs.style,
         // Manual-reorder drop indicator: a colored line on whichever edge the
         // cursor is over, so dropping "reads" as inserting there rather than
         // replacing the row.
@@ -577,7 +604,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
 // The icon a stored field kind wears in the Existing Fields list - the same
 // icons the type grid uses, keyed by what the field IS rather than by the
 // visual type it was created as (that is not stored).
-const STORAGE_ICON = { text: Hash, number: Hash, select: List, multiselect: ListChecks, people: Users, date: Calendar, checkbox: CheckSquare };
+const STORAGE_ICON = { text: Hash, number: Hash, select: List, multiselect: ListChecks, people: Users, date: Calendar, checkbox: CheckSquare, formula: Sigma };
 
 // The workspace's custom fields that COULD be added to this project's list but
 // are not on it: task fields scoped to other projects. Fields scoped to no
@@ -590,8 +617,10 @@ export function addableFields(allFields, projectId) {
     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
 }
 
-function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, lockedProjectId }) {
+function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, lockedProjectId, store = null, previewTasks = EMPTY_LIST }) {
   const [open, setOpen] = useState(false);
+  // Formula is not a name-and-options field: it opens its own editor popup.
+  const [formulaOpen, setFormulaOpen] = useState(false);
   const [step, setStep] = useState('pick'); // 'pick' | 'config' | 'existing'
   // Existing Fields: a field defined for another project can be put on this
   // one from here (Neil, Oct 12 2026) instead of a trip to Manage > Custom
@@ -632,9 +661,15 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
         : `${f.name} could not be added. Try again.`);
     }
   };
-  const pickType = (t) => { setPicked(t); setName(t.label); setStep('config'); };
+  const pickType = (t) => {
+    if (t.storage === 'formula') { reset(); close(); setFormulaOpen(true); return; }
+    setPicked(t); setName(t.label); setStep('config');
+  };
+  // Waits for the save and throws on a refusal, so the popup can say why
+  // (the server re-checks the formula).
+  const createFormula = (d) => createCustomField({ ...d, ...(lockedProjectId ? { projectIds: [lockedProjectId] } : {}) });
   const create = () => {
-    if (!picked || !name.trim()) return;
+    if (!picked || !name.trim() || fieldNameProblem(name)) return;
     const needsOptions = picked.storage === 'select' || picked.storage === 'multiselect';
     const opts = needsOptions ? options.map((o) => o.trim()).filter(Boolean) : [];
     // Made from a project's list, the field belongs to that project - which is
@@ -728,6 +763,7 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
                 <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: NX.dim, marginBottom: 4 }}>Column name</label>
                 <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
                   style={{ ...inputStyle, fontSize: 13, padding: '6px 8px' }} onKeyDown={(e) => e.key === 'Enter' && create()} />
+                {fieldNameProblem(name) && <div role="alert" style={{ marginTop: 4, fontSize: 12, color: NX.red }}>{fieldNameProblem(name)}</div>}
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: NX.dim, marginBottom: 4 }}>Column description (optional)</label>
@@ -753,12 +789,16 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
               )}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 2 }}>
                 <button onClick={close} style={{ ...btn('ghost'), fontSize: 12.5, padding: '5px 10px' }}>Cancel</button>
-                <button onClick={create} disabled={!name.trim()} style={{ ...btn('primary'), fontSize: 12.5, padding: '5px 12px', opacity: name.trim() ? 1 : 0.5 }}>Add Column</button>
+                <button onClick={create} disabled={!name.trim() || !!fieldNameProblem(name)} style={{ ...btn('primary'), fontSize: 12.5, padding: '5px 12px', opacity: name.trim() && !fieldNameProblem(name) ? 1 : 0.5 }}>Add Column</button>
               </div>
             </div>
           )}
         </div>
         </PortalDropdown>
+      )}
+      {formulaOpen && (
+        <FormulaFieldModal store={store} lockedProjectId={lockedProjectId} previewTasks={previewTasks}
+          onClose={() => setFormulaOpen(false)} onSave={createFormula} />
       )}
     </div>
   );
@@ -1092,18 +1132,89 @@ export function useHiddenCols() {
 // draws from. Outside a project a new field lands on every project, which is
 // a manager's to add (`canManageFields`), so + Column is not offered there to
 // anyone else.
-export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId, teams, allCustomFields, updateCustomField, tracksTime = true, canManageFields = true }) {
+export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId, teams, allCustomFields, updateCustomField, tracksTime = true, canManageFields = true, store = null, previewTasks = EMPTY_LIST }) {
   return (
     <>
       <HideColsMenu customFields={customFields} hidden={hidden} setHidden={setHidden} lockedProjectId={lockedProjectId} teams={teams} tracksTime={tracksTime} />
+      <TotalsToggle lockedProjectId={lockedProjectId} />
       {(lockedProjectId || canManageFields) && (
-        <AddFieldMenu createCustomField={createCustomField} allCustomFields={allCustomFields} updateCustomField={updateCustomField} lockedProjectId={lockedProjectId} />
+        <AddFieldMenu createCustomField={createCustomField} allCustomFields={allCustomFields} updateCustomField={updateCustomField} lockedProjectId={lockedProjectId}
+          store={store} previewTasks={previewTasks} />
       )}
     </>
   );
 }
 
-export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, setSelected, toggleSel, onOpen, lockedProjectId = '', hidden, setHidden, onFullCreate, customSections = null }) {
+// Turns the totals footer on or off for this list (Oct 22 2026). Not on a
+// phone: the footer is not drawn there (a sheet-sized screen has no room
+// for a second header-width row under every group).
+function TotalsToggle({ lockedProjectId }) {
+  const isMobile = useIsMobile();
+  const { show, setShow } = useColumnTotals(lockedProjectId);
+  if (isMobile) return null;
+  return (
+    <button title={show ? 'Hide Totals' : 'Show Totals'} aria-pressed={show} onClick={(e) => { e.stopPropagation(); setShow(!show); }}
+      style={{ ...btn('ghost'), padding: '4px 8px', gap: 5, color: show ? NX.blue : NX.dim, fontSize: 12, fontWeight: 600 }}>
+      <Sigma size={13} />Totals
+    </button>
+  );
+}
+
+// One cell of a totals footer: the chosen total, or (in the list's own
+// footer) a faint "Calculate" to choose one. Click for the menu.
+function TotalCell({ kind, agg, value, colKey, field, onPick, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const panelRef = useRef(null);
+  useClickOutside([ref, panelRef], () => setOpen(false), open);
+  const cell = { minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minHeight: 30, padding: '2px 8px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
+  if (!kind) return <div style={cell} />;
+  if (!agg && !placeholder) return <div style={cell} />;
+  const options = aggsFor(kind);
+  return (
+    <div ref={ref} style={cell}>
+      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} aria-haspopup="menu" aria-expanded={open}
+        title={agg ? `${aggLabel(agg)} - click to change` : 'Choose a total for this column'}
+        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, padding: '2px 4px', borderRadius: 6, display: 'inline-flex', alignItems: 'baseline', gap: 5, maxWidth: '100%', minWidth: 0 }}>
+        {agg ? (
+          <>
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: NX.faint, flexShrink: 0 }}>{aggLabel(agg)}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {formatTotal(value, agg, colKey, field)}
+            </span>
+          </>
+        ) : (
+          <span style={{ fontSize: 11.5, color: NX.faint }}>Calculate</span>
+        )}
+      </button>
+      {open && (
+        <PortalDropdown anchorRef={ref} panelRef={panelRef} align="right" width={168}>
+          <div role="menu" style={{ padding: 4 }}>
+            {[{ key: '', label: 'None' }, ...options].map((o) => (
+              <button key={o.key || 'none'} role="menuitemradio" aria-checked={(agg || '') === o.key}
+                onClick={(e) => { e.stopPropagation(); onPick(o.key); setOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 7, padding: '6px 8px', cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, color: NX.ink, background: (agg || '') === o.key ? NX.surface2 : 'transparent' }}>
+                <span style={{ width: 12, flexShrink: 0, display: 'inline-flex' }}>{(agg || '') === o.key && <Check size={12} />}</span>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </PortalDropdown>
+      )}
+    </div>
+  );
+}
+
+export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, setSelected, toggleSel, onOpen, lockedProjectId = '', hidden, setHidden, onFullCreate, customSections = null, canManageFields = false }) {
+  // Move To... from a row's menu (Oct 22 2026) - only on rows this person can edit.
+  const canEditTask = useCanEditTask(store);
+  const [moving, setMoving] = useState(null);
+  // Formula columns (Oct 22 2026): one engine for the snapshot, memoizing
+  // every cell; and the totals footer this person chose for this project.
+  const formula = formulaEngineFor(store);
+  const totals = useColumnTotals(lockedProjectId);
+  const isMobile = useIsMobile();
+  const [formulaField, setFormulaField] = useState(null);   // the formula column whose editor is open
   // Which groups the person folded away - remembered in their profile, as the
   // other table settings are.
   const [collapsedList, setCollapsedList] = useTableSetting('richlist', 'collapsed', EMPTY_LIST);
@@ -1419,6 +1530,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     const sk = sortKeyFor(colKey);
     const active = sk && sort?.key === sk;
     const Arrow = sort?.dir === 'desc' ? ArrowDown : ArrowUp;
+    const fField = customFields.find((f) => f.id === colKey && f.type === 'formula');
     return (
       <div {...drag} onClick={sk ? () => cycleSort(colKey) : undefined}
         title={sk ? `Sort by ${label}` : undefined}
@@ -1433,6 +1545,13 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
           opacity: drag?.['data-dragging'] ? 0.4 : 1,
           boxShadow: drag?.['data-dropping'] ? `inset 2px 0 0 ${NX.blue}` : undefined,
         }}>
+        {fField && (
+          <button type="button" title={canManageFields ? 'Edit Formula' : 'View Formula'} aria-label={`${canManageFields ? 'Edit' : 'View'} formula for ${label}`}
+            onClick={(e) => { e.stopPropagation(); setFormulaField(fField); }}
+            style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', display: 'inline-flex', color: NX.faint, flexShrink: 0 }}>
+            <Sigma size={12} />
+          </button>
+        )}
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
         {active && <Arrow size={12} strokeWidth={2.5} style={{ flexShrink: 0, color: NX.primary }} />}
         <ColResizer onMouseDown={startResize(colKey, widths[colKey] ?? width)} onReset={() => resetWidth(colKey)} onAutofit={() => autofitWidth(colKey)} />
@@ -1482,6 +1601,46 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     </div>
     );
   };
+
+  // Totals footer (Oct 22 2026): under each group once something is picked
+  // (and there is more than one group), and under the whole list whenever the
+  // row is on - that one also offers "Calculate" in every column that has a
+  // total to pick. Worked out over the rows on screen, so it follows the
+  // filters; never on a phone.
+  const showTotals = totals.show && !isMobile;
+  const anyTotal = Object.keys(totals.cols).length > 0;
+  const totalsRow = (tasks, overall) => (
+    <div data-totals-row={overall ? 'all' : 'group'} style={{
+      display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', fontSize: 12.5,
+      borderTop: `1px solid ${NX.border2}`, background: NX.surface2,
+      ...(overall ? { borderRadius: 12 } : null),
+    }}>
+      {cols.map((c) => {
+        if (c.key === 'checkbox') return <div key={c.key} style={{ borderRight: `1px solid ${NX.border2}` }} />;
+        if (c.key === 'task') {
+          return (
+            <div key={c.key} style={{ display: 'flex', alignItems: 'center', padding: '2px 8px', borderRight: `1px solid ${NX.border2}`, fontSize: 12, fontWeight: 600, color: NX.dim, minWidth: 0 }}>
+              <Sigma size={12} style={{ marginRight: 6, color: NX.faint, flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {overall ? `All Tasks (${tasks.length})` : `Totals (${tasks.length})`}
+              </span>
+            </div>
+          );
+        }
+        const field = customFields.find((f) => f.id === c.key) || null;
+        const kind = totalKind(c.key, field);
+        const chosen = totals.cols[c.key] || '';
+        // A pick that no longer fits the column (a field changed type) reads as None.
+        const agg = chosen && aggsFor(kind).some((a) => a.key === chosen) ? chosen : '';
+        return (
+          <TotalCell key={c.key} kind={kind} agg={agg} colKey={c.key} field={field} placeholder={overall}
+            value={agg ? totalFor(tasks, c.key, agg, { field, engine: formula }) : null}
+            onPick={(a) => totals.setAgg(c.key, a)} />
+        );
+      })}
+      <div />
+    </div>
+  );
 
   return (
     <div ref={flipRef} className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
@@ -1536,12 +1695,14 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                   {groupHeader(g)}
                   {g.tasks.slice(0, groupBudgets[gi] ?? g.tasks.length).map((t, ri) => (
                     <TaskRow key={t.id} t={t} band={ri % 2 === 1} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onPick={pickRow} onOpen={onOpen}
+                      onMove={store.moveTask && !t.hrChecklist && canEditTask(t) ? setMoving : null}
                       personWidth={personWidth} groupColor={gc} projectOptions={projectOptions} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); setDropRow(null); }}
                       onRowDragOver={manualSort ? rowDragOver(t) : undefined}
                       onRowDrop={manualSort ? rowDrop(g, t) : undefined}
                       onRowDragLeave={manualSort ? rowDragLeave(t) : undefined}
-                      dropEdge={manualSort && dropRow?.taskId === t.id ? dropRow.edge : null} />
+                      dropEdge={manualSort && dropRow?.taskId === t.id ? dropRow.edge : null} formula={formula} />
                   ))}
+                  {showTotals && anyTotal && groups.length > 1 && totalsRow(g.tasks, false)}
                   <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={effGroup === 'section' && customSections?.personal ? {} : groupAddDefaults(effGroup, g.key)} onFullCreate={onFullCreate} />
                 </div>
               )}
@@ -1551,6 +1712,11 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
         {/* Grows the render budget as it comes into view - see ROW_BATCH. Kept
             in the flow (not fixed) so it only fires while the user is actually
             near the end of the list. */}
+        {showTotals && (
+          <div style={{ marginTop: 16, border: `1px solid ${NX.border}`, borderRadius: 12 }}>
+            {totalsRow(visible, true)}
+          </div>
+        )}
         {effGroup === 'section' && customSections && (
           <div style={{ marginTop: 16 }}><AddSectionButton sec={customSections} /></div>
         )}
@@ -1564,6 +1730,40 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
           </div>
         )}
       </div>
+      {formulaField && (
+        <FormulaFieldModal field={formulaField} store={store} lockedProjectId={lockedProjectId} previewTasks={visible}
+          readOnly={!canManageFields} onClose={() => setFormulaField(null)}
+          onSave={(d) => store.updateCustomField(formulaField.id, d)} />
+      )}
+      {moving && <MoveTaskModal taskId={moving} onClose={() => setMoving(null)} />}
     </div>
+  );
+}
+
+/** A row's own menu (Oct 22 2026): Open Task and Move To... - the move a
+ *  drag cannot make (under another task, or out to the top). Rendered only
+ *  for a row the person can edit. */
+function RowMenu({ t, onOpen, onMove }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const stop = (e) => e.stopPropagation();
+  const item = { ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12.5, color: NX.ink };
+  return (
+    <span onClick={stop} onMouseDown={stop} style={{ display: 'inline-flex', marginLeft: 'auto', flexShrink: 0 }}>
+      <button ref={ref} type="button" onClick={() => setOpen((o) => !o)} title="More Actions"
+        aria-label={`More actions for ${t.title}`} aria-haspopup="menu" aria-expanded={open}
+        style={{ ...btn('ghost'), padding: 2, color: NX.faint }}>
+        <MoreHorizontal size={14} />
+      </button>
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} align="end" aria-label="Task Actions"
+        style={{ width: 180, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+        <button type="button" role="menuitem" onClick={() => { setOpen(false); onOpen(t.id); }} style={item}>
+          <Maximize2 size={13} style={{ color: NX.faint }} />Open Task
+        </button>
+        <button type="button" role="menuitem" onClick={() => { setOpen(false); onMove(t.id); }} style={item}>
+          <MoveRight size={13} style={{ color: NX.faint }} />Move To...
+        </button>
+      </AnchoredMenu>
+    </span>
   );
 }

@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 import models
 from routers.task_util import log_activity, now_iso, task_assignees, task_notify
+import task_history
 
 AGREED = ("", "accepted")      # "" = legacy row, or a date nobody needs to confirm
 # While an extension waits for approval the CURRENT date is still the agreed one.
@@ -71,12 +72,13 @@ def _is_assignee(t: models.Task, email: str) -> bool:
     return bool(email) and email.strip().lower() in task_assignees(t)
 
 
-def _log(db: Session, t: models.Task, type_: str, actor: str, detail: str) -> None:
+def _log(db: Session, t: models.Task, type_: str, actor: str, detail: str, change: dict | None = None) -> None:
     """Activity row + its id on the task, so it shows on the task's timeline.
     Callers that rebuild t.activity_ids from a local list must call into this
-    module AFTER assigning that list, or the id is overwritten."""
+    module AFTER assigning that list, or the id is overwritten. `change` is
+    the row's field-history entry (task_history.py)."""
     aid = log_activity(db, type=type_, actor_email=actor, entity_id=t.id, entity_code=t.code or "",
-                       entity_title=t.title or "", detail=detail)
+                       entity_title=t.title or "", detail=detail, change=change)
     t.activity_ids = list(t.activity_ids or []) + [aid]
 
 
@@ -176,9 +178,11 @@ def needs_approval(db: Session, t: models.Task, old: str, new: str, actor: str,
 
 
 def request_extension(db: Session, t: models.Task, actor: str, new: str, approvers: list[str],
-                      note: str = "", notify: bool = True) -> None:
+                      note: str = "", notify: bool = True, start_on: str = "") -> None:
     """Hold an extension for approval. The caller has put t.due_on back to the
-    current date; it stays until an approver says yes (respond)."""
+    current date; it stays until an approver says yes (respond). `start_on`:
+    a start date moved in the same edit (a Calendar / Timeline drag keeps the
+    task's length) - held with it and applied on approval (Oct 22 2026)."""
     actor = (actor or "").strip().lower()
     number = int(t.due_extension_count or 0) + 1
     # With no current date (it was cleared first) the date being extended is
@@ -190,6 +194,8 @@ def request_extension(db: Session, t: models.Task, actor: str, new: str, approve
     t.due_proposal = {"dueOn": new[:10], "by": actor, "at": now_iso(), "note": (note or "")[:500],
                       "kind": "extension", "number": number, "approvers": list(approvers),
                       "overMonth": over_month, "baseline": base}
+    if start_on:
+        t.due_proposal["startOn"] = start_on[:10]
     detail = (f"asked to extend the due date from {us_date(current)} to {us_date(new)}"
               f" - extension #{number}, needs approval")
     if note:
@@ -276,7 +282,9 @@ def record_due_change(db: Session, t: models.Task, old: str, new: str, *, actor:
         detail += " (in Asana)"
     if source == "approved":
         detail += " (approved)"
-    _log(db, t, "due_changed", actor or "asana", detail)
+    # The due date's field history is this row (task_history.due_change) -
+    # every due_on write comes through here, so nothing else records it.
+    _log(db, t, "due_changed", actor or "asana", detail, change=task_history.due_change(old, new))
     if ext and source != "approved":
         # An approved one was already put to the managers as a request.
         _alert_managers(db, t, actor)
@@ -380,6 +388,13 @@ def _answer_extension(db: Session, t: models.Task, actor: str, accept: bool, not
         old = t.due_on or ""
         t.due_agreement = "accepted"      # the date being replaced is the agreed one
         t.due_on = prop.get("dueOn") or old
+        if prop.get("startOn"):
+            # Moved with it, so the task keeps its length - and recorded now,
+            # credited like the due move below: the edit that asked for it
+            # recorded nothing while it was held (routers/tasks.update_task).
+            start_before = task_history.snapshot(t)
+            t.start_on = prop["startOn"]
+            task_history.record(db, t, start_before, actor, only={"startOn"})
         record_due_change(db, t, old, t.due_on, actor=actor, source="approved", note=note)
         title, detail = "Extension Approved", f"approved the extension to {us_date(t.due_on)}"
     else:
