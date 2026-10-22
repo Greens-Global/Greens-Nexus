@@ -2382,6 +2382,16 @@ export const api = {
   getAskSettings:      ()         => req('/accounting/ask/settings'),
   saveAskSettings:     (body)     => req('/accounting/ask/settings', { method: 'PUT', body: JSON.stringify(body) }),
   getAskChart:         ()         => req('/accounting/ask/chart'),
+  // AMA, CR-13 (Charmi, 10/22; routers/accounting_ask_review.py): the other
+  // side of each entry on screen, Notes per line, and the GL reclass a
+  // bookkeeper approves and pushes.
+  getAskOffsets:       (entryIds) => req(`/accounting/ask/offsets?entries=${encodeURIComponent(entryIds.join(','))}`, { timeoutMs: 120_000 }),
+  getAskGlAccounts:    ()         => req('/accounting/ask/gl-accounts'),
+  saveAskNote:         (body)     => req('/accounting/ask/lines/note', { method: 'PUT', body: JSON.stringify(body) }),
+  proposeAskReclass:   (body)     => req('/accounting/ask/lines/reclass', { method: 'POST', body: JSON.stringify(body) }),
+  sendBackAskReclass:  (id, note = '') => req(`/accounting/ask/reviews/${encodeURIComponent(id)}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
+  pushAskReclass:      (id)       => req(`/accounting/ask/reviews/${encodeURIComponent(id)}/push`, { method: 'POST', body: '{}', timeoutMs: 120_000 }),
+  exportAskReclasses:  (id = '')  => reqBlob(`/accounting/ask/reviews/export.csv${id ? `?id=${encodeURIComponent(id)}` : ''}`),
   // ── Dashboard Essentials tiles (Oct 7): My Work, My Team, Announcements.
   //    routers/my_work.py, my_team.py (supervisor+), announcements.py.
   //    My Day reads getMyBriefing / actOnMyBriefing; My Time reads
