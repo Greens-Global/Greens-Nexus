@@ -50,7 +50,7 @@ from sqlalchemy.orm import Session
 import models
 from routers.task_util import (
     gen_id, now_iso, log_activity, task_assignees, set_task_assignees, email_list,
-    create_comment, fire_task_event, task_notify,
+    create_comment, fire_task_event, task_notify, row_company,
 )
 import task_due
 
@@ -358,6 +358,23 @@ def _enabled_rules(db: Session) -> list[models.TaskAutomationRule]:
             .all())
 
 
+def _rule_reaches(db: Session, rule: models.TaskAutomationRule, t: models.Task, cache: dict) -> bool:
+    """Whether `rule` may act on `t` across the company wall (Oct 21 2026).
+
+    A rule with no company (every rule made before the walls, and any made
+    while they are off or by a Global Admin) is shared and reaches every task,
+    exactly as before. A rule a company made fires only on that company's
+    tasks - read the way the task lists read a task's company
+    (task_util.row_company: stamped, else its owner's / creator's). `cache`
+    holds the task's company for the rest of this pass."""
+    rc = (getattr(rule, "company_id", "") or "").strip()
+    if not rc:
+        return True
+    if "company" not in cache:
+        cache["company"] = row_company(db, t)
+    return cache["company"] == rc
+
+
 def _record(db: Session, rule: models.TaskAutomationRule, t: models.Task, *, event: str,
             lines: list[str], dedupe_key: str = "") -> None:
     db.add(models.TaskAutomationRun(
@@ -402,9 +419,12 @@ def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
         elif after["status"] in ("completed", "missed"):
             after["status"] = "not_started"
     completing = bool(after["completed"]) and not before["completed"]
+    company_cache: dict = {}
     for rule in rules:
         trigger = rule.trigger if isinstance(rule.trigger, dict) else {}
         if trigger.get("type") == "due_date_arrives":
+            continue
+        if not _rule_reaches(db, rule, t, company_cache):
             continue
         try:
             if not _matches_trigger(trigger, event, before, after, completing=completing, today=today):
@@ -479,6 +499,8 @@ def run_scheduled(db: Session, today_iso: str) -> int:
             key = f"{rule.id}:{t.id}:{target}"
             if key in done:
                 continue
+            if not _rule_reaches(db, rule, t, {}):
+                continue   # another company's task (company wall)
             before = snapshot(t)
             if not conditions_ok(rule.conditions if isinstance(rule.conditions, list) else [], before):
                 continue

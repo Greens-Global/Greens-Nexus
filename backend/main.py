@@ -1243,6 +1243,15 @@ def _run_migrations():
             "ALTER TABLE accounting_loan_settings ADD COLUMN vendor_name VARCHAR DEFAULT ''",
             # Contractor invoices (Oct 21): the company's payer emails. models.HrEntity.
             "ALTER TABLE hr_entities ADD COLUMN invoice_recipients JSON DEFAULT '[]'",
+            # Tasks company walls (Oct 21 2026) - see the Postgres list.
+            "ALTER TABLE task_projects ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_portfolios ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_teams ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_custom_statuses ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_automation_rules ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_templates ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_intake_forms ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_custom_fields ADD COLUMN company_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2853,6 +2862,18 @@ def _run_migrations():
         "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS vendor_name VARCHAR DEFAULT ''",
         # Contractor invoices (Oct 21): the company's payer emails. models.HrEntity.
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS invoice_recipients JSONB DEFAULT '[]'::jsonb",
+        # Tasks company walls (Oct 21 2026). Projects / portfolios / teams: the
+        # creator's company, '' = derive from owner / creator (task_util.row_company).
+        # Rules / templates / custom fields / custom statuses / intake forms:
+        # '' = shared by every company (task_util.config_admits). Additive only.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_portfolios ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_custom_statuses ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_intake_forms ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

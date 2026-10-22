@@ -360,6 +360,157 @@ def wall_tasks(db: Session, user, rows):
     return [t for t in rows if task_company(t, emp) in scope]
 
 
+# ── Company wall for the module's other records (Oct 21 2026) ────────────────
+# Projects, portfolios and teams are tenant data, like tasks: a stamped
+# company_id wins, else the company of the owner / creator (task_company works
+# on any row carrying those columns), and an untagged one is Global-Admin-only
+# once the walls are armed. A team with no creator company falls back to its
+# projects' company.
+#
+# The module's CONFIGURATION rows (automation rules, task templates, custom
+# fields, custom statuses, intake forms) use the opposite convention for a
+# blank company: '' = shared by every company, which is what every such row
+# was before the walls existed. A company on one of those rows confines it to
+# that company (config_admits / config_company_for_new below).
+def row_company(db: Session, row, emp: dict | None = None) -> str:
+    """The company a project / portfolio / task row belongs to - task_company,
+    with the owner / creator lookup done per row unless `emp` (the full
+    employee -> company map) is passed for a list."""
+    if emp is not None:
+        return task_company(row, emp)
+    c = (getattr(row, "company_id", "") or "").strip()
+    if c:
+        return c
+    import auth
+    for who in ((getattr(row, "owner_email", "") or ""), (getattr(row, "created_by", "") or "")):
+        if who.strip():
+            c2 = auth.company_of(who, db)
+            if c2:
+                return c2
+    return ""
+
+
+def team_company(db: Session, team, emp: dict | None = None, proj_company: dict | None = None) -> str:
+    """A team's company: stamped, else its creator's, else the first of its
+    projects that has one (teams set up from Manage before creators were
+    recorded have no creator)."""
+    c = row_company(db, team, emp)
+    if c:
+        return c
+    for pid in team_project_ids(team):
+        if proj_company is not None:
+            c2 = proj_company.get(pid, "")
+        else:
+            p = db.query(TaskProject).filter(TaskProject.id == pid).first()
+            c2 = row_company(db, p) if p is not None else ""
+        if c2:
+            return c2
+    return ""
+
+
+def wall_rows(db: Session, user, rows, company_of_row=None):
+    """wall_tasks for any tenant row (projects, portfolios, teams): the rows
+    the caller's company scope admits. No-op when the walls are off or the
+    caller is a Global Admin. `company_of_row(row, emp)` overrides how a row's
+    company is read (teams)."""
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return list(rows)
+    emp = _emp_company_map(db)
+    read = company_of_row or (lambda r, e: task_company(r, e))
+    return [r for r in rows if auth.company_ok(read(r, emp), scope)]
+
+
+def wall_teams(db: Session, user, rows):
+    """wall_rows for teams (their company can come from their projects)."""
+    import auth
+    if auth.company_scope(user, db) is None:
+        return list(rows)
+    emp = _emp_company_map(db)
+    proj_company = {p.id: task_company(p, emp)
+                    for p in db.query(TaskProject).execution_options(include_deleted=True).all()}
+    return wall_rows(db, user, rows, lambda r, e: team_company(db, r, e, proj_company))
+
+
+def assert_row_wall(db: Session, user: dict, row, company: str | None = None) -> None:
+    """404 unless the caller's company scope admits `row` (a task, project or
+    portfolio; pass `company` when it was worked out another way, e.g. a
+    team). Same answer as the lists: wall_tasks / wall_rows."""
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is None or row is None:
+        return
+    if not auth.company_ok(row_company(db, row) if company is None else company, scope):
+        raise HTTPException(404, "Not found")
+
+
+def assert_task_wall(db: Session, user: dict, task) -> None:
+    """The company wall for ONE task - the per-record form of wall_tasks, so a
+    task a list hides is also a 404 when fetched by id."""
+    assert_row_wall(db, user, task)
+
+
+def assert_team_wall(db: Session, user: dict, team) -> None:
+    if team is None:
+        return
+    import auth
+    if auth.company_scope(user, db) is None:
+        return
+    assert_row_wall(db, user, team, company=team_company(db, team))
+
+
+def require_project_access(db: Session, user: dict, project, min_role: str) -> None:
+    """require_project_role for an endpoint that acts ON a project (its
+    settings, its sharing, moving work into it): the company wall first - a
+    manager clears every role check, so without it a manager could edit or
+    fill another company's project - then the role."""
+    if project is not None:
+        assert_row_wall(db, user, project)
+    require_project_role(db, user, project, min_role)
+
+
+def config_admits(company_id: str, scope) -> bool:
+    """Whether a configuration row (rule, template, custom field, custom
+    status, intake form) is visible to a caller with `scope`: shared ('') rows
+    always, a company's rows only inside that company."""
+    c = (company_id or "").strip()
+    return scope is None or not c or c in scope
+
+
+def config_company_for_new(db: Session, user: dict) -> str:
+    """The company to stamp on a NEW configuration row. '' (shared, as every
+    row was before) while the walls are off and for a Global Admin; behind a
+    wall, the creator's own company - or the one company in their scope - so
+    a company's manager can never make a row that reaches another company."""
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return ""
+    home = auth.company_of(user, db)
+    if home and home in scope:
+        return home
+    if len(scope) == 1:
+        return next(iter(scope))
+    raise HTTPException(403, "Your account is not placed in one company, so this cannot be "
+                             "created for a company. Ask a Global Admin.")
+
+
+def assert_config_editable(db: Session, user: dict, company_id: str) -> None:
+    """Edits and deletes of a configuration row: another company's row is a
+    404 (as if absent); a shared ('') row reaches every company, so behind a
+    wall only a Global Admin may change it. No-op with the walls off."""
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return
+    c = (company_id or "").strip()
+    if c and c not in scope:
+        raise HTTPException(404, "Not found")
+    if not c:
+        raise HTTPException(403, "This is shared by every company - only a Global Admin can change it.")
+
+
 # ── Project access roles (Share panel, Jul 2026) ─────────────────────────────
 # Mirrors Asana's own 4 tiers so the Share UI can be a direct parity build:
 # a role only ever implies everything ranked below it.
@@ -439,15 +590,14 @@ def require_project_role(db: Session, user: dict, project, min_role: str) -> Non
         raise HTTPException(403, f"You need at least {min_role} access to {name}.")
 
 
-def assert_person_on_task(db: Session, task, email: str) -> str:
-    """`email` lowercased, once it is a current person who can already open
-    `task` - else 422. For hand-offs that name someone on a thing INSIDE a
-    task (a checklist line, a comment): being named there grants no
-    visibility, so the person must be able to see the task already, must be a
-    real, active employee (not any string that reaches a bell and, for a
-    comment, an outside mailbox), and must be on the task's side of the
-    company wall. Blank stays blank: that is "nobody"."""
-    import auth
+def assert_person_assignable(db: Session, task, email: str) -> str:
+    """`email` lowercased, once it is a current person in the Nexus directory
+    on the task's side of the company wall - else 422. The check for putting
+    somebody ON a task as an assignee or a collaborator (Oct 21 2026): being
+    put there is itself what lets them see it (task_is_visible), so unlike
+    assert_person_on_task below it does not ask that they can see it already
+    - only that they are a real, active person and not in another company.
+    Blank stays blank."""
     from models import NexusEmployee
     who = (email or "").strip().lower()
     if not who:
@@ -458,6 +608,21 @@ def assert_person_on_task(db: Session, task, email: str) -> str:
     task_co = task_company(task, _emp_company_map(db))
     if task_co and (emp.company or "") and emp.company != task_co:
         raise HTTPException(422, "That person is in another company.")
+    return who
+
+
+def assert_person_on_task(db: Session, task, email: str) -> str:
+    """`email` lowercased, once it is a current person who can already open
+    `task` - else 422. For hand-offs that name someone on a thing INSIDE a
+    task (a checklist line, a comment): being named there grants no
+    visibility, so the person must be able to see the task already, must be a
+    real, active employee (not any string that reaches a bell and, for a
+    comment, an outside mailbox), and must be on the task's side of the
+    company wall. Blank stays blank: that is "nobody"."""
+    import auth
+    who = assert_person_assignable(db, task, email)
+    if not who:
+        return ""
     if auth.level_in_module(who, "tasks", 3, db) >= 3:   # managers (and Tasks Owners) open every task
         return who
     if not task_is_visible(task, who, visible_project_ids(db, who)):
@@ -488,7 +653,15 @@ def require_task_role(db: Session, user: dict, task, min_role: str) -> None:
     this is ever revisited: delete_task cascades to SUBTASKS, so an assignee
     removing their own task also removes children that may belong to other
     people - the only place this grant reaches beyond the one task it is
-    scoped to."""
+    scoped to.
+
+    The company wall comes first (Oct 21 2026): the manager bypass below
+    clears every role check, so without it a manager behind a wall could act
+    on another company's task through any caller that relies on this alone
+    (bulk edits, ticket links, Outlook actions). 404, like every other wall.
+    No-op while the walls are off and for a Global Admin."""
+    if task is not None:
+        assert_task_wall(db, user, task)
     if is_manager(user):
         return
     email = (user.get("email") or "").lower()

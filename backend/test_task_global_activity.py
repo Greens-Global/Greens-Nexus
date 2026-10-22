@@ -64,7 +64,7 @@ class GlobalActivityAccessTests(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        for m in (models.TaskActivity, models.Task):
+        for m in (models.TaskActivity, models.Task, models.TaskProject):
             self.db.query(m).execution_options(include_deleted=True).delete()
         self.db.commit()
 
@@ -103,9 +103,14 @@ class GlobalActivityAccessTests(unittest.TestCase):
             self.db.add(models.TaskActivity(id=gen_id(), entity_kind="task", entity_id=t.id,
                                             entity_code=code, entity_title=t.title,
                                             type="created", actor_email=MANAGER["email"], at=now_iso()))
-        self.db.add(models.TaskActivity(id=gen_id(), entity_kind="project", entity_id="p1",
-                                        entity_code="Roof", entity_title="Roof", type="created",
-                                        actor_email=MANAGER["email"], at=now_iso()))
+        # Project rows are walled by their project's company too (Oct 21 2026 -
+        # until then every project row passed the wall, so another company's
+        # project names were in a walled manager's log).
+        for pid, name, company in (("p1", "Roof", "co-a"), ("p2", "Vault", "co-b")):
+            self.db.add(models.TaskProject(id=pid, name=name, company_id=company, created_at=now_iso()))
+            self.db.add(models.TaskActivity(id=gen_id(), entity_kind="project", entity_id=pid,
+                                            entity_code=name, entity_title=name, type="created",
+                                            actor_email=MANAGER["email"], at=now_iso()))
         self.db.commit()
 
     def _codes(self, user):
@@ -113,12 +118,31 @@ class GlobalActivityAccessTests(unittest.TestCase):
 
     def test_walls_off_returns_every_row(self):
         self._seed()
-        self.assertEqual(self._codes(MANAGER), {"TASK-A", "TASK-B", "Roof"})
+        self.assertEqual(self._codes(MANAGER), {"TASK-A", "TASK-B", "Roof", "Vault"})
 
     def test_a_walled_manager_sees_only_their_companys_task_rows(self):
         self._seed()
         with mock.patch.object(auth, "company_scope", return_value={"co-a"}):
             self.assertEqual(self._codes(MANAGER), {"TASK-A", "Roof"})
+
+    def test_the_wall_is_applied_before_the_limit(self):
+        # Ten newer co-b rows ahead of one older co-a row: limit=1 used to take
+        # the newest row and then wall it away, answering nothing at all.
+        older = models.Task(id=gen_id(), code="TASK-OLD", title="old", company_id="co-a",
+                            created_at=now_iso(), modified_at=now_iso())
+        self.db.add(older)
+        self.db.add(models.TaskActivity(id=gen_id(), entity_kind="task", entity_id=older.id,
+                                        entity_code="TASK-OLD", type="created", at="2026-01-01T00:00:00"))
+        for i in range(10):
+            t = models.Task(id=gen_id(), code=f"B-{i}", title="b", company_id="co-b",
+                            created_at=now_iso(), modified_at=now_iso())
+            self.db.add(t)
+            self.db.add(models.TaskActivity(id=gen_id(), entity_kind="task", entity_id=t.id,
+                                            entity_code=f"B-{i}", type="created", at=f"2026-02-{i + 10:02d}T00:00:00"))
+        self.db.commit()
+        with mock.patch.object(auth, "company_scope", return_value={"co-a"}):
+            rows = T.global_activity_feed(limit=1, user=MANAGER, db=self.db)
+        self.assertEqual([r["entityCode"] for r in rows], ["TASK-OLD"])
 
 
 if __name__ == "__main__":

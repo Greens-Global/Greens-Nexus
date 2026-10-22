@@ -45,6 +45,12 @@ class TaskTemplateTests(unittest.TestCase):
             self.db.query(m).delete()
         # The Entity field the values below belong to.
         self.db.add(models.TaskCustomField(id="ent", name="Entity", type="text"))
+        # The people the template puts on its tasks are in the directory - an
+        # assignee or collaborator must be a current person (Oct 21 2026).
+        self.db.query(models.NexusEmployee).delete()
+        for who in ("viral@greensglobal.com", "urmi@greensglobal.com", "neil@greensglobal.com"):
+            self.db.add(models.NexusEmployee(id=gen_id(), work_email=who, first_name=who.split("@")[0],
+                                             status="active", company=""))
         self.db.commit()
 
     def tearDown(self):

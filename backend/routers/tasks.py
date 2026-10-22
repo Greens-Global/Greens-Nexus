@@ -33,6 +33,8 @@ from routers.task_util import (
     task_assignees, set_task_assignees,
     purge_task_permanently, assert_person_on_task, COMMENT_REACTIONS,
     extract_mentions,
+    assert_task_wall, require_project_access, wall_rows, wall_teams,
+    config_admits, config_company_for_new, assert_config_editable,
 )
 from task_notify import notify_task_event
 import task_due
@@ -331,9 +333,8 @@ def _wall_task(db: Session, user: dict, task_id: str) -> models.Task:
     subtask carries no project of its own, so it is also admitted through the
     project its top-level ancestor sits in.
     """
-    import auth
     t = _get_task(db, task_id)
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    assert_task_wall(db, user, t)
     if not is_manager(user):
         visible = visible_project_ids(db, user)
         if not task_is_visible(t, user, visible):
@@ -1470,20 +1471,30 @@ def search_everything(q: str = "", limit: int = 6,
              if (term in (t.title or "").lower() or term in (t.code or "").lower())
              and not t.completed
              and (manager or task_is_visible(t, user, visible))]
-    project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
+    # The company wall applies to every group, not only tasks (Oct 21 2026):
+    # a project, portfolio or team name - and the people list - from another
+    # company is as much a leak as a task title. Walled before the per-group
+    # cap, so a capped list is never short because the cap ate admitted rows.
+    import auth
+    scope = auth.company_scope(user, db)
+    all_projects = wall_rows(db, user, db.query(models.TaskProject).all())
+    project_names = {p.id: p.name for p in all_projects}
     # Archived projects DO appear here. Archiving hides a project from the
     # active list and from task pickers - it is not deletion, and search is how
     # you get back to finished work. The result carries `archived` so the UI can
     # mark it rather than pass it off as live.
-    projects = [p for p in db.query(models.TaskProject).all()
+    projects = [p for p in all_projects
                 if term in (p.name or "").lower()
                 and (manager or p.id in visible)]
-    portfolios = [p for p in db.query(models.TaskPortfolio).all() if term in (p.name or "").lower()]
-    teams = [t for t in db.query(models.TaskTeam).all() if term in (t.name or "").lower()]
+    portfolios = [p for p in wall_rows(db, user, db.query(models.TaskPortfolio).all())
+                  if term in (p.name or "").lower()]
+    teams = [t for t in wall_teams(db, user, db.query(models.TaskTeam).all()) if term in (t.name or "").lower()]
 
     people = []
     for e in db.query(models.NexusEmployee).all():
         if (e.status or "") in ("inactive", "offboarded"):
+            continue
+        if not auth.company_ok((e.company or "").strip(), scope):
             continue
         name = f"{e.first_name or ''} {e.last_name or ''}".strip()
         if term in name.lower() or term in (e.work_email or "").lower():
@@ -1558,12 +1569,19 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
         raise HTTPException(404, "Person not found")
     emp = db.query(models.NexusEmployee).filter(
         models.NexusEmployee.work_email == email).first()
+    # Somebody in another company is not on this side of the wall (Oct 21
+    # 2026): their directory card is as walled as their work. No-op while the
+    # walls are off and for a Global Admin.
+    import auth
+    if emp is not None and not auth.company_ok((emp.company or "").strip(), auth.company_scope(user, db)):
+        raise HTTPException(404, "Person not found")
 
     manager = is_manager(user)
     visible = None if manager else visible_project_ids(db, user)
     rows = [t for t in wall_tasks(db, user, db.query(models.Task).all())
             if manager or task_is_visible(t, user, visible)]
-    project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
+    walled_projects = wall_rows(db, user, db.query(models.TaskProject).all())
+    project_names = {p.id: p.name for p in walled_projects}
 
     def shape(t):
         return {"id": t.id, "code": t.code or "", "title": t.title,
@@ -1597,12 +1615,12 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
 
     today = date.today().isoformat()
     open_assigned = [t for t in assigned if not t.completed]
-    projects = [p for p in db.query(models.TaskProject).all()
+    projects = [p for p in walled_projects
                 if (manager or p.id in visible) and not p.archived
                 and (email in email_list(p.member_emails)
                      or (p.owner_email or "").lower() == email
                      or p.id in {t.project_id for t in assigned if t.project_id})]
-    teams = [t for t in db.query(models.TaskTeam).all()
+    teams = [t for t in wall_teams(db, user, db.query(models.TaskTeam).all())
              if email in email_list(t.member_emails)]
 
     return {
@@ -1681,11 +1699,17 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     # -> falls back to org, same as before.
     project = (db.query(models.TaskProject).filter(models.TaskProject.id == body.project_id).first()
                if body.project_id else None)
-    if not project and body.parent_task_id:
-        parent = db.query(models.Task).filter(models.Task.id == body.parent_task_id).first()
-        if parent:
-            project = project_for_task(db, parent)
-    require_project_role(db, user, project, "editor")
+    parent = (db.query(models.Task).filter(models.Task.id == body.parent_task_id).first()
+              if body.parent_task_id else None)
+    if parent is not None:
+        # A subtask goes under a task on the caller's side of the company
+        # wall only (Oct 21 2026) - 404, as for any task over it.
+        assert_task_wall(db, user, parent)
+    if not project and parent is not None:
+        project = project_for_task(db, parent)
+    # The company wall on the project too: a manager clears the role check, so
+    # without it a task could be created inside another company's project.
+    require_project_access(db, user, project, "editor")
     # Normalizes tags/followers in place too, so the row is written clean rather
     # than needing a later PATCH to tidy it.
     validate_task_payload(db, body.__dict__, task_id=tid)
@@ -1695,20 +1719,23 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     # creates a task cannot slip past. Top-level tasks in a project only: a
     # subtask is part of its parent, and a task with no project has no
     # project to require anything.
-    if body.project_id and not body.parent_task_id:
-        missing = missing_required_fields(db, body.project_id,
-                                          coerce_custom_field_values(db, body.custom_field_values))
-        if missing:
-            names = ", ".join(f.name for f in missing)
-            where = f" in {project.name}" if project and project.name else " in this project"
-            raise HTTPException(422, f"{names} {'is' if len(missing) == 1 else 'are'} required for tasks{where}.")
-    access_level = body.access_level or (project.access_level if project else None) or "org"
     # Company wall: stamp the creator's company so the task is fixed on their side
     # of the wall even if they later change companies (task_util.task_company falls
     # back to deriving it for legacy/sync rows that were never stamped).
     _creator = (db.query(models.NexusEmployee.company)
                 .filter(func.lower(models.NexusEmployee.work_email) == user["email"].lower()).first())
     company_id = (_creator.company if _creator else "") or ""
+    if body.project_id and not body.parent_task_id:
+        # A field that belongs to one company binds only that company's tasks
+        # (Oct 21 2026); a shared field binds every task, as before.
+        missing = missing_required_fields(db, body.project_id,
+                                          coerce_custom_field_values(db, body.custom_field_values),
+                                          task_company=company_id)
+        if missing:
+            names = ", ".join(f.name for f in missing)
+            where = f" in {project.name}" if project and project.name else " in this project"
+            raise HTTPException(422, f"{names} {'is' if len(missing) == 1 else 'are'} required for tasks{where}.")
+    access_level = body.access_level or (project.access_level if project else None) or "org"
     t = models.Task(
         id=tid,
         company_id=company_id,
@@ -1817,8 +1844,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _get_task(db, task_id)
     # Company wall: another company's task is 404 (before the role check).
-    import auth
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    assert_task_wall(db, user, t)
     # The assignee counts on their OWN task - see require_task_role.
     require_task_role(db, user, t, "editor")
     data = upd.model_dump(exclude_unset=True)
@@ -2043,16 +2069,11 @@ def reschedule_task(task_id: str, body: RescheduleBody, background_tasks: Backgr
     t = _get_task(db, task_id)
     moved, skipped = [], []
     if body.cascade:
-        import auth
-        scope = auth.company_scope(user, db)
-
         def _can_edit(d: models.Task) -> bool:
             # The company wall first (Oct 12 review): a manager clears every
             # role check, so without it a link to another company's task
             # would let this drag move that task. Reported as skipped.
-            if scope is not None and not auth.company_ok(
-                    getattr(d, "company_id", "") or auth.company_of(d.created_by or d.owner_email or "", db), scope):
-                return False
+            # require_task_role applies the wall itself (Oct 21 2026).
             try:
                 require_task_role(db, user, d, "editor")
                 return True
@@ -2211,8 +2232,8 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
     the tasks LEFT BEHIND, not as "this one's in the trash". Restore brings
     the task itself back, not those severed links."""
     t = _get_task(db, task_id)
-    import auth   # company wall: another company's task is 404
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    # company wall: another company's task is 404
+    assert_task_wall(db, user, t)
     # The assignee counts on their own task here too. Note this cascade takes
     # the task's SUBTASKS with it (below), which may be assigned to other
     # people - deleting your own task can therefore remove someone else's.
@@ -2346,8 +2367,8 @@ def restore_task(task_id: str, user: dict = Depends(get_current_user), db: Sessi
            .filter(models.Task.id == task_id).first())
     if not t:
         raise HTTPException(404, "Task not found")
-    import auth   # company wall: another company's trashed task is 404
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    # company wall: another company's trashed task is 404
+    assert_task_wall(db, user, t)
     if not _may_untrash(user, t):
         raise HTTPException(403, "Only a manager, or whoever deleted it, can restore this task.")
     if not t.deleted_at:
@@ -2377,8 +2398,8 @@ def delete_task_permanent(task_id: str, user: dict = Depends(get_current_user), 
     t = (db.query(models.Task).execution_options(include_deleted=True)
            .filter(models.Task.id == task_id).first())
     if t:
-        import auth   # company wall: another company's trashed task is 404
-        auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+        # company wall: another company's trashed task is 404
+        assert_task_wall(db, user, t)
         if not _may_untrash(user, t):
             raise HTTPException(403, "Only a manager, or whoever deleted it, can permanently delete this task.")
     if not purge_task_permanently(db, task_id, actor_email=user["email"]):
@@ -2424,6 +2445,12 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # an arbitrary status set here still created a phantom board column.
     validate_task_payload(db, patch)
     rows = db.query(models.Task).filter(models.Task.id.in_(body.ids)).all()
+    # The company wall, all-or-nothing like the editor check below (Oct 21
+    # 2026). A manager clears every role check, so without this one batch
+    # could reassign or close another company's tasks by id. 404, as for one
+    # task: the caller learns nothing about which ids exist over the wall.
+    if len(wall_tasks(db, user, rows)) != len(rows):
+        raise HTTPException(404, "Task not found")
     # Same editor requirement update_task enforces per task. Without this, bulk
     # was a straight bypass of it: _BULK_ALLOWED covers assignee, project,
     # completed and due date, so anyone who could merely VIEW a task could
@@ -3180,8 +3207,7 @@ def add_checklist_items(task_id: str, body: ChecklistItemCreate, user: dict = De
 def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = Depends(get_current_user),
                           db: Session = Depends(get_db)):
     i, t = _checklist_item(db, item_id)
-    import auth
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    assert_task_wall(db, user, t)
     data = upd.model_dump(exclude_unset=True)
     me = (user["email"] or "").lower()
     only_ticking = set(data) <= {"done"}
@@ -3222,8 +3248,7 @@ def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = D
 @router.delete("/checklist/{item_id}")
 def delete_checklist_item(item_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     i, t = _checklist_item(db, item_id)
-    import auth
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    assert_task_wall(db, user, t)
     require_task_role(db, user, t, "editor")
     db.delete(i)
     _recount_checklist(db, t)
@@ -3346,15 +3371,40 @@ def global_activity_feed(limit: int = 500, user: dict = Depends(get_current_user
     Tasks grant and manager level (Sep 30 review: the route took no user at
     all), and a manager behind a company wall sees only the task rows on their
     side of it. global_activity above builds the rows."""
-    rows = global_activity(limit=limit, db=db)
     import auth
     if auth.company_scope(user, db) is None:
-        return rows   # walls off, or a Global Admin
-    ids = {r["entityId"] for r in rows if r["entityKind"] == "task" and r["entityId"]}
-    tasks = (db.query(models.Task).execution_options(include_deleted=True)
-             .filter(models.Task.id.in_(ids)).all()) if ids else []
-    admitted = {t.id for t in wall_tasks(db, user, tasks)}
-    return [r for r in rows if r["entityKind"] != "task" or r["entityId"] in admitted]
+        return global_activity(limit=limit, db=db)   # walls off, or a Global Admin
+    # Behind a wall (Oct 21 2026): project rows are walled as well as task
+    # rows (a project's name is as much a leak as a task's title), anything
+    # whose task or project cannot be placed is left out, and the wall is
+    # applied BEFORE the limit - filtering the newest `limit` rows afterwards
+    # handed a walled manager a short, arbitrarily truncated page. Scans in
+    # pages, newest first, up to a bounded depth.
+    want = max(1, min(limit, 2000))
+    page, scanned, out = 2000, 0, []
+    while len(out) < want and scanned < 50_000:
+        chunk = (db.query(models.TaskActivity)
+                 .filter(or_(models.TaskActivity.entity_kind.is_(None),
+                             models.TaskActivity.entity_kind != "ticket"))
+                 .order_by(models.TaskActivity.at.desc(), models.TaskActivity.id)
+                 .offset(scanned).limit(page).all())
+        if not chunk:
+            break
+        scanned += len(chunk)
+        task_ids = {a.entity_id for a in chunk if (a.entity_kind or "task") == "task" and a.entity_id}
+        proj_ids = {a.entity_id for a in chunk if a.entity_kind == "project" and a.entity_id}
+        tasks = (db.query(models.Task).execution_options(include_deleted=True)
+                 .filter(models.Task.id.in_(task_ids)).all()) if task_ids else []
+        projs = (db.query(models.TaskProject).execution_options(include_deleted=True)
+                 .filter(models.TaskProject.id.in_(proj_ids)).all()) if proj_ids else []
+        admitted = {("task", t.id) for t in wall_tasks(db, user, tasks)} \
+            | {("project", p.id) for p in wall_rows(db, user, projs)}
+        for a in chunk:
+            if ((a.entity_kind or "task"), a.entity_id) in admitted:
+                out.append(activity_to_dict(a))
+                if len(out) >= want:
+                    break
+    return out
 
 
 @router.get("/{task_id}/activity")
@@ -3873,7 +3923,7 @@ def _require_section_editor(db: Session, user: dict, project_id: str) -> None:
     if not project_id:
         return
     project = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
-    require_project_role(db, user, project, "editor")
+    require_project_access(db, user, project, "editor")   # company wall, then the role
 
 
 @router.post("/meta/sections", status_code=201)
@@ -3937,7 +3987,7 @@ class CustomStatusBody(BaseModel):
 
 
 @router.post("/meta/custom-statuses/dedupe", dependencies=[Depends(require_manager)])
-def dedupe_custom_statuses(db: Session = Depends(get_db)):
+def dedupe_custom_statuses(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Collapse same-named statuses onto one row scoped to every project that
     used them.
 
@@ -3948,20 +3998,32 @@ def dedupe_custom_statuses(db: Session = Depends(get_db)):
     Safe to run repeatedly - a no-op once there is nothing to merge. It remaps
     Task.status off every row it deletes, so no task is left pointing at a
     status that no longer exists.
+
+    Behind a company wall (Oct 21 2026) a manager merges only their own
+    companies' statuses; the shared ones are a Global Admin's.
     """
+    import auth
     import task_status_dedupe
-    result = task_status_dedupe.dedupe_custom_statuses(db)
+    scope = auth.company_scope(user, db) if isinstance(user, dict) else None
+    result = task_status_dedupe.dedupe_custom_statuses(db, companies=scope)
     db.commit()
     return result
 
 
 @router.get("/meta/custom-statuses")
-def list_custom_statuses(project_id: str = "", db: Session = Depends(get_db)):
+def list_custom_statuses(project_id: str = "", user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
     """`project_id` narrows to the statuses that project actually uses (its own
     plus any global one). Omitted returns every status, which is what Manage
     needs - the board passes it so a stage invented for one project stops
-    appearing as a column on every other."""
-    rows = db.query(models.TaskCustomStatus).all()
+    appearing as a column on every other.
+
+    Behind a company wall (Oct 21 2026) a company's own statuses are its own;
+    shared ('') ones are everybody's, as every status was before."""
+    import auth
+    scope = auth.company_scope(user, db)
+    rows = [s for s in db.query(models.TaskCustomStatus).all()
+            if config_admits(getattr(s, "company_id", "") or "", scope)]
     if project_id:
         rows = [s for s in rows
                 if not [p for p in (s.project_ids or []) if p]
@@ -3970,10 +4032,12 @@ def list_custom_statuses(project_id: str = "", db: Session = Depends(get_db)):
 
 
 @router.post("/meta/custom-statuses", status_code=201, dependencies=[Depends(require_manager)])
-def create_custom_status(body: CustomStatusBody, db: Session = Depends(get_db)):
+def create_custom_status(body: CustomStatusBody, user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
     s = models.TaskCustomStatus(id=body.id or gen_id(), label=body.label or "",
                                 color=body.color or "", position=body.position or 0,
-                                project_ids=[p for p in (body.project_ids or []) if p])
+                                project_ids=[p for p in (body.project_ids or []) if p],
+                                company_id=config_company_for_new(db, user))
     db.add(s)
     db.commit()
     db.refresh(s)
@@ -3981,10 +4045,12 @@ def create_custom_status(body: CustomStatusBody, db: Session = Depends(get_db)):
 
 
 @router.patch("/meta/custom-statuses/{status_id}", dependencies=[Depends(require_manager)])
-def update_custom_status(status_id: str, body: CustomStatusBody, db: Session = Depends(get_db)):
+def update_custom_status(status_id: str, body: CustomStatusBody, user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
     s = db.query(models.TaskCustomStatus).filter(models.TaskCustomStatus.id == status_id).first()
     if not s:
         raise HTTPException(404, "Custom status not found")
+    assert_config_editable(db, user, getattr(s, "company_id", "") or "")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
     if "project_ids" in data:
         data["project_ids"] = [p for p in (data["project_ids"] or []) if p]
@@ -3996,9 +4062,38 @@ def update_custom_status(status_id: str, body: CustomStatusBody, db: Session = D
 
 
 @router.delete("/meta/custom-statuses/{status_id}", status_code=204, dependencies=[Depends(require_manager)])
-def delete_custom_status(status_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskCustomStatus).filter(models.TaskCustomStatus.id == status_id).delete()
+def delete_custom_status(status_id: str, user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """Delete a status and move every task still in it back to Not Started -
+    in the same transaction (Oct 21 2026).
+
+    Deleting the row alone left those tasks holding an id nothing resolves:
+    a phantom board column, every statusMeta lookup missing, and a PATCH of
+    any other field refused by _valid_statuses only if it resent the status.
+    The board's own Delete Column already promised "Tasks in it move back to
+    Not Started", but did it from the browser for the tasks it could see,
+    racing this call - so tasks in other projects, hidden by a filter, or in
+    the Trash were left behind. Moving them here rather than refusing the
+    delete keeps that promise for all of them; refusing would have broken the
+    board's flow, which fires the delete without waiting for its moves."""
+    s = db.query(models.TaskCustomStatus).filter(models.TaskCustomStatus.id == status_id).first()
+    if not s:
+        return
+    assert_config_editable(db, user, getattr(s, "company_id", "") or "")
+    now = now_iso()
+    moved = (db.query(models.Task).execution_options(include_deleted=True)
+             .filter(models.Task.status == status_id).all())
+    for t in moved:
+        t.status = "not_started"
+        t.modified_at = now
+        t.activity_ids = list(t.activity_ids or []) + [
+            log_activity(db, type="status_changed", actor_email=user["email"], entity_id=t.id,
+                         entity_code=t.code, entity_title=t.title,
+                         detail=f'changed status to not_started ("{s.label}" was deleted)')]
+    db.delete(s)
     db.commit()
+    for t in moved:
+        fire_task_event(t.id, "updated")
 
 
 # ── Task email notification settings (admin) ─────────────────────────────────

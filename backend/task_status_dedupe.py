@@ -27,18 +27,24 @@ def status_option_gids(s) -> list:
     return gids
 
 
-def dedupe_custom_statuses(db):
+def dedupe_custom_statuses(db, companies=None):
     """Collapse statuses that share a label onto one row.
 
     Task.status stores the status ID, so the merge MUST remap every task off the
     rows it deletes. Skipping that would leave those tasks pointing at a status
     that no longer exists, which renders as a raw uuid on the board and cannot be
-    changed back from the UI. Does not commit."""
+    changed back from the UI. Does not commit.
+
+    Only statuses of the SAME company merge (company wall, Oct 21 2026): two
+    companies' "Waiting" are two statuses. `companies` (a caller behind a
+    wall) limits the pass to those companies' own rows; None = every row."""
     rows = sorted(db.query(models.TaskCustomStatus).all(),
                   key=lambda s: (s.position or 0, s.id))
+    if companies is not None:
+        rows = [s for s in rows if (getattr(s, "company_id", "") or "") in companies]
     groups = {}
     for s in rows:
-        groups.setdefault(_norm_status_label(s.label), []).append(s)
+        groups.setdefault(((getattr(s, "company_id", "") or ""), _norm_status_label(s.label)), []).append(s)
 
     merged = remapped = 0
     for group in groups.values():
