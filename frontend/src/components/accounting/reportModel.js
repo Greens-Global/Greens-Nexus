@@ -22,6 +22,10 @@ export const REPORTS = [
   // (`tbPeriod: 'range'`, see periodOf).
   { key: 'trial-balance', label: 'Trial Balance', period: 'asof' },
   { key: 'general-ledger', label: 'General Ledger', period: 'range' },
+  // Oct 22 (Neil, item 07): one card's or one bank account's transactions,
+  // for someone who does not read a general ledger (see accountActivity).
+  { key: 'card-activity', label: 'Credit Card Activity', period: 'range' },
+  { key: 'bank-activity', label: 'Bank Activity', period: 'range' },
   { key: 'cash-position', label: 'Cash Position', period: 'asof' },
   // Flux Analysis (Neil, 10/02 - the first cut of MRE, pending the talk with
   // Charmi): this period against the one before it, per income statement
@@ -919,6 +923,7 @@ export async function runReport(api, config, entities = []) {
   }
 
   if (config.report === 'general-ledger') return { ...base, ...(await generalLedger(api, config, book, drillCur)) };
+  if (isActivity(config)) return { ...base, ...(await accountActivity(api, config, book, drillCur)) };
   if (config.report === 'cash-flow') return { ...base, ...(await cashFlowReport(api, config)) };
   if (config.report === 'flux') return { ...base, ...(await fluxAnalysis(api, config, book)) };
   if (config.report === 'budget') {
@@ -1233,6 +1238,196 @@ async function generalLedger(api, config, book, drillCur) {
   if (lineCount == null) notes.push('The accounting service cannot count the lines for these filters yet; pick up to 25 accounts to list and count them.');
   const summary = [{ label: 'Lines', value: counted }];
   return { org: tb.org || '', generatedAt: tb.generated_at || '', mode: 'ledger', columns, rows, summary, pickable, notes, glLabel: 'Account', activeKnown, grouped };
+}
+
+// ── Credit Card Activity and Bank Activity (item 07) ─────────────────────────
+// Oct 22 (Neil, 10/22 call: "someone who's a non-accountant can't comprehend
+// what a general ledger is ... pick a card, pick a bank account ... and then
+// you get all your standard filters again"): one account's transactions -
+// date, description, vendor, amount and a running balance - with the period,
+// entities, book and Filters every report has. Charmi's idea, agreed by Neil:
+// every account on Dashboard > Overview > Account Reconciliations opens here
+// on that account (activitySub).
+//
+// Which accounts are cards and which are bank accounts is the reconciliation
+// list's own rule (ledger_dash_recon_accounts in the accounting app): cash_bank
+// and petty_cash accounts are bank accounts, liability accounts named like a
+// card (credit card, Amex, Capital One, Ramp, Visa ...) are cards. It is read
+// here from the trial balance's account `type`, which a limited person can
+// read too, so the picker and the dashboard agree.
+//
+// The running balance starts from the account's balance the day before the
+// period (the trial balance's opening), so the last one is its balance at the
+// period end - debits positive, the way the dashboard's Current Balance reads.
+export const ACTIVITY_REPORTS = {
+  'card-activity': { kind: 'card', noun: 'credit card', pick: 'Credit Card' },
+  'bank-activity': { kind: 'bank', noun: 'bank account', pick: 'Bank Account' },
+};
+export const isActivity = (config) => !!ACTIVITY_REPORTS[config?.report];
+/** The activity report for an account kind ('card' | 'bank'). */
+export const activityReportOf = (kind) => (kind === 'card' ? 'card-activity' : 'bank-activity');
+// The card names of ledger_dash_recon_accounts (Postgres \m \M = \b here).
+const CARD_NAME = /(credit card|\bcard\b|amex|american express|capital one|ramp|visa|mastercard)/i;
+/** 'bank', 'card' or null for a trial balance row ({ type, title }), by the reconciliation list's rule. */
+export function bankKindOf(r) {
+  if (!r) return null;
+  if (r.bank_kind) return r.bank_kind === 'card' ? 'card' : 'bank';
+  const type = String(r.type ?? r.account_type ?? '').toLowerCase();
+  if (type === 'cash_bank' || type === 'petty_cash') return 'bank';
+  if (type === 'liability') return CARD_NAME.test(r.title || r.name || '') ? 'card' : null;
+  if (type) return null;
+  // A row without its account type: the General Ledger's Bank / Credit Card group, if it says.
+  const group = glGroupOf(r)?.label;
+  return group === 'Credit Card' ? 'card' : group === 'Bank' ? 'bank' : null;
+}
+/**
+ * The running balance after each line (oldest first). From `opening` when
+ * every line is listed; when older lines were left out (`partial`), counted
+ * back from `closing` so the newest still ends on it. Null when neither end
+ * is known - the screen says so rather than count from zero.
+ */
+export function runningBalances(lines, { opening = null, closing = null, partial = false } = {}) {
+  const amounts = (lines || []).map(glSigned);
+  if (!partial && opening != null) {
+    let run = round2(opening);
+    return amounts.map((a) => { run = round2(run + a); return run; });
+  }
+  if (closing == null) return null;
+  const out = new Array(amounts.length);
+  let run = round2(closing);
+  for (let i = amounts.length - 1; i >= 0; i -= 1) { out[i] = run; run = round2(run - amounts[i]); }
+  return out;
+}
+
+// A deep link to an activity report (Dashboard > Overview > Account
+// Reconciliations, a pasted address): `rpt-<report>:<account>:<entity>:<from>:<to>:<book>`,
+// trailing parts left off - `rpt-bank-activity:11310:32000:2026-09-01:2026-09-30`.
+// The parts are URL-encoded so the shell's one-segment path survives them.
+const enc = (v) => encodeURIComponent(String(v ?? '')).replace(/:/g, '%3A');
+const dec = (v) => { try { return decodeURIComponent(v); } catch { return v; } };
+/** The Accounting sub key that opens `report` on one account, entity, period and book. */
+export function activitySub(report, { account = '', entity = '', from = '', to = '', book = '' } = {}) {
+  const parts = [account, entity, from, to, book && book !== 'accrual' ? book : ''].map(enc);
+  while (parts.length && !parts[parts.length - 1]) parts.pop();
+  return [`rpt-${report}`, ...parts].join(':');
+}
+/** { report, account, entity, from, to, book } from an activity sub key; null for any other key. */
+export function parseActivitySub(sub) {
+  const [head, ...rest] = String(sub || '').split(':');
+  const report = head.startsWith('rpt-') ? head.slice(4) : '';
+  if (!ACTIVITY_REPORTS[report]) return null;
+  const [account = '', entity = '', from = '', to = '', book = ''] = rest.map(dec);
+  const range = ISO.test(from) && ISO.test(to) && from <= to;
+  return { report, account, entity, from: range ? from : '', to: range ? to : '', book: BOOK_KEY.test(book) ? book : '' };
+}
+/** The config changes a deep link makes: the account, its entity (none = all), the period and book when given. */
+export function activityConfig(link) {
+  if (!link?.account) return {};
+  return {
+    accounts: [link.account], entities: link.entity ? [link.entity] : [],
+    ...(link.from && link.to ? { preset: 'custom', from: link.from, to: link.to } : {}),
+    ...(link.book ? { book: link.book } : {}),
+  };
+}
+
+/** One account's lines are read a page at a time, up to this many. */
+export const ACTIVITY_MAX_LINES = 5000;
+async function accountActivity(api, config, book, drillCur) {
+  const spec = ACTIVITY_REPORTS[config.report];
+  const account = config.accounts?.[0] || '';
+  // The balances are the account's whole balance in the entities picked:
+  // the Filters narrow the lines, never the opening and closing.
+  const { location, dims } = placeOf({ ...config, dims: { ...EMPTY_DIMS } });
+  let tb = null;
+  let tbError = '';
+  try { tb = await readTrialBalance(api, config.from, config.to, location, dims, book); } catch (e) { tbError = e?.message || 'the ledger did not answer'; }
+  // Without the trial balance there is no list to pick from; with an account
+  // already picked its lines are still worth listing (and the screen says why
+  // there is no running balance).
+  if (!tb && !account) throw new Error(tbError);
+  const tbRows = tb?.rows || [];
+  const byCode = (a, b) => a.code.localeCompare(b.code, 'en-US', { numeric: true });
+  const ofKind = tbRows.filter((r) => bankKindOf(r) === spec.kind);
+  const picked = account ? tbRows.find((r) => r.account_no === account) || null : null;
+  // A deep link to an account the rule does not class (an older payload, a
+  // petty cash asset) still opens on it: it joins the list.
+  const pickable = ofKind.map((r) => ({ code: r.account_no, title: r.title, section: spec.pick }));
+  if (account && !pickable.some((p) => p.code === account)) pickable.push({ code: account, title: picked?.title || '', section: spec.pick });
+  pickable.sort(byCode);
+  const columns = [
+    { key: 'description', label: 'Description', type: 'text' }, { key: 'vendor', label: 'Vendor', type: 'text' },
+    { key: 'amount', label: 'Amount', type: 'amount', drill: drillCur }, { key: 'balance', label: 'Running Balance', type: 'amount', drill: drillCur },
+    { key: 'entity', label: 'Entity', type: 'text' }, { key: 'entry', label: 'Entry', type: 'text' },
+  ];
+  const BAL = 3;
+  const openingDrill = { [BAL]: { ...drillCur, from: '', to: dayBefore(config.from) } };
+  const closingDrill = { [BAL]: { ...drillCur, from: '' } };
+  const meta = { org: tb?.org || '', generatedAt: tb?.generated_at || '', mode: 'ledger', columns, pickable, activeKnown: false };
+
+  // Nothing picked yet: every account of the kind with its movement and closing balance.
+  if (!account) {
+    let list = ofKind;
+    if (!config.showZero) list = list.filter((r) => [r.opening, r.debit, r.credit, r.closing].some((v) => Math.abs(v || 0) >= 0.005));
+    list = [...list].sort((a, b) => a.account_no.localeCompare(b.account_no, 'en-US', { numeric: true }));
+    const rows = list.map((r) => ({ kind: 'account', code: r.account_no, title: r.title, values: ['', '', round2((r.debit || 0) - (r.credit || 0)), round2(r.closing), '', ''], drills: closingDrill }));
+    const sum = (f) => round2(list.reduce((s, r) => s + (f(r) || 0), 0));
+    if (rows.length) rows.push({ kind: 'grand', label: `Total - ${rows.length} ${rows.length === 1 ? spec.noun : `${spec.noun}s`}`, values: ['', '', sum((r) => (r.debit || 0) - (r.credit || 0)), sum((r) => r.closing), '', ''], noDrill: true });
+    const notes = [rows.length ? `Pick a ${spec.noun} under ${spec.pick} to list its transactions.` : `No ${spec.noun}s with activity or a balance in this selection.`];
+    return { ...meta, rows, notes, summary: [{ label: `${spec.pick}s`, value: String(list.length) }], glLabel: 'Account' };
+  }
+
+  const place = config.entities.length === 1 ? { location: config.entities[0] } : config.entities.length ? { locations: config.entities.join(',') } : {};
+  const lineDims = canUseDims(config) ? config.dims : null;
+  const filtered = LINE_DIMS.some((k) => lineDims?.[k]?.length);
+  const searchBook = isUserBook(book) ? book : book === 'cash' ? 'cash' : 'accrual';
+  let list = [];
+  let total = 0;
+  for (let offset = 0; offset < ACTIVITY_MAX_LINES; offset += GL_MAX_LINES) {
+    const got = await api.searchAccountingLedger({ from: config.from, to: config.to, book: searchBook, ...place, ...glLineParams(lineDims), account, limit: GL_MAX_LINES, offset });
+    const page = got?.rows || [];
+    list = list.concat(page);
+    total = Math.max(Number(got?.total) || 0, list.length);
+    if (page.length < GL_MAX_LINES || list.length >= total) break;
+  }
+  let narrowedHere = false;
+  if (hasLineDims(lineDims) && list.some((l) => !lineMatchesDims(l, lineDims))) {
+    narrowedHere = true;
+    list = list.filter((l) => lineMatchesDims(l, lineDims));
+  }
+  const left = narrowedHere ? 0 : total - list.length;
+  // Lines come newest first from the search; a register reads oldest first.
+  list.sort((x, y) => (x.entry_date || '').localeCompare(y.entry_date || '') || (x.entry_no || '').localeCompare(y.entry_no || '', 'en-US', { numeric: true }));
+  // The ends are known when the trial balance answered: an account it does not
+  // list had nothing before or in the period (so no lines either).
+  const known = !!tb && (!!picked || !list.length);
+  const opening = known ? round2(picked?.opening || 0) : null;
+  const closing = known ? round2(picked?.closing || 0) : null;
+  // With Filters on, the lines are part of the account's activity: a running
+  // balance over them would never end on the account's balance.
+  const running = filtered ? null : runningBalances(list, { opening, closing, partial: left > 0 });
+  const title = picked?.title || pickable.find((p) => p.code === account)?.title || '';
+  const at = { code: account, title };
+  const rows = [];
+  if (running && !left) rows.push({ kind: 'subtotal', label: 'Opening Balance', ...at, values: ['', '', '', opening, '', ''], drills: openingDrill });
+  list.forEach((l, i) => rows.push({
+    kind: 'line', label: formatDate(l.entry_date), entryId: l.entry_id, entryNo: l.entry_no || '',
+    values: [l.description || l.memo || '', l.vendor_name || l.vendor_id || '', glSigned(l), running ? running[i] : '', l.location_name || l.location || '', l.entry_no || ''],
+  }));
+  const net = round2(list.reduce((s, l) => s + glSigned(l), 0));
+  rows.push({ kind: 'grand', label: running ? 'Closing Balance' : 'Total', ...at, values: ['', '', net, running ? closing : '', '', ''], drills: closingDrill });
+
+  const count = `${list.length.toLocaleString('en-US')}${left > 0 ? ` of ${total.toLocaleString('en-US')}` : ''}`;
+  const summary = running
+    ? [...(left ? [] : [{ label: 'Opening Balance', value: money(opening), amount: opening }]),
+      { label: 'Closing Balance', value: money(closing), amount: closing }, { label: 'Transactions', value: count }]
+    : [{ label: 'Net of Lines Shown', value: money(net), amount: net }, { label: 'Transactions', value: count }];
+  const notes = [];
+  if (!list.length) notes.push(`No transactions on this ${spec.noun} in the period${filtered ? ' with these filters' : ''}.`);
+  if (!known && list.length) notes.push(`The opening balance could not be read${tbError ? ` (${tbError})` : ''}, so the running balance is not shown.`);
+  if (filtered && list.length) notes.push('Filters narrow the lines, so the running balance is not shown - it would leave out the lines filtered away. Clear the Filters for it.');
+  if (left > 0) notes.push(`The ${left.toLocaleString('en-US')} oldest lines were not listed (${ACTIVITY_MAX_LINES.toLocaleString('en-US')} at most)${running ? '; the running balance is counted back from the closing balance' : ''}. Narrow the period to list them all.`);
+  if (narrowedHere) notes.push(`The lines were narrowed to the filters here, from the first ${ACTIVITY_MAX_LINES.toLocaleString('en-US')} lines the accounting service sent.`);
+  return { ...meta, rows, notes, summary, glLabel: 'Date', activity: { account, title } };
 }
 
 // ── Flux Analysis ────────────────────────────────────────────────────────────

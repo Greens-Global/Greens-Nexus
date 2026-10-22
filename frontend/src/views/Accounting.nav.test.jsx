@@ -4,8 +4,8 @@ import { useState } from 'react';
 
 // Oct 22 (Neil's spec, the 10/22 call with Charmi): the Accounting bar is
 // Dashboard (Overview / Cash / Performance / Close), Reports (grouped
-// flyouts: Report Center, Financial, Budget, Payroll & People, Audit &
-// Insights), Financing, Records and Tools (Data / Access / Allocations /
+// flyouts: Report Center, Financial, Banking & Credit Cards, Budget, Payroll
+// & People, Audit & Insights), Financing, Records and Tools (Data / Access / Allocations /
 // Import Hub). The picked page never widens the bar. The sub keys did not
 // change, so old links land; the ledger search sits in the header on every tab.
 
@@ -29,7 +29,7 @@ vi.mock('../contexts/RoleContext', () => ({
 vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => () => '' }));
 // The screens themselves have their own tests; here they only say who they are.
 const stub = vi.hoisted(() => (name) => ({ default: () => <div data-testid={`tab-${name}`} /> }));
-vi.mock('../components/accounting/ReportsTab', () => ({ default: ({ searchText, report, view }) => <div data-testid="tab-reports" data-report={report || ''} data-view={view || ''}>{`search:${searchText}`}</div> }));
+vi.mock('../components/accounting/ReportsTab', () => ({ default: ({ searchText, report, view, link }) => <div data-testid="tab-reports" data-report={report || ''} data-view={view || ''} data-link={link ? JSON.stringify(link) : ''}>{`search:${searchText}`}</div> }));
 vi.mock('../components/accounting/PackagesTab', () => stub('packages'));
 vi.mock('../components/accounting/AccessTab', () => stub('access'));
 vi.mock('../components/accounting/PfsTab', () => stub('pfs'));
@@ -134,7 +134,7 @@ describe('Accounting navigation', () => {
   it('groups Reports into flyouts, Report Center first', async () => {
     render(<Harness start="overview" />);
     fireEvent.click(await screen.findByRole('button', { name: /^Reports/ }));
-    expect(menuLabels('Reports')).toEqual(['Report Center', 'Financial', 'Budget', 'Payroll & People', 'Audit & Insights']);
+    expect(menuLabels('Reports')).toEqual(['Report Center', 'Financial', 'Banking & Credit Cards', 'Budget', 'Payroll & People', 'Audit & Insights']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Report Center' }));
     expect(menuLabels('Report Center')).toEqual(['Report Center', 'Report Builder', 'Packages', 'PFS', 'Management Fees']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Financial' }));
@@ -142,6 +142,8 @@ describe('Accounting navigation', () => {
     expect(menuLabels('Financial')).toEqual(['Balance Sheet', 'Trial Balance', 'Income Statement', 'General Ledger', 'Statement of Cash Flows', 'Cash Position']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Income Statement' }));
     expect(menuLabels('Income Statement')).toEqual(['T12', 'YTD vs. Prior Year', 'This Month vs. Last Month']);
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Banking & Credit Cards' }));
+    expect(menuLabels('Banking & Credit Cards')).toEqual(['Credit Card Activity', 'Bank Activity']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Budget' }));
     expect(menuLabels('Budget')).toEqual(['Budget', 'Budget vs. Actual, YTD', 'Budget vs. Actual, MTD']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Payroll & People' }));
@@ -161,6 +163,32 @@ describe('Accounting navigation', () => {
     const tab = screen.getByTestId('tab-reports');
     expect(tab.getAttribute('data-report')).toBe('pnl');
     expect(tab.getAttribute('data-view')).toBe('pnl-ytd-py');
+  });
+
+  it('opens Credit Card Activity and Bank Activity, and lands a link carrying an account (Oct 22, item 07)', async () => {
+    const { unmount } = render(<Harness start="overview" />);
+    await choose(/^Reports/, 'Banking & Credit Cards', 'Credit Card Activity');
+    expect(screen.getByTestId('sub').textContent).toBe('rpt-card-activity');
+    expect((await screen.findByTestId('tab-reports')).getAttribute('data-report')).toBe('card-activity');
+    await choose(/^Reports/, 'Banking & Credit Cards', 'Bank Activity');
+    await waitFor(() => expect(screen.getByTestId('tab-reports').getAttribute('data-report')).toBe('bank-activity'));
+    unmount();
+    // The dashboard's link: the account rides after the report key, and the sub stays as linked.
+    render(<Harness start="rpt-bank-activity:11310:32000:2026-09-01:2026-09-30" />);
+    const tab = await screen.findByTestId('tab-reports');
+    expect(tab.getAttribute('data-report')).toBe('bank-activity');
+    expect(JSON.parse(tab.getAttribute('data-link'))).toEqual({ report: 'bank-activity', account: '11310', entity: '32000', from: '2026-09-01', to: '2026-09-30', book: '' });
+    expect(screen.getByTestId('sub').textContent).toBe('rpt-bank-activity:11310:32000:2026-09-01:2026-09-30');
+  });
+
+  it('gives a limited person the Banking & Credit Cards reports too', async () => {
+    role.limited = true;
+    render(<Harness start="rpt-card-activity:21500" />);
+    expect((await screen.findByTestId('tab-reports')).getAttribute('data-report')).toBe('card-activity');
+    expect(screen.getByTestId('sub').textContent).toBe('rpt-card-activity:21500');
+    fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Banking & Credit Cards' }));
+    expect(menuLabels('Banking & Credit Cards')).toEqual(['Credit Card Activity', 'Bank Activity']);
   });
 
   it('keeps the Budget page under Reports > Budget, with Budget vs. Actual YTD and MTD (Oct 22)', async () => {

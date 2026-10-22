@@ -21,7 +21,7 @@ import {
 import {
   EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
   reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
-  viewConfig, periodOf,
+  viewConfig, periodOf, ACTIVITY_REPORTS, activityConfig, isActivity,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -94,11 +94,13 @@ const VIEW_ONLY = new Set(['fluxStatus', 'fluxFilter']);
 const runnable = (c) => Object.fromEntries(Object.entries(storable(c)).filter(([k]) => !VIEW_ONLY.has(k)));
 const sameView = (a, b) => JSON.stringify(storable(a)) === JSON.stringify(storable(b));
 
-export default function ReportsTab({ canEdit = true, search = null, searchText: outerText = '', onSearchText = null, onWaiting = null, report = null, view = null, onReportChange = null }) {
+export default function ReportsTab({ canEdit = true, search = null, searchText: outerText = '', onSearchText = null, onWaiting = null, report = null, view = null, link = null, onReportChange = null }) {
   // Oct 14 (Urmi): `report` opens a statement straight from the Reporting menu.
   // Oct 22 (Neil): `view` opens it on a quick view (REPORT_VIEWS) - T12, YTD vs
   // Prior Year, Budget vs. Actual MTD - with the period and columns set.
-  const [config, setConfig] = useState(() => (report ? resolveConfig({ ...defaultConfig(), report, ...viewConfig(view) }) : defaultConfig()));
+  // Oct 22 (item 07): `link` opens Credit Card / Bank Activity on one account
+  // (parseActivitySub - Dashboard > Overview > Account Reconciliations).
+  const [config, setConfig] = useState(() => (report ? resolveConfig({ ...defaultConfig(), report, ...viewConfig(view), ...activityConfig(link) }) : defaultConfig()));
   const [entities, setEntities] = useState([]);
   const [limited, setLimited] = useState(false);
   const [result, setResult] = useState(null);
@@ -136,6 +138,14 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     const v = viewConfig(view);
     if (v) setConfig((c) => resolveConfig({ ...c, ...v, accounts: [] }));
   }, [view]);
+  // Another account linked while the tab is open: its account, entity, period and book.
+  const linkKey = link?.account ? JSON.stringify(link) : '';
+  const shownLink = useRef(linkKey);
+  useEffect(() => {
+    if (shownLink.current === linkKey) return;
+    shownLink.current = linkKey;
+    if (linkKey) setConfig((c) => resolveConfig({ ...c, report: link.report || c.report, ...activityConfig(link) }));
+  }, [linkKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // The report on screen changed here (the Report box, a memorized report):
   // tell the bar so the menu lights the right item. Not on the first draw.
   const shownReport = useRef(config.report);
@@ -374,7 +384,8 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // A column of one entity drills into that entity, whatever the report covers.
   const drillEntities = drill?.entity ? [drill.entity] : config.entities;
   const drillEntityLabel = drill?.entity ? entityText({ entities: [drill.entity] }, entities) : entityLabel;
-  const glBusy = loading && config.report === 'general-ledger';
+  const glBusy = loading && (config.report === 'general-ledger' || isActivity(config));
+  const activity = ACTIVITY_REPORTS[config.report] || null;
   // What Collapse All folds: statement sections and General Ledger accounts, and the account groups above them.
   const foldKeys = (result?.rows || []).flatMap((r) => (r.kind === 'section' ? [r.section] : r.kind === 'group' ? [`g:${r.group}`] : []));
 
@@ -592,6 +603,14 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             <OpFilter label="Amount" value={config.fluxFilter} onChange={(v) => patch({ fluxFilter: { ...config.fluxFilter, ...v } })} placeholder={config.fluxFilter.target === 'pct' ? '%' : '0.00'} />
           </span>
         )}
+        {/* Credit Card / Bank Activity: one account, picked from that kind only (item 07). */}
+        {activity && (
+          <select value={config.accounts[0] || ''} onChange={(e) => { closeSearch(); patch({ accounts: e.target.value ? [e.target.value] : [] }); }} aria-label={activity.pick}
+            style={{ ...select(!!config.accounts.length), maxWidth: 320 }}>
+            <option value="">{`Pick a ${activity.pick}...`}</option>
+            {(shown?.pickable || []).map((a) => <option key={a.code} value={a.code}>{a.title ? `${a.code} ${a.title}` : a.code}</option>)}
+          </select>
+        )}
         {canPickAccounts(config) && <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts} />}
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -690,7 +709,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
               <h3 style={{ fontSize: '0.98rem', margin: 0 }}>{reportTitle(config)}</h3>
               <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : ''].filter(Boolean).join(' · ')}
+                {[shown.org, shown.activity ? `${shown.activity.account} ${shown.activity.title}`.trim() : '', entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : ''].filter(Boolean).join(' · ')}
                 {loading ? ' · updating' : ''}
               </span>
             </div>

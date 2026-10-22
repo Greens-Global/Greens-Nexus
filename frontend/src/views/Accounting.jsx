@@ -37,7 +37,8 @@ import ProfitabilityReport from '../components/accounting/ProfitabilityReport';
 import CompensationReport from '../components/accounting/CompensationReport';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { Hammer, ListChecks } from 'lucide-react';
-import { REPORTS, REPORT_VIEWS } from '../components/accounting/reportModel';
+import { REPORTS, REPORT_VIEWS, parseActivitySub } from '../components/accounting/reportModel';
+import { CreditCard } from 'lucide-react';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -81,9 +82,11 @@ import { REPORTS, REPORT_VIEWS } from '../components/accounting/reportModel';
 // group a flyout: Report Center (All Reports renamed), Financial (with the
 // Trial Balance and three Income Statement quick views), Budget (moved off
 // the bar, with Budget vs. Actual YTD / MTD), Payroll & People, Audit &
-// Insights. Banking & Credit Cards joins when its two reports exist. A
-// `rpt-<report>` key opens that statement; `rpt-<view>` opens a quick view
-// (REPORT_VIEWS in reportModel). Older keys (rpt-pnl, rpt-budget) still land.
+// Insights, and Banking & Credit Cards (item 07) between Financial and
+// Budget. A `rpt-<report>` key opens that statement; `rpt-<view>` opens a
+// quick view (REPORT_VIEWS in reportModel); an activity report's key may
+// carry its account after a colon (activitySub). Older keys (rpt-pnl,
+// rpt-budget) still land.
 const rpt = (key, label, Icon) => ({ key: `rpt-${key}`, label, Icon });
 const TABS = [
   { key: 'dashboard', label: 'Dashboard', Icon: LayoutGrid, landing: 'overview', items: [
@@ -115,6 +118,13 @@ const TABS = [
       rpt('general-ledger', 'General Ledger', BookOpen),
       rpt('cash-flow', 'Statement of Cash Flows', ArrowLeftRight),
       rpt('cash-position', 'Cash Position', Wallet),
+    ] },
+    // Oct 22 (Neil, item 07): one card's or one bank account's transactions
+    // without filtering the General Ledger. Every account on Overview >
+    // Account Reconciliations opens these on itself (`rpt-<report>:<account>...`).
+    { key: 'grp-banking', label: 'Banking & Credit Cards', Icon: Landmark, items: [
+      rpt('card-activity', 'Credit Card Activity', CreditCard),
+      rpt('bank-activity', 'Bank Activity', Landmark),
     ] },
     // Oct 2 (Charmi and Neil, 10/01 call): a budget per entity and year.
     { key: 'grp-budget', label: 'Budget', Icon: Calculator, items: [
@@ -175,7 +185,10 @@ const ALIAS = { leasing: 'mri', financing: 'loans' };
 const leafKeys = (items) => items.flatMap((t) => (t.items ? leafKeys(t.items) : [t.key]));
 /** Reports, or one of the statements opened straight from the Reports menu. */
 const isReports = (key) => key === 'reports' || String(key || '').startsWith('rpt-');
-const rptKey = (key) => (String(key || '').startsWith('rpt-') ? key.slice(4) : null);
+// The part before any `:` - an activity report's account rides after it.
+const rptKey = (key) => (String(key || '').startsWith('rpt-') ? key.slice(4).split(':')[0] : null);
+/** The menu item a sub key lights: `rpt-bank-activity:11310` lights Bank Activity. */
+const menuKey = (key) => (String(key || '').startsWith('rpt-') ? key.split(':')[0] : key);
 /** The statement a `rpt-` key opens: its own, or its quick view's. Unknown -> null. */
 const reportOf = (key) => {
   const k = rptKey(key);
@@ -280,7 +293,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     if (next !== sub) onSubChange?.(next);
   };
   const reportsTab = isReports(sub) && (
-    <ReportsTab report={reportOf(sub)} view={viewOf(sub)} onReportChange={onReportPicked} canEdit={canEdit}
+    <ReportsTab report={reportOf(sub)} view={viewOf(sub)} link={parseActivitySub(sub)} onReportChange={onReportPicked} canEdit={canEdit}
       searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />
   );
 
@@ -351,7 +364,7 @@ export default function Accounting({ activeSub, onSubChange }) {
         </div>
       </div>
 
-      {access && <ModuleTabs tabs={withBadges(tabs, counts, 'accounting')} active={sub} onChange={onSubChange} compactGroups />}
+      {access && <ModuleTabs tabs={withBadges(tabs, counts, 'accounting')} active={menuKey(sub)} onChange={onSubChange} compactGroups />}
 
       {!access ? (
         <div style={{ marginTop: 16 }}><SkeletonBlocks count={3} /></div>

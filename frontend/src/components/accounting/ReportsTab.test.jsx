@@ -194,7 +194,7 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     const report = screen.getByLabelText('Report');
     expect(report.tagName).toBe('SELECT');
-    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Actual vs Budget']);
+    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Credit Card Activity', 'Bank Activity', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Actual vs Budget']);
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();
@@ -750,5 +750,41 @@ describe('ReportsTab controls', () => {
     await new Promise((r) => setTimeout(r, 400));
     expect(api.getAccountingPnl.mock.calls.length).toBe(before + 1);
     expect(api.getAccountingPnl.mock.calls.at(-1)[4]).toBe('cash');
+  });
+});
+
+// Oct 22 (Neil, item 07): Reports > Banking & Credit Cards.
+describe('Credit Card Activity and Bank Activity', () => {
+  const TB = { org: 'Greens Global', generated_at: '2026-10-22', totals: {}, rows: [
+    { account_no: '11310', title: 'Chase Checking 6532', type: 'cash_bank', section: 'asset', opening: 1000, debit: 400, credit: 200, closing: 1200 },
+    { account_no: '21500', title: 'Amex Credit Card 1001', type: 'liability', section: 'liability', opening: -400, debit: 0, credit: 50, closing: -450 },
+    { account_no: '20000', title: 'Accounts Payable', type: 'liability', section: 'liability', opening: -5000, debit: 0, credit: 0, closing: -5000 },
+  ] };
+
+  it('offers only credit cards to pick', async () => {
+    api.getAccountingTrialBalance.mockResolvedValue(TB);
+    render(<ReportsTab report="card-activity" />);
+    const picker = await screen.findByRole('combobox', { name: 'Credit Card' });
+    await waitFor(() => expect([...picker.options].map((o) => o.textContent)).toEqual(['Pick a Credit Card...', '21500 Amex Credit Card 1001']));
+    expect(await screen.findByText(/Pick a credit card under Credit Card/)).toBeTruthy();
+  });
+
+  it('opens a dashboard link on its account with a running balance', async () => {
+    api.getAccountingTrialBalance.mockResolvedValue(TB);
+    api.searchAccountingLedger.mockResolvedValue({ total: 2, rows: [
+      { entry_id: 'e2', entry_no: 'GJ-2', entry_date: '2026-09-20', description: 'Rent', vendor_name: 'Sunbelt Realty', debit: 0, credit: 200 },
+      { entry_id: 'e1', entry_no: 'GJ-1', entry_date: '2026-09-02', description: 'Deposit', debit: 400, credit: 0 },
+    ] });
+    const link = { report: 'bank-activity', account: '11310', entity: '32000', from: '2026-09-01', to: '2026-09-30', book: '' };
+    render(<ReportsTab report="bank-activity" link={link} />);
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Bank Account' }).value).toBe('11310'));
+    expect(await screen.findByText('Sunbelt Realty')).toBeTruthy();
+    expect(api.searchAccountingLedger).toHaveBeenCalledWith(expect.objectContaining({ account: '11310', location: '32000', from: '2026-09-01', to: '2026-09-30' }));
+    const heads = [...document.querySelectorAll('thead tr:first-child th')].map((th) => th.getAttribute('aria-label'));
+    expect(heads).toEqual(['Date', 'Description', 'Vendor', 'Amount', 'Running Balance', 'Entity', 'Entry']);
+    // The last running balance is the closing balance (1,000 + 400 - 200).
+    const rows = [...document.querySelectorAll('tbody tr')];
+    expect(rows.at(-2).textContent).toContain('1,200.00');
+    expect(rows.at(-1).textContent).toMatch(/^Closing Balance.*1,200\.00/);
   });
 });
