@@ -11,7 +11,7 @@
 //
 //     npx vitest run src/lib/extractVariables.test.js
 import { describe, expect, it } from 'vitest';
-import { extractVariables, inferFieldDef, inferLabel, inferType, mergeFieldDefs } from './extractVariables';
+import { extractVariables, inferFieldDef, inferLabel, inferType, mergeFieldDefs, sharedDefs, tokensInDoc } from './extractVariables';
 
 const para = (...content) => ({ type: 'paragraph', content });
 const text = (t, marks) => (marks ? { type: 'text', text: t, marks } : { type: 'text', text: t });
@@ -130,6 +130,17 @@ describe('guessing what each variable is', () => {
     expect(inferType('agreement.purpose')).toBe('text');
   });
 
+  it('an ID or account number is Text, never Number', () => {
+    // A PAN is ABCDE1234F; a ZIP can start with 0.
+    for (const t of ['pan_number', 'gstin', 'gst_number', 'ssn', 'passport_number', 'aadhaar_number',
+      'license_number', 'licence_no', 'tax_id', 'ein', 'ifsc_code', 'account_number', 'routing_number',
+      'zip', 'postal_code', 'phone', 'emergency_phone', 'bank.account_number']) {
+      expect(inferType(t), t).toBe('text');
+    }
+    expect(inferType('passport_expiry_date')).toBe('date');
+    expect(inferType('notice_days')).toBe('number');
+  });
+
   it('labels a variable so two parties can be told apart', () => {
     // The wizard lists fields flat - two bare "Legal Name" boxes is a coin toss.
     expect(inferLabel('party_a.legal_name')).toBe('Party A - Legal Name');
@@ -162,6 +173,34 @@ describe('adding them to the template', () => {
                         required: false, description: 'Gross, before tax' }];
     const { fieldDefs } = mergeFieldDefs(existing, ['offer.salary']);
     expect(fieldDefs).toEqual(existing);
+  });
+});
+
+describe('built-ins and fields other templates define', () => {
+  it('never adds a built-in - Nexus fills it', () => {
+    const { added } = mergeFieldDefs([], ['first_name', 'job_title', 'pan_number'],
+      { builtins: new Set(['first_name', 'job_title']) });
+    expect(added.map(d => d.token)).toEqual(['pan_number']);
+  });
+
+  it('starts a new field from the setting another template gave it', () => {
+    const shared = { pan_number: { templateName: 'NDA', type: 'text', source: 'person', required: false, sensitive: true } };
+    const [def] = mergeFieldDefs([], ['pan_number'], { shared }).added;
+    expect(def).toMatchObject({ token: 'pan_number', type: 'text', source: 'person', required: false, sensitive: true });
+  });
+
+  it("reads other templates' definitions, leaving out this one", () => {
+    const vars = [{ token: 'pan_number', source: 'template', defs: [
+      { templateId: 't1', templateName: 'Offer Letter', type: 'text', source: '' },
+      { templateId: 't2', templateName: 'NDA', type: 'text', source: 'person' }] }];
+    expect(sharedDefs(vars, 't1').pan_number.templateName).toBe('NDA');
+    expect(sharedDefs(vars, 't9').pan_number.templateName).toBe('Offer Letter');
+  });
+
+  it('lists the merge fields placed in a document', () => {
+    const json = doc(para({ type: 'mergeField', attrs: { token: 'first_name' } }, text(' and '),
+      { type: 'mergeField', attrs: { token: 'pan_number' } }, { type: 'mergeField', attrs: { token: 'first_name' } }));
+    expect(tokensInDoc(json)).toEqual(['first_name', 'pan_number']);
   });
 });
 

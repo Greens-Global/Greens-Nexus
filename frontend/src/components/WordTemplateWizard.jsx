@@ -16,7 +16,7 @@ import { Spinner } from './AsyncState';
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '14px 0 5px', textTransform: 'uppercase', letterSpacing: '.04em' };
 const th = { fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: 'left', padding: '7px 8px', borderBottom: '1px solid var(--line)', position: 'sticky', top: 0, background: 'var(--card)' };
 const td = { fontSize: 12.5, padding: '7px 8px', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
-const FILL_LABEL = { nexus: 'Nexus Fills It', ask: 'Ask The Person', hr: 'HR Answers At Offer', same: 'Same For Everyone', leave: 'Left Blank' };
+const FILL_LABEL = { nexus: 'Nexus Fills It', ask: 'The New Hire (Intake Form)', hr: 'HR At The Offer', same: 'Same For Everyone', leave: 'Left Blank' };
 
 const valueOf = (b) => (b.fill === 'nexus' ? `nexus:${b.token}` : b.fill);
 
@@ -27,8 +27,8 @@ function FillSelect({ value, onChange, label }) {
       <optgroup label="Nexus Fills It">
         {NEXUS_FIELDS.map(([k, l]) => <option key={k} value={`nexus:${k}`}>{l}</option>)}
       </optgroup>
-      <option value="ask">Ask The Person</option>
-      <option value="hr">HR Answers At Offer</option>
+      <option value="ask">The New Hire (Intake Form)</option>
+      <option value="hr">HR At The Offer</option>
       <option value="same">Same For Everyone</option>
       <option value="leave">Leave Blank</option>
     </select>

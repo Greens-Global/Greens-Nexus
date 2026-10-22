@@ -35,6 +35,9 @@ const TYPE_HINTS = [
   [/^(currency|frequency|pay_frequency|period|term|type|status|code|state|city|country|postal_code|zip|zipcode|province|region)$/i, 'text'],
   [/email/i, 'email'],
   [/(^|_)(date|expiry|expires)(_|$)|_date$|^date$/i, 'date'],
+  // An ID or account number is letters and digits (a PAN is ABCDE1234F, a
+  // ZIP can start with 0) - Text, never Number or Currency.
+  [/(^|_)(pan|gstin|gst|ssn|sin|passport|aadhaar|aadhar|license|licence|tax_id|tin|ein|ifsc|iban|swift|account|routing|zip|postal|pin_code|pincode|phone|mobile|uan)(_|$)/i, 'text'],
   [/(^|_)(amount|salary|price|cost|fee|total|principal|compensation|value)(_|$)/i, 'currency'],
   [/(^|_)(address|street)(_|$)/i, 'address'],
   [/(^|_)(name|signatory|contact|borrower|lender|manager|witness)(_|$)|_name$|^name$/i, 'person'],
@@ -151,12 +154,45 @@ export function extractVariables(json) {
   return { json: walk(json), tokens: seen };
 }
 
+// The four settings that make a field "the same" across templates.
+export const SHARED_KEYS = ['type', 'source', 'required', 'sensitive'];
+
+export const sameSetting = (a, b) => SHARED_KEYS.every((k) => (k === 'type' ? (a?.type || 'text') === (b?.type || 'text')
+  : k === 'source' ? (a?.source || '') === (b?.source || '') : !!a?.[k] === !!b?.[k]));
+
+/**
+ * A field the templates already define, as {token: def} with templateName -
+ * from /documents/variables `defs`, leaving out this template's own.
+ */
+export function sharedDefs(variables, ownTemplateId) {
+  const out = {};
+  for (const v of variables || []) {
+    const d = (v.defs || []).find((x) => x.templateId !== ownTemplateId);
+    if (d) out[v.token] = d;
+  }
+  return out;
+}
+
 /**
  * The field definitions a template needs for the tokens just found, without
- * disturbing any the author has already configured by hand.
+ * disturbing any the author has already configured by hand. A built-in is
+ * never one (Nexus fills it), and a token another template already defines
+ * starts from that template's setting so the two agree.
  */
-export function mergeFieldDefs(existing, tokens) {
+export function mergeFieldDefs(existing, tokens, { builtins = new Set(), shared = {} } = {}) {
   const known = new Set((existing || []).map((f) => f.token));
-  const added = tokens.filter((t) => !known.has(t)).map(inferFieldDef);
+  const added = tokens.filter((t) => !known.has(t) && !builtins.has(t)).map((t) => {
+    const def = inferFieldDef(t);
+    const s = shared[t];
+    return s ? { ...def, type: s.type || def.type, source: s.source || '', required: !!s.required, sensitive: !!s.sensitive } : def;
+  });
   return { fieldDefs: [...(existing || []), ...added], added };
+}
+
+/** Every merge-field token placed in a TipTap document. */
+export function tokensInDoc(json, out = []) {
+  if (!json || typeof json !== 'object') return out;
+  if (json.type === 'mergeField' && json.attrs?.token && !out.includes(json.attrs.token)) out.push(json.attrs.token);
+  for (const c of json.content || []) tokensInDoc(c, out);
+  return out;
 }
