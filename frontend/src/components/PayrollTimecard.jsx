@@ -6,6 +6,7 @@ import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inp
 import { dialog } from '../ui/dialog';
 import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
+import { takePendingOpen } from '../lib/pendingOpen';
 import { useRole } from '../contexts/RoleContext';
 import GuidedTour from './GuidedTour';
 import WorkLogDrawer, { WorkLogButton } from './WorkLogDrawer';
@@ -561,6 +562,23 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const seedStart = initialStart || last.start, seedType = initialPayType || last.payType;
   const seeded = useRef(!selfMode && !!anchorForStart(seedStart, seedType));
   const [pStart, setPStart] = useState(() => (!selfMode && anchorForStart(seedStart, seedType)) || periodStartFor(new Date()));
+  // A notice about my own Time Sheet opens its period (lib/openTarget.js).
+  // Hourly periods start on a Sunday, so any other start is a salaried month.
+  useEffect(() => {
+    if (!selfMode) return undefined;
+    const go = (d) => {
+      const [y, m, dd] = String(d?.start || '').split('-').map(Number);
+      if (!y) return;
+      const type = d.payType || (new Date(y, m - 1, dd).getDay() === 0 ? 'hourly' : 'fixed');
+      fixedSnapped.current = true;   // stay on it - no first-load snap to this month
+      setPStart(anchorForStart(d.start, type));
+    };
+    go(takePendingOpen('myTimecard'));
+    const onOpen = (e) => { takePendingOpen('myTimecard'); go(e.detail); };
+    window.addEventListener('nexus:open-my-timecard', onOpen);
+    return () => window.removeEventListener('nexus:open-my-timecard', onOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selfMode]);
   // Seed from the module cache so a reopen renders the last card immediately (no loader).
   const [data, setData] = useState(() => {
     const s = isoDate(pStart), e = isoDate(pStart.getTime() + 13 * DAY);

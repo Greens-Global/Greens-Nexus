@@ -10547,7 +10547,7 @@ def _bonus_told(db: Session, user: dict, row: TimecardBonus, added: bool, before
     else:
         nxt = "You will see it on your time sheet and on the copy you sign for this period."
     _hr_notify(db, row.employee_email, title, f"{line} {nxt}", ref_id=row.id, requested_by=user["email"],
-               action={"view": "timeclock", "sub": "timecard", "email": row.employee_email, "start": start},
+               action={"view": "timeclock", "sub": "timecard", "email": row.employee_email, "start": start, "payType": _pt},
                priority=1 if after == "approved" else 0)
     return {"reviewStatus": after, "reopened": before in ("approved", "signing") and after == "with_manager",
             "signAgain": before in ("approved", "signing") and after == "approved"}

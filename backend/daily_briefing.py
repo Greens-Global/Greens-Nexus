@@ -758,7 +758,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
                                                      models.TimesheetReview.status == "approved").all():
         rows.append({
             "title": "Sign Your Updated Time Sheet",
-            "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - HR changed the hours",
+            "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - HR changed your time sheet",
             "url": f"{app_url()}/timeclock/timesheet",
             "module": "timecard",
             **_since(r.updated_at),

@@ -205,6 +205,18 @@ class BonusWorkflowTests(ReviewCase):
                             for x in tsr.approval_log(self.db, r)), tsr.approval_log(self.db, r))
         self.assertEqual(self._sign_now().status, "completed")
 
+    def test_hr_changing_hours_then_adding_a_bonus_logs_both(self):
+        # Seen in Chrome (Oct 22): HR's second change in the same pass was
+        # folded into "Hours changed", so the bonus never reached the log.
+        self._to_signing()
+        tsr.guard_edit(self.db, EMP, self.start, HR_EMAIL)      # HR fixes a punch first
+        self.db.commit()
+        self.assertEqual(self._r().status, "approved")
+        self._add(HR_USER)
+        log = tsr.approval_log(self.db, self._r())
+        self.assertTrue(any(x.startswith("Hours changed by Hana Test (HR)") for x in log), log)
+        self.assertTrue(any('"added a bonus: Holiday cover"' in x for x in log), log)
+
     def test_removing_one_after_approval_reopens_it_too(self):
         bid = self._add(MANAGER)["id"]
         self._to_signing()

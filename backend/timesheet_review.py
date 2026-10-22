@@ -466,7 +466,8 @@ def _hr_override(db: Session, r: TimesheetReview, actor: str, note: str = "") ->
     was_signing = r.status == "signing"
     r.agreed_fingerprint = ""        # the approved version now includes HR's edit
     last = (r.rounds or [{}])[-1] if r.rounds else {}
-    if not was_signing and last.get("action") == "hr_edited" and last.get("by") == actor:
+    if (not was_signing and last.get("action") == "hr_edited" and last.get("by") == actor
+            and (last.get("note") or "") == (note or "")):   # a bonus gets its own line
         return       # one line (and one notice) per HR pass, not one per punch
     if was_signing:
         _void_envelope(db, r, actor, "HR changed the hours")
