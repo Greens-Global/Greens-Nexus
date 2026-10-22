@@ -10468,7 +10468,15 @@ def set_timecard_note(body: TimecardNoteIn, user: dict = Depends(require_team_wr
 
 
 def _bonus_rows(db: Session, em: str, start: str, end: str) -> list:
-    """The live bonuses on a person's period (models.TimecardBonus), oldest first."""
+    """The live bonuses on a person's period (models.TimecardBonus), oldest first.
+    Who has any bonus at all is read once per session: most cards have none,
+    and payroll readiness builds one per person (its query budget)."""
+    who = db.info.get("_bonus_emails")
+    if who is None:
+        who = db.info["_bonus_emails"] = {e for (e,) in db.query(TimecardBonus.employee_email)
+                                          .filter(TimecardBonus.removed_at == "").distinct()}
+    if em not in who:
+        return []
     return (db.query(TimecardBonus)
             .filter(TimecardBonus.employee_email == em, TimecardBonus.removed_at == "",
                     TimecardBonus.date >= (start or "0"), TimecardBonus.date <= (end or "9"))
@@ -10526,6 +10534,7 @@ def add_timecard_bonus(body: TimecardBonusIn, user: dict = Depends(require_team_
                         amount=round(body.amount, 2), created_by=user["email"], created_at=_now_iso())
     db.add(row)
     db.commit()
+    db.info.pop("_bonus_emails", None)
     return {"id": row.id}
 
 
@@ -10538,6 +10547,7 @@ def remove_timecard_bonus(bonus_id: str, user: dict = Depends(require_team_write
     _bonus_guard(db, user, row.employee_email, row.date)
     row.removed_by, row.removed_at = user["email"], _now_iso()
     db.commit()
+    db.info.pop("_bonus_emails", None)
     return {"ok": True}
 
 
