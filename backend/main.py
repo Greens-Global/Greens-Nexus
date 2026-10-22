@@ -1276,6 +1276,8 @@ def _run_migrations():
             "ALTER TABLE hr_checklist_items ADD COLUMN done_reason VARCHAR DEFAULT ''",
             # A checklist remembers its job role (Oct 23 2026) - see the Postgres list.
             "ALTER TABLE hr_checklists ADD COLUMN role_id VARCHAR",
+            # One task per checklist (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklists ADD COLUMN task_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2935,6 +2937,9 @@ def _run_migrations():
         # it (Oct 23 2026). No default on purpose: NULL = started before this,
         # filled lazily by hr_checklists.reconcile. models.HrChecklist.role_id.
         "ALTER TABLE hr_checklists ADD COLUMN IF NOT EXISTS role_id VARCHAR",
+        # One task per checklist in the company's HR project (Neil, Oct 22),
+        # the steps' subtasks under it. models.HrChecklist.task_id.
+        "ALTER TABLE hr_checklists ADD COLUMN IF NOT EXISTS task_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -570,7 +570,7 @@ def reconcile(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus")
         steps = {i.task_id: i for i in retitled if i.task_id}
         for t in db.query(models.Task).filter(models.Task.id.in_(list(steps))).all() if steps else []:
             before = task_history.snapshot(t)
-            t.title, t.description, t.modified_at = steps[t.id].title, steps[t.id].hint or "", _now()
+            t.title, t.description, t.modified_at = sub_title(steps[t.id], emp), steps[t.id].hint or "", _now()
             task_history.record(db, t, before, by)
     if changed:
         db.flush()
@@ -959,18 +959,99 @@ def sync(db, cl: HrChecklist, emp: NexusEmployee = None) -> bool:
 
 
 # --- Tasks -----------------------------------------------------------------
-# Each owner gets ONE task per checklist with one SUBTASK per step they own
-# (Pranshu, Oct 20: "whatever has been assigned to them should auto create a
-# task for them, and when they close the task it should close the checklist
-# step, or if they close the checklist step it closes the task"):
+# ONE task per checklist (Neil, Oct 22: "I don't want it to be 100 tasks...
+# It should create a task inside [#General - Human Resources] called
+# Onboarding - <name>... the assignee should be the main HR manager. And then
+# the individual subtasks will get assigned to the correct people"):
+#   the parent  "Onboarding - Jane Doe", assigned to the company's head of HR,
+#               in the company's checklist place (task_place): project + section
+#   a subtask   per step, assigned to that step's owners - on their My Tasks
 #   step done / N/A        -> its subtask completes (sync_tasks)
 #   subtask completed      -> its step is done (task_completed)
 #   subtask reopened       -> its step reopens
-#   parent completed       -> every step still open under it is done
+#   parent completed       -> every step still open is done (HR closes any step)
 #   no step left open      -> the parent completes; one coming back reopens it
-# HrChecklistItem.task_id is the step's subtask; the parent is its parent_task_id.
+# HrChecklist.task_id is the parent; HrChecklistItem.task_id the step's subtask
+# (a subtask's project is its parent's - task_util.project_for_task).
+# Checklists started Oct 20-22 had a parent PER OWNER: their next sync moves
+# every subtask under the one parent and bins the emptied old parents.
 
-def _new_task(db, cl: HrChecklist, owners: list, title: str, desc: str, due: str, by: str, parent_id: str = ""):
+PLACE_KEY = "hr_checklist_task_place:"   # + entity id -> {"default": {projectId, sectionId}, "<kind>": {...}}
+PLACE_KINDS = ("default",) + KINDS
+
+
+def _key(emails) -> str:
+    """One owner set as a comparable string."""
+    return ",".join(sorted(email_list(emails)))
+
+
+def auto_project(db, entity_id: str):
+    """The company's general HR project, found by itself when no place is set:
+    a project of its HR department named "#General...", else one whose name
+    says Human Resources. None when there is no such project."""
+    import models
+    from routers.task_util import row_company
+    if not entity_id:
+        return None
+    dept = owner_departments(db, entity_id).get("hr")
+
+    def score(p):
+        name = (p.name or "").strip().lower()
+        mine = dept is not None and (p.hr_department_id or "") == dept.id
+        if not mine and not ("human resources" in name and row_company(db, p) == entity_id):
+            return 0
+        return 4 * mine + 2 * name.startswith("#general") + ("human resources" in name)
+
+    best, top = None, 0
+    for p in db.query(models.TaskProject).filter(models.TaskProject.archived.isnot(True)).order_by(models.TaskProject.created_at):
+        s = score(p)
+        if s > top:
+            best, top = p, s
+    return best
+
+
+def task_place(db, entity_id: str, kind: str) -> dict:
+    """Where a checklist's task goes: {projectId, sectionId, source} - the
+    company's setting for the kind, else its one-for-all default, else the
+    auto-detected HR project, else nowhere ('none')."""
+    import models
+    raw = _setting_json(db, PLACE_KEY + entity_id) if entity_id else {}
+    want = raw.get(kind) or raw.get("default") or {}
+    pid = str(want.get("projectId") or "") if isinstance(want, dict) else ""
+    proj = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first() if pid else None
+    if proj is not None and not proj.archived:
+        sec = str(want.get("sectionId") or "")
+        if sec and db.query(models.TaskSection.id).filter(models.TaskSection.id == sec,
+                                                          models.TaskSection.project_id == pid).first() is None:
+            sec = ""
+        return {"projectId": pid, "sectionId": sec, "source": "set"}
+    auto = auto_project(db, entity_id)
+    if auto is not None:
+        return {"projectId": auto.id, "sectionId": "", "source": "auto"}
+    return {"projectId": "", "sectionId": "", "source": "none"}
+
+
+def hr_lead(db, cl: HrChecklist, emp: NexusEmployee) -> list:
+    """Who the checklist's task is assigned to: the head of the company's HR
+    department, else the first HR owner (backup, Role Owners, HR contact),
+    else the Global Admins - never nobody."""
+    d = owner_departments(db, cl.company).get("hr")
+    lead = active_people(db, [d.lead_email]) if d is not None else []
+    if lead:
+        return lead
+    entity = db.query(HrEntity).filter(HrEntity.id == cl.company).first() if cl.company else None
+    return resolve_owners(db, "hr", emp, role_owners(db, cl.company), entity)[:1]
+
+
+def sub_title(it: HrChecklistItem, emp: NexusEmployee) -> str:
+    """A step's subtask names whose checklist it is ("Laptop Shipped - Jane
+    Doe"): an IT owner who cannot open HR's parent task still reads it on
+    their My Tasks."""
+    return f"{it.title} - {full_name(emp)}" if full_name(emp) else it.title
+
+
+def _new_task(db, cl: HrChecklist, owners: list, title: str, desc: str, due: str, by: str, parent_id: str = "",
+              project_id: str = "", section_id: str = "", owner: str = ""):
     import models
     from routers.task_util import set_task_assignees
     from routers.tasks import _next_code
@@ -979,8 +1060,8 @@ def _new_task(db, cl: HrChecklist, owners: list, title: str, desc: str, due: str
         id=str(uuid.uuid4()), code=_next_code(db), company_id=cl.company or "", title=title,
         description=desc, type="task", status="not_started", priority="medium",
         position=datetime.now().timestamp(), assignee_email="", assignee_emails=[],
-        owner_email=(by or "nexus").lower(), follower_emails=[], liked_by_emails=[],
-        access_level="restricted", project_id="", project_ids=[], section_id="", team_id="",
+        owner_email=(owner or by or "nexus").lower(), follower_emails=[], liked_by_emails=[],
+        access_level="restricted", project_id=project_id or "", project_ids=[], section_id=section_id or "", team_id="",
         parent_task_id=parent_id, subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={},
         tags=[], custom_field_values={}, start_on="", due_on=due, approval_status="none",
         completed=False, completed_at="", comment_ids=[], attachment_ids=[], activity_ids=[],
@@ -1002,87 +1083,96 @@ def _set_done(t, done: bool) -> bool:
 def _parent_text(cl: HrChecklist, emp: NexusEmployee, open_rows: list) -> tuple:
     label = KIND_LABELS.get(cl.kind, cl.kind)
     n = len(open_rows)
-    title = f"{label}: {full_name(emp)} - {n} Step{'s' if n != 1 else ''}" if n else f"{label}: {full_name(emp)}"
-    desc = (f"Your steps on {full_name(emp)}'s {label.lower()} checklist are the subtasks below. Completing one "
-            f"marks that step done on the checklist (and ticking the step on the checklist completes it here). "
-            f"Completing this task marks every step still open done.")
-    return title, desc
+    desc = (f"{full_name(emp)}'s {label.lower()} checklist. Each step is a subtask assigned to whoever does it, "
+            f"so it is on their My Tasks; completing a subtask marks that step done on the checklist (and ticking "
+            f"the step on the checklist completes it here). Completing this task marks every step still open done. "
+            f"{n} step{'s' if n != 1 else ''} open.")
+    return f"{label} - {full_name(emp)}", desc
 
 
 def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus", first: bool = False,
                exclude_ids=()) -> list:
-    """Bring the owners' tasks in line with the checklist: a parent per owner
-    (per set of owners when a role has several - one shared task, so any of
-    them closing it closes the step), a subtask per step (moved when a step is
-    reassigned), each completed exactly when its step / all their steps are
-    closed. Returns the ids of new parent
-    tasks (the caller commits, then may send the task email). Only checklists
-    started with tasks (`first`, from start()) get them - the ones open before
-    Oct 19 are left as they were, never a burst of tasks. `exclude_ids`: tasks
-    whose field history the caller records itself (the task or batch a Tasks
-    edit is saving - task_history.record_edit), so a change is not told twice."""
+    """Bring the checklist's task in line with it: ONE parent (made in the
+    company's checklist place, assigned to the head of HR), a subtask per step
+    assigned to the step's owners (moved when a step is reassigned), each
+    completed exactly when its step / every step is closed. Returns the ids of
+    new tasks worth an "assigned" email - the parent and, per owner, their
+    first new subtask - for the caller to send after commit. Only checklists
+    started with tasks (`first`, from start()) get them - the ones open
+    before Oct 19 are left as they were, never a burst of tasks. `exclude_ids`:
+    tasks whose field history the caller records itself (the task or batch a
+    Tasks edit is saving - task_history.record_edit), so a change is not told
+    twice."""
     import models
+    import task_history
     from routers.task_util import set_task_assignees, task_assignees
     emp = emp or db.query(NexusEmployee).filter(NexusEmployee.id == cl.employee_id).first()
     items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
-    if emp is None or not items or not (first or any(i.task_id for i in items)):
+    if emp is None or not items or not (first or cl.task_id or any(i.task_id for i in items)):
         return []
     ids = {i.task_id for i in items if i.task_id}
     subs = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(ids)))} if ids else {}
-    pids = {t.parent_task_id for t in subs.values() if t.parent_task_id}
-    # Oldest first, so which task stands for an owner is the same every time
-    # (Oct 22 2026) - the dict below keeps the first one per owner.
-    parents = ({t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(pids)))
-                .order_by(models.Task.created_at, models.Task.id)} if pids else {})
+    parent = db.query(models.Task).filter(models.Task.id == cl.task_id).first() if cl.task_id else None
+    # The per-owner parents of a checklist started Oct 20-22.
+    old_ids = {t.parent_task_id for t in subs.values() if t.parent_task_id} - {cl.task_id or ""}
+    legacy = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(old_ids)))} if old_ids else {}
     # Field history (Oct 22 2026): what this sync changes on tasks that
-    # already existed is recorded under `by`, due dates included (they are
-    # written here directly, not through task_due).
-    import task_history
+    # already existed is recorded under `by`, due dates included.
     skip = set(exclude_ids or ())
-    hist_before = {t.id: (t, task_history.snapshot(t)) for t in [*subs.values(), *parents.values()]
-                   if t.id not in skip}
-    def key(emails):                  # one task per owner, or per set of owners
-        return ",".join(sorted(email_list(emails)))
-
-    by_owner = {}
-    for p in parents.values():
-        if not getattr(p, "deleted_at", ""):
-            by_owner.setdefault(key(task_assignees(p)), p)
-    for t in [*subs.values(), *parents.values()]:
+    known = [*subs.values(), *legacy.values(), *([parent] if parent is not None else [])]
+    hist_before = {t.id: (t, task_history.snapshot(t)) for t in known if t.id not in skip}
+    for t in known:
         if not getattr(t, "hr_checklist", False):
             t.hr_checklist = True             # marks the checklist's tasks (Move To leaves them alone)
     live = cl.status == "open"
     created, now = [], _now()
     rows = sorted(items, key=lambda x: (x.sort_order or 0))
-    for owner in dict.fromkeys(key(owners_of(i)) for i in rows if owners_of(i)):
-        mine = [i for i in rows if key(owners_of(i)) == owner]
-        people = owners_of(mine[0])
-        open_rows = sorted([i for i in mine if i.status == "open"], key=lambda x: (x.due_date or "9999-12-31", x.sort_order or 0))
-        parent = by_owner.get(owner)
+    open_rows = sorted([i for i in rows if i.status == "open"], key=lambda x: (x.due_date or "9999-12-31", x.sort_order or 0))
+    if parent is None and not (live and any(owners_of(i) for i in open_rows)):
+        # Nothing to do (or a closed checklist that kept its old per-owner
+        # tasks - their history stays where it is): whatever is open closes.
+        for t in [*subs.values(), *legacy.values()]:
+            _set_done(t, True)
+    else:
+        lead = hr_lead(db, cl, emp)
+        # The head of HR owns every task of the checklist: they see each
+        # subtask even with no project to share it through (an owner is not
+        # emailed, so this costs them no mail).
+        head = lead[0] if lead else ""
         if parent is None:
-            if not (live and open_rows):
-                continue                      # nothing for them to do - no task
             title, desc = _parent_text(cl, emp, open_rows)
-            parent = _new_task(db, cl, people, title, desc, open_rows[0].due_date or "", by)
-            by_owner[owner] = parent
+            place = task_place(db, cl.company or "", cl.kind)
+            parent = _new_task(db, cl, lead, title, desc, open_rows[0].due_date or "", by,
+                               project_id=place["projectId"], section_id=place["sectionId"], owner=head)
+            cl.task_id = parent.id
             created.append(parent.id)
-        kids = list(parent.subtask_ids or [])
-        for it in mine:
+        kids = [k for k in (parent.subtask_ids or []) if k]
+        first_new = {}
+        for it in rows:
+            people = owners_of(it)
             sub = subs.get(it.task_id)
-            if sub is None or getattr(sub, "deleted_at", ""):
-                if it.status != "open" and sub is None and not it.task_id:
-                    continue                  # closed before it ever had a subtask
-                sub = _new_task(db, cl, people, it.title, it.hint or "", it.due_date or "", by, parent_id=parent.id)
+            if sub is None:
+                if not people or (it.status != "open" and not it.task_id):
+                    continue                  # nobody to do it yet, or closed before it had a subtask
+                sub = _new_task(db, cl, people, sub_title(it, emp), it.hint or "", it.due_date or "", by, parent_id=parent.id,
+                                owner=head)
                 subs[sub.id] = sub
                 it.task_id = sub.id
-            elif key(task_assignees(sub)) != owner or sub.parent_task_id != parent.id:
-                old = parents.get(sub.parent_task_id)
-                if old is not None:           # reassigned: the subtask moves to the new owner's task
-                    old.subtask_ids = [x for x in (old.subtask_ids or []) if x != sub.id]
-                set_task_assignees(sub, people)
-                sub.parent_task_id, sub.modified_at = parent.id, now
+                if live and it.status == "open" and _key(people) != _key(lead):
+                    first_new.setdefault(_key(people), sub.id)
+            else:
+                if people and _key(task_assignees(sub)) != _key(people):
+                    set_task_assignees(sub, people)      # reassigned: the subtask follows the step
+                    sub.modified_at = now
+                if sub.parent_task_id != parent.id:      # an old per-owner parent's: moved under the one
+                    old = legacy.get(sub.parent_task_id)
+                    if old is not None:
+                        old.subtask_ids = [x for x in (old.subtask_ids or []) if x != sub.id]
+                    sub.parent_task_id, sub.modified_at = parent.id, now
             if (sub.due_on or "") != (it.due_date or ""):
                 sub.due_on, sub.modified_at = it.due_date or "", now
+            if head and (sub.owner_email or "").lower() != head:
+                sub.owner_email = head
             _set_done(sub, it.status != "open" or not live)
             if sub.id not in kids:
                 kids.append(sub.id)
@@ -1091,15 +1181,56 @@ def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus"
         due = next((r.due_date for r in open_rows if r.due_date), "")
         if (parent.title, parent.description, parent.due_on or "") != (title, desc, due):
             parent.title, parent.description, parent.due_on, parent.modified_at = title, desc, due, now
+        if lead and _key(task_assignees(parent)) != _key(lead):
+            set_task_assignees(parent, lead)             # a new head of HR
+            parent.owner_email, parent.modified_at = head, now
         _set_done(parent, not (live and open_rows))
-    # An owner who no longer has any step here (all reassigned away).
-    owners = {key(owners_of(i)) for i in rows}
-    for owner, p in by_owner.items():
-        if owner not in owners:
-            _set_done(p, True)
+        created += list(first_new.values())
+        # The emptied per-owner parents were Nexus's own containers: binned,
+        # never touched while a closed checklist's history needs them.
+        for old in legacy.values():
+            if live and not [k for k in (old.subtask_ids or []) if k] and not old.deleted_at:
+                old.deleted_at, old.deleted_by, old.modified_at = now, "nexus", now
     for t, before in hist_before.values():
         task_history.record(db, t, before, by, with_due=True)
     return created
+
+
+def move_open_tasks(db, entity_id: str, by: str) -> int:
+    """The place for a company's checklist tasks changed (Pranshu, Oct 22:
+    "what if I want to change the task location for the checklist in
+    future?"): every OPEN checklist's task there moves to the place for its
+    kind; the subtasks come along, as they live under it. Returns how many
+    moved. Caller commits."""
+    import models
+    import task_history
+    n = 0
+    for cl in db.query(HrChecklist).filter(HrChecklist.status == "open", HrChecklist.company == entity_id,
+                                           func.coalesce(HrChecklist.task_id, "") != "").all():
+        p = db.query(models.Task).filter(models.Task.id == cl.task_id).first()
+        if p is None:
+            continue
+        place = task_place(db, entity_id, cl.kind)
+        if ((p.project_id or ""), (p.section_id or "")) != (place["projectId"], place["sectionId"]):
+            before = task_history.snapshot(p)
+            p.project_id, p.section_id, p.modified_at = place["projectId"], place["sectionId"], _now()
+            task_history.record(db, p, before, by)
+            n += 1
+    return n
+
+
+def task_info(db, cl: HrChecklist) -> dict:
+    """Where the checklist's task lives, for its card: None until it has one."""
+    import models
+    if not cl.task_id:
+        return None
+    t = db.query(models.Task).filter(models.Task.id == cl.task_id).first()
+    if t is None:
+        return None
+    proj = db.query(models.TaskProject).filter(models.TaskProject.id == t.project_id).first() if t.project_id else None
+    sec = db.query(models.TaskSection).filter(models.TaskSection.id == t.section_id).first() if t.section_id else None
+    return {"id": t.id, "title": t.title, "projectId": t.project_id or "", "projectName": proj.name if proj else "",
+            "sectionName": sec.name if sec else "", "completed": bool(t.completed)}
 
 
 def task_due_changed(db, task, by: str, exclude_ids=None) -> bool:
@@ -1164,8 +1295,12 @@ def task_completed(db, task, done: bool, by: str, exclude_ids=None) -> bool:
         step = db.query(HrChecklistItem).filter(HrChecklistItem.task_id == task.id).first()
         steps = [step] if step is not None else []
     else:
-        kid_ids = [k for k in (task.subtask_ids or []) if k]
-        steps = (db.query(HrChecklistItem).filter(HrChecklistItem.task_id.in_(kid_ids)).all() if kid_ids else [])
+        own = db.query(HrChecklist).filter(HrChecklist.task_id == task.id).first()
+        if own is not None:                   # the checklist's ONE task: HR closing it closes every step
+            steps = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == own.id).all()
+        else:                                 # an old per-owner parent: that owner's steps
+            kid_ids = [k for k in (task.subtask_ids or []) if k]
+            steps = (db.query(HrChecklistItem).filter(HrChecklistItem.task_id.in_(kid_ids)).all() if kid_ids else [])
         if not done:
             return bool(steps)                # reopening the parent changes no step
     if not steps:
@@ -1182,7 +1317,7 @@ def task_completed(db, task, done: bool, by: str, exclude_ids=None) -> bool:
         elif not done and it.status == "done":
             it.status, it.done_by, it.done_at, it.done_reason = "open", "", "", ""
     if not task.parent_task_id and done:
-        for sub in db.query(models.Task).filter(models.Task.id.in_([s.task_id for s in steps])).all():
+        for sub in db.query(models.Task).filter(models.Task.id.in_([s.task_id for s in steps if s.task_id])).all():
             # Field history (Oct 22 2026): the step's subtask closes with its
             # parent - recorded here, from before the close (sync_tasks below
             # only sees what it changes itself).
@@ -1223,7 +1358,7 @@ def ser_item(it: HrChecklistItem, names: dict = None, comments: list = None) -> 
 
 
 def ser_checklist(cl: HrChecklist, items: list, names: dict = None, comments: dict = None,
-                  role_people: dict = None) -> dict:
+                  role_people: dict = None, task: dict = None) -> dict:
     done = sum(1 for i in items if i.status in ("done", "na"))
     today = _today().isoformat()
     return {
@@ -1237,6 +1372,8 @@ def ser_checklist(cl: HrChecklist, items: list, names: dict = None, comments: di
         # {role: [emails]} - who holds each role for this person today; Change
         # Owner lists them first (Pranshu, Oct 20).
         "roleOwners": role_people or {},
+        # Its one task and where it lives (task_info) - None until it has one.
+        "task": task,
     }
 
 

@@ -99,7 +99,8 @@ def _send_task_emails(background: Optional[BackgroundTasks], task_ids: list, by:
 def _full(db: Session, cl: HrChecklist) -> dict:
     items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
     names = hc.name_map(db, [e for i in items for e in hc.owners_of(i)])
-    return hc.ser_checklist(cl, items, names, hc.comments_for(db, items), hc.role_people(db, cl))
+    return hc.ser_checklist(cl, items, names, hc.comments_for(db, items), hc.role_people(db, cl),
+                            hc.task_info(db, cl))
 
 
 def _step_out(db: Session, it: HrChecklistItem) -> dict:
@@ -558,6 +559,92 @@ def reset_template(kind: str, entity_id: str = "", user: dict = Depends(require_
     n = hc.reconcile_open(db, kind, entity_id=entity_id, by=user["email"].lower())
     db.commit()
     return {**_ser_template(hc.get_template(db, kind, entity_id), entity_id), "openUpdated": n}
+
+
+# --- Where checklist tasks go (Neil, Oct 22; Pranshu: "what if I want to
+# change the task location for the checklist in future?") -------------------
+
+def _place_out(db: Session, entity_id: str) -> dict:
+    import models
+    from routers.task_util import row_company
+    projects = [p for p in db.query(models.TaskProject).filter(models.TaskProject.archived.isnot(True))
+                .order_by(models.TaskProject.name).all() if row_company(db, p) in ("", entity_id)]
+    secs = {}
+    if projects:
+        for s in (db.query(models.TaskSection).filter(models.TaskSection.project_id.in_([p.id for p in projects]))
+                  .order_by(models.TaskSection.position).all()):
+            secs.setdefault(s.project_id, []).append({"id": s.id, "name": s.name})
+    names = {p.id: p.name for p in projects}
+    sec_names = {s["id"]: s["name"] for rows in secs.values() for s in rows}
+    effective = {}
+    for k in hc.KINDS:
+        pl = hc.task_place(db, entity_id, k)
+        if pl["projectId"] and pl["projectId"] not in names:
+            p = db.query(models.TaskProject).filter(models.TaskProject.id == pl["projectId"]).first()
+            names[pl["projectId"]] = p.name if p else ""
+        effective[k] = {**pl, "projectName": names.get(pl["projectId"], ""), "sectionName": sec_names.get(pl["sectionId"], "")}
+    open_tasks = []
+    for cl in db.query(HrChecklist).filter(HrChecklist.status == "open", HrChecklist.company == entity_id,
+                                           func.coalesce(HrChecklist.task_id, "") != "").all():
+        t = db.query(models.Task).filter(models.Task.id == cl.task_id).first()
+        if t is not None:
+            open_tasks.append({"kind": cl.kind, "projectId": t.project_id or "", "sectionId": t.section_id or ""})
+    auto = hc.auto_project(db, entity_id)
+    return {"place": hc._setting_json(db, hc.PLACE_KEY + entity_id), "effective": effective,
+            "auto": {"projectId": auto.id, "projectName": auto.name} if auto else None,
+            "projects": [{"id": p.id, "name": p.name, "sections": secs.get(p.id, [])} for p in projects],
+            "openTasks": open_tasks}
+
+
+@router.get("/task-place")
+def get_task_place(entity_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Where a company's checklist tasks go, per kind or one for all, what
+    that resolves to today, the projects to pick from and where its open
+    checklists' tasks are now."""
+    if not entity_id:
+        raise HTTPException(400, "Pick a company")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    return _place_out(db, entity_id)
+
+
+class PlaceIn(BaseModel):
+    place: dict                  # {"default" | kind: {"projectId": "", "sectionId": ""}}
+    move: bool = True            # move the open checklists' tasks there too
+
+
+@router.put("/task-place")
+def save_task_place(body: PlaceIn, entity_id: str = "", user: dict = Depends(require_hr_write),
+                    db: Session = Depends(get_db)):
+    import models
+    if not entity_id:
+        raise HTTPException(400, "Pick a company")
+    entity_id = _entity_for_settings(db, entity_id, user)
+    clean = {}
+    for k, v in (body.place or {}).items():
+        if k not in hc.PLACE_KINDS:
+            raise HTTPException(400, f"{k} is not a checklist kind")
+        v = v if isinstance(v, dict) else {}
+        pid, sec = str(v.get("projectId") or "").strip(), str(v.get("sectionId") or "").strip()
+        if not pid:
+            continue
+        if db.query(models.TaskProject.id).filter(models.TaskProject.id == pid).first() is None:
+            raise HTTPException(400, "That project does not exist")
+        if sec and db.query(models.TaskSection.id).filter(models.TaskSection.id == sec,
+                                                          models.TaskSection.project_id == pid).first() is None:
+            raise HTTPException(400, "That section is not in the project")
+        clean[k] = {"projectId": pid, "sectionId": sec}
+    key = hc.PLACE_KEY + entity_id
+    row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
+    if row is None:
+        row = NexusSetting(key=key)
+        db.add(row)
+    row.value, row.updated_by, row.updated_at = json.dumps(clean), user["email"], hc._now()
+    db.flush()
+    moved = hc.move_open_tasks(db, entity_id, user["email"].lower()) if body.move else 0
+    db.commit()
+    return {**_place_out(db, entity_id), "moved": moved}
 
 
 # --- Role owners -----------------------------------------------------------

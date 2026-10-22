@@ -25,6 +25,7 @@ import {
 import { api } from '../api';
 import { formatDate, formatDateTime, toDateInputValue } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
+import { setPendingOpen } from '../lib/pendingOpen';
 import { usePeopleDirectory, useEntities } from '../lib/queries';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
@@ -94,6 +95,12 @@ const isClosed = s => s.status === 'done' || s.status === 'na';
 const lowerFirst = t => (t ? t.charAt(0).toLowerCase() + t.slice(1) : '');
 // Template saves reach open checklists (Neil, Oct 22: "is it dynamic or is it fixed?").
 const openUpdatedText = n => (n ? `${n} open checklist${n === 1 ? '' : 's'} updated - steps already done stay as they were.` : 'No open checklist needed a change.');
+// The Task module may not be mounted yet: the note serves it on mount, the event once it is up.
+function openTask(taskId) {
+  setPendingOpen('task', taskId);
+  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tasks', sub: 'mine' } }));
+  setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId } })), 0);
+}
 // A step's automatic conditions, joined by "|" (hr_checklists.SIG_SEP) - any one ticks it.
 const sigList = s => (s || '').split('|').map(x => x.trim()).filter(Boolean);
 function ownerText(s) {
@@ -418,6 +425,17 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             <Stat label="Due This Week" value={weekDue} tone="orange" />
             <Stat label="Steps Left" value={cl.total - cl.done} />
             {me && <Stat label="Yours" value={mine} />}
+          </div>
+        )}
+        {cl.task && (
+          <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--wk-dim)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', lineHeight: 1.5 }}>
+            <ListChecks size={13} aria-hidden="true" />
+            <span>Task: <b style={{ color: 'var(--wk-ink)', fontWeight: 600 }}>{cl.task.title}</b>{' '}
+              {cl.task.projectName
+                ? <>in {cl.task.projectName}{cl.task.sectionName ? `, section ${cl.task.sectionName}` : ''}</>
+                : <span style={{ color: 'var(--wk-orange)' }}>- not in a project yet; pick one in Company Settings &gt; Checklists &gt; Where Checklist Tasks Go</span>}
+            </span>
+            <button onClick={() => openTask(cl.task.id)} style={{ ...ghostBtn, padding: '3px 8px', fontSize: 12 }}>Open Task</button>
           </div>
         )}
         {cl.kind === 'onboarding' && !cl.anchorDate && cl.status === 'open' && (
@@ -1388,6 +1406,112 @@ function CopyStepsModal({ direction, entityId, entities, kinds, kind, onClose, o
   );
 }
 
+// Company Settings > Checklists: where each checklist's ONE task goes (Neil,
+// Oct 22: "It should create a task inside [#General - Human Resources] called
+// Onboarding - <name>"), per kind or one place for all. Changing it offers to
+// move the open checklists' tasks too (Pranshu: "what if I want to change the
+// task location for the checklist in future?").
+const PLACE_KINDS = ['onboarding', 'promotion', 'offboarding', 'inactive'];
+const blankPlace = { projectId: '', sectionId: '' };
+function placeDraft(p = {}) {
+  return { perKind: PLACE_KINDS.some(k => p[k]?.projectId), default: { ...blankPlace, ...(p.default || {}) },
+    ...Object.fromEntries(PLACE_KINDS.map(k => [k, { ...blankPlace, ...(p[k] || {}) }])) };
+}
+function placeOut(d) {
+  const keep = v => (v.projectId ? { projectId: v.projectId, sectionId: v.sectionId || '' } : null);
+  const out = d.perKind ? Object.fromEntries(PLACE_KINDS.map(k => [k, keep(d[k])])) : { default: keep(d.default) };
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v));
+}
+function TaskPlaceCard({ entityId, kinds, toastOk, toastErr }) {
+  const [data, setData] = useState(null);
+  const [draft, setDraft] = useState(null);
+  const [move, setMove] = useState(true);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.getChecklistTaskPlace(entityId).then(d => { setData(d); setDraft(placeDraft(d.place)); }).catch(() => setData(false));
+  }, [entityId]);
+  if (data === null) return <SkeletonBlocks count={1} height={110} />;
+  if (data === false) return <div style={{ ...card, padding: 18, marginBottom: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load where checklist tasks go.</div>;
+  const projects = data.projects || [];
+  const auto = data.auto;
+  const pick = k => (draft.perKind ? draft[k] : draft.default);
+  const target = k => (pick(k).projectId ? pick(k) : { projectId: auto?.projectId || '', sectionId: '' });
+  const dirty = JSON.stringify(placeOut(draft)) !== JSON.stringify(placeOut(placeDraft(data.place)));
+  const moving = (data.openTasks || []).filter(t => { const p = target(t.kind); return t.projectId !== p.projectId || t.sectionId !== (p.sectionId || ''); }).length;
+  const setPick = (k, v) => setDraft(d => ({ ...d, [k]: { ...d[k], ...v } }));
+  async function save() {
+    setBusy(true);
+    try {
+      const d = await api.saveChecklistTaskPlace(entityId, { place: placeOut(draft), move: move && moving > 0 });
+      setData(d); setDraft(placeDraft(d.place));
+      toastOk(d.moved ? `Saved. ${d.moved} open checklist task${d.moved === 1 ? '' : 's'} moved there.` : 'Saved. New checklist tasks go there.');
+    } catch (e) { toastErr(e?.message || 'Could not save.'); }
+    setBusy(false);
+  }
+  const row = (k, label) => {
+    const v = pick(k);
+    const secs = projects.find(p => p.id === v.projectId)?.sections || [];
+    const key = draft.perKind ? k : 'default';
+    return (
+      <div key={k} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: 10, alignItems: 'end' }}>
+        <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--wk-dim)' }}>
+          {label}
+          <select aria-label={`Project for ${label}`} value={v.projectId} onChange={e => setPick(key, { projectId: e.target.value, sectionId: '' })} style={inputStyle}>
+            <option value="">{auto ? `Automatic (${auto.projectName})` : 'No project'}</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--wk-dim)' }}>
+          Section (optional)
+          <select aria-label={`Section for ${label}`} value={v.sectionId} disabled={!v.projectId || !secs.length}
+            onChange={e => setPick(key, { sectionId: e.target.value })} style={inputStyle}>
+            <option value="">No section</option>
+            {secs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </label>
+      </div>
+    );
+  };
+  return (
+    <section style={{ ...card, padding: 18, marginBottom: 18 }}>
+      <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Where Checklist Tasks Go</h3>
+      <p style={{ margin: '4px 0 12px', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
+        Each checklist gets ONE task (for example Onboarding - Jane Doe) assigned to the head of HR, with a subtask for each step on its owner&apos;s My Tasks - IT steps included. Pick the project it goes in, and a section if you like.
+      </p>
+      {!auto && !Object.keys(data.place || {}).length && (
+        <div role="note" style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 12.5, color: 'var(--wk-orange)', marginBottom: 12 }}>
+          <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>No HR project found for this company (a project of its HR department, or one named Human Resources), so checklist tasks are in no project until you pick one.</span>
+        </div>
+      )}
+      <div role="radiogroup" aria-label="One place or one per checklist" style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12, fontSize: 13 }}>
+        {[[false, 'One Place For Every Checklist'], [true, 'A Place Per Checklist']].map(([v, l]) => (
+          <label key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="radio" name={`place-mode-${entityId}`} checked={draft.perKind === v} onChange={() => setDraft(d => ({ ...d, perKind: v }))} /> {l}
+          </label>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gap: 12 }}>
+        {draft.perKind ? PLACE_KINDS.map(k => row(k, kinds.find(x => x.value === k)?.label || k)) : row('default', 'Every Checklist')}
+      </div>
+      {dirty && (
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginTop: 14 }}>
+          {moving > 0 && (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--wk-ink)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={move} onChange={e => setMove(e.target.checked)} /> Move The {moving} Open Checklist Task{moving === 1 ? '' : 's'} Too
+            </label>
+          )}
+          <span style={{ flex: 1 }} />
+          <button onClick={() => setDraft(placeDraft(data.place))} disabled={busy} style={ghostBtn}>Discard</button>
+          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy ? <Spinner size={13} /> : <Save size={13} />} Save Place
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // Company Settings > Checklists: the steps every hire at this company gets
 // first, whatever the role - the Checklist Library's, or the company's own
 // copy (made by editing here or by Copy From…). Roles build on top of them.
@@ -1478,6 +1602,8 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
       {entityId
         ? <DepartmentOwnersCard key={entityId} entityId={entityId} people={people} onOpenDepartments={onOpenDepartments} toastOk={toastOk} toastErr={toastErr} />
         : <LibraryOwnersNote />}
+
+      {entityId && <TaskPlaceCard key={`place:${entityId}`} entityId={entityId} kinds={kinds} toastOk={toastOk} toastErr={toastErr} />}
 
       {entityId && (
         <BaselineCard companyName={companyName} entityId={entityId} templates={templates} kinds={kinds} meta={meta}

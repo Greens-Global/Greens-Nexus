@@ -5435,6 +5435,9 @@ class HrChecklist(Base):
     # change reaches it (hr_checklists.reconcile). '' = no role; NULL = started
     # before the column - filled from the role the person holds on first use.
     role_id     = Column(String, nullable=True)
+    # Its ONE task (Neil, Oct 22: "Onboarding - <name>" in the HR project,
+    # assigned to the head of HR); each step's subtask hangs under it.
+    task_id     = Column(String, default="")
 
 
 class HrChecklistItem(Base):

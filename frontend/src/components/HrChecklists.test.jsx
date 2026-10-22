@@ -49,6 +49,10 @@ vi.mock('../api', () => ({
       checklistStatus: 'open',
     })),
     getMyChecklistSteps: vi.fn(() => Promise.resolve({ steps: [] })),
+    getChecklistTaskPlace: vi.fn(() => Promise.resolve({ place: {}, auto: { projectId: 'p-hr', projectName: '#General - Human Resources' },
+      effective: {}, openTasks: [{ kind: 'onboarding', projectId: 'p-hr', sectionId: '' }, { kind: 'offboarding', projectId: 'p-hr', sectionId: '' }],
+      projects: [{ id: 'p-hr', name: '#General - Human Resources', sections: [] }, { id: 'p-new', name: 'People Ops', sections: [{ id: 's-1', name: 'New Hires' }] }] })),
+    saveChecklistTaskPlace: vi.fn((entityId, d) => Promise.resolve({ place: d.place, auto: null, effective: {}, openTasks: [], projects: [], moved: 2 })),
     getChecklistBoard: vi.fn(() => Promise.resolve({ rows: BOARD })),
     getChecklistOwners: vi.fn(() => Promise.resolve({ owners: { it: 'it@greensglobal.com' }, effective: { it: 'it@greensglobal.com' }, hrContact: '' })),
     copyChecklistTemplates: vi.fn(() => Promise.resolve({ copied: 1, kinds: ['onboarding'], companies: ['co-a'] })),
@@ -344,5 +348,31 @@ describe('Live templates', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Change owner of selected steps' }), { target: { value: 'it' } });
     fireEvent.click(await screen.findByRole('button', { name: /Save Template/ }));
     await waitFor(() => expect(ok).toHaveBeenCalledWith('Steps saved. 2 open checklists updated - steps already done stay as they were.'));
+  });
+});
+
+// Neil, Oct 22: ONE task per checklist in the HR project; Pranshu: the place can change later.
+describe('Where checklist tasks go', () => {
+  it('names the HR project it found, and moving the open tasks is offered when the place changes', async () => {
+    const ok = vi.fn();
+    render(<ChecklistSettings entityId="co-a" entities={[{ id: 'co-a', name: 'Greens' }]} toastOk={ok} toastErr={() => {}} />);
+    expect(await screen.findByText('Where Checklist Tasks Go')).toBeInTheDocument();
+    const proj = screen.getByRole('combobox', { name: 'Project for Every Checklist' });
+    expect(within(proj).getByText('Automatic (#General - Human Resources)')).toBeInTheDocument();
+    fireEvent.change(proj, { target: { value: 'p-new' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Section for Every Checklist' }), { target: { value: 's-1' } });
+    const move = screen.getByRole('checkbox', { name: 'Move The 2 Open Checklist Tasks Too' });
+    expect(move).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: /Save Place/ }));
+    await waitFor(() => expect(api.saveChecklistTaskPlace).toHaveBeenCalledWith('co-a', { place: { default: { projectId: 'p-new', sectionId: 's-1' } }, move: true }));
+    expect(ok).toHaveBeenCalledWith('Saved. 2 open checklist tasks moved there.');
+  });
+
+  it('a checklist says where its task is', async () => {
+    api.getEmployeeChecklists.mockResolvedValueOnce({ checklists: [{ ...CHECKLIST, task: { id: 't-9', title: 'Onboarding - Jane Doe', projectId: 'p-hr', projectName: '#General - Human Resources', sectionName: '' } }] });
+    render(<ChecklistSection employee={{ id: 'emp-1', firstName: 'Jane', startDate: '2026-11-02' }} canEdit toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Onboarding - Jane Doe')).toBeInTheDocument();
+    expect(screen.getByText(/in #General - Human Resources/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open Task' })).toBeInTheDocument();
   });
 });

@@ -51,7 +51,7 @@ def _wipe(db):
               models.HrCompanyHoliday, models.NexusAccessScope, models.NexusGroupMember,
               models.NexusGroup, models.HrEntity, models.NexusSetting, models.HrStageEvent,
               models.HrDepartment, models.Task, models.HrDocument, models.HrSignRequest,
-              models.HrSignTemplate):
+              models.HrSignTemplate, models.TaskProject, models.TaskSection):
         db.query(m).delete(synchronize_session=False)
     db.query(models.NexusEmployee).execution_options(include_deleted=True).delete(synchronize_session=False)
     db.commit()
@@ -445,30 +445,42 @@ class ChecklistTests(unittest.TestCase):
         finally:
             db.close()
 
-    def test_one_task_per_owner_with_a_subtask_per_step(self):
+    def _cl_task(self, cl_id):
+        db = database.SessionLocal()
+        try:
+            return db.query(models.HrChecklist).filter_by(id=cl_id).one().task_id
+        finally:
+            db.close()
+
+    def test_one_task_per_checklist_with_a_subtask_per_step(self):
+        # Neil, Oct 22: "It should create a task... called Onboarding - <name>...
+        # the assignee should be the main HR manager. And then the individual
+        # subtasks will get assigned to the correct people."
         cl = self._start(self._person())
         rows, subs, parents = self._tasks_of(cl["id"], MANAGER)
         self.assertTrue(rows)
         self.assertEqual(len(subs), len(rows))                 # a subtask per step
-        self.assertEqual(len(parents), 1)                      # under ONE task
-        parent = self._task(parents.pop())
-        self.assertEqual(parent.assignee_email, MANAGER)
-        self.assertIn(f"{len(rows)} Step", parent.title)
-        self.assertEqual(sorted(parent.subtask_ids), sorted(subs))
-        self.assertTrue(all(s.assignee_email == MANAGER and s.title for s in subs.values()))
-        # ticking the steps on the checklist completes their subtasks, then the task
+        pid = self._cl_task(cl["id"])
+        self.assertEqual(parents, {pid})                       # under the checklist's ONE task
+        _, it_subs, it_parents = self._tasks_of(cl["id"], IT)
+        self.assertEqual(it_parents, {pid})                    # IT's steps too - no task per owner
+        parent = self._task(pid)
+        self.assertEqual(parent.title, "Onboarding - Jane Doe")
+        self.assertEqual(parent.assignee_email, HRC)           # the company's HR (its contact here)
+        self.assertTrue(set(subs) | set(it_subs) <= set(parent.subtask_ids))
+        self.assertTrue(all(s.assignee_email == MANAGER and s.title and s.owner_email == HRC for s in subs.values()))
+        # ticking the steps on the checklist completes their subtasks; the task waits for the rest
         _as(MANAGER)
         for r in rows:
             self.assertEqual(self.client.patch(f"/hr/checklists/items/{r.id}", json={"status": "done"}).status_code, 200)
         self.assertTrue(all(self._task(s).completed for s in subs))
-        self.assertTrue(self._task(parent.id).completed)
-        # a step reopened reopens its subtask and the task
+        self.assertFalse(self._task(pid).completed)
+        # a step reopened reopens its subtask
         self.client.patch(f"/hr/checklists/items/{rows[0].id}", json={"status": "open"})
         self.assertFalse(self._task(rows[0].task_id).completed)
-        self.assertFalse(self._task(parent.id).completed)
         _as(HR)
         self.client.post(f"/hr/checklists/{cl['id']}/cancel")
-        self.assertTrue(self._task(parent.id).completed)
+        self.assertTrue(self._task(pid).completed)
         self.assertTrue(self._task(rows[0].task_id).completed)
 
     def test_an_owner_set_after_the_start_gets_their_task_at_once(self):
@@ -480,8 +492,8 @@ class ChecklistTests(unittest.TestCase):
         rows, subs, parents = self._tasks_of(cl["id"], HRC)
         self.assertEqual(len(rows), len(blank))
         self.assertEqual(len(subs), len(rows))
-        self.assertEqual(len(parents), 1)
-        self.assertEqual(self._task(parents.pop()).assignee_email, HRC)
+        self.assertEqual(parents, {self._cl_task(cl["id"])})
+        self.assertTrue(all(s.assignee_email == HRC for s in subs.values()))
         # an owner filled in with no task (the old board refresh did that) gets it when the checklist is opened
         db = database.SessionLocal()
         try:
@@ -500,9 +512,10 @@ class ChecklistTests(unittest.TestCase):
         rows, subs, parents = self._tasks_of(cl["id"], MANAGER)
         pid = parents.pop()
         db = database.SessionLocal()
-        try:                                   # the manager works in Tasks
+        try:                                   # the manager and HR work in Tasks
             db.add(models.NexusGroup(id="grp-tasks-test", name="Tasks", allowed_modules="tasks:editor"))
             db.add(models.NexusGroupMember(group_id="grp-tasks-test", email=MANAGER))
+            db.add(models.NexusGroupMember(group_id="grp-tasks-test", email=HRC))
             db.commit()
         finally:
             db.close()
@@ -515,7 +528,6 @@ class ChecklistTests(unittest.TestCase):
         try:
             step = db.query(models.HrChecklistItem).filter_by(id=rows[0].id).one()
             self.assertEqual((step.status, step.done_by), ("done", MANAGER))
-            self.assertIn(f"{len(rows) - 1} Step", db.query(models.Task).filter_by(id=pid).one().title)
         finally:
             db.close()
         # reopened in Tasks -> the step reopens
@@ -525,17 +537,18 @@ class ChecklistTests(unittest.TestCase):
             self.assertEqual(db.query(models.HrChecklistItem).filter_by(id=rows[0].id).one().status, "open")
         finally:
             db.close()
-        # the whole task completed -> every one of their steps is done, the subtasks too
+        # the manager cannot see the checklist's own task - it is HR's
+        self.assertEqual(self.client.patch(f"/tasks/{pid}", json={"completed": True}).status_code, 404)
+        # HR completing the whole task -> every step still open is done, the subtasks too
+        _as(HRC)
         r = self.client.patch(f"/tasks/{pid}", json={"completed": True})
         self.assertEqual(r.status_code, 200, r.text)
         db = database.SessionLocal()
         try:
-            steps = db.query(models.HrChecklistItem).filter(models.HrChecklistItem.id.in_([x.id for x in rows])).all()
-            self.assertTrue(all(s.status == "done" for s in steps))
+            steps = db.query(models.HrChecklistItem).filter_by(checklist_id=cl["id"]).all()
+            self.assertTrue(all(s.status in ("done", "na") for s in steps))
             self.assertTrue(all(t.completed for t in db.query(models.Task).filter(models.Task.id.in_(list(subs))).all()))
-            others = [s for s in db.query(models.HrChecklistItem).filter_by(checklist_id=cl["id"]).all()
-                      if s.owner_email != MANAGER]
-            self.assertTrue(any(s.status == "open" for s in others))      # nobody else's steps were touched
+            self.assertEqual(db.query(models.HrChecklist).filter_by(id=cl["id"]).one().status, "done")
         finally:
             db.close()
 
@@ -568,8 +581,7 @@ class ChecklistTests(unittest.TestCase):
         self.assertTrue(all(i["ownerEmails"] == [IT, HRC] for i in it_rows))
         subs = [self._task(self._step(i["id"]).task_id) for i in it_rows]
         self.assertTrue(all(sorted(s.assignee_emails) == sorted([IT, HRC]) for s in subs))
-        self.assertEqual(len({s.parent_task_id for s in subs}), 1)              # ONE shared task
-        self.assertEqual(sorted(self._task(subs[0].parent_task_id).assignee_emails), sorted([IT, HRC]))
+        self.assertEqual({s.parent_task_id for s in subs}, {self._cl_task(cl["id"])})   # the checklist's task
         # either owner closing their subtask closes the step
         self._grant_tasks(HRC)
         _as(HRC)
@@ -587,17 +599,13 @@ class ChecklistTests(unittest.TestCase):
         _as(HR)
         manual = it_rows[1]["id"]                              # one HR handed to the manager by hand
         self.client.patch(f"/hr/checklists/items/{manual}", json={"owner_email": MANAGER})
-        old_parent = self._task(self._step(it_rows[2]["id"]).task_id).parent_task_id
         r = self.client.put(f"/hr/checklists/owners?entity_id={CO_A}", json={"owners": {"it": [HRC]}})
         self.assertEqual(r.status_code, 200, r.text)
         moved = [self._step(i["id"]) for i in it_rows[2:]]
         self.assertTrue(moved and all(m.owner_email == HRC for m in moved))
         subs = [self._task(m.task_id) for m in moved]
         self.assertTrue(all(s.assignee_emails == [HRC] for s in subs))       # the subtasks moved with them
-        self.assertEqual(len({s.parent_task_id for s in subs}), 1)
-        self.assertNotEqual(subs[0].parent_task_id, old_parent)
-        self.assertEqual(self._task(subs[0].parent_task_id).assignee_emails, [HRC])
-        self.assertTrue(self._task(old_parent).completed)                   # IT has nothing left there
+        self.assertEqual({s.parent_task_id for s in subs}, {self._cl_task(cl["id"])})
         self.assertEqual(self._step(it_rows[0]["id"]).owner_email, IT)       # done steps keep who did them
         self.assertEqual(self._step(manual).owner_email, MANAGER)            # a hand-set owner stays
 
@@ -692,14 +700,12 @@ class ChecklistTests(unittest.TestCase):
     def test_a_reassigned_step_moves_its_subtask(self):
         cl = self._start(self._person())
         rows, subs, parents = self._tasks_of(cl["id"], MANAGER)
-        old_parent = parents.pop()
         r = self.client.patch(f"/hr/checklists/items/{rows[0].id}", json={"owner_email": IT})
         self.assertEqual(r.status_code, 200, r.text)
         sub = self._task(rows[0].task_id)
         self.assertEqual(sub.assignee_email, IT)
-        self.assertNotEqual(sub.parent_task_id, old_parent)
+        self.assertEqual(sub.parent_task_id, parents.pop())       # still under the checklist's task
         self.assertIn(sub.id, self._task(sub.parent_task_id).subtask_ids)
-        self.assertNotIn(sub.id, self._task(old_parent).subtask_ids or [])
 
     def test_checklists_open_before_tasks_get_none(self):
         cl = self._start(self._person())
@@ -707,6 +713,7 @@ class ChecklistTests(unittest.TestCase):
         try:
             db.query(models.Task).delete()
             db.query(models.HrChecklistItem).filter_by(checklist_id=cl["id"]).update({"task_id": ""})
+            db.query(models.HrChecklist).filter_by(id=cl["id"]).update({"task_id": ""})
             db.commit()
             row = db.query(models.HrChecklist).filter_by(id=cl["id"]).one()
             self.assertEqual(hc.sync_tasks(db, row), [])      # the nightly pass leaves them as they were
@@ -764,17 +771,23 @@ class ChecklistTests(unittest.TestCase):
             try:
                 cand = db.query(models.HrCandidate).filter_by(id="cand-e").one()
                 cl = db.query(models.HrChecklist).filter_by(employee_id=cand.employee_id).one()
-                subs = [i.task_id for i in db.query(models.HrChecklistItem).filter_by(checklist_id=cl.id).all() if i.task_id]
-                parents = {t.parent_task_id for t in db.query(models.Task).filter(models.Task.id.in_(subs)).all()}
+                subs = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(
+                    [i.task_id for i in db.query(models.HrChecklistItem).filter_by(checklist_id=cl.id).all() if i.task_id]))}
+                pid = cl.task_id
             finally:
                 db.close()
-            self.assertTrue(parents)
+            self.assertTrue(pid and subs)
             for _ in range(50):                       # the email goes from a thread after the commit
                 with lock:
-                    if len(sent) >= len(parents):
+                    if pid in {t for t, _e in sent}:
                         break
                 time.sleep(0.1)
-            self.assertEqual({t for t, e in sent if e == "assigned"}, parents)    # one per owner, not per step
+            time.sleep(0.3)
+            got = [t for t, e in sent if e == "assigned"]
+            self.assertIn(pid, got)                   # HR hears about the checklist's task...
+            owners = [",".join(sorted(subs[t].assignee_emails)) for t in got if t in subs]
+            self.assertEqual(len(owners), len(set(owners)))     # ...each owner once, never once per step
+            self.assertLess(len(got), len(subs))
         finally:
             task_notify.notify_task_event = real
 
@@ -815,20 +828,22 @@ class ChecklistTests(unittest.TestCase):
         self.assertIn(self._task(step).parent_task_id, parents)
 
     def test_nothing_moves_under_a_checklist_task_and_its_parent_stays(self):
-        self._grant_tasks(MANAGER, IT)
+        self._grant_tasks(MANAGER, IT, HRC)
         cl = self._start(self._person())
         rows, subs, parents = self._tasks_of(cl["id"], MANAGER)
         parent = parents.pop()
         mine = self._org_task_for_manager()
+        _as(HRC)                                  # the checklist's task is HR's to see
         self.assertEqual(self.client.patch(f"/tasks/{mine}", json={"parent_task_id": parent}).status_code, 422)
         self.assertEqual(self.client.patch(f"/tasks/{parent}", json={"parent_task_id": mine}).status_code, 422)
         self.assertEqual(self.client.patch(f"/tasks/{parent}", json={"subtask_ids": []}).status_code, 422)
         # The payload says so, so the list can leave Move To off.
         listed = {t["id"]: t for t in self.client.get("/tasks").json()}
         self.assertTrue(listed[parent]["hrChecklist"])
-        self.assertTrue(listed[rows[0].task_id]["hrChecklist"])
+        self.assertTrue(listed[rows[0].task_id]["hrChecklist"])   # HR sees every subtask of it
         self.assertFalse(listed[mine]["hrChecklist"])
         # The sync keeps writing to the checklist's own task, never to mine.
+        _as(MANAGER)
         r = self.client.patch(f"/hr/checklists/items/{rows[1].id}", json={"status": "done"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self._task(mine).title, "Weekly report")
@@ -1003,7 +1018,7 @@ class ChecklistTests(unittest.TestCase):
                          ("Buddy And Mentor Named", 5, pinned))                                # a pinned date stays
         self.assertEqual((items["B"].owner_role, items["B"].owner_email), ("it", IT))         # a new owner role
         self.assertEqual(self._task(items["B"].task_id).assignee_email, IT)
-        self.assertEqual(self._task(items["B"].task_id).title, "Buddy And Mentor Named")      # the subtask follows
+        self.assertEqual(self._task(items["B"].task_id).title, "Buddy And Mentor Named - Jane Doe")      # the subtask follows
         self.assertEqual(items["C"].status, "na")
         self.assertTrue(items["C"].note.startswith("Removed from the template on "))
         self.assertTrue(self._task(items["C"].task_id).completed)
@@ -1055,6 +1070,107 @@ class ChecklistTests(unittest.TestCase):
         items = self._items_of(cl["id"])
         self.assertEqual((items["ACC-2"].status, items[f"ON-01~{rid[:8]}"].status), ("na", "na"))
         self.assertNotEqual(items["ON-01"].status, "na")                                   # the library step stays
+
+    # --- One task per checklist, in the HR project (Neil, Oct 22: "It should
+    # not create a new project for every single employee") and a place that can
+    # change later (Pranshu: "what if I want to change the task location?").
+
+    def _hr_project(self):
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrDepartment(id="d-hr-a", company_id=CO_A, name="Human Resources", lead_email=HRC))
+            now = "2026-10-01T00:00:00+00:00"
+            for pid, name, dept in (("p-hr", "#General - Human Resources", "d-hr-a"), ("p-ops", "Operations", ""),
+                                    ("p-hr2", "HR Onboarding", "d-hr-a")):
+                db.add(models.TaskProject(id=pid, name=name, access_level="restricted", owner_email=HR,
+                                          member_emails=[HR], hr_department_id=dept, company_id=CO_A,
+                                          created_at=now, modified_at=now))
+            db.add(models.TaskSection(id="s-new", project_id="p-hr2", name="New Hires", position=0, created_at=now))
+            db.commit()
+        finally:
+            db.close()
+
+    def test_the_checklists_task_lands_in_the_companys_hr_project(self):
+        self._hr_project()
+        place = self.client.get(f"/hr/checklists/task-place?entity_id={CO_A}").json()
+        self.assertEqual((place["effective"]["onboarding"]["projectId"], place["effective"]["onboarding"]["source"]),
+                         ("p-hr", "auto"))                   # found by itself: #General - Human Resources
+        cl = self._start(self._person())
+        parent = self._task(self._cl_task(cl["id"]))
+        self.assertEqual((parent.project_id, parent.assignee_email), ("p-hr", HRC))
+        self.assertEqual(cl["task"]["projectName"], "#General - Human Resources")
+        rows, subs, _ = self._tasks_of(cl["id"], IT)
+        self.assertTrue(all(not s.project_id for s in subs.values()))      # subtasks inherit the parent's
+        self.assertTrue(all(s.title.endswith(" - Jane Doe") for s in subs.values()))   # whose checklist, on My Tasks
+        # the IT owner sees their subtask in Tasks; HR (a project member) sees the parent
+        self._grant_tasks(IT, HR)
+        _as(IT)
+        seen = {t["id"] for t in self.client.get("/tasks").json()}
+        self.assertTrue(set(subs) <= seen)
+        self.assertNotIn(parent.id, seen)
+        _as(HR)
+        self.assertIn(parent.id, {t["id"] for t in self.client.get("/tasks").json()})
+        # a new place for onboarding: the open task moves when asked, subtasks with it
+        r = self.client.put(f"/hr/checklists/task-place?entity_id={CO_A}",
+                            json={"place": {"onboarding": {"projectId": "p-hr2", "sectionId": "s-new"}}, "move": False})
+        self.assertEqual((r.status_code, r.json()["moved"]), (200, 0))
+        self.assertEqual(self._task(parent.id).project_id, "p-hr")
+        self.assertEqual(r.json()["openTasks"], [{"kind": "onboarding", "projectId": "p-hr", "sectionId": ""}])
+        r = self.client.put(f"/hr/checklists/task-place?entity_id={CO_A}",
+                            json={"place": {"onboarding": {"projectId": "p-hr2", "sectionId": "s-new"}}, "move": True})
+        self.assertEqual(r.json()["moved"], 1)
+        moved = self._task(parent.id)
+        self.assertEqual((moved.project_id, moved.section_id), ("p-hr2", "s-new"))
+        bad = self.client.put(f"/hr/checklists/task-place?entity_id={CO_A}",
+                              json={"place": {"default": {"projectId": "p-ops", "sectionId": "s-new"}}})
+        self.assertEqual(bad.status_code, 400)                # a section of another project
+
+    def test_old_per_owner_tasks_fold_into_one_and_the_empty_ones_are_binned(self):
+        cl = self._start(self._person())
+        db = database.SessionLocal()
+        try:                                      # rebuild the Oct 20-22 shape: a parent per owner
+            row = db.query(models.HrChecklist).filter_by(id=cl["id"]).one()
+            items = db.query(models.HrChecklistItem).filter_by(checklist_id=cl["id"]).all()
+            subs = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_([i.task_id for i in items if i.task_id]))}
+            db.query(models.Task).filter_by(id=row.task_id).delete()
+            row.task_id = ""
+            olds = {}
+            for t in subs.values():
+                k = ",".join(sorted(t.assignee_emails or []))
+                if k not in olds:
+                    olds[k] = models.Task(id=f"old-{len(olds)}", title=f"Onboarding: Jane Doe - {k}", hr_checklist=True,
+                                          assignee_email=t.assignee_email, assignee_emails=list(t.assignee_emails),
+                                          access_level="restricted", subtask_ids=[], created_at="2026-10-21")
+                    db.add(olds[k])
+                olds[k].subtask_ids = [*olds[k].subtask_ids, t.id]
+                t.parent_task_id = olds[k].id
+            db.commit()
+            old_ids = [o.id for o in olds.values()]
+            self.assertGreater(len(old_ids), 1)
+            hc.sync_tasks(db, db.query(models.HrChecklist).filter_by(id=cl["id"]).one(), by="nexus")
+            db.commit()
+            new_id = db.query(models.HrChecklist).filter_by(id=cl["id"]).one().task_id
+            self.assertTrue(new_id and new_id not in old_ids)
+            self.assertEqual({t.parent_task_id for t in db.query(models.Task).filter(models.Task.id.in_(list(subs)))}, {new_id})
+            binned = db.query(models.Task).execution_options(include_deleted=True).filter(models.Task.id.in_(old_ids)).all()
+            self.assertTrue(binned and all(t.deleted_at for t in binned))
+        finally:
+            db.close()
+
+    def test_a_closed_checklist_keeps_its_old_tasks(self):
+        cl = self._start(self._person())
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.HrChecklist).filter_by(id=cl["id"]).one()
+            old = db.query(models.Task).filter_by(id=row.task_id).one()
+            row.task_id, row.status = "", "cancelled"       # closed before Oct 23: no checklist task recorded
+            db.commit()
+            hc.sync_tasks(db, db.query(models.HrChecklist).filter_by(id=cl["id"]).one(), by="nexus")
+            db.commit()
+            self.assertEqual(db.query(models.HrChecklist).filter_by(id=cl["id"]).one().task_id, "")
+            self.assertFalse(db.query(models.Task).filter_by(id=old.id).one().deleted_at)
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":
