@@ -11,8 +11,11 @@ import {
   // The subtask/comment/attachment icons moved with their badges into
   // components.TaskCountBadges, which My Tasks renders too.
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
-  Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown, ChevronRight, Search,
+  Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown, ChevronRight, Search, MoreHorizontal, MoveRight, Maximize2,
 } from 'lucide-react';
+import AnchoredMenu from '../../components/AnchoredMenu';
+import MoveTaskModal from '../MoveTaskModal';
+import { useCanEditTask } from '../canEditTask';
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees, requiredFieldsFor, projectTracksTime, taskTracksTime, todayISO, withTaskFields } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey, isMissed, MISSED_TITLE } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
@@ -295,7 +298,7 @@ function projOptsFor(options, projectId, store) {
   return [...options, { id: projectId, label: `${store.projectName(projectId) || projectId} (archived)` }];
 }
 
-function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSel, onPick, onOpen, groupColor, onDragStartRow, onDragEndRow, onRowDragOver, onRowDrop, onRowDragLeave, dropEdge = null, band = false, personWidth = 120, projectOptions = [] }) {
+function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSel, onPick, onOpen, onMove = null, groupColor, onDragStartRow, onDragEndRow, onRowDragOver, onRowDrop, onRowDragLeave, dropEdge = null, band = false, personWidth = 120, projectOptions = [] }) {
   // Only a person-scoped list hands a subtask to this row; then its parent and
   // its parent's project are what the title/project cells show.
   const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
@@ -377,6 +380,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
               that opened the drawer/file-picker regardless of whether the
               task had anything to show. */}
           <TaskCountBadges t={t} store={store} />
+          {onMove && <RowMenu t={t} onOpen={onOpen} onMove={onMove} />}
         </div>
         ),
         // assignee - monday Person cell: avatar + follower stack, spread to
@@ -1104,6 +1108,9 @@ export function ListColumnControls({ hidden, setHidden, customFields, createCust
 }
 
 export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, setSelected, toggleSel, onOpen, lockedProjectId = '', hidden, setHidden, onFullCreate, customSections = null }) {
+  // Move To... from a row's menu (Oct 22 2026) - only on rows this person can edit.
+  const canEditTask = useCanEditTask(store);
+  const [moving, setMoving] = useState(null);
   // Which groups the person folded away - remembered in their profile, as the
   // other table settings are.
   const [collapsedList, setCollapsedList] = useTableSetting('richlist', 'collapsed', EMPTY_LIST);
@@ -1536,6 +1543,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                   {groupHeader(g)}
                   {g.tasks.slice(0, groupBudgets[gi] ?? g.tasks.length).map((t, ri) => (
                     <TaskRow key={t.id} t={t} band={ri % 2 === 1} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onPick={pickRow} onOpen={onOpen}
+                      onMove={store.moveTask && canEditTask(t) ? setMoving : null}
                       personWidth={personWidth} groupColor={gc} projectOptions={projectOptions} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); setDropRow(null); }}
                       onRowDragOver={manualSort ? rowDragOver(t) : undefined}
                       onRowDrop={manualSort ? rowDrop(g, t) : undefined}
@@ -1564,6 +1572,35 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
           </div>
         )}
       </div>
+      {moving && <MoveTaskModal taskId={moving} onClose={() => setMoving(null)} />}
     </div>
+  );
+}
+
+/** A row's own menu (Oct 22 2026): Open Task and Move To... - the move a
+ *  drag cannot make (under another task, or out to the top). Rendered only
+ *  for a row the person can edit. */
+function RowMenu({ t, onOpen, onMove }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const stop = (e) => e.stopPropagation();
+  const item = { ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12.5, color: NX.ink };
+  return (
+    <span onClick={stop} onMouseDown={stop} style={{ display: 'inline-flex', marginLeft: 'auto', flexShrink: 0 }}>
+      <button ref={ref} type="button" onClick={() => setOpen((o) => !o)} title="More Actions"
+        aria-label={`More actions for ${t.title}`} aria-haspopup="menu" aria-expanded={open}
+        style={{ ...btn('ghost'), padding: 2, color: NX.faint }}>
+        <MoreHorizontal size={14} />
+      </button>
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} align="end" aria-label="Task Actions"
+        style={{ width: 180, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+        <button type="button" role="menuitem" onClick={() => { setOpen(false); onOpen(t.id); }} style={item}>
+          <Maximize2 size={13} style={{ color: NX.faint }} />Open Task
+        </button>
+        <button type="button" role="menuitem" onClick={() => { setOpen(false); onMove(t.id); }} style={item}>
+          <MoveRight size={13} style={{ color: NX.faint }} />Move To...
+        </button>
+      </AnchoredMenu>
+    </span>
   );
 }

@@ -492,6 +492,34 @@ export function TasksProvider({ children }) {
   }, [updateTask, offerUndo]);
   const setStatus = useCallback((id, status) => updateTask(id, { status }), [updateTask]);
 
+  // Move To... (Neil, Oct 22 2026): put a task under another one
+  // (`parentTaskId`), or make it a top-level task ('' - it stays in its
+  // project unless `projectId` says otherwise, filed into `sectionId`). The
+  // server moves the whole subtree with it (PATCH parent_task_id), so the
+  // other rows it changed - both parents, the subtasks - come in through a
+  // delta refetch. Undo moves it back where it was.
+  const moveTask = useCallback(async (id, { parentTaskId = '', projectId, sectionId } = {}, { undo = true } = {}) => {
+    const before = tasksRef.current.find((t) => t.id === id);
+    const body = { parentTaskId: parentTaskId || '' };
+    if (!parentTaskId) {
+      if (projectId !== undefined) body.projectId = projectId || '';
+      if (sectionId !== undefined) body.sectionId = sectionId || '';
+    }
+    const saved = await updateTask(id, body);
+    refetchTasks().catch(() => {});
+    if (undo && before) {
+      const back = before.parentTaskId
+        ? { parentTaskId: before.parentTaskId }
+        : { parentTaskId: '', projectId: before.projectId || '', sectionId: before.sectionId || '' };
+      const target = parentTaskId ? tasksRef.current.find((t) => t.id === parentTaskId) : null;
+      offerUndo(
+        target ? `Moved under "${(target.title || '').slice(0, 40)}"` : 'Made a top-level task',
+        () => updateTask(id, back).then(() => refetchTasks()).catch(() => {}),
+      );
+    }
+    return saved;
+  }, [updateTask, refetchTasks, offerUndo]);
+
   // Rows taken off screen optimistically go back if the server refuses the
   // delete - the delta refetch never returns a row the server did not change.
   const putBack = useCallback((rows) => {
@@ -835,6 +863,7 @@ export function TasksProvider({ children }) {
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, deleteTasks, restoreTasks, bulkUpdate, toggleComplete, setStatus,
+    moveTask,
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },

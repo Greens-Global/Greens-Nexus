@@ -722,7 +722,7 @@ def _require_may_move(db: Session, user: dict, task_id: str) -> None:
     require_task_role(db, user, other, "editor")
 
 
-def _check_hierarchy_patch(db: Session, user: dict, t: models.Task, data: dict) -> None:
+def _check_hierarchy_patch(db: Session, user: dict, t: models.Task, data: dict) -> dict:
     """Refuse a PATCH that would break the subtask tree (Oct 21 2026). The
     parent half of the cycle guard is validate_task_payload's; this adds:
       * a new parent must be a live task - one that is not there leaves the
@@ -730,7 +730,11 @@ def _check_hierarchy_patch(db: Session, user: dict, t: models.Task, data: dict) 
       * `subtask_ids` may name only live tasks, never the task itself or one
         of its own ancestors (that would make a loop);
       * the caller must be able to edit the new parent and every task newly
-        listed as a subtask (_require_may_move)."""
+        listed as a subtask (_require_may_move);
+      * a task newly listed as a subtask is MOVED here (Oct 22 2026): depth,
+        wall and both projects as _plan_move checks them. Returns those
+        plans by task id, for _apply_move once the pointers are written."""
+    plans: dict = {}
     if data.get("parent_task_id") and (data["parent_task_id"] or "") != (t.parent_task_id or ""):
         if not db.query(models.Task.id).filter(models.Task.id == data["parent_task_id"]).first():
             raise HTTPException(422, "That parent task does not exist or is in the Recycle Bin.")
@@ -749,12 +753,19 @@ def _check_hierarchy_patch(db: Session, user: dict, t: models.Task, data: dict) 
                     raise HTTPException(422, "That subtask would create a circular subtask chain.")
             for child in added:
                 _require_may_move(db, user, child)
+                row = db.query(models.Task).filter(models.Task.id == child).first()
+                if row is not None and (row.parent_task_id or "") != t.id:
+                    plan = _plan_move(db, user, row, t.id)
+                    if plan["dest"] != plan["src"]:
+                        _require_destination_projects(db, user, [plan["dest"]])
+                    plans[child] = plan
         # A task taken off the list is changed too (it becomes top-level).
         listed = set(ids)
         for child in [i for i in current if i and i not in listed]:
             row = db.query(models.Task).filter(models.Task.id == child).first()
             if row is not None and (row.parent_task_id or "") == t.id:
                 _require_may_move(db, user, child)
+    return plans
 
 
 def _sync_hierarchy(db: Session, t: models.Task, data: dict, prev_parent: str, prev_subtasks: list) -> None:
@@ -797,6 +808,153 @@ def _sync_hierarchy(db: Session, t: models.Task, data: dict, prev_parent: str, p
         for child in (db.query(models.Task).filter(models.Task.id.in_(removed)).all() if removed else []):
             if (child.parent_task_id or "") == t.id:
                 child.parent_task_id, child.modified_at = "", now
+
+
+# ── Moving a task in the subtask tree (Neil, Oct 22 2026) ────────────────────
+# "Move To..." in the drawer and the list: a subtask goes under another task
+# or becomes a top-level task, and a top-level task becomes a subtask. It is
+# an ordinary PATCH of parent_task_id (the hierarchy guards above) plus what a
+# move means beyond the two pointers - the whole subtree goes with it into the
+# destination's project, and it lands last among its new siblings.
+#
+# The browser walks a parent chain at most 20 levels (lib.js effectiveProjectId,
+# rootParent, taskRoleFor), so a deeper tree would lose its project there.
+MAX_SUBTASK_DEPTH = 20
+
+
+def _tree_depth(db: Session, task_id: str) -> int:
+    """How many tasks sit above `task_id` (0 = top-level). Cycle-safe."""
+    depth, seen, cur = 0, set(), task_id
+    while cur and cur not in seen and depth <= MAX_SUBTASK_DEPTH:
+        seen.add(cur)
+        row = db.query(models.Task.parent_task_id).filter(models.Task.id == cur).first()
+        cur = (row[0] or "") if row else ""
+        if cur:
+            depth += 1
+    return depth
+
+
+def _subtree_rows(db: Session, root_id: str) -> tuple:
+    """Every task under `root_id` - trashed ones too, so a subtask binned
+    before the move comes back (restore_task_tree) in the project its parent
+    is in by then - and how many levels deep the live part goes."""
+    seen, frontier, out, height = {root_id}, [root_id], [], 0
+    q = db.query(models.Task).execution_options(include_deleted=True)
+    while frontier:
+        kids = [k for k in q.filter(models.Task.parent_task_id.in_(frontier)).all() if k.id not in seen]
+        if any(not k.deleted_at for k in kids):
+            height += 1
+        frontier = []
+        for k in kids:
+            seen.add(k.id)
+            out.append(k)
+            frontier.append(k.id)
+    return out, height
+
+
+def _plan_move(db: Session, user: dict, t: models.Task, new_parent_id: str, project_hint=None) -> dict:
+    """Check a move of `t` - and everything under it - to `new_parent_id`
+    ('' = a top-level task), and say what it changes. The new parent's own
+    checks (live, the caller can see and edit it, no loop) are
+    _check_hierarchy_patch's and validate_task_payload's; this adds:
+      * depth: the moved subtree must still fit within MAX_SUBTASK_DEPTH;
+      * the company wall: while it is up a task moves only under a task of
+        its own company, so a subtree never straddles two tenants;
+      * leaving a project takes editor on it by the project's own roles -
+        being assigned a task is a grant to do the work, not to take it out
+        of its project. Editor on the project it joins is checked by the
+        caller (_check_update_access / _require_destination_projects).
+    `project_hint`: where a task made top-level lands (default: the project
+    it is in now). Returns {parent, src, dest, subtree}."""
+    src = project_for_task(db, t)
+    src_id = src.id if src is not None else ""
+    parent = None
+    subtree, height = _subtree_rows(db, t.id)
+    if new_parent_id:
+        parent = db.query(models.Task).filter(models.Task.id == new_parent_id).first()
+        if parent is None:
+            raise HTTPException(422, "That parent task does not exist or is in the Recycle Bin.")
+        if new_parent_id == t.id or new_parent_id in {r.id for r in subtree}:
+            raise HTTPException(422, "A task cannot move under itself or one of its own subtasks.")
+        if _tree_depth(db, new_parent_id) + 1 + height > MAX_SUBTASK_DEPTH:
+            raise HTTPException(422, f"Subtasks can nest at most {MAX_SUBTASK_DEPTH} levels deep.")
+        import auth
+        if auth._company_walls_on(db) and row_company(db, parent) != row_company(db, t):
+            raise HTTPException(422, "A task can only move under a task of the same company.")
+        dest = project_for_task(db, parent)
+        dest_id = dest.id if dest is not None else ""
+    else:
+        dest_id = src_id if project_hint is None else (project_hint or "")
+    if dest_id != src_id and src is not None:
+        require_project_access(db, user, src, "editor")
+    return {"parent": parent, "src": src_id, "dest": dest_id, "subtree": subtree}
+
+
+def _check_move_section(db: Session, section_id: str, project_id: str) -> None:
+    """A task made top-level is filed into a section of its own project only."""
+    if not section_id:
+        return
+    sec = db.query(models.TaskSection).filter(models.TaskSection.id == section_id).first()
+    if sec is None or (sec.project_id or "") != (project_id or ""):
+        raise HTTPException(422, "That section is not in this task's project.")
+
+
+def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
+                section_id=None, keep_team: bool = False, place: bool = True) -> str:
+    """What a move does beyond the parent pointers (_sync_hierarchy keeps
+    those), on rows already locked:
+      * `t` lands LAST among its new siblings, or at the end of its
+        project's manual order as a top-level task (`place`);
+      * a subtask carries no section; a top-level task goes into `section_id`
+        (or none, when it changed project);
+      * into another project, the whole subtree goes with it - every row that
+        names a project names the new one (a blank one keeps reaching it
+        through its parent), and leaves the old project's section and team;
+      * under a restricted parent, what moves becomes restricted the same way
+        (never the other way round - widening is _may_open_up's);
+      * a "skip this occurrence" rule only means something under a repeating
+        parent, so a task made top-level drops it.
+    Each row it touches is stamped modified, so GET /tasks/delta hands it to
+    every other open client. Returns the activity id."""
+    parent, src, dest = plan["parent"], plan["src"], plan["dest"]
+    moved_project = dest != src
+    if parent is not None:
+        if place:
+            sibs = [r[0] for r in db.query(models.Task.position)
+                    .filter(models.Task.parent_task_id == parent.id, models.Task.id != t.id).all()]
+            t.position = max([float(p or 0) for p in sibs] + [0.0]) + 1
+        t.section_id = ""
+    else:
+        if place:
+            t.position = time.time()
+        if section_id is not None:
+            t.section_id = section_id or ""
+        elif moved_project:
+            t.section_id = ""
+        rec = t.recurrence if isinstance(t.recurrence, dict) else None
+        if rec and rec.get("skip") and not rec.get("freq"):
+            t.recurrence = None
+    if moved_project:
+        t.project_id = dest
+        t.project_ids = _extra_project_ids(t.project_ids, dest)
+        if not keep_team:
+            t.team_id = ""
+    restrict = parent.access_level if parent is not None and (parent.access_level or "org") != "org" else ""
+    for row in [t, *plan["subtree"]]:
+        if row is not t and moved_project:
+            if row.project_id:
+                row.project_id = dest
+                row.project_ids = _extra_project_ids(row.project_ids, dest)
+            row.section_id = ""
+            row.team_id = ""
+        if restrict and (row.access_level or "org") == "org":
+            row.access_level = restrict
+        if row is not t and not row.deleted_at and (moved_project or restrict):
+            row.modified_at = now
+    detail = (f"moved this task under {parent.code or parent.title}" if parent is not None
+              else "made this a top-level task")
+    return log_activity(db, type="moved", actor_email=user["email"], entity_id=t.id,
+                        entity_code=t.code, entity_title=t.title, detail=detail)
 
 
 def _is_starting(prev_status: str, new_status: str) -> bool:
@@ -2415,15 +2573,44 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         data["custom_field_values"] = coerce_custom_field_values(db, data["custom_field_values"])
     if "actual_hours" in data and int(t.time_entry_count or 0) > 0:
         raise HTTPException(409, "This task's time comes from its time entries - add or edit an entry instead.")
+    prev_parent = t.parent_task_id or ""
+    prev_subtasks = [i for i in (t.subtask_ids or []) if i]
+    # The tree first (Oct 22 2026): a move decides the project the task ends
+    # up in, which the project checks in _check_update_access then judge.
+    child_moves = _check_hierarchy_patch(db, user, t, data)
+    move = None
+    if "parent_task_id" in data and (data["parent_task_id"] or "") != prev_parent:
+        new_parent = data["parent_task_id"] or ""
+        move = _plan_move(db, user, t, new_parent, data.get("project_id") if "project_id" in data else None)
+        # A subtask's project is its parent's; a task made top-level states
+        # its own (it may have reached it only through the parent before).
+        if (new_parent and move["dest"] != move["src"]) or (not new_parent and (t.project_id or "") != move["dest"]):
+            data["project_id"] = move["dest"]
+        elif new_parent:
+            data.pop("project_id", None)
+        if new_parent:
+            data["section_id"] = ""
+        elif "section_id" in data:
+            _check_move_section(db, data["section_id"] or "", move["dest"])
+        elif (t.project_id or "") != move["dest"]:
+            data["section_id"] = ""
+    if move is not None or child_moves:
+        # Every row the move writes - both parents, the subtree(s) - locked
+        # in id order before anything is written (_lock_task_rows).
+        lock = [t.id, prev_parent, data.get("parent_task_id") or ""]
+        for plan, row_id in [(move, t.id)] + [(p, cid) for cid, p in child_moves.items()]:
+            if plan is None:
+                continue
+            lock += [row_id] + [r.id for r in plan["subtree"]]
+            row = db.query(models.Task.parent_task_id).filter(models.Task.id == row_id).first()
+            lock.append(row[0] if row else "")
+        _lock_task_rows(db, lock)
     _check_update_access(db, user, t, data)
     prev_assignees = set(task_assignees(t))
     prev_status = t.status
     prev_completed = bool(t.completed)
     prev_followers = set((t.follower_emails or []))
     prev_due = (t.due_on or "")[:10]
-    prev_parent = t.parent_task_id or ""
-    prev_subtasks = [i for i in (t.subtask_ids or []) if i]
-    _check_hierarchy_patch(db, user, t, data)
     auto_before = task_automation.snapshot(t)
     modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
@@ -2483,6 +2670,18 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
 
     # Both ends of a parent/subtask link move together - see _sync_hierarchy.
     _sync_hierarchy(db, t, data, prev_parent, prev_subtasks)
+    # ...and what a move means beyond the pointers: its subtree, its place,
+    # its activity line (Oct 22 2026).
+    if move is not None:
+        t.activity_ids = list(t.activity_ids or []) + [_apply_move(
+            db, user, t, move, now_iso(),
+            section_id=(data.get("section_id") if "section_id" in data else None) if not move["parent"] else None,
+            keep_team="team_id" in data)]
+    for cid, plan in child_moves.items():
+        child = db.query(models.Task).filter(models.Task.id == cid).first()
+        if child is not None:
+            child.activity_ids = list(child.activity_ids or []) + [
+                _apply_move(db, user, child, plan, now_iso(), place=False)]
 
     # Automation rules (task_automation.py) see the row as this edit leaves it
     # and write onto the same row. Whatever they changed is merged into `data`

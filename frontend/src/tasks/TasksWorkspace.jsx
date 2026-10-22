@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, roleAtLeast, todayISO } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, roleAtLeast, todayISO, withSubtasks } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, UnassignedAvatar, ExportMenu } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -76,6 +76,14 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const rememberInProject = (patch) => setProjViews((prev) => ({ ...(prev || {}), [lockedProjectId]: { ...((prev || {})[lockedProjectId] || {}), ...patch } }));
   const setView = (next) => (lockedProjectId ? rememberInProject({ view: next }) : setGlobalView(next));
   const setGroup = (next) => (lockedProjectId ? rememberInProject({ group: typeof next === 'function' ? next(group) : next }) : setGlobalGroup(next));
+  // Show Subtasks on the Board / Timeline (Oct 22 2026): off until turned on,
+  // remembered per person - per project inside one, like the view itself.
+  const [globalSubs, setGlobalSubs] = useTableValue('richlist', 'showSubtasks', {});
+  const subsPref = (lockedProjectId ? (projViews || {})[lockedProjectId]?.showSubtasks : globalSubs) || {};
+  const toggleSubtasks = (kind) => {
+    const next = { ...subsPref, [kind]: !subsPref[kind] };
+    if (lockedProjectId) rememberInProject({ showSubtasks: next }); else setGlobalSubs(next);
+  };
   const canSetDefault = !!lockedProjectForView && roleAtLeast(projectRoleOf(lockedProjectForView, myEmail, canManage), 'owner');
   const isProjectDefault = !!lockedProjectForView?.defaultView && lockedProjectForView.defaultView.view === view
     && (!lockedProjectForView.defaultView.group || lockedProjectForView.defaultView.group === group);
@@ -134,6 +142,16 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     () => sortTasks(personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById)), sort, activeFields, { nameOf, projectName, teamName }),
     [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields, store.taskById, nameOf, projectName, teamName],
   );
+
+  // The Board / Timeline with Show Subtasks on: every subtask that passes the
+  // same filter joins the view's rows (lib.withSubtasks).
+  const showBoardSubs = !!subsPref.board, showTimelineSubs = !!subsPref.timeline;
+  const boardTasks = useMemo(() => (showBoardSubs ? withSubtasks(visible, tasks, filter, store.taskById) : visible),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showBoardSubs, visible, tasks, store.taskById]);
+  const timelineTasks = useMemo(() => (showTimelineSubs ? withSubtasks(visible, tasks, filter, store.taskById) : visible),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showTimelineSubs, visible, tasks, store.taskById]);
 
   // Export rows: `visible` plus each row's subtasks, nested - see
   // taskExportRows in lib.js for why the file must not inherit the list's
@@ -328,14 +346,16 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'list' ? (
           <RichListView visible={visible} group={group} sort={sort} setSort={setSort} ctx={ctx} store={store} people={people} selected={selected} setSelected={setSelected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} onFullCreate={openCreate} customSections={sec} />
-        ) : visible.length === 0 ? (
+        ) : (view === 'board' ? boardTasks : view === 'timeline' ? timelineTasks : visible).length === 0 ? (
           <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (
-          <BoardView visible={visible} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate} />
+          <BoardView visible={boardTasks} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate}
+            showSubtasks={showBoardSubs} onToggleSubtasks={() => toggleSubtasks('board')} />
         ) : view === 'calendar' ? (
           <CalendarView tasks={visible} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
         ) : view === 'timeline' ? (
-          <TimelineView tasks={visible} onOpen={setOpenId} nameOf={nameOf} />
+          <TimelineView tasks={timelineTasks} onOpen={setOpenId} nameOf={nameOf} taskById={store.taskById}
+            showSubtasks={showTimelineSubs} onToggleSubtasks={() => toggleSubtasks('timeline')} />
         ) : view === 'files' ? (
           <FilesView tasks={visible} onOpen={setOpenId} nameOf={nameOf} />
         ) : (view === 'workload' && showWorkload) ? (

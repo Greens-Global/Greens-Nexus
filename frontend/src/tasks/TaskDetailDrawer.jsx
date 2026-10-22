@@ -9,8 +9,9 @@ import {
   ArrowLeft, ArrowRightToLine, CornerDownRight, GripVertical, Copy, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate,
+  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, MoveRight,
 } from 'lucide-react';
+import MoveTaskModal from './MoveTaskModal';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
@@ -213,6 +214,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const [converting, setConverting] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  // Move To... (Oct 22 2026): the id of the task being moved - this one or one of its subtasks.
+  const [moving, setMoving] = useState(null);
 
   const task = taskById[activeId];
   const parent = task?.parentTaskId ? taskById[task.parentTaskId] : null;
@@ -411,7 +414,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           task={task} patch={patch} readOnly={!canEdit} canComment={canComment} canEditProject={canEditProject} canEditTask={canEditTask} people={people} projectName={projectName} teamName={teamName} teams={teams} projects={projects}
           blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
           setDependencyType={setDependencyType}
-          subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={openSub}
+          subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={openSub} onMoveSub={setMoving}
           nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
           onViewAllComments={() => setTab('comments')}
           onOpenTicket={() => (onBackToTicket ? onBackToTicket() : openSourceTicket(task.sourceTicketId, onClose, ticketView))}
@@ -420,7 +423,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
       case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment} canPin={canEditProject} />;
       case 'activity':     return <ActivityTab taskId={activeId} nameOf={nameOf} />;
       case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} canAttach={canComment} canRemoveAny={canEditProject} />;
-      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub}
+      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub} onMoveSub={setMoving}
         canAdd={canEditProject} canEditParent={canEdit} canEditTask={canEditTask} />;
       case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} readOnly={!canEdit} />;
       case 'properties':   return <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} teamName={teamName} customFields={customFields} patch={patch} readOnly={!canEdit} />;
@@ -475,6 +478,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   {/* Filed as a task when it is really a request for a team
                       (Neil, 10/05: "employees ... may still do it as a task"). */}
                   {canEdit && <MenuItem icon={<Copy size={14} />} onClick={() => { close(); setDuplicating(true); }}>Duplicate Task</MenuItem>}
+                  {canEdit && <MenuItem icon={<MoveRight size={14} />} onClick={() => { close(); setMoving(activeId); }}>Move To...</MenuItem>}
                   <MenuItem icon={<Ticket size={14} />} onClick={() => { setConverting(true); close(); }}>Convert to Ticket</MenuItem>
                   {canEdit && <MenuItem icon={<LayoutTemplate size={14} />} onClick={() => { close(); setSavingTemplate(true); }}>Save as Template</MenuItem>}
                   {canEdit && <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
@@ -575,6 +579,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
             </>
           ) : paneFor(tab)}
         </div>
+        {moving && <MoveTaskModal taskId={moving} onClose={() => setMoving(null)} />}
         {savingTemplate && <SaveTemplateModal task={task} subtasks={subtasks} onClose={() => setSavingTemplate(false)} />}
         {duplicating && <DuplicateTaskModal task={task} subtasks={subtasks} onClose={() => setDuplicating(false)} onDuplicate={duplicate} />}
         {shareOpen && <ShareModal task={task} people={people} nameOf={nameOf} patch={patch} onClose={() => setShareOpen(false)} />}
@@ -1092,7 +1097,7 @@ function ProjectsField({ task, projects, teams, myEmail, projectName, patch }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, readOnly = false, canComment = true, canEditProject = true, canEditTask = null, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
+function OverviewTab({ task, patch, readOnly = false, canComment = true, canEditProject = true, canEditTask = null, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, onMoveSub = null, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
   const isMobile = useIsMobile();
   // Whether the folding sections below have anything in them.
   const hasApproval = !!task.approvalStatus && task.approvalStatus !== 'none';
@@ -1343,7 +1348,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
           were easy to miss. */}
       <Section key={`subtasks:${task.id}:${subtasks?.length > 0}`} defaultOpen={subtasks?.length > 0}
         title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
-        <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} hideHeading
+        <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} onMoveSub={onMoveSub} hideHeading
           canAdd={canEditProject} canEditParent={!readOnly} canEditTask={canEditTask} />
       </Section>
 
@@ -1990,7 +1995,7 @@ function FacePicker({ value, people, onChange, label, disabled = false }) {
 // rule). canEditParent: may change the main task (its subtask order).
 // canEditTask(s): may change that subtask (its own role; its assignees count).
 // Opening a subtask is always allowed. Unknown roles keep every control.
-function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub, hideHeading, canAdd = true, canEditParent = true, canEditTask = null }) {
+function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub, onMoveSub = null, hideHeading, canAdd = true, canEditParent = true, canEditTask = null }) {
   const rowEditable = (s) => (canEditTask ? canEditTask(s) : true);
   // Reordering writes every sibling's position and the main task's order.
   const canReorder = canEditParent && canAdd;
@@ -2112,6 +2117,14 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
                 title={s.dueOn ? 'Change due date' : 'Set due date'}
                 repeat={subRepeat(s.recurrence, (r) => setSubRecurrence(s, r), s.dueOn)} />
             </span>
+            {/* Move To... (Oct 22 2026): under another task, or up to the top. */}
+            {onMoveSub && rowEditable(s) && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); onMoveSub(s.id); }}
+                title="Move To..." aria-label={`Move ${s.title} to another task`}
+                style={{ border: 'none', background: 'transparent', padding: 0, display: 'flex', color: NX.faint, cursor: 'pointer', flexShrink: 0 }}>
+                <MoveRight size={14} />
+              </button>
+            )}
             <ChevronRight size={14} style={{ color: NX.faint, flexShrink: 0 }} />
           </div>
         ))}

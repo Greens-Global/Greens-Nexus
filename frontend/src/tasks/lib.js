@@ -244,6 +244,113 @@ export function taskExportRows(visible, allTasks, filter, taskById) {
   return out;
 }
 
+// ── Moving a task in the subtask tree (Neil, Oct 22 2026) ───────────────────
+/** Every task under `id` (subtasks, their subtasks...), as a Set of ids.
+ *  Cycle-safe: a bad parent pointer must never hang the picker. */
+export function descendantIds(id, tasks) {
+  const kids = new Map();
+  for (const t of tasks || []) {
+    if (!t.parentTaskId) continue;
+    if (!kids.has(t.parentTaskId)) kids.set(t.parentTaskId, []);
+    kids.get(t.parentTaskId).push(t.id);
+  }
+  const out = new Set();
+  const stack = [...(kids.get(id) || [])];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (cur === id || out.has(cur)) continue;
+    out.add(cur);
+    stack.push(...(kids.get(cur) || []));
+  }
+  return out;
+}
+
+/** The tasks `task` can be moved under (Move To...): not itself, not one of
+ *  its own subtasks at any depth (that would be a loop - the server refuses
+ *  it too), not its current parent (it is already there), no sections, and
+ *  only tasks `canEdit` says this person may edit - moving a task under
+ *  another one changes that one's subtask list. Its own project first, then
+ *  by title. */
+export function moveTargets(task, tasks, { canEdit = () => true, taskById = null } = {}) {
+  if (!task) return [];
+  const below = descendantIds(task.id, tasks);
+  const home = effectiveProjectId(task, taskById);
+  const rank = (t) => (effectiveProjectId(t, taskById) === home ? 0 : 1);
+  return (tasks || [])
+    .filter((t) => t.id !== task.id && !below.has(t.id) && t.id !== task.parentTaskId && !isSection(t) && canEdit(t))
+    .sort((a, b) => rank(a) - rank(b)
+      || String(a.title || '').localeCompare(String(b.title || ''), 'en', { sensitivity: 'base', numeric: true }));
+}
+
+// ── Show Subtasks on the Board and Timeline (Neil, Oct 22 2026) ────────────
+/** `visible` (the view's own rows - top-level unless person-scoped) plus
+ *  every subtask that matches the same filter, wherever its parent is: a
+ *  subtask whose parent is filtered out still shows. */
+export function withSubtasks(visible, tasks, filter, taskById) {
+  const have = new Set((visible || []).map((t) => t.id));
+  const extra = (tasks || []).filter((t) => t.parentTaskId && !have.has(t.id) && !isSection(t)
+    && matchesFilter(t, filter, taskById));
+  return extra.length ? [...(visible || []), ...extra] : (visible || []);
+}
+
+/** Timeline rows with subtasks nested directly under their parent:
+ *  [{ task, depth, crumb, kids }]. `rows` is the view's own order; each
+ *  row's subtasks that pass `include` follow it, indented, in the parent's
+ *  own subtask order (orderSubtasks) - unless the parent is `collapsed`, when
+ *  its whole subtree is hidden (not lifted to the top). A subtask whose parent
+ *  is not on the timeline (filtered out, or undated) stands at depth 0 with
+ *  `crumb` = the title of the task it hangs off. `kids` = how many subtasks a
+ *  row holds on the timeline, collapsed or not. */
+export function nestSubtaskRows(rows, tasks, { include = () => true, collapsed = new Set(), taskById = null } = {}) {
+  const byParent = new Map();
+  for (const t of tasks || []) {
+    if (!t.parentTaskId || !include(t)) continue;
+    if (!byParent.has(t.parentTaskId)) byParent.set(t.parentTaskId, []);
+    byParent.get(t.parentTaskId).push(t);
+  }
+  const lookup = (id) => taskById?.[id] || (tasks || []).find((x) => x.id === id) || null;
+  const shown = new Set((rows || []).map((t) => t.id));
+  // A row with an ancestor that is also a row is drawn under that one.
+  const underAnother = (t) => {
+    let cur = t;
+    for (let depth = 0; cur?.parentTaskId && depth < 20; depth++) {
+      if (shown.has(cur.parentTaskId)) return true;
+      cur = lookup(cur.parentTaskId);
+    }
+    return false;
+  };
+  const out = [];
+  const placed = new Set();
+  const hide = (t) => {
+    if (placed.has(t.id)) return;
+    placed.add(t.id);
+    for (const k of byParent.get(t.id) || []) hide(k);
+  };
+  const walk = (t, depth) => {
+    if (placed.has(t.id)) return;
+    placed.add(t.id);
+    const kids = orderSubtasks((byParent.get(t.id) || []).filter((k) => !placed.has(k.id)), t);
+    const parent = depth === 0 && t.parentTaskId ? lookup(t.parentTaskId) : null;
+    out.push({ task: t, depth, crumb: parent ? parent.title || '' : '', kids: kids.length });
+    for (const k of kids) (collapsed.has(t.id) ? hide(k) : walk(k, depth + 1));
+  };
+  for (const t of rows || []) if (!underAnother(t)) walk(t, 0);
+  // Subtasks that match but whose parent is not on the timeline: each branch
+  // starts from its highest task that is, so it still nests below that.
+  const topOf = (k) => {
+    let cur = k;
+    for (let depth = 0; cur.parentTaskId && depth < 20; depth++) {
+      const p = lookup(cur.parentTaskId);
+      if (!p || placed.has(p.id) || !include(p)) break;
+      cur = p;
+    }
+    return cur;
+  };
+  for (const list of byParent.values()) for (const k of list) if (!placed.has(k.id)) walk(topOf(k), 0);
+  for (const t of rows || []) if (!placed.has(t.id)) walk(t, 0);
+  return out;
+}
+
 // ── Portfolio tree ──────────────────────────────────────────────────────────
 // Portfolios nest (TaskPortfolio.parentId), and the list renders that tree as
 // flat rows carrying their own depth. Pure and exported so the two rules below
