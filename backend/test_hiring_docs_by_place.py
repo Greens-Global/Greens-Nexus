@@ -134,3 +134,24 @@ class PlaceFirstTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CoverageTests(PlaceFirstTests):
+    """What Each Hire Gets: the same picker a real hire uses, per company."""
+
+    def test_coverage_shows_what_each_company_sends_and_the_gaps(self):
+        r = self.client.get("/hr/packets/coverage")
+        self.assertEqual(r.status_code, 200, r.text)
+        by = {c["id"]: c for c in r.json()["companies"]}
+        osm = {row["workerType"]: row for row in by[OSM]["rows"]}
+        self.assertEqual(osm["employee"]["hire"]["id"], "ca-employee")
+        self.assertEqual(osm["contractor"]["hire"]["id"], "ca-contractor")
+        self.assertIsNone(osm["employee"]["offer"])                       # no offer letter set up yet
+        gs = {row["workerType"]: row for row in by[GS]["rows"]}
+        self.assertEqual(gs["employee"]["hire"]["id"], "tx-employee")
+        ggc = {row["workerType"]: row for row in by[GGC]["rows"]}
+        self.assertEqual(ggc["contractor"]["hire"]["id"], "in-contractor")
+        # India employees: only the role-only place-less packet could fit, never for "any role".
+        self.assertIsNone(ggc["employee"]["hire"])
+        self.assertEqual(by[OSM]["region"], "CA")
+        self.assertEqual([u["id"] for u in r.json()["unplaced"]], ["admin-assoc-anywhere"])

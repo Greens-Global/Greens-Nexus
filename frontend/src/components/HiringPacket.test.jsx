@@ -22,6 +22,9 @@ const events = [{
 }];
 vi.mock('../api', () => ({
   api: {
+    getPacketCoverage: () => Promise.resolve({ unplaced: [], companies: [{ id: 'e1', name: 'Oversite', country: 'US', region: 'CA', rows: [
+      { workerType: 'employee', offer: null, hire: { id: 'h1', name: 'California Employee Hiring Packet' }, promotion: null, separation: null },
+      { workerType: 'contractor', offer: null, hire: null, promotion: null, separation: null }] }] }),
     getPackets: () => Promise.resolve({
       settings: [], workerTypes: ['any', 'employee', 'contractor'],
       templates: [{ id: 't1', name: 'Offer Packet', entityId: '', documents: 2,
@@ -54,10 +57,14 @@ const noop = () => {};
 describe('PacketsModal', () => {
   it('sets up the hiring packet and the promotion letter, starting empty', async () => {
     render(<PacketsModal onClose={noop} toastOk={noop} toastErr={noop} />);
-    await waitFor(() => expect(screen.getByText('Hiring Packet')).toBeTruthy());
-    expect(screen.getByText('Promotion Letter')).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Hiring Packet/ })).toBeTruthy());
+    // What Each Hire Gets opens first (Neil, Oct 22): the company's place, what goes out, the gaps.
+    expect(await screen.findByText('California Employee Hiring Packet')).toBeTruthy();
+    expect(screen.getAllByText('Not Set Up').length).toBe(7);
+    fireEvent.click(screen.getByRole('button', { name: /^Hiring Packet/ }));
+    expect(screen.getByRole('button', { name: /^Promotion Letter/ })).toBeTruthy();
     expect(screen.getByText('No hiring packet for Every company yet')).toBeTruthy();
-    fireEvent.click(screen.getByText('Promotion Letter'));
+    fireEvent.click(screen.getByRole('button', { name: /^Promotion Letter/ }));
     expect(screen.getByText('No promotion letter for Every company yet')).toBeTruthy();
     fireEvent.click(screen.getAllByText('Add Packet')[0]);
     await waitFor(() => expect(screen.getByLabelText('Works In')).toBeTruthy());

@@ -128,6 +128,40 @@ def _setting_in_scope(entity_id: str, scope, write: bool) -> None:
         raise HTTPException(404, "Company not found")
 
 
+@router.get("/packets/coverage")
+def packet_coverage(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """What each hire gets, company by company (Neil, Oct 22: "let's see what
+    is missing" before a hire is stuck). For every company and kind of hire,
+    the offer letter, hiring packet, promotion letter and separation package
+    Nexus would send to someone working at the company's own place - asked of
+    the same resolve_setting a real hire uses, so this screen can never say
+    something the send would not do. Plus every offer letter / hiring packet
+    that names no place (it would reach any country)."""
+    scope = hr_scope(user, db)
+    ents = [e for e in db.query(HrEntity).order_by(HrEntity.name).all() if scope is None or e.id in scope]
+    events = ("offer", "hire", "promotion", "separation")
+
+    def cell(s):
+        if s is None:
+            return None
+        return {"id": s.id, "name": s.name or "Unnamed", "entityId": s.entity_id or "", "country": s.country or "",
+                "region": s.region or "", "place": hle.place_label(s.worker_type, s.country, s.region),
+                "roleOnly": bool(s.role_ids), "engine": s.engine or "pdf"}
+
+    companies = []
+    for e in ents:
+        country, region = hle.country_of(db, e.id), hle.region_of(db, e.id)
+        rows = []
+        for wt in ("employee", "contractor"):
+            rows.append({"workerType": wt, **{ev: cell(hle.resolve_setting(
+                db, e.id, ev, wt, "", country, documents_only=(ev == "hire"), region=region)) for ev in events}})
+        companies.append({"id": e.id, "name": e.name, "country": country, "region": region, "rows": rows})
+    unplaced = [{"id": s.id, "name": s.name or "Unnamed", "event": s.event, "entityId": s.entity_id or ""}
+                for s in db.query(HrPacketSetting).filter(HrPacketSetting.event.in_(("offer", "hire"))).all()
+                if not (s.country or "") and (scope is None or not s.entity_id or s.entity_id in scope)]
+    return {"companies": companies, "unplaced": unplaced}
+
+
 @router.get("/packets")
 def list_packets(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     scope = hr_scope(user, db)

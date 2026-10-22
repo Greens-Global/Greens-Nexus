@@ -107,7 +107,9 @@ const STEPS = [['who', 'Who It\'s For'], ['docs', 'Documents'], ['signs', 'Who S
 export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, companyName, defaultSubfolder, catalog, onClose, onSaved, toastErr }) {
   const [p, setP] = useState(() => ({
     id: packet?.engine === 'documents' ? packet.id : '',
-    name: packet?.name || '',
+    // A Set Up from What Each Hire Gets arrives with its place - named from it.
+    name: packet?.name || (packet?.country ? [placeName(packet.country, packet.region, COUNTRY_NAMES),
+      { employee: 'Employee', contractor: 'Contractor' }[packet.workerType] || '', eventLabel].filter(Boolean).join(' ') : ''),
     nameTouched: !!packet?.name,       // a typed (or saved) name is never replaced by the suggestion
     roleIds: packet?.roleIds || [],
     // Who it is for (Oct 14): employees or contractors, and where they work -

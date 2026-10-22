@@ -25,6 +25,7 @@ import PersonSearchSelect from './PersonSearchSelect';
 import { SignModal } from './ESign';
 import DetailsFormFields from './DetailsFormFields';
 import { PacketEditor, describeRoles } from './PacketTemplates';
+import PacketCoverage from './PacketCoverage';
 import { DocumentsPacketEditor } from './DocumentsPacketEditor';
 import { readinessSummary } from '../lib/packetFlow';
 import PacketReview from './PacketReview';
@@ -202,13 +203,27 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [entities, setEntities] = useState([]);
   const [companyId, setCompanyId] = useState('');
-  const [tab, setTab] = useState('hire');
+  // What Each Hire Gets first (Neil, Oct 22): the gaps before the lists.
+  const [tab, setTab] = useState('overview');
   const [editing, setEditing] = useState(null);     // { event, row | null }
-  const load = () => api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
+  const [coverKey, setCoverKey] = useState(0);
+  const load = () => {
+    setCoverKey(k => k + 1);
+    return api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
+  };
   useEffect(() => { load(); api.getEntities().then(setEntities).catch(() => {}); }, []);
 
   const events = (data?.events || []).filter(e => ENABLED_EVENTS.includes(e.key));
-  const ev = events.find(e => e.key === tab) || events[0];
+  const ev = tab === 'overview' ? null : (events.find(e => e.key === tab) || events[0]);
+  const setUp = ({ event, workerType, country, region }) => {
+    const e = events.find(x => x.key === event);
+    if (e) setEditing({ event: e, row: null, seed: { workerType, country, region }, companyId: '' });
+  };
+  const openPacket = (s) => {
+    const row = (data?.settings || []).find(x => x.id === s.id);
+    const e = row && events.find(x => x.key === row.event);
+    if (row && e) setEditing({ event: e, row });
+  };
   const entityName = (id) => (id ? (entities.find(e => e.id === id)?.name || 'Unknown company') : '');
   // "All companies" (no company picked) lists every packet with its company;
   // a company picked lists its own.
@@ -247,7 +262,12 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
         {!data ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="section" /></div> : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <div className="scroll-tabs" style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3 }}>
+              <div className="scroll-tabs" style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3, maxWidth: '100%' }}>
+                <button type="button" onClick={() => setTab('overview')}
+                  style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
+                    background: tab === 'overview' ? 'var(--card)' : 'transparent', color: 'var(--ink)', boxShadow: tab === 'overview' ? '0 1px 3px rgba(0,0,0,0.15)' : 'none' }}>
+                  What Each Hire Gets
+                </button>
                 {events.map(e => (
                   <button key={e.key} type="button" onClick={() => setTab(e.key)}
                     style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
@@ -264,6 +284,9 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
                 </button>
               )}
             </div>
+            {tab === 'overview' && (
+              <PacketCoverage refreshKey={coverKey} companyId={companyId} onSetUp={setUp} onOpen={openPacket} />
+            )}
             {ev?.key === 'hire' && needing.length > 0 && (
               <div role="status" style={{ border: '1px solid rgba(180,83,9,0.35)', background: 'rgba(180,83,9,0.07)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#b45309' }}>
