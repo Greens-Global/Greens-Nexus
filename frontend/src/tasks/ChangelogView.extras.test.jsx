@@ -166,6 +166,12 @@ describe('Manage', () => {
   });
 
   it('schedules an update with an audience from the form', async () => {
+    // The clock is pinned (only Date - the waits below still run on real
+    // timers), so the calendar always shows the same month and tomorrow is
+    // always the 22nd, whatever day the suite runs.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 21, 12, 0, 0));
+    try {
     api.createTaskChangelog.mockImplementation(async ({ payload }) => ({ id: 'n1', ...payload }));
     render(<Changelog />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add New Update' }));
@@ -175,13 +181,10 @@ describe('Manage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Minor v2\.1\.0/ }));      // after v2.0.0
     fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'Scheduled' } });
     // A date box and a 12-hour time box (never a native datetime-local):
-    // tomorrow from the calendar, then 9:00 AM. The calendar always shows
-    // the first days of next month, and past days cannot be picked, so the
-    // first enabled cell with tomorrow's number is tomorrow.
-    const when = new Date(Date.now() + 86_400_000);
+    // tomorrow (10/22/2026) from the calendar, then 9:00 AM.
     fireEvent.click(screen.getByTitle('Scheduled for'));
     const cal = document.querySelector('[data-nx-calendar]');
-    const day = [...cal.querySelectorAll('button')].find((b) => b.textContent === String(when.getDate()) && !b.disabled);
+    const day = [...cal.querySelectorAll('button')].find((b) => b.textContent === '22' && !b.disabled);
     fireEvent.click(day);
     fireEvent.change(screen.getByLabelText('Scheduled time'), { target: { value: '09:00' } });
     expect(screen.getByLabelText('Scheduled time').selectedOptions[0].textContent).toBe('9:00 AM');
@@ -190,7 +193,10 @@ describe('Manage', () => {
     await waitFor(() => expect(api.createTaskChangelog).toHaveBeenCalled());
     const { payload } = api.createTaskChangelog.mock.calls[0][0];
     expect(payload).toMatchObject({ status: 'Scheduled', version: 'v2.1.0', audience: { modules: ['tickets'] } });
-    expect(new Date(payload.scheduledFor).getTime()).toBeGreaterThan(Date.now());
+    expect(new Date(payload.scheduledFor).getTime()).toBe(new Date(2026, 9, 22, 9, 0, 0).getTime());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

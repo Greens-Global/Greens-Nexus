@@ -13,9 +13,9 @@ vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ can: () => fals
 
 const { TimelineView } = await import('./more');
 
-const touch = (el, type, clientX, clientY = 10) => {
+const touch = (el, type, clientX, clientY = 10, pointerType = 'touch') => {
   const ev = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button: 0 });
-  Object.defineProperty(ev, 'pointerType', { value: 'touch' });
+  Object.defineProperty(ev, 'pointerType', { value: pointerType });
   Object.defineProperty(ev, 'pointerId', { value: 7 });
   fireEvent(el, ev);
 };
@@ -63,6 +63,21 @@ describe('Timeline on a phone', () => {
     await act(async () => { vi.advanceTimersByTime(400); });
     touch(bar, 'pointermove', 82);
     await act(async () => { touch(bar, 'pointerup', 82); });
+    expect(rescheduleTask).toHaveBeenCalledWith('a', { start_on: '2026-10-03', due_on: '2026-10-05' });
+  });
+
+  it('a pen is treated like a finger: a stroke scrolls, a long press drags', async () => {
+    render(<TimelineView tasks={tasks} onOpen={() => {}} nameOf={(e) => e} />);
+    const bar = screen.getByLabelText('Pour slab');
+    touch(bar, 'pointerdown', 30, 10, 'pen');
+    touch(bar, 'pointermove', 90, 10, 'pen');
+    await act(async () => { vi.advanceTimersByTime(500); });
+    touch(bar, 'pointerup', 90, 10, 'pen');
+    expect(rescheduleTask).not.toHaveBeenCalled();
+    touch(bar, 'pointerdown', 30, 10, 'pen');
+    await act(async () => { vi.advanceTimersByTime(400); });
+    touch(bar, 'pointermove', 82, 10, 'pen');
+    await act(async () => { touch(bar, 'pointerup', 82, 10, 'pen'); });
     expect(rescheduleTask).toHaveBeenCalledWith('a', { start_on: '2026-10-03', due_on: '2026-10-05' });
   });
 

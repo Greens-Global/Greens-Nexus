@@ -107,8 +107,10 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
     if (e.button !== 0 || busyId) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const mode = t.isMilestone ? 'move' : dragModeAt(e.clientX - rect.left, rect.width || barGeom(t).width);
-    if (e.pointerType === 'touch') {
-      // A finger: wait for a long press, so a swipe across the bars scrolls.
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      // A finger or a stylus (an iPad pencil pans the page the same way under
+      // touch-action pan-x pan-y): wait for a long press, so a swipe across
+      // the bars scrolls. A mouse drags at once, as before.
       cancelPress();
       const el = e.currentTarget, pointerId = e.pointerId, startX = e.clientX, startY = e.clientY;
       press.current = {

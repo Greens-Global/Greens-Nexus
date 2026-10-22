@@ -22,6 +22,10 @@ const BASELINE = fileURLToPath(new URL('./date-guard-baseline.json', import.meta
 const PATTERNS = {
   'type="date"': /type=["']date["']/g,
   'type="datetime-local"': /type=["']datetime-local["']/g,
+  // A computed type that can come out as a date box, e.g.
+  // type={f.type === 'date' ? 'date' : 'text'} - the literal pattern above
+  // never saw these (a Tasks custom field slipped through that way).
+  'type={...date...}': /type=\{[^}]*['"]date['"]/g,
   'toLocaleDateString(': /\.toLocaleDateString\(/g,
   'toLocaleTimeString(': /\.toLocaleTimeString\(/g,
   'Intl.DateTimeFormat(': /Intl\.DateTimeFormat\(/g,

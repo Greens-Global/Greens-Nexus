@@ -228,7 +228,8 @@
   "views/InventoryManagement.jsx": {
     "type=\"date\"": 5,
     "toLocaleDateString(": 3,
-    "toLocaleTimeString(": 1
+    "toLocaleTimeString(": 1,
+    "type={...date...}": 1
   },
   "views/IT.jsx": {
     "toLocaleTimeString(": 2
@@ -252,6 +253,16 @@
     "type=\"datetime-local\"": 2
   },
   "tickets/TicketAtoms.jsx": {
-    "type=\"datetime-local\"": 1
+    "type=\"datetime-local\"": 1,
+    "type={...date...}": 1
+  },
+  "asset/components/asset/AssetDetailForm.jsx": {
+    "type={...date...}": 1
+  },
+  "components/OfferModal.jsx": {
+    "type={...date...}": 1
+  },
+  "components/DetailsFormFields.jsx": {
+    "type={...date...}": 1
   }
 }

@@ -2366,8 +2366,17 @@ export function CustomFieldInput({ field, value, onChange }) {
         style={{ width: 16, height: 16, cursor: 'pointer' }} />
     );
   }
+  // A date field is the shared DateField (Oct 21 2026), never a native date
+  // box - that one shows the computer's region format (20-10-2026).
+  if (field.type === 'date') {
+    return (
+      <DateField value={typeof v === 'string' ? v : ''} placeholder="-" title={field.name || 'Set date'}
+        onChange={(d) => { setV(d || ''); onChange(d || ''); }}
+        style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '6px 9px', fontSize: 13, cursor: 'pointer' }} />
+    );
+  }
   return (
-    <input type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} value={v}
+    <input type={field.type === 'number' ? 'number' : 'text'} value={v}
       onChange={(e) => setV(e.target.value)} onBlur={() => onChange(v)}
       style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '6px 9px', fontSize: 13 }} />
   );

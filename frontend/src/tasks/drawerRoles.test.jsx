@@ -41,7 +41,7 @@ function makeStore({ role = 'viewer', projects, t = task } = {}) {
   };
 }
 
-const { default: TaskDetailDrawer } = await import('./TaskDetailDrawer');
+const { default: TaskDetailDrawer, CustomFieldInput } = await import('./TaskDetailDrawer');
 
 beforeEach(() => {
   manager = false;
@@ -218,5 +218,14 @@ describe('approval chip', () => {
     render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
     expect(screen.getByText('Changes Requested')).toBeInTheDocument();
     expect(screen.queryByText('changes requested')).toBeNull();
+  });
+});
+
+describe('a date custom field', () => {
+  it('is the shared DateField (US format), never a native date box', () => {
+    const onChange = vi.fn();
+    const { container } = render(<CustomFieldInput field={{ id: 'f1', name: 'Inspection', type: 'date' }} value="2026-10-04" onChange={onChange} />);
+    expect(container.querySelector('input[type="date"]')).toBeNull();
+    expect(screen.getByTitle('Inspection').textContent).toBe('10/04/2026');
   });
 });
