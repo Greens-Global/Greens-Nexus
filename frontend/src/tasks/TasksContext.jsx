@@ -245,7 +245,12 @@ export function TasksProvider({ children }) {
     setTasks((prev) => {
       const byId = new Map(prev.map((x) => [x.id, x]));
       for (const t of changed || []) byId.set(t.id, t);
-      for (const id of deletedIds || []) byId.delete(id);
+      // A row the server returns as changed is live, whatever tombstone came
+      // with it: a task deleted and then restored (Undo, the Recycle Bin)
+      // still has its delete-log entry, and dropping it here would make the
+      // restored task vanish until a reload (Oct 21 2026).
+      const live = new Set((changed || []).map((t) => t.id));
+      for (const id of deletedIds || []) if (!live.has(id)) byId.delete(id);
       return [...byId.values()];
     });
     sinceRef.current = serverTime;
@@ -373,14 +378,50 @@ export function TasksProvider({ children }) {
     );
   }, [patchLocalTask]);
 
+  // People a create could not add (Oct 21 2026): POST /tasks and a template's
+  // use answer with droppedPeople - not in the Nexus directory, or no longer
+  // with the company. Said in ONE notice that collects every name dropped
+  // while it is up (a bulk duplicate is many creates), and the key is taken
+  // off the row before it is stored.
+  const [dropped, setDropped] = useState(null);   // [email]
+  const droppedTimer = useRef(null);
+  useEffect(() => () => clearTimeout(droppedTimer.current), []);
+  const noteDropped = useCallback((emails) => {
+    // The API sends [{email, reason, taskId}] (POST /tasks) - plain emails are
+    // accepted too, so either shape reads as a list of addresses.
+    const list = (Array.isArray(emails) ? emails : [])
+      .map((e) => String((e && typeof e === 'object' ? e.email : e) || '').toLowerCase()).filter(Boolean);
+    if (!list.length) return;
+    clearTimeout(droppedTimer.current);
+    setDropped((prev) => [...new Set([...(prev || []), ...list])]);
+    droppedTimer.current = setTimeout(() => setDropped(null), 12000);
+  }, []);
+  const takeDropped = useCallback((row) => {
+    if (!row || typeof row !== 'object' || !('droppedPeople' in row)) return row;
+    const { droppedPeople, ...rest } = row;
+    noteDropped(droppedPeople);
+    return rest;
+  }, [noteDropped]);
+
   // ── Task actions ─────────────────────────────────────────────────────────
   const createTask = useCallback(async (data) => {
-    const created = await api.createTask(toBody(data));
+    const created = takeDropped(await api.createTask(toBody(data)));
     setTasks((prev) => [created, ...prev]);
     return created;
-  }, []);
+  }, [takeDropped]);
+
+  // The latest task list for the actions below, which need the row as it
+  // was BEFORE an optimistic change without re-creating themselves on every
+  // tasks change (updateTask's identity is a dependency all over the module).
+  const tasksRef = useRef(tasks);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
   const updateTask = useCallback(async (id, patch) => {
+    // Snapshot the fields this patch touches, so a refused save can put them
+    // back. The delta refetch alone cannot: it only returns rows that CHANGED
+    // on the server, and a refused row did not - the optimistic value stuck.
+    const before = tasksRef.current.find((t) => t.id === id);
+    const keys = Object.keys(patch || {});
     patchLocalTask(id, patch);                     // optimistic
     try {
       const saved = await api.updateTask(id, toBody(patch));
@@ -388,10 +429,20 @@ export function TasksProvider({ children }) {
       announceHeld([saved], patch);
       return saved;
     } catch (e) {
+      if (before) {
+        // Only a field still showing THIS change goes back - a later edit to
+        // the same field (or a fresher server copy) is left alone.
+        setTasks((prev) => prev.map((t) => {
+          if (t.id !== id) return t;
+          const back = {};
+          for (const k of keys) if (t[k] === patch[k]) back[k] = before[k];
+          return { ...t, ...back };
+        }));
+      }
       refetchTasks().catch(() => {});
       // Surfaces things like a dependency-gate rejection (blocked by an
-      // unfinished FS/SS/FF/SF task) - the optimistic change above just got
-      // reverted by the refetch, so silence here would look like nothing happened.
+      // unfinished FS/SS/FF/SF task) - the optimistic change above was just
+      // put back, so silence here would look like nothing happened.
       if (e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
       throw e;
     }
@@ -441,24 +492,80 @@ export function TasksProvider({ children }) {
   }, [updateTask, offerUndo]);
   const setStatus = useCallback((id, status) => updateTask(id, { status }), [updateTask]);
 
-  const deleteTask = useCallback(async (id) => {
-    const gone = tasks.find((t) => t.id === id);
-    setTasks((prev) => prev.filter((t) => t.id !== id));   // optimistic
-    try { await api.deleteTask(id); } catch (e) { refetchTasks().catch(() => {}); throw e; }
-    // Undo recreates the task from its main fields (a fresh id - comments and
-    // subtask links don't survive a hard delete; the fields are the rescue).
-    if (gone) {
-      offerUndo(`Deleted "${(gone.title || '').slice(0, 40)}"`, () => createTask({
-        title: gone.title, type: gone.type || 'task', description: gone.description || '',
-        status: gone.status || 'not_started', priority: gone.priority || 'medium',
-        projectId: gone.projectId || '', teamId: gone.teamId || '',
-        assigneeId: gone.assigneeId || '', followerIds: gone.followerIds || [],
-        dueOn: gone.dueOn || '', startOn: gone.startOn || '', tags: gone.tags || [],
-        estimateHours: gone.estimateHours ?? null, isMilestone: !!gone.isMilestone,
-        customFieldValues: gone.customFieldValues || {},
-      }).catch(() => {}));
+  // Rows taken off screen optimistically go back if the server refuses the
+  // delete - the delta refetch never returns a row the server did not change.
+  const putBack = useCallback((rows) => {
+    if (!rows.length) return;
+    setTasks((prev) => {
+      const have = new Set(prev.map((t) => t.id));
+      const missing = rows.filter((r) => r && !have.has(r.id));
+      return missing.length ? [...missing, ...prev] : prev;
+    });
+  }, []);
+
+  // Undo of a delete. DELETE /tasks/{id} moves the task to Trash (task_trash.py),
+  // so undo RESTORES it - same id, comments, attachments, history and the
+  // subtasks trashed with it - instead of recreating a copy from its fields.
+  // The restored row goes straight back on screen; the delta refetch brings
+  // the subtasks. Returns { restored, failed } (counts).
+  const restoreTasks = useCallback(async (ids) => {
+    const results = await Promise.allSettled(ids.map((id) => api.restoreTask(id)));
+    const rows = results.filter((r) => r.status === 'fulfilled' && r.value?.id).map((r) => r.value);
+    if (rows.length) {
+      const map = Object.fromEntries(rows.map((r) => [r.id, r]));
+      setTasks((prev) => [...rows, ...prev.filter((t) => !map[t.id])]);
     }
-  }, [refetchTasks, tasks, offerUndo, createTask]);
+    refetchTasks().catch(() => {});
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length) {
+      const why = failed[0].reason?.message || 'Try again from the Recycle Bin.';
+      alert(failed.length === ids.length && ids.length === 1
+        ? `Could not restore this task. ${why}`
+        : `Could not restore ${failed.length} of ${ids.length} tasks. ${why}`);
+    }
+    return { restored: rows.length, failed: failed.length };
+  }, [refetchTasks]);
+
+  const deleteTask = useCallback(async (id) => {
+    const gone = tasksRef.current.find((t) => t.id === id);
+    setTasks((prev) => prev.filter((t) => t.id !== id));   // optimistic
+    try {
+      await api.deleteTask(id);
+    } catch (e) {
+      if (gone) putBack([gone]);
+      refetchTasks().catch(() => {});
+      throw e;
+    }
+    if (gone) offerUndo(`Deleted "${(gone.title || '').slice(0, 40)}"`, () => { restoreTasks([id]).catch(() => {}); });
+  }, [refetchTasks, offerUndo, putBack, restoreTasks]);
+
+  // Several tasks in one go (bulk bar, Data Quality): one batch, ONE toast,
+  // and its Undo restores every one that was deleted. A refused delete puts
+  // that row back and is counted, never silently dropped. There is no bulk
+  // delete endpoint, so it is one DELETE per task, all at once.
+  // Returns { deleted, failed, error } (counts; error = the first refusal).
+  const deleteTasks = useCallback(async (ids) => {
+    const list = [...new Set(ids)];
+    if (!list.length) return { deleted: 0, failed: 0, error: null };
+    const gone = Object.fromEntries(tasksRef.current.filter((t) => list.includes(t.id)).map((t) => [t.id, t]));
+    const drop = new Set(list);
+    setTasks((prev) => prev.filter((t) => !drop.has(t.id)));   // optimistic
+    const results = await Promise.allSettled(list.map((id) => api.deleteTask(id)));
+    const deletedIds = list.filter((_, i) => results[i].status === 'fulfilled');
+    const failedIds = list.filter((_, i) => results[i].status === 'rejected');
+    if (failedIds.length) {
+      putBack(failedIds.map((id) => gone[id]).filter(Boolean));
+      refetchTasks().catch(() => {});
+    }
+    if (deletedIds.length) {
+      const label = deletedIds.length === 1
+        ? `Deleted "${(gone[deletedIds[0]]?.title || '').slice(0, 40)}"`
+        : `Deleted ${deletedIds.length} tasks`;
+      offerUndo(label, () => { restoreTasks(deletedIds).catch(() => {}); });
+    }
+    const error = failedIds.length ? results[list.indexOf(failedIds[0])].reason : null;
+    return { deleted: deletedIds.length, failed: failedIds.length, error };
+  }, [refetchTasks, offerUndo, putBack, restoreTasks]);
 
   const bulkUpdate = useCallback(async (ids, patch) => {
     try {
@@ -609,7 +716,10 @@ export function TasksProvider({ children }) {
     // A task made from a ticket (Oct 14 2026): the server links both sides in
     // one save and hands both back.
     createTaskFromTicket: async (id) => {
-      const r = await api.createTaskFromTicket(id);
+      // The create underneath is POST /tasks's, so a dropped person is said
+      // here too, wherever the server puts the list.
+      const top = takeDropped(await api.createTaskFromTicket(id));
+      const r = { ...top, task: takeDropped(top.task) };
       setTasks((p) => [r.task, ...p.filter((x) => x.id !== r.task.id)]);
       setTickets((p) => p.map((x) => (x.id === id ? r.ticket : x)));
       return r;
@@ -630,7 +740,7 @@ export function TasksProvider({ children }) {
     },
     // The main task comes back; its subtasks arrive with the refetch.
     startFromTemplate: async (id, data) => {
-      const r = await api.useTaskTemplate(id, toBody(data));
+      const r = takeDropped(await api.useTaskTemplate(id, toBody(data)));
       setTasks((p) => [r, ...p.filter((x) => x.id !== r.id)]);
       refetchTasks().catch(() => {});
       return r;
@@ -724,7 +834,7 @@ export function TasksProvider({ children }) {
     sections,
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
-    createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,
+    createTask, updateTask, deleteTask, deleteTasks, restoreTasks, bulkUpdate, toggleComplete, setStatus,
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },
@@ -761,6 +871,19 @@ export function TasksProvider({ children }) {
   return (
     <Ctx.Provider value={value}>
       {children}
+      {/* People a create could not add - above the undo toast when both show. */}
+      {dropped?.length > 0 && (
+        <div role="status" data-testid="dropped-people" style={{
+          position: 'fixed', left: '50%', bottom: undo ? 84 : 24, transform: 'translateX(-50%)', zIndex: 6000,
+          display: 'flex', alignItems: 'center', gap: 12, background: '#1f2733', color: '#fff',
+          borderRadius: 10, padding: '11px 16px', boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
+          fontFamily: "'Inter', sans-serif", fontSize: 13, maxWidth: 'min(92vw, 560px)',
+        }}>
+          <span>Not added: {dropped.map((e) => nameOf(e) || e).join(', ')} - not in the Nexus directory or no longer with the company.</span>
+          <button type="button" onClick={() => { clearTimeout(droppedTimer.current); setDropped(null); }} aria-label="Dismiss" title="Dismiss"
+            style={{ border: 'none', background: 'none', color: '#cbd5e1', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 2, flexShrink: 0, fontFamily: 'inherit' }}>×</button>
+        </div>
+      )}
       {/* Undo toast - completes, deletes, and recurring rolls offer a 6s rescue. */}
       {undo && (
         <div style={{

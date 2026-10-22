@@ -8,8 +8,10 @@ import { useEffect, useState } from 'react';
 import { Play, Square, Plus, Trash2, Pencil, Check, X } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
+import { useRole } from '../contexts/RoleContext';
+import { dialog } from '../ui/dialog';
 import { NX, FONT, btn, input as inputStyle } from './theme';
-import { Avatar, localTodayISO } from './components';
+import { Avatar, DateField, localTodayISO } from './components';
 import { fmtDate, fmtHours, fmtMinutes, fmtElapsed } from './lib';
 
 /** Ticks once a second while `startedAt` is set. */
@@ -25,6 +27,10 @@ export function useElapsed(startedAt) {
 
 export default function TimeTracking({ task, canLog = true }) {
   const { runningTimer, startTimer, stopTimer, applyServerTask, nameOf, myEmail } = useTasks();
+  // A manager may change or remove anyone's entry - the server's rule
+  // (update_time_entry / delete_time_entry) - everyone else only their own.
+  const { canAccessModule } = useRole() || {};
+  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'owner');
   const [entries, setEntries] = useState(null);
   const [hrs, setHrs] = useState('');
   const [mins, setMins] = useState('');
@@ -60,7 +66,13 @@ export default function TimeTracking({ task, canLog = true }) {
       await load();
     });
   };
-  const remove = (e) => run(async () => {
+  const remove = async (e) => {
+    const whose = (e.personId || '').toLowerCase() === (myEmail || '').toLowerCase() ? '' : ` logged by ${nameOf(e.personId)}`;
+    const ok = await dialog.confirm(`Remove ${fmtMinutes(e.minutes)}${whose} on ${fmtDate(e.startedAt)}? The task's tracked total drops by the same amount.`,
+      { title: 'Remove Time Entry', confirmText: 'Remove', danger: true });
+    if (ok) removeNow(e);
+  };
+  const removeNow = (e) => run(async () => {
     const res = await api.deleteTaskTime(e.id);
     if (res?.task) applyServerTask(res.task);
     setEntries((prev) => prev.filter((x) => x.id !== e.id));
@@ -123,7 +135,7 @@ export default function TimeTracking({ task, canLog = true }) {
             style={{ ...inputStyle, width: 56, padding: '6px 8px', fontSize: 12 }} />
           <input value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addManual()} placeholder="Note (optional)" aria-label="Note"
             style={{ ...inputStyle, flex: 1, minWidth: 120, padding: '6px 8px', fontSize: 12 }} />
-          <input type="date" value={on} max={localTodayISO()} onChange={(e) => setOn(e.target.value || localTodayISO())} aria-label="Day"
+          <DateField value={on} max={localTodayISO()} onChange={(v) => setOn(v && v <= localTodayISO() ? v : localTodayISO())} title="Day"
             style={{ ...inputStyle, width: 140, padding: '6px 8px', fontSize: 12 }} />
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: NX.dim, whiteSpace: 'nowrap' }}>
             <input type="checkbox" checked={billable} onChange={(e) => setBillable(e.target.checked)} /> Billable
@@ -138,7 +150,8 @@ export default function TimeTracking({ task, canLog = true }) {
           : (
             <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 2 }}>
               {closed.map((e) => {
-                const mine = e.personId === myEmail;
+                const mine = (e.personId || '').toLowerCase() === (myEmail || '').toLowerCase();
+                const canChange = mine || isManager;
                 const isEditing = editing?.id === e.id;
                 return (
                   <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 7, fontSize: 12.5 }}
@@ -160,10 +173,10 @@ export default function TimeTracking({ task, canLog = true }) {
                         <span style={{ fontWeight: 700, color: NX.ink, width: 64, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{fmtMinutes(e.minutes)}</span>
                         <span style={{ flex: 1, minWidth: 0, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.note || (e.source === 'timer' ? 'Timer' : '')}</span>
                         {e.billable && <span style={{ fontSize: 10, fontWeight: 700, color: NX.green }}>Billable</span>}
-                        {mine && (
+                        {canChange && (
                           <>
-                            <button type="button" onClick={() => setEditing({ id: e.id, minutes: e.minutes, note: e.note || '' })} aria-label="Edit entry" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Pencil size={12} /></button>
-                            <button type="button" onClick={() => remove(e)} aria-label="Delete entry" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Trash2 size={12} /></button>
+                            <button type="button" onClick={() => setEditing({ id: e.id, minutes: e.minutes, note: e.note || '' })} aria-label="Edit entry" title="Edit Entry" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Pencil size={12} /></button>
+                            <button type="button" onClick={() => remove(e)} aria-label="Delete entry" title="Delete Entry" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Trash2 size={12} /></button>
                           </>
                         )}
                       </>

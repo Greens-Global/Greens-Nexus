@@ -918,7 +918,7 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
                   <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
                     <button title="Move Up" disabled={idx === 0 || busy} onClick={() => move(idx, -1)} style={{ ...btn('ghost'), padding: 5, opacity: idx === 0 ? 0.35 : 1 }}><ArrowUp size={15} /></button>
                     <button title="Move Down" disabled={idx === ids.length - 1 || busy} onClick={() => move(idx, 1)} style={{ ...btn('ghost'), padding: 5, opacity: idx === ids.length - 1 ? 0.35 : 1 }}><ArrowDown size={15} /></button>
-                    <button title="Remove from portfolio" disabled={busy} onClick={() => removeProject(p.id)} style={{ ...btn('ghost'), padding: 5, color: NX.red }}><X size={16} /></button>
+                    <button title="Remove From Portfolio" disabled={busy} onClick={() => removeProject(p.id)} style={{ ...btn('ghost'), padding: 5, color: NX.red }}><X size={16} /></button>
                   </div>
                 </div>
               );

@@ -14,16 +14,16 @@ export const TRIGGER_TYPES = [
 ];
 
 export const ACTION_TYPES = [
-  { value: 'set_status', label: 'Set status', valueKind: 'status' },
-  { value: 'set_priority', label: 'Set priority', valueKind: 'priority' },
-  { value: 'assign_to', label: 'Assign to', valueKind: 'person' },
-  { value: 'add_assignee', label: 'Add assignee', valueKind: 'person' },
-  { value: 'add_follower', label: 'Add collaborator', valueKind: 'person' },
-  { value: 'set_due_in_days', label: 'Set due date to N days from today', valueKind: 'days' },
-  { value: 'shift_due_days', label: 'Move due date by N days', valueKind: 'days' },
-  { value: 'add_tag', label: 'Add tag', valueKind: 'text' },
-  { value: 'add_comment', label: 'Add comment', valueKind: 'comment' },
-  { value: 'set_milestone', label: 'Mark as milestone', valueKind: 'none' },
+  { value: 'set_status', label: 'Set Status', valueKind: 'status' },
+  { value: 'set_priority', label: 'Set Priority', valueKind: 'priority' },
+  { value: 'assign_to', label: 'Assign To', valueKind: 'person' },
+  { value: 'add_assignee', label: 'Add Assignee', valueKind: 'person' },
+  { value: 'add_follower', label: 'Add Collaborator', valueKind: 'person' },
+  { value: 'set_due_in_days', label: 'Set Due Date to N Days From Today', valueKind: 'days' },
+  { value: 'shift_due_days', label: 'Move Due Date by N Days', valueKind: 'days' },
+  { value: 'add_tag', label: 'Add Tag', valueKind: 'text' },
+  { value: 'add_comment', label: 'Add Comment', valueKind: 'comment' },
+  { value: 'set_milestone', label: 'Mark as Milestone', valueKind: 'none' },
 ];
 
 export const CONDITION_FIELDS = [

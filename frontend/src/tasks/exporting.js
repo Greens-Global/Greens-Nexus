@@ -15,7 +15,8 @@
 // in the main bundle - the module already runs close to the bundle budget that
 // scripts/check-bundle-size.mjs enforces.
 
-const stamp = () => new Date().toISOString().slice(0, 10);
+// The viewer's local day - a file exported on a US evening is not dated tomorrow.
+const stamp = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 // A cell is whatever the caller's `get` returned; everything lands as a string
 // except numbers, which Excel should treat as numbers so a column can be summed.

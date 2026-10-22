@@ -8,7 +8,7 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject, projectToForm} from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, SearchSelect, ViewToggle } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, SearchSelect, ViewToggle, DateField } from './components';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import { ExportMenu } from './components';
 import { CustomFieldInput } from './TaskDetailDrawer';
@@ -798,7 +798,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
             <div>
               <label style={label}>Start Date</label>
-              <input type="date" value={form.startOn || ''} onChange={(e) => set({ startOn: e.target.value })}
+              <DateField value={form.startOn || ''} onChange={(v) => set({ startOn: v || '' })} placeholder="Pick a date" title="Start Date"
                 style={{ ...inputStyle, cursor: 'pointer' }} />
               <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
                 {template.hasDates

@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, roleAtLeast } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, roleAtLeast, todayISO } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, UnassignedAvatar, ExportMenu } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -233,7 +233,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               </button>
             )}
             {lockedProject && (
-              <button onClick={() => setDuplicating(true)} title="Duplicate this project"
+              <button onClick={() => setDuplicating(true)} title="Duplicate This Project"
                 style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: NX.dim }}>
                 <Copy size={14} />{!isMobile && 'Duplicate'}
               </button>
@@ -409,7 +409,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
 
 function TaskRow({ t, store, selected, toggleSel, onOpen, band = false }) {
   const { nameOf, toggleComplete, projectName } = store;
-  const overdue = t.dueOn && t.dueOn < new Date().toISOString().slice(0, 10) && !t.completed;
+  const overdue = t.dueOn && t.dueOn < todayISO() && !t.completed;
   const rowBg = selected.has(t.id) ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : NX.surface;
   return (
     <div onClick={() => onOpen(t.id)} data-task-row className="nx-row-hover" data-selected={selected.has(t.id) ? 'true' : undefined} style={{
@@ -474,7 +474,7 @@ function BoardBody({ visible, group, ctx, store, onOpen }) {
             {c.tasks.map((t) => (
               <div key={t.id} onClick={() => onOpen(t.id)} data-task-row style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 11, cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
+                  <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} aria-label={t.completed ? 'Mark Incomplete' : 'Mark Complete'} title={t.completed ? 'Mark Incomplete' : 'Mark Complete'} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
                   <div style={{ fontSize: 13.5, fontWeight: 500, flex: 1, textDecoration: t.completed ? 'line-through' : 'none', opacity: t.completed ? 0.6 : 1 }}>{t.title}</div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9, flexWrap: 'wrap' }}>

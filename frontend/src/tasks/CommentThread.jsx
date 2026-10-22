@@ -39,7 +39,7 @@ export function CommentReactions({ reactions = {}, myEmail, nameOf, onToggle, co
       })}
       {!compact && (
         <div ref={ref} style={{ display: 'inline-flex' }}>
-          <button type="button" onClick={() => setOpen((o) => !o)} title="Add reaction" aria-label="Add reaction"
+          <button type="button" onClick={() => setOpen((o) => !o)} title="Add Reaction" aria-label="Add Reaction"
             style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><SmilePlus size={14} /></button>
           <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)}
             style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 6 }}>

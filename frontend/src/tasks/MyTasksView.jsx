@@ -6,7 +6,7 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus, Clock } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate } from './lib';
+import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate, todayISO } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle, isMissed, MISSED_TITLE } from './theme';
 import { Avatar, EmptyState, useIsMobile, DateField, TaskCountBadges, SearchSelect, ExportMenu, usePeople } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
@@ -88,7 +88,7 @@ const LIST_COLS = [
 
 const dueColor = (iso, completed) => {
   if (!iso || completed) return NX.faint;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   if (iso < today) return NX.red;
   if (iso === today) return NX.amber;
   return NX.dim;
@@ -107,7 +107,7 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
   const nav = useListNav(filtered, { open, query: q, onPick: (u) => toggle(u.email) });
   return (
     <div>
-      <button ref={ref} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add collaborators" style={{ ...btn('ghost'), padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
+      <button ref={ref} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add Collaborators" style={{ ...btn('ghost'), padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
         {value.length ? (
           <>
             <div style={{ display: 'flex' }}>{value.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} /></span>)}</div>
@@ -194,7 +194,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
   const projectId = parent ? effectiveProjectId(t, store.taskById) : t.projectId;
   // Due date reads as a tinted pill (kit grammar), not bare colored text -
   // red tint overdue, amber tint today, quiet gray otherwise.
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const dueBg = !t.dueOn || t.completed ? 'transparent'
     : t.dueOn < today ? 'rgba(220,38,38,0.10)'
     : t.dueOn === today ? 'rgba(232,163,61,0.16)'

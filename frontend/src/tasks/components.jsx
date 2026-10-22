@@ -26,6 +26,7 @@ import { toDownloadUrl } from '../lib/storageView';
 import { frequentRows } from './frequentPeople';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
+import { formatHHMM } from '../lib/datetime';
 
 // `card={false}` opts a call site out of the hover card - for avatars that are
 // already inside an interactive row (menu items, pickers), where a second click
@@ -330,11 +331,15 @@ const sameYMD = (a, b) => !!a && !!b && a.getFullYear() === b.getFullYear() && a
 // flipped up when there isn't room below - so it works inside modals/sheets too.
 // `min` (YYYY-MM-DD): days before it are shown but cannot be picked, and
 // months/years wholly before it are greyed out the same way.
-function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '', repeat = null }) {
+function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '', max = '', repeat = null }) {
   const selected = value ? isoToDate(value) : null;
   const today = new Date();
   const minDate = min ? isoToDate(min) : null;
   const beforeMin = (d) => !!minDate && d < minDate;
+  // `max` (YYYY-MM-DD): days after it are shown but cannot be picked (a time
+  // entry cannot be logged on a day that has not happened yet).
+  const maxDate = max ? isoToDate(max) : null;
+  const afterMax = (d) => !!maxDate && d > maxDate;
   const monthBeforeMin = (y, m) => !!minDate && (y < minDate.getFullYear() || (y === minDate.getFullYear() && m < minDate.getMonth()));
   const yearBeforeMin = (y) => !!minDate && y < minDate.getFullYear();
   const disabledCell = { cursor: 'not-allowed', opacity: 0.35 };
@@ -456,9 +461,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
               const inMonth = d.getMonth() === cursor.getMonth();
               const isToday = sameYMD(d, today);
               const isSel = sameYMD(d, selected);
-              const off = beforeMin(d);
+              const off = beforeMin(d) || afterMax(d);
               return (
-                <button key={i} disabled={off} title={off ? 'Past dates cannot be picked' : undefined}
+                <button key={i} disabled={off} title={beforeMin(d) ? 'Past dates cannot be picked' : afterMax(d) ? 'Later dates cannot be picked' : undefined}
                   onClick={() => { onChange(dateToISO(d)); onClose(); }} style={{
                   height: 36, borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13,
                   fontWeight: (isSel || isToday) ? 700 : 500, fontFamily: FONT,
@@ -536,7 +541,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
 // displays as it is; it just cannot be moved to another past day.
 // `repeat`: { on, label, render({ back, close }) } adds a Repeat button to the
 // calendar's footer that opens the caller's repeat controls in its place.
-export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, repeat = null }) {
+export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, max = '', repeat = null }) {
   const min = noPast ? localTodayISO() : '';
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
@@ -561,7 +566,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
             padding: 0, cursor: disabled ? 'default' : 'pointer', flexShrink: 0,
           }}
         ><CalendarDays size={13} strokeWidth={2} /></button>
-        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} repeat={repeat} />}
+        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} />}
       </span>
     );
   }
@@ -584,8 +589,27 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
           onClick={toggle}
         />
       )}
-      {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} repeat={repeat} />}
+      {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} />}
     </span>
+  );
+}
+
+/** A 12-hour time box (Oct 21 2026). `value` / `onChange` are 'HH:MM' on the
+ *  24-hour clock, the way times are kept everywhere else, but it always READS
+ *  "9:00 AM" - a native <input type="time"> follows the computer's region and
+ *  shows 21:00 on an Indian laptop. Quarter-hour steps; a saved value off that
+ *  grid is kept as an option, so opening a form never changes it. */
+export function TimeField({ value, onChange, style, ariaLabel = 'Time', disabled, step = 15, placeholder = 'Pick a time' }) {
+  const v = /^\d{2}:\d{2}$/.test(value || '') ? value : '';
+  const opts = [];
+  for (let m = 0; m < 1440; m += step) opts.push(`${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`);
+  if (v && !opts.includes(v)) { opts.push(v); opts.sort(); }
+  return (
+    <select value={v} onChange={(e) => onChange(e.target.value)} aria-label={ariaLabel} disabled={disabled}
+      style={{ ...inputStyle, cursor: disabled ? 'default' : 'pointer', ...style }}>
+      {!v && <option value="">{placeholder}</option>}
+      {opts.map((o) => <option key={o} value={o}>{formatHHMM(o)}</option>)}
+    </select>
   );
 }
 
@@ -652,7 +676,7 @@ function emailToName(email) {
 // ranked below it. Labels/descriptions match Asana's own Share dialog exactly
 // (per the reference screenshots) so this reads as a direct parity build.
 export const PROJECT_ROLES = {
-  owner:     { label: 'Project admin', rank: 4, description: 'Can change settings, modify, or delete the project.' },
+  owner:     { label: 'Project Admin', rank: 4, description: 'Can change settings, modify, or delete the project.' },
   editor:    { label: 'Editor',        rank: 3, description: 'Can add, edit, and delete anything in the project.' },
   commenter: { label: 'Commenter',     rank: 2, description: "Can comment, but can't edit anything in the project." },
   viewer:    { label: 'Viewer',        rank: 1, description: "Can view, but can't add comments or edit the project." },
@@ -790,7 +814,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
   const run = async (fn) => {
     setError(''); setBusy(true);
     try { await fn(); }
-    catch (e) { setError(e?.message || 'That action needs Project admin access.'); }
+    catch (e) { setError(e?.message || 'That action needs Project Admin access.'); }
     finally { setBusy(false); }
   };
 
@@ -890,7 +914,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
           <span style={{ flex: 1, fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {personFor(ownerEmail).name}
           </span>
-          <span style={{ fontSize: 13, color: NX.faint, padding: '4px 6px' }}>Project admin</span>
+          <span style={{ fontSize: 13, color: NX.faint, padding: '4px 6px' }}>Project Admin</span>
         </div>
         {projectTeams.map((t) => (
           <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderBottom: `1px solid ${NX.border}` }}>
@@ -914,7 +938,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
               {personFor(em).name}
             </span>
             <RolePicker value={memberRoles[em] || 'editor'} onChange={(r) => setMemberRole(em, r)} disabled={busy} />
-            <button type="button" disabled={busy} onClick={() => removeMember(em)} title="Remove access"
+            <button type="button" disabled={busy} onClick={() => removeMember(em)} title="Remove Access"
               style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><X size={14} /></button>
           </div>
         ))}
@@ -1686,7 +1710,7 @@ export function ExportMenu({ title, subtitle, columns, rows, filenameBase, compa
       const base = filenameBase || String(title || 'export').toLowerCase().replace(/\s+/g, '-');
       await exportRows(format, {
         title, subtitle, columns, rows,
-        filename: `${base}-${new Date().toISOString().slice(0, 10)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`,
+        filename: `${base}-${localTodayISO()}.${format === 'pdf' ? 'pdf' : 'xlsx'}`,
       });
       setOpen(false);
     } catch (e) {

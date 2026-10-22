@@ -4,7 +4,7 @@
 // Renders nothing when the selection is empty; the parent owns `selected`.
 import { useRef, useState } from 'react';
 import { Copy, Trash2, X } from 'lucide-react';
-import { bulkFieldsFor, duplicateTaskData } from './lib';
+import { bulkFieldsFor, duplicateTaskData, deleteSelectedTasks } from './lib';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import { SearchSelect } from './components';
 import { CustomFieldInput } from './TaskDetailDrawer';
@@ -21,7 +21,7 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
   const [draft, setDraft] = useState('');
   const fieldRef = useRef(null);
   if (!selected.size) return null;
-  const { tasks, bulkUpdate, deleteTask } = store;
+  const { tasks, bulkUpdate } = store;
   const fields = bulkFieldsFor(store.customFields, tasks, selected);
   const field = fields.find((f) => f.id === fieldId) || null;
   const closeField = () => { setFieldId(''); setDraft(''); };
@@ -136,8 +136,8 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
         </span>
       )}
       <button onClick={duplicate} title="Duplicate the selected tasks" style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Copy size={14} />Duplicate</button>
-      <button onClick={() => { if (confirm(`Delete ${selected.size} task(s)?`)) { [...selected].forEach(deleteTask); clearSel(); } }} style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Trash2 size={15} />Delete</button>
-      <button onClick={clearSel} title="Clear Selection" style={{ ...btn('ghost'), color: '#fff', padding: 5, flexShrink: 0 }}><X size={16} /></button>
+      <button onClick={() => { if (confirm(`Delete ${selected.size} task(s)?`)) { const ids = [...selected]; clearSel(); deleteSelectedTasks(store, ids).catch(() => {}); } }} style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Trash2 size={15} />Delete</button>
+      <button onClick={clearSel} title="Clear Selection" aria-label="Clear Selection" style={{ ...btn('ghost'), color: '#fff', padding: 5, flexShrink: 0 }}><X size={16} /></button>
     </div>
   );
 }
