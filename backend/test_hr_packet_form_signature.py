@@ -195,7 +195,8 @@ class DetailsFormTests(FormCase):
         s = next(x for x in cat["settings"] if x["id"] == "s-hire")
         body = {"id": "s-hire", "entity_id": CO, "event": "hire", "name": s["name"], "doc_template_ids": s["docTemplateIds"],
                 "flow": [{"key": f["key"], "role": f["role"], "action": f["action"]} for f in s["flow"]],
-                "verify_role": "hr", "details_form": FORM + [{"label": "Phone", "type": "text"}]}
+                "verify_role": "hr", "country": s["country"] or "US",
+                "details_form": FORM + [{"label": "Phone", "type": "text"}]}
         r = self.client.put("/hr/packets/documents", json=body)
         self.assertEqual(r.status_code, 400)
         self.assertIn("already fills", r.text)
