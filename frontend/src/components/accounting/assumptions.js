@@ -129,6 +129,61 @@ export const T12_MONTHS = 12;
 // full months AND the current month to date as a 13th column. Off.
 export const T12_INCLUDE_CURRENT_MONTH = false;
 
+// ── CR-09 Payroll Summary ───────────────────────────────────────────────────
+// Team answer, 23 Oct (Neil): "Payroll line detail comes from quickbooks and
+// we do a journal import using the import template. It should effectively be
+// the same as a Quickbooks Payroll Summary report and operate in the same
+// manner. Charmi Desai provide him a copy for reference from QB". Until her
+// copy arrives, the rows follow QuickBooks' standard Payroll Summary and the
+// accounts follow the import's own mapping (payrollConvert.js
+// DEFAULT_PAYROLL_MAPPING) - EVERY row below is pending Charmi's QB reference.
+
+// CR-09 (confirmed by team, 23 Oct): the journal the QuickBooks payroll is
+// imported into (payrollConvert.js writes PYRJ).
+export const PAYROLL_SUMMARY_JOURNAL = 'PYRJ';
+// CR-09 (assumption, Charmi to confirm): employees as COLUMNS with a Total
+// column, the QuickBooks layout; 'rows' turns it on its side.
+export const PAYROLL_SUMMARY_EMPLOYEES_AS = 'columns';
+// CR-09 (assumption, Charmi to confirm): who sees it - the Accounting grant
+// at this level, the same as Compensation (wages per person), and not a
+// person limited to certain entities. 'viewer' opens it to all of Accounting.
+export const PAYROLL_SUMMARY_LEVEL = 'full';
+// CR-09 (assumption, Charmi to confirm): opens on Year to Date.
+export const PAYROLL_SUMMARY_DEFAULT_PRESET = 'ytd';
+
+// The rows, QuickBooks' order. Each line reads the employee's PYRJ postings
+// on its accounts, on one side: 'debit' (an expense posted) or 'credit' (a
+// withholding / deduction / liability posted). The label is the account's
+// title on the ledger unless `label` is given. Pending Charmi's QB reference.
+export const PAYROLL_SUMMARY_SECTIONS = [
+  // Gross pay - the earnings items (import: Hourly / Holiday 61905, Sick 61906,
+  // Vacation 61907, Bonus 61908, Overtime / Double Time 61909, Salary 61910,
+  // Officers Salary 61904). Pending Charmi's QB reference.
+  { key: 'gross', label: 'Gross Pay', side: 'debit', accounts: ['61904', '61905', '61906', '61907', '61908', '61909', '61910'] },
+  // Taxes withheld from the employee (Federal Withholding 23801, Medicare
+  // Employee 23804, Social Security Employee 23807, CA Withholding 23811,
+  // CA Disability Employee 23806). Pending Charmi's QB reference.
+  { key: 'withheld', label: 'Taxes Withheld', side: 'credit', accounts: ['23801', '23804', '23807', '23811', '23806'] },
+  // Deductions from net pay (401(k) 23101, Health Insurance / Wage
+  // Garnishment 61903 credit side, Cash Advance 63306, Construction COGS
+  // 50301, Fuel 63203). Pending Charmi's QB reference.
+  { key: 'deductions', label: 'Deductions From Net Pay', side: 'credit', accounts: ['23101', '61903', '63306', '50301', '63203'] },
+  // Employer taxes and contributions - the expense side (Federal
+  // Unemployment 62101, Medicare Company 62102, Social Security Company
+  // 62104, CA Unemployment 62105, CA Employment Training Tax 62106, company
+  // Health Insurance 61903 debit side). Pending Charmi's QB reference.
+  { key: 'employer', label: 'Employer Taxes and Contributions', side: 'debit', accounts: ['62101', '62102', '62104', '62105', '62106', '61903'] },
+];
+// CR-09 (assumption, Charmi to confirm): where an imported line has no
+// employee (GLENTRY_EMPLOYEEID blank), the employee is read from the entry
+// description the import writes - "Payroll 09/30/2026 - E-0185" - with this
+// pattern (first group = the employee code or name). '' turns it off.
+export const PAYROLL_SUMMARY_EMPLOYEE_FROM_DESCRIPTION = '^.*Payroll\\s+\\S*\\s*-\\s*(.+)$';
+// CR-09 (assumption, Charmi to confirm): that description fallback reads the
+// period's PYRJ lines one by one - at most this many; past it the lines stay
+// under "No Employee on the Line" and the screen says why.
+export const PAYROLL_SUMMARY_FALLBACK_MAX_LINES = 10000;
+
 // ── CR-10 Manual Journal Entries ────────────────────────────────────────────
 // Which entries count as manual is the server's (backend MANUAL_JE_* in
 // accounting_assumptions.py; a system entry a person changed counts - team

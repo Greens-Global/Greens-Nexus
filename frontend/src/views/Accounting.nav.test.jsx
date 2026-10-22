@@ -50,6 +50,7 @@ vi.mock('../components/accounting/ManagementFeesTab', () => stub('mgmt-fees'));
 vi.mock('../components/accounting/CompensationReport', () => stub('compensation'));
 vi.mock('../components/accounting/RecordsLists', () => ({ GlAccountsTab: () => <div data-testid="tab-gl-accounts" />, EntitiesTab: () => <div data-testid="tab-entities" /> }));
 vi.mock('../components/accounting/ManualJournalEntries', () => stub('manual-je'));
+vi.mock('../components/accounting/PayrollSummary', () => stub('payroll-summary'));
 vi.mock('../components/accounting/JournalTab', () => ({ default: ({ symbol }) => <div data-testid="tab-journal" data-symbol={symbol} /> }));
 vi.mock('../components/accounting/dashboard/OverviewTab', () => stub('overview'));
 vi.mock('../components/accounting/dashboard/CashTab', () => stub('cash'));
@@ -180,7 +181,7 @@ describe('Accounting navigation', () => {
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Budget' }));
     expect(menuLabels('Budget')).toEqual(['Budget', 'Budget vs. Actual, YTD', 'Budget vs. Actual, MTD']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Payroll & People' }));
-    expect(menuLabels('Payroll & People')).toEqual(['Compensation']);
+    expect(menuLabels('Payroll & People')).toEqual(['Compensation', 'Payroll Summary']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
     // CR-10 / CR-04: Neil's six in his order, then Management Fees.
     expect(menuLabels('Audit & Insights')).toEqual(['Flux Analysis', 'MRE', 'MRI', 'AMA', 'Manual Journal Entries', 'Profitability', 'Management Fees']);

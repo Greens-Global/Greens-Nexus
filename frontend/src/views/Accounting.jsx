@@ -42,11 +42,12 @@ import { CreditCard } from 'lucide-react';
 import ReportCenter from '../components/accounting/ReportCenter';
 import ReportBuilder from '../components/accounting/ReportBuilder';
 import { STATEMENTS_SUB } from '../components/accounting/drill';
-import { BUILDER_PUBLISH_MIN_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
+import { BUILDER_PUBLISH_MIN_LEVEL, PAYROLL_SUMMARY_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
 import { EntitiesTab, GlAccountsTab } from '../components/accounting/RecordsLists';
 import JournalTab from '../components/accounting/JournalTab';
 import ManualJournalEntries from '../components/accounting/ManualJournalEntries';
-import { Building2, Library, UserPen } from 'lucide-react';
+import { Building2, Library, ReceiptText, UserPen } from 'lucide-react';
+import PayrollSummary from '../components/accounting/PayrollSummary';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -140,6 +141,8 @@ const BASE_TABS = [
     // Oct 15: wages and hours per employee (Full level on Accounting only).
     { key: 'grp-payroll', label: 'Payroll & People', Icon: HandCoins, items: [
       { key: 'compensation', label: 'Compensation', Icon: HandCoins },
+      // Oct 23 (Neil, CR-09): QuickBooks' Payroll Summary, from the PYRJ import.
+      { key: 'payroll-summary', label: 'Payroll Summary', Icon: ReceiptText },
     ] },
     { key: 'grp-audit', label: 'Audit & Insights', Icon: Activity, items: [
       rpt('flux', 'Flux Analysis', Activity),
@@ -251,6 +254,8 @@ export default function Accounting({ activeSub, onSubChange }) {
   const canEdit = canAccessModule('accounting', 'administrator', 'editor');
   // CR-05 (Neil, 23 Oct): anyone with Accounting saves and publishes Report Builder reports.
   const canPublish = canAccessModule('accounting', 'administrator', BUILDER_PUBLISH_MIN_LEVEL);
+  // CR-09: Payroll Summary - wages per person, gated like Compensation (PAYROLL_SUMMARY_LEVEL).
+  const canPayrollSummary = canAccessModule('accounting', 'administrator', PAYROLL_SUMMARY_LEVEL);
   // Deciding who reads which entities takes the Full level.
   const canManage = canAccessModule('accounting', 'administrator', 'full');
   // Vendor / customer change requests are decided by a manager who holds
@@ -279,7 +284,7 @@ export default function Accounting({ activeSub, onSubChange }) {
   const dashDensity = dashDensityOf(prefs);
   // Data, Intercompany and Investments are the editable reference grids (editors and up).
   const allowed = (key) => (key === 'pfs' ? canPfs : journalOf(key) ? true : limited ? LIMITED_TABS.includes(key) || !!reportOf(key)
-    : (!['data', 'intercompany', 'investments'].includes(key) || canEdit) && (key !== 'access' || canManage) && (key !== 'compensation' || canManage));
+    : (!['data', 'intercompany', 'investments'].includes(key) || canEdit) && (key !== 'access' || canManage) && (key !== 'compensation' || canManage) && (key !== 'payroll-summary' || canPayrollSummary));
   // Groups (and the flyouts inside them) keep only the items this person may
   // open; an empty one goes, and a top-level group left with one item is a
   // plain tab under the group's name.
@@ -367,6 +372,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     'mgmt-fees': 'Asset management agreements - the fee per managed entity, billed against expected',
     profitability: 'Revenue, NOI, net income and cash flow after debt service per entity, against the prior year',
     compensation: 'Hours and gross wages per employee from Time Clock, with payroll expense on the ledger',
+    'payroll-summary': 'Gross pay, taxes, deductions, net pay and employer costs per employee, from the QuickBooks payroll in PYRJ',
     'gl-accounts': 'The chart of accounts - every general ledger account, read-only',
     'manual-je': 'Journal entries a person keyed in Intacct - who created and posted each one, for review',
     entities: 'The entities (Intacct locations) on the ledger, with their parents',
@@ -476,6 +482,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'mgmt-fees' && <ManagementFeesTab canEdit={canEdit} />}
               {sub === 'profitability' && <ProfitabilityReport />}
               {sub === 'compensation' && canManage && <CompensationReport />}
+              {sub === 'payroll-summary' && canPayrollSummary && <PayrollSummary />}
             </div>
           </DashNav.Provider>
         </DashProvider>
