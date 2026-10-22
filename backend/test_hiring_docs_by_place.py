@@ -121,15 +121,15 @@ class PlaceFirstTests(unittest.TestCase):
         self.assertIn("Works In", r.json()["detail"])
         r = self._save(name="Second CA", country="US", region="CA")
         self.assertEqual(r.status_code, 400, r.text)
-        self.assertIn('"ca-employee" already covers Employees in CA, US', r.json()["detail"])
+        self.assertIn('"ca-employee" already covers Employees in California', r.json()["detail"])
 
     def test_a_company_carries_its_state(self):
         r = self.client.patch(f"/hr/entities/{OSM}", json={"region": " ca "})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["region"], "CA")
         self.assertEqual(hle.region_of(self.db, GS), "TX")
-        self.assertEqual(hle.place_label("contractor", "IN"), "Contractors in IN")
-        self.assertEqual(hle.kind_of_hire("employee", "US", "TX"), "an Employee in TX, US")
+        self.assertEqual(hle.place_label("contractor", "IN"), "Contractors in India")
+        self.assertEqual(hle.kind_of_hire("employee", "US", "TX"), "an Employee in Texas")
 
 
 if __name__ == "__main__":

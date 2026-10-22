@@ -45,6 +45,7 @@ const h2 = { fontSize: 17, fontWeight: 800, margin: '22px 0 4px', color: 'var(--
 const lead = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, margin: 0 };
 const card = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--card)' };
 const iconBtn = { padding: '4px 6px', display: 'inline-flex', alignItems: 'center' };
+const linkBtn = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-blue))', textDecoration: 'underline', fontFamily: 'Inter,sans-serif' };
 const smallBtn = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 };
 
 const Problem = ({ children }) => (
@@ -104,7 +105,7 @@ const STEPS = [['who', 'Who It\'s For'], ['docs', 'Documents'], ['signs', 'Who S
 
 /** The editor. `packet` is a saved documents row from /hr/packets (null for a
  *  new one, or a seed like {roleIds}); `catalog` is that same response. */
-export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, companyName, defaultSubfolder, catalog, onClose, onSaved, toastErr }) {
+export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, companyName, defaultSubfolder, catalog, onRefreshCatalog, onClose, onSaved, toastErr }) {
   const [p, setP] = useState(() => ({
     id: packet?.engine === 'documents' ? packet.id : '',
     // A Set Up from What Each Hire Gets arrives with its place - named from it.
@@ -179,7 +180,9 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     if (role === 'sender') return 'whoever starts it';
     if (!holders) return '...';
     const h = holders[role];
-    return h?.email ? `today: ${h.name}` : 'nobody holds this yet';
+    if (h?.email) return `today: ${h.name}`;
+    // A packet for every company is signed by each company's own holder (Oct 22).
+    return companyId ? 'nobody holds this yet' : "each company's own, when it is sent";
   };
 
   const setDocs = (ids) => {
@@ -412,10 +415,16 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
         <select className="form-input" style={{ flex: '1 1 260px' }} value={adding} onChange={e => setAdding(e.target.value)} aria-label="Pick a template to add">
-          <option value="">{available.length ? 'Pick a template to add...' : 'Every active template is already in this packet'}</option>
+          <option value="">{available.length ? 'Pick a template to add...' : templates.length ? 'Every active template is already in this packet' : 'No active templates yet'}</option>
           {available.map(t => <option key={t.id} value={t.id}>{t.name}{t.publishedVersion ? '' : ' (Not Published)'}</option>)}
         </select>
         <button type="button" className="primary-btn" disabled={!adding} onClick={() => { setDocs([...p.docIds, adding]); setAdding(''); }} style={smallBtn}><Plus size={13} /> Add Document</button>
+      </div>
+      {/* Writing a template elsewhere and coming back is normal (Oct 22 walkthrough):
+          make a new one in a new tab, then refresh this list - nothing typed here is lost. */}
+      <div style={{ ...hint, display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6 }}>
+        <button type="button" onClick={() => window.open('/documents/documents-templates', '_blank', 'noopener')} style={linkBtn}>New Template (Opens In A New Tab)</button>
+        {onRefreshCatalog && <button type="button" onClick={onRefreshCatalog} style={linkBtn}>Refresh The List</button>}
       </div>
 
       {(asked.person.length > 0 || asked.hr.length > 0) && (

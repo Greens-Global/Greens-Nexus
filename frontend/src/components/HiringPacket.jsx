@@ -212,6 +212,9 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
     return api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
   };
   useEffect(() => { load(); api.getEntities().then(setEntities).catch(() => {}); }, []);
+  // A template written since this window opened shows up when a packet opens.
+  const refreshCatalog = () => api.getPackets().then(setData).catch(() => {});
+  useEffect(() => { if (editing) refreshCatalog(); }, [!!editing]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const events = (data?.events || []).filter(e => ENABLED_EVENTS.includes(e.key));
   const ev = tab === 'overview' ? null : (events.find(e => e.key === tab) || events[0]);
@@ -247,12 +250,12 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
 
   return (
     <Overlay onClose={onClose} wide>
-      <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: '8px 14px', flexShrink: 0, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 220px', minWidth: 0 }}>
           <div style={{ fontWeight: 800, fontSize: 15.5 }}>Hiring Documents</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>What goes out through Nexus Sign when someone is hired, promoted or leaves</div>
         </div>
-        <select className="form-input" style={{ width: 240 }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
+        <select className="form-input" style={{ width: 240, maxWidth: '100%' }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
           <option value="">All Companies</option>
           {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
@@ -349,7 +352,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
       </div>
       {editing && (editing.row ? editing.row.engine === 'documents' : true) && (
         <DocumentsPacketEditor packet={editing.row || editing.seed || null} event={editing.event.key} eventLabel={editing.event.label}
-          catalog={data}
+          catalog={data} onRefreshCatalog={refreshCatalog}
           companyId={editing.row ? (editing.row.entityId || '') : (editing.companyId ?? companyId)}
           companyName={editing.row ? (entityName(editing.row.entityId) || 'Every company') : (editing.companyId ? (entityName(editing.companyId) || 'This company') : company)}
           defaultSubfolder={editing.event.defaultSubfolder} toastErr={toastErr}

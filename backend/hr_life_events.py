@@ -273,9 +273,9 @@ def country_of(db: Session, entity_id: str) -> str:
 
 
 def place_label(worker_type: str, country: str, region: str = "") -> str:
-    """'Employees in CA, US', 'Contractors anywhere' - what a packet covers."""
+    """'Employees in California', 'Contractors anywhere' - what a packet covers."""
     who = {"employee": "Employees", "contractor": "Contractors"}.get(worker_type or "", "Employees and contractors")
-    where = ", ".join(x for x in ((region or "").upper(), (country or "").upper()) if x)
+    where = place_words(country, region)
     return f"{who} in {where}" if where else f"{who} anywhere"
 
 
@@ -288,11 +288,34 @@ def region_of(db: Session, entity_id: str) -> str:
 WORKER_LABELS = {"employee": "Employee", "contractor": "Contractor"}
 
 
+US_STATES = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California", "CO": "Colorado",
+    "CT": "Connecticut", "DE": "Delaware", "DC": "District of Columbia", "FL": "Florida", "GA": "Georgia",
+    "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+    "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts",
+    "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri", "MT": "Montana",
+    "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico",
+    "NY": "New York", "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+    "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+    "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia", "WA": "Washington",
+    "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming", "PR": "Puerto Rico",
+}
+
+
+def place_words(country: str, region: str = "") -> str:
+    """'California', 'Texas', 'India' - a place the way people say it."""
+    from hr_packet_docs import _country_name
+    country, region = (country or "").upper(), (region or "").upper()
+    if country == "US" and region:
+        return US_STATES.get(region, f"{region}, United States")
+    return _country_name(country)
+
+
 def kind_of_hire(worker_type: str, country: str, region: str = "") -> str:
-    """'a Contractor in IN', 'an Employee in CA, US' - how HR reads which
-    letter a hire needs."""
+    """'a Contractor in India', 'an Employee in California' - how HR reads
+    which letter a hire needs."""
     who = WORKER_LABELS.get(worker_type, "hire")
-    where = ", ".join(x for x in (region, country) if x)
+    where = place_words(country, region)
     return f"{'an' if who[0] in 'AEIOU' else 'a'} {who}" + (f" in {where}" if where else "")
 
 
