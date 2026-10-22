@@ -1272,6 +1272,8 @@ def _run_migrations():
             "ALTER TABLE task_custom_fields ADD COLUMN formula_format JSON DEFAULT '{}'",
             # Tasks conditional row colors (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
+            # Checklist steps ticked by Nexus say why (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklist_items ADD COLUMN done_reason VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2924,6 +2926,9 @@ def _run_migrations():
         # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
         # the _enable_rls_everywhere sweep. models.TimecardBonus.
         "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
+        # Checklist steps ticked by Nexus say which condition did it (Neil, Oct
+        # 22: several conditions per step). models.HrChecklistItem.done_reason.
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS done_reason VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

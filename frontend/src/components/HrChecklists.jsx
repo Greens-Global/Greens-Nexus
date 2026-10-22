@@ -91,6 +91,9 @@ function initials(name) {
   return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase() || '?';
 }
 const isClosed = s => s.status === 'done' || s.status === 'na';
+const lowerFirst = t => (t ? t.charAt(0).toLowerCase() + t.slice(1) : '');
+// A step's automatic conditions, joined by "|" (hr_checklists.SIG_SEP) - any one ticks it.
+const sigList = s => (s || '').split('|').map(x => x.trim()).filter(Boolean);
 function ownerText(s) {
   if (s.ownerEmail) return s.ownerName || s.ownerEmail;
   return null;
@@ -126,6 +129,7 @@ function Avatar({ name, empty }) {
 
 function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, toastErr }) {
   const comments = step.comments || [];
+  const conds = step.signals || (step.signal ? [{ value: step.signal, label: step.signalLabel || '' }] : []);
   const [busy, setBusy] = useState(false);
   // A step with comments stays open so the thread is in view (Pranshu, Oct 20).
   const [open, setOpen] = useState(comments.length > 0);
@@ -188,8 +192,8 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
             </span>
             {late && pill(STEP_META.overdue)}
             {step.status === 'na' && pill(STEP_META.na)}
-            {step.signal && !closed && (
-              <span title={`Nexus marks this done by itself when: ${step.signalLabel}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600, color: 'var(--wk-brand)' }}>
+            {conds.length > 0 && !closed && (
+              <span title={`Nexus marks this done by itself when: ${conds.map(c => lowerFirst(c.label)).join(' or ')}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600, color: 'var(--wk-brand)' }}>
                 <Sparkles size={11} /> Auto-Ticks
               </span>
             )}
@@ -219,7 +223,12 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
       {open && (
         <div style={{ padding: '0 12px 12px 42px', display: 'grid', gap: 10 }}>
           {step.hint && <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.55, maxWidth: '70ch' }}>{step.hint}</div>}
-          {step.signal && <div style={{ fontSize: 12, color: 'var(--wk-brand)', display: 'flex', gap: 6, alignItems: 'center' }}><Sparkles size={12} /> Nexus marks this done by itself when: {step.signalLabel.charAt(0).toLowerCase() + step.signalLabel.slice(1)}</div>}
+          {conds.length > 0 && !closed && (
+            <div style={{ fontSize: 12, color: 'var(--wk-brand)', display: 'grid', gap: 3 }}>
+              <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><Sparkles size={12} /> {conds.length === 1 ? 'Nexus marks this done by itself when:' : 'Nexus marks this done by itself when any one of these is true:'}</span>
+              <ul style={{ margin: 0, paddingLeft: 36 }}>{conds.map(c => <li key={c.value}>{lowerFirst(c.label)}</li>)}</ul>
+            </div>
+          )}
           {step.note && (
             <div style={{ fontSize: 12.5, color: 'var(--wk-ink)', padding: '8px 10px', background: 'var(--wk-card)', border: '1px solid var(--wk-line2)', borderRadius: 6, whiteSpace: 'pre-wrap', maxWidth: '70ch' }}>
               <b style={{ fontWeight: 600 }}>{step.status === 'na' ? 'N/A Reason: ' : 'Note: '}</b>{step.note}
@@ -251,7 +260,9 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
           )}
           {closed && step.doneAt && (
             <div style={{ fontSize: 12, color: 'var(--wk-dim)' }}>
-              {step.status === 'na' ? 'Marked N/A' : 'Done'} {step.doneBy === 'Nexus' ? 'by Nexus' : step.doneBy ? `by ${step.doneBy}` : ''} on {formatDate(step.doneAt)}
+              {step.status === 'done' && step.doneBy === 'Nexus' && step.doneReason
+                ? `Marked done by Nexus: ${lowerFirst(step.doneReason)}, ${formatDate(step.doneAt)}`
+                : <>{step.status === 'na' ? 'Marked N/A' : 'Done'} {step.doneBy === 'Nexus' ? 'by Nexus' : step.doneBy ? `by ${step.doneBy}` : ''} on {formatDate(step.doneAt)}</>}
             </div>
           )}
           {canAct && (
@@ -1005,10 +1016,11 @@ function appliesText(a, meta) {
   return bits;
 }
 function signalHint(signal, meta) {
+  const exact = meta?.signals?.find(x => x.value === signal)?.label;
+  if (exact) return lowerFirst(exact);
   const name = (signal || '').split(':')[0];
   if (name === 'envelope') return `a ${(signal.split(':')[1] || 'matching').replace(/_/g, ' ').replace(/,/g, ' or ')} document is signed in Nexus Sign`;
-  const l = meta?.signals?.find(x => x.value === name)?.label;
-  return l ? l.charAt(0).toLowerCase() + l.slice(1) : '';
+  return lowerFirst(meta?.signals?.find(x => x.value === name)?.label);
 }
 const tag = (text, tone) => (
   <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 5, whiteSpace: 'nowrap',
@@ -1017,7 +1029,11 @@ const tag = (text, tone) => (
 
 function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, setApplies, onDone }) {
   const roles = meta?.roles || [];
-  const signals = meta?.signals || [];
+  const picked = sigList(r.signal);
+  // Every condition Nexus can check, plus any saved one it no longer lists (an old envelope kind).
+  const conds = [...(meta?.signals || []).filter(s => s.value !== 'envelope'),
+    ...picked.filter(v => !(meta?.signals || []).some(s => s.value === v)).map(v => ({ value: v, label: signalHint(v, meta) }))];
+  const flipCond = v => set(i, { signal: (picked.includes(v) ? picked.filter(x => x !== v) : [...picked, v]).join('|') });
   const field = (label, el) => <label style={{ display: 'grid', gap: 5 }}><span style={capLabel}>{label}</span>{el}</label>;
   return (
     <div style={{ display: 'grid', gap: 12, padding: 14, margin: '4px 0 8px', borderRadius: 'var(--wk-r)', border: '1px solid var(--wk-brand)', background: 'var(--wk-card)', boxShadow: '0 0 0 3px var(--wk-brand-tint)' }}>
@@ -1063,16 +1079,25 @@ function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, setAppl
             onChange={v => setApplies(i, 'exit_types', v)} placeholder="Every exit type" searchPlaceholder="Search exit types…" />
         ))}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-        {field('How It Gets Marked Done', (
-          <select value={r.signal} onChange={e => set(i, { signal: e.target.value })} style={inputStyle}>
-            <option value="">By The Owner (they tick it)</option>
-            {r.signal && !signals.some(s => s.value === r.signal) && <option value={r.signal}>Automatically, When: a {(r.signal.split(':')[1] || r.signal).replace(/_/g, ' ')} document is signed</option>}
-            {signals.filter(s => s.value !== 'envelope').map(s => <option key={s.value} value={s.value}>Automatically, When: {s.label.charAt(0).toLowerCase() + s.label.slice(1)}</option>)}
-          </select>
-        ))}
-        {field('How-To Hint (optional)', <input value={r.hint || ''} onChange={e => set(i, { hint: e.target.value })} placeholder="One sentence shown under the step" style={inputStyle} />)}
-      </div>
+      {/* A multi-select (Neil, Oct 22): the owner can always tick it, and any
+          ONE of the picked conditions ticks it by itself. */}
+      <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'grid', gap: 8, minWidth: 0 }}>
+        <legend style={{ ...capLabel, padding: 0, marginBottom: 6 }}>How It Gets Marked Done</legend>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--wk-ink)' }}>
+          <input type="checkbox" checked disabled /> Done when the owner ticks it (always)
+        </label>
+        <span style={{ fontSize: 12.5, color: 'var(--wk-dim)' }}>And automatically when any one of these is true{picked.length ? ` (${picked.length} picked)` : ''}:</span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(260px, 100%), 1fr))', gap: 6 }}>
+          {conds.map(c => (
+            <label key={c.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 9px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, lineHeight: 1.4, color: 'var(--wk-ink)',
+              border: `1px solid ${picked.includes(c.value) ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, background: picked.includes(c.value) ? 'var(--wk-brand-tint)' : 'transparent' }}>
+              <input type="checkbox" checked={picked.includes(c.value)} onChange={() => flipCond(c.value)} style={{ marginTop: 2 }} />
+              <span>{c.label.charAt(0).toUpperCase() + c.label.slice(1)}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {field('How-To Hint (optional)', <input value={r.hint || ''} onChange={e => set(i, { hint: e.target.value })} placeholder="One sentence shown under the step" style={inputStyle} />)}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <button onClick={() => move(i, -1)} disabled={i === 0} style={ghostBtn}><ArrowUp size={13} /> Move Up</button>
         <button onClick={() => move(i, 1)} disabled={i === total - 1} style={ghostBtn}><ArrowDown size={13} /> Move Down</button>
@@ -1268,12 +1293,16 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
                     <span style={{ flex: '1 1 260px', minWidth: 0, display: 'grid', gap: 2 }}>
                       <span style={{ fontSize: 13.5, fontWeight: 600, color: r.title ? 'var(--wk-ink)' : 'var(--wk-red)' }}>{r.title || 'Untitled Step'}</span>
                       {r.hint && <span style={{ fontSize: 12, color: 'var(--wk-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.hint}</span>}
+                      {sigList(r.signal).length > 0 && (
+                        <span style={{ fontSize: 12, color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'flex-start', gap: 4 }}>
+                          <Sparkles size={11} style={{ flexShrink: 0, marginTop: 3 }} /> Auto-ticks when: {sigList(r.signal).map(x => signalHint(x, meta)).join(' or ')}
+                        </span>
+                      )}
                     </span>
                     <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                       {tag(roles.find(o => o.value === r.owner)?.label || ROLE_LOOK[r.owner]?.label || r.owner, 'brand')}
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--wk-dim)', whiteSpace: 'nowrap' }}><CalendarDays size={12} /> {timingText(r, template.kind)}</span>
                       {appliesText(r.applies, meta).map(t => <span key={t}>{tag(t)}</span>)}
-                      {r.signal && <span title={`Nexus marks this done by itself${signalHint(r.signal, meta) ? ` when: ${signalHint(r.signal, meta)}` : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, fontWeight: 600, color: 'var(--wk-brand)' }}><Sparkles size={11} /> Auto-Ticks</span>}
                     </span>
                     <Pencil size={13} color="var(--wk-faint)" aria-hidden="true" />
                   </button>

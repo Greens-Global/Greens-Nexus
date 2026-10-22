@@ -50,7 +50,8 @@ def _wipe(db):
               models.NexusNotification, models.HrProvisionRun, models.HrCandidate,
               models.HrCompanyHoliday, models.NexusAccessScope, models.NexusGroupMember,
               models.NexusGroup, models.HrEntity, models.NexusSetting, models.HrStageEvent,
-              models.HrDepartment, models.Task):
+              models.HrDepartment, models.Task, models.HrDocument, models.HrSignRequest,
+              models.HrSignTemplate):
         db.query(m).delete(synchronize_session=False)
     db.query(models.NexusEmployee).execution_options(include_deleted=True).delete(synchronize_session=False)
     db.commit()
@@ -832,6 +833,95 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self._task(mine).title, "Weekly report")
         self.assertEqual(self._task(rows[0].task_id).parent_task_id, parent)
+
+    # --- How a step gets marked done is a multi-select (Neil, Oct 22): the
+    # owner can always tick it, and any ONE of its automatic conditions ticks
+    # it too - including evidence on the record itself (the Colin case).
+
+    def _custom(self, signal=None, signals=None):
+        row = {"key": "EV-1", "title": "ID And Right To Work On File", "owner": "hr", "anchor": "S", "offset": 0}
+        if signal is not None:
+            row["signal"] = signal
+        if signals is not None:
+            row["signals"] = signals
+        r = self.client.put("/hr/checklists/templates/onboarding?entity_id=" + CO_B, json={"items": [row]})
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()["items"][0]
+
+    def _get(self, eid):
+        return self.client.get(f"/hr/checklists/employee/{eid}").json()["checklists"][0]["items"][0]
+
+    def test_several_conditions_are_saved_and_unknown_ones_refused(self):
+        row = self._custom(signals=["id_on_file", "work_auth_verified", "id_on_file"])
+        self.assertEqual(row["signal"], "id_on_file|work_auth_verified")
+        r = self.client.put("/hr/checklists/templates/onboarding?entity_id=" + CO_B,
+                            json={"items": [{"title": "X", "signals": ["id_on_file", "made_up"]}]})
+        self.assertEqual(r.status_code, 400)
+
+    def test_any_one_condition_ticks_and_says_which(self):
+        self._custom(signals=["id_on_file", "work_auth_verified"])
+        eid = self._person("emp-ev", company=CO_B)
+        cl = self._start(eid)
+        step = cl["items"][0]
+        self.assertEqual(step["status"], "open")
+        self.assertEqual([s["value"] for s in step["signals"]], ["id_on_file", "work_auth_verified"])
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusEmployee).filter_by(id=eid).update(
+                {"compliance": {"workAuth": "citizen", "status": "verified"}})
+            db.commit()
+        finally:
+            db.close()
+        step = self._get(eid)
+        self.assertEqual((step["status"], step["doneBy"]), ("done", "Nexus"))
+        self.assertIn("Work authorization", step["doneReason"])
+        # ticked by hand later on someone else's checklist: no Nexus reason
+        r = self.client.patch(f"/hr/checklists/items/{step['id']}", json={"status": "open"})
+        self.assertEqual(r.json()["item"]["doneReason"], "")
+
+    def test_id_condition_needs_a_live_id_document(self):
+        self._custom(signal="id_on_file")
+        eid = self._person("emp-id", company=CO_B)
+        self._start(eid)
+        yesterday = (date.today() - timedelta(days=5)).isoformat()
+        db = database.SessionLocal()
+        try:      # a resume and an EXPIRED ID prove nothing
+            db.add(models.HrDocument(id="doc-cv", employee_id=eid, kind="resume", file_name="cv.pdf", storage_path="x"))
+            db.add(models.HrDocument(id="doc-old", employee_id=eid, kind="id", file_name="dl.pdf", storage_path="y",
+                                     expires_on=yesterday))
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self._get(eid)["status"], "open")
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrDocument(id="doc-id", employee_id=eid, kind="id", file_name="dl2.pdf", storage_path="z"))
+            db.commit()
+        finally:
+            db.close()
+        step = self._get(eid)
+        self.assertEqual((step["status"], step["doneBy"]), ("done", "Nexus"))
+        self.assertIn("ID document", step["doneReason"])
+
+    def test_an_old_single_condition_still_ticks(self):
+        self._custom(signal="envelope:offer,contractor_agreement")
+        eid = self._person("emp-old", company=CO_B)
+        self._start(eid)
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrSignTemplate(id="tpl-offer", name="Offer", kind="offer"))
+            db.add(models.HrSignRequest(id="req-offer", title="Offer", template_id="tpl-offer", employee_id=eid,
+                                        status="completed"))
+            db.commit()
+        finally:
+            db.close()
+        step = self._get(eid)
+        self.assertEqual(step["status"], "done")
+        self.assertIn("offer letter", step["doneReason"])
+
+    def test_meta_offers_the_evidence_conditions(self):
+        values = {s["value"] for s in self.client.get("/hr/checklists/meta").json()["signals"]}
+        self.assertTrue({"id_on_file", "work_auth_verified", "envelope:nda,handbook_ack"} <= values)
 
 
 if __name__ == "__main__":

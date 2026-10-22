@@ -243,3 +243,48 @@ describe('Who does each step', () => {
     expect(screen.getByRole('combobox', { name: 'Department for IT steps' })).toHaveValue('d-it');
   });
 });
+
+// Neil, Oct 22: "how it gets marked done should be a multi-select" - the owner
+// can always tick it, and any one of several automatic conditions ticks it too.
+describe('How a step gets marked done', () => {
+  it('the editor offers every condition as a checkbox and the list names each one picked', async () => {
+    api.getChecklistMeta.mockResolvedValue({ ...META, signals: [
+      { value: 'provisioned', label: 'A provisioning run finished' },
+      { value: 'id_on_file', label: 'An ID document is on file (Documents tab, not expired)' },
+      { value: 'work_auth_verified', label: 'Work authorization is Verified on the Compliance tab (not expired)' }] });
+    api.getChecklistTemplates.mockResolvedValueOnce({ templates: [
+      { id: 't1', kind: 'onboarding', kindLabel: 'Onboarding', name: 'Onboarding', entityId: '', inherited: false, updatedAt: '',
+        items: [{ key: 'ON-24', phase: 'First 90 Days', title: 'Right To Work Recorded', owner: 'hr', anchor: 'S', offset: 3, bd: true,
+                  applies: {}, signal: 'id_on_file|work_auth_verified', hint: '' }] }] });
+    render(<ChecklistSettings entities={[]} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText(/Auto-ticks when: an ID document is on file .* or work authorization/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Right To Work Recorded'));
+    expect(await screen.findByRole('checkbox', { name: 'Done when the owner ticks it (always)' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /An ID document is on file/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Work authorization is Verified/ })).toBeChecked();
+    const prov = screen.getByRole('checkbox', { name: 'A provisioning run finished' });
+    expect(prov).not.toBeChecked();
+    fireEvent.click(prov);
+    expect(await screen.findByText(/\(3 picked\)/)).toBeInTheDocument();
+    expect(screen.getByText('Template changes not saved yet')).toBeInTheDocument();
+    api.getChecklistMeta.mockImplementation(() => Promise.resolve(META));
+  });
+
+  it('a step lists its conditions and says which one ticked it', async () => {
+    api.getEmployeeChecklists.mockResolvedValueOnce({ checklists: [{ ...CHECKLIST, done: 1, items: [
+      { ...CHECKLIST.items[0], comments: [], status: 'done', overdue: false, doneBy: 'Nexus', doneAt: '2026-10-23T10:00:00Z',
+        doneReason: 'An ID document is on file (Documents tab, not expired)',
+        signals: [{ value: 'id_on_file', label: 'An ID document is on file (Documents tab, not expired)' }] },
+      { ...CHECKLIST.items[1], signal: 'provisioned|item_assigned',
+        signals: [{ value: 'provisioned', label: 'A provisioning run finished' }, { value: 'item_assigned', label: 'An Item Management assignment exists' }] },
+    ] }] });
+    render(<ChecklistSection employee={{ id: 'emp-1', firstName: 'Jane', startDate: '2026-11-02' }} canEdit toastOk={() => {}} toastErr={() => {}} />);
+    fireEvent.click(await screen.findByText('Account And Access'));            // a finished phase starts folded
+    fireEvent.click(await screen.findByText('Microsoft 365 Account Provisioned'));
+    expect(await screen.findByText(/Marked done by Nexus: an ID document is on file .*, 10\/23\/2026/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Team Intro, Buddy And First-Week Goals'));
+    expect(await screen.findByText('Nexus marks this done by itself when any one of these is true:')).toBeInTheDocument();
+    expect(screen.getByText('a provisioning run finished')).toBeInTheDocument();
+    expect(screen.getByText('an Item Management assignment exists')).toBeInTheDocument();
+  });
+});

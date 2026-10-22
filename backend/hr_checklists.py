@@ -40,6 +40,7 @@ from models import (
     HrChecklistTemplate,
     HrCompanyHoliday,
     HrDepartment,
+    HrDocument,
     HrEntity,
     HrProvisionRun,
     HrSignRequest,
@@ -193,9 +194,14 @@ def clean_template_items(items: list) -> list:
             raise ValueError(f"{title}: applies must be an object")
         applies = {k: [str(v) for v in (applies.get(k) or [])]
                    for k in ("types", "countries", "exit_types") if applies.get(k)}
-        signal = str(raw.get("signal") or "").strip()
-        if signal and signal_name(signal) not in SIGNALS:
-            raise ValueError(f"{title}: unknown completion signal {signal}")
+        # Several automatic conditions (Neil, Oct 22: "a multi-select... it
+        # gets done if you tick it, but it could also be done automatically").
+        sigs = raw.get("signals") if isinstance(raw.get("signals"), list) else signal_list(raw.get("signal"))
+        sigs = list(dict.fromkeys(str(x).strip() for x in sigs if str(x or "").strip()))
+        for sig in sigs:
+            if signal_name(sig) not in SIGNALS or SIG_SEP in sig:
+                raise ValueError(f"{title}: unknown completion signal {sig}")
+        signal = SIG_SEP.join(sigs)
         out.append({"key": key, "phase": str(raw.get("phase") or "").strip()[:80],
                     "title": title[:200], "hint": str(raw.get("hint") or "").strip()[:500],
                     "owner": owner, "anchor": anchor, "offset": offset,
@@ -563,8 +569,23 @@ def start_on_hire(db, emp: NexusEmployee, by: str, role_id: str = None) -> None:
 
 # --- Completion signals ----------------------------------------------------
 
+# A step's `signal` holds one or more conditions joined by SIG_SEP - any one
+# met ticks it (Neil, Oct 22). One condition is the pre-Oct 23 shape, so old
+# rows read as they always did; "|" never appears inside a condition (an
+# envelope's kinds are joined by ",").
+SIG_SEP = "|"
+
+
+def signal_list(signal) -> list:
+    return [x.strip() for x in str(signal or "").split(SIG_SEP) if x.strip()]
+
+
 def signal_name(signal: str) -> str:
     return (signal or "").split(":", 1)[0]
+
+
+def signal_label(signal: str) -> str:
+    return SIGNAL_PRESETS.get(signal) or SIGNAL_LABELS.get(signal_name(signal), "")
 
 
 def _sig_profile_complete(db, emp, arg):
@@ -652,6 +673,28 @@ def _sig_roles_clear(db, emp, arg):
     return reports is None and hr_contact is None
 
 
+# Evidence on the person's record (Neil, Oct 22 - the Colin case: a full
+# onboarding packet but no picture ID on file, found only when an attorney
+# asked). These check the record itself, not that someone said so.
+
+def _sig_id_on_file(db, emp, arg):
+    today = _today().isoformat()
+    return (db.query(HrDocument.id)
+            .filter(HrDocument.employee_id == emp.id, HrDocument.kind == "id",
+                    or_(func.coalesce(HrDocument.expires_on, "") == "", HrDocument.expires_on >= today))
+            .first()) is not None
+
+
+def _sig_work_auth(db, emp, arg):
+    c = emp.compliance or {}
+    exp = str(c.get("expiryDate") or "")[:10]
+    return c.get("status") == "verified" and (not exp or exp >= _today().isoformat())
+
+
+def _consent(key):
+    return lambda db, emp, arg: bool(((emp.compliance or {}).get("consents") or {}).get(key))
+
+
 def _status_is(value):
     return lambda db, emp, arg: emp.status == value
 
@@ -669,6 +712,10 @@ SIGNALS = {
     "status_active": _status_is("active"),
     "status_left": _status_is("offboarded"),
     "status_inactive": _status_is("inactive"),
+    "id_on_file": _sig_id_on_file,
+    "work_auth_verified": _sig_work_auth,
+    "consent_background": _consent("bgCheck"),
+    "consent_handbook": _consent("handbook"),
 }
 
 SIGNAL_LABELS = {
@@ -684,7 +731,29 @@ SIGNAL_LABELS = {
     "status_active": "Status is Active",
     "status_left": "Status is Left",
     "status_inactive": "Status is Inactive",
+    "id_on_file": "An ID document is on file (Documents tab, not expired)",
+    "work_auth_verified": "Work authorization is Verified on the Compliance tab (not expired)",
+    "consent_background": "Background check consent is ticked on the Compliance tab",
+    "consent_handbook": "Handbook acknowledgment is ticked on the Compliance tab",
 }
+
+# The envelope conditions the editor offers by name.
+SIGNAL_PRESETS = {
+    "envelope:offer,contractor_agreement": "The signed offer letter (or contractor agreement) is on file",
+    "envelope:nda,handbook_ack": "The signed hiring packet is on file",
+    "envelope:promotion": "The signed promotion letter is on file",
+}
+
+
+def _signal_met(db, emp, sig: str, item_id: str = "") -> bool:
+    fn = SIGNALS.get(signal_name(sig))
+    if fn is None:
+        return False
+    try:
+        return bool(fn(db, emp, sig.split(":", 1)[1] if ":" in sig else ""))
+    except Exception as e:   # noqa: BLE001 - one bad signal never stops the rest
+        print(f"[checklists] signal {sig} failed on {item_id}: {e}")
+        return False
 
 
 def sync(db, cl: HrChecklist, emp: NexusEmployee = None) -> bool:
@@ -725,19 +794,14 @@ def sync(db, cl: HrChecklist, emp: NexusEmployee = None) -> bool:
 
     # 3. Rows Nexus can tick by itself. A signal only ever ticks; it never
     #    re-opens a row a person closed.
+    #    Any one of a step's conditions is enough; the step keeps which one.
     for it in items:
-        if it.status != "open" or not it.signal:
+        if it.status != "open":
             continue
-        fn = SIGNALS.get(signal_name(it.signal))
-        if fn is None:
-            continue
-        try:
-            hit = fn(db, emp, it.signal.split(":", 1)[1] if ":" in it.signal else "")
-        except Exception as e:   # noqa: BLE001 - one bad signal never stops the rest
-            print(f"[checklists] signal {it.signal} failed on {it.id}: {e}")
-            hit = False
+        hit = next((sig for sig in signal_list(it.signal) if _signal_met(db, emp, sig, it.id)), None)
         if hit:
             it.status, it.done_by, it.done_at = "done", "Nexus", _now()
+            it.done_reason = signal_label(hit)
             changed = True
 
     if items and all(it.status in ("done", "na") for it in items):
@@ -966,9 +1030,9 @@ def task_completed(db, task, done: bool, by: str, exclude_ids=None) -> bool:
     skip = {task.id} if exclude_ids is None else set(exclude_ids)
     for it in steps:
         if done and it.status == "open":
-            it.status, it.done_by, it.done_at = "done", who, now
+            it.status, it.done_by, it.done_at, it.done_reason = "done", who, now, ""
         elif not done and it.status == "done":
-            it.status, it.done_by, it.done_at = "open", "", ""
+            it.status, it.done_by, it.done_at, it.done_reason = "open", "", "", ""
     if not task.parent_task_id and done:
         for sub in db.query(models.Task).filter(models.Task.id.in_([s.task_id for s in steps])).all():
             # Field history (Oct 22 2026): the step's subtask closes with its
@@ -1002,8 +1066,10 @@ def ser_item(it: HrChecklistItem, names: dict = None, comments: list = None) -> 
         "dueDate": it.due_date, "dueManual": bool(it.due_manual),
         "overdue": bool(it.status == "open" and it.due_date and it.due_date < today),
         "signal": it.signal,
-        "signalLabel": SIGNAL_LABELS.get(signal_name(it.signal), "") if it.signal else "",
+        "signals": [{"value": x, "label": signal_label(x)} for x in signal_list(it.signal)],
+        "signalLabel": " or ".join(signal_label(x) for x in signal_list(it.signal)),
         "status": it.status, "doneBy": it.done_by, "doneAt": it.done_at, "note": it.note,
+        "doneReason": it.done_reason or "",
         "comments": comments or [], "sortOrder": it.sort_order,
     }
 

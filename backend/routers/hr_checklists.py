@@ -115,7 +115,7 @@ def meta(user: dict = Depends(get_current_user)):
         "roles": [{"value": r, "label": hc.ROLE_LABELS[r]} for r in hc.ROLES],
         "exitTypes": [{"value": t, "label": hr_checklist_seed.EXIT_TYPE_LABELS[t]}
                       for t in hr_checklist_seed.EXIT_TYPES],
-        "signals": [{"value": k, "label": v} for k, v in hc.SIGNAL_LABELS.items()],
+        "signals": [{"value": k, "label": v} for k, v in {**hc.SIGNAL_PRESETS, **hc.SIGNAL_LABELS}.items()],
     }
 
 
@@ -245,6 +245,7 @@ def update_item(iid: str, body: ItemPatch, background: BackgroundTasks = None,
             it.done_by, it.done_at = "", ""
         else:
             it.done_by, it.done_at = me, hc._now()
+        it.done_reason = ""
     if body.note is not None:
         it.note = body.note.strip()[:1000]
     if body.owner_email is not None:

@@ -5467,6 +5467,9 @@ class HrChecklistItem(Base):
     # Comments made while the step had no subtask; the rest live on the subtask
     # as task comments, so both sides show the same thread (hr_checklists.comments_for).
     comments     = Column(JSON, default=list)
+    # Which condition ticked it when done_by is "Nexus" (Oct 23 2026), e.g.
+    # "An ID document is on file" - the proof of what was on record and when.
+    done_reason  = Column(String, default="")
 
 
 class AccountingLoanSchedule(Base):
