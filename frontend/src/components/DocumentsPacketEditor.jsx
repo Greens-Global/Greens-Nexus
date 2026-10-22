@@ -102,35 +102,48 @@ function PreviewModal({ templateId, name, companyId, flow, letterheadId, onClose
 
 const STEPS = [['who', 'Who It\'s For'], ['docs', 'Documents'], ['signs', 'Who Signs'], ['ready', 'Ready To Send']];
 
+// The editor's state from a saved row, a seed ({roleIds} or a place from What
+// Each Hire Gets) or a copy.
+const fromPacket = (packet, event = '', eventLabel = '') => ({
+  id: packet?.engine === 'documents' ? packet.id : '',
+  // A Set Up from What Each Hire Gets arrives with its place - named from it.
+  name: packet?.name || (packet?.country ? [placeName(packet.country, packet.region, COUNTRY_NAMES),
+    { employee: 'Employee', contractor: 'Contractor' }[packet.workerType] || '', eventLabel].filter(Boolean).join(' ') : ''),
+  // A typed (or saved) name is never replaced by the suggestion; a copy's is, once its place changes.
+  nameTouched: packet?.nameTouched ?? !!packet?.name,
+  roleIds: packet?.roleIds || [],
+  // Place first (Neil, Oct 22): a hiring packet is a place's paperwork -
+  // "California employee", "India contractor" - never left to "any".
+  workerType: packet?.workerType || (packet?.id || !['offer', 'hire'].includes(event) ? 'any' : ''),
+  country: packet?.country || '',
+  region: packet?.region || '',
+  docIds: packet?.docTemplateIds || [],
+  // Building blocks (Oct 14): documents added only for a team or a role -
+  // each team's own confidentiality agreement (Neil).
+  extraDocs: (packet?.extraDocs || []).map(({ match, value, templateIds }) => ({ match, value, templateIds: templateIds || [] })),
+  flow: packet?.flow?.map(({ key, role, action, once }) => ({ key, role, action, ...(once ? { once: true } : {}) })) || [],
+  detailsForm: (packet?.detailsForm || []).map(f => ({ ...f, options: f.options || [] })),
+  verifyRole: packet?.verifyRole || 'hr',
+  letterheadId: packet?.letterheadId || '',
+  payMode: packet?.payMode || '',
+  emailMessage: packet?.emailMessage || '',
+  egnyteSubfolder: packet?.egnyteSubfolder || '',
+});
+
+/** A new packet that starts as a copy of `src` (Copy From / Duplicate, Neil
+ *  Oct 22): its documents, signing order and settings - never its id or its
+ *  Sign Once signatures, which belong to the packet that was signed. */
+export const packetCopy = (src) => ({ ...src, id: '', engine: '', name: `${src.name || 'Packet'} (Copy)`, nameTouched: false, signOnce: [], readiness: [] });
+
 /** The editor. `packet` is a saved documents row from /hr/packets (null for a
- *  new one, or a seed like {roleIds}); `catalog` is that same response. */
-export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, companyName, defaultSubfolder, catalog, onClose, onSaved, toastErr }) {
-  const [p, setP] = useState(() => ({
-    id: packet?.engine === 'documents' ? packet.id : '',
-    // A Set Up from What Each Hire Gets arrives with its place - named from it.
-    name: packet?.name || (packet?.country ? [placeName(packet.country, packet.region, COUNTRY_NAMES),
-      { employee: 'Employee', contractor: 'Contractor' }[packet.workerType] || '', eventLabel].filter(Boolean).join(' ') : ''),
-    nameTouched: !!packet?.name,       // a typed (or saved) name is never replaced by the suggestion
-    roleIds: packet?.roleIds || [],
-    // Who it is for (Oct 14): employees or contractors, and where they work -
-    // "if it's an Indian contractor, it needs a different document" (Neil).
-    // Place first (Neil, Oct 22): a hiring packet is a place's paperwork -
-    // "California employee", "India contractor" - never left to "any".
-    workerType: packet?.workerType || (packet?.id || !['offer', 'hire'].includes(event) ? 'any' : ''),
-    country: packet?.country || '',
-    region: packet?.region || '',
-    docIds: packet?.docTemplateIds || [],
-    // Building blocks (Oct 14): documents added only for a team or a role -
-    // each team's own confidentiality agreement (Neil).
-    extraDocs: (packet?.extraDocs || []).map(({ match, value, templateIds }) => ({ match, value, templateIds: templateIds || [] })),
-    flow: packet?.flow?.map(({ key, role, action, once }) => ({ key, role, action, ...(once ? { once: true } : {}) })) || [],
-    detailsForm: (packet?.detailsForm || []).map(f => ({ ...f, options: f.options || [] })),
-    verifyRole: packet?.verifyRole || 'hr',
-    letterheadId: packet?.letterheadId || '',
-    payMode: packet?.payMode || '',
-    emailMessage: packet?.emailMessage || '',
-    egnyteSubfolder: packet?.egnyteSubfolder || '',
-  }));
+ *  new one, or a seed like {roleIds}, or a packetCopy); `catalog` is that same response. */
+export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: startCompany, companyName: startCompanyName, companies, defaultSubfolder, catalog, onClose, onSaved, toastErr }) {
+  const [p, setP] = useState(() => fromPacket(packet, event, eventLabel));
+  // A new packet picks its company on Who It's For when `companies` is given.
+  const [companyId, setCompanyId] = useState(startCompany || '');
+  const companyName = companies && companyId !== (startCompany || '')
+    ? (companyId ? companies.find(c => c.id === companyId)?.name || 'This company' : 'Every company') : startCompanyName;
+  const [copiedFrom, setCopiedFrom] = useState('');
   // A saved packet opens on its checklist; a new one starts at the beginning.
   const [step, setStep] = useState(packet?.engine === 'documents' ? 'ready' : 'who');
   const [tried, setTried] = useState(false);          // Continue pressed on this step - show its problems
@@ -160,8 +173,12 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   }, [p.id, companyId]);
 
   useEffect(() => {
-    api.hiringOptions(companyId || '').then(o => { setCompanyRoles(o.roles || []); setDepartments(o.departments || []); })
-      .catch(() => setCompanyRoles([]));
+    api.hiringOptions(companyId || '').then(o => {
+      const roles = o.roles || [];
+      setCompanyRoles(roles); setDepartments(o.departments || []);
+      // A copy, or a new packet moved to another company, keeps its role only if this company has it.
+      setP(x => (x.id || x.roleIds.every(id => roles.some(r => r.id === id)) ? x : { ...x, roleIds: [] }));
+    }).catch(() => setCompanyRoles([]));
   }, [companyId]);
   useEffect(() => { api.packetRoleHolders(companyId || '').then(setHolders).catch(() => setHolders({})); }, [companyId]);
   useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
@@ -283,6 +300,27 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const countries = [...new Set([...(catalog?.countries || ['US', 'IN']), p.country].filter(Boolean))];
   const verifyHolder = holders && holders[p.verifyRole];
 
+  // Copy From (Neil, Oct 22: "a builder option where you can copy from"):
+  // any packet this person can see; the new one is a copy until saved.
+  const copyable = (catalog?.settings || []).filter(s => s.engine === 'documents');
+  const eventName = (k) => (catalog?.events || []).find(e => e.key === k)?.label || k;
+  const copyLabel = (s) => [
+    s.entityId ? companies?.find(c => c.id === s.entityId)?.name || 'Another company' : 'Every Company',
+    eventName(s.event), s.name || 'Unnamed packet', s.roleNames?.length ? s.roleNames.join(', ') : 'Every Role',
+    { employee: 'Employees', contractor: 'Contractors' }[s.workerType] || 'Employees And Contractors',
+    s.country ? placeName(s.country, s.region, COUNTRY_NAMES) : 'Any Country',
+  ].join(' - ');
+  const copyFrom = (id) => {
+    const src = copyable.find(s => s.id === id);
+    setCopiedFrom(id);
+    if (!src) { setP(fromPacket(packet, event, eventLabel)); return; }    // Start From Scratch again
+    const c = packetCopy(src);
+    // Its role only if this company has it (the roles' load re-checks) - else Every role.
+    const roleIds = !companyRoles || (c.roleIds || []).every(r => companyRoles.some(x => x.id === r)) ? c.roleIds || [] : [];
+    setP(x => fromPacket({ ...c, roleIds, name: (x.nameTouched && x.name.trim()) || c.name }, event, eventLabel));
+    setServerProblems([]);
+  };
+
   // ── the steps ──
   // The name says the place and the hire (Neil, Oct 22) until HR types one.
   const suggestedName = () => {
@@ -308,6 +346,25 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
           ? `One ${eventLabel.toLowerCase()} per place and kind of hire - for example California employees, India contractors. Nexus sends it to every role hired there and fills in each person's own details.`
           : 'Nexus picks it by itself for each person from these answers.'}
       </p>
+      {!p.id && copyable.length > 0 && (
+        <>
+          <label style={lbl} htmlFor="pk-copy">Copy From</label>
+          <select id="pk-copy" className="form-input" style={{ width: '100%' }} value={copiedFrom} onChange={e => copyFrom(e.target.value)}>
+            <option value="">Start From Scratch</option>
+            {copyable.map(s => <option key={s.id} value={s.id}>{copyLabel(s)}</option>)}
+          </select>
+          <div style={hint}>Starts with that packet's documents, signing order, details form and settings. Change the company, the place or who it is for below, then save.</div>
+        </>
+      )}
+      {!p.id && companies && (
+        <>
+          <label style={lbl} htmlFor="pk-company">Company</label>
+          <select id="pk-company" className="form-input" style={{ width: '100%' }} value={companyId} onChange={e => { setCompanyId(e.target.value); setServerProblems([]); }}>
+            <option value="">Every Company</option>
+            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 18px' }}>
         <div>
           <label style={lbl} htmlFor="pk-country">Works In</label>

@@ -148,6 +148,23 @@ class PacketDocsTests(unittest.TestCase):
         body.update(kw)
         return self.client.put("/hr/packets/documents", json=body)
 
+    def test_a_copied_role_packet_may_change_who_it_is_for_but_not_clash(self):
+        """Copy From (Neil, Oct 22): the same role as employee and as contractor,
+        or in another country, are two packets; the same hires twice is refused."""
+        db = database.SessionLocal()
+        db.add(models.NexusGroup(id="jr-acct", name="Accounting Associate", is_job_role=1, tier="employee", company_id=CO))
+        db.commit()
+        db.close()
+        r = self._save(name="Acct - Employee", role_ids=["jr-acct"], worker_type="employee", country="US")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._save(name="Acct - Contractor", role_ids=["jr-acct"], worker_type="contractor",
+                                    country="US").status_code, 200)
+        self.assertEqual(self._save(name="Acct - India", role_ids=["jr-acct"], worker_type="employee",
+                                    country="IN").status_code, 200)
+        r = self._save(name="Acct - Employee (Copy)", role_ids=["jr-acct"], worker_type="employee", country="")
+        self.assertEqual(r.status_code, 400)
+        self.assertRegex(r.json()["detail"], r"^Accounting Associate already has a packet \(Acct - (Employee|India)\) for the same hires")
+
     # ── configuration problems ─────────────────────────────────────────────
     def test_a_good_packet_has_no_problems(self):
         self.assertEqual(self._problems(), [])

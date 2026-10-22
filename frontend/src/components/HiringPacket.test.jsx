@@ -13,6 +13,7 @@ const preview = {
   recipients: [{ order: 1, role: 'company', name: 'Hana', email: 'hana@x.com', isSubject: false },
                { order: 2, role: 'employee', name: 'Jane Doe', email: 'jane@gmail.com', isSubject: true }],
 };
+let packetSettings = [];
 const sendPacket = vi.fn(() => Promise.resolve({ id: 'ev1', senderPartyId: 'p1', subjectEmail: 'jane@gmail.com' }));
 const previewPacket = vi.fn(() => Promise.resolve(preview));
 const events = [{
@@ -26,7 +27,7 @@ vi.mock('../api', () => ({
       { workerType: 'employee', offer: null, hire: { id: 'h1', name: 'California Employee Hiring Packet' }, promotion: null, separation: null },
       { workerType: 'contractor', offer: null, hire: null, promotion: null, separation: null }] }] }),
     getPackets: () => Promise.resolve({
-      settings: [], workerTypes: ['any', 'employee', 'contractor'],
+      settings: packetSettings, workerTypes: ['any', 'employee', 'contractor'],
       templates: [{ id: 't1', name: 'Offer Packet', entityId: '', documents: 2,
                     roles: [{ key: 'company', label: 'Company', order: 1 }, { key: 'employee', label: 'Employee', order: 2 }] }],
       events: [{ key: 'hire', label: 'Hiring Packet', defaultSubfolder: 'Hiring Documents' },
@@ -70,6 +71,20 @@ describe('PacketsModal', () => {
     await waitFor(() => expect(screen.getByLabelText('Works In')).toBeTruthy());
     expect(screen.getByLabelText('Only for this role')).toBeTruthy();
     expect(screen.getByLabelText('Name')).toBeTruthy();
+  });
+
+  it('Duplicate opens a new packet that starts as a copy, in the same company', async () => {
+    packetSettings = [{ id: 's1', engine: 'documents', entityId: 'e1', event: 'hire', name: 'CA Employee', templateName: 'CA Employee',
+      roleIds: [], roleNames: [], workerType: 'employee', country: 'US', docTemplateIds: [], documents: ['Offer'], signers: [],
+      flow: [{ key: 'employee', role: 'employee', action: 'sign' }], readiness: [], signOnce: [] }];
+    render(<PacketsModal onClose={noop} toastOk={noop} toastErr={noop} />);
+    await waitFor(() => expect(screen.getByText('CA Employee')).toBeTruthy());
+    fireEvent.click(screen.getByTitle('Duplicate'));
+    await waitFor(() => expect(screen.getByLabelText('Name').value).toBe('CA Employee (Copy)'));
+    expect(screen.getByText('New Hiring Packet')).toBeTruthy();
+    expect(document.getElementById('pk-company').value).toBe('e1');                // the editor's own Company box
+    expect(screen.getByLabelText('Hired As').value).toBe('employee');
+    packetSettings = [];
   });
 });
 

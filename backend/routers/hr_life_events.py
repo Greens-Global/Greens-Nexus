@@ -98,21 +98,28 @@ def _place_taken(db: Session, row: HrPacketSetting) -> None:
 
 def _roles_taken(db: Session, row: HrPacketSetting) -> None:
     """A job role has one packet per event per company - two would make the
-    send a coin toss."""
+    send a coin toss. The same role for another kind of hire (employee vs
+    contractor) or another country is not a clash - resolve_setting tells
+    them apart (Neil, Oct 22: copy a packet, then change who it is for)."""
     from models import NexusGroup
     mine = set(row.role_ids or [])
     if not mine:
         return
+    wt, country = row.worker_type or "any", (row.country or "").upper()
     for other in (db.query(HrPacketSetting)
                   .filter(HrPacketSetting.entity_id == (row.entity_id or ""), HrPacketSetting.event == row.event,
                           HrPacketSetting.id != row.id).all()):
+        oc = (other.country or "").upper()
+        if (other.worker_type or "any") != wt or (country and oc and oc != country):
+            continue
         clash = mine & set(other.role_ids or [])
         if clash:
             g = db.query(NexusGroup).filter(NexusGroup.id == sorted(clash)[0]).first()
             tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == other.template_id).first()
             label = other.name or (tpl.name if tpl else "") or "unnamed"
             raise HTTPException(400, f"{g.name if g else 'That role'} already has a packet "
-                                     f"({label}) - remove it there first.")
+                                     f"({label}) for the same hires - change the company, role, Hired As "
+                                     f"or Works In, or remove that packet first.")
 
 
 def _setting_in_scope(entity_id: str, scope, write: bool) -> None:
