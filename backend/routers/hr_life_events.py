@@ -79,6 +79,23 @@ def _clean_role_ids(db: Session, entity_id: str, role_ids) -> list:
     return list(dict.fromkeys(want))
 
 
+def _place_taken(db: Session, row: HrPacketSetting) -> None:
+    """One packet per place and kind of hire per company (Neil, Oct 22): two
+    "California - Employee" packets would make the send a coin toss. A role's
+    own packet is the exception _roles_taken guards."""
+    if row.role_ids:
+        return
+    for other in (db.query(HrPacketSetting)
+                  .filter(HrPacketSetting.entity_id == (row.entity_id or ""), HrPacketSetting.event == row.event,
+                          HrPacketSetting.id != row.id).all()):
+        if (not (other.role_ids or []) and (other.country or "") == (row.country or "")
+                and (other.region or "") == (row.region or "")
+                and (other.worker_type or "any") == (row.worker_type or "any")):
+            raise HTTPException(400, f'"{other.name or "Another packet"}" already covers '
+                                     f'{hle.place_label(row.worker_type, row.country, row.region).lower()} - '
+                                     f'change that one, or pick another place or kind of hire.')
+
+
 def _roles_taken(db: Session, row: HrPacketSetting) -> None:
     """A job role has one packet per event per company - two would make the
     send a coin toss."""
@@ -221,6 +238,7 @@ def save_packet(body: PacketSettingIn, user: dict = Depends(require_hr_write), d
         db.rollback()
         raise HTTPException(400, problems[0])
     _roles_taken(db, row)
+    _place_taken(db, row)
     db.commit()
     return hle.ser_setting(db, row)
 
@@ -307,6 +325,7 @@ class DocumentsPacketIn(BaseModel):
     egnyte_subfolder: Optional[str] = ""
     details_form:     Optional[list] = None        # the packet's own Details Form (hiring packets)
     country:          Optional[str] = ""           # where the person works: US, IN ... ('' = any)
+    region:           Optional[str] = ""           # the state inside it: CA, TX ... ('' = anywhere in the country)
     extra_docs:       Optional[list] = None        # documents for a team or role: [{match, value, templateIds}]
 
 
@@ -344,8 +363,17 @@ def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_
     row.entity_id, row.event, row.engine = entity_id, body.event, "documents"
     row.worker_type = (body.worker_type or "any").strip()
     row.country = re.sub(r"[^A-Za-z]", "", body.country or "").upper()[:2]
+    row.region = re.sub(r"[^A-Za-z]", "", body.region or "").upper()[:3] if row.country else ""
+    # A hiring packet is legal paperwork for a place (Neil, Oct 22) - it says
+    # where it applies, so a California hire can never get India's packet.
+    if body.event == "hire" and not row.country:
+        db.rollback()
+        raise HTTPException(400, "Pick where this packet's hires work (Works In) - hiring paperwork is "
+                                 "different in each country and state.")
     row.name = name
     row.role_ids = _clean_role_ids(db, entity_id, body.role_ids)
+    row.worker_type = row.worker_type or "any"
+    _place_taken(db, row)      # the place is the first thing to get right - before its documents
     row.doc_template_ids = list(dict.fromkeys(str(t).strip() for t in (body.doc_template_ids or []) if str(t).strip()))
     row.flow = hpd.clean_flow(body.flow)
     row.subject_role = next((s["key"] for s in row.flow if s["role"] == hpd.SUBJECT_ROLE), "employee")
@@ -377,6 +405,7 @@ def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_
         db.rollback()
         raise HTTPException(400, problems[0])
     _roles_taken(db, row)
+    _place_taken(db, row)
     db.commit()
     return hle.ser_setting(db, row)
 
@@ -713,17 +742,17 @@ def start_hiring_packet(cid: str, body: StartPacketIn, background: BackgroundTas
 
 @router.get("/candidates/{cid}/offer/options")
 def offer_options(cid: str, worker_type: str = "", country: str = "", role_id: str = "", packet_id: str = "",
-                  new_role: str = "", department: str = "",
+                  new_role: str = "", department: str = "", region: str = "",
                   user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """The Move To Offer form: which offer letter this hire gets (by employee
-    or contractor, and where they work), the hiring packet that follows it,
-    and every question either asks of HR."""
+    or contractor, and where they work - country and state), the hiring packet
+    that follows it, and every question either asks of HR."""
     try:
         cand = hle._load_candidate(db, cid, hr_scope(user, db))
     except hle.PacketError as e:
         _raise(e)
     return hle.offer_options(db, cand, worker_type, country, role_id, packet_id,
-                             new_role=new_role in ("1", "true"), department=department)
+                             new_role=new_role in ("1", "true"), department=department, region=region)
 
 
 class OfferIn(BaseModel):

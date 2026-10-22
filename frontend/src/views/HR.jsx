@@ -58,6 +58,7 @@ import { googleMapsUrl } from '../lib/addressSearch';
 import WorkSiteFenceCheck from '../components/WorkSiteFenceCheck';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
+import { US_STATE_NAMES } from '../lib/usStates';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 import { ApprovalDelegationsAdmin } from '../components/DelegateApprovals';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
@@ -3601,7 +3602,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', region: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const { can } = useRole();
@@ -3648,7 +3649,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       const hit = COUNTRIES.find(c => en.mainPhone.startsWith(c.dial + ' '));
       if (hit) { phoneCountry = hit.code; phoneNumber = en.mainPhone.slice(hit.dial.length + 1); }
     }
-    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '',
+    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', region: en.region || '', tax_id: en.taxId || '',
       physical_address: en.physicalAddress || '', mailing_address: en.mailingAddress || '',
       signatory: en.signatory || '', signatory_email: en.signatoryEmail || '', notes: en.notes || '', domains: en.domains || '',
       manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
@@ -3739,11 +3740,22 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 {field('LEGAL NAME', 'legal_name', { placeholder: 'full registered name' })}
                 <div>
                   <label style={FL}>COUNTRY</label>
-                  <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => set('country', e.target.value)}>
+                  <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => { set('country', e.target.value); if (e.target.value !== 'US') set('region', ''); }}>
                     <option value="">-</option>
                     {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
                   </select>
                 </div>
+                {/* Where its people work (Neil, Oct 22): picks the hiring paperwork - California, Texas... */}
+                {f.country === 'US' && (
+                  <div>
+                    <label style={FL}>STATE</label>
+                    <select className="form-input" style={{ width: '100%' }} value={f.region || ''} onChange={e => set('region', e.target.value)}>
+                      <option value="">-</option>
+                      {Object.entries(US_STATE_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+                    </select>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Picks the hiring documents its new hires get.</div>
+                  </div>
+                )}
                 {field('TAX ID (EIN / GSTIN)', 'tax_id')}
                 {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
                 {/* Who signs when an HR packet's signing order says Authorized

@@ -60,7 +60,8 @@ describe('PacketsModal', () => {
     fireEvent.click(screen.getByText('Promotion Letter'));
     expect(screen.getByText('No promotion letter for Every company yet')).toBeTruthy();
     fireEvent.click(screen.getAllByText('Add Packet')[0]);
-    await waitFor(() => expect(screen.getByLabelText('Role')).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText('Works In')).toBeTruthy());
+    expect(screen.getByLabelText('Only for this role')).toBeTruthy();
     expect(screen.getByLabelText('Name')).toBeTruthy();
   });
 });

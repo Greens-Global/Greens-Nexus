@@ -31,7 +31,7 @@ const catalog = {
   actions: [{ key: 'sign', label: 'Signs' }, { key: 'copy', label: 'Gets A Copy' }],
   countries: ['US', 'IN'],
 };
-const packet = { id: 's1', engine: 'documents', name: 'Admin Associate - India', docTemplateIds: ['t1'],
+const packet = { id: 's1', engine: 'documents', name: 'Admin Associate - India', docTemplateIds: ['t1'], country: 'IN', workerType: 'contractor',
   flow: [{ key: 'company', role: 'hr', action: 'sign', once: true }, { key: 'employee', role: 'employee', action: 'sign' }],
   verifyRole: 'hr', detailsForm: [],
   readiness: [{ key: 'payPrints', ok: false, severity: 'warn', label: 'Pay Shows In A Document', detail: 'Not printed anywhere.',
@@ -90,3 +90,21 @@ describe('DocumentsPacketEditor', () => {
       doc_template_ids: ['t1'], extra_docs: [{ match: 'department', value: 'Administration', templateIds: ['t-ca'] }] });
   });
 });
+
+// Neil, Oct 22: a hiring packet is a place's paperwork, never "any country",
+// and its name says the place until HR types one.
+describe('DocumentsPacketEditor - place first', () => {
+  it('a new hiring packet asks where and who before anything, and names itself from that', async () => {
+    render(<DocumentsPacketEditor {...props} packet={null} />);
+    fireEvent.click(screen.getByText(/Continue/));
+    expect(await screen.findByText(/Pick where these hires work/)).toBeTruthy();
+    expect(screen.getByText('Pick employees or contractors.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Works In'), { target: { value: 'US' } });
+    fireEvent.change(screen.getByLabelText('State'), { target: { value: 'CA' } });
+    fireEvent.change(screen.getByLabelText('Hired As'), { target: { value: 'employee' } });
+    expect(screen.getByLabelText('Name').value).toBe('California Employee Hiring Packet');
+    // The role is tucked away and off by default.
+    expect(screen.getByLabelText('Only for this role').value).toBe('');
+  });
+});
+

@@ -733,7 +733,10 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
     names = {e.id: e.name for e in db.query(HrEntity).all()} if all_roles else {}
     return {"roles": [{"id": r.id, "name": r.name, "department": r.department or "",
                        "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", ""),
-                       "defaultManagerEmail": (r.default_manager_email or "").lower()}
+                       # No default manager on the role: its department's head (Neil, Oct 22 -
+                       # "supervisor should be the department head").
+                       "defaultManagerEmail": ((r.default_manager_email or "").lower()
+                                               or next(iter(leads.get(r.department or "") or []), ""))}
                       for r in roles],
             "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES)}
 
@@ -2584,6 +2587,7 @@ class EntityIn(BaseModel):
     name:               str
     legal_name:         Optional[str] = ""
     country:            Optional[str] = ""
+    region:             Optional[str] = ""   # US state (CA, TX) - picks the hiring documents for the place
     tax_id:             Optional[str] = ""
     registered_address: Optional[str] = ""   # legacy - the form now writes physical_address instead
     physical_address:   Optional[str] = ""
@@ -2610,6 +2614,7 @@ class EntityUpdate(BaseModel):
     name:               Optional[str] = None
     legal_name:         Optional[str] = None
     country:            Optional[str] = None
+    region:             Optional[str] = None
     tax_id:             Optional[str] = None
     registered_address: Optional[str] = None
     physical_address:   Optional[str] = None
@@ -2665,9 +2670,14 @@ def _norm_manager_emails(manager_email, manager_emails) -> tuple:
     return single, ([single] if single else [])
 
 
+def _norm_region(value) -> str:
+    """A state code (CA, TX) - letters only, uppercase."""
+    return re.sub(r"[^A-Za-z]", "", str(value or "")).upper()[:3]
+
+
 def _serialize_entity(e: HrEntity) -> dict:
     return {
-        "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
+        "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country, "region": e.region or "",
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
         # physicalAddress falls back to the legacy registered_address field for a
         # row that predates the physical/mailing split - the one-shot startup
@@ -2714,6 +2724,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
     row = HrEntity(
         id=str(uuid.uuid4()), name=body.name.strip(), legal_name=(body.legal_name or "").strip(),
         country=(body.country or "").strip(), tax_id=(body.tax_id or "").strip(),
+        region=_norm_region(body.region),
         registered_address=(body.registered_address or "").strip(),
         physical_address=(body.physical_address or "").strip(), mailing_address=(body.mailing_address or "").strip(),
         signatory=(body.signatory or "").strip(),
@@ -2773,6 +2784,8 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             value = _check_signatory_email(db, value)
         elif key == "invoice_recipients":
             value = _norm_emails(value)
+        elif key == "region":
+            value = _norm_region(value)
         elif key == "manager_emails":
             mgr_email, value = _norm_manager_emails(None, value)
             row.manager_email = mgr_email

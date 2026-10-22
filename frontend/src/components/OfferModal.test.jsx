@@ -81,3 +81,25 @@ describe('OfferModal', () => {
     expect(screen.getByLabelText('Joining Bonus').disabled).toBe(true);
   });
 });
+
+// Neil, Oct 22: never an offer with nothing after it, and the state is part
+// of where they work (California and Texas get different paperwork).
+describe('OfferModal - place and the packet that follows', () => {
+  it('asks the state for a US hire and will not go on when no hiring packet follows', async () => {
+    offerOptions.mockImplementation((cid, p) => Promise.resolve({
+      country: 'US', companyCountry: 'US', region: 'CA', companyRegion: 'CA', choices: [],
+      offerLetter: p.worker_type ? letter : null, hiringPacket: null, missing: '',
+      missingPacket: p.worker_type ? 'No hiring packet is set up for an Employee in TX, US at Greens - set one up before sending the offer.' : '',
+    }));
+    render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    await waitFor(() => expect(screen.getByLabelText('State').value).toBe('CA'));      // the company's state
+    fireEvent.change(screen.getByLabelText('State'), { target: { value: 'TX' } });
+    await waitFor(() => expect(offerOptions).toHaveBeenLastCalledWith('c1', expect.objectContaining({ region: 'TX' })));
+    fireEvent.click(screen.getByRole('radio', { name: 'Employee' }));
+    expect(await screen.findByText(/No hiring packet is set up for an Employee in TX/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
+    next();
+    expect(screen.getByText(/Set up the hiring packet for this place first/)).toBeTruthy();
+    expect(screen.queryByText('The offer')).toBeNull();
+  });
+});

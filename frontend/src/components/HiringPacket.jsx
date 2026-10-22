@@ -69,7 +69,6 @@ export function EmailPreviewModal({ event, entityId = '', templateId = '', note 
     </div>
   );
 }
-const WORKER_LABEL = { any: 'Everyone', employee: 'Employees Only', contractor: 'Contractors Only' };
 const EMPLOYMENT_TYPES = [['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['contractor', 'Contractor'], ['intern', 'Intern']];
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
 
@@ -178,8 +177,10 @@ function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
           {(row.problems || []).map(p => <div key={p} style={{ color: 'hsl(var(--color-orange))', fontSize: 11.5, marginTop: 3 }}>{p}</div>)}
         </td>
         <td style={TD}>
-          <StatusChip label={describeRoles(row.roleNames)} tone={row.roleNames?.length ? 'green' : 'gray'} />
-          {row.workerType && row.workerType !== 'any' && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{WORKER_LABEL[row.workerType]}</div>}
+          {/* Place first (Neil, Oct 22) - "Employees in CA, US"; a role only when the packet is limited to one. */}
+          <StatusChip label={row.place || describeRoles(row.roleNames)} tone={row.country ? 'green' : 'orange'} />
+          {!row.country && <div style={{ fontSize: 11, color: 'hsl(var(--color-orange))', marginTop: 4 }}>No place set - pick Works In so it never reaches the wrong country</div>}
+          {row.roleNames?.length > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Only {describeRoles(row.roleNames)}</div>}
         </td>
         <td style={TD}>{docs.length ? docs.map(d => <div key={d}>{d}</div>) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
         <td style={TD}>{(row.signers || []).map((x, i) => <div key={i}>{i + 1}. {x}</div>)}</td>
@@ -217,7 +218,6 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
     .sort((a, b) => (entityName(a.entityId) || '').localeCompare(entityName(b.entityId) || '')
       || (a.roleIds?.length ? 1 : 0) - (b.roleIds?.length ? 1 : 0) || (a.templateName || '').localeCompare(b.templateName || '')) : [];
   const inherited = ev && companyId ? (data?.settings || []).filter(s => !s.entityId && s.event === ev.key) : [];
-  const hasGeneral = rows.some(r => !(r.roleIds || []).length && (all ? !r.entityId : true));
   const company = companyId ? (entities.find(e => e.id === companyId)?.name || 'This company') : 'Every company';
   // Roles born from Add Candidate's "Other" with no hiring packet yet (Neil,
   // Oct 12) - listed on the Hire tab with a one-click Add that opens the editor
@@ -302,7 +302,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {all && <th style={TH}>Company</th>}<th style={TH}>Packet</th><th style={TH}>For Role</th><th style={TH}>Documents</th><th style={TH}>Signs</th><th style={TH}>Filed In</th><th style={TH} />
+                    {all && <th style={TH}>Company</th>}<th style={TH}>Packet</th><th style={TH}>For</th><th style={TH}>Documents</th><th style={TH}>Signs</th><th style={TH}>Filed In</th><th style={TH} />
                   </tr>
                 </thead>
                 <tbody>
@@ -316,8 +316,9 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
             )}
             {ev && rows.length > 0 && (
               <div style={hint}>
-                A role with its own packet gets that one - the company's, else the one for every company; every other role gets the Every role packet{companyId ? ', the company\'s or the one for every company' : ''}.
-                {!hasGeneral && ` Roles without a packet of their own have nothing to fall back on here - add a packet for Every role to cover the rest.`}
+                Each hire gets the one for where they work and how they are hired: a state&apos;s before the country&apos;s, employees or contractors
+                before both, this company&apos;s before the one for every company - and one limited to a role only wins among those for the same place.
+                One for another country or state is never sent.
               </div>
             )}
           </>

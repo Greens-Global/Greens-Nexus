@@ -1015,7 +1015,8 @@ def _hire_problems(db: Session, ev) -> list:
         out.append("The offer expiry date has passed - change Offer Expires before sending.")
     if not d.get("packet_id"):
         wt = d.get("worker_type") or hle.worker_type_of(d.get("employment_type", ""))
-        want = hle.resolve_setting(db, ev.entity_id or "", ev.kind, wt, d.get("role_id", ""), d.get("country", ""))
+        want = hle.resolve_setting(db, ev.entity_id or "", ev.kind, wt, d.get("role_id", ""), d.get("country", ""),
+                                   region=d.get("region", ""))
         if want is not None and want.id != ev.setting_id:
             out.append(f'This hire now gets the "{want.name or "other"}" {EVENT_NOUN.get(ev.kind, "packet")} - void this '
                        f'one and start again.')
