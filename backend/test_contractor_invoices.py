@@ -55,7 +55,7 @@ class ContractorInvoices(unittest.TestCase):
         auth.invalidate_role_cache()
         self.db = database.SessionLocal()
         for m in (models.NexusEmployee, models.HrEntity, models.NexusRole, models.TimePunch, models.PayrollRate,
-                  models.TimeApproval, models.ContractorInvoice, models.NexusNotification):
+                  models.TimeApproval, models.ContractorInvoice, models.NexusNotification, models.TimecardBonus):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=CO, name="GGCon", legal_name="GGCon Private Limited", tax_id="29AAAAA0000A1Z5",
                                     physical_address="1 MG Road, Bengaluru", main_phone="+91 80 0000 0000",
@@ -173,6 +173,21 @@ class ContractorInvoices(unittest.TestCase):
         self.assertEqual(self.db.get(models.ContractorInvoice, inv.id).status, "void")
         self._finalize(CON)
         self.assertEqual(sorted((i.number, i.status) for i in self._invoices()), [(7, "void"), (8, "draft")])
+
+    def test_a_bonus_on_the_period_is_billed_on_its_own_line(self):
+        # Oct 22: a bonus added before finalizing is in the invoice total and itemized.
+        base = tc._compute_timecard(self.db, CON, PS, PE)["totals"]["totalPay"]
+        tc.add_timecard_bonus(tc.TimecardBonusIn(email=CON, date=PS, description="Go-live weekend", amount=2500.0),
+                              user=HR_USER, _su={}, db=self.db)
+        self._finalize(CON)
+        inv = self._invoices()[0]
+        self.assertEqual(inv.amount, round(base + 2500.0, 2))
+        self.assertEqual(inv.snapshot["bonuses"], [{"description": "Go-live weekend", "amount": 2500.0}])
+        from pypdf import PdfReader
+        import io
+        text = " ".join(pg.extract_text() for pg in PdfReader(io.BytesIO(ci.render_pdf(inv.snapshot | {
+            "number": inv.number, "currency": inv.currency, "amount": inv.amount}))).pages)
+        self.assertIn("Go-live weekend", text)
 
     def test_card_payloads_carry_contractor_and_invoice(self):
         self._as(CON)
