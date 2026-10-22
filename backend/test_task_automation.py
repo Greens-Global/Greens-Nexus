@@ -53,8 +53,14 @@ class AutomationTests(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         for m in (models.Task, models.TaskComment, models.TaskActivity, models.TaskProject,
-                  models.TaskAutomationRule, models.TaskAutomationRun, models.TaskNotification):
+                  models.TaskAutomationRule, models.TaskAutomationRun, models.TaskNotification,
+                  models.NexusEmployee):
             self.db.query(m).delete()
+        # The people tasks are given to are in the Nexus directory - an assignee
+        # must be a current person (Oct 21 2026).
+        for who in (SAM, PRIYA, MANAGER["email"]):
+            self.db.add(models.NexusEmployee(id=gen_id(), work_email=who, first_name=who.split("@")[0],
+                                             status="active"))
         self.db.commit()
         self.bg = BackgroundTasks()
 

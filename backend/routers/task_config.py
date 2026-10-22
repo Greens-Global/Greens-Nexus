@@ -475,7 +475,8 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
         parent.subtask_ids = ids
         _add_checklist(db, parent, tpl.checklist, actor, now)
 
-    out = tasks_router._create_task(main, background_tasks, user, db, before_commit=add_children)
+    out = tasks_router._create_task(main, background_tasks, user, db, before_commit=add_children,
+                                    check_people=True)   # its own people too
     if dropped_people:
         out["droppedPeople"] = [*(out.get("droppedPeople") or []), *dropped_people]
     return out

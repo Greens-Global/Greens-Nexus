@@ -80,11 +80,45 @@ def _log(db: Session, t: models.Task, type_: str, actor: str, detail: str) -> No
     t.activity_ids = list(t.activity_ids or []) + [aid]
 
 
+def last_cleared(t: models.Task) -> tuple[str, str]:
+    """The date a task held before its due date was cleared, and the agreement
+    it stood at then - ("", "") when it never had one.
+
+    Clearing a date and setting a later one used to count as "setting the
+    first date": no extension, no approval, a clean count (Oct 21 2026). The
+    date being replaced is the last one the history shows. record_due_change
+    keeps the agreement on the clearing entry; a clear logged before that
+    has none, and is read as agreed - the conservative reading, so the gap
+    stays closed for tasks cleared before this shipped."""
+    agreement = None
+    for h in reversed(t.due_history if isinstance(t.due_history, list) else []):
+        if not isinstance(h, dict):
+            continue
+        to = (h.get("to") or "")[:10]
+        if to:
+            return to, (agreement or "")
+        if agreement is None:
+            agreement = h.get("agreement") or ""
+    return "", ""
+
+
+def _replaced(t: models.Task, old: str) -> tuple[str, str]:
+    """The date a move replaces and the agreement it stood at: `old` itself,
+    or - when the task holds no date right now - the one it was cleared from."""
+    old = (old or "")[:10]
+    if old:
+        return old, (t.due_agreement or "")
+    return last_cleared(t)
+
+
 def is_extension(t: models.Task, old: str, new: str, source: str) -> bool:
-    """A later date replacing an agreed one. Read BEFORE the agreement moves."""
-    old, new = (old or "")[:10], (new or "")[:10]
+    """A later date replacing an agreed one. Read BEFORE the agreement moves.
+    With no current date, the date replaced is the one it was cleared from -
+    clearing first is not a way around the count (see last_cleared)."""
+    new = (new or "")[:10]
+    old, agreement = _replaced(t, old)
     return (bool(old) and bool(new) and new > old and source != "proposal"
-            and (t.due_agreement or "") in (*AGREED, REQUESTED))
+            and agreement in (*AGREED, REQUESTED))
 
 
 def add_month(iso: str) -> str:
@@ -131,7 +165,7 @@ def needs_approval(db: Session, t: models.Task, old: str, new: str, actor: str,
     if privileged or not is_extension(t, old, new, "app"):
         return []
     number = int(t.due_extension_count or 0) + 1
-    base = baseline_of(t, old)
+    base = baseline_of(t, _replaced(t, old)[0])
     if number < APPROVAL_FROM and new <= add_month(base):
         return []
     who = approvers_of(db, t)
@@ -147,13 +181,16 @@ def request_extension(db: Session, t: models.Task, actor: str, new: str, approve
     current date; it stays until an approver says yes (respond)."""
     actor = (actor or "").strip().lower()
     number = int(t.due_extension_count or 0) + 1
-    base = baseline_of(t) or (t.due_on or "")[:10]
-    over_month = new[:10] > add_month(base)
+    # With no current date (it was cleared first) the date being extended is
+    # the one it was cleared from - see last_cleared.
+    current = (t.due_on or "")[:10] or last_cleared(t)[0]
+    base = baseline_of(t) or current
+    over_month = bool(base) and new[:10] > add_month(base)
     t.due_agreement = REQUESTED
     t.due_proposal = {"dueOn": new[:10], "by": actor, "at": now_iso(), "note": (note or "")[:500],
                       "kind": "extension", "number": number, "approvers": list(approvers),
                       "overMonth": over_month, "baseline": base}
-    detail = (f"asked to extend the due date from {us_date(t.due_on)} to {us_date(new)}"
+    detail = (f"asked to extend the due date from {us_date(current)} to {us_date(new)}"
               f" - extension #{number}, needs approval")
     if note:
         detail += f": {note[:200]}"
@@ -211,6 +248,10 @@ def record_due_change(db: Session, t: models.Task, old: str, new: str, *, actor:
              "source": source if source in SOURCES else "app", "extension": ext}
     if note:
         entry["note"] = note[:500]
+    if old and not new:
+        # Where the agreement stood when the date was cleared, so setting a
+        # later one afterwards is judged against it (last_cleared).
+        entry["agreement"] = t.due_agreement or ""
     t.due_history = list(t.due_history or []) + [entry]
     if ext:
         t.due_extension_count = int(t.due_extension_count or 0) + 1

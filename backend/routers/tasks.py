@@ -35,6 +35,7 @@ from routers.task_util import (
     extract_mentions,
     assert_task_wall, require_project_access, wall_rows, wall_teams,
     config_admits, config_company_for_new, assert_config_editable,
+    task_visible_to, assert_person_assignable, project_role_for, PROJECT_ROLE_RANK, row_company,
 )
 from task_notify import notify_task_event
 import task_due
@@ -335,12 +336,8 @@ def _wall_task(db: Session, user: dict, task_id: str) -> models.Task:
     """
     t = _get_task(db, task_id)
     assert_task_wall(db, user, t)
-    if not is_manager(user):
-        visible = visible_project_ids(db, user)
-        if not task_is_visible(t, user, visible):
-            proj = project_for_task(db, t) if not t.project_id else None
-            if not (proj and proj.id in visible):
-                raise HTTPException(404, "Task not found")
+    if not task_visible_to(db, user, t):   # one rule with require_task_role
+        raise HTTPException(404, "Task not found")
     return t
 
 
@@ -521,6 +518,145 @@ def validate_task_payload(db: Session, data: dict, task_id: str = "") -> dict:
             raise HTTPException(422, "That dependency would create a circular chain.")
 
     return data
+
+
+def _require_dependency_targets(db: Session, user: dict, t, data: dict, task_id: str = "") -> None:
+    """The other end of every dependency edge this payload changes must be a
+    task the caller can see AND edit (Oct 21 2026). Writing blocked_by_ids
+    writes the other task's blocking_ids, and writing blocking_ids writes the
+    other task's blocked_by_ids - the side the completion gate reads - so it
+    could stall (or release) somebody else's work, or probe for tasks by id.
+
+    blocked_by_ids: each ADDED blocker is checked. Removing one only ever
+    un-gates your own task, and must stay possible even when the blocker has
+    since moved out of your sight - otherwise a task could be left gated
+    forever by something nobody on it can open.
+    blocking_ids: added AND removed ids are checked - either way it changes
+    the other task's own gate.
+
+    require_task_role does the work: company wall (404), role (403), sight
+    (404). `t` is None on create, where every id is new. The cycle guard in
+    validate_task_payload is unchanged and runs first."""
+    for field, check_removed in (("blocked_by_ids", False), ("blocking_ids", True)):
+        if field not in data or data[field] is None:
+            continue
+        before = {i for i in ((getattr(t, field) or []) if t is not None else []) if i}
+        after = {i for i in (data[field] or []) if i}
+        changed = (after - before) | ((before - after) if check_removed else set())
+        changed.discard(task_id or (t.id if t is not None else ""))
+        if not changed:
+            continue
+        for other in db.query(models.Task).filter(models.Task.id.in_(changed)).all():
+            require_task_role(db, user, other, "editor")
+
+
+def _require_people(db: Session, t, emails, actor: str = "") -> None:
+    """Every NEWLY added assignee / collaborator must be a current person in
+    the Nexus directory on the task's side of the company wall (Oct 21 2026):
+    assert_person_assignable, 422 otherwise. People already on the task are
+    never re-checked, so a task still holding somebody who has since left
+    stays editable. The caller themselves is not checked - they are signed
+    in, and following or taking a task you can already edit must keep
+    working for an account the People list does not carry."""
+    me = (actor or "").strip().lower()
+    for who in emails or []:
+        w = str(who or "").strip().lower()
+        if w and w != me:
+            assert_person_assignable(db, t, w)
+
+
+def _may_open_up(db: Session, user: dict, t) -> bool:
+    """Who may widen a task from restricted to org-wide (Oct 21 2026): a
+    manager, the task's owner or creator, or an editor-or-better of its
+    project by the project's OWN roles. Not an assignee as such - an
+    assignee is handed editor on their one task by require_task_role (being
+    given the work is the grant), and that grant is for doing the work, not
+    for publishing a restricted task to the whole organization. A task with
+    no project has no project roles: owner, creator or manager only."""
+    if is_manager(user):
+        return True
+    me = (user.get("email") or "").lower()
+    if me and me in ((t.owner_email or "").lower(), (t.created_by or "").lower()):
+        return True
+    project = project_for_task(db, t)
+    if project is None:
+        return False
+    return PROJECT_ROLE_RANK.get(project_role_for(db, me, project), 0) >= PROJECT_ROLE_RANK["editor"]
+
+
+def _require_destination_projects(db: Session, user: dict, ids) -> None:
+    """Moving or linking a task INTO a project takes editor on that project
+    (Oct 21 2026), the bar for creating a task there - otherwise anyone who
+    could edit a task could drop it into a restricted project they have no
+    role on. The company wall comes first, managers included. An id that is
+    no project is refused rather than stored as a dangling pointer."""
+    for pid in dict.fromkeys(i for i in (ids or []) if i):
+        project = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
+        if project is None:
+            raise HTTPException(404, "Project not found")
+        require_project_access(db, user, project, "editor")
+
+
+def _newly_missing_required(db: Session, t, project_before: str, values_before, project_after: str,
+                            values_after) -> list:
+    """The required custom fields an edit would leave empty (Oct 21 2026).
+
+    Only what the EDIT causes: a value cleared that a required field held, or
+    the task moved into a project where a required field is empty. A task
+    that was already missing a required value (created before the field was
+    required, or by an import) is not refused for an unrelated edit - that
+    would make every older task uneditable until somebody filled it in.
+    Top-level tasks only, like create_task: a subtask is part of its parent.
+    A company's own field binds only that company's tasks."""
+    if t.parent_task_id or not project_after:
+        return []
+    company = row_company(db, t)
+    after = missing_required_fields(db, project_after, values_after, task_company=company)
+    if project_after != (project_before or ""):
+        return after
+    was = {f.id for f in missing_required_fields(db, project_before, values_before, task_company=company)}
+    return [f for f in after if f.id not in was]
+
+
+def _required_message(db: Session, missing: list, project_id: str) -> str:
+    """create_task's wording for missing required fields."""
+    project = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first() if project_id else None
+    names = ", ".join(f.name for f in missing)
+    where = f" in {project.name}" if project and project.name else " in this project"
+    return f"{names} {'is' if len(missing) == 1 else 'are'} required for tasks{where}."
+
+
+def _check_update_access(db: Session, user: dict, t, data: dict) -> None:
+    """Everything a single PATCH must clear beyond editor on the task itself
+    (Oct 21 2026), checked before anything is written: dependency targets,
+    destination projects, widening restricted -> org, newly added people,
+    and required custom fields the edit itself would leave empty."""
+    _require_dependency_targets(db, user, t, data, t.id)
+    current_extras = {p for p in (t.project_ids or []) if p}
+    dest = []
+    if "project_id" in data and (data["project_id"] or "") != (t.project_id or ""):
+        dest.append(data["project_id"] or "")
+    if data.get("project_ids") is not None:
+        dest += [p for p in data["project_ids"] if p and p not in current_extras and p != (t.project_id or "")]
+    _require_destination_projects(db, user, dest)
+    if (data.get("access_level") == "org" and (t.access_level or "org") != "org"
+            and not _may_open_up(db, user, t)):
+        raise HTTPException(403, "Only the task's owner, its creator, a project editor or a manager can make "
+                                 "this task visible to everyone.")
+    prev = set(task_assignees(t))
+    wanted = _assignees_from(data, list(prev))
+    added = [w for w in (wanted or []) if (w or "").strip().lower() not in prev]
+    if data.get("follower_emails") is not None:
+        had = set(email_list(t.follower_emails))
+        added += [f for f in data["follower_emails"] if (f or "").strip().lower() not in had]
+    _require_people(db, t, added, actor=user.get("email") or "")
+    if "custom_field_values" in data or "project_id" in data:
+        project_after = (data["project_id"] if "project_id" in data else t.project_id) or ""
+        values_after = data["custom_field_values"] if "custom_field_values" in data else (t.custom_field_values or {})
+        missing = _newly_missing_required(db, t, t.project_id or "", t.custom_field_values or {},
+                                          project_after, values_after)
+        if missing:
+            raise HTTPException(422, _required_message(db, missing, project_after))
 
 
 def _require_tasks_exist(db: Session, ids: list) -> None:
@@ -1694,15 +1830,21 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
 @router.post("", status_code=201)
 def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    return _create_task(body, background_tasks, user, db)
+    return _create_task(body, background_tasks, user, db, check_people=True)
 
 
 def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict, db: Session,
-                 before_commit=None):
+                 before_commit=None, check_people: bool = False):
     """create_task's body. `before_commit(task)` runs on the new row just
     before the one commit, so a caller's own writes land in the same
     transaction - a ticket's "Create Task from Ticket" links both sides there,
-    and a task can never exist without its link (routers/tickets.py)."""
+    and a task can never exist without its link (routers/tickets.py).
+
+    `check_people` (the HTTP create and Use Template, Oct 21 2026): every
+    assignee and collaborator named in the body must be a current directory
+    person on the task's side of the company wall. Off for the in-process
+    callers that bring their own people rules (a ticket's desk assignee and
+    watchers, a Knowledge Base SOP task)."""
     now = now_iso()
     tid = body.id or gen_id()
     # No explicit access_level -> inherit the project's (so a task in a
@@ -1714,8 +1856,12 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
               if body.parent_task_id else None)
     if parent is not None:
         # A subtask goes under a task on the caller's side of the company
-        # wall only (Oct 21 2026) - 404, as for any task over it.
+        # wall only (Oct 21 2026) - 404, as for any task over it - and one
+        # the caller can see: a restricted standalone parent has no project
+        # role to refuse anybody, so sight is the check.
         assert_task_wall(db, user, parent)
+        if not task_visible_to(db, user, parent):
+            raise HTTPException(404, "Task not found")
     if not project and parent is not None:
         project = project_for_task(db, parent)
     # The company wall on the project too: a manager clears the role check, so
@@ -1724,18 +1870,23 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     # Normalizes tags/followers in place too, so the row is written clean rather
     # than needing a later PATCH to tidy it.
     validate_task_payload(db, body.__dict__, task_id=tid)
-    # A project's required custom fields (Oct 13 2026: "no one can create a
-    # task in that project without" them). Checked here, not just in the
-    # forms, so the quick-add rows, request forms and anything else that
-    # creates a task cannot slip past. Top-level tasks in a project only: a
-    # subtask is part of its parent, and a task with no project has no
-    # project to require anything.
+    # Dependencies and extra projects named at create answer to the same
+    # rules as an edit (Oct 21 2026): the other task must be the caller's to
+    # see and edit, an extra project theirs to add work to.
+    _require_dependency_targets(db, user, None, body.__dict__, tid)
+    _require_destination_projects(db, user, _extra_project_ids(body.project_ids, body.project_id or ""))
     # Company wall: stamp the creator's company so the task is fixed on their side
     # of the wall even if they later change companies (task_util.task_company falls
     # back to deriving it for legacy/sync rows that were never stamped).
     _creator = (db.query(models.NexusEmployee.company)
                 .filter(func.lower(models.NexusEmployee.work_email) == user["email"].lower()).first())
     company_id = (_creator.company if _creator else "") or ""
+    # A project's required custom fields (Oct 13 2026: "no one can create a
+    # task in that project without" them). Checked here, not just in the
+    # forms, so the quick-add rows, request forms and anything else that
+    # creates a task cannot slip past. Top-level tasks in a project only: a
+    # subtask is part of its parent, and a task with no project has no
+    # project to require anything.
     if body.project_id and not body.parent_task_id:
         # A field that belongs to one company binds only that company's tasks
         # (Oct 21 2026); a shared field binds every task, as before.
@@ -1801,6 +1952,8 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
         created_at=now, modified_at=now, created_by=user["email"],
     )
     set_task_assignees(t, _assignees_from(body.__dict__, []) or [])
+    if check_people:
+        _require_people(db, t, [*task_assignees(t), *(t.follower_emails or [])], actor=user["email"])
     # Whoever raised the task follows it - see _follow_as_actor.
     _follow_as_actor(t, user["email"])
     # A date set for somebody else is a target they still have to confirm.
@@ -1871,6 +2024,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         data["custom_field_values"] = coerce_custom_field_values(db, data["custom_field_values"])
     if "actual_hours" in data and int(t.time_entry_count or 0) > 0:
         raise HTTPException(409, "This task's time comes from its time entries - add or edit an entry instead.")
+    _check_update_access(db, user, t, data)
     prev_assignees = set(task_assignees(t))
     prev_status = t.status
     prev_completed = bool(t.completed)
@@ -2472,6 +2626,26 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # way to tell which ids were silently skipped.
     for t in rows:
         require_task_role(db, user, t, "editor", scope=scope)
+    # The rest of what a single PATCH checks (Oct 21 2026), all before any row
+    # is written so the batch stays all-or-nothing: editor on the project the
+    # tasks are moved into, newly added assignees are directory people on each
+    # task's side of the wall, and no required custom field is left empty by
+    # this edit (see _newly_missing_required for what is NOT refused).
+    dest = (patch.get("project_id") or "") if "project_id" in patch else ""
+    if dest and any((t.project_id or "") != dest for t in rows):
+        _require_destination_projects(db, user, [dest])
+    for t in rows:
+        current = task_assignees(t)
+        wanted = _assignees_from(patch, list(current))
+        _require_people(db, t, [w for w in (wanted or []) if w not in current], actor=user["email"])
+        if "custom_field_values" in patch or "project_id" in patch:
+            project_after = (patch["project_id"] if "project_id" in patch else t.project_id) or ""
+            values_after = (_merge_custom_field_values(db, t.custom_field_values, patch["custom_field_values"])
+                            if "custom_field_values" in patch else (t.custom_field_values or {}))
+            missing = _newly_missing_required(db, t, t.project_id or "", t.custom_field_values or {},
+                                              project_after, values_after)
+            if missing:
+                raise HTTPException(422, f"{t.title}: {_required_message(db, missing, project_after)}")
     if "status" in patch or "completed" in patch:
         for t in rows:
             prev_status, prev_completed = t.status, bool(t.completed)
@@ -2847,10 +3021,18 @@ def delete_comment(comment_id: str, user: dict = Depends(get_current_user),
     if not c:
         raise HTTPException(404, "Comment not found")
     t = db.query(models.Task).filter(models.Task.id == c.task_id).first()
+    if t is not None:
+        assert_task_wall(db, user, t)   # company wall first (Oct 21 2026)
     if (c.author_email or "").lower() != (user["email"] or "").lower():
         require_project_role(db, user, project_for_task(db, t) if t else None, "editor")
         if user.get("level", 1) < 3:
             raise HTTPException(403, "Only the author or a manager can delete a comment.")
+    if t is not None and not task_visible_to(db, user, t):
+        # ...and sight of the task, the author included (as edit_comment):
+        # "no project" reads as editor for everybody, so on a restricted
+        # standalone task the role check above admitted anyone. After the
+        # role checks so their 403s stand.
+        raise HTTPException(404, "Task not found")
     # A thread's root holds other people's replies. Its author cannot take
     # those down with it; a manager moderating the thread removes the lot.
     replies = db.query(models.TaskComment).filter(models.TaskComment.parent_id == comment_id).all()
@@ -3298,6 +3480,29 @@ def list_attachments(task_id: str, user: dict = Depends(get_current_user), db: S
     return [attachment_to_dict(a) for a in rows]
 
 
+_URL_SCHEME_RE = re.compile(r"^https?://", re.I)
+
+
+def _check_attachment_url(url) -> None:
+    """What an attachment may point at (Oct 21 2026). The Tasks screens only
+    ever send a file they just stored - its canonical Supabase storage URL -
+    or, with no storage configured, the file inline as a data: URL (stored
+    below, or kept inline). There is no "add a link" attachment, so anything
+    else is refused: a javascript: / vbscript: / file: URL would run or open
+    from the Attachments list, and an outside https URL is not our evidence.
+    Non-data URLs go through the app's own _validate_photo_url (Supabase
+    storage only, 400) after an http(s) scheme check that holds even where
+    storage is not configured (local dev, where that check is a no-op).
+    Blank stays allowed (a failed upload still records the file's name)."""
+    u = (url or "").strip()
+    if not u or u.lower().startswith("data:"):
+        return
+    if not _URL_SCHEME_RE.match(u):
+        raise HTTPException(400, "Attachment must be a file uploaded to Nexus.")
+    from routers.items import _validate_photo_url
+    _validate_photo_url(u, "Attachment")
+
+
 @router.post("/{task_id}/attachments", status_code=201)
 def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(get_current_user),
                    db: Session = Depends(get_db)):
@@ -3307,6 +3512,7 @@ def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(ge
     # editor here would 403 exactly the people that flow exists for. Matches
     # add_comment's own threshold.
     require_task_role(db, user, t, "commenter")
+    _check_attachment_url(body.url)
     # An attachment tagged with a comment from a DIFFERENT task is incoherent:
     # the comment view groups by comment id within one task, so the file would
     # simply never render, while the row claims an association that isn't real.
@@ -3347,10 +3553,18 @@ def delete_attachment(attachment_id: str, user: dict = Depends(get_current_user)
     if not a:
         raise HTTPException(404, "Attachment not found")
     t = db.query(models.Task).filter(models.Task.id == a.task_id).first()
+    if t is not None:
+        assert_task_wall(db, user, t)   # company wall first (Oct 21 2026)
     # Whoever uploaded it can remove it; otherwise it takes an editor. Removing
     # someone else's evidence from a task shouldn't be open to every viewer.
     if (a.added_by or "").lower() != (user["email"] or "").lower():
         require_project_role(db, user, project_for_task(db, t) if t else None, "editor")
+    if t is not None and not task_visible_to(db, user, t):
+        # Sight of the task too, the uploader included (Oct 21 2026): a file
+        # on a task you can no longer open is not yours to reach by id, and
+        # the editor check above reads "no project" as editor for everybody.
+        # After the role check so its 403 stands.
+        raise HTTPException(404, "Task not found")
     if t:
         t.attachment_ids = [x for x in (t.attachment_ids or []) if x != attachment_id]
         act = log_activity(db, type="attachment_removed", actor_email=user["email"], entity_id=t.id,

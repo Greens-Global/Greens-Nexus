@@ -817,7 +817,47 @@ def require_task_role(db: Session, user: dict, task, min_role: str, scope=_UNSET
             and email in task_assignees(task)
             and PROJECT_ROLE_RANK[min_role] <= PROJECT_ROLE_RANK["editor"]):
         return
-    require_project_role(db, user, project_for_task(db, task) if task is not None else None, min_role)
+    project = project_for_task(db, task) if task is not None else None
+    require_project_role(db, user, project, min_role)
+    # A role is not sight (Oct 21 2026). project_role_for reads "no project"
+    # as editor for everyone, so a RESTRICTED standalone task - visible only
+    # to its owner, creator, assignees and collaborators - could be edited,
+    # deleted, commented on or saved as a template by anyone holding its id.
+    # Likewise it hands an EXTERNAL caller editor on any org-wide project,
+    # which externals never see. In those two cases the task must also be one
+    # the caller can see, by the same rule the lists and _wall_task apply;
+    # 404 like them. Checked after the role so a refusal the role already
+    # gave keeps its 403. A role an internal caller holds on the task's
+    # project already means they can see that project (visible_project_ids
+    # counts the same owner / member / team / org grants), so the common case
+    # pays for no extra scan.
+    if (task is not None and (project is None or user.get("external"))
+            and not task_visible_to(db, user, task)):
+        raise HTTPException(404, "Task not found")
+
+
+def task_visible_to(db: Session, user: dict, task, visible: set | None = None) -> bool:
+    """Whether `user` can see `task`: THE per-task visibility rule, shared by
+    require_task_role and routers/tasks._wall_task. Managers see everything
+    inside their company wall (the wall is checked separately); everybody
+    else what task_is_visible admits, with a subtask (no project of its own)
+    also admitted through its top-level ancestor's project. `visible` is the
+    caller's visible_project_ids when already worked out; it is only built
+    when the cheap checks (org task, owner / creator / assignee / follower)
+    have not already answered."""
+    if is_manager(user):
+        return True
+    if task_is_visible(task, user, set()):
+        return True
+    extras = [p for p in (task.project_ids or []) if p]
+    proj = project_for_task(db, task) if (not task.project_id and task.parent_task_id) else None
+    if not (task.project_id or extras or proj):
+        return False   # no project anywhere: nothing but the checks above can admit it
+    if visible is None:
+        visible = visible_project_ids(db, user)
+    if task_is_visible(task, user, visible):
+        return True
+    return bool(proj and proj.id in visible)
 
 
 def can_comment(db: Session, email: str, project) -> bool:
