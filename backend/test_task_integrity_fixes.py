@@ -767,23 +767,96 @@ class BulkFollowUpTests(_Case):
         self.assertEqual(calls[0], ("lock", [p.id]))
         self.assertEqual(calls[1], ("code",))
 
-    def test_bulk_locks_every_row_before_any_code_and_only_rolling_heads_bring_extras(self):
+    def test_bulk_locks_only_what_rolls_before_any_code(self):
         head = self._add("Payroll", due_on="2026-09-21", recurrence=dict(WEEKLY_MON))
         head_kid = self._add("Payroll step", parent_task_id=head.id)
         rolled = self._add("Rent", due_on="2026-09-21", recurrence={**WEEKLY_MON, "nextOccurrenceId": "gone"})
-        rolled_kid = self._add("Rent step", parent_task_id=rolled.id)
+        self._add("Rent step", parent_task_id=rolled.id)
+        plain = self._add("One-off")
         calls, undo = self._trace()
         try:
-            self._bulk([head.id, rolled.id], completed=True)
+            self._bulk([head.id, rolled.id, plain.id], completed=True)
         finally:
             undo()
         first = calls[0]
         self.assertEqual(first[0], "lock")
-        self.assertIn(head_kid.id, first[1], "a head that rolls brings its subtasks")
-        self.assertNotIn(rolled_kid.id, first[1], "one that already rolled does not")
-        self.assertEqual(set(first[1]), {head.id, rolled.id, head_kid.id})
+        # The head that rolls and its subtask - not the one that already
+        # rolled, not the one-off, not anything else in the batch.
+        self.assertEqual(set(first[1]), {head.id, head_kid.id})
         codes = [i for i, c in enumerate(calls) if c[0] == "code"]
         self.assertTrue(codes and codes[0] > 0)
+
+    def test_a_bulk_that_rolls_nothing_takes_no_locks(self):
+        a = self._add("A")
+        b = self._add("B", due_on="2026-09-21", recurrence=dict(WEEKLY_MON))
+        for patch in ({"priority": "high"}, {"assignee_emails": [SAM]}, {"completed": True}):
+            ids = [a.id] if patch.get("completed") else [a.id, b.id]
+            calls, undo = self._trace()
+            try:
+                self._bulk(ids, **patch)
+            finally:
+                undo()
+            self.assertEqual([c for c in calls if c[0] == "lock"], [], patch)
+
+    def _rule(self, name, trigger, actions, conditions=None):
+        create_rule(RuleBody(name=name, trigger=trigger, actions=actions, conditions=conditions or []), db=self.db)
+
+    def test_a_rule_that_completes_a_recurring_row_locks_it_before_any_code(self):
+        head = self._add("Payroll", due_on="2026-09-21", recurrence=dict(WEEKLY_MON), tags=["auto"])
+        kid = self._add("Payroll step", parent_task_id=head.id)
+        self._rule("Close tagged", {"type": "priority_changed", "value": "low"},
+                   [{"type": "set_status", "value": "completed"}],
+                   [{"field": "tag", "op": "is", "value": "auto"}])
+        calls, undo = self._trace()
+        try:
+            self._bulk([head.id], priority="low")
+        finally:
+            undo()
+        self.assertTrue(self._row(head.id).recurrence.get("nextOccurrenceId"), "the rule's completion rolled it")
+        self.assertEqual(calls[0], ("lock", sorted([head.id, kid.id])))
+        first_code = next(i for i, c in enumerate(calls) if c[0] == "code")
+        # Any lock after that only re-takes rows already held.
+        for c in calls[first_code:]:
+            if c[0] == "lock":
+                self.assertTrue(set(c[1]) <= {head.id, kid.id}, c)
+
+    def test_a_rule_that_reopens_a_blocker_fails_the_batch(self):
+        self.db.add(models.TaskCustomStatus(id="in_review", label="In Review"))
+        self.db.commit()
+        a = self._create(title="A", tags=["review"])
+        b = self._create(title="B", blocked_by_ids=[a["id"]])
+        self._rule("Completed work goes to review", {"type": "status_changed", "value": "completed"},
+                   [{"type": "set_status", "value": "in_review"}],
+                   [{"field": "tag", "op": "is", "value": "review"}])
+        with self.assertRaises(HTTPException) as e:
+            self._bulk([a["id"], b["id"]], status="completed")
+        self.assertEqual(e.exception.status_code, 400)
+        self.db.rollback()
+        self.assertFalse(self._row(a["id"]).completed)
+        self.assertFalse(self._row(b["id"]).completed)
+        self.assertEqual(self._row(a["id"]).status, "not_started")
+
+    def test_a_long_chain_listed_dependents_first_clears_in_one_go(self):
+        ids = []
+        prev = None
+        for i in range(30):
+            t = self._create(title=f"Step {i}", blocked_by_ids=[prev] if prev else [])
+            ids.append(t["id"])
+            prev = t["id"]
+        self._bulk(list(reversed(ids)), completed=True)
+        self.assertTrue(all(self._row(i).completed for i in ids))
+
+    def test_a_loop_inside_the_batch_is_refused(self):
+        from routers.tasks import _blockers_first
+        a = self._add("A")
+        b = self._add("B", blocked_by_ids=[a.id])
+        a.blocked_by_ids = [b.id]        # already-broken data
+        self.db.commit()
+        order = _blockers_first([a, b], lambda r: True)
+        self.assertEqual([t.id for t in order], [a.id, b.id], "neither can go first; both left as listed")
+        with self.assertRaises(HTTPException) as e:
+            self._bulk([a.id, b.id], completed=True)
+        self.assertEqual(e.exception.status_code, 400)
 
     # 5. Same-batch dependencies
     def test_a_blocker_completed_in_the_same_batch_lets_its_dependent_complete(self):
