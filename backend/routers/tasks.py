@@ -36,7 +36,7 @@ from routers.task_util import (
     assert_task_wall, require_project_access, wall_rows, wall_teams,
     config_admits, config_company_for_new, assert_config_editable,
     task_visible_to, assert_person_assignable, project_role_for, PROJECT_ROLE_RANK, row_company,
-    split_people, note_dropped_people, _emp_company_map,
+    split_people, note_dropped_people,
 )
 from task_notify import notify_task_event
 import task_due
@@ -565,7 +565,8 @@ def _require_people(db: Session, t, emails, actor: str = "", user=None, emp_map:
     names = [w for w in (str(x or "").strip().lower() for x in (emails or [])) if w and w != me]
     if not names:
         return
-    emp_map = emp_map if emp_map is not None else _emp_company_map(db)
+    # No directory-wide map here: person_problem gets it once per request,
+    # and only when the company wall applies (task_util.people_wall).
     for w in names:
         assert_person_assignable(db, t, w, user=user, emp_map=emp_map)
 
@@ -841,11 +842,14 @@ def _autostamp_start(t: models.Task, prev_status: str, new_status: str) -> bool:
 
 
 def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_completed: bool,
-                            new_status: str, new_completed: bool) -> None:
+                            new_status: str, new_completed: bool,
+                            assume_done: frozenset = frozenset()) -> None:
     """Enforce blockedBy relationship types before a status/completion change lands.
     FS/SS gate the task *starting* (leaving not_started); FF/SF gate it *finishing*
     (completed). 'Started' on the blocker means it has left not_started OR is
-    completed. Raises 400 with a message naming the still-blocking task."""
+    completed. Raises 400 with a message naming the still-blocking task.
+    `assume_done`: blockers being completed in the same bulk call that have
+    passed their own gate - they count as completed (bulk_update only)."""
     if not t.blocked_by_ids:
         return
     starting_now = _is_starting(prev_status, new_status)
@@ -859,8 +863,8 @@ def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_c
         if not blocker:
             continue
         dep_type = dep_types.get(blocker_id, "FS")
-        blocker_started = blocker.status != "not_started" or blocker.completed
-        blocker_completed = bool(blocker.completed)
+        blocker_started = blocker.status != "not_started" or blocker.completed or blocker_id in assume_done
+        blocker_completed = bool(blocker.completed) or blocker_id in assume_done
         # Title, never the code: task numbers are not shown anywhere in the
         # module, so "Blocked by TASK-1983" would name something the reader
         # has no way to find.
@@ -941,19 +945,21 @@ def _log_completed(db: Session, t: models.Task, actor_email: str) -> str:
 
 
 def _after_completed(db: Session, t: models.Task, user: dict, prev_completed: bool,
-                     spawn_as: Optional[dict] = None, notify: bool = True) -> Optional[models.Task]:
+                     spawn_as: Optional[dict] = None, notify: bool = True,
+                     carry_open=frozenset()) -> Optional[models.Task]:
     """What a completion sets off once it has landed: a recurring task rolls
     forward to its next occurrence, and a ticket's task tells its ticket.
     `spawn_as` is who the next occurrence is created by when that is not the
     person who completed it (an automation rule has no person). `notify`
-    False leaves the "Recurring Task Due" bell to the caller (bulk_update
-    sends one per person for the whole batch). Returns the new occurrence,
-    if any. Does not commit."""
+    False leaves the bells to the caller - bulk_update sends the "Recurring
+    Task Due" bell once per person and the ticket's "All Tasks ... Done" once
+    per ticket for the whole batch. `carry_open`: see _carry_subtasks.
+    Returns the new occurrence, if any. Does not commit."""
     if not (t.completed and not prev_completed):
         return None
-    spawned = _spawn_next_occurrence(db, t, spawn_as or user, notify=notify)
+    spawned = _spawn_next_occurrence(db, t, spawn_as or user, notify=notify, carry_open=carry_open)
     if t.source_ticket_id:
-        _tell_ticket_task_done(db, t, user)
+        _tell_ticket_task_done(db, t, user, notify=notify)
     return spawned
 
 
@@ -1092,7 +1098,7 @@ def _next_due(base_iso: str, rec: dict) -> str:
 
 def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
                            next_due_override: str = "", skip_locked: bool = False,
-                           notify: bool = True) -> Optional[models.Task]:
+                           notify: bool = True, carry_open=frozenset()) -> Optional[models.Task]:
     """Create the occurrence after `t` (unless the end condition - `until` date
     or `count` - is reached). Returns the new task, or None if the series has
     ended or `t` already rolled forward.
@@ -1144,15 +1150,16 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
     # A column read, not the entity, so the caller's unflushed edits on `t`
     # are left alone (autoflush is off). Taken only once a copy is really
     # about to be made, so every caller that gets here commits soon after.
+    # Every other existing row this roll-forward writes is locked with it, in
+    # id order, BEFORE _next_code takes the counter (_lock_task_rows).
     # `skip_locked` is the daily schedule's (spawn_scheduled_occurrences): it
-    # never WAITS for a row somebody holds - that person may be waiting on the
-    # task-code counter - it leaves the task for the next tick instead. FOR
-    # UPDATE (and SKIP LOCKED) is a no-op on SQLite.
-    stored = (db.query(models.Task.recurrence).filter(models.Task.id == t.id)
-              .with_for_update(skip_locked=skip_locked).first())
-    if stored is None and skip_locked and db.bind.dialect.name == "postgresql":
-        return None   # being completed right now: that request rolls it forward
-    stored_rec = stored[0] if stored else None
+    # never WAITS for a row somebody holds, it leaves the task for the next
+    # tick instead. FOR UPDATE (and SKIP LOCKED) is a no-op on SQLite.
+    want = [t.id] + _spawn_write_ids(db, t)
+    got = _lock_task_rows(db, want, skip_locked=skip_locked)
+    if skip_locked and db.bind.dialect.name == "postgresql" and len(got) < len(set(want)):
+        return None   # somebody holds one of them right now - next tick
+    stored_rec = got.get(t.id)
     if isinstance(stored_rec, dict) and stored_rec.get("nextOccurrenceId"):
         t.recurrence = {**rec, "nextOccurrenceId": stored_rec["nextOccurrenceId"]}
         return None
@@ -1211,7 +1218,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
     # The checklist travels with the series, every line unticked: a recurring
     # "monthly close" is the same steps each month.
     _copy_checklist(db, t.id, nxt, user, now)
-    nxt.subtask_ids = _carry_subtasks(db, t, nxt, user)
+    nxt.subtask_ids = _carry_subtasks(db, t, nxt, user, carry_open)
     nxt.subtask_order = t.subtask_order or ""
     if parent is not None:
         parent.subtask_ids = list(parent.subtask_ids or []) + [nid]
@@ -1247,25 +1254,36 @@ def _recurring_due_bell(db: Session, who: str, occurrences: list) -> None:
                 nexus_action={"view": "tasks", "sub": "mine", "label": "View tasks"})
 
 
-def _tell_ticket_task_done(db: Session, t: models.Task, user: dict) -> None:
+def _tell_ticket_task_done(db: Session, t: models.Task, user: dict, notify: bool = True):
     """A task from a ticket was completed (Oct 14 2026): the ticket's history
     says so, and once the LAST of its open tasks is done, whoever works the
     ticket is told it may be ready to resolve. Told, never resolved for them -
     the task being done is not the same as the requester's problem being
-    fixed."""
-    from ticket_code import ticket_no
+    fixed. `notify` False writes only the history line and returns the
+    ticket, for the caller to tell once (_tell_ticket_all_done)."""
     tk = db.query(models.TaskTicket).filter(models.TaskTicket.id == t.source_ticket_id).first()
     # The task a ticket was CONVERTED from is closed because its work moved
     # onto the ticket - that is not work done for it.
     if tk is None or tk.linked_task_id == t.id:
-        return
+        return None
     actor = user["email"].lower()
     log_activity(db, type="task_completed", actor_email=actor, entity_kind="ticket", entity_id=tk.id,
                  entity_code=tk.code, entity_title=tk.subject, detail=f"completed task {t.code} · {t.title}")
+    if notify:
+        _tell_ticket_all_done(db, tk, actor, {t.id})
+    return tk
+
+
+def _tell_ticket_all_done(db: Session, tk, actor: str, done_ids: set) -> None:
+    """Once every task of `tk` is done (`done_ids` are the ones just
+    completed), tell whoever works the ticket it may be ready to resolve -
+    one bell per ticket however many of its tasks were completed together."""
+    from ticket_code import ticket_no
     if tk.status in ("resolved", "closed"):
         return
     ids = [i for i in (tk.task_ids or []) if i]
-    others = (db.query(models.Task).filter(models.Task.id.in_(ids), models.Task.id != t.id).all() if ids else [])
+    others = (db.query(models.Task).filter(models.Task.id.in_(ids), models.Task.id.notin_(list(done_ids))).all()
+              if ids else [])
     if any(not o.completed for o in others):
         return
     who = (tk.assignee_email or "").lower()
@@ -1286,23 +1304,70 @@ def _copy_checklist(db: Session, src_id: str, dst: models.Task, user: dict, now:
     dst.checklist_total, dst.checklist_done = len(items), 0
 
 
+def _task_by_id(db: Session, task_id: str) -> Optional[models.Task]:
+    """A live task by id, INCLUDING one added in this request and not yet
+    written (autoflush is off, so a query cannot see it): a bulk completion
+    rolls a main task forward and then its subtask, whose next copy belongs
+    under the main task's brand-new occurrence."""
+    for o in db.new:
+        if isinstance(o, models.Task) and o.id == task_id:
+            return o
+    return db.query(models.Task).filter(models.Task.id == task_id).first()
+
+
+def _lock_task_rows(db: Session, ids, skip_locked: bool = False) -> dict:
+    """Row-lock these tasks (FOR UPDATE, in id order) and return {id:
+    stored recurrence} for the rows locked. The lock order for task writes
+    that also take the task-code counter (Oct 21 2026): the existing task rows
+    are locked FIRST, in id order, and the counter (code_sequence) after.
+    Creating a subtask (its parent), rolling a series forward (the task, its
+    parent occurrence, its subtasks), a bulk completion (every row in the
+    batch and those) and the daily schedule follow it. Not covered: an HR
+    checklist sync that creates a new task while a completion lands takes the
+    counter before the roll-forward's locks. A column read, so unflushed
+    edits on the rows in hand are left alone. `skip_locked` returns without
+    the rows somebody else holds instead of waiting. A no-op lock on SQLite."""
+    ids = sorted({i for i in (ids or []) if i})
+    if not ids:
+        return {}
+    rows = (db.query(models.Task.id, models.Task.recurrence).filter(models.Task.id.in_(ids))
+            .order_by(models.Task.id).with_for_update(skip_locked=skip_locked).all())
+    return {r[0]: r[1] for r in rows}
+
+
+def _spawn_write_ids(db: Session, t: models.Task) -> list:
+    """The existing task rows rolling `t` forward writes besides `t`: the
+    parent occurrence a subtask's copy is listed under, and `t`'s own live
+    subtasks (moved to the new occurrence, or closed with a Missed one).
+    Rows only added in this request are not in the database to lock."""
+    from sqlalchemy import inspect as sa_inspect
+    ids = []
+    if t.parent_task_id:
+        parent = _current_occurrence(db, t.parent_task_id)
+        if parent is not None and sa_inspect(parent).persistent:
+            ids.append(parent.id)
+    ids += [r[0] for r in db.query(models.Task.id).filter(models.Task.parent_task_id == t.id).all()]
+    return ids
+
+
 def _current_occurrence(db: Session, task_id: str) -> Optional[models.Task]:
     """The live occurrence of the series `task_id` belongs to: follow the
     nextOccurrenceId links forward (skipping the Recycle Bin). A task that does
-    not repeat is its own current occurrence."""
-    cur = db.query(models.Task).filter(models.Task.id == task_id).first()
+    not repeat is its own current occurrence. Sees occurrences added in this
+    request but not yet written (_task_by_id)."""
+    cur = _task_by_id(db, task_id)
     seen = set()
     while cur is not None and cur.id not in seen:
         seen.add(cur.id)
         nid = (cur.recurrence or {}).get("nextOccurrenceId") if isinstance(cur.recurrence, dict) else None
-        nxt = db.query(models.Task).filter(models.Task.id == nid).first() if nid else None
+        nxt = _task_by_id(db, nid) if nid else None
         if nxt is None or nxt.deleted_at:
             break
         cur = nxt
     return cur
 
 
-def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict) -> list:
+def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict, carry_open=frozenset()) -> list:
     """The subtasks of a recurring task come along to its next occurrence
     (Neil, Oct 14 2026: a yearly tax return is the same eleven steps every
     year - they had to be typed in again each time). Each one starts open
@@ -1310,8 +1375,10 @@ def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict) -
     moves by as much as the main task's did. A subtask switched off on its
     own Recurrence row ({"skip": true}) stays behind. One on a schedule of its
     own (`freq`) is not copied: while open it MOVES to the new occurrence, and
-    it makes its own next copies (_spawn_next_occurrence). Returns the ids now
-    under `nxt`."""
+    it makes its own next copies (_spawn_next_occurrence). `carry_open` are
+    subtasks completed in the SAME bulk call as the main task: they count as
+    open, as they were when it rolled - the result matches completing the
+    main task first and the subtask after. Returns the ids now under `nxt`."""
     subs = (db.query(models.Task)
             .filter(models.Task.parent_task_id == t.id,
                     (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None)))
@@ -1330,7 +1397,7 @@ def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict) -
         if isinstance(s.recurrence, dict) and s.recurrence.get("skip"):
             continue
         if isinstance(s.recurrence, dict) and s.recurrence.get("freq"):
-            if not s.completed:
+            if not s.completed or s.id in carry_open:
                 s.parent_task_id, s.modified_at = nxt.id, now
                 moved.append(s.id)
                 ids.append(s.id)
@@ -1474,13 +1541,13 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
             touched = True
             continue
         owner = head.owner_email or head.created_by or head.assignee_email or "system"
-        # ONE transaction per new occurrence (Oct 21 2026). A spawn takes the
-        # head's row lock and then the task-code counter; a person completing
-        # a task takes the same two in the same order. Committing what came
-        # before releases every earlier lock first, and committing right
-        # after releases these two - so the schedule never sits on the
-        # counter while asking for another row. The head lock itself is
-        # skipped, never waited for (skip_locked).
+        # ONE transaction per new occurrence (Oct 21 2026). A spawn locks the
+        # rows it writes (the head, its parent occurrence, its subtasks) and
+        # then takes the task-code counter - the order every other writer
+        # follows (_lock_task_rows). Committing what came before releases
+        # every earlier lock first, and committing right after releases these
+        # - so the schedule never sits on the counter while asking for another
+        # row. Rows somebody holds are skipped, never waited for (skip_locked).
         if touched:
             db.commit()
             touched = False
@@ -2175,6 +2242,11 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     # see and edit, an extra project theirs to add work to.
     _require_dependency_targets(db, user, None, body.__dict__, tid)
     _require_destination_projects(db, user, _extra_project_ids(body.project_ids, body.project_id or ""))
+    if parent is not None:
+        # The parent's row is written (its subtask list) - lock it now, before
+        # the task-code counter below: task rows are always locked before the
+        # counter, never after (see _lock_task_rows).
+        _lock_task_rows(db, [parent.id])
     # Company wall: stamp the creator's company so the task is fixed on their side
     # of the wall even if they later change companies (task_util.task_company falls
     # back to deriving it for legacy/sync rows that were never stamped).
@@ -3035,12 +3107,11 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     dest = (patch.get("project_id") or "") if "project_id" in patch else ""
     if dest and any((t.project_id or "") != dest for t in rows):
         _require_destination_projects(db, user, [dest])
-    emp_map = _emp_company_map(db) if ("assignee_email" in patch or "assignee_emails" in patch) else None
     for t in rows:
         current = task_assignees(t)
         wanted = _assignees_from(patch, list(current))
         _require_people(db, t, [w for w in (wanted or []) if w not in current], actor=user["email"],
-                        user=user, emp_map=emp_map)
+                        user=user)
         if "custom_field_values" in patch or "project_id" in patch:
             project_after = (patch["project_id"] if "project_id" in patch else t.project_id) or ""
             values_after = (_merge_custom_field_values(db, t.custom_field_values, patch["custom_field_values"])
@@ -3050,11 +3121,43 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             if missing:
                 raise HTTPException(422, f"{t.title}: {_required_message(db, missing, project_after)}")
     if "status" in patch or "completed" in patch:
-        for t in rows:
-            prev_status, prev_completed = t.status, bool(t.completed)
-            new_status = patch.get("status", prev_status)
-            new_completed = bool(patch.get("completed", prev_completed)) or (patch.get("status") == "completed")
-            _check_dependency_gate(db, t, prev_status, prev_completed, new_status, new_completed)
+        # Same-batch dependencies (Oct 21 2026): when A blocks B and both are
+        # completed in this one call, A counts as done for B's gate - but only
+        # once A has passed its OWN gate. Passes repeat until nothing more
+        # clears; whatever is still blocked refuses the whole batch, with the
+        # first such task's reason. A single PATCH is unchanged.
+        done_in_batch: set = set()
+        pending = list(rows)
+        while pending:
+            blocked, cleared = [], False
+            for t in pending:
+                prev_status, prev_completed = t.status, bool(t.completed)
+                new_status = patch.get("status", prev_status)
+                new_completed = bool(patch.get("completed", prev_completed)) or (patch.get("status") == "completed")
+                try:
+                    _check_dependency_gate(db, t, prev_status, prev_completed, new_status, new_completed,
+                                           assume_done=frozenset(done_in_batch))
+                except HTTPException as e:
+                    blocked.append((t, e))
+                    continue
+                cleared = True
+                if new_completed and not prev_completed:
+                    done_in_batch.add(t.id)
+            if blocked and not cleared:
+                raise blocked[0][1]
+            pending = [t for t, _ in blocked]
+    # Lock order (Oct 21 2026, see _lock_task_rows): every existing task row
+    # this call writes - each task in the batch, and for each one that will
+    # roll forward its parent occurrence and its subtasks - is locked HERE, in
+    # id order, before anything below writes a row (the HR checklist landing
+    # flushes) or takes the task-code counter (a next occurrence's code).
+    lock_ids = [t.id for t in rows]
+    for t in rows:
+        rec = t.recurrence if isinstance(t.recurrence, dict) else {}
+        if (rec.get("freq") and not rec.get("nextOccurrenceId") and not t.completed
+                and _resolve_completed(patch, False)):
+            lock_ids += _spawn_write_ids(db, t)
+    _lock_task_rows(db, lock_ids)
     # Captured before the patch lands so the activity entries below can say what
     # actually changed rather than restating the new value for every row.
     before = {t.id: (t.status, bool(t.completed), tuple(task_assignees(t))) for t in rows}
@@ -3182,27 +3285,41 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # forward and each ticket's task tells its ticket, through the same
     # _after_completed a single completion runs - before, a periodic task
     # completed here simply ended its series. Every check above already
-    # passed, so nothing here can refuse part of the batch.
+    # passed, so nothing here can refuse part of the batch. The rows were
+    # locked above, before any write.
     #
-    # Locks: every head about to roll is row-locked FIRST, in id order, before
-    # any next occurrence takes the task-code counter. A person completing one
-    # of them takes its row and then the counter - the same order - so the
-    # two can only queue, never deadlock; and two batches lock in one order.
-    # The "Recurring Task Due" bell is one per person for the batch.
-    completing = sorted((t for t in rows if t.completed and not before[t.id][1]), key=lambda t: t.id)
-    rolling = [t.id for t in completing if isinstance(t.recurrence, dict) and t.recurrence.get("freq")]
-    if rolling:
-        (db.query(models.Task.id).filter(models.Task.id.in_(rolling))
-         .order_by(models.Task.id).with_for_update().all())
+    # Main tasks before their subtasks: a subtask's next copy belongs under
+    # the main task's NEW occurrence, and one completed alongside it moves
+    # there as an open subtask would - the same result as completing the main
+    # task first and the subtask after (carry_open).
+    #
+    # Bells once for the batch: "Recurring Task Due" one per person, a
+    # ticket's "All Tasks ... Done" one per ticket.
+    completing = [t for t in rows if t.completed and not before[t.id][1]]
+    batch_ids = {t.id for t in completing}
+    by_id_batch = {t.id: t for t in completing}
+
+    def _depth(t):
+        d, seen, cur = 0, {t.id}, t
+        while cur.parent_task_id in by_id_batch and cur.parent_task_id not in seen:
+            seen.add(cur.parent_task_id)
+            cur = by_id_batch[cur.parent_task_id]
+            d += 1
+        return d
+    completing.sort(key=lambda t: (_depth(t), t.id))
     next_due_for: dict[str, list] = {}
     for t in completing:
-        nxt = _after_completed(db, t, user, before[t.id][1], notify=False)
+        nxt = _after_completed(db, t, user, before[t.id][1], notify=False, carry_open=frozenset(batch_ids))
         if nxt is not None:
             for who in task_assignees(nxt):
                 if who != actor:
                     next_due_for.setdefault(who, []).append(nxt)
     for who, occurrences in next_due_for.items():
         _recurring_due_bell(db, who, occurrences)
+    tickets = {t.source_ticket_id for t in completing if t.source_ticket_id}
+    for tk in (db.query(models.TaskTicket).filter(models.TaskTicket.id.in_(tickets)).all() if tickets else []):
+        if any(t.source_ticket_id == tk.id and tk.linked_task_id != t.id for t in completing):
+            _tell_ticket_all_done(db, tk, actor, batch_ids)
 
     for email, assigned in newly_assigned.items():
         # One task through bulk is the same action as one through PATCH, so it

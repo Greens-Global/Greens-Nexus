@@ -666,6 +666,191 @@ class BulkCompletionTests(_Case):
         self.assertEqual(self.db.query(models.Task).count(), 3)
 
 
+class BulkFollowUpTests(_Case):
+    """Review of the bulk completion (Oct 21 2026)."""
+
+    def _bulk(self, ids, **patch):
+        from routers.tasks import bulk_update, BulkUpdate
+        return bulk_update(BulkUpdate(ids=ids, patch=patch), user=BOSS, db=self.db)
+
+    # 1. One "all done" notice per ticket
+    def test_a_ticket_whose_tasks_are_bulk_completed_together_is_told_once(self):
+        tk = models.TaskTicket(id="tk-1", code="000123", subject="Printer jammed", status="open",
+                               assignee_email=SAM, created_at=now_iso(), modified_at=now_iso())
+        self.db.add(tk)
+        a = self._add("Order toner", source_ticket_id="tk-1")
+        b = self._add("Swap tray", source_ticket_id="tk-1")
+        tk.task_ids = [a.id, b.id]
+        self.db.commit()
+        self._bulk([a.id, b.id], completed=True)
+        self.db.expire_all()
+        notices = (self.db.query(models.TaskNotification)
+                   .filter(models.TaskNotification.kind == "ticket_tasks_done").all())
+        self.assertEqual(len(notices), 1)
+        history = (self.db.query(models.TaskActivity)
+                   .filter(models.TaskActivity.entity_id == "tk-1",
+                           models.TaskActivity.type == "task_completed").count())
+        self.assertEqual(history, 2, "each task still writes its own history line")
+
+    def test_a_single_completion_still_tells_the_ticket(self):
+        tk = models.TaskTicket(id="tk-2", code="000124", subject="Door", status="open",
+                               assignee_email=SAM, created_at=now_iso(), modified_at=now_iso())
+        self.db.add(tk)
+        a = self._add("Fix hinge", source_ticket_id="tk-2")
+        tk.task_ids = [a.id]
+        self.db.commit()
+        self._patch(a.id, completed=True)
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.TaskNotification)
+                         .filter(models.TaskNotification.kind == "ticket_tasks_done").count(), 1)
+
+    # 2. A main task and its own-schedule subtask completed together
+    def _family(self, parent_id, sub_id):
+        now = now_iso()
+        p = models.Task(id=parent_id, code="P", title="Close", status="recurring", due_on="2026-09-21",
+                        recurrence={**WEEKLY_MON, "seriesId": parent_id}, created_at=now, modified_at=now,
+                        created_by=BOSS["email"])
+        s = models.Task(id=sub_id, code="S", title="Reconcile", status="recurring", due_on="2026-09-01",
+                        parent_task_id=parent_id, recurrence={"freq": "monthly", "dayOfMonth": 1, "seriesId": sub_id},
+                        created_at=now, modified_at=now, created_by=BOSS["email"])
+        p.subtask_ids = [sub_id]
+        self.db.add_all([p, s])
+        self.db.commit()
+
+    def _shape(self, parent_id, sub_id):
+        self.db.expire_all()
+        p = self._row(parent_id)
+        p2 = self._row(p.recurrence["nextOccurrenceId"])
+        s = self._row(sub_id)
+        s2 = self._row(s.recurrence["nextOccurrenceId"])
+        return {"sub_under": "new" if s.parent_task_id == p2.id else "old",
+                "copy_under": "new" if s2.parent_task_id == p2.id else "old",
+                "new_lists": sorted("sub" if i == sub_id else "copy" if i == s2.id else "other"
+                                    for i in (p2.subtask_ids or [])),
+                "old_lists": list(p.subtask_ids or [])}
+
+    def test_bulk_matches_one_by_one_parent_first_in_either_id_order(self):
+        self._family("p-1", "s-1")
+        self._patch("p-1", completed=True)
+        self._patch("s-1", completed=True)
+        expected = self._shape("p-1", "s-1")
+        self.assertEqual(expected["sub_under"], "new")
+        self.assertEqual(expected["copy_under"], "new")
+        for parent_id, sub_id in (("a-parent", "b-sub"), ("b-parent", "a-sub")):
+            self._family(parent_id, sub_id)
+            self._bulk([sub_id, parent_id], completed=True)
+            self.assertEqual(self._shape(parent_id, sub_id), expected, (parent_id, sub_id))
+
+    # 3 + 4. Lock order: rows first (id order), the counter after
+    def _trace(self):
+        import routers.tasks as T
+        calls = []
+        real_lock, real_code = T._lock_task_rows, T._next_code
+
+        def lock(db, ids, skip_locked=False):
+            calls.append(("lock", sorted({i for i in ids if i})))
+            return real_lock(db, ids, skip_locked=skip_locked)
+
+        def code(db):
+            calls.append(("code",))
+            return real_code(db)
+        T._lock_task_rows, T._next_code = lock, code
+        return calls, lambda: (setattr(T, "_lock_task_rows", real_lock), setattr(T, "_next_code", real_code))
+
+    def test_creating_a_subtask_locks_the_parent_before_taking_a_code(self):
+        p = self._add("Parent")
+        calls, undo = self._trace()
+        try:
+            self._create(title="Child", parent_task_id=p.id)
+        finally:
+            undo()
+        self.assertEqual(calls[0], ("lock", [p.id]))
+        self.assertEqual(calls[1], ("code",))
+
+    def test_bulk_locks_every_row_before_any_code_and_only_rolling_heads_bring_extras(self):
+        head = self._add("Payroll", due_on="2026-09-21", recurrence=dict(WEEKLY_MON))
+        head_kid = self._add("Payroll step", parent_task_id=head.id)
+        rolled = self._add("Rent", due_on="2026-09-21", recurrence={**WEEKLY_MON, "nextOccurrenceId": "gone"})
+        rolled_kid = self._add("Rent step", parent_task_id=rolled.id)
+        calls, undo = self._trace()
+        try:
+            self._bulk([head.id, rolled.id], completed=True)
+        finally:
+            undo()
+        first = calls[0]
+        self.assertEqual(first[0], "lock")
+        self.assertIn(head_kid.id, first[1], "a head that rolls brings its subtasks")
+        self.assertNotIn(rolled_kid.id, first[1], "one that already rolled does not")
+        self.assertEqual(set(first[1]), {head.id, rolled.id, head_kid.id})
+        codes = [i for i, c in enumerate(calls) if c[0] == "code"]
+        self.assertTrue(codes and codes[0] > 0)
+
+    # 5. Same-batch dependencies
+    def test_a_blocker_completed_in_the_same_batch_lets_its_dependent_complete(self):
+        a = self._create(title="A")
+        b = self._create(title="B", blocked_by_ids=[a["id"]])
+        with self.assertRaises(HTTPException):
+            self._patch(b["id"], completed=True)            # alone: still blocked
+        self._bulk([b["id"], a["id"]], completed=True)       # listed in either order
+        self.assertTrue(self._row(a["id"]).completed)
+        self.assertTrue(self._row(b["id"]).completed)
+
+    def test_a_blocker_that_is_itself_blocked_still_refuses_the_batch(self):
+        z = self._create(title="Z")
+        a = self._create(title="A", blocked_by_ids=[z["id"]])
+        b = self._create(title="B", blocked_by_ids=[a["id"]])
+        with self.assertRaises(HTTPException) as e:
+            self._bulk([a["id"], b["id"]], completed=True)
+        self.assertEqual(e.exception.status_code, 400)
+        self.db.rollback()
+        self.assertFalse(self._row(a["id"]).completed)
+
+
+class PeopleCheckCostTests(_Case):
+    """6 + 7: the directory map and the company scope, once per request."""
+
+    def _count(self, module, name):
+        real = getattr(module, name)
+        n = [0]
+
+        def wrapped(*a, **kw):
+            n[0] += 1
+            return real(*a, **kw)
+        setattr(module, name, wrapped)
+        return n, lambda: setattr(module, name, real)
+
+    def test_walls_off_never_loads_the_directory_map(self):
+        import routers.task_util as U
+        n, undo = self._count(U, "_emp_company_map")
+        try:
+            self._create(title="Both", assignee_emails=[SAM, DEAN["email"]], follower_emails=[BOSS["email"]])
+        finally:
+            undo()
+        self.assertEqual(n[0], 0)
+
+    def test_walls_on_scope_and_map_once_for_many_people(self):
+        import cache
+        import auth
+        import routers.task_util as U
+        self.db.add(models.NexusSetting(key="company_walls", value="on"))
+        self.db.commit()
+        cache.settings_config.invalidate()
+        t = self._add("Walled")
+        maps, undo_m = self._count(U, "_emp_company_map")
+        scopes, undo_s = self._count(auth, "company_scope")
+        try:
+            U.split_people(self.db, t, [SAM, DEAN["email"]], DEAN, "")
+            U.split_people(self.db, t, [BOSS["email"]], DEAN, "")
+        finally:
+            undo_m()
+            undo_s()
+            self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+            self.db.commit()
+            cache.settings_config.invalidate()
+        self.assertEqual(scopes[0], 1)
+        self.assertLessEqual(maps[0], 1)
+
+
 # ── 6. Delta drops what the caller can no longer see ─────────────────────────
 class DeltaTests(_Case):
     def test_a_task_made_invisible_comes_back_as_deleted(self):

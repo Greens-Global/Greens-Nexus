@@ -724,6 +724,28 @@ def _dump_applies_to(kinds) -> str:
     return json.dumps(out or ["task"])
 
 
+def _field_value_unchanged(f: models.TaskCustomField, key: str, value) -> bool:
+    """Whether `value` for `key` is what the field already holds, compared
+    the way it is stored and read back (blank vs missing, option shapes).
+    Unknown keys count as changed."""
+    if key == "name":
+        return (value or "").strip() == (f.name or "")
+    if key == "description":
+        return (value or "") == (f.description or "")
+    if key == "type":
+        return (value or "text") == (f.type or "text")
+    if key == "options":
+        return (normalize_field_options(value or [])
+                == normalize_field_options(f.options if isinstance(f.options, list) else []))
+    if key in ("required", "read_only"):
+        return bool(value) == bool(getattr(f, key))
+    if key in ("project_ids", "required_project_ids"):
+        return [p for p in (value or []) if p] == [p for p in (getattr(f, key) or []) if p]
+    if key == "applies_to":
+        return json.loads(_dump_applies_to(value)) == _parse_applies_to(f.applies_to)
+    return False
+
+
 def custom_field_to_dict(f: models.TaskCustomField) -> dict:
     return {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
             "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
@@ -809,6 +831,11 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
     if not f:
         raise HTTPException(404, "Custom field not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    # Only what actually CHANGES is an edit (Oct 21 2026). The Manage > Fields
+    # form sends the whole field back - name, type, options and all - so
+    # without this a walled manager ticking one of their own projects on a
+    # shared field was refused for "changing" a name they never touched.
+    data = {k: v for k, v in data.items() if not _field_value_unchanged(f, k, v)}
     # Company wall (Oct 21 2026): another company's field is a 404. A shared
     # field's DEFINITION reaches every company, so behind a wall only a Global
     # Admin changes it - but putting it on / taking it off a project of your

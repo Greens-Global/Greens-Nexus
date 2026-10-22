@@ -677,6 +677,26 @@ def require_project_role(db: Session, user: dict, project, min_role: str) -> Non
         raise HTTPException(403, f"You need at least {min_role} access to {name}.")
 
 
+def people_wall(db: Session, user=None) -> tuple:
+    """(walled, emp_map) for the people checks below, worked out ONCE per
+    request (Oct 21 2026): `walled` is whether the company comparison applies
+    (`user`'s scope; with no user, whether the walls are armed) and `emp_map`
+    the employee -> company map, built only when it does - with the walls off
+    nothing loads the whole directory. Kept on the request's session
+    (`db.info`), keyed by the caller and the walls switch, so a create that
+    checks people on a task and each of its subtasks pays for it once."""
+    import auth
+    on = auth._company_walls_on(db)
+    who = (user.get("email") or "").lower() if isinstance(user, dict) else ""
+    key = ("people_wall", who, isinstance(user, dict), on)
+    hit = db.info.get(key)
+    if hit is None:
+        walled = (auth.company_scope(user, db) is not None) if isinstance(user, dict) else on
+        hit = (walled, _emp_company_map(db) if walled else None)
+        db.info[key] = hit
+    return hit
+
+
 def person_problem(db: Session, task, email: str, user=None, emp_map: dict | None = None) -> str:
     """Why `email` may not be put ON `task` as an assignee or collaborator, or
     "" when they may (Oct 21 2026). Being put there is itself what lets them
@@ -686,8 +706,8 @@ def person_problem(db: Session, task, email: str, user=None, emp_map: dict | Non
     comparison only applies behind the company wall (`user`'s scope; with no
     user, whether the walls are armed) - with them off, a US manager assigns
     a Greens India colleague exactly as before. `emp_map` is the employee ->
-    company map when the caller already has it (one per request)."""
-    import auth
+    company map when the caller already has it (else people_wall's, built
+    once per request and only behind the wall)."""
     from sqlalchemy import func
     from models import NexusEmployee
     who = (email or "").strip().lower()
@@ -698,9 +718,9 @@ def person_problem(db: Session, task, email: str, user=None, emp_map: dict | Non
         return "is not in the Nexus directory"
     if (emp.status or "") == "offboarded":
         return "has left"
-    walled = (auth.company_scope(user, db) is not None) if isinstance(user, dict) else auth._company_walls_on(db)
+    walled, wall_map = people_wall(db, user)
     if walled:
-        task_co = task_company(task, emp_map if emp_map is not None else _emp_company_map(db))
+        task_co = task_company(task, emp_map if emp_map is not None else wall_map)
         if task_co and (emp.company or "") and emp.company != task_co:
             return "is in another company"
     return ""
@@ -727,14 +747,13 @@ def split_people(db: Session, task, emails, user=None, actor: str = "") -> tuple
     not fail the whole action; they are left off and the task says so
     (note_dropped_people). The caller adding themselves always passes."""
     me = (actor or "").strip().lower()
-    emp_map = _emp_company_map(db)
     kept, dropped, seen = [], [], set()
     for raw in emails or []:
         who = str(raw or "").strip().lower()
         if not who or who in seen:
             continue
         seen.add(who)
-        problem = "" if who == me else person_problem(db, task, who, user, emp_map)
+        problem = "" if who == me else person_problem(db, task, who, user)
         if problem:
             dropped.append({"email": who, "reason": problem})
         else:
