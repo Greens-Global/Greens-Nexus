@@ -50,7 +50,8 @@ def _safe(db: Session, fn) -> int:
 # ── Workday ──────────────────────────────────────────────────────────────────
 
 def _timesheet(db: Session, me: str) -> int:
-    """Time Sheets submitted to me, waiting on my signature, or sent back to me.
+    """Time Sheets waiting on my signature, or sent back to me. The ones
+    waiting on my review count on People > Time (_to_review, Oct 22).
     A time-tracking-exempt person has no time sheet of their own, so nothing
     of theirs is "sent back": a review row left from before they became
     exempt would otherwise show as a "1" over an empty tab for good
@@ -61,7 +62,13 @@ def _timesheet(db: Session, me: str) -> int:
         db.query(func.count(models.TimesheetReview.id))
         .filter(models.TimesheetReview.employee_email == me,
                 models.TimesheetReview.status == "with_employee").scalar())
-    return len(tsr.waiting_on(db, me)) + len(tsr.to_sign(db, me)) + (sent_back or 0)
+    return len(tsr.to_sign(db, me)) + (sent_back or 0)
+
+
+def _to_review(db: Session, me: str) -> int:
+    """Time Sheets submitted to me for review - People > Time's list."""
+    import timesheet_review as tsr
+    return len(tsr.waiting_on(db, me))
 
 
 def _schedule_confirm(db: Session, me: str) -> int:
@@ -221,7 +228,7 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
             "requests": s(lambda: _shift_requests_to_decide(db, user)) + time_off,
         },
         "hr": {
-            "hr-time": time_off + s(lambda: _punch_fixes(db, user)),
+            "hr-time": time_off + s(lambda: _punch_fixes(db, user)) + s(lambda: _to_review(db, me)),
             "hr-people": s(lambda: _ask_hr(db, user)) + s(lambda: _role_changes(db, user)),
         },
         "accounting": {

@@ -370,37 +370,36 @@ def _round(db: Session, r: TimesheetReview, *, by: str, action: str, note: str =
 
 
 def _notify(db: Session, to: str, title: str, body: str, r: TimesheetReview) -> None:
-    """The employee lands on their own timecard. The manager, while the
-    timesheet is waiting on THEM (submitted, handed back, signing cancelled),
-    lands on Workday > Time Sheet, whose Timesheets to Review list sits at the
-    top (Oct 1) - reachable without the HR grant People > Time needs, and the
-    list's Agree / Send Back only need manager level. Anyone else (HR, a
-    manager told for information) opens THAT employee's card for THAT period
-    in People > Time > Payroll (Sep 29)."""
+    """The employee lands on their own timecard. Everyone else - the
+    reviewing manager included - opens THAT employee's card for THAT period
+    in People > Time > Payroll (Sep 29). Time Sheets to Review lives only in
+    People > Time now; the Workday copy is gone (Oct 22)."""
     if not to:
         return
     if to.lower() == r.employee_email:
         action = {"view": "timeclock", "sub": "timecard", "email": r.employee_email, "start": r.period_start}
-    elif to.lower() == (r.manager_email or "").lower() and r.status == "with_manager":
-        action = {"view": "timeclock", "sub": "timesheet"}
     else:
-        action = {"view": "hr", "sub": "hr-time", "timecard": r.employee_email,
-                  "start": r.period_start, "payType": r.pay_type}
+        action = _reviewer_action(r)
     # A timesheet waiting on someone is a priority notice: the bar across the
     # top of their screen until they act (Neil, call of 09/29).
     _tc()._hr_notify(db, to, title, body, action=action, priority=1)
 
 
+def _reviewer_action(r: TimesheetReview) -> dict:
+    return {"view": "hr", "sub": "hr-time", "timecard": r.employee_email,
+            "start": r.period_start, "payType": r.pay_type}
+
+
 def _notify_reviewer(db: Session, r: TimesheetReview, title: str, body: str, actor: str = "") -> None:
     """The time sheet now waits on its reviewer: the reviewer, plus the live
     stand-in of that reviewer (approver delegation, Oct 17) - one notice each,
-    landing on their Time Sheets to Review list."""
+    opening the card in People > Time."""
     _notify(db, r.manager_email, title, body, r)
     import approval_delegation
     for dl, dg in approval_delegation.stand_ins(db, r.employee_email, [r.manager_email]):
         if dl != (actor or "").lower():
             _tc()._hr_notify(db, dl, title, f"For {display_name(db, dg)}: {body}",
-                             action={"view": "timeclock", "sub": "timesheet"}, priority=1)
+                             action=_reviewer_action(r), priority=1)
 
 
 def _who(db: Session, e: dict) -> str:

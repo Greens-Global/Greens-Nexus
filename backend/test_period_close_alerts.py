@@ -133,7 +133,7 @@ class PeriodCloseAlertTests(unittest.TestCase):
         self.assertEqual(n.title, "Time Sheets to Approve")
         self.assertIn("The pay period 10/04/2026 - 10/17/2026 has closed. 2 time sheets are waiting", n.body)
         self.assertIn("Ann Test, Ben Test", n.body)
-        self.assertEqual(json.loads(n.action), {"view": "timeclock", "sub": "timesheet"})
+        self.assertEqual(json.loads(n.action), {"view": "hr", "sub": "hr-time"})
         self.assertNotIn("Cleo", n.body)
         # Nobody reviews Cleo: the Global Admins do.
         own = self._bells(ta.CLOSE, OWNER)

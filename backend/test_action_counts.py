@@ -91,6 +91,18 @@ class ActionCountsCase(unittest.TestCase):
             self.db.query(m).delete()
         self.db.commit()
 
+    def test_a_time_sheet_to_review_counts_on_people_time_not_workday(self):
+        # Oct 22: reviewing lives only in People > Time, so its count does too.
+        self.db.query(models.TimesheetReview).delete()
+        self.db.add(models.TimesheetReview(id="r2", employee_email=EMP, period_start="2026-09-20", period_end="2026-10-03",
+                                           status="with_manager", manager_email=MGR))
+        self.db.commit()
+        mgr = self._counts(MGR)
+        self.assertEqual(mgr.get("hr", {}).get("hr-time", 0), 1)
+        self.assertEqual(mgr.get("myhr", {}).get("timesheet", 0), 0)
+        self.db.query(models.TimesheetReview).delete()
+        self.db.commit()
+
     def test_nothing_waiting_is_an_empty_map(self):
         self.assertEqual(self._counts(EMP), {})
 
