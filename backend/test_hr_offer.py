@@ -209,12 +209,26 @@ class JourneyTests(OfferCase):
         self.assertEqual(self.db.query(models.NexusEmployee).filter_by(personal_email=CAND).count()
                          + self.db.query(models.NexusEmployee).filter_by(work_email=CAND).count(), 1)
 
-    def test_a_missing_packet_never_undoes_the_hire_and_hr_can_start_it_later(self):
+    def test_no_offer_goes_out_with_no_hiring_packet_to_follow_it(self):
+        """Neil, Oct 22: a hire who signs and then waits on paperwork nobody set
+        up is the failure to prevent - the offer is refused up front, saying
+        what is missing and where to set it up."""
         db = database.SessionLocal()
         db.query(models.HrPacketSetting).filter_by(id="s-hire").delete()
         db.commit()
         db.close()
+        r = self._offer()
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("No hiring packet is set up", r.json()["detail"])
+        self.assertIn("before sending the offer", r.json()["detail"])
+
+    def test_a_missing_packet_never_undoes_the_hire_and_hr_can_start_it_later(self):
         offer = self._offer().json()
+        # The packet goes away after the offer went out (removed, or changed).
+        db = database.SessionLocal()
+        db.query(models.HrPacketSetting).filter_by(id="s-hire").delete()
+        db.commit()
+        db.close()
         self._send_and_sign(offer["id"])
         ev = self._ev(offer["id"])
         self.assertEqual(ev.status, "completed")
@@ -341,7 +355,7 @@ class BuildingBlockTests(OfferCase):
         hire = next(s for s in self.client.get("/hr/packets").json()["settings"] if s["id"] == "s-hire")
         return self.client.put("/hr/packets/documents", json={
             "id": "s-hire", "entity_id": CO, "event": "hire", "name": hire["name"], "doc_template_ids": ["t-intake"],
-            "flow": hire["flow"], "verify_role": "hr", "extra_docs": rows})
+            "flow": hire["flow"], "verify_role": "hr", "extra_docs": rows, "country": hire["country"] or "US"})
 
     def test_the_teams_document_joins_the_packet_for_that_team_only(self):
         db = database.SessionLocal()

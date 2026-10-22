@@ -1274,6 +1274,9 @@ def _run_migrations():
             "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
             # Skip Interview (Neil, Oct 22) - see the Postgres list.
             "ALTER TABLE hr_candidates ADD COLUMN interview_skipped_by VARCHAR DEFAULT ''",
+            # Hiring documents by place (Neil, Oct 22) - see the Postgres list.
+            "ALTER TABLE hr_packet_settings ADD COLUMN region VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN region VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2929,6 +2932,10 @@ def _run_migrations():
         # Skip Interview (Neil, Oct 22): who moved the candidate to Decision
         # without an interview. models.HrCandidate.interview_skipped_by.
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS interview_skipped_by VARCHAR DEFAULT ''",
+        # Hiring documents by place (Neil, Oct 22): a packet's state inside its
+        # country, and the state a company's people work in. Additive; '' = any.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS region VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS region VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

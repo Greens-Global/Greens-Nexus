@@ -102,6 +102,9 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
   const v = data.verifier || {};
   const inReview = ev.status === 'review';
   const isHire = ['offer', 'hire'].includes(ev.kind);      // the offer letter reads like a hire (Oct 14)
+  // An offer only asks "do you accept?" - the emergency contact and permanent
+  // address come later, on the hiring packet's form (Neil, Oct 22).
+  const isOffer = ev.kind === 'offer';
   const first = (ev.subjectName || '').split(' ')[0] || 'them';
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -223,10 +226,10 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
               {field('Preferred Name', 'preferred_name')}
               {field('Phone', 'phone')}
               <div style={{ gridColumn: '1 / -1' }}>{field('Current Address', 'address')}</div>
-              <div style={{ gridColumn: '1 / -1' }}>{field('Permanent Address', 'permanent_address')}</div>
-              {field('Emergency Contact', 'emergency_name')}
-              {field('Relationship', 'emergency_relationship')}
-              {field('Emergency Phone', 'emergency_phone')}
+              {!isOffer && <div style={{ gridColumn: '1 / -1' }}>{field('Permanent Address', 'permanent_address')}</div>}
+              {!isOffer && field('Emergency Contact', 'emergency_name')}
+              {!isOffer && field('Relationship', 'emergency_relationship')}
+              {!isOffer && field('Emergency Phone', 'emergency_phone')}
               {field('Work Starts At', 'work_start', { type: 'time' })}
               {field('Work Ends At', 'work_end', { type: 'time' })}
               <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Work Days</label>
@@ -276,7 +279,7 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
                 <Row k="Phone" v={d.phone} />
                 <Row k="Address" v={d.address} />
                 {d.permanent_address && <Row k="Permanent Address" v={d.permanent_address} />}
-                <Row k="Emergency Contact" v={d.emergency_name && `${d.emergency_name}${d.emergency_relationship ? ` (${d.emergency_relationship})` : ''}${d.emergency_phone ? ` - ${d.emergency_phone}` : ''}`} />
+                {!isOffer && <Row k="Emergency Contact" v={d.emergency_name && `${d.emergency_name}${d.emergency_relationship ? ` (${d.emergency_relationship})` : ''}${d.emergency_phone ? ` - ${d.emergency_phone}` : ''}`} />}
                 {(data.answers || []).map((a, i) => a.type === 'heading'
                   ? <div key={`h-${i}`} style={{ fontSize: 12.5, fontWeight: 800, marginTop: 8 }}>{a.label}</div>
                   : <Row key={a.key} k={a.label} v={a.locked ? <Locked /> : a.value} />)}

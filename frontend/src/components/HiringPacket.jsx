@@ -25,6 +25,7 @@ import PersonSearchSelect from './PersonSearchSelect';
 import { SignModal } from './ESign';
 import DetailsFormFields from './DetailsFormFields';
 import { PacketEditor, describeRoles } from './PacketTemplates';
+import PacketCoverage from './PacketCoverage';
 import { DocumentsPacketEditor } from './DocumentsPacketEditor';
 import { readinessSummary } from '../lib/packetFlow';
 import PacketReview from './PacketReview';
@@ -70,7 +71,6 @@ export function EmailPreviewModal({ event, entityId = '', templateId = '', note 
     </div>
   );
 }
-const WORKER_LABEL = { any: 'Everyone', employee: 'Employees Only', contractor: 'Contractors Only' };
 const EMPLOYMENT_TYPES = [['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['contractor', 'Contractor'], ['intern', 'Intern']];
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
 
@@ -179,8 +179,10 @@ function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
           {(row.problems || []).map(p => <div key={p} style={{ color: 'hsl(var(--color-orange))', fontSize: 11.5, marginTop: 3 }}>{p}</div>)}
         </td>
         <td style={TD}>
-          <StatusChip label={describeRoles(row.roleNames)} tone={row.roleNames?.length ? 'green' : 'gray'} />
-          {row.workerType && row.workerType !== 'any' && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{WORKER_LABEL[row.workerType]}</div>}
+          {/* Place first (Neil, Oct 22) - "Employees in CA, US"; a role only when the packet is limited to one. */}
+          <StatusChip label={row.place || describeRoles(row.roleNames)} tone={row.country ? 'green' : 'orange'} />
+          {!row.country && <div style={{ fontSize: 11, color: 'hsl(var(--color-orange))', marginTop: 4 }}>No place set - pick Works In so it never reaches the wrong country</div>}
+          {row.roleNames?.length > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Only {describeRoles(row.roleNames)}</div>}
         </td>
         <td style={TD}>{docs.length ? docs.map(d => <div key={d}>{d}</div>) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
         <td style={TD}>{(row.signers || []).map((x, i) => <div key={i}>{i + 1}. {x}</div>)}</td>
@@ -202,13 +204,27 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [entities, setEntities] = useState([]);
   const [companyId, setCompanyId] = useState('');
-  const [tab, setTab] = useState('hire');
+  // What Each Hire Gets first (Neil, Oct 22): the gaps before the lists.
+  const [tab, setTab] = useState('overview');
   const [editing, setEditing] = useState(null);     // { event, row | null }
-  const load = () => api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
+  const [coverKey, setCoverKey] = useState(0);
+  const load = () => {
+    setCoverKey(k => k + 1);
+    return api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
+  };
   useEffect(() => { load(); api.getEntities().then(setEntities).catch(() => {}); }, []);
 
   const events = (data?.events || []).filter(e => ENABLED_EVENTS.includes(e.key));
-  const ev = events.find(e => e.key === tab) || events[0];
+  const ev = tab === 'overview' ? null : (events.find(e => e.key === tab) || events[0]);
+  const setUp = ({ event, workerType, country, region }) => {
+    const e = events.find(x => x.key === event);
+    if (e) setEditing({ event: e, row: null, seed: { workerType, country, region }, companyId: '' });
+  };
+  const openPacket = (s) => {
+    const row = (data?.settings || []).find(x => x.id === s.id);
+    const e = row && events.find(x => x.key === row.event);
+    if (row && e) setEditing({ event: e, row });
+  };
   const entityName = (id) => (id ? (entities.find(e => e.id === id)?.name || 'Unknown company') : '');
   // "All companies" (no company picked) lists every packet with its company;
   // a company picked lists its own.
@@ -218,7 +234,6 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
     .sort((a, b) => (entityName(a.entityId) || '').localeCompare(entityName(b.entityId) || '')
       || (a.roleIds?.length ? 1 : 0) - (b.roleIds?.length ? 1 : 0) || (a.templateName || '').localeCompare(b.templateName || '')) : [];
   const inherited = ev && companyId ? (data?.settings || []).filter(s => !s.entityId && s.event === ev.key) : [];
-  const hasGeneral = rows.some(r => !(r.roleIds || []).length && (all ? !r.entityId : true));
   const company = companyId ? (entities.find(e => e.id === companyId)?.name || 'This company') : 'Every company';
   // Roles born from Add Candidate's "Other" with no hiring packet yet (Neil,
   // Oct 12) - listed on the Hire tab with a one-click Add that opens the editor
@@ -248,7 +263,12 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
         {!data ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="section" /></div> : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <div className="scroll-tabs" style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3 }}>
+              <div className="scroll-tabs" style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3, maxWidth: '100%' }}>
+                <button type="button" onClick={() => setTab('overview')}
+                  style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
+                    background: tab === 'overview' ? 'var(--card)' : 'transparent', color: 'var(--ink)', boxShadow: tab === 'overview' ? '0 1px 3px rgba(0,0,0,0.15)' : 'none' }}>
+                  What Each Hire Gets
+                </button>
                 {events.map(e => (
                   <button key={e.key} type="button" onClick={() => setTab(e.key)}
                     style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
@@ -265,6 +285,9 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
                 </button>
               )}
             </div>
+            {tab === 'overview' && (
+              <PacketCoverage refreshKey={coverKey} companyId={companyId} onSetUp={setUp} onOpen={openPacket} />
+            )}
             {ev?.key === 'hire' && needing.length > 0 && (
               <div role="status" style={{ border: '1px solid rgba(180,83,9,0.35)', background: 'rgba(180,83,9,0.07)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#b45309' }}>
@@ -303,7 +326,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {all && <th style={TH}>Company</th>}<th style={TH}>Packet</th><th style={TH}>For Role</th><th style={TH}>Documents</th><th style={TH}>Signs</th><th style={TH}>Filed In</th><th style={TH} />
+                    {all && <th style={TH}>Company</th>}<th style={TH}>Packet</th><th style={TH}>For</th><th style={TH}>Documents</th><th style={TH}>Signs</th><th style={TH}>Filed In</th><th style={TH} />
                   </tr>
                 </thead>
                 <tbody>
@@ -317,8 +340,9 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
             )}
             {ev && rows.length > 0 && (
               <div style={hint}>
-                A role with its own packet gets that one - the company's, else the one for every company; every other role gets the Every role packet{companyId ? ', the company\'s or the one for every company' : ''}.
-                {!hasGeneral && ` Roles without a packet of their own have nothing to fall back on here - add a packet for Every role to cover the rest.`}
+                Each hire gets the one for where they work and how they are hired: a state&apos;s before the country&apos;s, employees or contractors
+                before both, this company&apos;s before the one for every company - and one limited to a role only wins among those for the same place.
+                One for another country or state is never sent.
               </div>
             )}
           </>

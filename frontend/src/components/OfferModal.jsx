@@ -23,6 +23,7 @@ import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { DateField } from '../tasks/components';
+import { US_STATE_NAMES } from '../lib/usStates';
 
 const OTHER_ROLE = '__other__';
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
@@ -69,7 +70,8 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const first = c.firstName || 'They';
   const [step, setStep] = useState('who');
   const [tried, setTried] = useState(false);
-  const [who, setWho] = useState({ worker_type: '', employment_type: 'full_time', country: '' });
+  // Where they work picks the paperwork - country AND state (Neil, Oct 22).
+  const [who, setWho] = useState({ worker_type: '', employment_type: 'full_time', country: '', region: '' });
   const [f, setF] = useState(() => ({
     role_id: c.roleId || (c.roleTitle ? OTHER_ROLE : ''), new_role_name: c.roleId ? '' : (c.roleTitle || ''),
     department: c.department || '', start_date: (c.expectedStart || '').slice(0, 10),
@@ -106,13 +108,18 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    api.offerOptions(c.id, { worker_type: who.worker_type, country: who.country, role_id: roleId, packet_id: chosenId,
+    api.offerOptions(c.id, { worker_type: who.worker_type, country: who.country, region: who.region, role_id: roleId, packet_id: chosenId,
                              new_role: isOther ? '1' : '', department: isOther ? f.department : '' })
-      .then(o => { if (!alive) return; setOpts(o); setWho(w => (w.country ? w : { ...w, country: o.country || '' })); })
+      .then(o => {
+        if (!alive) return;
+        setOpts(o);
+        setWho(w => (w.country ? (w.region || w.country !== o.country ? w : { ...w, region: o.region || '' })
+          : { ...w, country: o.country || '', region: o.region || '' }));
+      })
       .catch(e => { if (alive) { setOpts(null); toastErr?.(e?.message || 'Could not find the offer letter.'); } })
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [c.id, who.worker_type, who.country, roleId, chosenId, isOther, f.department]);
+  }, [c.id, who.worker_type, who.country, who.region, roleId, chosenId, isOther, f.department]);
 
   const letter = opts?.offerLetter || null;
   const packet = opts?.hiringPacket || null;
@@ -138,6 +145,8 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const problemsFor = {
     who: [
       !who.worker_type && 'Choose Employee or Contractor.',
+      // Never an offer with nothing after it (Neil, Oct 22): the hire would sign and then wait.
+      who.worker_type && !loading && opts?.missingPacket && 'Set up the hiring packet for this place first - see below.',
       (!f.role_id || (isOther && (!f.new_role_name.trim() || !f.department))) && 'Pick the role.',
       who.worker_type && !loading && !letter && 'There is no offer letter for this hire yet - set one up, pick another above, or move them to Offer without one.',
     ],
@@ -198,9 +207,16 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             </select></div>
         )}
         <div><label style={lbl} htmlFor="of-country">Works In</label>
-          <select id="of-country" className="form-input" style={{ width: '100%' }} value={who.country} onChange={e => setWho(w => ({ ...w, country: e.target.value }))}>
+          <select id="of-country" className="form-input" style={{ width: '100%' }} value={who.country} onChange={e => setWho(w => ({ ...w, country: e.target.value, region: '' }))}>
             {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
           </select></div>
+        {who.country === 'US' && (
+          <div><label style={lbl} htmlFor="of-region">State</label>
+            <select id="of-region" className="form-input" style={{ width: '100%' }} value={who.region} onChange={e => setWho(w => ({ ...w, region: e.target.value }))}>
+              <option value="">- pick the state -</option>
+              {Object.entries(US_STATE_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+            </select></div>
+        )}
         <div><label style={lbl} htmlFor="of-role">Role</label>
           <select id="of-role" className="form-input" style={{ width: '100%' }} value={f.role_id} onChange={e => pickRole(e.target.value)}>
             <option value="">- pick the role -</option>
@@ -227,7 +243,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
               <div><CheckCircle size={14} style={{ verticalAlign: 'middle', color: 'hsl(var(--color-green))', marginRight: 6 }} /><b>Offer letter:</b> {letter.name}</div>
               <div style={{ marginTop: 4 }}>
                 {packet ? <><b>Then:</b> {packet.name}, sent to {first} by itself once they sign the offer.</>
-                  : <span style={{ color: 'hsl(var(--color-orange))' }}>No hiring packet is set up for this hire yet - they are still hired when they sign; the packet can be started from their card later.</span>}
+                  : <Warn>{opts?.missingPacket || 'No hiring packet is set up for this hire yet.'}</Warn>}
               </div>
               {(letter.problems || []).map(p => <Warn key={p}>{p}</Warn>)}
             </>

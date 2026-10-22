@@ -310,14 +310,17 @@ class HiringPacketTests(LifeEventCase):
         self.assertEqual(hle.resolve_setting(self.db, ENTITY, "hire", "employee", "jr-it").id, it["id"])
         self.assertEqual(hle.resolve_setting(self.db, ENTITY, "hire", "employee", "jr-an").id, "set-hire")
         self.assertEqual(hle.resolve_setting(self.db, ENTITY, "hire", "employee", "").id, "set-hire")
-        # A role packet made for EVERY company beats this company's every-role packet.
+        # Neil, Oct 22 - "the role gets filled into the hiring packet, not the
+        # packet into the role": a role packet made for EVERY company no longer
+        # beats this company's own packet; it is used where the company has none.
         self.db.add(models.NexusGroup(id="jr-pm", name="Project Manager", department="", is_job_role=1, tier="employee", company_id=""))
         self.db.commit()
         r = self.client.put("/hr/packets/whole", json={
             "entity_id": "", "event": "hire", "name": "Hiring Packet - Project Managers", "role_ids": ["jr-pm"],
             "signers": [{"key": "employee", "label": "Employee"}], "body": BODY})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(hle.resolve_setting(self.db, ENTITY, "hire", "employee", "jr-pm").id, r.json()["id"])
+        self.assertEqual(hle.resolve_setting(self.db, ENTITY, "hire", "employee", "jr-pm").id, "set-hire")
+        self.assertEqual(hle.resolve_setting(self.db, "another-company", "hire", "employee", "jr-pm").id, r.json()["id"])
         # Editing the IT packet keeps its row and template; the email carries its note.
         r = self.client.put("/hr/packets/whole", json={
             "id": it["id"], "entity_id": ENTITY, "event": "hire", "name": "Hiring Packet - IT v2", "role_ids": ["jr-it"],

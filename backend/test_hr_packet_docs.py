@@ -84,7 +84,7 @@ class PacketDocsTests(unittest.TestCase):
                   models.HrCandidate, models.NexusEmployee, models.HrEntity, models.NexusRole, models.NexusGroup,
                   models.NexusGroupMember, models.NexusSetting, models.HrLifeEvent, models.HrSignRequest):
             db.query(m).delete()
-        db.add(models.HrEntity(id=CO, name="Greens Test", legal_name="Greens Test, LLC", hr_contact_email=HR,
+        db.add(models.HrEntity(id=CO, name="Greens Test", legal_name="Greens Test, LLC", hr_contact_email=HR, country="US",
                                signatory="Neil Owner, CEO", signatory_email=NEIL))
         for email, first, last, status in ((HR, "Charmi", "Shah", "active"), (NEIL, "Neil", "Owner", "active"),
                                            (MGR, "Max", "Mgr", "active"), (PLAIN, "Pat", "People", "active"),
@@ -142,7 +142,7 @@ class PacketDocsTests(unittest.TestCase):
         return ctx
 
     def _save(self, **kw):
-        body = dict(entity_id=CO, event="hire", name="IT Dev Associate", doc_template_ids=["t-offer", "t-nda"],
+        body = dict(entity_id=CO, event="hire", name="IT Dev Associate", doc_template_ids=["t-offer", "t-nda"], country="US",
                     flow=[{"key": "company", "role": "hr", "action": "sign"},
                           {"key": "employee", "role": "employee", "action": "sign"}])
         body.update(kw)

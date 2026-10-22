@@ -36,6 +36,7 @@ import { Spinner } from './AsyncState';
 import SignOnceModal from './SignOnceModal';
 import PacketReadiness from './PacketReadiness';
 import { formatDate } from '../lib/datetime';
+import { US_STATE_NAMES, placeName } from '../lib/usStates';
 
 // Roomy, plain: normal-case labels, one short hint only where it helps.
 const lbl = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '18px 0 6px' };
@@ -106,12 +107,18 @@ const STEPS = [['who', 'Who It\'s For'], ['docs', 'Documents'], ['signs', 'Who S
 export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, companyName, defaultSubfolder, catalog, onClose, onSaved, toastErr }) {
   const [p, setP] = useState(() => ({
     id: packet?.engine === 'documents' ? packet.id : '',
-    name: packet?.name || '',
+    // A Set Up from What Each Hire Gets arrives with its place - named from it.
+    name: packet?.name || (packet?.country ? [placeName(packet.country, packet.region, COUNTRY_NAMES),
+      { employee: 'Employee', contractor: 'Contractor' }[packet.workerType] || '', eventLabel].filter(Boolean).join(' ') : ''),
+    nameTouched: !!packet?.name,       // a typed (or saved) name is never replaced by the suggestion
     roleIds: packet?.roleIds || [],
     // Who it is for (Oct 14): employees or contractors, and where they work -
     // "if it's an Indian contractor, it needs a different document" (Neil).
-    workerType: packet?.workerType || 'any',
+    // Place first (Neil, Oct 22): a hiring packet is a place's paperwork -
+    // "California employee", "India contractor" - never left to "any".
+    workerType: packet?.workerType || (packet?.id || !['offer', 'hire'].includes(event) ? 'any' : ''),
     country: packet?.country || '',
+    region: packet?.region || '',
     docIds: packet?.docTemplateIds || [],
     // Building blocks (Oct 14): documents added only for a team or a role -
     // each team's own confidentiality agreement (Neil).
@@ -210,7 +217,11 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
 
   // Quick checks per step; the server's full list arrives on Save.
   const problemsFor = {
-    who: [!p.name.trim() && 'Give the packet a name.'],
+    who: [
+      !p.name.trim() && 'Give the packet a name.',
+      event === 'hire' && !p.country && 'Pick where these hires work - hiring paperwork is different in each place.',
+      ['offer', 'hire'].includes(event) && !p.workerType && 'Pick employees or contractors.',
+    ],
     docs: [
       !p.docIds.length && 'Add at least one document.',
       ...docs.filter(d => !d.missing && !d.publishedVersion).map(d => `"${d.name}" is not published yet - open it in Documents and click Publish.`),
@@ -239,7 +250,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     try {
       const saved = await api.saveDocumentsPacket({
         id: p.id, entity_id: companyId || '', event, name: p.name.trim(), role_ids: p.roleIds,
-        worker_type: p.workerType, country: p.country,
+        worker_type: p.workerType, country: p.country, region: p.country === 'US' ? p.region : '',
         extra_docs: p.extraDocs.filter(r => r.value || r.templateIds.length),
         doc_template_ids: p.docIds, flow: p.flow, verify_role: p.verifyRole, letterhead_id: p.letterheadId,
         pay_mode: p.payMode, email_message: p.emailMessage, egnyte_subfolder: p.egnyteSubfolder,
@@ -273,49 +284,89 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const verifyHolder = holders && holders[p.verifyRole];
 
   // ── the steps ──
+  // The name says the place and the hire (Neil, Oct 22) until HR types one.
+  const suggestedName = () => {
+    const place = placeName(p.country, p.region, COUNTRY_NAMES);
+    const who = { employee: 'Employee', contractor: 'Contractor' }[p.workerType] || '';
+    return [place, who, eventLabel].filter(Boolean).join(' ');
+  };
+  const setPlace = (patch) => setP(x => {
+    const next = { ...x, ...patch };
+    if (!next.nameTouched) {
+      const place = placeName(next.country, next.region, COUNTRY_NAMES);
+      const who = { employee: 'Employee', contractor: 'Contractor' }[next.workerType] || '';
+      if (place || who) next.name = [place, who, eventLabel].filter(Boolean).join(' ');
+    }
+    return next;
+  });
+  const placeEvent = ['offer', 'hire'].includes(event);
   const whoStep = (
     <>
       <h2 style={h2}>Who is this {eventLabel.toLowerCase()} for?</h2>
-      <p style={lead}>Nexus picks it by itself for each person from these answers.</p>
-      <label style={lbl} htmlFor="pk-name">Name</label>
-      <input id="pk-name" className="form-input" style={{ width: '100%', fontSize: 14 }} value={p.name} onChange={e => set('name', e.target.value)}
-        placeholder={`e.g. ${eventLabel} - IT Dev Associate`} autoFocus={!p.id} />
-      <label style={lbl} htmlFor="pk-role">Role</label>
-      {companyRoles === null ? <Spinner size={14} /> : (
-        <select id="pk-role" className="form-input" style={{ width: '100%' }} value={p.roleIds[0] || ''} onChange={e => set('roleIds', e.target.value ? [e.target.value] : [])}>
-          <option value="">Every role</option>
-          <optgroup label={`${companyName || 'Company'} Roles`}>
-            {companyRoles.filter(r => r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
-          </optgroup>
-          <optgroup label="Shared Roles">
-            {companyRoles.filter(r => !r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
-          </optgroup>
-        </select>
-      )}
-      <div style={hint}>"Every role" covers the roles that have no {eventLabel.toLowerCase()} of their own. A role with its own always gets that one.</div>
-      {['offer', 'hire'].includes(event) && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0 18px' }}>
+      <p style={lead}>
+        {placeEvent
+          ? `One ${eventLabel.toLowerCase()} per place and kind of hire - for example California employees, India contractors. Nexus sends it to every role hired there and fills in each person's own details.`
+          : 'Nexus picks it by itself for each person from these answers.'}
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 18px' }}>
+        <div>
+          <label style={lbl} htmlFor="pk-country">Works In</label>
+          <select id="pk-country" className="form-input" style={{ width: '100%' }} value={p.country}
+            onChange={e => setPlace({ country: e.target.value, region: e.target.value === 'US' ? p.region : '' })}>
+            <option value="">{event === 'hire' ? 'Pick a country' : 'Any Country'}</option>
+            {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
+          </select>
+        </div>
+        {p.country === 'US' && (
+          <div>
+            <label style={lbl} htmlFor="pk-region">State</label>
+            <select id="pk-region" className="form-input" style={{ width: '100%' }} value={p.region} onChange={e => setPlace({ region: e.target.value })}>
+              <option value="">Anywhere In The US</option>
+              {Object.entries(US_STATE_NAMES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+            </select>
+          </div>
+        )}
+        {placeEvent && (
           <div>
             <label style={lbl} htmlFor="pk-wt">Hired As</label>
-            <select id="pk-wt" className="form-input" style={{ width: '100%' }} value={p.workerType} onChange={e => set('workerType', e.target.value)}>
+            <select id="pk-wt" className="form-input" style={{ width: '100%' }} value={p.workerType} onChange={e => setPlace({ workerType: e.target.value })}>
+              {!p.workerType && <option value="">Pick one</option>}
+              <option value="employee">Employees</option>
+              <option value="contractor">Contractors</option>
               <option value="any">Employees And Contractors</option>
-              <option value="employee">Employees Only</option>
-              <option value="contractor">Contractors Only</option>
             </select>
           </div>
-          <div>
-            <label style={lbl} htmlFor="pk-country">Works In</label>
-            <select id="pk-country" className="form-input" style={{ width: '100%' }} value={p.country} onChange={e => set('country', e.target.value)}>
-              <option value="">Any Country</option>
-              {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
-            </select>
-          </div>
-          <div style={{ ...hint, gridColumn: '1 / -1' }}>
-            {event === 'offer' ? "HR says employee or contractor when making the offer - a contractor's letter never says employment."
-              : 'Picked from what HR answered on the offer, once it is signed.'}
-          </div>
+        )}
+      </div>
+      {placeEvent && (
+        <div style={hint}>
+          {event === 'offer' ? "HR says employee or contractor when making the offer - a contractor's letter never says employment. "
+            : 'Picked from what HR answered on the offer, once it is signed. '}
+          A state picked here wins over &quot;Anywhere In The US&quot; for people who work in that state.
         </div>
       )}
+      <label style={lbl} htmlFor="pk-name">Name</label>
+      <input id="pk-name" className="form-input" style={{ width: '100%', fontSize: 14 }} value={p.name}
+        onChange={e => setP(x => ({ ...x, name: e.target.value, nameTouched: true }))}
+        placeholder={suggestedName() || `e.g. California Employee ${eventLabel}`} autoFocus={!p.id} />
+      <details open={p.roleIds.length > 0} style={{ marginTop: 14 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Only For One Role{p.roleIds.length ? ' (On)' : ' (Usually Off)'}</summary>
+        <div style={{ ...hint, marginTop: 6 }}>
+          Leave this off: the same {eventLabel.toLowerCase()} goes to every role hired in this place, and each person&apos;s role, job description and
+          role documents are filled in for them. Turn it on only when one role truly needs different paperwork - it still applies only to the place above.
+        </div>
+        {companyRoles === null ? <Spinner size={14} /> : (
+          <select id="pk-role" aria-label="Only for this role" className="form-input" style={{ width: '100%', marginTop: 6 }} value={p.roleIds[0] || ''} onChange={e => set('roleIds', e.target.value ? [e.target.value] : [])}>
+            <option value="">Every role</option>
+            <optgroup label={`${companyName || 'Company'} Roles`}>
+              {companyRoles.filter(r => r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+            </optgroup>
+            <optgroup label="Shared Roles">
+              {companyRoles.filter(r => !r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+            </optgroup>
+          </select>
+        )}
+      </details>
     </>
   );
 

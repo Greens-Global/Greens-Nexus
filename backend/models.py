@@ -1450,6 +1450,7 @@ class HrEntity(Base):
     name               = Column(String, nullable=False)     # short display name (e.g. "Greens India")
     legal_name         = Column(String, default="")         # full registered legal name
     country            = Column(String, default="")         # US | IN | ...
+    region             = Column(String, default="")         # US state (CA, TX) - picks the hiring documents for the place
     tax_id             = Column(String, default="")         # EIN (US) / GSTIN (IN)
     registered_address = Column(String, default="")
     signatory          = Column(String, default="")         # authorized signatory name/title
@@ -6126,6 +6127,10 @@ class HrPacketSetting(Base):
     # of doc_template_ids - "there's a different confidentiality agreement for
     # each team" (Neil). [{match: department | role, value, templateIds: []}]
     extra_docs       = Column(JSON, default=list)
+    # Where the person works, inside the country (Neil, Oct 22): "there is a
+    # hiring packet that applies to California... when we open Texas we'll add
+    # one for Texas". A US state code (CA, TX), '' = anywhere in the country.
+    region           = Column(String, default="")
 
 
 class HrLifeEvent(Base):
