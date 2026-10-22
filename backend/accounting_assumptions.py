@@ -6,6 +6,10 @@ Code imports these - never repeat the values inline. Where an environment
 variable is named, it overrides the default without a deploy of code.
 Read at call time through this module (`assumptions.NAME`), so a test or a
 hot fix can swap one without touching the code that uses it.
+
+Neil Kadakia and Charmi Desai answered the open questions in Teams on
+23 Oct 2026 (~02:22 IST). Each constant's comment says "confirmed by team,
+23 Oct" when it follows their answer, else "assumption, Charmi to confirm".
 """
 import os
 
@@ -120,56 +124,92 @@ def _emails(name: str) -> list[str]:
 
 
 # ── CR-13: AMA (Ask My Accountant) reclass flow ─────────────────────────────
+# Team answers, Teams 23 Oct 2026 ~02:22 IST (Neil): "Show all offsetting
+# accounts. Bookkeepers are currently Charmi, Neil, Urmi Priyanka and Vinod,
+# but we don't want to hardcode or limit that as more could be added in the
+# future. The push should edit the original and the change should be visible
+# on the other end. CAREFUL TO GET THIS RIGHT ... needs to be validated with 1
+# entry at a time, then 4 at a time, then 10 at a time".
 
-# CR-13 (Charmi to confirm): who counts as a "bookkeeper" - chosen: the
-# Bookkeepers list in AMA Settings (people on the Nexus People list, kept by an
-# Accounting editor with every-entity access); while that list is empty, the
-# emails in NEXUS_AMA_BOOKKEEPERS (comma-separated) - because an
-# administrator's or owner's role opens every Accounting screen, so a level
-# or role could never keep Neil (an answerer) from pushing. Never hard-code
-# the people's emails here.
+# CR-13 (confirmed by team, 23 Oct): who counts as a "bookkeeper" - the
+# Bookkeepers list in AMA Settings (people on the Nexus People list; anyone
+# can be added there later). While that list is empty, the emails in
+# NEXUS_AMA_BOOKKEEPERS (comma-separated); while THAT is empty too, the names
+# below, each matched at run time to exactly one active person on the Nexus
+# People list (full name when a last name is given, else first name) - a name
+# that matches nobody or more than one person is left out and shown as
+# unmatched in AMA Settings, never guessed. Names only: no email is invented
+# here. Saving the Bookkeepers list in AMA Settings replaces this seed.
 AMA_BOOKKEEPERS_ENV = "NEXUS_AMA_BOOKKEEPERS"
 AMA_BOOKKEEPERS_FALLBACK = _emails(AMA_BOOKKEEPERS_ENV)
+AMA_BOOKKEEPER_SEED_NAMES = ("Charmi Desai", "Neil Kadakia", "Urmi", "Priyanka", "Vinod")
 
-# CR-13 (Charmi to confirm): may a bookkeeper approve and push a reclass they
-# proposed themselves? Chosen: yes - the bookkeeper IS the verifying role
-# ("it has to go through the bookkeeper"); only non-bookkeepers are held back.
-# False = a second bookkeeper must approve.
+# CR-13 (assumption, Charmi to confirm): may a bookkeeper approve and push a
+# reclass they proposed themselves? Chosen: yes - the bookkeeper IS the
+# verifying role ("it has to go through the bookkeeper"); only non-bookkeepers
+# are held back. False = a second bookkeeper must approve.
 AMA_BOOKKEEPER_MAY_APPROVE_OWN = True
 
-# CR-13 (Charmi to confirm): push = a NEW reclass journal entry in Intacct
-# (debit/credit the chosen GL, the opposite side on the Ask My Accountant
-# account), never an edit of the original entry - because an edit rewrites
-# posted history (and the bank-feed entry it came from), while a reclass
-# keeps the audit trail. The only supported value.
-AMA_RECLASS_MODE = "new_entry"
+# CR-13 (confirmed by team, 23 Oct): "The push should edit the original" -
+# 'edit_original' changes the account (and vendor / customer) of the AMA line
+# ON THE ORIGINAL Intacct entry, every other field and every amount sent back
+# exactly as read. 'new_entry' is the older reclass-entry path, kept only
+# behind this switch (NEXUS_AMA_RECLASS_MODE=new_entry).
+AMA_RECLASS_MODES = ("edit_original", "new_entry")
+AMA_RECLASS_MODE = (os.getenv("NEXUS_AMA_RECLASS_MODE") or "edit_original").strip().lower()
 
-# CR-13 (Charmi to confirm): whether Push really writes to Intacct. Chosen:
-# OFF (NEXUS_AMA_INTACCT_PUSH=true turns it on, with the INTACCT_* settings
-# of intacct_client.py) - while off, Push records the approved reclass and
-# the bookkeeper imports it with the Intacct GL import file (same layout as
-# the payroll and allocation imports). Nothing has written to Intacct from
-# Nexus before, so the first real post should be a deliberate switch.
+# CR-13 (confirmed by team, 23 Oct): the most AMA lines one push may change.
+# Neil: validate "with 1 entry at a time, then 4 at a time, then 10 at a time"
+# - so 1 until the team has checked single pushes in Intacct, then
+# NEXUS_AMA_PUSH_BATCH_LIMIT=4, then 10. The server refuses a preview or a
+# push of more lines than this, whatever the screen sends.
+AMA_PUSH_BATCH_LIMIT = max(1, _env_int("NEXUS_AMA_PUSH_BATCH_LIMIT", 1))
+
+# CR-13 (assumption, Charmi to confirm): how long a preview stays good for a
+# push. Chosen 15 minutes - long enough to read it, short enough to be fresh
+# (the entry is re-read and compared at push time either way).
+AMA_PREVIEW_TTL_MINUTES = _env_int("NEXUS_AMA_PREVIEW_TTL_MINUTES", 15)
+
+# CR-13 (assumption, Charmi to confirm): the books are closed through this
+# date (YYYY-MM-DD) - no push touches an entry dated on or before it. The
+# date kept in AMA Settings wins; this is the server default ('' = none).
+# Intacct also refuses a closed period itself; this stops it before a call.
+AMA_BOOKS_CLOSED_THROUGH = (os.getenv("NEXUS_AMA_BOOKS_CLOSED_THROUGH") or "").strip()[:10]
+
+# CR-13 (assumption, Charmi to confirm): never edit an entry that has a
+# reconciled (cleared) line - an update sends every line of the entry again,
+# and a bank reconciliation must not be disturbed from Nexus. Such a line is
+# reclassed in Intacct by hand. False lets the push try (Intacct decides).
+AMA_EDIT_REFUSE_CLEARED = _flag("NEXUS_AMA_EDIT_REFUSE_CLEARED", True)
+
+# CR-13 (assumption, Charmi to confirm): the entry states a push may edit.
+# Chosen Posted and Draft - an entry waiting for approval, reversed or
+# otherwise in flight is left to Intacct.
+AMA_EDIT_STATES = ("Posted", "Draft")
+
+# CR-13 (assumption, Charmi to confirm): only entries the General Ledger
+# module owns (MODULE "2.GL" in Intacct) are edited; an entry AP / AR / Cash
+# Management posted is changed at its source, never here. '' = not said (an
+# entry read from the Nexus ledger copy while the push is off).
+AMA_EDIT_MODULES = ("2.GL", "GL", "")
+
+# CR-13 (confirmed by team, 23 Oct): whether Push really writes to Intacct.
+# OFF by default (NEXUS_AMA_INTACCT_PUSH=true turns it on, with the INTACCT_*
+# settings of intacct_client.py). While off, Push runs every check, records
+# exactly what it WOULD send in the push log and leaves the line Awaiting
+# Bookkeeper - nothing reaches Intacct.
 AMA_PUSH_TO_INTACCT = _flag("NEXUS_AMA_INTACCT_PUSH", False)
 
-# CR-13 (Charmi to confirm): the journal the reclass entry posts to. Chosen:
-# GJ (General Journal), where manual reclasses go today.
+# CR-13 (assumption, Charmi to confirm) - 'new_entry' mode only: the journal
+# the reclass entry posts to (GJ), its date ('original' = the AMA line's own
+# date, or 'today') and the state it is created in (Posted).
 AMA_RECLASS_JOURNAL = (os.getenv("NEXUS_AMA_RECLASS_JOURNAL") or "GJ").strip().upper()
-
-# CR-13 (Charmi to confirm): the reclass entry's date - "original" (the AMA
-# line's own date, so the expense lands in the month it happened) or "today".
-# Chosen: original - the P&L of that month is then right; a closed period
-# makes Intacct refuse it and the bookkeeper sees why.
 AMA_RECLASS_DATE = "original"
-
-# CR-13 (Charmi to confirm): the state the reclass entry is created in, in
-# Intacct: "Posted" (the bookkeeper has already approved it in Nexus) or
-# "Draft". Chosen: Posted - the review happened here.
 AMA_RECLASS_STATE = "Posted"
 
-# CR-13: the words every reclass entry's description starts with. The AMA
-# screen knows the reclass entry's own line on the AMA account by them and
-# shows it as Resolved instead of a new open line.
+# CR-13: the words the Intacct history comment of an edited entry starts with
+# (and, in 'new_entry' mode, every reclass entry's description - the AMA
+# screen knows that entry's own AMA line by them and shows it Resolved).
 AMA_RECLASS_TAG = "Nexus AMA reclass"
 
 # CR-13: a push that never came back (the server restarted mid-call) may be

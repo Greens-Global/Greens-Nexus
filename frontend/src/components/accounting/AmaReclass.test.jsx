@@ -37,6 +37,9 @@ vi.mock('../../api', () => ({
     saveAskNote: vi.fn(),
     proposeAskReclass: vi.fn(),
     pushAskReclass: vi.fn(),
+    previewAskPush: vi.fn(),
+    pushAskBatch: vi.fn(),
+    getAskPushLog: vi.fn(async () => ({ log: [] })),
     sendBackAskReclass: vi.fn(),
     exportAskReclasses: vi.fn(),
     getAskThread: vi.fn(),
@@ -81,6 +84,7 @@ describe('the other side (pure)', () => {
     expect(reclassLabel(review())).toBe('Awaiting Bookkeeper');
     expect(reclassLabel(review({ status: 'Pushed', pushMode: 'intacct' }))).toBe('Pushed To Intacct');
     expect(reclassLabel(review({ status: 'Pushed', pushMode: 'import' }))).toBe('Approved For Import');
+    expect(reclassLabel(review({ status: 'Pushed', pushMode: 'edit' }))).toBe('Edited In Intacct');
   });
 });
 
@@ -89,7 +93,9 @@ describe('AMA grid (CR-13)', () => {
     render(<AskAccountantTab />);
     const tr = (await screen.findByText('DDA Withdrawal')).closest('tr');
     await waitFor(() => expect(within(tr).getByText('Chase Checking')).toBeTruthy());
-    expect(within(tr).getByText(/\+1 more/)).toBeTruthy();
+    // Neil, 23 Oct: "Show all offsetting accounts" - every one, no "+1 more".
+    expect(within(tr).getByText(/Wells Checking/)).toBeTruthy();
+    expect(within(tr).queryByText(/\+1 more/)).toBeNull();
     expect(api.getAskOffsets).toHaveBeenCalledTimes(1);
     expect(api.getAskOffsets.mock.calls[0][0].sort()).toEqual([E1, E2].sort());
     const tr2 = screen.getByText('ZELLE from DINA').closest('tr');
@@ -135,8 +141,8 @@ describe('AMA grid (CR-13)', () => {
     expect(api.getAccountingPartners).toHaveBeenLastCalledWith('customer', '');
   });
 
-  it('a bookkeeper approves and pushes; the list reloads with the line Resolved', async () => {
-    api.getAskItems.mockImplementation(async () => items({ isBookkeeper: true, rows: [line({ reclass: review() })] }));
+  it('new_entry mode (kept behind config): a bookkeeper approves and pushes; the list reloads', async () => {
+    api.getAskItems.mockImplementation(async () => items({ isBookkeeper: true, reclassMode: 'new_entry', rows: [line({ reclass: review() })] }));
     api.pushAskReclass.mockImplementation(async () => review({ status: 'Pushed', pushMode: 'import', approvedBy: 'book@greensglobal.com', approvedByName: 'Urmi G', approvedAt: '2026-10-23T16:00:00Z' }));
     render(<AskAccountantTab />);
     fireEvent.click(await screen.findByRole('button', { name: /GL reclass 61000 Awaiting Bookkeeper/ }));
@@ -150,9 +156,58 @@ describe('AMA grid (CR-13)', () => {
     await waitFor(() => expect(api.getAskItems).toHaveBeenCalledTimes(2));
   });
 
-  it('says Push To Intacct when the server pushes', async () => {
+  it('says Push To Intacct when the server pushes, and only after a preview', async () => {
     render(<ReclassDialog row={line({ reclass: review() })} side={null} isBookkeeper pushToIntacct onClose={() => {}} />);
-    expect(await screen.findByRole('button', { name: /Approve & Push To Intacct/ })).toBeTruthy();
+    const btn = await screen.findByRole('button', { name: /Approve & Push To Intacct/ });
+    expect(btn.disabled).toBe(true);
+  });
+
+  it('edit the original: preview shows before -> after, Push sends exactly that preview', async () => {
+    const preview = {
+      previewId: 'P1', ok: true, live: true, source: 'intacct', limit: 1, expiresAt: '2026-10-23T16:15:00Z',
+      entries: [{ key: '5001', entryNo: '1294340', journal: 'IA', date: '2026-09-30', state: 'Posted', lineCount: 2, alreadyDone: false, problems: [],
+        changes: [{ reviewId: 'R1', reclassRef: 'R-0a1b2c3d', lineNo: '1', accountBefore: '63501', accountBeforeTitle: '? Ask My Accountant', accountAfter: '61000', accountAfterTitle: 'Repairs',
+          vendorBefore: '', vendorAfter: 'V01812', customerBefore: '', customerAfter: '', amount: 3000 }] }],
+    };
+    api.previewAskPush.mockImplementation(async () => preview);
+    api.pushAskBatch.mockImplementation(async () => ({ dryRun: false, results: [{ key: '5001', entryNo: '1294340', outcome: 'edited', error: '' }],
+      review: review({ status: 'Pushed', pushMode: 'edit', intacctRef: '5001', approvedBy: 'book@greensglobal.com', approvedByName: 'Urmi G', approvedAt: '2026-10-23T16:00:00Z' }) }));
+    const onSaved = vi.fn();
+    render(<ReclassDialog row={line({ reclass: review() })} side={null} isBookkeeper pushToIntacct onClose={() => {}} onSaved={onSaved} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview Change' }));
+    await waitFor(() => expect(api.previewAskPush).toHaveBeenCalledWith(['R1']));
+    const table = await screen.findByLabelText('Push preview');
+    expect(within(table).getByText('Repairs')).toBeTruthy();
+    expect(within(table).getByText('(none) -> V01812')).toBeTruthy();
+    const push = screen.getByRole('button', { name: /Approve & Push To Intacct/ });
+    expect(push.disabled).toBe(false);
+    fireEvent.click(push);
+    await waitFor(() => expect(api.pushAskBatch).toHaveBeenCalledWith('P1', ['R1']));
+    expect(api.pushAskReclass).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Edited in Intacct/)).toBeTruthy();
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ status: 'Pushed', pushMode: 'edit' }));
+  });
+
+  it('a preview that stops the push shows why and offers no Push', async () => {
+    api.previewAskPush.mockImplementation(async () => ({ previewId: null, ok: false, live: true, source: 'intacct', limit: 1,
+      entries: [{ key: '5001', entryNo: '1294340', lineCount: 2, alreadyDone: false, problems: ['A line of the entry is reconciled (cleared).'], changes: [] }] }));
+    render(<ReclassDialog row={line({ reclass: review() })} side={null} isBookkeeper pushToIntacct onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview Change' }));
+    expect(await screen.findByText(/reconciled/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Approve & Push To Intacct/ }).disabled).toBe(true);
+  });
+
+  it('the batch push never lets more lines be picked than the server allows', async () => {
+    api.getAskItems.mockImplementation(async () => items({ isBookkeeper: true, pushBatchLimit: 1,
+      rows: [line({ reclass: review() }), line({ id: 'line:L2', lineId: 'L2', entryId: E2, entryNo: 'IA-1293973', amount: -2000, reclass: review({ id: 'R2' }) })] }));
+    render(<AskAccountantTab />);
+    fireEvent.click(await screen.findByRole('button', { name: /Push Reclasses \(2\)/ }));
+    const dlg = await screen.findByRole('dialog', { name: 'Push Reclasses' });
+    const a = within(dlg).getByRole('checkbox', { name: 'Push IA-1294340' });
+    const b = within(dlg).getByRole('checkbox', { name: 'Push IA-1293973' });
+    fireEvent.click(a);
+    expect(b.disabled).toBe(true);
+    expect(within(dlg).getByRole('button', { name: /Record Dry Run/ }).disabled).toBe(true);
   });
 
   it('a bookkeeper sends it back with a note', async () => {

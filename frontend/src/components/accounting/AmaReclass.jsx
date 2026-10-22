@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, Send, Undo2, X } from 'lucide-react';
 import { api } from '../../api';
-import { formatDateTime } from '../../lib/datetime';
+import { formatDate, formatDateTime } from '../../lib/datetime';
 import { formatAmount } from './Amount';
 import { control } from './reportControls';
 import { Chip } from './LoanSetupDialog';
 import { downloadBlob } from './reportModel';
 import { useBackdropClose } from './LoanDialogs';
 import { LineFacts } from './AskAccountantDialog';
-import { AMA_GL_PICKER_LIMIT, AMA_OFFSET_BATCH, AMA_OFFSET_DISPLAY } from './assumptions';
+import { AMA_GL_PICKER_LIMIT, AMA_OFFSET_BATCH, AMA_OFFSET_DISPLAY, AMA_RECLASS_MODE_DEFAULT } from './assumptions';
 
 // AMA, change request 13 (Charmi, Oct 22 call):
 //   - Other Side: the account(s) the money came from or went to, read from
@@ -18,6 +18,9 @@ import { AMA_GL_PICKER_LIMIT, AMA_OFFSET_BATCH, AMA_OFFSET_DISPLAY } from './ass
 //   - GL Reclass: pick the GL (and a vendor or customer); it waits for the
 //     bookkeeper, who changes it, sends it back, or approves and pushes it.
 //     Nobody else can push (34:42: "Neil should not be able to push").
+//   - Neil, 23 Oct: the push EDITS THE ORIGINAL entry, previewed first, a
+//     few lines at a time (the server's limit) - PreviewTable / usePushFlow /
+//     PushBatchDialog below.
 // The defaults still to be confirmed are in ./assumptions.js.
 
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
@@ -25,13 +28,14 @@ const fieldLabel = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-se
 const small = { fontSize: '0.78rem', height: 30, padding: '0 12px' };
 
 export const AWAITING = 'Awaiting Bookkeeper';
-export const RECLASS_TONE = { [AWAITING]: 'wait', 'Sent Back': 'bad', Pushing: 'brand', Pushed: 'ok' };
+export const CHECK = 'Check In Intacct';
+export const RECLASS_TONE = { [AWAITING]: 'wait', 'Sent Back': 'bad', Pushing: 'brand', Pushed: 'ok', [CHECK]: 'bad' };
 const UUID = /^[0-9a-f-]{36}$/i;
 
 /** What the reclass chip says: Pushed reads as where it went. */
 export function reclassLabel(rv) {
   if (!rv?.status) return '';
-  if (rv.status === 'Pushed') return rv.pushMode === 'intacct' ? 'Pushed To Intacct' : 'Approved For Import';
+  if (rv.status === 'Pushed') return rv.pushMode === 'edit' ? 'Edited In Intacct' : rv.pushMode === 'intacct' ? 'Pushed To Intacct' : 'Approved For Import';
   return rv.status;
 }
 
@@ -185,11 +189,157 @@ const vendorOf = (row) => {
   return m ? { id: m[1], name: m[2] } : null;
 };
 
+// ── Preview, then push (CR-13 rework, Neil 23 Oct) ─────────────────────────
+// "The push should edit the original ... CAREFUL TO GET THIS RIGHT". The
+// server reads each Intacct entry in full and answers exactly what a push
+// would change; Push is offered only once that preview is on screen and
+// pushes exactly it (the server refuses anything else).
+const party = (before, after) => (before === after ? (before || '-') : `${before || '(none)'} -> ${after || '(none)'}`);
+
+/** One preview: per entry, each changed line before -> after, and anything
+ *  that stops the push. */
+export function PreviewTable({ preview }) {
+  if (!preview) return null;
+  return (
+    <div style={{ display: 'grid', gap: 8 }} aria-label="Push preview">
+      <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+        {preview.live
+          ? 'Push edits these original entries in Intacct. Only the account (and vendor or customer) of the lines below changes; every amount and every other line stays exactly as it is.'
+          : 'The Intacct push is switched off on this server: Push runs every check and records what it would send. Nothing changes in Intacct.'}
+        {preview.source === 'ledger' ? ' Read from the Nexus ledger copy (Intacct is not set up here).' : ' Read from Intacct just now.'}
+      </div>
+      {(preview.entries || []).map((e) => (
+        <div key={e.key} style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ padding: '6px 10px', fontSize: '0.8rem', background: 'var(--bg-secondary)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <strong>Entry {e.entryNo || e.key}</strong>
+            {e.journal && <span>{e.journal}</span>}
+            {e.date && <span>{formatDate(e.date)}</span>}
+            {e.state && <span>{e.state}</span>}
+            <span style={{ color: 'var(--text-muted)' }}>{e.lineCount} lines · Intacct record {e.key}</span>
+            {e.alreadyDone && <Chip tone="ok">Already Done In Intacct</Chip>}
+          </div>
+          {(e.problems || []).length > 0 && (
+            <div role="alert" style={{ ...bad, border: 'none', borderRadius: 0 }}>{e.problems.map((p) => <div key={p}>{p}</div>)}</div>
+          )}
+          <table className="acct-lines" style={{ width: '100%', fontSize: '0.78rem' }}>
+            <thead><tr><th>Line</th><th>Account</th><th>Vendor</th><th>Customer</th><th className="acct-num">Amount (Unchanged)</th></tr></thead>
+            <tbody>
+              {(e.changes || []).map((c) => (
+                <tr key={c.reviewId}>
+                  <td>{c.lineNo}</td>
+                  <td><span className="acct-code">{c.accountBefore}</span>{c.accountBeforeTitle} {'->'} <strong><span className="acct-code">{c.accountAfter}</span>{c.accountAfterTitle}</strong></td>
+                  <td>{party(c.vendorBefore, c.vendorAfter)}</td>
+                  <td>{party(c.customerBefore, c.customerAfter)}</td>
+                  <td className="acct-num">{c.amount < 0 ? `(${formatAmount(-c.amount)})` : formatAmount(c.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Preview and push some reclasses (ids): the preview loads, Push sends
+ *  exactly it. `onDone(result)` after a push. */
+export function usePushFlow(onDone) {
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+  const load = (ids) => {
+    setBusy('preview'); setError(''); setPreview(null); setResult(null);
+    return api.previewAskPush(ids).then((p) => { setPreview({ ...p, ids }); return p; })
+      .catch((e) => { setError(e?.message || 'Could not preview the change.'); return null; }).finally(() => setBusy(''));
+  };
+  const push = () => {
+    if (!preview?.previewId) return Promise.resolve(null);
+    setBusy('push'); setError('');
+    return api.pushAskBatch(preview.previewId, preview.ids)
+      .then((r) => { setResult(r); setPreview(null); onDone?.(r); return r; })
+      .catch((e) => { const msg = e?.message || 'The push did not go through.'; setError(msg); setPreview(null); onDone?.(null, msg); return null; })
+      .finally(() => setBusy(''));
+  };
+  return { preview, busy, error, result, load, push, reset: () => { setPreview(null); setResult(null); setError(''); } };
+}
+
+const OUTCOME = { edited: 'Edited in Intacct', already_done: 'Already done in Intacct - marked pushed', dry_run: 'Recorded what would be sent (push switched off)', failed: 'Did not go through', stale: 'Changed in Intacct since the preview - nothing sent', unconfirmed: 'Sent, but Intacct reads back differently - check it in Intacct', not_tried: 'Not tried' };
+
+export function PushResult({ result }) {
+  if (!result) return null;
+  return (
+    <div role="status" style={{ fontSize: '0.8rem', display: 'grid', gap: 2 }}>
+      {(result.results || []).map((x) => (
+        <div key={x.key} style={{ color: ['edited', 'already_done', 'dry_run'].includes(x.outcome) ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' }}>
+          Entry {x.entryNo || x.key}: {OUTCOME[x.outcome] || x.outcome}{x.error ? ` - ${x.error}` : ''}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Push several awaiting reclasses at once - never more than the server's
+ *  limit (1, then 4, then 10 as the team validates). */
+export function PushBatchDialog({ rows, limit, live, onClose, onDone }) {
+  const [picked, setPicked] = useState([]);
+  const flow = usePushFlow(onDone);
+  const backdrop = useBackdropClose(onClose);
+  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= limit ? p : [...p, id]));
+  const body = (
+    <div className="modal-overlay" role="presentation" {...backdrop}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Push Reclasses" style={{ width: 'max(60vw, 420px)', maxWidth: '100vw', minHeight: '60vh', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="modal-header">
+          <div>
+            <h3 style={{ margin: 0 }}>Push Reclasses To Intacct</h3>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+              Pick up to {limit} {limit === 1 ? 'line' : 'lines'}, preview exactly what changes on the original entries, then push.{live ? '' : ' The Intacct push is switched off on this server - a push only records what it would send.'}
+            </div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '12px 24px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          {flow.error && <div role="alert" style={bad}>{flow.error}</div>}
+          <PushResult result={flow.result} />
+          <div className="nx-fill" style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflowY: 'auto', minHeight: 120 }}>
+            {!rows.length ? <div style={{ padding: 10, fontSize: '0.8rem', color: 'var(--text-muted)' }}>No reclass is awaiting the bookkeeper.</div> : rows.map((r) => (
+              <label key={r.reclass.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', fontSize: '0.8rem', borderBottom: '1px solid var(--border-color)' }}>
+                <input type="checkbox" checked={picked.includes(r.reclass.id)} disabled={!picked.includes(r.reclass.id) && picked.length >= limit}
+                  onChange={() => { toggle(r.reclass.id); flow.reset(); }} aria-label={`Push ${r.entryNo || r.reclass.reclassRef}`} />
+                <span style={{ whiteSpace: 'nowrap' }}>{r.date ? formatDate(r.date) : ''}</span>
+                <span style={{ whiteSpace: 'nowrap' }}>{r.entryNo}</span>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.memo || r.description}</span>
+                <span><span className="acct-code">{r.accountNo}</span>{'->'} <span className="acct-code">{r.reclass.toAccount}</span></span>
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAmount(r.amount)}</span>
+              </label>
+            ))}
+          </div>
+          <PreviewTable preview={flow.preview} />
+        </div>
+        <div className="modal-footer" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '10px 24px 16px' }}>
+          <button type="button" className="secondary-btn" onClick={onClose} style={small}>Close</button>
+          <button type="button" className="secondary-btn" disabled={!picked.length || !!flow.busy} onClick={() => flow.load(picked)} style={small}>{flow.busy === 'preview' ? 'Reading Intacct...' : 'Preview Change'}</button>
+          <button type="button" className="primary-btn" disabled={!flow.preview?.previewId || !!flow.busy} onClick={() => flow.push().then((r) => { if (r) setPicked([]); })}
+            style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> {flow.busy === 'push' ? 'Pushing...' : live ? 'Push To Intacct' : 'Record Dry Run'}</button>
+        </div>
+      </div>
+    </div>
+  );
+  return typeof document === 'undefined' ? body : createPortal(body, document.body);
+}
+
 // ── The GL reclass dialog ───────────────────────────────────────────────────
-export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, onClose, onSaved }) {
+export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, reclassMode = AMA_RECLASS_MODE_DEFAULT, onClose, onSaved }) {
   const [rv, setRv] = useState(row.reclass || null);
   const status = rv?.status || '';
+  const editMode = reclassMode !== 'new_entry';
   const editable = !status || status === 'Sent Back' || (status === AWAITING && isBookkeeper);
+  // A push that did not go through answers an error; the line stays with
+  // the bookkeeper (the server kept why) - shown here until the next preview.
+  const flow = usePushFlow((r, err) => {
+    const next = r?.review || (rv && err ? { ...rv, pushError: err } : null);
+    if (next) { setRv(next); onSaved?.(next); }
+  });
   const seeded = vendorOf(row);
   const [to, setTo] = useState(rv ? { code: rv.toAccount, title: rv.toAccountTitle } : null);
   const [q, setQ] = useState('');
@@ -235,6 +385,14 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, onClose,
     if (!cur) return;
     run('push', () => api.pushAskReclass(cur.id));
   };
+  // Edit the original (the default): save any change, then read the entry
+  // and show what the push would do; Push sends exactly that.
+  const previewIt = async () => {
+    let cur = rv;
+    if (editable && dirty) cur = await save();
+    if (cur) flow.load([cur.id]);
+  };
+  const canPreview = isBookkeeper && editMode && (status === AWAITING || status === CHECK || (editable && !!to));
   const download = () => {
     setBusy('file');
     api.exportAskReclasses(rv.id).then((blob) => downloadBlob(`ama-reclass-${rv.reclassRef || rv.id}.csv`, blob))
@@ -248,7 +406,9 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, onClose,
           <div>
             <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>GL Reclass {status && <Chip tone={RECLASS_TONE[status] || 'muted'}>{reclassLabel(rv)}</Chip>}</h3>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-              Pick where this line belongs. A bookkeeper reviews it and pushes a new reclass entry - the original entry is never changed.
+              {editMode
+                ? 'Pick where this line belongs. A bookkeeper reviews it, previews the change and moves the line to that account on the original entry in Intacct - amounts never change.'
+                : 'Pick where this line belongs. A bookkeeper reviews it and pushes a new reclass entry - the original entry is never changed.'}
             </div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -263,7 +423,10 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, onClose,
             {row.note && <div style={{ fontSize: '0.78rem', marginTop: 4 }}><strong>Notes: </strong>{row.note}</div>}
           </div>
           {status === 'Sent Back' && rv.reviewNote && <div role="note" style={{ ...bad, color: 'var(--text-primary)' }}>Sent back: {rv.reviewNote}</div>}
-          {rv?.pushError && status === AWAITING && <div role="alert" style={bad}>The last push failed: {rv.pushError}</div>}
+          {rv?.pushError && (status === AWAITING || status === CHECK) && !flow.error && <div role="alert" style={bad}>The last push did not go through: {rv.pushError}</div>}
+          {flow.error && <div role="alert" style={bad}>{flow.error}</div>}
+          <PushResult result={flow.result} />
+          {flow.preview && !dirty && <PreviewTable preview={flow.preview} />}
 
           {editable ? (
             <>
@@ -353,7 +516,7 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, onClose,
           )}
         </div>
         <div className="modal-footer" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', padding: '10px 24px 16px' }}>
-          {isBookkeeper && status === 'Pushed' && (
+          {isBookkeeper && status === 'Pushed' && rv.pushMode !== 'edit' && (
             <button type="button" className="secondary-btn" disabled={!!busy} onClick={download} style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Download size={13} /> {busy === 'file' ? 'Building...' : 'Intacct Import File'}</button>
           )}
           {isBookkeeper && status === AWAITING && !sendingBack && (
@@ -365,7 +528,20 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, onClose,
               {busy === 'save' ? 'Saving...' : isBookkeeper && status === AWAITING ? 'Save Changes' : 'Send To Bookkeeper'}
             </button>
           )}
-          {isBookkeeper && editable && (
+          {canPreview && (
+            <button type="button" className="secondary-btn" disabled={!!busy || !!flow.busy} onClick={previewIt} style={small}
+              title="Reads the original entry and shows exactly what a push would change">
+              {flow.busy === 'preview' ? 'Reading The Entry...' : 'Preview Change'}
+            </button>
+          )}
+          {canPreview && (
+            <button type="button" className="primary-btn" disabled={!!busy || !!flow.busy || dirty || !flow.preview?.previewId} onClick={flow.push}
+              style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              title={!flow.preview ? 'Preview the change first' : pushToIntacct ? 'Edits the original entry in Intacct exactly as previewed' : 'The Intacct push is switched off on this server - records what it would send'}>
+              <Send size={13} /> {flow.busy === 'push' ? 'Pushing...' : pushToIntacct ? 'Approve & Push To Intacct' : 'Approve & Record Dry Run'}
+            </button>
+          )}
+          {isBookkeeper && editable && !editMode && (
             <button type="button" className="primary-btn" disabled={!!busy || !to} onClick={push} style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }}
               title={pushToIntacct ? 'Creates a new reclass entry in Intacct' : 'Pushing straight to Intacct is switched off on this server - the reclass is recorded for the Intacct import file'}>
               <Send size={13} /> {busy === 'push' ? 'Pushing...' : pushToIntacct ? 'Approve & Push To Intacct' : 'Approve & Record For Import'}

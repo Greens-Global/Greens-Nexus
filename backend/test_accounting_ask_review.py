@@ -171,7 +171,7 @@ class IntacctWriteTests(unittest.TestCase):
             intacct_client.create_gl_batch({"lines": [{}, {}]}, post=lambda u, x: self.fail("must not post"))
 
 
-class EndpointTests(unittest.TestCase):
+class _Base(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(main.app)
@@ -185,10 +185,14 @@ class EndpointTests(unittest.TestCase):
         self._skip, auth.SKIP_AUTH = auth.SKIP_AUTH, True
         self._email = os.environ.get("NEXUS_DEV_EMAIL")
         self._push, self._fallback = assumptions.AMA_PUSH_TO_INTACCT, assumptions.AMA_BOOKKEEPERS_FALLBACK
-        self._create, self._configured = intacct_client.create_gl_batch, intacct_client.configured
+        self._mode, self._limit, self._closed = assumptions.AMA_RECLASS_MODE, assumptions.AMA_PUSH_BATCH_LIMIT, assumptions.AMA_BOOKS_CLOSED_THROUGH
+        self._create, self._configured, self._post = intacct_client.create_gl_batch, intacct_client.configured, intacct_client._default_post
         assumptions.AMA_PUSH_TO_INTACCT = False
         assumptions.AMA_BOOKKEEPERS_FALLBACK = []
         intacct_client.create_gl_batch = lambda *a, **k: self.fail("Intacct must not be called")
+        # Nothing in this file ever reaches Intacct: the HTTP layer itself fails the test.
+        intacct_client._default_post = lambda *a, **k: self.fail("Intacct must not be called over the network")
+        intacct_client.configured = lambda: False
         self._cleanup()
         db = database.SessionLocal()
         try:
@@ -233,7 +237,8 @@ class EndpointTests(unittest.TestCase):
         accounting._acct_get = self._get
         accounting._ACCT_BASE, accounting._ACCT_KEY = self._base, self._key
         assumptions.AMA_PUSH_TO_INTACCT, assumptions.AMA_BOOKKEEPERS_FALLBACK = self._push, self._fallback
-        intacct_client.create_gl_batch, intacct_client.configured = self._create, self._configured
+        assumptions.AMA_RECLASS_MODE, assumptions.AMA_PUSH_BATCH_LIMIT, assumptions.AMA_BOOKS_CLOSED_THROUGH = self._mode, self._limit, self._closed
+        intacct_client.create_gl_batch, intacct_client.configured, intacct_client._default_post = self._create, self._configured, self._post
         self._cleanup()
         auth.SKIP_AUTH = self._skip
         if self._email is None:
@@ -246,6 +251,8 @@ class EndpointTests(unittest.TestCase):
         db = database.SessionLocal()
         try:
             db.query(models.AccountingAmaLineReview).delete(synchronize_session=False)
+            db.query(models.AccountingAmaPushPreview).delete(synchronize_session=False)
+            db.query(models.AccountingAmaPushLog).delete(synchronize_session=False)   # a throwaway test DB - the app never deletes it
             ids = [t.id for t in db.query(models.AccountingAmaThread).filter(models.AccountingAmaThread.asked_by.in_(EVERYONE)).all()]
             if ids:
                 db.query(models.AccountingAmaMessage).filter(models.AccountingAmaMessage.thread_id.in_(ids)).delete(synchronize_session=False)
@@ -276,6 +283,15 @@ class EndpointTests(unittest.TestCase):
 
     def _row(self, d, line_id):
         return next(x for x in d["rows"] if x["lineId"] == line_id)
+
+
+class LegacyNewEntryTests(_Base):
+    """The older push (AMA_RECLASS_MODE=new_entry: a NEW reclass entry, or
+    recorded for the import file) and everything the push mode does not touch."""
+
+    def setUp(self):
+        super().setUp()
+        assumptions.AMA_RECLASS_MODE = "new_entry"
 
     # ── The other side ──
     def test_offsets_for_the_entries_on_screen(self):
@@ -481,6 +497,352 @@ class EndpointTests(unittest.TestCase):
         _as(BOOK)
         rv = self.client.post("/accounting/ask/lines/reclass", json={**body(), "toAccount": "61000"}).json()
         self.assertEqual(self.client.post(f"/accounting/ask/reviews/{rv['id']}/push").status_code, 403)
+
+
+# ── Edit the original (Neil, 23 Oct - the default AMA_RECLASS_MODE) ─────────
+class FakeIntacct:
+    """Intacct's Web Services, in memory: getAPISession, readByQuery on
+    GLENTRY / GLBATCH, readMore and update GLBATCH. Every request body is
+    kept in `calls`; nothing leaves the process."""
+    SESSION = IntacctWriteTests.SESSION
+
+    def __init__(self):
+        self.calls, self.fail_update, self.ignore_update = [], "", False
+        self.batches = {"5001": {
+            "head": {"RECORDNO": "5001", "BATCHNO": "1294340", "JOURNAL": "IA", "BATCH_DATE": "09/30/2026", "BATCH_TITLE": "DDA Withdrawal",
+                     "STATE": "Posted", "MODULE": "2.GL", "WHENMODIFIED": "10/01/2026 09:00:00", "CREATEDBY": "system"},
+            "lines": [
+                {"RECORDNO": "9001", "BATCHNO": "5001", "LINE_NO": "1", "ACCOUNTNO": "63501", "ACCOUNTTITLE": "? Ask My Accountant", "TR_TYPE": "1",
+                 "TRX_AMOUNT": "3000.00", "AMOUNT": "3000.00", "LOCATION": "15000", "LOCATIONNAME": "Greens Escondido", "DEPARTMENT": "4100",
+                 "DESCRIPTION": "DDA Withdrawal", "CURRENCY": "USD", "BASECURR": "USD", "CLEARED": "F"},
+                {"RECORDNO": "9002", "BATCHNO": "5001", "LINE_NO": "2", "ACCOUNTNO": "11000", "ACCOUNTTITLE": "Chase Checking", "TR_TYPE": "-1",
+                 "TRX_AMOUNT": "3000.00", "AMOUNT": "3000.00", "LOCATION": "15000", "DESCRIPTION": "DDA Withdrawal", "CURRENCY": "USD",
+                 "BASECURR": "USD", "CLEARED": "F"},
+            ]},
+            "5002": {
+            "head": {"RECORDNO": "5002", "BATCHNO": "1293973", "JOURNAL": "IA", "BATCH_DATE": "09/30/2026", "BATCH_TITLE": "ZELLE", "STATE": "Posted",
+                     "MODULE": "2.GL", "WHENMODIFIED": "10/01/2026 09:00:00"},
+            "lines": [
+                {"RECORDNO": "9101", "BATCHNO": "5002", "LINE_NO": "1", "ACCOUNTNO": "63501", "TR_TYPE": "-1", "TRX_AMOUNT": "2000.00", "LOCATION": "15000"},
+                {"RECORDNO": "9102", "BATCHNO": "5002", "LINE_NO": "2", "ACCOUNTNO": "11050", "TR_TYPE": "1", "TRX_AMOUNT": "2000.00", "LOCATION": "15000"},
+            ]}}
+
+    @staticmethod
+    def _ok(inner: str) -> str:
+        return ("<response><control><status>success</status></control><operation><authentication><status>success</status></authentication>"
+                f"<result><status>success</status>{inner}</result></operation></response>")
+
+    @staticmethod
+    def _data(obj: str, rows: list) -> str:
+        body = "".join(f"<{obj.lower()}>" + "".join(f"<{k}>{v}</{k}>" for k, v in r.items()) + f"</{obj.lower()}>" for r in rows)
+        return f'<data listtype="{obj}" count="{len(rows)}" totalcount="{len(rows)}" numremaining="0" resultId="">{body}</data>'
+
+    def __call__(self, url, body):
+        import re as _re
+        fn = _re.search(r'<function controlid="[^"]+">(.*)</function>', body, _re.S).group(1)
+        self.calls.append(fn)
+        if fn == "<getAPISession/>":
+            return httpx.Response(200, text=self.SESSION)
+        if fn.startswith("<readByQuery><object>GLENTRY</object>"):
+            m = _re.search(r"RECORDNO = '(\d+)'", fn)
+            if m:
+                rows = [{"RECORDNO": ln["RECORDNO"], "BATCHNO": ln["BATCHNO"]} for b in self.batches.values() for ln in b["lines"] if ln["RECORDNO"] == m.group(1)]
+                return httpx.Response(200, text=self._ok(self._data("GLENTRY", rows)))
+            key = _re.search(r"BATCHNO = '(\d+)'", fn).group(1)
+            return httpx.Response(200, text=self._ok(self._data("GLENTRY", self.batches[key]["lines"])))
+        if fn.startswith("<readByQuery><object>GLBATCH</object>"):
+            key = _re.search(r"RECORDNO = '(\d+)'", fn).group(1)
+            return httpx.Response(200, text=self._ok(self._data("GLBATCH", [self.batches[key]["head"]] if key in self.batches else [])))
+        if fn.startswith("<update><GLBATCH>"):
+            if self.fail_update:
+                return httpx.Response(200, text=("<response><control><status>success</status></control><operation><authentication><status>success</status>"
+                                                 f"</authentication><result><status>failure</status><errormessage><error><description2>{self.fail_update}</description2>"
+                                                 "</error></errormessage></result></operation></response>"))
+            key = _re.search(r"<RECORDNO>(\d+)</RECORDNO>", fn).group(1)
+            if not self.ignore_update:
+                b = self.batches[key]
+                new = []
+                for n, g in enumerate(_re.findall(r"<GLENTRY>(.*?)</GLENTRY>", fn), start=1):
+                    fields = dict(_re.findall(r"<(\w+)>([^<]*)</\1>", g))
+                    new.append({"RECORDNO": str(9900 + n), "BATCHNO": key, "LINE_NO": str(n), **fields})
+                b["lines"] = new
+                b["head"]["WHENMODIFIED"] = "10/23/2026 12:00:00"
+            return httpx.Response(200, text=self._ok(f"<data><glbatch><RECORDNO>{key}</RECORDNO></glbatch></data>"))
+        raise AssertionError(f"unexpected Intacct call: {fn[:80]}")
+
+    def updates(self):
+        return [c for c in self.calls if c.startswith("<update>")]
+
+    def creates(self):
+        return [c for c in self.calls if c.startswith("<create>")]
+
+
+class EditOriginalTests(_Base):
+    """The push edits the ORIGINAL entry (Neil, 23 Oct), one preview at a
+    time, never more lines than AMA_PUSH_BATCH_LIMIT, logged before and after.
+    Intacct is FakeIntacct behind intacct_client's own poster hook."""
+
+    def setUp(self):
+        super().setUp()
+        assumptions.AMA_RECLASS_MODE = "edit_original"
+        assumptions.AMA_PUSH_BATCH_LIMIT = 1
+        assumptions.AMA_BOOKS_CLOSED_THROUGH = ""
+        self._env = {k: os.environ.get(k) for k in intacct_client.REQUIRED_ENV}
+        for k in intacct_client.REQUIRED_ENV:
+            os.environ[k] = f"{k.lower()}-value"
+        self.fake = FakeIntacct()
+        intacct_client._default_post = self.fake
+        intacct_client.configured = lambda: True
+        for line in self.lines:
+            line["intacct_record_no"] = {"L1": "9001", "L1b": "9002", "L2": "9101", "L2b": "9102"}.get(line["line_id"], "")
+
+    def tearDown(self):
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        super().tearDown()
+
+    def _propose(self, line_id="L1", **kw):
+        _as(ANSWER)
+        b = body(line_id) if line_id == "L1" else body(line_id, amount=-2000.0, entry="IA-1293973")
+        r = self.client.post("/accounting/ask/lines/reclass", json={**b, "toAccount": "61000", **kw})
+        self.assertEqual(r.status_code, 200, r.text)
+        _as(BOOK)
+        return r.json()
+
+    def _log(self):
+        db = database.SessionLocal()
+        try:
+            return [(x.outcome, x.mode, x.entry_key, x.before, x.sent, x.sent_xml, x.after, x.response, x.by)
+                    for x in db.query(models.AccountingAmaPushLog).order_by(models.AccountingAmaPushLog.at).all()]
+        finally:
+            db.close()
+
+    def _review(self, rid):
+        db = database.SessionLocal()
+        try:
+            return db.query(models.AccountingAmaLineReview).filter(models.AccountingAmaLineReview.id == rid).first()
+        finally:
+            db.close()
+
+    def test_preview_shows_exactly_what_the_push_sends_and_the_original_is_edited(self):
+        assumptions.AMA_PUSH_TO_INTACCT = True
+        rv = self._propose(partyKind="vendor", partyId="V05126", partyName="Home Depot")
+        p = self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]})
+        self.assertEqual(p.status_code, 200, p.text)
+        pv = p.json()
+        self.assertTrue(pv["ok"] and pv["previewId"] and pv["live"])
+        self.assertEqual((pv["source"], pv["limit"]), ("intacct", 1))
+        entry = pv["entries"][0]
+        self.assertEqual((entry["key"], entry["entryNo"], entry["lineCount"], entry["problems"]), ("5001", "1294340", 2, []))
+        ch = entry["changes"][0]
+        self.assertEqual((ch["lineNo"], ch["accountBefore"], ch["accountAfter"], ch["vendorBefore"], ch["vendorAfter"], ch["amount"]),
+                         ("1", "63501", "61000", "", "V05126", 3000.0))
+        self.assertEqual(self.fake.updates(), [])                       # a preview never writes
+
+        r = self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": [rv["id"]]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["results"][0]["outcome"], "edited")
+        # The ORIGINAL entry was updated - one update of record 5001, no new entry.
+        self.assertEqual(len(self.fake.updates()), 1)
+        self.assertEqual(self.fake.creates(), [])
+        sent = self.fake.updates()[0]
+        self.assertTrue(sent.startswith("<update><GLBATCH><RECORDNO>5001</RECORDNO>"))
+        self.assertEqual(sent, intacct_client.glbatch_update_xml(entry["update"]))   # what was previewed is what was sent
+        self.assertIn("<ACCOUNTNO>61000</ACCOUNTNO>", sent)
+        self.assertIn("<VENDORID>V05126</VENDORID>", sent)
+        self.assertIn("<ACCOUNTNO>11000</ACCOUNTNO>", sent)               # the other line goes back as it was
+        self.assertEqual(sent.count("<TRX_AMOUNT>3000.00</TRX_AMOUNT>"), 2)
+        self.assertIn("<HISTORY_COMMENT>Nexus AMA reclass: ", sent)
+        lines = self.fake.batches["5001"]["lines"]
+        self.assertEqual([(x["ACCOUNTNO"], x["TR_TYPE"], x["TRX_AMOUNT"]) for x in lines], [("61000", "1", "3000.00"), ("11000", "-1", "3000.00")])
+        # Logged before and after, with what Intacct answered.
+        (outcome, mode, key, before, sent_upd, xml, after, response, by), = self._log()
+        self.assertEqual((outcome, mode, key, by, response), ("edited", "live", "5001", BOOK, "5001"))
+        self.assertEqual(before["lines"][0]["accountNo"], "63501")
+        self.assertEqual(after["lines"][0]["accountNo"], "61000")
+        self.assertEqual((sent_upd, xml), (entry["update"], sent))
+        out = self._review(rv["id"])
+        self.assertEqual((out.reclass_status, out.push_mode, out.intacct_ref, out.approved_by), ("Pushed", "edit", "5001", BOOK))
+        self.assertEqual(self._row(self._items(), "L1")["status"], "Resolved")
+        # The log reads back for a bookkeeper only.
+        self.assertEqual(self.client.get(f"/accounting/ask/push-log?review={rv['id']}").json()["log"][0]["outcome"], "edited")
+        _as(ANSWER)
+        self.assertEqual(self.client.get("/accounting/ask/push-log").status_code, 403)
+
+    def test_the_batch_limit_is_enforced_by_the_server(self):
+        a, b = self._propose("L1"), self._propose("L2")
+        both = [a["id"], b["id"]]
+        r = self.client.post("/accounting/ask/reviews/preview", json={"ids": both})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("At most 1 line per push", r.json()["detail"])
+        self.assertEqual(self.client.post("/accounting/ask/reviews/push", json={"previewId": "x", "ids": both}).status_code, 400)
+        assumptions.AMA_PUSH_BATCH_LIMIT = 4                               # the team's next step
+        assumptions.AMA_PUSH_TO_INTACCT = True
+        pv = self.client.post("/accounting/ask/reviews/preview", json={"ids": both}).json()
+        self.assertTrue(pv["ok"], pv)
+        self.assertEqual(sorted(e["key"] for e in pv["entries"]), ["5001", "5002"])
+        # Lowered again after the preview: the push is refused, whatever was previewed.
+        assumptions.AMA_PUSH_BATCH_LIMIT = 1
+        self.assertEqual(self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": both}).status_code, 400)
+        self.assertEqual(self.fake.updates(), [])
+        assumptions.AMA_PUSH_BATCH_LIMIT = 4
+        r = self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": both})
+        self.assertEqual([x["outcome"] for x in r.json()["results"]], ["edited", "edited"])
+        self.assertEqual(len(self.fake.updates()), 2)
+
+    def test_push_needs_its_own_fresh_preview(self):
+        assumptions.AMA_PUSH_TO_INTACCT = True
+        rv = self._propose()
+        self.assertEqual(self.client.post("/accounting/ask/reviews/push", json={"ids": [rv["id"]]}).status_code, 428)
+        self.assertEqual(self.client.post(f"/accounting/ask/reviews/{rv['id']}/push").status_code, 428)
+        pv = self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()
+        _as(BOOK2)                                                          # another bookkeeper cannot use it
+        self.assertEqual(self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": [rv["id"]]}).status_code, 428)
+        _as(BOOK)
+        assumptions.AMA_PUSH_TO_INTACCT = False                             # the switch moved since the preview
+        self.assertEqual(self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": [rv["id"]]}).status_code, 409)
+        self.assertEqual(self.fake.updates(), [])
+
+    def test_a_stale_entry_is_refused_and_nothing_is_sent(self):
+        assumptions.AMA_PUSH_TO_INTACCT = True
+        rv = self._propose()
+        pv = self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()
+        # Someone edits the entry in Intacct after the preview.
+        self.fake.batches["5001"]["lines"][1]["DESCRIPTION"] = "Changed in Intacct"
+        self.fake.batches["5001"]["head"]["WHENMODIFIED"] = "10/23/2026 08:00:00"
+        r = self.client.post(f"/accounting/ask/reviews/{rv['id']}/push", json={"previewId": pv["previewId"]})
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("changed in Intacct since the preview", r.json()["detail"])
+        self.assertEqual(self.fake.updates(), [])
+        self.assertEqual(self._log()[0][0], "stale")
+        out = self._review(rv["id"])
+        self.assertEqual(out.reclass_status, "Awaiting Bookkeeper")
+        self.assertIn("since the preview", out.push_error)
+
+    def test_a_failed_update_leaves_the_line_retryable(self):
+        assumptions.AMA_PUSH_TO_INTACCT = True
+        rv = self._propose()
+        self.fake.fail_update = "The period is closed"
+        pv = self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()
+        r = self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": [rv["id"]]})
+        self.assertEqual(r.status_code, 424)
+        self.assertIn("period is closed", r.json()["detail"])
+        out = self._review(rv["id"])
+        self.assertEqual((out.reclass_status, out.approved_by), ("Awaiting Bookkeeper", ""))
+        self.assertIn("period is closed", out.push_error)
+        self.assertEqual(self._log()[0][0], "failed")
+        self.assertEqual(self.fake.batches["5001"]["lines"][0]["ACCOUNTNO"], "63501")
+        # The preview was used up; a fresh one goes through.
+        self.assertEqual(self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": [rv["id"]]}).status_code, 409)
+        self.fake.fail_update = ""
+        pv = self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()
+        r = self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": [rv["id"]]})
+        self.assertEqual((r.status_code, self._review(rv["id"]).reclass_status), (200, "Pushed"))
+
+    def test_an_update_that_does_not_read_back_is_flagged(self):
+        assumptions.AMA_PUSH_TO_INTACCT = True
+        self.fake.ignore_update = True
+        rv = self._propose()
+        pv = self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()
+        r = self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": [rv["id"]]})
+        self.assertEqual(r.status_code, 424)
+        self.assertEqual(self._review(rv["id"]).reclass_status, "Check In Intacct")
+        self.assertEqual(self._log()[0][0], "unconfirmed")
+        # Nothing more is picked or sent on it until it is previewed again.
+        _as(ANSWER)
+        self.assertEqual(self.client.post("/accounting/ask/lines/reclass", json={**body(), "toAccount": "11050"}).status_code, 409)
+
+    def test_the_push_switch_off_records_what_it_would_send(self):
+        rv = self._propose()
+        pv = self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()
+        self.assertFalse(pv["live"])
+        r = self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": [rv["id"]]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["dryRun"])
+        self.assertEqual(self.fake.updates(), [])
+        outcome, mode, _key, _b, sent, xml, _a, _r, _by = self._log()[0]
+        self.assertEqual((outcome, mode, sent), ("dry_run", "dry_run", pv["entries"][0]["update"]))
+        self.assertTrue(xml.startswith("<update><GLBATCH><RECORDNO>5001"))
+        out = self._review(rv["id"])
+        self.assertEqual(out.reclass_status, "Awaiting Bookkeeper")
+        self.assertIn("Dry run", out.history[-1]["event"])
+
+    def test_dry_run_without_intacct_reads_the_ledger_copy(self):
+        intacct_client.configured = lambda: False
+        intacct_client._default_post = lambda *a, **k: self.fail("Intacct must not be called")
+        rv = self._propose()
+        pv = self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()
+        self.assertEqual((pv["ok"], pv["source"]), (True, "ledger"), pv)
+        self.assertEqual(pv["entries"][0]["changes"][0]["accountAfter"], "61000")
+        r = self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": [rv["id"]]})
+        self.assertTrue(r.json()["dryRun"])
+        assumptions.AMA_PUSH_TO_INTACCT = True                              # live needs Intacct set up
+        self.assertEqual(self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).status_code, 503)
+
+    def test_closed_period_cleared_lines_and_amount_drift_are_refused(self):
+        assumptions.AMA_PUSH_TO_INTACCT = True
+        rv = self._propose()
+        assumptions.AMA_BOOKS_CLOSED_THROUGH = "2026-09-30"
+        pv = self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()
+        self.assertFalse(pv["ok"])
+        self.assertIsNone(pv["previewId"])
+        self.assertIn("closed period", " ".join(pv["entries"][0]["problems"]))
+        assumptions.AMA_BOOKS_CLOSED_THROUGH = ""
+        _as(EDITOR)                                                          # the AMA Settings date wins over the default
+        self.assertEqual(self.client.put("/accounting/ask/settings", json={"closedThrough": "2026-12-31"}).status_code, 200)
+        _as(BOOK)
+        self.assertIn("closed period", " ".join(self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()["entries"][0]["problems"]))
+        _as(EDITOR)
+        self.client.put("/accounting/ask/settings", json={"closedThrough": ""})
+        _as(BOOK)
+        self.fake.batches["5001"]["lines"][1]["CLEARED"] = "Cleared"
+        self.assertIn("reconciled", " ".join(self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()["entries"][0]["problems"]))
+        self.fake.batches["5001"]["lines"][1]["CLEARED"] = "F"
+        self.fake.batches["5001"]["lines"][0]["TRX_AMOUNT"] = "2999.00"
+        self.assertIn("amount", " ".join(self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()["entries"][0]["problems"]))
+        self.fake.batches["5001"]["lines"][0]["TRX_AMOUNT"] = "3000.00"
+        self.fake.batches["5001"]["lines"][0]["GLDIMFUND"] = "F-1"        # a custom field Nexus does not send back
+        self.assertIn("GLDIMFUND", " ".join(self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()["entries"][0]["problems"]))
+        self.assertEqual(self.fake.updates(), [])
+
+    def test_a_line_already_moved_in_intacct_is_marked_pushed_without_sending(self):
+        assumptions.AMA_PUSH_TO_INTACCT = True
+        rv = self._propose()
+        self.fake.batches["5001"]["lines"][0]["ACCOUNTNO"] = "61000"        # someone did it in Intacct by hand
+        pv = self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).json()
+        self.assertTrue(pv["entries"][0]["alreadyDone"])
+        r = self.client.post("/accounting/ask/reviews/push", json={"previewId": pv["previewId"], "ids": [rv["id"]]})
+        self.assertEqual(r.json()["results"][0]["outcome"], "already_done")
+        self.assertEqual(self.fake.updates(), [])
+        self.assertEqual(self._review(rv["id"]).reclass_status, "Pushed")
+
+    def test_only_a_bookkeeper_previews_or_pushes(self):
+        rv = self._propose()
+        for who in (ANSWER, EDITOR):
+            _as(who)
+            self.assertEqual(self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).status_code, 403)
+            self.assertEqual(self.client.post("/accounting/ask/reviews/push", json={"previewId": "x", "ids": [rv["id"]]}).status_code, 403)
+            self.assertEqual(self.client.post(f"/accounting/ask/reviews/{rv['id']}/push").status_code, 403)
+
+    def test_the_teams_names_seed_the_bookkeepers_until_a_list_is_saved(self):
+        self.assertEqual(set(assumptions.AMA_BOOKKEEPER_SEED_NAMES) >= {"Charmi Desai", "Neil Kadakia", "Urmi", "Priyanka", "Vinod"}, True)
+        _as(EDITOR)
+        self.client.put("/accounting/ask/settings", json={"bookkeepers": []})
+        keep = assumptions.AMA_BOOKKEEPER_SEED_NAMES
+        try:
+            # BOOK is "Book Test" on the People list; "Answer" matches one person, "Nobody" none.
+            assumptions.AMA_BOOKKEEPER_SEED_NAMES = ("Book Test", "Nobody")
+            s = self.client.get("/accounting/ask/settings").json()
+            self.assertEqual(([b["email"] for b in s["bookkeepers"]], s["bookkeeperSource"], s["unmatchedBookkeepers"]), ([BOOK], "seed", ["Nobody"]))
+            rv = self._propose()
+            self.assertEqual(self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).status_code, 200)
+            _as(BOOK2)
+            self.assertEqual(self.client.post("/accounting/ask/reviews/preview", json={"ids": [rv["id"]]}).status_code, 403)
+        finally:
+            assumptions.AMA_BOOKKEEPER_SEED_NAMES = keep
 
 
 if __name__ == "__main__":

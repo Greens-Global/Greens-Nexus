@@ -2398,7 +2398,12 @@ export const api = {
   saveAskNote:         (body)     => req('/accounting/ask/lines/note', { method: 'PUT', body: JSON.stringify(body) }),
   proposeAskReclass:   (body)     => req('/accounting/ask/lines/reclass', { method: 'POST', body: JSON.stringify(body) }),
   sendBackAskReclass:  (id, note = '') => req(`/accounting/ask/reviews/${encodeURIComponent(id)}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
-  pushAskReclass:      (id)       => req(`/accounting/ask/reviews/${encodeURIComponent(id)}/push`, { method: 'POST', body: '{}', timeoutMs: 120_000 }),
+  pushAskReclass:      (id, previewId = '') => req(`/accounting/ask/reviews/${encodeURIComponent(id)}/push`, { method: 'POST', body: JSON.stringify({ previewId }), timeoutMs: 120_000 }),
+  // CR-13 rework (Neil, 23 Oct): the push edits the original Intacct entry -
+  // a preview first, then the push of exactly that preview, and its log.
+  previewAskPush:      (ids)      => req('/accounting/ask/reviews/preview', { method: 'POST', body: JSON.stringify({ ids }), timeoutMs: 120_000 }),
+  pushAskBatch:        (previewId, ids) => req('/accounting/ask/reviews/push', { method: 'POST', body: JSON.stringify({ previewId, ids }), timeoutMs: 180_000 }),
+  getAskPushLog:       (reviewId = '') => req(`/accounting/ask/push-log${reviewId ? `?review=${encodeURIComponent(reviewId)}` : ''}`),
   exportAskReclasses:  (id = '')  => reqBlob(`/accounting/ask/reviews/export.csv${id ? `?id=${encodeURIComponent(id)}` : ''}`),
   // ── Dashboard Essentials tiles (Oct 7): My Work, My Team, Announcements.
   //    routers/my_work.py, my_team.py (supervisor+), announcements.py.

@@ -256,7 +256,7 @@ describe('AskAccountantTab', () => {
     expect(screen.queryByText(/Every Entity: Ann Accountant/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.saveAskSettings).toHaveBeenCalled());
-    expect(api.saveAskSettings.mock.calls[0][0]).toEqual({ accounts: ['99999'], accountants: { '': [ACCT], '15000': [OTHER] }, bookkeepers: [] });
+    expect(api.saveAskSettings.mock.calls[0][0]).toEqual({ accounts: ['99999'], accountants: { '': [ACCT], '15000': [OTHER] }, bookkeepers: [], closedThrough: '' });
   });
 
   // CR-13: the bookkeepers are kept with the settings; the server's own list

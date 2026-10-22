@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MessageCircleQuestion, Plus, Search, Settings, Trash2, X } from 'lucide-react';
+import { MessageCircleQuestion, Plus, Search, Send, Settings, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import Amount from './Amount';
@@ -13,8 +13,9 @@ import { linesFile } from './linesExport';
 import EntryDetail from './EntryDetail';
 import { takePendingOpen } from '../../lib/pendingOpen';
 import AskAccountantDialog, { LineFacts, PersonSelect, amountText, usePeople } from './AskAccountantDialog';
-import { AWAITING, NoteCell, OtherSideCell, ReclassCell, ReclassDialog, missingEntries, otherSideText, reclassLabel, sideFor, useOffsets } from './AmaReclass';
-import { AMA_SHOW_ACCOUNT_COLUMN } from './assumptions';
+import { AWAITING, NoteCell, OtherSideCell, PushBatchDialog, ReclassCell, ReclassDialog, missingEntries, otherSideText, reclassLabel, sideFor, useOffsets } from './AmaReclass';
+import { AMA_PUSH_BATCH_LIMIT_DEFAULT, AMA_RECLASS_MODE_DEFAULT, AMA_SHOW_ACCOUNT_COLUMN } from './assumptions';
+import { DateField } from '../../tasks/components';
 
 // Accounting -> Reporting -> AMA, Ask My Accountant (Neil, 10/15: "AMA means
 // Ask My Accountant"; the agreements screen first built under the name is
@@ -304,6 +305,8 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
   // CR-13: who approves and pushes reclasses - the list kept here (the
   // server's environment list shows while this one is empty).
   const [keepers, setKeepers] = useState(() => (settings?.bookkeepersFromEnv ? [] : (settings?.bookkeepers || []).map((p) => p.email)));
+  // CR-13 rework: no push edits an entry dated on or before this day.
+  const [closed, setClosed] = useState(settings?.closedThrough || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [text, setText] = useState('');
@@ -324,7 +327,7 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
     if (!auto && !picked.size) { setError('Pick at least one account, or find them by title.'); return; }
     setBusy(true);
     setError('');
-    api.saveAskSettings({ ...(limited ? {} : { accounts: auto ? [] : [...picked], bookkeepers: keepers.filter(Boolean) }), accountants })
+    api.saveAskSettings({ ...(limited ? {} : { accounts: auto ? [] : [...picked], bookkeepers: keepers.filter(Boolean), closedThrough: closed }), accountants })
       .then(onSaved).catch((err) => { setError(err?.message || 'Could not save the settings.'); setBusy(false); });
   };
 
@@ -386,7 +389,11 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
           <div style={{ display: 'grid', gap: 6 }}>
             {settings?.bookkeepersFromEnv && !keepers.length && (
               <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                From the server's settings: {(settings.bookkeepers || []).map((p) => p.name || p.email).join(', ')}. Add people here to replace them.
+                {settings.bookkeeperSource === 'seed'
+                  ? `The team's bookkeepers, matched by name on the People list: ${(settings.bookkeepers || []).map((p) => p.name || p.email).join(', ') || 'nobody yet'}.`
+                  : `From the server's settings: ${(settings.bookkeepers || []).map((p) => p.name || p.email).join(', ')}.`}
+                {(settings.unmatchedBookkeepers || []).length > 0 && ` Not matched to exactly one person: ${settings.unmatchedBookkeepers.join(', ')}.`}
+                {' '}Add people here to replace them.
               </div>
             )}
             {keepers.map((email, i) => (
@@ -403,6 +410,19 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
           </div>
         )}
       </div>
+      {!limited && (
+        <div>
+          <span style={fieldLabel}>Books Closed Through</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ width: 160 }}><DateField value={closed} onChange={(v) => setClosed(v || '')} placeholder="MM/DD/YYYY" title="Books Closed Through" style={{ width: '100%' }} /></div>
+            {closed && <button type="button" className="secondary-btn" onClick={() => setClosed('')} style={{ fontSize: '0.74rem', height: 26, padding: '0 8px' }}>Clear</button>}
+          </div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
+            No push to Intacct edits an entry dated on or before this day.{settings?.closedThroughDefault && !closed ? ` The server default is ${formatDate(settings.closedThroughDefault)}.` : ''}
+            {settings?.pushBatchLimit ? ` Pushes take at most ${settings.pushBatchLimit} ${settings.pushBatchLimit === 1 ? 'line' : 'lines'} at a time.` : ''}
+          </div>
+        </div>
+      )}
     </Dialog>
   );
 }
@@ -500,6 +520,10 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
 
   const amaCodes = new Set((data?.accounts || []).map((a) => a.code));
   const bookkeeper = !!data?.isBookkeeper;
+  // CR-13 rework: the push edits the original entry, a few lines at a time.
+  const reclassMode = data?.reclassMode || AMA_RECLASS_MODE_DEFAULT;
+  const awaiting = useMemo(() => all.filter((r) => r.reclass?.status === AWAITING), [all]);
+  const [pushing, setPushing] = useState(false);
   const exportAs = async (format) => {
     setBusy(format);
     try {
@@ -557,6 +581,11 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           <CustomizeButton {...custom} />
+          {bookkeeper && reclassMode !== 'new_entry' && awaiting.length > 0 && (
+            <button type="button" className="secondary-btn" onClick={() => setPushing(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
+              <Send size={14} /> Push Reclasses ({awaiting.length})
+            </button>
+          )}
           {editor && (
             <button type="button" className="secondary-btn" onClick={openSettings} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
               <Settings size={14} /> Settings
@@ -565,7 +594,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
           <ExportMenu disabled={!rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'The lines on screen, amounts as numbers', onPick: () => exportAs('excel'), busy: busy === 'excel' },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportAs('csv'), busy: busy === 'csv' },
-            ...(bookkeeper ? [{ key: 'intacct', label: 'Intacct Import File', hint: 'The approved GL reclasses recorded for import', onPick: importFile, busy: busy === 'intacct' }] : []),
+            ...(bookkeeper && reclassMode === 'new_entry' ? [{ key: 'intacct', label: 'Intacct Import File', hint: 'The approved GL reclasses recorded for import', onPick: importFile, busy: busy === 'intacct' }] : []),
           ]} />
         </div>
       </div>
@@ -667,7 +696,11 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         onReclass={amaCodes.has(open.accountNo) ? setReclassing : undefined} />}
       {reclassing && (
         <ReclassDialog key={reclassing.id} row={all.find((r) => r.id === reclassing.id) || reclassing} side={(all.find((r) => r.id === reclassing.id) || reclassing).otherSide}
-          isBookkeeper={bookkeeper} pushToIntacct={!!data?.pushToIntacct} onClose={() => setReclassing(null)} onSaved={(rv) => reclassSaved(reclassing, rv)} />
+          isBookkeeper={bookkeeper} pushToIntacct={!!data?.pushToIntacct} reclassMode={reclassMode} onClose={() => setReclassing(null)} onSaved={(rv) => reclassSaved(reclassing, rv)} />
+      )}
+      {pushing && (
+        <PushBatchDialog rows={awaiting} limit={data?.pushBatchLimit || AMA_PUSH_BATCH_LIMIT_DEFAULT} live={!!data?.pushToIntacct}
+          onClose={() => setPushing(false)} onDone={(r) => { (r?.reviews || []).forEach((rv) => { const row = all.find((x) => x.reclass?.id === rv.id); if (row) reclassSaved(row, rv); }); }} />
       )}
       {asking && (
         <AskAccountantDialog line={asking} onClose={() => setAsking(null)}

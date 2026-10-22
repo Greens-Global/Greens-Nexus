@@ -1277,6 +1277,8 @@ def _run_migrations():
             "ALTER TABLE accounting_ama_agreements ADD COLUMN threshold_basis VARCHAR DEFAULT ''",
             # AMA bookkeepers (CR-13, Oct 23) - see the Postgres list.
             "ALTER TABLE accounting_ama_settings ADD COLUMN bookkeepers JSON DEFAULT '[]'",
+            # AMA push edits the original (CR-13 rework) - see the Postgres list.
+            "ALTER TABLE accounting_ama_settings ADD COLUMN closed_through VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2940,6 +2942,13 @@ def _run_migrations():
         # AccountingAmaLineReview.
         "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS bookkeepers JSON DEFAULT '[]'",
         "ALTER TABLE accounting_ama_line_reviews ENABLE ROW LEVEL SECURITY",
+        # AMA push edits the original Intacct entry (Neil, 23 Oct, CR-13
+        # rework): the books-closed-through date, the previews a push must
+        # name, and the append-only push log - new tables, so explicit RLS.
+        # models.AccountingAmaSetting / AccountingAmaPushPreview / AccountingAmaPushLog.
+        "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS closed_through VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_ama_push_previews ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_ama_push_log ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -6754,6 +6754,9 @@ class AccountingAmaSetting(Base):
     # CR-13 (Oct 23): who may approve and push an AMA reclass (the '' row
     # only). Empty = accounting_assumptions.AMA_BOOKKEEPERS_FALLBACK.
     bookkeepers = Column(JSON, default=list)
+    # CR-13 rework (Oct 23): no AMA push edits an entry dated on or before
+    # this day ('' = accounting_assumptions.AMA_BOOKS_CLOSED_THROUGH).
+    closed_through = Column(String, default="")
 
 
 class AccountingAmaLineReview(Base):
@@ -6795,7 +6798,7 @@ class AccountingAmaLineReview(Base):
     review_note      = Column(String, default="")                  # the bookkeeper's Send Back note
     approved_by      = Column(String, default="")
     approved_at      = Column(String, default="")
-    push_mode        = Column(String, default="")                  # intacct | import
+    push_mode        = Column(String, default="")                  # edit (the original, CR-13 rework) | intacct | import (new_entry mode)
     push_started_at  = Column(String, default="")
     intacct_ref      = Column(String, default="")                  # RECORDNO of the reclass entry
     push_error       = Column(String, default="")
@@ -8100,3 +8103,52 @@ class TimecardBonus(Base):
     created_at     = Column(String, default="")
     removed_by     = Column(String, default="")
     removed_at     = Column(String, default="")
+
+
+class AccountingAmaPushPreview(Base):
+    """CR-13 rework (Neil, 23 Oct 2026: "The push should edit the original
+    ... CAREFUL TO GET THIS RIGHT"): what a bookkeeper was SHOWN before a
+    push - for each Intacct entry the reclasses touch, the entry as read
+    (`entries[].before`), the exact update that would be sent
+    (`entries[].update`) and a fingerprint of the entry. A push names its
+    preview: it must be this person's, unused and fresh, for the same lines,
+    and the entry must read the same again or nothing is sent.
+    routers/accounting_ask_review.py. New table - create_all builds it; RLS
+    by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_push_previews"
+    id          = Column(String, primary_key=True)                 # uuid
+    created_by  = Column(String, default="", index=True)
+    created_at  = Column(String, default="")
+    expires_at  = Column(String, default="")
+    review_ids  = Column(JSON, default=list)                       # the AccountingAmaLineReview ids, sorted
+    source      = Column(String, default="")                       # intacct | ledger
+    live        = Column(Boolean, default=False)                   # AMA_PUSH_TO_INTACCT when previewed
+    entries     = Column(JSON, default=list)                       # [{key, fingerprint, before, update, changes}]
+    used_at     = Column(String, default="")
+
+
+class AccountingAmaPushLog(Base):
+    """CR-13 rework: one row per Intacct entry a push touched (or, with the
+    push switched off, would have touched) - who, when, the entry before,
+    exactly what was sent, what Intacct answered, the entry read again after,
+    and the outcome (edited | dry_run | failed | unconfirmed | already_done |
+    stale). APPEND-ONLY: never updated or deleted by code.
+    routers/accounting_ask_review.py. New table - create_all builds it; RLS
+    by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_push_log"
+    id          = Column(String, primary_key=True)                 # uuid
+    at          = Column(String, default="", index=True)
+    by          = Column(String, default="")
+    preview_id  = Column(String, default="", index=True)
+    review_ids  = Column(JSON, default=list)
+    entry_key   = Column(String, default="", index=True)           # Intacct GLBATCH RECORDNO (else the ledger entry id)
+    entry_no    = Column(String, default="")
+    mode        = Column(String, default="")                       # live | dry_run
+    source      = Column(String, default="")                       # intacct | ledger
+    before      = Column(JSON, default=dict)
+    sent        = Column(JSON, default=dict)                       # the update, as sent (or as it would be)
+    sent_xml    = Column(Text, default="")
+    response    = Column(Text, default="")
+    after       = Column(JSON, default=dict)
+    outcome     = Column(String, default="")
+    error       = Column(Text, default="")
