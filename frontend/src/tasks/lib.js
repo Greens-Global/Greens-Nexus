@@ -666,6 +666,17 @@ export function groupAddDefaults(group, key) {
   return {}; // assignee, none
 }
 
+/** A patch whose customFieldValues is a PARTIAL change (one field set by a
+ *  group drag), merged over the task's current values. PATCH /tasks/{id}
+ *  REPLACES the whole dict, so sending just the one field erased every other
+ *  field value on the task (and can now be refused when a required field
+ *  reads as cleared). Anything else in the patch passes through untouched;
+ *  a full dict built from the task already is unchanged by the merge. */
+export function withTaskFields(task, patch) {
+  if (!patch || !patch.customFieldValues) return patch;
+  return { ...patch, customFieldValues: { ...(task?.customFieldValues || {}), ...patch.customFieldValues } };
+}
+
 /** Group tasks by a GroupBy key. Returns [{ key, label, tasks }] ordered sensibly. */
 export function groupTasks(list, group, ctx = {}) {
   if (!group || group === 'none') return [{ key: 'all', label: '', tasks: list }];

@@ -13,7 +13,7 @@ import {
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
   Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown, ChevronRight, Search,
 } from 'lucide-react';
-import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees, requiredFieldsFor, projectTracksTime, taskTracksTime, todayISO } from '../lib';
+import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees, requiredFieldsFor, projectTracksTime, taskTracksTime, todayISO, withTaskFields } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey, isMissed, MISSED_TITLE } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
@@ -1174,6 +1174,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     const d = groupAddDefaults(effGroup, key);
     return Object.keys(d).length ? d : null;
   };
+  // A drop that sets one custom field keeps the task's other field values
+  // (withTaskFields) - the patch from groupAddDefaults names only the one.
+  const draggedTask = (id) => store.taskById?.[id] || (store.tasks || []).find((x) => x.id === id);
 
   // Drag a row onto ANOTHER ROW to reorder it (Sort: Manual only - any other
   // sort re-derives the list order every render, so a dragged position would
@@ -1213,7 +1216,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     // value (same rule the group-header drop already applies), so a manual
     // drag can move and reorder in one gesture.
     const groupPatch = dropPatch(g.key);
-    store.updateTask(dragId, { ...(groupPatch || {}), position: newPos }).catch(() => {});
+    store.updateTask(dragId, withTaskFields(draggedTask(dragId), { ...(groupPatch || {}), position: newPos })).catch(() => {});
     setDragId(null); setDropKey(null); setDropRow(null);
   };
 
@@ -1510,7 +1513,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                 e.preventDefault();
                 const patch = dropPatch(g.key);
                 if (dragId && patch?.section !== undefined) customSections.move([dragId], patch.section).catch(() => {});
-                else if (dragId && patch) store.updateTask(dragId, patch).catch(() => {});
+                else if (dragId && patch) store.updateTask(dragId, withTaskFields(draggedTask(dragId), patch)).catch(() => {});
                 setDragId(null); setDropKey(null);
               }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>

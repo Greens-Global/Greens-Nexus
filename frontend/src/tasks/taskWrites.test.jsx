@@ -11,7 +11,7 @@ import { useEffect } from 'react';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 
 const api = vi.hoisted(() => ({
-  updateTask: vi.fn(), deleteTask: vi.fn(), restoreTask: vi.fn(), createTask: vi.fn(), getTasksDelta: vi.fn(),
+  updateTask: vi.fn(), deleteTask: vi.fn(), restoreTask: vi.fn(), createTask: vi.fn(), getTasksDelta: vi.fn(), useTaskTemplate: vi.fn(),
 }));
 vi.mock('../api', () => ({
   api: new Proxy({}, {
@@ -23,7 +23,8 @@ vi.mock('../api', () => ({
 }));
 vi.mock('../lib/supabase', () => ({ supabase: null }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@greensglobal.com' }) }));
-vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => (e) => e }));
+const NAMES = { 'jane@x.com': 'Jane Doe', 'john@x.com': 'John Roe' };
+vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => (e) => NAMES[e] || e }));
 vi.mock('./celebrate', () => ({ celebrateCompletion: () => {} }));
 const SEED = [
   { id: 'a', title: 'Alpha', priority: 'low', status: 'not_started' },
@@ -170,5 +171,42 @@ describe('the bulk bar delete', () => {
     dialogAlert.mockClear();
     await deleteSelectedTasks({ deleteTasks: () => Promise.resolve({ deleted: 3, failed: 0, error: null }) }, ['a', 'b', 'c']);
     expect(dialogAlert).not.toHaveBeenCalled();
+  });
+});
+
+describe('people a create could not add (Oct 21 2026)', () => {
+  it('names them in one notice, by name, and keeps the key out of the stored row', async () => {
+    api.createTask
+      .mockResolvedValueOnce({ id: 'n1', title: 'Copy one', priority: 'low', droppedPeople: ['jane@x.com'] })
+      .mockResolvedValueOnce({ id: 'n2', title: 'Copy two', priority: 'low', droppedPeople: ['john@x.com', 'jane@x.com'] })
+      .mockResolvedValueOnce({ id: 'n3', title: 'Copy three', priority: 'low' });
+    await mount();
+    let created;
+    await act(async () => {
+      created = await live.store.createTask({ title: 'Copy one' });
+      await live.store.createTask({ title: 'Copy two' });
+      await live.store.createTask({ title: 'Copy three' });
+    });
+    expect('droppedPeople' in created).toBe(false);
+    expect(live.store.tasks.some((t) => 'droppedPeople' in t)).toBe(false);
+    const notice = screen.getByTestId('dropped-people');
+    expect(notice.textContent).toBe('Not added: Jane Doe, John Roe - not in the Nexus directory or no longer with the company.×');
+    expect(screen.getAllByTestId('dropped-people')).toHaveLength(1);
+  });
+
+  it('says nothing when everyone was added', async () => {
+    api.createTask.mockResolvedValue({ id: 'n1', title: 'Fine', priority: 'low' });
+    await mount();
+    await act(async () => { await live.store.createTask({ title: 'Fine' }); });
+    expect(screen.queryByTestId('dropped-people')).toBeNull();
+  });
+
+  it('a task started from a template reports them too', async () => {
+    api.useTaskTemplate.mockResolvedValue({ id: 'n9', title: 'From template', priority: 'low', droppedPeople: ['jane@x.com'] });
+    await mount();
+    let r;
+    await act(async () => { r = await live.store.startFromTemplate('tpl1', { title: 'From template' }); });
+    expect('droppedPeople' in r).toBe(false);
+    expect(screen.getByTestId('dropped-people').textContent).toContain('Not added: Jane Doe');
   });
 });

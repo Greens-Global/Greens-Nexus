@@ -684,3 +684,27 @@ describe('a section header checkbox', () => {
     expect([...latest].sort()).toEqual(['r1', 'r2']);
   });
 });
+
+describe('dragging into a custom-field group (Oct 21 2026)', () => {
+  // PATCH /tasks/{id} replaces the whole customFieldValues dict, so the drop
+  // must send the task's other field values along with the one it changes.
+  const fields = [
+    { id: 'f1', name: 'Entity', type: 'select', options: [{ id: 'A', label: 'Alpha Co' }, { id: 'B', label: 'Bravo Co' }] },
+    { id: 'f2', name: 'Notes', type: 'text' },
+  ];
+  const rows = [
+    { ...mockTasks[0], customFieldValues: { f1: 'A', f2: 'keep me' } },
+    { ...mockTasks[1], customFieldValues: { f1: 'B' } },
+  ];
+
+  it('keeps the other field values when a row is dropped on another group', () => {
+    const updateTask = vi.fn(() => Promise.resolve({}));
+    const cfStore = { ...store, tasks: rows, taskById: Object.fromEntries(rows.map((t) => [t.id, t])), customFields: fields, updateTask };
+    renderList({ visible: rows, group: 'cf:f1', store: cfStore, ctx: { ...ctx, customFields: fields } });
+    const row = document.querySelector('[data-row-id="t1"]');
+    fireEvent.dragStart(row, { dataTransfer: { effectAllowed: '', setData: () => {} } });
+    fireEvent.dragOver(screen.getAllByText('Bravo Co')[0], { dataTransfer: { dropEffect: '' } });
+    fireEvent.drop(screen.getAllByText('Bravo Co')[0], { dataTransfer: {} });
+    expect(updateTask).toHaveBeenCalledWith('t1', { customFieldValues: { f1: 'B', f2: 'keep me' } });
+  });
+});
