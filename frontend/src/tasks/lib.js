@@ -486,6 +486,25 @@ export function projectRoleOf(project, email, isManager = false) {
 const ROLE_RANK = { viewer: 1, commenter: 2, editor: 3, owner: 4 };
 export const roleAtLeast = (role, min) => (ROLE_RANK[role] || 0) >= (ROLE_RANK[min] || 0);
 
+/** projectRoleOf raised by any APPROVED team on the project the caller is in
+ *  (the team's accessRole, default editor) - the server's project_role_for.
+ *  Shared by taskRoleFor and the project-level checks (followRules.js). */
+export function projectRoleWithTeams(project, email, teams = [], isManager = false) {
+  if (!project) return null;
+  if (isManager) return 'owner';
+  const me = (email || '').toLowerCase();
+  let role = projectRoleOf(project, me, false);
+  if (!me) return role;
+  for (const tm of teams || []) {
+    if ((tm.approvalStatus || 'approved') !== 'approved') continue;
+    if (!teamProjectIds(tm).includes(project.id)) continue;
+    if (!(tm.memberIds || []).some((e) => (e || '').toLowerCase() === me)) continue;
+    const r = tm.accessRole || 'editor';
+    role = role && (ROLE_RANK[role] || 0) >= (ROLE_RANK[r] || 0) ? role : r;
+  }
+  return role;
+}
+
 /**
  * The caller's role on ONE task, decided the way the server decides it
  * (backend task_util.require_task_role + project_role_for), so the drawer can
@@ -521,13 +540,7 @@ export function taskRoleFor(task, { projects = [], teams = [], taskById = null, 
   if (!projectId) return 'editor';
   const project = (projects || []).find((p) => p.id === projectId);
   if (!project) return assigned ? 'editor' : null;
-  let role = projectRoleOf(project, me, false);
-  for (const tm of teams || []) {
-    if ((tm.approvalStatus || 'approved') !== 'approved') continue;
-    if (!teamProjectIds(tm).includes(projectId)) continue;
-    if (!(tm.memberIds || []).some((e) => (e || '').toLowerCase() === me)) continue;
-    role = role ? atLeast(role, tm.accessRole || 'editor') : (tm.accessRole || 'editor');
-  }
+  let role = projectRoleWithTeams(project, me, teams, false);
   if (assigned) role = role ? atLeast(role, 'editor') : 'editor';
   // A role name this file does not know is not guessed at.
   return ROLE_RANK[role] ? role : null;
@@ -921,6 +934,18 @@ export async function uploadTaskAttachment(taskId, file, extra = {}, onProgress)
   return api.addTaskAttachment(taskId, { name: file.name, size, kind, url, ...extra });
 }
 
+/** Upload New Version (Oct 22 2026): stores `file` the same way, then makes
+ *  it the current version of attachment `attachmentId`'s file. Unlike a new
+ *  attachment, a file that could not be stored is NOT recorded - a blank
+ *  current version would hide the good one behind it - so it throws and the
+ *  caller says so. */
+export async function uploadTaskAttachmentVersion(attachmentId, file, onProgress) {
+  const size = `${Math.max(1, Math.round(file.size / 1024))} KB`;
+  const url = await storeTaskFile(file, onProgress);
+  if (!url) throw new Error('the file could not be stored');
+  return api.addTaskAttachmentVersion(attachmentId, { name: file.name, size, kind: attachmentKindOf(file), url });
+}
+
 /** Delete the selected tasks as ONE batch (store.deleteTasks): one "Deleted N
  *  tasks" toast whose Undo restores them all, and a refusal is reported with
  *  how many failed instead of vanishing. Shared with Data Quality. */
@@ -1000,6 +1025,12 @@ export function fmtHours(h) {
 export function taskIdFromUrl() {
   if (typeof window === 'undefined') return '';
   return new URLSearchParams(window.location.search).get('task') || '';
+}
+
+/** ?project=<id> - the project a followed project's email links to (Oct 22 2026). */
+export function projectIdFromUrl() {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('project') || '';
 }
 
 /** Asana-imported comments are stamped "[Asana · Name · date]\n<text>" so the

@@ -14,12 +14,12 @@ import json
 import re
 import time
 from datetime import date, datetime, timedelta, timezone
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import String, and_, cast, func, or_
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, InvalidRequestError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -152,6 +152,9 @@ def attachment_to_dict(a: models.TaskAttachment) -> dict:
         "kind": a.kind or "other", "dataUrl": _nz(a.url), "url": _nz(a.url),
         "addedAt": a.added_at or "", "addedBy": _nz(a.added_by),
         "commentId": _nz(a.comment_id),
+        # File versions + Egnyte links (Oct 22 2026) - see models.TaskAttachment.
+        "version": a.version or 1, "versionGroup": a.version_group or a.id,
+        "egnytePath": _nz(a.egnyte_path), "egnyteKind": _nz(a.egnyte_kind),
     }
 
 
@@ -4448,11 +4451,38 @@ def reorder_checklist(task_id: str, body: ChecklistOrder, user: dict = Depends(g
     return [checklist_item_to_dict(i) for i in sorted(rows.values(), key=lambda i: i.position or 0)]
 
 
+def _version_key(a: models.TaskAttachment) -> tuple:
+    return (a.version or 1, a.added_at or "", a.id)
+
+
+def current_versions(rows) -> list[tuple]:
+    """[(current row, version count, first row)] - one per version group, the highest
+    version standing for the file (Oct 22 2026). Groups keep the place their
+    FIRST version had (oldest first), so a file does not jump around the list
+    when someone uploads a new version of it. Rows older than versions are
+    each their own group of one, exactly as before."""
+    groups: dict[str, list] = {}
+    for r in rows:
+        groups.setdefault(r.version_group or r.id, []).append(r)
+    out = []
+    for rs in groups.values():
+        rs.sort(key=_version_key)
+        out.append((rs[0].added_at or "", rs[0].id, rs[-1], len(rs), rs[0]))
+    out.sort(key=lambda x: (x[0], x[1]))
+    return [(cur, n, first) for _, _, cur, n, first in out]
+
+
 @router.get("/{task_id}/attachments")
 def list_attachments(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The task's files - the CURRENT version of each (Oct 22 2026). Older
+    versions are GET /tasks/attachments/{id}/versions; `versionCount` says
+    whether there are any."""
     _wall_task(db, user, task_id)   # company wall
     rows = db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == task_id).all()
-    return [attachment_to_dict(a) for a in rows]
+    # groupAddedBy: who uploaded the file's FIRST version - with an editor,
+    # the only one who may upload a new version (add_attachment_version).
+    return [{**attachment_to_dict(a), "versionCount": n, "groupAddedBy": _nz(first.added_by)}
+            for a, n, first in current_versions(rows)]
 
 
 _URL_SCHEME_RE = re.compile(r"^https?://", re.I)
@@ -4478,6 +4508,15 @@ def _check_attachment_url(url) -> None:
     _validate_photo_url(u, "Attachment")
 
 
+def _check_attachment_kind(kind) -> None:
+    """An uploaded file never claims to be an Egnyte link (Oct 22 2026): kind
+    "egnyte" rows render as "Open In Egnyte" links and are made ONLY by
+    POST /{task_id}/egnyte-links, which checks the link is on the company's
+    Egnyte domain."""
+    if (kind or "").strip().lower() == "egnyte":
+        raise HTTPException(422, "Add an Egnyte link with Add From Egnyte, not as a file.")
+
+
 @router.post("/{task_id}/attachments", status_code=201)
 def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(get_current_user),
                    db: Session = Depends(get_db)):
@@ -4487,6 +4526,7 @@ def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(ge
     # editor here would 403 exactly the people that flow exists for. Matches
     # add_comment's own threshold.
     require_task_role(db, user, t, "commenter")
+    _check_attachment_kind(body.kind)
     _check_attachment_url(body.url)
     # An attachment tagged with a comment from a DIFFERENT task is incoherent:
     # the comment view groups by comment id within one task, so the file would
@@ -4527,29 +4567,335 @@ def delete_attachment(attachment_id: str, user: dict = Depends(get_current_user)
     a = db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id).first()
     if not a:
         raise HTTPException(404, "Attachment not found")
-    t = db.query(models.Task).filter(models.Task.id == a.task_id).first()
-    if t is not None:
-        assert_task_wall(db, user, t)   # company wall first (Oct 21 2026)
+    # The task even when it is in the Trash (Oct 22 2026): the default query
+    # hides a trashed task, and the checks below were skipped for it. No task
+    # at all means the file is not a task's - a ticket's goes through the
+    # ticket routes and their rules (delete_ticket_attachment), never here.
+    t = (db.query(models.Task).execution_options(include_deleted=True)
+         .filter(models.Task.id == a.task_id).first())
+    if t is None:
+        raise HTTPException(404, "Attachment not found")
+    assert_task_wall(db, user, t)   # company wall first (Oct 21 2026)
     # Whoever uploaded it can remove it; otherwise it takes an editor. Removing
     # someone else's evidence from a task shouldn't be open to every viewer.
     if (a.added_by or "").lower() != (user["email"] or "").lower():
-        require_project_role(db, user, project_for_task(db, t) if t else None, "editor")
-    if t is not None and not task_visible_to(db, user, t):
+        require_project_role(db, user, project_for_task(db, t), "editor")
+    if not task_visible_to(db, user, t):
         # Sight of the task too, the uploader included (Oct 21 2026): a file
         # on a task you can no longer open is not yours to reach by id, and
         # the editor check above reads "no project" as editor for everybody.
         # After the role check so its 403 stands.
         raise HTTPException(404, "Task not found")
-    if t:
-        t.attachment_ids = [x for x in (t.attachment_ids or []) if x != attachment_id]
-        act = log_activity(db, type="attachment_removed", actor_email=user["email"], entity_id=t.id,
-                           entity_code=t.code, entity_title=t.title,
-                           detail=f'removed attachment "{a.name}"')
-        t.activity_ids = list(t.activity_ids or []) + [act]
-        t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
+    if t.deleted_at:
+        raise HTTPException(409, "This task is in the Trash. Restore it to change its files.")
+    # A file with versions (Oct 22 2026): removing the CURRENT one hands the
+    # file back to the version before it, which takes its place in the task's
+    # list; removing an older one changes nothing on show.
+    _lock_task_files(db, t)
+    rows = _version_rows(db, a, lock=True)
+    if a.id not in {r.id for r in rows}:
+        raise HTTPException(404, "Attachment not found")   # removed while we waited
+    siblings = [r for r in rows if r.id != a.id]
+    old_ids = list(t.attachment_ids or [])
+    ids = [x for x in old_ids if x != attachment_id]
+    if siblings and _version_key(a) > _version_key(siblings[-1]):
+        prev = siblings[-1]
+        at = old_ids.index(attachment_id) if attachment_id in old_ids else len(ids)
+        ids = [x for x in ids if x != prev.id]
+        ids.insert(min(at, len(ids)), prev.id)
+    t.attachment_ids = ids
+    detail = (f'removed version {a.version or 1} of "{a.name}"' if siblings
+              else f'removed attachment "{a.name}"')
+    act = log_activity(db, type="attachment_removed", actor_email=user["email"], entity_id=t.id,
+                       entity_code=t.code, entity_title=t.title, detail=detail)
+    t.activity_ids = list(t.activity_ids or []) + [act]
+    t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
     db.delete(a)
     db.commit()
     fire_task_event(a.task_id, "attachment")
+
+
+# ── File versions (Neil, Oct 22 2026) ────────────────────────────────────────
+# "Upload New Version" on a task file: the new file becomes the current one
+# and every earlier version is kept (see models.TaskAttachment.version_group).
+# Adding a version takes the attachment right (commenter, add_attachment)
+# AND, because it replaces the file everyone sees, the right to remove that
+# file: the uploader of its first version, else an editor (delete_attachment's
+# rule). Removing a version is removing a file. Comment files and Egnyte
+# links are not versioned. Nothing here notifies: a new file does not today.
+
+def _version_rows(db: Session, a: models.TaskAttachment, lock: bool = False) -> list:
+    """Every version of `a`'s file on its task, oldest first. With `lock` the
+    rows are locked (FOR UPDATE, id order) on Postgres."""
+    g = a.version_group or a.id
+    q = db.query(models.TaskAttachment).filter(
+        models.TaskAttachment.task_id == a.task_id,
+        or_(models.TaskAttachment.id == g, models.TaskAttachment.version_group == g))
+    if lock:
+        q = q.order_by(models.TaskAttachment.id).with_for_update()
+    return sorted(q.all(), key=_version_key)
+
+
+def _lock_task_files(db: Session, t: models.Task) -> None:
+    """Before a write that rebuilds the task's attachment_ids / activity_ids.
+
+    On Postgres this waits on the task row (FOR UPDATE, _lock_task_rows), so
+    two such writes to one task go one at a time; SQLite has no row locks
+    and relies on its database-wide write lock instead. The lock alone does
+    NOT make the waiting request's copy of the task current - _lock_task_rows
+    reads two columns only - so the row is re-read here, after the lock, and
+    the lists are rebuilt from what the other request committed rather than
+    from the copy read before waiting. Called after the access checks; the
+    file's version rows are locked after this (task first, then versions),
+    the same order everywhere, so these writes cannot deadlock each other.
+    Used by delete_attachment, the version routes and add_egnyte_link;
+    add_attachment still appends without it, as it always has."""
+    _lock_task_rows(db, [t.id])
+    try:
+        db.refresh(t)
+    except InvalidRequestError:        # purged while we waited
+        raise HTTPException(404, "Task not found")
+    # Trashed while we waited: refresh reads the row whatever its deleted_at
+    # (the soft-delete filter is not applied to it), so check it here.
+    if t.deleted_at:
+        raise HTTPException(409, "This task is in the Trash. Restore it to change its files.")
+
+
+def _attachment_and_task(db: Session, attachment_id: str):
+    """The attachment and the TASK it is on - 404 when either is missing (a
+    ticket's or another module's file is not a task file, and a task in the
+    Trash takes no file changes)."""
+    a = db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id).first()
+    if not a:
+        raise HTTPException(404, "Attachment not found")
+    t = db.query(models.Task).filter(models.Task.id == a.task_id).first()
+    if t is None:
+        raise HTTPException(404, "Attachment not found")
+    return a, t
+
+
+def _may_replace(db: Session, user: dict, t: models.Task, rows: list) -> None:
+    """A new version replaces the file everyone sees, so it takes the right
+    to remove that file: the uploader of its FIRST version, else an editor
+    (the same check delete_attachment makes). 403 otherwise."""
+    me = (user.get("email") or "").lower()
+    if not rows or not me or (rows[0].added_by or "").lower() != me:
+        require_project_role(db, user, project_for_task(db, t), "editor")
+
+
+class AttachmentVersionCreate(BaseModel):
+    name: str
+    size: Optional[str] = ""
+    kind: Optional[str] = "other"
+    url: Optional[str] = ""
+
+
+@router.get("/attachments/{attachment_id}/versions")
+def list_attachment_versions(attachment_id: str, user: dict = Depends(get_current_user),
+                             db: Session = Depends(get_db)):
+    """Every version of a file, newest first. Reading them is reading the
+    task's files (list_attachments): the wall and sight of the task."""
+    a, t = _attachment_and_task(db, attachment_id)
+    _wall_task(db, user, t.id)
+    rows = _version_rows(db, a)
+    first = rows[0].added_by if rows else ""
+    return [{**attachment_to_dict(r), "versionCount": len(rows), "groupAddedBy": _nz(first)}
+            for r in reversed(rows)]
+
+
+@router.post("/attachments/{attachment_id}/versions", status_code=201)
+def add_attachment_version(attachment_id: str, body: AttachmentVersionCreate,
+                           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    a, t = _attachment_and_task(db, attachment_id)
+    require_task_role(db, user, t, "commenter")    # = add_attachment
+    if (a.kind or "") == "egnyte":
+        raise HTTPException(422, "An Egnyte link has no versions here - Egnyte keeps its own.")
+    if a.comment_id:
+        raise HTTPException(422, "A file attached to a comment cannot take new versions. Attach the new file to the task instead.")
+    _may_replace(db, user, t, _version_rows(db, a))
+    if not (body.name or "").strip():
+        raise HTTPException(422, "The new version needs a file name.")
+    _check_attachment_kind(body.kind)
+    # The same check as a new attachment, and never blank: a new version
+    # with no file behind it would hide the good one before it.
+    if not (body.url or "").strip():
+        raise HTTPException(400, "The new version must be a file uploaded to Nexus.")
+    _check_attachment_url(body.url)
+    _lock_task_files(db, t)
+    rows = _version_rows(db, a, lock=True)     # as they are now, after the wait
+    if not rows:
+        raise HTTPException(404, "Attachment not found")
+    _may_replace(db, user, t, rows)            # the first version may have changed
+    cur = rows[-1]
+    n = max((r.version or 1) for r in rows) + 1
+    url = body.url or ""
+    if url.startswith("data:"):
+        url = data_url_to_storage(body.name, url) or url
+    new = models.TaskAttachment(id=gen_id(), task_id=t.id, name=body.name, size=body.size or "",
+                                kind=body.kind or "other", url=url, added_at=now_iso(),
+                                added_by=user["email"], comment_id="",
+                                version_group=a.version_group or a.id, version=n)
+    db.add(new)
+    # The task lists its CURRENT files: the new version takes the place of
+    # the one it replaces (the badge counts files, not uploads).
+    ids = list(t.attachment_ids or [])
+    t.attachment_ids = [new.id if x == cur.id else x for x in ids] if cur.id in ids else ids + [new.id]
+    act = log_activity(db, type="attached", actor_email=user["email"], entity_id=t.id,
+                       entity_code=t.code, entity_title=t.title,
+                       detail=f'uploaded version {n} of "{cur.name}"')
+    t.activity_ids = list(t.activity_ids or []) + [act]
+    t.modified_at = now_iso()
+    first = rows[0].added_by
+    db.commit()
+    db.refresh(new)
+    fire_task_event(t.id, "attachment")
+    return {**attachment_to_dict(new), "versionCount": len(rows) + 1, "groupAddedBy": _nz(first)}
+
+
+@router.delete("/attachments/{attachment_id}/versions", status_code=204)
+def delete_attachment_versions(attachment_id: str, user: dict = Depends(get_current_user),
+                               db: Session = Depends(get_db)):
+    """Delete All Versions: the whole file. The rule for removing one file,
+    applied to every version: all of them yours, or an editor."""
+    a, t = _attachment_and_task(db, attachment_id)
+    assert_task_wall(db, user, t)
+    me = (user["email"] or "").lower()
+
+    def check(rows):
+        if any((r.added_by or "").lower() != me for r in rows):
+            require_project_role(db, user, project_for_task(db, t), "editor")
+
+    check(_version_rows(db, a))
+    if not task_visible_to(db, user, t):
+        raise HTTPException(404, "Task not found")
+    _lock_task_files(db, t)
+    rows = _version_rows(db, a, lock=True)     # as they are now, after the wait
+    if not rows:
+        raise HTTPException(404, "Attachment not found")
+    check(rows)
+    gone = {r.id for r in rows}
+    t.attachment_ids = [x for x in (t.attachment_ids or []) if x not in gone]
+    name = rows[-1].name
+    detail = (f'removed "{name}" and all {len(rows)} versions' if len(rows) > 1
+              else f'removed attachment "{name}"')
+    act = log_activity(db, type="attachment_removed", actor_email=user["email"], entity_id=t.id,
+                       entity_code=t.code, entity_title=t.title, detail=detail)
+    t.activity_ids = list(t.activity_ids or []) + [act]
+    t.modified_at = now_iso()
+    for r in rows:
+        db.delete(r)
+    db.commit()
+    fire_task_event(t.id, "attachment")
+
+
+# ── Egnyte links (Neil, Oct 22 2026) ─────────────────────────────────────────
+# A file or folder in the company Egnyte, attached as a LINK: no bytes come
+# to Nexus or Supabase, and opening it goes to Egnyte, which applies each
+# viewer's own permissions - Nexus never fetches the file for anyone. The
+# picker browses with the existing /egnyte routes (the caller's own Egnyte
+# connection); this route only records what was picked, so it makes no
+# Egnyte call at all. Adding one is adding a file (commenter); removing one
+# is DELETE /attachments/{id} like any file. Not versioned. One item is
+# linked once per task (409 on a repeat).
+
+_EGNYTE_ROOTS = {"shared": "Shared", "private": "Private"}
+
+
+def egnyte_link_host() -> str:
+    """The company Egnyte's host (EGNYTE_DOMAIN, derived exactly as
+    egnyte_oauth._domain_base does), or "" when Egnyte is not set up."""
+    import egnyte_oauth
+    return (urlparse(egnyte_oauth._domain_base()).hostname or "").lower()
+
+
+def _check_egnyte_url(url) -> str:
+    """The link must be https on the company's own Egnyte host - exactly that
+    host as typed, ASCII only (so egnyte.com.evil.com, greens.egnyte.com.evil.com,
+    a trailing dot, full-width dots, IDN look-alikes and user@host tricks
+    are refused), on the
+    default port. javascript:, data: and every other scheme fail the https
+    check. Returns the link, trimmed. frontend/src/tasks/egnyteLinks.js
+    (egnyteLinkProblem) applies the same rule before sending."""
+    u = (url or "").strip()
+    host = egnyte_link_host()
+    if not host:
+        raise HTTPException(400, "Egnyte is not connected to Nexus, so Egnyte links cannot be added yet.")
+    if not u or len(u) > 2000 or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in u):
+        raise HTTPException(400, "Paste the Egnyte link exactly as Egnyte shows it.")
+    try:
+        p = urlparse(u)
+        port = p.port
+    except ValueError:
+        raise HTTPException(400, "That is not a valid link.")
+    if (p.scheme.lower() != "https" or (p.hostname or "").lower() != host
+            or p.username is not None or p.password is not None or port not in (None, 443)
+            or "\\" in p.netloc or not p.netloc.isascii()):
+        raise HTTPException(400, f"Only links to the company Egnyte ({host}) can be added.")
+    return u
+
+
+def _egnyte_path_from(url: str, path: str) -> str:
+    """The /Shared/... path shown as a breadcrumb: the picker's, else the one
+    in an Egnyte address-bar link (...#storage/files/1/Shared/...). A plain
+    display string: duplicate slashes and "." collapse, control characters
+    go, and a path with ".." in it is refused (400) - an Egnyte path never
+    has one. "" when nothing says (a share link) or it is not an Egnyte
+    path - it is only a label."""
+    p = (path or "").strip()
+    if not p:
+        m = re.search(r"#storage/files/1(/[^?]*)", url or "")
+        p = unquote(m.group(1)) if m else ""
+    p = "".join(c for c in p.replace("\\", "/") if ord(c) >= 32 and ord(c) != 127)
+    parts = [s.strip() for s in p.split("/")]
+    parts = [s for s in parts if s and s != "."]
+    if any(s == ".." for s in parts):
+        raise HTTPException(400, "That Egnyte path is not valid.")
+    if not parts or parts[0].lower() not in _EGNYTE_ROOTS:
+        return ""
+    parts[0] = _EGNYTE_ROOTS[parts[0].lower()]
+    return ("/" + "/".join(parts))[:1000]
+
+
+class EgnyteLinkCreate(BaseModel):
+    url: str
+    path: Optional[str] = ""
+    name: Optional[str] = ""
+    is_folder: Optional[bool] = None
+
+
+@router.post("/{task_id}/egnyte-links", status_code=201)
+def add_egnyte_link(task_id: str, body: EgnyteLinkCreate, user: dict = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    t = _get_task(db, task_id)
+    require_task_role(db, user, t, "commenter")    # = add_attachment
+    url = _check_egnyte_url(body.url)
+    path = _egnyte_path_from(url, body.path or "")
+    is_folder = body.is_folder
+    if is_folder is None:
+        is_folder = "/navigate/folder/" in url or "#storage/files/" in url
+    # One Egnyte item is linked once per task: the same link, or the same
+    # path picked again (a file's link and its path can differ in form).
+    _lock_task_files(db, t)
+    for r in (db.query(models.TaskAttachment)
+              .filter(models.TaskAttachment.task_id == t.id, models.TaskAttachment.kind == "egnyte").all()):
+        if r.url == url or (path and (r.egnyte_path or "").lower() == path.lower()):
+            raise HTTPException(409, f'"{r.name}" is already linked to this task.')
+    name = ((body.name or "").strip() or (path.rsplit("/", 1)[-1] if path else "")
+            or ("Egnyte Folder" if is_folder else "Egnyte File"))[:250]
+    a = models.TaskAttachment(id=gen_id(), task_id=t.id, name=name, size="", kind="egnyte", url=url,
+                              added_at=now_iso(), added_by=user["email"], comment_id="",
+                              egnyte_path=path, egnyte_kind="folder" if is_folder else "file")
+    db.add(a)
+    t.attachment_ids = list(t.attachment_ids or []) + [a.id]
+    act = log_activity(db, type="attached", actor_email=user["email"], entity_id=t.id,
+                       entity_code=t.code, entity_title=t.title,
+                       detail=f'linked Egnyte {"folder" if is_folder else "file"} "{name}"')
+    t.activity_ids = list(t.activity_ids or []) + [act]
+    t.modified_at = now_iso()
+    db.commit()
+    db.refresh(a)
+    fire_task_event(t.id, "attachment")
+    return {**attachment_to_dict(a), "versionCount": 1}
 
 
 # ── Activity ─────────────────────────────────────────────────────────────────
