@@ -180,6 +180,15 @@ export default function EmailSettingsPanel({ onUnavailable }) {
                   </div>
                 );
               })}
+              {/* Follow a project (Oct 22 2026): new tasks, completions and
+                  comments in the projects you follow, sent with your batch. */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', gap: 10 }}>
+                <span style={{ fontSize: 13 }}>
+                  Projects I Follow
+                  <span style={{ color: NX.faint, fontSize: 11.5 }}> - new tasks, completions and comments</span>
+                </span>
+                <Toggle on={prefs.followedProjects !== false} onChange={() => set('followedProjects', prefs.followedProjects === false)} />
+              </div>
               <div style={{ marginTop: 8 }}>
                 <label style={{ ...label, fontWeight: 600 }}>Combine Task Update Emails</label>
                 <select aria-label="Combine task update emails" value={prefs.updateThrottleMinutes} onChange={(e) => set('updateThrottleMinutes', Number(e.target.value))} style={sel}>

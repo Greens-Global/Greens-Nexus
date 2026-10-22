@@ -16,6 +16,7 @@ import { useListNav } from '../lib/listNav';
 import { requiredFieldsFor, isBlankValue } from './lib';
 import { recurrenceLabel } from './recurrence';
 import { CustomFieldInput } from './TaskDetailDrawer';
+import { FORMULA_FILTERS } from './formula';
 
 const SORT_OPTIONS = [
   { key: 'manual', label: 'Manual' }, { key: 'dueOn', label: 'Due Date' },
@@ -102,8 +103,11 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
   // checkbox list possible at all. Text and number fields would need operators.
   // Multiselect filters the same way a select does - the value is a list, and
   // matchesFilter treats a hit on any chosen option as a match.
+  // A formula column (Oct 22 2026) filters on what its computed value IS -
+  // has a value, blank, or an error - since its values are not a fixed list.
   const filterFields = (customFields || []).filter(
-    (f) => (f.type === 'select' || f.type === 'multiselect') && (f.options || []).length);
+    (f) => ((f.type === 'select' || f.type === 'multiselect') && (f.options || []).length) || f.type === 'formula');
+  const filterOptions = (f) => (f.type === 'formula' ? FORMULA_FILTERS : (f.options || []));
   const cfSelected = (fid) => (filters.customFields || {})[fid] || [];
   const toggleCf = (fid, optId) => {
     const cur = cfSelected(fid);
@@ -240,7 +244,7 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
         <div key={f.id}>
           <div style={groupHead}>{f.name}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {(f.options || []).map((o) => {
+            {filterOptions(f).map((o) => {
               const opt = typeof o === 'string' ? { id: o, label: o, color: '' } : o;
               const on = cfSelected(f.id).includes(opt.id);
               return (

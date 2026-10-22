@@ -6,10 +6,11 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   Circle, CheckCircle2, MessageSquare, Diamond, Plus, Trash2, ChevronsLeft, ChevronsRight,
-  MoreHorizontal, Gauge, Rows3, ChevronDown, ListChecks, ArrowRightLeft, Check,
+  MoreHorizontal, Gauge, Rows3, ChevronDown, ListChecks, ArrowRightLeft, Check, CornerDownRight, ListTree,
 } from 'lucide-react';
+import { useCanEditTask } from '../canEditTask';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
-import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor } from '../lib';
+import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor, effectiveProjectId } from '../lib';
 import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
@@ -57,7 +58,14 @@ function MoreCards({ n }) {
   );
 }
 
-export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId, defaultAssigneeId = '', onFullCreate }) {
+// showSubtasks / onToggleSubtasks (Oct 22 2026): the workspace's "Show
+// Subtasks" switch - when it is on, `visible` already holds the subtasks and
+// each one is a card of its own (with a "Subtask of" line). Without
+// onToggleSubtasks (My Tasks, which lists subtasks anyway) no switch shows.
+export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId, defaultAssigneeId = '', onFullCreate, showSubtasks = false, onToggleSubtasks = null }) {
+  // A read-only person sees the cards but cannot drag them or move them
+  // between columns (Oct 22 2026) - the server refuses it anyway.
+  const canEditTask = useCanEditTask(store);
   const [dragId, setDragId] = useState(null);
   // Which lane the card was picked up FROM. With a task able to sit in
   // several assignee lanes at once, the destination alone no longer says
@@ -189,18 +197,21 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
       }
       return out;
     }
-    // project
+    // project - a subtask's is its parent's (it may only reach it that way)
+    const pid = (t) => effectiveProjectId(t, store.taskById);
     const seen = new Map();
-    for (const t of visible) if (t.projectId && !seen.has(t.projectId)) seen.set(t.projectId, store.projectName(t.projectId));
-    const out = [...seen.entries()].map(([id, label]) => ({ key: id, label, match: (t) => t.projectId === id }));
-    if (visible.some((t) => !t.projectId)) out.push({ key: '__none', label: 'No project', match: (t) => !t.projectId });
+    for (const t of visible) if (pid(t) && !seen.has(pid(t))) seen.set(pid(t), store.projectName(pid(t)));
+    const out = [...seen.entries()].map(([id, label]) => ({ key: id, label, match: (t) => pid(t) === id }));
+    if (visible.some((t) => !pid(t))) out.push({ key: '__none', label: 'No project', match: (t) => !pid(t) });
     return out;
   }, [swimlane, visible, ctx, store, boardFields]);
 
   const drop = (status, lane) => {
     if (!dragId) { setDragOver(null); return; }
     store.setStatus(dragId, status);
-    if (lane && swimlane !== 'none' && lane.key !== 'all') {
+    // A subtask's project is its parent's - a project lane does not move it.
+    const isSub = !!(store.tasks || []).find((x) => x.id === dragId)?.parentTaskId;
+    if (lane && swimlane !== 'none' && lane.key !== 'all' && !(isSub && swimlane === 'project')) {
       if (swimlane === 'assignee') {
         // Dragging a card between assignee lanes HANDS IT OVER: the person
         // whose lane it came from is swapped for the person whose lane it
@@ -254,15 +265,18 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
       if (e.target !== e.currentTarget) return;
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(t.id); }
     };
+    const editable = canEditTask(t);
+    // A subtask card says whose subtask it is; the name opens the parent.
+    const parent = t.parentTaskId ? store.taskById?.[t.parentTaskId] || (store.tasks || []).find((x) => x.id === t.parentTaskId) : null;
     return (
-      <div key={t.id} draggable data-task-row data-flip={t.id}
-        role="group" aria-roledescription="task card" tabIndex={0} aria-keyshortcuts="Enter"
+      <div key={t.id} draggable={editable} data-task-row data-flip={t.id} data-subtask-card={t.parentTaskId ? t.id : undefined}
+        role="group" aria-roledescription={t.parentTaskId ? 'subtask card' : 'task card'} tabIndex={0} aria-keyshortcuts="Enter"
         aria-label={`${t.title} - ${statusMeta(t.status).label}`} onKeyDown={onCardKey}
-        onDragStart={() => { setDragId(t.id); setDragFrom(laneKey); }}
+        onDragStart={editable ? () => { setDragId(t.id); setDragFrom(laneKey); } : undefined}
         onDragEnd={() => { setDragId(null); setDragFrom(null); }} onClick={() => onOpen(t.id)}
         onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.09)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)'; }}
-        style={{ position: 'relative', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s' }}>
+        style={{ position: 'relative', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: editable ? 'grab' : 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s' }}>
         <ChangeFlash value={`${t.status}:${!!t.completed}`} color={statusMeta(t.status)?.color} isFresh={() => changedRecently(t.id)} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {proj && (
@@ -270,14 +284,29 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
           )}
           {t.isMilestone && <Diamond size={11} style={{ color: NX.purple }} />}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
-            <MoveToMenu current={t.status} statuses={statuses} statusMeta={statusMeta} title={t.title}
-              onPick={(status) => { if (status !== t.status) Promise.resolve(store.setStatus(t.id, status)).catch(() => {}); }} />
+            {editable && (
+              <MoveToMenu current={t.status} statuses={statuses} statusMeta={statusMeta} title={t.title}
+                onPick={(status) => { if (status !== t.status) Promise.resolve(store.setStatus(t.id, status)).catch(() => {}); }} />
+            )}
             <button onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} onMouseDown={(e) => e.stopPropagation()} title="More Actions" aria-label="More Actions" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><MoreHorizontal size={15} /></button>
             <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} onMouseDown={(e) => e.stopPropagation()}
               aria-label={t.completed ? 'Mark Incomplete' : 'Mark Complete'} title={t.completed ? 'Mark Incomplete' : 'Mark Complete'} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}</button>
           </div>
         </div>
         <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</div>
+        {t.parentTaskId && (
+          <div data-testid="subtask-of" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 11.5, color: NX.faint, minWidth: 0 }}>
+            <CornerDownRight size={11} style={{ flexShrink: 0 }} />
+            <span style={{ flexShrink: 0 }}>Subtask of</span>
+            {parent ? (
+              <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(parent.id); }} onMouseDown={(e) => e.stopPropagation()}
+                title={`Open ${parent.title}`}
+                style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 11.5, fontWeight: 600, color: NX.blue, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
+                {parent.title}
+              </button>
+            ) : <span style={{ fontWeight: 600 }}>Private Task</span>}
+          </div>
+        )}
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <PriorityChip priority={t.priority} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -349,7 +378,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
   return (
     <div ref={flipRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: NX.canvas, fontFamily: FONT, padding: 16 }}>
       {/* Board toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexShrink: 0, flexWrap: 'wrap' }}>
         <div>
           <button ref={swimRef} onClick={() => setSwimOpen((o) => !o)} style={{ ...btn('outline'), fontSize: 12.5 }}>
             <Rows3 size={14} /> Swimlanes: {swimLabel} <ChevronDown size={13} style={{ color: NX.faint }} />
@@ -361,6 +390,13 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
             ))}
           </AnchoredMenu>
         </div>
+        {onToggleSubtasks && (
+          <button type="button" onClick={onToggleSubtasks} aria-pressed={!!showSubtasks}
+            title={showSubtasks ? 'Hide the subtask cards' : 'Show each subtask as a card of its own'}
+            style={{ ...btn('outline'), fontSize: 12.5, color: showSubtasks ? NX.blue : NX.dim }}>
+            <ListTree size={14} /> Show Subtasks {showSubtasks && <Check size={13} />}
+          </button>
+        )}
         <span style={{ fontSize: 11, color: NX.faint, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           Set a WIP limit with the <Gauge size={11} /> in each column header.
         </span>

@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 import models
 from routers.task_util import log_activity, now_iso, task_assignees, task_notify
+import task_history
 
 AGREED = ("", "accepted")      # "" = legacy row, or a date nobody needs to confirm
 # While an extension waits for approval the CURRENT date is still the agreed one.
@@ -71,12 +72,13 @@ def _is_assignee(t: models.Task, email: str) -> bool:
     return bool(email) and email.strip().lower() in task_assignees(t)
 
 
-def _log(db: Session, t: models.Task, type_: str, actor: str, detail: str) -> None:
+def _log(db: Session, t: models.Task, type_: str, actor: str, detail: str, change: dict | None = None) -> None:
     """Activity row + its id on the task, so it shows on the task's timeline.
     Callers that rebuild t.activity_ids from a local list must call into this
-    module AFTER assigning that list, or the id is overwritten."""
+    module AFTER assigning that list, or the id is overwritten. `change` is
+    the row's field-history entry (task_history.py)."""
     aid = log_activity(db, type=type_, actor_email=actor, entity_id=t.id, entity_code=t.code or "",
-                       entity_title=t.title or "", detail=detail)
+                       entity_title=t.title or "", detail=detail, change=change)
     t.activity_ids = list(t.activity_ids or []) + [aid]
 
 
@@ -280,7 +282,9 @@ def record_due_change(db: Session, t: models.Task, old: str, new: str, *, actor:
         detail += " (in Asana)"
     if source == "approved":
         detail += " (approved)"
-    _log(db, t, "due_changed", actor or "asana", detail)
+    # The due date's field history is this row (task_history.due_change) -
+    # every due_on write comes through here, so nothing else records it.
+    _log(db, t, "due_changed", actor or "asana", detail, change=task_history.due_change(old, new))
     if ext and source != "approved":
         # An approved one was already put to the managers as a request.
         _alert_managers(db, t, actor)
