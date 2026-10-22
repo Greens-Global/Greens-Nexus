@@ -18,6 +18,7 @@ import { SaveTemplateModal, DuplicateProjectModal, todayIso } from './TemplatesV
 import ProjectIcon from './ProjectIcon';
 import ProjectLookPicker from './ProjectLookPicker';
 import { projectLook } from './projectLook';
+import { isFollowing } from './followRules';
 
 const EMPTY_FORM = {
   name: '', description: '', color: NX.blue, icon: '', ownerId: null,
@@ -144,7 +145,9 @@ export default function ProjectsView({ onNavigate }) {
     // rather than any single field on the project.
     const teamsOf = (pid) => (teams || []).filter((t) => teamInProject(t, pid));
     return projects
-      .filter((p) => (archiveFilter === 'all' ? true : archiveFilter === 'archived' ? !!p.archived : !p.archived))
+      // "Projects I Follow" (Oct 22 2026): the live projects you follow.
+      .filter((p) => (archiveFilter === 'all' ? true : archiveFilter === 'archived' ? !!p.archived
+        : archiveFilter === 'following' ? !p.archived && isFollowing(p, myEmail) : !p.archived))
       .map((p) => ({ ...p, teams: teamsOf(p.id) }))
       // Team names are searchable too now that they are what the card shows.
       .filter((p) => !q || p.name.toLowerCase().includes(q)
@@ -158,7 +161,7 @@ export default function ProjectsView({ onNavigate }) {
       })
       .sort((a, b) => Number(a.project.archived) - Number(b.project.archived)
         || a.project.name.localeCompare(b.project.name));
-  }, [projects, tasks, teams, search, archiveFilter, fieldFilters]);
+  }, [projects, tasks, teams, search, archiveFilter, fieldFilters, myEmail]);
 
   // Archived projects render under their own heading rather than mixed into the
   // grid greyed-out - "where did that project go" is a question the heading
@@ -242,6 +245,7 @@ export default function ProjectsView({ onNavigate }) {
             <option value="active">Active Projects</option>
             <option value="archived">Archived Projects</option>
             <option value="all">All Projects</option>
+            <option value="following">Projects I Follow</option>
           </select>
           {filterableFields.map((f) => (
             <select key={f.id} value={fieldFilters[f.id] || ''} onChange={(e) => setFieldFilter(f.id, e.target.value)}
@@ -295,7 +299,9 @@ export default function ProjectsView({ onNavigate }) {
       {/* Grid - grey body, white project cards */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas }}>
       {cards.length === 0 ? (
-        <EmptyState icon={FolderKanban} title={search.trim() ? 'No Projects Match Your Search' : 'No Projects Yet'} hint={search.trim() ? undefined : 'Create your first project to group tasks and track progress.'} />
+        search.trim() || archiveFilter !== 'following'
+          ? <EmptyState icon={FolderKanban} title={search.trim() ? 'No Projects Match Your Search' : 'No Projects Yet'} hint={search.trim() ? undefined : 'Create your first project to group tasks and track progress.'} />
+          : <EmptyState icon={FolderKanban} title="No Followed Projects" hint="Open a project and click Follow to hear about new tasks, completions and comments in it." />
       ) : view === 'list' ? (
         <ProjectList
           cards={cards} isMobile={isMobile} nameOf={nameOf} portfolioById={portfolioById}

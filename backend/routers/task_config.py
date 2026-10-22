@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from typing import Optional, Any
 import os
 import json
+import math
 import uuid
 import httpx
 from datetime import datetime, timedelta, timezone
@@ -23,6 +24,7 @@ from routers.task_util import (now_iso, gen_id, is_manager, require_project_acce
                                config_admits, config_company_for_new, assert_config_editable)
 from changelog_prs import known_developer
 import task_automation
+import task_formula
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets")),
@@ -135,18 +137,18 @@ def list_rules(user: dict = Depends(get_current_user), db: Session = Depends(get
 def create_rule(body: RuleBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Rule name is required")
+    # '' (shared) while the walls are off / for a Global Admin; else the
+    # creator's company, and the engine then fires it only on that company's
+    # tasks.
+    company = config_company_for_new(db, user, _rule_projects(body.conditions)) if isinstance(user, dict) else ""
     # The engine (task_automation.py) runs whatever is stored, so a rule it
-    # cannot run is refused here rather than silently never firing.
-    task_automation.validate_rule(body.trigger, body.conditions, body.actions)
+    # cannot run is refused here rather than silently never firing. The
+    # projects, fields and people a rule names are checked against its company.
+    task_automation.validate_rule(body.trigger, body.conditions, body.actions, db=db, company_id=company)
     r = models.TaskAutomationRule(id=body.id or gen_id(), name=body.name, trigger=body.trigger or {},
                                   conditions=body.conditions or [], actions=body.actions or [],
                                   enabled=True if body.enabled is None else bool(body.enabled),
-                                  created_at=now_iso(),
-                                  # '' (shared) while the walls are off / for a Global
-                                  # Admin; else the creator's company, and the engine
-                                  # then fires it only on that company's tasks.
-                                  company_id=(config_company_for_new(db, user, _rule_projects(body.conditions))
-                                              if isinstance(user, dict) else ""))
+                                  created_at=now_iso(), company_id=company)
     db.add(r)
     db.commit()
     db.refresh(r)
@@ -164,7 +166,8 @@ def update_rule(rule_id: str, body: RuleBody, user: dict = Depends(get_current_u
     data = body.model_dump(exclude_unset=True, exclude={"id"})
     if any(k in data for k in ("trigger", "conditions", "actions")):
         task_automation.validate_rule(data.get("trigger", r.trigger), data.get("conditions", r.conditions),
-                                      data.get("actions", r.actions))
+                                      data.get("actions", r.actions), db=db,
+                                      company_id=getattr(r, "company_id", "") or "")
     for k, v in data.items():
         setattr(r, k, v)
     db.commit()
@@ -192,7 +195,9 @@ def list_rule_runs(rule_id: str = "", limit: int = 50, user: dict = Depends(get_
     so a manager only sees runs on tasks their scope admits."""
     import auth
     from routers.task_util import wall_tasks
-    q = db.query(models.TaskAutomationRun)
+    # The "spawned" rows only mark tasks a rule created (task_automation.
+    # SPAWNED_EVENT) - they are not firings.
+    q = db.query(models.TaskAutomationRun).filter(models.TaskAutomationRun.event != task_automation.SPAWNED_EVENT)
     if rule_id:
         q = q.filter(models.TaskAutomationRun.rule_id == rule_id)
     limit = max(1, min(int(limit or 50), 200))
@@ -595,7 +600,7 @@ def _select_option_id(f: models.TaskCustomField, raw) -> str:
     return lower.get(key.strip().lower(), "")
 
 
-def coerce_custom_field_values(db: Session, values) -> dict:
+def coerce_custom_field_values(db: Session, values, defs: dict | None = None) -> dict:
     """Store custom-field values in the shape their field declares.
 
     The column is a free JSON dict, so before this every value arrived as
@@ -606,19 +611,29 @@ def coerce_custom_field_values(db: Session, values) -> dict:
 
     Unknown field ids are dropped (the field was deleted); a value that can't be
     coerced is dropped rather than stored wrong. Never raises - inbound Asana
-    tasks come through the same create path and must not be rejected."""
+    tasks come through the same create path and must not be rejected.
+
+    `defs` ({id: TaskCustomField}) when the caller already loaded them - the
+    task import coerces up to 2,000 rows against one load."""
     if not isinstance(values, dict) or not values:
         return {}
-    defs = {f.id: f for f in db.query(models.TaskCustomField).all()}
+    if defs is None:
+        defs = {f.id: f for f in db.query(models.TaskCustomField).all()}
     out = {}
     for fid, raw in values.items():
         f = defs.get(fid)
         if f is None or raw in ("", None):
             continue
         kind = (f.type or "text").lower()
+        if kind == "formula":
+            continue   # computed in the browser, never stored on a task (Oct 22 2026)
         try:
             if kind == "number":
                 n = float(raw)
+                # float() reads "nan" / "inf" too. Neither is a number anyone
+                # meant, and Postgres's JSON refuses both - the save would 500.
+                if not math.isfinite(n):
+                    continue
                 out[fid] = int(n) if n.is_integer() else n
             elif kind == "checkbox":
                 out[fid] = raw if isinstance(raw, bool) else str(raw).strip().lower() in ("1", "true", "yes", "on")
@@ -666,7 +681,7 @@ def field_required_in(f: models.TaskCustomField, project_id: str) -> bool:
     required either everywhere (`required`) or in this project specifically
     (`required_project_ids`, Oct 13 2026). A read-only field never is - it
     can't be filled in."""
-    if f.read_only or "task" not in _parse_applies_to(f.applies_to):
+    if f.read_only or (f.type or "") == "formula" or "task" not in _parse_applies_to(f.applies_to):
         return False
     if not field_applies_to(f, project_id):
         return False
@@ -675,16 +690,18 @@ def field_required_in(f: models.TaskCustomField, project_id: str) -> bool:
     return bool(project_id) and project_id in [p for p in (f.required_project_ids or []) if p]
 
 
-def missing_required_fields(db: Session, project_id: str, values, task_company: str | None = None) -> list:
+def missing_required_fields(db: Session, project_id: str, values, task_company: str | None = None,
+                            fields: list | None = None) -> list:
     """The fields a new task in `project_id` still needs, given its (already
     coerced) custom-field values. Empty = it can be created.
 
     `task_company`: a field that belongs to one company (company_id, Oct 21
     2026) binds only that company's tasks; a shared ('') field binds every
-    task, as all of them did before. None = do not filter (every field)."""
+    task, as all of them did before. None = do not filter (every field).
+    `fields`: the definitions when the caller already loaded them."""
     have = values if isinstance(values, dict) else {}
     out = []
-    for f in db.query(models.TaskCustomField).all():
+    for f in (fields if fields is not None else db.query(models.TaskCustomField).all()):
         if not field_required_in(f, project_id):
             continue
         fc = (getattr(f, "company_id", "") or "").strip()
@@ -743,16 +760,27 @@ def _field_value_unchanged(f: models.TaskCustomField, key: str, value) -> bool:
         return [p for p in (value or []) if p] == [p for p in (getattr(f, key) or []) if p]
     if key == "applies_to":
         return json.loads(_dump_applies_to(value)) == _parse_applies_to(f.applies_to)
+    if key == "formula":
+        return (value or "").strip() == (getattr(f, "formula", "") or "").strip()
+    if key == "formula_format":
+        return task_formula.normalize_format(value) == task_formula.normalize_format(getattr(f, "formula_format", None))
     return False
 
 
 def custom_field_to_dict(f: models.TaskCustomField) -> dict:
-    return {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
-            "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
-            "projectIds": [p for p in (f.project_ids or []) if p],
-            "required": bool(f.required), "readOnly": bool(f.read_only),
-            "requiredProjectIds": [p for p in (f.required_project_ids or []) if p],
-            "appliesTo": _parse_applies_to(f.applies_to)}
+    is_formula = (f.type or "") == "formula"
+    out = {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
+           "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
+           "projectIds": [p for p in (f.project_ids or []) if p],
+           # A formula is computed, so it is read-only everywhere a value
+           # could be typed - every editor already skips readOnly fields.
+           "required": bool(f.required), "readOnly": bool(f.read_only) or is_formula,
+           "requiredProjectIds": [p for p in (f.required_project_ids or []) if p],
+           "appliesTo": _parse_applies_to(f.applies_to)}
+    if is_formula:
+        out["formula"] = getattr(f, "formula", "") or ""
+        out["formulaFormat"] = task_formula.normalize_format(getattr(f, "formula_format", None))
+    return out
 
 
 class CustomFieldBody(BaseModel):
@@ -766,6 +794,132 @@ class CustomFieldBody(BaseModel):
     required_project_ids: Optional[list] = None
     read_only: Optional[bool] = None
     applies_to: Optional[list] = None
+    # Formula columns (Oct 22 2026) - type "formula" only.
+    formula: Optional[str] = None
+    formula_format: Optional[dict] = None
+
+
+def _co(row) -> str:
+    return (getattr(row, "company_id", "") or "").strip()
+
+
+def _formula_sees(formula_company: str, field_company: str) -> bool:
+    """Which fields a formula may name: a SHARED formula ('' - every
+    company's list shows it) only shared fields, since a company's field
+    means nothing on another company's list; a company's formula its own
+    company's fields and the shared ones."""
+    return not field_company or field_company == formula_company
+
+
+def _formula_scope_fields(db: Session, user, company: str) -> list:
+    """The fields a formula on a `company` field may name (_formula_sees),
+    and of those only what the caller can see - a walled caller learns
+    nothing about another company's field names from a validation message."""
+    scope = _scope(user, db)
+    return [f for f in db.query(models.TaskCustomField).all()
+            if config_admits(_co(f), scope) and _formula_sees(company, _co(f))]
+
+
+def _formula_pairs(fields, rename: dict | None = None, rewritten: dict | None = None) -> list:
+    """(name, expression) of every formula field among `fields` - pairs, not
+    a dict, so two same-named formulas are both in the loop check."""
+    rename, rewritten = rename or {}, rewritten or {}
+    return [(rename.get(f.id, f.name), rewritten.get(f.id, getattr(f, "formula", "") or ""))
+            for f in fields if (f.type or "") == "formula"]
+
+
+def _check_formula(db: Session, user, company: str, field_id: str, name: str, expr: str) -> str:
+    """422 with the reason unless `expr` can be saved on field `field_id`
+    (named `name`). Returns the expression, trimmed."""
+    expr = (expr or "").strip()
+    others = [f for f in _formula_scope_fields(db, user, company) if f.id != field_id]
+    try:
+        task_formula.validate(expr, self_name=name or "", field_names=[f.name for f in others],
+                              formula_fields=_formula_pairs(others))
+    except task_formula.FormulaError as e:
+        raise HTTPException(422, f"Formula: {e}")
+    return expr
+
+
+def _check_field_name(name: str, formula: bool = False) -> None:
+    problem = (task_formula.formula_name_problem if formula else task_formula.field_name_problem)(name)
+    if problem:
+        raise HTTPException(422, problem)
+
+
+def _formulas_naming(field: models.TaskCustomField, name: str, fields: list) -> list:
+    """The formula fields whose {name} means `field`: they can see it, and
+    no OTHER field they can see carries the same name (then {name} keeps
+    meaning that one - two projects' "Budget" columns are two fields)."""
+    key = task_formula.field_key(name)
+    if task_formula.is_builtin(name):
+        return []   # {Progress} reads the built-in, never a field that shares the name
+    fc = _co(field)
+    out = []
+    for g in fields:
+        if (g.type or "") != "formula" or g.id == field.id or not (getattr(g, "formula", "") or ""):
+            continue
+        gc = _co(g)
+        if not _formula_sees(gc, fc):
+            continue
+        if any(o.id != field.id and _formula_sees(gc, _co(o)) and task_formula.field_key(o.name) == key
+               for o in fields):
+            continue
+        try:
+            if key in {task_formula.field_key(r) for r in task_formula.field_refs(g.formula)}:
+                out.append(g)
+        except task_formula.FormulaError:
+            continue
+    return out
+
+
+def _rename_formula_refs(db: Session, field: models.TaskCustomField, old: str, new: str) -> list:
+    """A field renamed keeps every formula that names it working: {Old}
+    becomes {New} in the formula fields that mean this field by it
+    (_formulas_naming - never another company's, never a shared formula for
+    a company's field, never where a same-named field remains). Each
+    rewrite is re-checked against the renamed world first; if one would
+    break, the rename is refused (422) naming that formula. Field tokens
+    only - text inside quotes is left alone. Returns the rewritten rows."""
+    if not old or task_formula.field_key(old) == task_formula.field_key(new):
+        return []
+    # Locked in id order, like every multi-row write here, so two renames
+    # cannot interleave their rewrites of the same formula.
+    db.query(models.TaskCustomField).filter(models.TaskCustomField.type == "formula") \
+        .order_by(models.TaskCustomField.id).with_for_update().all()
+    fields = db.query(models.TaskCustomField).order_by(models.TaskCustomField.id).all()
+    plan = {}
+    for g in _formulas_naming(field, old, fields):
+        updated = task_formula.rename_refs(g.formula, old, new)
+        if updated != g.formula:
+            plan[g.id] = updated
+    if plan and task_formula.is_builtin(new):
+        # {New} would silently start reading the built-in field instead.
+        g = next(x for x in fields if x.id in plan)
+        raise HTTPException(422, f"Renaming this field would break the formula in \"{g.name}\": "
+                                 f"\"{new}\" is a built-in field name, so the formula would read that instead.")
+    renamed = {field.id: new}
+    for g in fields:
+        if g.id not in plan:
+            continue
+        others = [o for o in fields if o.id != g.id and _formula_sees(_co(g), _co(o))]
+        try:
+            # Already broken before the rename (an older field deleted out
+            # from under it): the rename did not do that, so it is not held up.
+            task_formula.validate(g.formula, self_name=g.name or "", field_names=[o.name for o in others],
+                                  formula_fields=_formula_pairs(others))
+        except task_formula.FormulaError:
+            continue
+        try:
+            task_formula.validate(plan[g.id], self_name=g.name or "",
+                                  field_names=[renamed.get(o.id, o.name) for o in others],
+                                  formula_fields=_formula_pairs(others, renamed, plan))
+        except task_formula.FormulaError as e:
+            raise HTTPException(422, f"Renaming this field would break the formula in \"{g.name}\": {e}")
+    rows = [g for g in fields if g.id in plan]
+    for g in rows:
+        g.formula = plan[g.id]
+    return rows
 
 
 # Who may change a custom field (Oct 13 2026 review). These three routes took
@@ -800,6 +954,7 @@ def create_custom_field(body: CustomFieldBody, user: dict = Depends(get_current_
                         db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Field name is required")
+    _check_field_name(body.name, formula=(body.type or "text") == "formula")
     project_ids = [p for p in (body.project_ids or []) if p]
     required_project_ids = [p for p in (body.required_project_ids or []) if p]
     if not is_manager(user):
@@ -810,14 +965,26 @@ def create_custom_field(body: CustomFieldBody, user: dict = Depends(get_current_
                 or _parse_applies_to(body.applies_to) != ["task"]):
             raise HTTPException(403, "Only a manager can set that on a custom field.")
         _require_field_projects(db, user, project_ids)
+    company = config_company_for_new(db, user, project_ids)
+    kind = body.type or "text"
+    formula, formula_format = "", {}
+    if kind == "formula":
+        # Computed on every task it applies to, so never required, never on
+        # a project record, and never holding options (Oct 22 2026).
+        new_id = body.id or gen_id()
+        formula = _check_formula(db, user, company, new_id, body.name.strip(), body.formula)
+        formula_format = task_formula.normalize_format(body.formula_format)
+        body.id = new_id
+        body.options, body.required, required_project_ids, body.applies_to = [], False, [], ["task"]
     f = models.TaskCustomField(id=body.id or gen_id(), name=body.name, description=body.description or "",
-                               type=body.type or "text",
+                               type=kind,
                                options=normalize_field_options(body.options or []),
                                project_ids=project_ids,
                                required=bool(body.required), read_only=bool(body.read_only),
                                required_project_ids=required_project_ids,
                                applies_to=_dump_applies_to(body.applies_to),
-                               company_id=config_company_for_new(db, user, project_ids))
+                               company_id=company,
+                               formula=formula, formula_format=formula_format)
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -872,6 +1039,10 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
                 _own(pid)
     if "name" in data and not (data["name"] or "").strip():
         raise HTTPException(422, "Field name is required")
+    if "name" in data:
+        _check_field_name(data["name"])
+    if data.get("type", f.type) == "formula" and ({"name", "type"} & set(data)):
+        _check_field_name(data.get("name", f.name or ""), formula=True)
     if "options" in data:
         data["options"] = normalize_field_options(data["options"] or [])
     if "project_ids" in data:
@@ -880,6 +1051,8 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
         data["required_project_ids"] = [p for p in (data["required_project_ids"] or []) if p]
     if "applies_to" in data:
         data["applies_to"] = _dump_applies_to(data["applies_to"])
+    if "formula_format" in data:
+        data["formula_format"] = task_formula.normalize_format(data["formula_format"])
     if not is_manager(user):
         if set(data) - {"project_ids"}:
             raise HTTPException(403, "Only a manager can change a custom field. You can add it to "
@@ -892,22 +1065,61 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
         if not old or not new:
             raise HTTPException(403, "Only a manager can change a field that is on every project.")
         _require_field_projects(db, user, sorted(old ^ new))
+    kind = data.get("type", f.type or "text")
+    if kind == "formula" and ({"type", "formula", "name"} & set(data)):
+        # Re-checked whenever the expression, the type or the field's own
+        # name changes (a rename can make a formula name itself).
+        data["formula"] = _check_formula(db, user, getattr(f, "company_id", "") or "", f.id,
+                                         (data.get("name") or f.name or "").strip(),
+                                         data.get("formula", getattr(f, "formula", "") or ""))
+    if kind != "formula":
+        data.pop("formula", None)
+        data.pop("formula_format", None)
+    if kind == "formula":
+        data.pop("options", None)
+        data["required"], data["required_project_ids"] = False, []
+        data["applies_to"] = _dump_applies_to(["task"])
+    rewritten = []
+    if "name" in data and (data["name"] or "").strip() != (f.name or ""):
+        rewritten = _rename_formula_refs(db, f, f.name or "", (data["name"] or "").strip())
     for k, v in data.items():
         setattr(f, k, v)
     db.commit()
     db.refresh(f)
-    return custom_field_to_dict(f)
+    out = custom_field_to_dict(f)
+    # The other formula columns a rename rewrote, so the screen can put them
+    # in place at once instead of showing #Error until the next load.
+    if rewritten:
+        out["rewrittenFormulas"] = [custom_field_to_dict(g) for g in rewritten
+                                    if config_admits(_co(g), scope)]
+    return out
 
 
 # Manager-only: it takes the field, and with it every value captured in it,
 # off every project at once.
 @router.delete("/task-custom-fields/{field_id}", status_code=204, dependencies=[Depends(require_manager)])
-def delete_custom_field(field_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_custom_field(field_id: str, force: bool = False, user: dict = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
     f = db.query(models.TaskCustomField).filter(models.TaskCustomField.id == field_id).first()
     if f is None:
         return
     if isinstance(user, dict):
         assert_config_editable(db, user, getattr(f, "company_id", "") or "")
+    # Formula columns that name it would show #Error from here on (Oct 22
+    # 2026): 409 with their names unless the caller has seen them (force).
+    if not force:
+        users = _formulas_naming(f, f.name or "", db.query(models.TaskCustomField).all())
+        # Counted after the wall: another company's formulas are none of this
+        # caller's business, not even as a number. (A walled caller can only
+        # delete a field their own company's formulas could name anyway.)
+        scope = _scope(user, db) if users else None
+        names = sorted(g.name for g in users if config_admits(_co(g), scope))
+        if names:
+            n = len(names)
+            raise HTTPException(409, {
+                "message": f"{n} formula column{'s' if n != 1 else ''} use{'' if n != 1 else 's'} "
+                           f"this field and will show #Error once it is deleted.",
+                "count": n, "formulas": names})
     db.delete(f)
     db.commit()
 

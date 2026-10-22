@@ -3,11 +3,14 @@
 // custom charts). Ported 1:1 from the export's NexusCalendarView / NexusDashboard.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Diamond, Sliders, Check, CalendarDays, Video, Rocket, PartyPopper, Plus, CheckCircle2, Clock, AlertTriangle, ListTodo } from 'lucide-react';
-import { NX, FONT, btn, STATUS_META, STATUS_ORDER } from '../theme';
+import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
 import { taskStats } from '../lib';
 import { Card, LightBar, Donut, TrendArea, CustomChartsPanel } from './charts';
 import AnchoredMenu from '../../components/AnchoredMenu';
 import { useRowColorMap } from '../rowColorState';
+import { DateField } from '../components';
+import { useRole } from '../../contexts/RoleContext';
+import { calendarMovePatch, canMoveOnCalendar, movedLabel, previousDates, undoEntryAt, wasSentForApproval } from '../calendarMove';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -48,11 +51,52 @@ function holidaysForYear(y, region) {
   return (HOLIDAY_REGIONS[region] || HOLIDAY_REGIONS.us).fn(y);
 }
 
-export function CalendarView({ tasks, onOpen, onCreate }) {
+// `store` (the Tasks store) turns on moving tasks between days (Oct 22 2026):
+// drag a chip to another day (mouse; touch keeps tap-to-open so the page still
+// scrolls), or right-click / Shift+F10 on it for Move To Date. A move is the
+// task's own update (store.updateTask): optimistic, put back if refused, and
+// a due date that needs approval comes back as a request with the chip on its
+// old day. Week view has no hour slots, so a drop sets the day only.
+export function CalendarView({ tasks, onOpen, onCreate, store = null }) {
   // Conditional row colors (Oct 22 2026): a task chip carries its rule's
   // color as a thin bar on its left edge.
   const rowColors = useRowColorMap();
   const [hoverDay, setHoverDay] = useState(null);
+  const [dragId, setDragId] = useState(null);
+  const [overIso, setOverIso] = useState(null);
+  // Move To Date: { id, el } - the task and the chip it opened from.
+  const [moveAt, setMoveAt] = useState(null);
+  const moveFor = moveAt?.id || null;
+  const moveAnchor = useMemo(() => ({ current: moveAt?.el || null }), [moveAt]);
+  const { canAccessModule } = useRole() || {};
+  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'owner');
+  const taskMap = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks]);
+  const canMove = (t) => !!store?.updateTask && canMoveOnCalendar(t, {
+    projects: store.projects, teams: store.teams, taskById: store.taskById, email: store.myEmail, isManager,
+  });
+  const moveTask = async (id, iso) => {
+    const t = taskMap[id];
+    if (!canMove(t)) return;
+    const patch = calendarMovePatch(t, iso);
+    if (!patch) return;
+    const back = previousDates(t, patch);
+    let saved;
+    // A refused move (say a repeating task dropped on or before its previous
+    // occurrence) is put back and explained by updateTask itself.
+    try { saved = await store.updateTask(id, patch); } catch { return; }
+    // Held for approval: the store has already said "Due date change sent
+    // for approval" (with Withdraw as its Undo) and the chip is back.
+    if (wasSentForApproval(saved, patch)) return;
+    // Undo takes the move out on the server (POST /tasks/{id}/due/undo): no
+    // extension counted for the trip back, no second bell. Without the
+    // history entry to name, it falls back to putting the dates back.
+    const at = undoEntryAt(saved, patch);
+    store.offerUndo?.(movedLabel(patch), () => (at && store.undoDueChange
+      ? store.undoDueChange(id, at)
+      : store.updateTask(id, back)).catch(() => {}));
+  };
+  const openMove = (e, id) => setMoveAt({ id, el: e.currentTarget });
+  const endDrag = () => { setDragId(null); setOverIso(null); };
   const [cursor, setCursor] = useState(() => new Date());
   const [weekly, setWeekly] = useState(false);
   const [show, setShow] = useState({ due: true, meeting: true, release: true, holiday: true });
@@ -160,9 +204,13 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
           const inMonth = weekly || d.getMonth() === cursor.getMonth();
           const events = byDate[iso] ?? [];
           const cap = weekly ? 8 : 3;
+          const over = !!dragId && overIso === iso;
           return (
-            <div key={iso} onMouseEnter={() => setHoverDay(iso)} onMouseLeave={() => setHoverDay((h) => (h === iso ? null : h))}
-              style={{ borderBottom: `1px solid ${NX.border2}`, borderRight: `1px solid ${NX.border2}`, padding: 6, minHeight: weekly ? 320 : 104, background: inMonth ? NX.surface : NX.surface2, opacity: inMonth ? 1 : 0.6 }}>
+            <div key={iso} data-day={iso} onMouseEnter={() => setHoverDay(iso)} onMouseLeave={() => setHoverDay((h) => (h === iso ? null : h))}
+              onDragOver={dragId ? (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; if (overIso !== iso) setOverIso(iso); } : undefined}
+              onDragLeave={dragId ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOverIso((o) => (o === iso ? null : o)); } : undefined}
+              onDrop={dragId ? (e) => { e.preventDefault(); const id = dragId; endDrag(); moveTask(id, iso); } : undefined}
+              style={{ borderBottom: `1px solid ${NX.border2}`, borderRight: `1px solid ${NX.border2}`, padding: 6, minHeight: weekly ? 320 : 104, background: over ? `${NX.primary}14` : inMonth ? NX.surface : NX.surface2, opacity: inMonth || over ? 1 : 0.6, boxShadow: over ? `inset 0 0 0 2px ${NX.primary}` : 'none', transition: 'background .1s' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ display: 'inline-flex', width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderRadius: '50%', fontSize: 11, fontWeight: 600, background: iso === todayIso ? NX.primary : 'transparent', color: iso === todayIso ? '#fff' : NX.dim }}>{d.getDate()}</span>
                 {onCreate && inMonth && hoverDay === iso && (
@@ -170,22 +218,47 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
                 )}
               </div>
               <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {events.slice(0, cap).map((ev, i) => { const rc = ev.taskId ? rowColors?.get(ev.taskId) : null; return ev.taskId ? (
-                  <button key={i} onClick={() => onOpen(ev.taskId)} data-row-color={rc?.id} title={`${KIND_META[ev.kind].label}: ${ev.label}${rc ? ` (${rc.name})` : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: rc ? '2px 6px 2px 8px' : '2px 6px', textAlign: 'left', fontSize: 11, fontWeight: 500, border: 'none', cursor: 'pointer', background: ev.tint, color: ev.color, overflow: 'hidden', boxShadow: rc ? `inset 3px 0 0 ${rc.hex}` : undefined }}>
-                    {ev.isMilestone && <Diamond size={9} style={{ flexShrink: 0 }} />}
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: ev.completed ? 'line-through' : 'none' }}>{ev.label}</span>
-                  </button>
-                ) : (
+                {events.slice(0, cap).map((ev, i) => ev.taskId ? (() => {
+                  const movable = canMove(taskMap[ev.taskId]);
+                  const rc = rowColors?.get(ev.taskId) || null;
+                  return (
+                    <button key={i} onClick={() => onOpen(ev.taskId)} data-row-color={rc?.id}
+                      title={`${KIND_META[ev.kind].label}: ${ev.label}${rc ? ` (${rc.name})` : ''}${movable ? ' - drag to another day, or right-click to move it' : ''}`}
+                      draggable={movable || undefined}
+                      onDragStart={movable ? (e) => { setDragId(ev.taskId); try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ev.taskId); } catch { /* no dataTransfer (tests) */ } } : undefined}
+                      onDragEnd={movable ? endDrag : undefined}
+                      onContextMenu={movable ? (e) => { e.preventDefault(); openMove(e, ev.taskId); } : undefined}
+                      onKeyDown={movable ? (e) => { if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); openMove(e, ev.taskId); } } : undefined}
+                      aria-keyshortcuts={movable ? 'Shift+F10' : undefined}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: rc ? '2px 6px 2px 8px' : '2px 6px', textAlign: 'left', fontSize: 11, fontWeight: 500, border: 'none', cursor: movable ? 'grab' : 'pointer', background: ev.tint, color: ev.color, overflow: 'hidden', opacity: dragId === ev.taskId ? 0.45 : 1, boxShadow: rc ? `inset 3px 0 0 ${rc.hex}` : undefined }}>
+                      {ev.isMilestone && <Diamond size={9} style={{ flexShrink: 0 }} />}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: ev.completed ? 'line-through' : 'none' }}>{ev.label}</span>
+                    </button>
+                  );
+                })() : (
                   <span key={i} title={`Holiday: ${ev.label}`} style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '2px 6px', fontSize: 11, fontWeight: 500, background: ev.tint, color: ev.color, overflow: 'hidden' }}>
                     <PartyPopper size={9} style={{ flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.label}</span>
                   </span>
-                ); })}
+                ))}
                 {events.length > cap && <span style={{ padding: '0 4px', fontSize: 10, color: NX.faint }}>+{events.length - cap} more</span>}
               </div>
             </div>
           );
         })}
       </div>
+      {/* Move To Date - the drag's keyboard / menu twin. */}
+      <AnchoredMenu anchorRef={moveAnchor} open={!!moveFor && !!taskMap[moveFor]} onClose={() => setMoveAt(null)} role="dialog" aria-label="Move To Date"
+        style={{ width: 250, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 12, fontFamily: FONT }}>
+        {moveFor && taskMap[moveFor] && (
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>Move To Date</div>
+            <div style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskMap[moveFor].title}</div>
+            <DateField value={taskMap[moveFor].dueOn || ''} title="Move To Date"
+              onChange={(v) => { const id = moveFor; setMoveAt(null); if (v) moveTask(id, v); }}
+              style={{ ...inputStyle, padding: '6px 9px', fontSize: 12.5 }} />
+          </div>
+        )}
+      </AnchoredMenu>
     </div>
   );
 }

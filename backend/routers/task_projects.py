@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 import models
+import task_formula
 from database import get_db
 from auth import get_current_user, require_manager, require_any_module_grant, module_owner_acts_as
 import auth
@@ -26,10 +27,12 @@ from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible
                                require_project_access, wall_rows, wall_teams, wall_tasks,
                                assert_row_wall, assert_team_wall, assert_task_wall,
                                config_admits, config_company_for_new, assert_config_editable,
-                               teams_editable, tenant_company_for_new)
+                               teams_editable, tenant_company_for_new, person_problem)
+import task_project_follow as project_follow
 from routers.hr import _ensure_departments
 from routers.task_config import coerce_custom_field_values
 from task_color_rules import clean_rules as clean_color_rules, rules_rev
+import task_history
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets")),
@@ -101,6 +104,8 @@ def project_to_dict(p: models.TaskProject) -> dict:
         # newer list is refused instead of silently replacing it.
         "colorRules": color_rules,
         "colorRulesRev": rules_rev(color_rules),
+        # Who follows the project (Oct 22 2026) - see task_project_follow.py.
+        "followerIds": project_follow.followers(p),
     }
 
 
@@ -666,6 +671,127 @@ def delete_project(project_id: str, user: dict = Depends(get_current_user),
     return {"tasks": binned, "mappings": 0}
 
 
+# ── Follow a project (Neil, Oct 22 2026) ─────────────────────────────────────
+# Anyone who can see a project may follow or unfollow it themselves; its
+# owners and editors may also add or remove other people (who must be current
+# directory people who can see it). What a follower hears, and the send-time
+# checks, live in task_project_follow.py. Every write locks the project row
+# and re-reads it, so two people following at once both land.
+class FollowerBody(BaseModel):
+    email: str
+
+
+def _lock_project(db: Session, project_id: str) -> models.TaskProject:
+    p = (db.query(models.TaskProject).filter(models.TaskProject.id == project_id)
+         .with_for_update().populate_existing().first())
+    if not p:
+        raise HTTPException(404, "Project not found")
+    return p
+
+
+def _log_followers(db: Session, p: models.TaskProject, actor: str, kind: str, detail: str) -> None:
+    aid = log_activity(db, type=kind, entity_kind="project", actor_email=actor, entity_id=p.id,
+                       entity_code=p.name, entity_title=p.name, detail=detail)
+    p.activity_ids = list(p.activity_ids or []) + [aid]
+
+
+def _add_follower(p: models.TaskProject, who: str) -> bool:
+    current = project_follow.followers(p)
+    if who in current:
+        return False
+    if len(current) >= project_follow.MAX_FOLLOWERS:
+        raise HTTPException(422, f"A project can have at most {project_follow.MAX_FOLLOWERS} followers.")
+    p.follower_emails = current + [who]   # reassigned, not mutated - JSON column
+    return True
+
+
+@router.post("/task-projects/{project_id}/follow")
+def follow_project(project_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Follow a project you can see. Following twice is a no-op."""
+    p = _lock_project(db, project_id)
+    if not project_follow.can_see_project(db, user, p):
+        raise HTTPException(404, "Project not found")
+    if p.archived:
+        raise HTTPException(422, "This project is archived. Restore it to follow it.")
+    _add_follower(p, (user.get("email") or "").lower())
+    db.commit()
+    db.refresh(p)
+    return project_to_dict(p)
+
+
+@router.delete("/task-projects/{project_id}/follow")
+def unfollow_project(project_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Stop following. Always allowed for someone who follows it - even after
+    losing sight of the project, so nobody is stuck on a list they cannot
+    reach (they hear nothing meanwhile: task_project_follow checks sight)."""
+    p = _lock_project(db, project_id)
+    me = (user.get("email") or "").lower()
+    current = project_follow.followers(p)
+    if me not in current:
+        if not project_follow.can_see_project(db, user, p):
+            raise HTTPException(404, "Project not found")
+        return project_to_dict(p)
+    p.follower_emails = [e for e in current if e != me]
+    db.commit()
+    db.refresh(p)
+    return project_to_dict(p) if project_follow.can_see_project(db, user, p) else {"id": p.id, "followerIds": []}
+
+
+@router.post("/task-projects/{project_id}/followers")
+def add_project_follower(project_id: str, body: FollowerBody, user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """An owner or editor adds someone else as a follower. They must be a
+    current Nexus directory person (on the project's side of the company
+    wall) who can already see the project - following grants no access."""
+    p = _lock_project(db, project_id)
+    require_project_access(db, user, p, "editor")
+    who = (body.email or "").strip().lower()
+    if not who:
+        raise HTTPException(422, "Pick a person to add.")
+    if p.archived:
+        raise HTTPException(422, "This project is archived. Restore it to add followers.")
+    problem = person_problem(db, p, who, user)
+    if not problem:
+        # person_problem refuses only the offboarded; a follower must also
+        # be someone who can still be told anything (not inactive, not an
+        # external whose access is deactivated or expired).
+        emp = (db.query(models.NexusEmployee)
+               .filter(func.lower(models.NexusEmployee.work_email) == who).first())
+        problem = project_follow.person_lapsed(emp)
+    if problem:
+        raise HTTPException(422, f"{who} {problem} and can't follow projects.")
+    if not project_follow.can_see_project(db, project_follow.person_user(db, who), p):
+        raise HTTPException(422, f"{who} cannot see this project. Share it with them first.")
+    me = (user.get("email") or "").lower()
+    if _add_follower(p, who) and who != me:
+        _log_followers(db, p, me, "follower_added", f"added {who} as a follower")
+        task_notify(db, kind="project_follow_added", for_email=who,
+                    title="You Are Following a Project",
+                    body=f"{p.name} - you will hear about new tasks, completions and comments in it.")
+    db.commit()
+    db.refresh(p)
+    return project_to_dict(p)
+
+
+@router.delete("/task-projects/{project_id}/followers/{email}")
+def remove_project_follower(project_id: str, email: str, user: dict = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    """An owner or editor takes someone off the followers. Taking yourself off
+    is DELETE /follow, which needs no role."""
+    p = _lock_project(db, project_id)
+    require_project_access(db, user, p, "editor")
+    who = (email or "").strip().lower()
+    current = project_follow.followers(p)
+    if who in current:
+        p.follower_emails = [e for e in current if e != who]
+        me = (user.get("email") or "").lower()
+        if who != me:
+            _log_followers(db, p, me, "follower_removed", f"removed {who} as a follower")
+        db.commit()
+        db.refresh(p)
+    return project_to_dict(p)
+
+
 @router.post("/task-projects/backfill-teams", dependencies=[Depends(require_manager)])
 def backfill_task_teams(apply: bool = False, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Give tasks the team their project already implies.
@@ -802,6 +928,9 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
     tasks = [t for t in db.query(models.Task).all() if email in task_assignees(t)]
     if not include_completed:
         tasks = [t for t in tasks if not t.completed]
+    # Field history (Oct 22 2026): each task records its new assignee and
+    # project under whoever ran the offboarding.
+    hist_before = {t.id: task_history.snapshot(t) for t in tasks}
 
     # Homeless top-level tasks are the only ones that need a new home. A subtask
     # (parent_task_id set) is never homeless - its parent holds its project.
@@ -891,6 +1020,10 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
         p.modified_at = now
         out["projectsTransferred"] += 1
 
+    for t in tasks:
+        # Quiet: one assignee line per task across a whole handover would flood
+        # the Updates card and the briefing; the task's own history keeps it.
+        task_history.record(db, t, hist_before[t.id], actor or "system", quiet=True)
     return out
 
 
@@ -1468,6 +1601,9 @@ from routers.task_config import (normalize_field_options,   # noqa: E402
 
 PAYLOAD_VERSION = 2
 BUILTIN_STATUSES = {"not_started", "in_progress", "completed", "recurring"}
+# Color rules may also name "missed" (task_color_rules.BUILTIN_STATUSES) -
+# a copy keeps such a condition as it is.
+RULE_STATUSES = BUILTIN_STATUSES | {"missed"}
 
 
 def project_template_to_dict(t: models.TaskProjectTemplate) -> dict:
@@ -1707,6 +1843,11 @@ def _snapshot_project(db: Session, p: models.TaskProject, *, blueprint: bool,
             # is left global on rebuild rather than being narrowed to the new
             # project, which would take it off every board that has it today.
             "scoped": _scoped_to(f, p.id),
+            # Formula columns (Oct 22 2026): the expression travels by field
+            # NAME, so it reads the same against the rebuilt project's fields.
+            **({"formula": getattr(f, "formula", "") or "",
+                "formulaFormat": getattr(f, "formula_format", None) or {}}
+               if (f.type or "") == "formula" else {}),
         } for f in field_rows],
         "customStatuses": [{
             "key": status_key[s.id], "label": s.label, "color": s.color or "",
@@ -1771,7 +1912,7 @@ def _snapshot_color_rules(p, field_key: dict, status_key: dict, section_key: dic
                 c2["field"] = f"cf:#{key}"
             elif field == "status" and op != "is_empty":
                 vals = value if isinstance(value, list) else [value]
-                mapped = [v if v in BUILTIN_STATUSES else (f"{_STATUS_KEY}{status_key[v]}" if v in status_key else None)
+                mapped = [v if v in RULE_STATUSES else (f"{_STATUS_KEY}{status_key[v]}" if v in status_key else None)
                           for v in vals]
                 mapped = [v for v in mapped if v is not None]
                 if not mapped:
@@ -1821,7 +1962,7 @@ def _rebuild_color_rules(db: Session, user: dict, p, rules, field_ids: dict, sta
                 continue   # a raw id never travels in a payload
             elif field == "status" and op != "is_empty":
                 vals = value if isinstance(value, list) else [value]
-                mapped = [v if v in BUILTIN_STATUSES else status_ids.get(str(v)[len(_STATUS_KEY):])
+                mapped = [v if v in RULE_STATUSES else status_ids.get(str(v)[len(_STATUS_KEY):])
                           if str(v).startswith(_STATUS_KEY) else None for v in vals]
                 mapped = [v for v in mapped if v]
                 if not mapped:
@@ -1933,6 +2074,11 @@ def _resolve_custom_fields(db: Session, payload: dict, project_id: str, user: di
                 required=bool(spec.get("required")), read_only=bool(spec.get("readOnly")),
                 applies_to=_dump_applies_to(spec.get("appliesTo") or ["task"]),
                 asana_gid="", company_id=new_company(),
+                # A formula comes across as written; one that no longer
+                # parses (an older payload) shows #Error on the list
+                # rather than failing the whole rebuild.
+                formula=str(spec.get("formula") or "")[:task_formula.MAX_LENGTH] if kind == "formula" else "",
+                formula_format=task_formula.normalize_format(spec.get("formulaFormat")) if kind == "formula" else {},
             )
             db.add(f)
             db.flush()   # autoflush=False - the id must be visible to the tasks below

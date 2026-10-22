@@ -13,6 +13,8 @@ import { celebrateCompletion } from './celebrate';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { loadTaskData, taskSnapshot, rememberTaskData, FIRST_PAINT } from './taskStore';
 import { noteStatusChanges } from './recentChanges';
+import { applyFieldUpdate } from './formula';
+import { moveUndoBody } from './lib';
 
 function tasksReducer(prev, v) {
   const next = typeof v === 'function' ? v(prev) : v;
@@ -373,7 +375,7 @@ export function TasksProvider({ children }) {
     const held = rows.filter((r) => r?.dueAgreement === 'extension_requested' && r.dueProposal?.dueOn === patch.dueOn);
     if (!held.length) return;
     offerRef.current?.(
-      held.length === 1 ? 'Extension sent for approval' : `${held.length} extensions sent for approval`,
+      held.length === 1 ? 'Due date change sent for approval' : `${held.length} due date changes sent for approval`,
       () => Promise.all(held.map((r) => api.withdrawTaskDue(r.id).then((t) => patchLocalTask(t.id, t)))).catch(() => {}),
     );
   }, [patchLocalTask]);
@@ -416,7 +418,9 @@ export function TasksProvider({ children }) {
   const tasksRef = useRef(tasks);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
-  const updateTask = useCallback(async (id, patch) => {
+  // `quiet`: the caller says what went wrong itself (Move To's dialog), so
+  // no alert here as well.
+  const updateTask = useCallback(async (id, patch, { quiet = false } = {}) => {
     // Snapshot the fields this patch touches, so a refused save can put them
     // back. The delta refetch alone cannot: it only returns rows that CHANGED
     // on the server, and a refused row did not - the optimistic value stuck.
@@ -443,12 +447,13 @@ export function TasksProvider({ children }) {
       // Surfaces things like a dependency-gate rejection (blocked by an
       // unfinished FS/SS/FF/SF task) - the optimistic change above was just
       // put back, so silence here would look like nothing happened.
-      if (e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
+      if (!quiet && e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
       throw e;
     }
   }, [patchLocalTask, refetchTasks, announceHeld]);
 
   // Undo toast - one at a time; label + a run() that reverses the action.
+  // A null run() is a plain notice (no Undo button) in the same spot.
   const [undo, setUndo] = useState(null);
   const undoTimer = useRef(null);
   const offerUndo = useCallback((label, run) => {
@@ -459,7 +464,7 @@ export function TasksProvider({ children }) {
   useEffect(() => { offerRef.current = offerUndo; }, [offerUndo]);
   const runUndo = useCallback(() => {
     clearTimeout(undoTimer.current);
-    setUndo((u) => { if (u) u.run(); return null; });
+    setUndo((u) => { if (u?.run) u.run(); return null; });
   }, []);
 
   // Completing a task celebrates (unicorn + green sweep) and holds the store
@@ -491,6 +496,34 @@ export function TasksProvider({ children }) {
     });
   }, [updateTask, offerUndo]);
   const setStatus = useCallback((id, status) => updateTask(id, { status }), [updateTask]);
+
+  // Move To... (Neil, Oct 22 2026): put a task under another one
+  // (`parentTaskId`), or make it a top-level task ('' - it stays in its
+  // project unless `projectId` says otherwise, filed into `sectionId`). The
+  // server moves the whole subtree with it (PATCH parent_task_id), so the
+  // other rows it changed - both parents, the subtasks - come in through a
+  // delta refetch. A refusal is the caller's to show (no alert). Undo moves
+  // it back with what the move changed on it: its place, section, team and
+  // a subtask's "skip this occurrence" rule.
+  const moveTask = useCallback(async (id, { parentTaskId = '', projectId, sectionId } = {}) => {
+    const before = tasksRef.current.find((t) => t.id === id);
+    const body = { parentTaskId: parentTaskId || '' };
+    if (!parentTaskId) {
+      if (projectId !== undefined) body.projectId = projectId || '';
+      if (sectionId !== undefined) body.sectionId = sectionId || '';
+    }
+    const saved = await updateTask(id, body, { quiet: true });
+    refetchTasks().catch(() => {});
+    if (before) {
+      const back = moveUndoBody(before);
+      const target = parentTaskId ? tasksRef.current.find((t) => t.id === parentTaskId) : null;
+      offerUndo(
+        target ? `Moved under "${(target.title || '').slice(0, 40)}"` : 'Made a top-level task',
+        () => updateTask(id, back).then(() => refetchTasks()).catch(() => {}),
+      );
+    }
+    return saved;
+  }, [updateTask, refetchTasks, offerUndo]);
 
   // Rows taken off screen optimistically go back if the server refuses the
   // delete - the delta refetch never returns a row the server did not change.
@@ -580,6 +613,35 @@ export function TasksProvider({ children }) {
     }
   }, [announceHeld]);
 
+  // Undo of a due-date move (the Calendar drag, Oct 22 2026): the server
+  // takes the move out - no extension for the trip back, no second bell.
+  const undoDueChange = useCallback(async (id, at) => {
+    try {
+      const saved = await api.undoTaskDue(id, at);
+      if (saved?.id) patchLocalTask(saved.id, saved);
+      return saved;
+    } catch (e) {
+      refetchTasks().catch(() => {});
+      if (e?.status && e.status !== 401) alert(e.message || 'Could not undo that change.');
+      throw e;
+    }
+  }, [patchLocalTask, refetchTasks]);
+
+  // The batch bar's Dates action (Oct 22 2026): the server moves each task
+  // from its own date, so there is nothing to apply optimistically - the
+  // rows it answers with land in the store. Answers the server's counts.
+  const bulkDates = useCallback(async (ids, dates) => {
+    try {
+      const r = await api.bulkTaskDates(ids, dates);
+      const map = Object.fromEntries((r?.tasks || []).map((t) => [t.id, t]));
+      setTasks((prev) => prev.map((t) => map[t.id] || t));
+      return r;
+    } catch (e) {
+      if (e?.status && e.status !== 401) alert(e.message || 'Could not change the dates.');
+      throw e;
+    }
+  }, []);
+
   // Comments (loaded on demand, cached)
   const getComments = useCallback(async (taskId) => {
     const rows = await api.getTaskComments(taskId).catch(() => []);
@@ -665,6 +727,15 @@ export function TasksProvider({ children }) {
     return r;
   };
 
+  const applyProjectFollowers = (id, r) => {
+    if (!r) return r;
+    setProjects((prev) => prev.map((x) => {
+      if (x.id !== id) return x;
+      return r.name ? r : { ...x, followerIds: Array.isArray(r.followerIds) ? r.followerIds : [] };
+    }));
+    return r;
+  };
+
   const actions = useMemo(() => ({
     createProject: mk(api.createTaskProject, setProjects),
     updateProject: mkUpd(api.updateTaskProject, setProjects),
@@ -673,6 +744,13 @@ export function TasksProvider({ children }) {
     // toBody: a chart is data, its keys stay as the Dashboard wrote them.
     shareProjectChart: async (id, chart) => { const r = await api.putTaskProjectChart(id, chart.id, chart); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
     unshareProjectChart: async (id, chartId) => { const r = await api.deleteTaskProjectChart(id, chartId); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
+    // Follow a project (Oct 22 2026). Each answers with the project; an
+    // unfollow from a project you can no longer see answers with only its
+    // followers, so just those are merged in.
+    followProject: async (id) => applyProjectFollowers(id, await api.followTaskProject(id)),
+    unfollowProject: async (id) => applyProjectFollowers(id, await api.unfollowTaskProject(id)),
+    addProjectFollower: async (id, email) => applyProjectFollowers(id, await api.addTaskProjectFollower(id, email)),
+    removeProjectFollower: async (id, email) => applyProjectFollowers(id, await api.removeTaskProjectFollower(id, email)),
     // Conditional row colors (Oct 22 2026): the whole ordered list, with the
     // rev it was read at. A 409 means someone else saved first - the reply
     // carries the project as it is now, which replaces ours before the error
@@ -788,8 +866,22 @@ export function TasksProvider({ children }) {
     // Editing was never wired up, so fixing a field's name meant deleting and
     // recreating it - and task values are keyed by field id, so every value
     // already captured was orphaned by the rename.
-    updateCustomField: mkUpd(api.updateTaskCustomField, setCustomFields),
-    deleteCustomField: mkDel(api.deleteTaskCustomField, setCustomFields),
+    // A rename also rewrites the formula columns that name the field (Oct 22
+    // 2026); the server sends those back so they are right at once, not
+    // #Error until the next load.
+    updateCustomField: async (id, patch) => {
+      const res = await api.updateTaskCustomField(id, toBody(patch));
+      setCustomFields((p) => applyFieldUpdate(p, id, res));
+      const r = { ...(res || {}) };
+      delete r.rewrittenFormulas;
+      return r;
+    },
+    // { force: true } = the caller has already said yes to breaking the
+    // formula columns that use it (the server otherwise answers 409).
+    deleteCustomField: async (id, { force = false } = {}) => {
+      await (force ? api.deleteTaskCustomFieldForced(id) : api.deleteTaskCustomField(id));
+      setCustomFields((p) => p.filter((x) => x.id !== id));
+    },
     // A merge deletes rows and rewrites the survivor's scope, so the list is
     // re-read rather than patched in place.
     dedupeCustomStatuses: async () => { const r = await api.dedupeTaskCustomStatuses(); await loadCore(); return r; },
@@ -850,9 +942,21 @@ export function TasksProvider({ children }) {
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, deleteTasks, restoreTasks, bulkUpdate, toggleComplete, setStatus,
+    moveTask,
+    bulkDates, undoDueChange,
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },
+    // Import from CSV / Excel (Oct 22 2026, ImportTasksModal). A dry run only
+    // reports. A real one can mint hundreds of tasks plus sections and select
+    // options, so the workspace is re-read rather than patched row by row.
+    importTasks: async (data) => {
+      const r = await api.importTasks(data);
+      if (!data?.dry_run) {
+        await Promise.all([loadCore(), loadSections()]).catch(() => {});
+      }
+      return r;
+    },
     // Timer (Oct 2026). Starting on a second task stops the first; the
     // stopped task comes back with its new total and lands in the store too.
     runningTimer,
@@ -870,6 +974,8 @@ export function TasksProvider({ children }) {
     },
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,
     offerUndo,
+    // A one-line notice in the undo toast's place, with no Undo (Oct 22 2026).
+    notify: (label) => offerUndo(label, null),
     // Bookmarks live HERE, not in `actions` below. That object is
     // useMemo'd on [loadCore] - i.e. built once - so anything stateful put
     // inside it is frozen at its first value: the star never filled in, and
@@ -908,7 +1014,7 @@ export function TasksProvider({ children }) {
           fontFamily: "'Inter', sans-serif", fontSize: 13, maxWidth: 'min(92vw, 520px)',
         }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{undo.label}</span>
-          <button onClick={runUndo} style={{ border: 'none', background: 'none', color: '#6ea8ff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Undo</button>
+          {undo.run && <button onClick={runUndo} style={{ border: 'none', background: 'none', color: '#6ea8ff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Undo</button>}
         </div>
       )}
     </Ctx.Provider>

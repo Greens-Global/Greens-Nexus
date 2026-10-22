@@ -39,6 +39,10 @@ MIN_WIDTH, MAX_WIDTH = 40, 2000
 MAX_DATA_BYTES = 64 * 1024
 # ...and the whole document, which every table on every page load fetches.
 MAX_DOC_BYTES = 256 * 1024
+# Column totals (Oct 22 2026): per project (or "_" off a project), which
+# columns show a total and how. "none" is never stored - it is the absence.
+MAX_TOTAL_SCOPES = 200
+TOTAL_AGGS = ("sum", "avg", "min", "max", "count", "filled")
 # The table key the Tasks module keeps row-color settings under
 # (frontend/src/tasks/rowColorState.js useRowColorPrefs).
 ROW_COLORS_TABLE = "rowColors"
@@ -67,6 +71,31 @@ class TablePrefIn(BaseModel):
     group:     str | None = None         # what the list is grouped by
     sort:      dict | None = None        # {"key": ..., "dir": "asc"|"desc"}
     data:      dict | None = None        # opaque, client-owned (charts, Home layout, project views)
+    # {scope: {"show": bool, "cols": {column: agg}}} - the totals row per
+    # project (scope = project id, "_" for a list on no project).
+    totals:    dict | None = None
+
+
+def _clean_totals(raw: dict) -> dict:
+    """Shape and size only, like everything else here: a scope or column key
+    is an opaque short string, an aggregate one of TOTAL_AGGS. Anything else
+    is dropped rather than refused."""
+    out: dict = {}
+    for scope, spec in list((raw or {}).items())[:MAX_TOTAL_SCOPES]:
+        k = str(scope or "").strip()
+        if not k or len(k) > MAX_KEY or not isinstance(spec, dict):
+            continue
+        cols = {}
+        raw_cols = spec.get("cols") if isinstance(spec.get("cols"), dict) else {}
+        for col, agg in list(raw_cols.items())[:MAX_COLS]:
+            c = str(col or "").strip()
+            a = str(agg or "").strip().lower()
+            if c and len(c) <= MAX_KEY and a in TOTAL_AGGS:
+                cols[c] = a
+        show = bool(spec.get("show"))
+        if show or cols:
+            out[k] = {"show": show, "cols": cols}
+    return out
 
 
 def _clean(body: TablePrefIn) -> dict:
@@ -123,6 +152,8 @@ def _clean(body: TablePrefIn) -> dict:
         if len(raw.encode("utf-8")) > MAX_DATA_BYTES:
             raise HTTPException(400, "That is too much to save here")
         out["data"] = body.data
+    if body.totals is not None:
+        out["totals"] = _clean_totals(body.totals)
     if body.widths is not None:
         widths = {}
         for key, val in list(body.widths.items())[:MAX_COLS]:
