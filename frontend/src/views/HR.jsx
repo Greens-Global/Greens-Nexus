@@ -14,7 +14,7 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Receipt, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
+  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw, ArrowLeftRight,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
   ListChecks, RefreshCw, Video, Hourglass,
 } from 'lucide-react';
@@ -660,11 +660,12 @@ function AssetsSection({ employee }) {
 // specific location. We're tagging them to our locations.") This replaced the
 // per-person geofence, where an admin pinned one person to one spot and radius.
 // Every punch still records where it was made, so a doubtful one can be looked
-// at on the map - "that's on us, that's not on him."
+// at on the map - "that's on us, that's not on him." Hybrid (Neil, Oct 22
+// 2026) is both: remote allowed, plus the usual locations they go to.
 function GeofenceSection({ employee, toastOk, toastErr }) {
   const { canAccessModule, hrTeam } = useRole();
   const canEdit = !hrTeam && canAccessModule('hr', 'manager', 'editor');   // a team view is read only
-  const [data, setData] = useState(null);        // { geofence: {remote,setBy,setAt}, lastPunchLocation, workSites }
+  const [data, setData] = useState(null);        // { geofence: {mode,remote,setBy,setAt}, lastPunchLocation, workSites }
   const [busy, setBusy] = useState(false);
 
   const load = () => api.getGeofence(employee.id)
@@ -673,7 +674,8 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
   useEffect(() => { setData(null); load(); }, [employee.id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const gf = data?.geofence || {};
-  const remote = !!gf.remote;
+  // Older payloads carry only remote; Hybrid (Neil, Oct 22) came with mode.
+  const mode = gf.mode || (gf.remote ? 'remote' : 'onsite');
   const lp = data?.lastPunchLocation || null;
   const sites = data?.workSites || [];
   // Allowed sites (Charmi, Sep 29): several, any of them is on-site; none
@@ -695,21 +697,27 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
   const toggleSite = (sid) => saveSites(allowed.includes(sid) ? allowed.filter(x => x !== sid) : [...allowed, sid]);
 
   const choose = async (next) => {
-    if (busy || !canEdit || next === remote) return;
+    if (busy || !canEdit || next === mode) return;
     setBusy(true);
     try {
-      const r = await api.setGeofence(employee.id, { remote: next });
+      const r = await api.setGeofence(employee.id, { mode: next });
       setData(d => ({ ...(d || {}), geofence: r }));
-      toastOk(next ? `${firstName} is now remote - punches from anywhere are accepted.` : `${firstName} is now on-site - punches are expected at a company location.`);
+      toastOk({
+        remote: `${firstName} is now remote - punches from anywhere are accepted.`,
+        hybrid: `${firstName} is now hybrid - punches at a company location count there, anywhere else counts as remote.`,
+        onsite: `${firstName} is now on-site - punches are expected at a company location.`,
+      }[next]);
     } catch (e) { toastErr(e?.message || 'Could not save the work mode.'); }
     finally { setBusy(false); }
   };
 
   const OPTIONS = [
-    { value: false, icon: Building2, title: 'On-Site',
+    { value: 'onsite', icon: Building2, title: 'On-Site',
       body: 'Punches are expected at any company location. A punch made somewhere else is still recorded, and flagged for the manager to review.' },
-    { value: true, icon: Globe, title: 'Remote',
+    { value: 'remote', icon: Globe, title: 'Remote',
       body: 'May punch from anywhere - home, a coffee shop, another city. Nothing is flagged. At a company location, the punch still counts toward that location.' },
+    { value: 'hybrid', icon: ArrowLeftRight, title: 'Hybrid',
+      body: 'Works from their usual locations some days and remotely on others; punches away from a site count as remote.' },
   ];
 
   return (
@@ -721,12 +729,12 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
       {!data ? <SkeletonBlocks count={3} height={40} /> : (
         <>
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
-            Nobody is tied to a single address. A person either works remote, or works from our locations - any of them.
+            Nobody is tied to a single address. A person works remote, works from our locations - any of them - or is hybrid and does both.
           </div>
 
-          <div role="radiogroup" aria-label="Work mode" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }} className="acc-grid">
+          <div role="radiogroup" aria-label="Work mode" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 14 }} className="acc-grid">
             {OPTIONS.map(o => {
-              const on = remote === o.value;
+              const on = mode === o.value;
               const Icon = o.icon;
               return (
                 <button key={o.title} type="button" role="radio" aria-checked={on} disabled={!canEdit || busy} onClick={() => choose(o.value)}
@@ -751,14 +759,14 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
             </div>
           )}
 
-          {!remote && (
+          {mode !== 'remote' && (
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
               <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{firstName}'s Usual Locations</div>
               {sites.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--muted)', marginBottom: 10, flexWrap: 'wrap' }}>
                   <span>
                     {allowed.length
-                      ? `${allowed.length === 1 ? 'This is' : `These ${allowed.length} locations are`} ${firstName}'s usual location${allowed.length === 1 ? '' : 's'} and win where two locations overlap. A punch at any company location counts as on-site; outside all of them is Out of Location.`
+                      ? `${allowed.length === 1 ? 'This is' : `These ${allowed.length} locations are`} ${firstName}'s usual location${allowed.length === 1 ? '' : 's'} and win where two locations overlap. A punch at any company location counts as on-site; outside all of them is ${mode === 'hybrid' ? 'Remote' : 'Out of Location'}.`
                       : 'Any company location counts as on-site. Click locations to mark the usual ones - they only matter where two locations overlap.'}
                   </span>
                   {allowed.length > 0 && canEdit && (

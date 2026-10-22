@@ -309,7 +309,7 @@ export const IMPL_PHASES = [
         'Company and department, employment type, start date, Reports To.',
         'Office & Contact: office, mobile and office phone, street address, city, state, ZIP and country. Saved changes update Microsoft 365; changes made there come back within 15 minutes or with Sync Now.',
         'Access tab: give the job role. Their modules, tier, exemptions and Teams destination follow.',
-        'Work Mode tab: on-site, remote, or the usual locations they punch in at.',
+        'Work Mode tab: On-Site, Remote or Hybrid (both - remote allowed, plus the usual locations they punch in at).',
       ]},
       { title: 'Add people who are not in the directory yet', where: 'People > Add Person', view: 'hr', sub: 'hr-people', items: [
         'Add Employee or Add Independent Contractor (scope, SOW and rate live on the same record).',

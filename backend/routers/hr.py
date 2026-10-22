@@ -4530,9 +4530,17 @@ def employee_bod_log(eid: str, start: str = "", end: str = "",
 # endpoint (out-of-company people 404).
 # ---------------------------------------------------------------------------
 
+# work_remote: 0 = On-Site, 1 = Remote, 2 = Hybrid (Neil, Oct 22 2026: usual
+# sites some days, remote on others). Readers use bool(), so Hybrid is
+# "remote allowed" everywhere a punch is judged.
+_WORK_MODES = {"onsite": 0, "remote": 1, "hybrid": 2}
+
+
 def _geofence_payload(emp: NexusEmployee) -> dict:
+    code = int(emp.work_remote or 0)
     return {
-        "remote": bool(emp.work_remote or 0),
+        "mode": {1: "remote", 2: "hybrid"}.get(code, "onsite"),
+        "remote": bool(code),   # builds older than Hybrid read only this
         # Allowed work sites (Sep 29): [] = any company site. workSiteId is
         # the Sep 25 single pick, kept for builds that still read it.
         "workSiteIds": allowed_site_ids(emp),
@@ -4587,6 +4595,8 @@ def get_geofence(eid: str, user: dict = Depends(require_hr_read), db: Session = 
 
 class GeofenceIn(BaseModel):
     remote:   Optional[bool] = None
+    # "onsite" | "remote" | "hybrid"; wins over remote when both are sent.
+    mode:     Optional[str] = None
     # An HrWorkSite.id to pin this person to, "" to clear (any site). Omitted = unchanged.
     work_site_id: Optional[str] = None
     # The sites this person may punch at (Sep 29); [] = any company site.
@@ -4607,10 +4617,14 @@ def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_wri
     if not emp:
         raise HTTPException(404, "Employee not found")
     _assert_scope(emp, hr_scope(user, db))
-    if body.remote is None and body.work_site_id is None and body.work_site_ids is None:
+    if body.mode is not None and body.mode not in _WORK_MODES:
+        raise HTTPException(400, "Work mode must be On-Site, Remote or Hybrid.")
+    if body.mode is None and body.remote is None and body.work_site_id is None and body.work_site_ids is None:
         raise HTTPException(400, "Personal work locations were retired - mark the person remote, "
                                  "or leave them on-site to punch from any company location.")
-    if body.remote is not None:
+    if body.mode is not None:
+        emp.work_remote = _WORK_MODES[body.mode]
+    elif body.remote is not None:
         emp.work_remote = 1 if body.remote else 0
     if body.work_site_ids is not None or body.work_site_id is not None:
         ids = ([i.strip() for i in body.work_site_ids if (i or "").strip()] if body.work_site_ids is not None
