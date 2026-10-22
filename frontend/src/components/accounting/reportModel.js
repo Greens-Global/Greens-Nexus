@@ -60,6 +60,31 @@ export const PRESETS = [
   { key: 'custom', label: 'Custom' },
 ];
 const LEGACY_PRESET = { month: 'mtd', quarter: 'qtd' };
+
+// Quick views from the Reports menu (Neil and Charmi, 10/22: "quick filters on
+// it so that she doesn't have to refilter"): a statement opened with its
+// period and columns already set. T12 is the last twelve complete months, one
+// column each; This Month vs Last Month is the whole month against the one
+// before it (vs Prior Period).
+export const REPORT_VIEWS = {
+  'pnl-t12': { report: 'pnl', cols: 'month', range: 't12-months' },
+  'pnl-ytd-py': { report: 'pnl', preset: 'ytd', cols: 'prior_year' },
+  'pnl-mom': { report: 'pnl', preset: 'this-month', cols: 'prior_period' },
+  'budget-ytd': { report: 'budget', preset: 'ytd' },
+  'budget-mtd': { report: 'budget', preset: 'mtd' },
+};
+/** The config changes a quick view makes, as of `now`; null for an unknown view. */
+export function viewConfig(key, now = new Date()) {
+  const v = REPORT_VIEWS[key];
+  if (!v) return null;
+  const { range, ...rest } = v;
+  if (range === 't12-months') {
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    return { ...rest, preset: 'custom', from: iso(new Date(y, m - 12, 1)), to: iso(endOfMonth(y, m - 1)) };
+  }
+  return rest;
+}
 export const presetLabel = (key) => PRESETS.find((p) => p.key === key)?.label || 'Custom';
 
 // Column layouts. An income statement splits its range; a balance sheet is a

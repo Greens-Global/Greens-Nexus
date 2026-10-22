@@ -21,6 +21,7 @@ import {
 import {
   EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
   reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
+  viewConfig,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -91,9 +92,11 @@ const VIEW_ONLY = new Set(['fluxStatus', 'fluxFilter']);
 const runnable = (c) => Object.fromEntries(Object.entries(storable(c)).filter(([k]) => !VIEW_ONLY.has(k)));
 const sameView = (a, b) => JSON.stringify(storable(a)) === JSON.stringify(storable(b));
 
-export default function ReportsTab({ canEdit = true, search = null, searchText: outerText = '', onSearchText = null, onWaiting = null, report = null, onReportChange = null }) {
+export default function ReportsTab({ canEdit = true, search = null, searchText: outerText = '', onSearchText = null, onWaiting = null, report = null, view = null, onReportChange = null }) {
   // Oct 14 (Urmi): `report` opens a statement straight from the Reporting menu.
-  const [config, setConfig] = useState(() => (report ? resolveConfig({ ...defaultConfig(), report }) : defaultConfig()));
+  // Oct 22 (Neil): `view` opens it on a quick view (REPORT_VIEWS) - T12, YTD vs
+  // Prior Year, Budget vs. Actual MTD - with the period and columns set.
+  const [config, setConfig] = useState(() => (report ? resolveConfig({ ...defaultConfig(), report, ...viewConfig(view) }) : defaultConfig()));
   const [entities, setEntities] = useState([]);
   const [limited, setLimited] = useState(false);
   const [result, setResult] = useState(null);
@@ -123,6 +126,14 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   useEffect(() => {
     if (report) setConfig((c) => (c.report === report ? c : resolveConfig({ ...c, report, accounts: [] })));
   }, [report]);
+  // A quick view picked from the menu: its period and columns, over whatever is set.
+  const shownView = useRef(view);
+  useEffect(() => {
+    if (shownView.current === view) return;
+    shownView.current = view;
+    const v = viewConfig(view);
+    if (v) setConfig((c) => resolveConfig({ ...c, ...v, accounts: [] }));
+  }, [view]);
   // The report on screen changed here (the Report box, a memorized report):
   // tell the bar so the menu lights the right item. Not on the first draw.
   const shownReport = useRef(config.report);

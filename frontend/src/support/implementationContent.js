@@ -524,9 +524,9 @@ export const IMPL_PHASES = [
         'Add each property with its PM / Asset Manager (who gets its reminders and ticket alerts).',
       ]},
       { title: 'Accounting', where: 'Accounting > Tools > Access', view: 'accounting', items: [
-        'Connected through Nexus Accounting (Sage Intacct). Give the Accounting grant (Editor for close work and AMA Settings, Full for Access, Allocations and Employee Compensation), then limit which entities each person reads on Tools > Access, or click Bring From Intacct to copy Intacct’s own limits.',
+        'Connected through Nexus Accounting (Sage Intacct). Give the Accounting grant (Editor for close work and AMA Settings, Full for Access, Allocations and Compensation), then limit which entities each person reads on Tools > Access, or click Bring From Intacct to copy Intacct’s own limits.',
         'PFS is a separate grant (Personal Financial Statements). Owners pick which PFS each person sees on the Access tab; an administrator role does not open them.',
-        'On Reporting > AMA, an editor opens Settings to pick the Ask My Accountant accounts and the accountant for each entity.',
+        'On Reports > Audit & Insights > AMA, an editor opens Settings to pick the Ask My Accountant accounts and the accountant for each entity.',
         'On Tools > Allocations, map every work site and company to its entity and account before the first Keep Run.',
       ]},
       { title: 'Operations (Cubby)', where: 'Operations', view: 'operations', items: [

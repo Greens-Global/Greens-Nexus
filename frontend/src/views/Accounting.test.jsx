@@ -38,9 +38,10 @@ describe('Accounting view', () => {
     render(<Accounting activeSub={undefined} onSubChange={onSubChange} />);
     expect(await screen.findByText('overview-tab')).toBeTruthy();
     // The strip is grouped now (Oct 7): the Dashboard group leads, showing
-    // its active tab, and the Reporting group is there for everyone.
-    expect(tabNames()[0]).toBe('DashboardOverview');
-    expect(tabNames()).toContain('Reporting');
+    // its own name only (Oct 22: the picked page never widens the bar), and
+    // the Reports group is there for everyone.
+    expect(tabNames()[0]).toBe('Dashboard');
+    expect(tabNames()).toContain('Reports');
     await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('overview'));
   });
 
@@ -49,8 +50,8 @@ describe('Accounting view', () => {
     const onSubChange = vi.fn();
     render(<Accounting activeSub={undefined} onSubChange={onSubChange} />);
     expect(await screen.findByTestId('reports')).toBeTruthy();
-    // No Dashboard group for an entity-limited reader: Reporting leads, on Reports.
-    expect(tabNames()[0]).toBe('ReportingAll Reports');
+    // No Dashboard group for an entity-limited reader: Reports leads, on the Report Center.
+    expect(tabNames()[0]).toBe('Reports');
     expect(tabNames().some((t) => /^Dashboard/.test(t))).toBe(false);
     await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('reports'));
     // Links made before the rename still land.
