@@ -131,11 +131,11 @@ describe('who may import into a project', () => {
   const p = { id: 'p1', accessLevel: 'restricted', ownerId: 'o@x.com', memberRoles: { 'v@x.com': 'viewer' } };
   it('counts approved teams like the server, never a pending one', () => {
     const team = (over) => ({ id: 't', projectIds: ['p1'], memberIds: ['v@x.com', 'n@x.com'], accessRole: 'editor', ...over });
-    expect(projectRoleWithTeams(p, 'v@x.com', false, [])).toBe('viewer');
-    expect(projectRoleWithTeams(p, 'v@x.com', false, [team()])).toBe('editor');
-    expect(projectRoleWithTeams(p, 'n@x.com', false, [team({ approvalStatus: 'pending' })])).toBe(null);
-    expect(projectRoleWithTeams(p, 'n@x.com', false, [team({ accessRole: 'commenter' })])).toBe('commenter');
-    expect(projectRoleWithTeams(p, 'z@x.com', true, [])).toBe('owner');
+    expect(projectRoleWithTeams(p, 'v@x.com', [], false)).toBe('viewer');
+    expect(projectRoleWithTeams(p, 'v@x.com', [team()], false)).toBe('editor');
+    expect(projectRoleWithTeams(p, 'n@x.com', [team({ approvalStatus: 'pending' })], false)).toBe(null);
+    expect(projectRoleWithTeams(p, 'n@x.com', [team({ accessRole: 'commenter' })], false)).toBe('commenter');
+    expect(projectRoleWithTeams(p, 'z@x.com', [], true)).toBe('owner');
   });
 });
 

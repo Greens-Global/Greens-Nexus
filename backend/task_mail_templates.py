@@ -458,3 +458,25 @@ def batch_email(*, items: list[dict], base_url: str, logo_url: str, recipient_na
   </table>
 </div>"""
     return subject, html
+
+
+# ── Follow a project (Oct 22 2026) ──────────────────────────────────────────
+# A project follower's email says why it came and where to stop it: the
+# project's own page, whose Follow button turns it off.
+
+def follow_reason_text(project_name: str) -> str:
+    return f"You follow {project_name or 'this project'}"
+
+
+def follow_reason_html(*, project_name: str, project_url: str) -> str:
+    """The line under a single-task email's buttons."""
+    link = "color:#2563eb;text-decoration:none;font-weight:600"
+    return ("<p style='margin:14px 0 0;font-size:12.5px;color:#6b7280'>"
+            f"{escape(follow_reason_text(project_name))}. "
+            f"<a href='{escape(project_url)}' style='{link}'>Open the project</a> to stop following it.</p>")
+
+
+def follow_reason_link(*, project_url: str) -> str:
+    """The extra link on a task row of a batched email."""
+    link = "color:#2563eb;text-decoration:none;font-size:12.5px;font-weight:600"
+    return f" &nbsp;·&nbsp; <a href='{escape(project_url)}' style='{link}'>Open Project</a>"

@@ -83,7 +83,7 @@ export default function ImportTasksModal({ projectId, canManage = false, onClose
 
   // Only projects this person may add work to (the server's bar: editor).
   const destinations = useMemo(() => projects
-    .filter((p) => !p.archived && roleAtLeast(projectRoleWithTeams(p, myEmail, canManage, teams), 'editor'))
+    .filter((p) => !p.archived && roleAtLeast(projectRoleWithTeams(p, myEmail, teams, canManage), 'editor'))
     .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))),
   [projects, teams, myEmail, canManage]);
   const project = projects.find((p) => p.id === destId) || null;
