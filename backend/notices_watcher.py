@@ -35,7 +35,8 @@ import models
 import notices as core
 from database import SessionLocal
 
-UA = "Mozilla/5.0 (compatible; GreensNexus-NoticeWatcher/1.0; +https://nexus.greensglobal.com)"
+# A plain browser header: the request names no company (Pranshu, Oct 22 2026).
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 PACE_S = 1.5
 FAILS_TO_ALERT = 3
 HR_TYPE = "workplace_notice_hr"
