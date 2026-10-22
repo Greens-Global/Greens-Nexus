@@ -47,6 +47,20 @@ describe('TimelineView drag', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Moved "Pour slab" to 10/03/2026 - 10/05/2026 · 1 dependent task moved');
   });
 
+  it('a move held for approval says so instead of "Moved" (Oct 22 2026)', async () => {
+    rescheduleTask.mockResolvedValue({
+      task: { ...tasks[0], dueAgreement: 'extension_requested', dueProposal: { dueOn: '2026-10-05' } },
+      moved: [], skipped: [],
+    });
+    render(<TimelineView tasks={tasks} onOpen={() => {}} nameOf={(e) => e} />);
+    const bar = screen.getByLabelText('Pour slab');
+    pointer(bar, 'pointerdown', 30);
+    pointer(bar, 'pointermove', 82);
+    pointer(bar, 'pointerup', 82);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Due date change sent for approval - "Pour slab" stays due 10/03/2026'));
+    expect(screen.getByRole('status')).not.toHaveTextContent('Moved');
+  });
+
   it('a click without movement still opens the task and sends nothing', () => {
     const onOpen = vi.fn();
     render(<TimelineView tasks={tasks} onOpen={onOpen} nameOf={(e) => e} />);

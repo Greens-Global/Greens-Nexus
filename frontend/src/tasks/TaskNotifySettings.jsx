@@ -27,6 +27,7 @@ const EVENT_LABELS = {
   mentioned: 'Mentioned in a comment',
   follower_added: 'Added as collaborator', modified: 'Task details changed', deleted: 'Task deleted',
   recurring: 'Recurring task due',
+  automation: 'Automation rule emails',
 };
 const STATUS_META = {
   sent: { color: NX.green, Icon: CheckCircle2 }, failed: { color: NX.red, Icon: AlertTriangle },

@@ -21,6 +21,9 @@ const stamp = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 // A cell is whatever the caller's `get` returned; everything lands as a string
 // except numbers, which Excel should treat as numbers so a column can be summed.
 const cellText = (v) => (v === null || v === undefined ? '' : String(v));
+// A column may also say how a cell READS (`display`) - a formula column keeps
+// a plain number for Excel and shows "$1,234.50" / "25%" in the PDF.
+const pdfText = (c, r) => cellText(c.display ? c.display(r) : c.get(r));
 
 function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -45,6 +48,15 @@ export async function exportExcel({ filename, title, columns, rows }) {
   // length - a sheet where every column is 8 characters wide is unreadable and
   // the first thing anyone would have to fix by hand.
   sheet['!cols'] = columns.map((c) => ({ wch: c.width || Math.max(12, c.header.length + 2) }));
+  // A column's own number format (`z`, Excel's code) on its number cells - a
+  // percent formula holds 0.25 and shows 25%, a currency one $1,234.50.
+  columns.forEach((c, ci) => {
+    if (!c.z) return;
+    for (let ri = 1; ri <= rows.length; ri += 1) {
+      const cell = sheet[XLSX.utils.encode_cell({ c: ci, r: ri })];
+      if (cell && cell.t === 'n') cell.z = c.z;
+    }
+  });
   sheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: columns.length - 1, r: rows.length } }) };
   sheet['!freeze'] = { xSplit: 0, ySplit: 1 };
   const book = XLSX.utils.book_new();
@@ -65,8 +77,30 @@ const HEAD_H = 22;
 const FONT_SIZE = 9;
 const TITLE_SIZE = 14;
 
+// More columns than this cannot be read on one landscape page. Columns a
+// screen marks `optional` (a list's custom columns) are left out of the PDF
+// past it - the Excel export still has every one - and the subtitle says so.
+export const PDF_MAX_COLS = 14;
+
+/** The columns a PDF draws, and how many optional ones it left out. */
+export function pdfColumns(columns) {
+  const keep = [];
+  let room = PDF_MAX_COLS - columns.filter((c) => !c.optional).length;
+  let dropped = 0;
+  for (const c of columns) {
+    if (!c.optional) keep.push(c);
+    else if (room > 0) { keep.push(c); room -= 1; }
+    else dropped += 1;
+  }
+  return { columns: keep, dropped };
+}
+
 /** Rows -> a paginated PDF table. Same `columns` shape as exportExcel. */
-export async function exportPdf({ filename, title, subtitle, columns, rows }) {
+export async function exportPdf({ filename, title, subtitle: subtitleIn, columns: columnsIn, rows }) {
+  const { columns, dropped } = pdfColumns(columnsIn);
+  const subtitle = dropped
+    ? `${subtitleIn ? `${subtitleIn} - ` : ''}${dropped} more column${dropped === 1 ? '' : 's'} in the Excel export`
+    : subtitleIn;
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -137,7 +171,7 @@ export async function exportPdf({ filename, title, subtitle, columns, rows }) {
     }
     let x = MARGIN;
     columns.forEach((c, i) => {
-      page.drawText(fit(cellText(c.get(r)), widths[i] - 8, font, FONT_SIZE), {
+      page.drawText(fit(pdfText(c, r), widths[i] - 8, font, FONT_SIZE), {
         x: x + 4, y: y - ROW_H + 6, size: FONT_SIZE, font, color: rgb(0.12, 0.14, 0.18),
       });
       x += widths[i];

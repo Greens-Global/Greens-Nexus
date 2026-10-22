@@ -148,13 +148,29 @@ def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str
 # ── Activity feed ────────────────────────────────────────────────────────────
 def log_activity(db: Session, *, type: str, actor_email: str, entity_kind: str = "task",
                  entity_id: str = "", entity_code: str = "", entity_title: str = "",
-                 detail: str = "") -> str:
+                 detail: str = "", change: dict | None = None, at: str | None = None) -> str:
+    """One activity row. `change` is a field-history entry (task_history.py)
+    for a row that records a field moving from one value to another; `at`
+    dates the row (default now)."""
     aid = gen_id()
-    db.add(TaskActivity(
+    row = TaskActivity(
         id=aid, entity_kind=entity_kind, entity_id=entity_id, entity_code=entity_code,
-        entity_title=entity_title, type=type, actor_email=actor_email, at=now_iso(),
+        entity_title=entity_title, type=type, actor_email=actor_email, at=at or now_iso(),
         detail=detail,
-    ))
+    )
+    if change is not None:
+        row.field_change = change
+    db.add(row)
+    if entity_kind == "task" and entity_id:
+        # This request's task rows, so task_history can put a field change on
+        # the row that already tells the story ("completed this task") instead
+        # of writing a second one. Sessions are per request / per scan.
+        # Kept as plain values: reading an expired row after a commit would
+        # cost a SELECT each.
+        seen = db.info.setdefault("task_activity_rows", [])
+        seen.append((entity_id, type, row.at, row))
+        if len(seen) > 500:
+            del seen[:-200]
     return aid
 
 

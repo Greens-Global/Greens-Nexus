@@ -33,6 +33,7 @@ import graph_mail
 import task_mail_templates as tmpl
 import task_mail_actions as mail_actions
 import task_notify_prefs as prefs_mod
+import task_project_follow as project_follow
 from app_url import app_url
 from task_inbound_parse import reply_address, reply_mailbox
 from routers.task_util import log_activity, task_assignees
@@ -57,6 +58,7 @@ _DEFAULT_SETTINGS = {
         "created": True, "assigned": True, "due_soon": True, "overdue": True,
         "completed": True, "commented": True, "mentioned": True, "follower_added": True,
         "modified": True, "deleted": True, "recurring": True,
+        "automation": True,   # automation rules' Send Email (task_automation, Oct 22 2026)
     },
     # Whether a person may switch overdue reminders OFF in their own email
     # settings (task_notify_prefs). Off by default: the least they can choose
@@ -132,7 +134,10 @@ def _is_sendable(db: Session, email: str) -> bool:
     if email == "asana-sync":   # synced tasks stamp this as created_by - never a real mailbox
         return False
     emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == email).first()
-    return not (emp and emp.status in ("inactive", "offboarded"))
+    # Inactive / offboarded, and (Oct 22 2026) an external or guest whose
+    # access was deactivated or has expired - they can no longer sign in to
+    # act on the email, and their sight of the task ended with their access.
+    return not project_follow.person_lapsed(emp)
 
 
 def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: str, cfg: dict,
@@ -208,6 +213,20 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
         add(creator, "creator")
         for f in followers:
             add(f, "follower")
+    elif event_type == "automation":
+        # A rule's send_email action (task_automation, Oct 22 2026): exactly
+        # the people the engine resolved - directory people who can see the
+        # task (task_automation.recipient_can_see).
+        for who, role in extra.get("automation_to") or []:
+            add(who, role)
+
+    # People following the task's PROJECT (Oct 22 2026) - new task, completed,
+    # comment. Worked out once by notify_task_event (visibility checked there,
+    # task_project_follow.event_recipients); add() keeps anyone already told as
+    # an assignee / collaborator / creator in that role, so nobody gets two.
+    if event_type in project_follow.FOLLOW_EVENTS:
+        for who in extra.get("project_followers") or []:
+            add(who, "project_follower")
 
     return list(out.items())
 
@@ -333,10 +352,12 @@ def _fmt(iso: str) -> str:
 
 
 def _render_event(db: Session, ctx: dict, event_type: str, recipient: str, role: str,
-                  logo_url: str, kw: dict) -> tuple[str, str] | None:
+                  logo_url: str, kw: dict, follow_project=None) -> tuple[str, str] | None:
     """The single-task email for one event, actions included - shared by the
     instant path and by a batch that turned out to hold just one event, so a
-    batch of one reads exactly like the email it replaced."""
+    batch of one reads exactly like the email it replaced. `follow_project`:
+    the project a project follower hears this through - the email says so,
+    with the way to the project to stop following it."""
     if event_type == "created":
         subject, html = tmpl.created_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                             audience="assignee" if role == "assignee" else "other")
@@ -364,8 +385,15 @@ def _render_event(db: Session, ctx: dict, event_type: str, recipient: str, role:
                                              update_kind=kw.get("update_kind", "Task updated"))
     elif event_type == "deleted":
         subject, html = tmpl.deleted_email(t=ctx, base_url=app_url(), logo_url=logo_url)
+    elif event_type == "automation":
+        subject, html = tmpl.automation_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+                                              subject=kw.get("auto_subject", ""), body=kw.get("auto_body", ""))
     else:
         return None
+    if role == "project_follower" and follow_project is not None:
+        reason = tmpl.follow_reason_html(project_name=follow_project.name,
+                                         project_url=project_follow.project_url(app_url(), follow_project.id))
+        html = html.replace(mail_actions.ACTIONS_SLOT, reason + mail_actions.ACTIONS_SLOT, 1)
     html = _with_actions(db, html, event_type=event_type, ctx=ctx, recipient=recipient,
                          comment_body=kw.get("comment_body", ""),
                          comment_author=ctx.get("actorName", ""))
@@ -385,10 +413,9 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
     db = SessionLocal()
     try:
         cfg = get_settings(db)
-        if not cfg["enabledEvents"].get(event_type, True):
-            return
-
         if event_type == "deleted":
+            if not cfg["enabledEvents"].get(event_type, True):
+                return
             snap = kw.get("snapshot") or {}
             t = models.Task(id=task_id, **{k: v for k, v in snap.items() if k not in ("id",)})
         else:
@@ -396,7 +423,34 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
             if not t:
                 return
 
-        recipients = _recipients_for(db, t, event_type, actor_email, cfg, kw)
+        # Project followers (Oct 22 2026): who may hear this, checked now, and
+        # their grouped Tasks-bell notice - which rings whether or not the
+        # company emails this event, as every other task bell does.
+        # The bell has its own failure handling: a bell that could not be
+        # written must not cost the followers their emails.
+        project_followers = {}
+        if event_type in project_follow.FOLLOW_EVENTS:
+            people: dict = {}   # one visibility answer per person for this event
+            try:
+                project_followers = project_follow.event_recipients(db, t, event_type, actor_email, kw,
+                                                                    cache=people)
+            except Exception as e:
+                db.rollback()
+                project_followers = {}
+                _log_notify_error(db, task_id, f"Project followers could not be worked out ({event_type}): {e}")
+            if project_followers:
+                try:
+                    project_follow.ring_bells(db, t, event_type, _name_of(db, actor_email),
+                                              project_followers, cache=people)
+                except Exception as e:
+                    db.rollback()
+                    _log_notify_error(db, task_id, f"Project follower bell failed ({event_type}): {e}")
+
+        if not cfg["enabledEvents"].get(event_type, True):
+            return
+
+        recipients = _recipients_for(db, t, event_type, actor_email, cfg,
+                                     {**kw, "project_followers": list(project_followers)})
         if not recipients:
             return
         ctx = _task_context(db, t, actor_email)
@@ -410,17 +464,23 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
             p = prefs_mod.load(db, recipient)
             if not prefs_mod.wants_event(p, event_type, t):
                 continue
+            if role == "project_follower" and not p.get("followedProjects", True):
+                continue
             if event_type == "modified" and _recently_sent(db, task_id, "modified", recipient,
                                                            p["updateThrottleMinutes"]):
                 continue
             # Batching: everything that can wait is queued and goes out with
             # the rest of this person's hour (flush_batches). A deleted task
             # has no row left to batch from, so it never waits.
-            if event_type != "deleted" and not _sends_now(t, event_type, cfg):
+            # A project follower's email is an FYI: it always waits for their
+            # batch, even about an urgent task (the people ON it hear at once).
+            follower_fyi = role == "project_follower" and batch_window_minutes(cfg) > 0
+            if event_type != "deleted" and (follower_fyi or not _sends_now(t, event_type, cfg)):
                 _enqueue(db, recipient=recipient, role=role, task_id=task_id, event_type=event_type,
                          actor_email=actor_email, payload=kw)
                 continue
-            rendered = _render_event(db, ctx, event_type, recipient, role, logo_url, kw)
+            rendered = _render_event(db, ctx, event_type, recipient, role, logo_url, kw,
+                                     follow_project=project_followers.get(recipient))
             if not rendered:
                 continue
             subject, html = rendered
@@ -428,15 +488,78 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
                       idem_suffix=str(version), recipient=recipient, role=role,
                       subject=subject, html=html, cfg=cfg)
     except Exception as e:
-        try:
-            log_activity(db, type="notify_error", actor_email="system", entity_kind="task",
-                         entity_id=task_id, entity_code="", entity_title="",
-                         detail=f"Notification pipeline error ({event_type}): {e}")
-            db.commit()
-        except Exception:
-            pass
+        _log_notify_error(db, task_id, f"Notification pipeline error ({event_type}): {e}")
     finally:
         db.close()
+
+
+def notify_project_import(project_id: str, task_id: str, actor_email: str, count: int, skip=()) -> None:
+    """A task import into a followed project (Oct 22 2026): ONE notice per
+    follower for the whole import - "<Actor> imported N tasks into
+    <Project>" - never one per task. The bell grows the follower's day notice
+    (task_project_follow.ring_bells); the email is a project-follower row in
+    their batch like any other follower FYI (re-checked at send time by
+    _drop_reason; sent at once only when the company batches nothing), about
+    `task_id`, one of the imported top-level tasks - at send time another of
+    the import's tasks stands in when that one was completed, deleted or
+    muted meanwhile (_import_anchor). Same people as any follower event
+    (import_recipients), less `skip` - the people the import's assignment
+    notice already told. Only called when the import was set to notify.
+    Never raises."""
+    db = SessionLocal()
+    try:
+        cfg = get_settings(db)
+        p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
+        t = db.query(models.Task).filter(models.Task.id == task_id).first()
+        if p is None or t is None:
+            return
+        people: dict = {}
+        recipients = project_follow.import_recipients(db, p, t, actor_email, cache=people, skip=skip)
+        if not recipients:
+            return
+        line = project_follow.import_line(_name_of(db, actor_email), count, p.name)
+        try:
+            project_follow.ring_bells(db, t, "created", "", recipients, cache=people, line=line)
+        except Exception as e:
+            db.rollback()
+            _log_notify_error(db, task_id, f"Project follower bell failed (import): {e}")
+        if not cfg["enabledEvents"].get("created", True):
+            return
+        queued = []
+        for who in sorted(recipients):
+            if not _is_sendable(db, who):
+                continue
+            pr = prefs_mod.load(db, who)
+            if not pr.get("followedProjects", True) or not prefs_mod.wants_event(pr, "created", t):
+                continue
+            _enqueue(db, recipient=who, role="project_follower", task_id=t.id, event_type="created",
+                     actor_email=actor_email, payload={"import_summary": line, "import_project": p.id,
+                                                       "import_at": t.created_at or ""})
+            queued.append(who)
+        if queued and not batch_window_minutes(cfg):
+            now = datetime.now(timezone.utc)
+            for who in queued:
+                try:
+                    _flush_recipient(db, who, cfg, now)
+                except Exception:
+                    db.rollback()
+    except Exception as e:
+        _log_notify_error(db, task_id, f"Notification pipeline error (import): {e}")
+    finally:
+        db.close()
+
+
+def _log_notify_error(db: Session, task_id: str, detail: str) -> None:
+    """A notify_error row on the task's activity - never raises."""
+    try:
+        log_activity(db, type="notify_error", actor_email="system", entity_kind="task",
+                     entity_id=task_id, entity_code="", entity_title="", detail=detail)
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 # ── Due-date reminders (scheduled scan - no mutation triggers this) ────────
@@ -808,7 +931,13 @@ def _sends_now(t, event_type: str, cfg: dict) -> bool:
             or _is_time_critical(t))
 
 
-_PAYLOAD_KEYS = ("update_kind", "comment_body", "new_follower")
+# due_entry_at: the due_history entry a "modified" email reports, so an Undo
+# of that move (tasks.undo_due) drops exactly its email (Oct 22 2026).
+_PAYLOAD_KEYS = ("update_kind", "comment_body", "new_follower", "due_entry_at",
+                 "auto_subject", "auto_body",   # auto_*: an automation rule's email (event "automation")
+                 # a task import's one follower line, and how to find the
+                 # import's tasks again at send time (notify_project_import)
+                 "import_summary", "import_project", "import_at")
 
 
 def _enqueue(db: Session, *, recipient: str, role: str, task_id: str, event_type: str,
@@ -822,16 +951,26 @@ def _enqueue(db: Session, *, recipient: str, role: str, task_id: str, event_type
     db.commit()
 
 
-def queue_bulk_assignments(db: Session, actor_email: str, assigned: dict) -> None:
+def queue_bulk_assignments(db: Session, actor_email: str, assigned: dict, send_now_if_instant: bool = False) -> None:
     """Bulk edits never emailed anyone (fifty separate "you were assigned"
     mails for one action). With batching on they can: each newly assigned
     person gets ONE email for the lot. A time-critical task marks the batch
     urgent so it goes out on the next tick instead of waiting the hour.
-    `assigned` = {email: [Task, ...]}. Never raises."""
+    `assigned` = {email: [Task, ...]}. Never raises.
+
+    `send_now_if_instant` (the task import, Oct 22 2026, where the person
+    ASKED to notify): with batching off (batchWindowMinutes = 0) the rows are
+    queued anyway and each person's one email is sent right away through the
+    batch sender - instant, and still one email per person, not one per task.
+    Bulk edits keep sending nothing in instant mode, as before."""
     try:
         cfg = get_settings(db)
-        if not batch_window_minutes(cfg) or not cfg["enabledEvents"].get("assigned", True):
+        if not cfg["enabledEvents"].get("assigned", True):
             return
+        instant = not batch_window_minutes(cfg)
+        if instant and not send_now_if_instant:
+            return
+        queued = []
         for who, tasks in assigned.items():
             if not _is_sendable(db, who):
                 continue
@@ -840,12 +979,25 @@ def queue_bulk_assignments(db: Session, actor_email: str, assigned: dict) -> Non
                 if prefs_mod.wants_event(p, "assigned", t):
                     _enqueue(db, recipient=who, role="assignee", task_id=t.id, event_type="assigned",
                              actor_email=actor_email, payload={}, urgent=_is_time_critical(t))
+                    if who not in queued:
+                        queued.append(who)
+        if instant:
+            now = datetime.now(timezone.utc)
+            for who in queued:
+                try:
+                    _flush_recipient(db, who, cfg, now)
+                except Exception:
+                    db.rollback()
     except Exception:
         db.rollback()
 
 
-def _drop_reason(db: Session, q, t, p: dict) -> str:
-    """Why a queued event is no longer worth sending, or "" to keep it."""
+def _drop_reason(db: Session, q, t, p: dict, follow: dict | None = None) -> str:
+    """Why a queued event is no longer worth sending, or "" to keep it.
+    `follow` ({"people": {}, "projects": {}}) carries one flush's project
+    follower answers: the person's visibility is worked out once across all
+    their rows, and the project each kept row came through is recorded for
+    the email's "You follow ..." line."""
     if t is None:
         return "task deleted"
     who = q.recipient
@@ -855,16 +1007,64 @@ def _drop_reason(db: Session, q, t, p: dict) -> str:
         return "no longer assigned"
     if q.role == "follower" and who not in followers and who not in assignees:
         return "no longer following"
+    # A project follower: still following a live project of the task's, and
+    # still able to see it and the task (walls, sharing, left the company).
+    if q.role == "project_follower":
+        if not p.get("followedProjects", True):
+            return "turned off or muted"
+        follow = follow if follow is not None else {"people": {}, "projects": {}}
+        proj = project_follow.receiving_project(db, who, t, cache=follow["people"], prefs=p)
+        if proj is None:
+            return "no longer following the project"
+        follow["projects"][q.id] = proj
     if t.completed and q.event_type in ("created", "assigned", "modified", "follower_added"):
         return "task already completed"
     if not prefs_mod.wants_event(p, q.event_type, t):
         return "turned off or muted"
+    if q.event_type == "automation":
+        # Sight is asked again at send time: a task made restricted (or a
+        # person moved out of its company) in the batch window is not mailed.
+        import task_automation   # lazy: task_automation imports this module lazily too
+        if not task_automation.recipient_can_see(db, who, t):
+            return "cannot see the task"
     return ""
+
+
+_IMPORT_ANCHOR_SCAN = 200   # imported top-level tasks looked at for a stand-in (_import_anchor)
+
+
+def _import_anchor(db: Session, q, t, p: dict, follow: dict):
+    """A task import's follower row is about the import, not the one task it
+    was queued on: when that task was completed, deleted, or muted (or turned
+    invisible to the follower) meanwhile, another top-level task of the same
+    import stands in - open, still in a project they follow and can see, not
+    muted. The row is moved onto it (q.task_id). None leaves the row as it
+    was, for _drop_reason to judge as any other."""
+    pl = q.payload if isinstance(q.payload, dict) else {}
+    pid, at = pl.get("import_project") or "", pl.get("import_at") or ""
+    if not pid or not at:
+        return None
+    if t is not None and not t.completed and project_follow.receiving_project(
+            db, q.recipient, t, cache=follow["people"], prefs=p) is not None:
+        return None
+    T = models.Task
+    rows = (db.query(T).filter(T.project_id == pid, T.created_at == at,
+                               T.created_by == (q.actor_email or ""),
+                               (T.parent_task_id == "") | (T.parent_task_id.is_(None)),
+                               T.completed.isnot(True), T.id != q.task_id)
+            .order_by(T.position).limit(_IMPORT_ANCHOR_SCAN).all())
+    for cand in rows:
+        if project_follow.receiving_project(db, q.recipient, cand, cache=follow["people"], prefs=p) is not None:
+            q.task_id = cand.id
+            return cand
+    return None
 
 
 def _event_line(q, actor_name: str) -> str:
     """One readable line for a queued event, e.g. "Neil assigned this to you"."""
     pl = q.payload if isinstance(q.payload, dict) else {}
+    if pl.get("import_summary"):
+        return pl["import_summary"]
     if q.event_type == "created":
         return f"{actor_name} created this task" + (" for you" if q.role == "assignee" else "")
     if q.event_type == "assigned":
@@ -881,6 +1081,10 @@ def _event_line(q, actor_name: str) -> str:
         return f'{actor_name} commented: "{text}"' if text else f"{actor_name} commented"
     if q.event_type == "modified":
         return f"{actor_name} changed: {pl.get('update_kind') or 'task details'}"
+    if q.event_type == "automation":
+        text = mail_actions._plain(pl.get("auto_body") or "", 160)
+        subject = pl.get("auto_subject") or "Automated update"
+        return f"Automation: {subject}" + (f" - {text}" if text else "")
     return f"{actor_name} updated this task"
 
 
@@ -953,10 +1157,15 @@ def _flush_recipient(db: Session, recipient: str, cfg: dict, now: datetime) -> i
     p = prefs_mod.load(db, recipient)
     tasks = {}
     kept = []
+    follow = {"people": {}, "projects": {}}   # project-follower answers for this flush
     for q in rows:
         if q.task_id not in tasks:
             tasks[q.task_id] = db.query(models.Task).filter(models.Task.id == q.task_id).first()
-        reason = _drop_reason(db, q, tasks[q.task_id], p)
+        if q.role == "project_follower":
+            stand_in = _import_anchor(db, q, tasks[q.task_id], p, follow)
+            if stand_in is not None:
+                tasks[stand_in.id] = stand_in
+        reason = _drop_reason(db, q, tasks[q.task_id], p, follow)
         if reason:
             q.status, q.drop_reason, q.updated_at = "dropped", reason, stamp
         else:
@@ -966,11 +1175,14 @@ def _flush_recipient(db: Session, recipient: str, cfg: dict, now: datetime) -> i
         return 0
 
     logo_url = cfg.get("logoUrl") or ""
-    if len(kept) == 1:
+    # A task import's follower row is about the import, not its first task:
+    # it always reads as a batch item ("<Actor> imported N tasks into ...").
+    if len(kept) == 1 and not (kept[0].payload or {}).get("import_summary"):
         q = kept[0]
         t = tasks[q.task_id]
         ctx = _task_context(db, t, q.actor_email)
-        rendered = _render_event(db, ctx, q.event_type, recipient, q.role, logo_url, q.payload or {})
+        rendered = _render_event(db, ctx, q.event_type, recipient, q.role, logo_url, q.payload or {},
+                                 follow_project=follow["projects"].get(q.id))
         if rendered:
             subject, html = rendered
             _send_one(db, task_id=t.id, task_code=t.code, event_type=q.event_type,
@@ -993,9 +1205,16 @@ def _flush_recipient(db: Session, recipient: str, cfg: dict, now: datetime) -> i
         items = []
         for tid in order:
             t = tasks[tid]
+            lines = _task_lines(by_task[tid], name_of)
+            links = mail_actions.task_links_html(t.id, recipient, done=bool(t.completed))
+            # A task that reaches this person only through a project they
+            # follow says so, with the way to the project to stop following.
+            via = next((follow["projects"][q.id] for q in by_task[tid] if q.id in follow["projects"]), None)
+            if via is not None and all(q.role == "project_follower" for q in by_task[tid]):
+                lines.append(tmpl.follow_reason_text(via.name))
+                links += tmpl.follow_reason_link(project_url=project_follow.project_url(app_url(), via.id))
             items.append({"t": _task_context(db, t, by_task[tid][0].actor_email),
-                          "lines": _task_lines(by_task[tid], name_of),
-                          "links": mail_actions.task_links_html(t.id, recipient, done=bool(t.completed))})
+                          "lines": lines, "links": links})
         actors = {q.actor_email for q in kept}
         all_assigned = all(q.event_type in ("assigned", "created") and q.role == "assignee" for q in kept)
         headline = (f"{name_of(next(iter(actors)))} assigned you {len(items)} tasks"

@@ -430,6 +430,13 @@ export const api = {
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
   bulkUpdateTasks: (ids, patch) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }),
+  // The batch bar's Dates action (Oct 22 2026): { op: shift|set_due|set_start|clear_due,
+  // days, skip_weekends, on } - worked out per task on the server. Answers
+  // { tasks, changed, skipped, sentForApproval }.
+  bulkTaskDates: (ids, dates) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, dates }) }),
+  // Import from CSV / Excel (Oct 22 2026): dry_run returns the per-row report
+  // the wizard previews; otherwise it creates. Up to 2,000 rows in one call.
+  importTasks: (data) => req("/tasks/import", { method: "POST", body: JSON.stringify(data), timeoutMs: 120000 }),
   // Trash (Aug 27): deleteTask above now moves to Trash - it's restorable for
   // 90 days (see task_trash.py) via these three, Manage > Deleted Tasks only.
   // scope="mine" is the Recycle Bin OUTSIDE Manage - what you deleted plus what
@@ -491,8 +498,17 @@ export const api = {
   getTaskAttachments: (id) => req(`/tasks/${id}/attachments`),
   addTaskAttachment: (id, data) => req(`/tasks/${id}/attachments`, { method: "POST", body: JSON.stringify(data) }),
   deleteTaskAttachment: (aid) => req(`/tasks/attachments/${aid}`, { method: "DELETE" }),
+  // File versions + Egnyte links (Oct 22 2026) - routers/tasks.py.
+  getTaskAttachmentVersions: (aid) => req(`/tasks/attachments/${aid}/versions`),
+  addTaskAttachmentVersion: (aid, data) => req(`/tasks/attachments/${aid}/versions`, { method: "POST", body: JSON.stringify(data) }),
+  deleteTaskAttachmentVersions: (aid) => req(`/tasks/attachments/${aid}/versions`, { method: "DELETE" }),
+  addTaskEgnyteLink: (id, data) => req(`/tasks/${id}/egnyte-links`, { method: "POST", body: JSON.stringify(data) }),
   ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
+  // Field history (Oct 22 2026): {items, more}, newest first. `field` = a core
+  // key ("status", "dueOn"...), a custom field id, or several comma-joined.
+  getTaskHistory: (id, { field = "", limit = 20, offset = 0 } = {}) =>
+    req(`/tasks/${id}/history?field=${encodeURIComponent(field)}&limit=${limit}&offset=${offset}`),
   // Checklist inside a task (Oct 2026). Writes answer with the task's fresh
   // checklistTotal / checklistDone so the caller can hand it to the store.
   getTaskChecklist: (taskId) => req(`/tasks/${taskId}/checklist`),
@@ -507,6 +523,8 @@ export const api = {
   proposeTaskDue: (id, dueOn, note = "") => req(`/tasks/${id}/due/propose`, { method: "POST", body: JSON.stringify({ due_on: dueOn, note }) }),
   respondTaskDue: (id, accept, note = "", counterOn = "") => req(`/tasks/${id}/due/respond`, { method: "POST", body: JSON.stringify({ accept, note, counter_on: counterOn }) }),
   withdrawTaskDue: (id) => req(`/tasks/${id}/due/withdraw`, { method: "POST" }),
+  // Undo the caller's own just-made due-date move (Oct 22 2026): `at` names its history entry.
+  undoTaskDue: (id, at) => req(`/tasks/${id}/due/undo`, { method: "POST", body: JSON.stringify({ at }) }),
   // Sections & custom statuses (board columns)
   getTaskSections: () => req("/tasks/meta/sections"),
   createTaskSection: (data) => req("/tasks/meta/sections", { method: "POST", body: JSON.stringify(data) }),
@@ -523,7 +541,14 @@ export const api = {
   // One shared dashboard chart at a time: upsert / remove by id (Oct 2026).
   putTaskProjectChart: (id, chartId, chart) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "PUT", body: JSON.stringify(chart) }),
   deleteTaskProjectChart: (id, chartId) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "DELETE" }),
+  // Conditional row colors (Oct 22 2026): the whole ordered list + the rev it was read at (409 = changed since).
+  putTaskProjectColorRules: (id, rules, rev) => req(`/task-projects/${id}/color-rules`, { method: "PUT", body: JSON.stringify({ rules, rev }) }),
   deleteTaskProject: (id) => req(`/task-projects/${id}`, { method: "DELETE" }),
+  // Follow a project (Oct 22 2026): yourself, or (owners / editors) someone else.
+  followTaskProject: (id) => req(`/task-projects/${id}/follow`, { method: "POST" }),
+  unfollowTaskProject: (id) => req(`/task-projects/${id}/follow`, { method: "DELETE" }),
+  addTaskProjectFollower: (id, email) => req(`/task-projects/${id}/followers`, { method: "POST", body: JSON.stringify({ email }) }),
+  removeTaskProjectFollower: (id, email) => req(`/task-projects/${id}/followers/${encodeURIComponent(email)}`, { method: "DELETE" }),
   // Department names only, readable by anyone in the task module (the People
   // module's own listing needs HR access) - see list_project_departments.
   getProjectDepartments: () => req("/task-projects/meta/departments"),
@@ -615,6 +640,8 @@ export const api = {
   createTaskCustomField: (data) => req("/task-custom-fields", { method: "POST", body: JSON.stringify(data) }),
   updateTaskCustomField: (id, data) => req(`/task-custom-fields/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskCustomField: (id) => req(`/task-custom-fields/${id}`, { method: "DELETE" }),
+  // Past the 409 that lists the formula columns using it (Oct 22 2026).
+  deleteTaskCustomFieldForced: (id) => req(`/task-custom-fields/${id}?force=true`, { method: "DELETE" }),
   // Tickets
   getTaskTickets: () => req("/task-tickets"),
   // The requester's own tickets, scoped server-side - the Support page's list.

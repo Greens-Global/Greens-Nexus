@@ -661,7 +661,8 @@ export default function HomeView({ onNavigate }) {
             {(notifications || []).slice(0, 6).map((n) => (
               <div key={n.id} style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{n.title}</span>
-                <span style={{ fontSize: 12, color: NX.dim }}>{n.body}</span>
+                {/* pre-line: a grouped notice (a followed project's day) is one line per event. */}
+                <span style={{ fontSize: 12, color: NX.dim, whiteSpace: 'pre-line' }}>{n.body}</span>
               </div>
             ))}
           </div>
