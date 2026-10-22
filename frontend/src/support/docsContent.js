@@ -1324,6 +1324,80 @@ export const DOCS = [
     tips: ['A claim is never deleted. Rejected and canceled claims stay on the record.', 'Receipts open through a short private link, only for the employee, the approver, their manager and HR.'],
   },
   {
+    id: 'workplace-notices', name: 'Workplace Notices', group: 'Modules', icon: 'FileText', view: 'myhr',
+    tagline: 'Your Employee Manual and the labor law notices for where you work, always current.',
+    where: 'Workday > Workplace Notices for everyone. People > Notices for HR.',
+    access: 'Everyone sees their own. HR (a company HR contact, an administrator or an Editor HR grant) prepares versions. A notice approver approves them: the people named in People > Notices > Settings, else HR. Nobody approves a version they worked on.',
+    purpose: 'Every worker can open, in one click, the Employee Manual (or, for India contractors, the Contractor Code of Conduct) and the labor law notices required where they work: federal, their state and their city. Nexus works out where each person works from their work sites, and never guesses. Every new version is approved by a second person before anyone sees it, and every notice given to a person, opened or acknowledged is kept as a dated record. The online copies add to the paper posters at the office and job sites; they do not replace them.',
+    gains: [
+      'One place for the manual and every required notice - no hunting through Egnyte.',
+      'Notices follow where you work: California, Texas, the City of San Diego, India.',
+      'Nothing goes stale: Nexus watches the official sources every night and HR approves each change.',
+      'Proof for an audit: who was given what, when, and who acknowledged which version.',
+    ],
+    walkthroughs: [
+      {
+        title: 'Read and Acknowledge the Manual',
+        steps: [
+          'Open Workday and click Workplace Notices.',
+          'Needs Your Attention lists what you still have to acknowledge, with the date it is due and what changed.',
+          'Click Read to open it, then Acknowledge, type your full name and click Acknowledge.',
+          'Every January everyone acknowledges the manual again, even when nothing changed.',
+        ],
+      },
+      {
+        title: 'Name an Emergency Contact (California)',
+        steps: [
+          'In Workplace Notices, find Emergency Contact If You Are Arrested Or Detained At Work.',
+          'Pick the emergency contact on your profile or name someone else, and when they should be told.',
+          'Click Save, or No Thanks. You can change it at any time.',
+        ],
+      },
+      {
+        title: 'Publish a New Version (HR)',
+        steps: [
+          'Open People > Notices and open the notice.',
+          'Click Prepare New Version, give it a label, the date it takes effect and what changed, and create the draft.',
+          'Add the file: Upload File, From Egnyte, or press Ctrl+V to paste an image. Then click Send For Approval.',
+          'Versions the watcher downloaded from the official source are already waiting in the Review Queue.',
+        ],
+      },
+      {
+        title: 'Approve a Version (Approver)',
+        steps: [
+          'Open People > Notices > Review Queue and open the notice.',
+          'Open the new file and compare it with the live one.',
+          'Set the date it takes effect (01/01 for a new year\'s wage poster) and click Approve, or Send Back with a note.',
+          'It goes live on its date. Everyone it applies to is told, and each site that needs the paper poster tells its lead.',
+        ],
+      },
+      {
+        title: 'Sign the Annual Notice Review (Approver)',
+        steps: [
+          'In December, open People > Notices > Annual Review.',
+          'Check what every notice will be on 01/01 and approve anything still waiting.',
+          'Type your full name and click Sign. A note is required while a notice still needs a file or an approval.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Workplace Notices (Workday)', desc: 'Your manual and policies, the notices posted for where you work grouped Federal / State / City, everything given to you, the Office Closure Calendar for India, and the posters at any site you lead.' },
+      { name: 'Library (People > Notices)', desc: 'Every notice with its status: Needs File, Source Changed, Awaiting Approval, Update Scheduled, Review Due, Current. Open one for its versions, history, Check Now, Send To People and Export Record.' },
+      { name: 'Coverage', desc: 'Who still owes an acknowledgment, who is overdue, new hires missing their at-hire notices, people Nexus cannot place, and the emergency contact question. Export any person\'s record, every delivery or every version as a spreadsheet.' },
+      { name: 'Location Unknown', desc: 'People whose state Nexus cannot tell. Give them a work site, or set where they work (a remote worker: the state they live in).' },
+      { name: 'Sites', desc: 'Each Location Library site with the paper posters it needs. Set its kind (office, construction job site, storage store), its lead and its city limits; confirm posters with a photo; print the QR sheet to hang beside them.' },
+      { name: 'Calendar', desc: 'The dates the law sets: 01/01 posters, the 02/01 Know Your Rights notice, the injury summary window, Time Off to Vote before each election, and each notice\'s review date. Approvers hear 30 and 7 days ahead.' },
+      { name: 'Annual Review', desc: 'The December sign-off of every notice for the coming year.' },
+      { name: 'Settings', desc: 'Notice approvers, counting every US company together for headcount limits, the January acknowledgment, E-Verify, Texas workers\' comp, election dates and the nightly watcher.' },
+    ],
+    tips: [
+      'Nothing is ever deleted: a notice is retired, a version withdrawn, and every delivery and acknowledgment stays on the record.',
+      'The watcher never publishes anything. It prepares the new official file and a person approves it.',
+      'Notices given at hire, every year and at separation are emailed with the file attached and listed under Given To You.',
+      'This is not legal advice: the starting list of notices is for the company lawyer to confirm.',
+    ],
+  },
+  {
     id: 'investor-relations', name: 'Investor Relations', group: 'Modules', icon: 'Landmark', view: 'investor-relations',
     tagline: 'Deals, investors, capital calls, distributions and investor documents.',
     where: 'Left menu > Investor Relations',

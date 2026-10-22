@@ -2853,6 +2853,11 @@ export const api = {
   setNoticeSite:         (id, body)  => req(`/notices/sites/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   myNoticeSites:         ()          => req('/notices/my-sites'),
   confirmNoticePosting:  (id, form)  => req(`/notices/sites/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: form }),
+  noticeCoverage:        ()          => req('/notices/coverage'),
+  exportNoticePerson:    (email)     => reqBlob(`/notices/export/person/${encodeURIComponent(email)}`),
+  exportNoticeRecord:    (id)        => reqBlob(`/notices/export/notice/${encodeURIComponent(id)}`),
+  exportNoticesAll:      ()          => reqBlob('/notices/export/all'),
+  exportNoticeVersions:  ()          => reqBlob('/notices/export/versions'),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

@@ -64,7 +64,7 @@ describe('Workday Overview with the Time Clock', () => {
     expect(await screen.findByText('Amy Test')).toBeTruthy();
     // Overview, Time Sheet, Time Off, Purchase Requests (Oct 22 2026) - no Clock tab.
     const tabs = [...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim());
-    expect(tabs).toEqual(['Overview', 'Time Sheet', 'Time Off', 'Purchase Requests']);
+    expect(tabs).toEqual(['Overview', 'Time Sheet', 'Time Off', 'Purchase Requests', 'Workplace Notices']);
   }, SLOW);
 
   it('sends an old Clock link to Overview and rewrites the address', async () => {
@@ -215,7 +215,7 @@ describe('Workday Overview with the Time Clock', () => {
     await screen.findByText('Amy Test');
     expect(screen.queryByRole('region', { name: 'Time Clock' })).toBeNull();
     expect(screen.queryByText('Hours · This Week')).toBeNull();
-    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toEqual(['Overview', 'Time Off', 'Purchase Requests']);
+    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toEqual(['Overview', 'Time Off', 'Purchase Requests', 'Workplace Notices']);
     expect(screen.getByText('Time Off This Year')).toBeTruthy();   // the rest of Overview is there
   }, SLOW);
 

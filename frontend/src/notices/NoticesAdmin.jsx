@@ -4,7 +4,7 @@
 // Activity. A notice opens in a 60vw popup with its versions.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle, ExternalLink, FileText, FolderOpen, MapPin, Plus, Search, Upload } from 'lucide-react';
-import { api } from '../api';
+import { api, saveBlob } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
@@ -22,6 +22,7 @@ const HD = { fontSize: 14, fontWeight: 700, color: 'var(--ink)' };
 const LBL = { fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' };
 const SECTIONS = [
   { key: 'library', label: 'Library' },
+  { key: 'coverage', label: 'Coverage' },
   { key: 'queue', label: 'Review Queue' },
   { key: 'unplaced', label: 'Location Unknown' },
   { key: 'sites', label: 'Sites' },
@@ -62,6 +63,7 @@ export default function NoticesAdmin({ toastOk, toastErr }) {
       </div>
       {section === 'library' && <Library data={data} onOpen={setOpenId} onCreated={(id) => { load(); setOpenId(id); }} toastErr={toastErr} />}
       {section === 'queue' && <Queue data={data} onOpen={setOpenId} />}
+      {section === 'coverage' && <Coverage toastErr={toastErr} />}
       {section === 'unplaced' && <Unplaced data={data} onSaved={load} toastOk={toastOk} toastErr={toastErr} />}
       {section === 'settings' && <Settings data={data} onSaved={load} toastOk={toastOk} toastErr={toastErr} />}
       {section === 'activity' && <Activity />}
@@ -263,6 +265,7 @@ function NoticeDetail({ id, canApprove, onClose, toastOk, toastErr }) {
     <Modal title={n.title} onClose={onClose}
       footer={<><button className="secondary-btn" onClick={retire} disabled={busy}>{n.status === 'active' ? 'Retire Notice' : 'Restore Notice'}</button>
         {n.live && n.kind !== 'form' && <button className="secondary-btn" onClick={() => setSending(true)} disabled={busy}>Send To People</button>}
+        <button className="secondary-btn" onClick={() => download(api.exportNoticeRecord(n.id), `workplace-notice-${n.id}.csv`, toastErr)} disabled={busy}>Export Record</button>
         <span style={{ flex: 1 }} /><button className="primary-btn" onClick={onClose}>Done</button></>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -613,6 +616,67 @@ function Settings({ data, onSaved, toastOk, toastErr }) {
         <input id="notice-elections" className="form-input" value={elections} onChange={e => setElections(e.target.value)} placeholder="2026-11-03, 2028-03-05" />
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>Dates as YYYY-MM-DD. Time Off to Vote shows from 10 days before each one.</span></label>
       <div><button className="primary-btn" onClick={save} disabled={busy}>Save Settings</button></div>
+    </div>
+  );
+}
+
+// ── Coverage (who still owes what) and the audit record ─────────────────────
+
+function download(p, name, toastErr) {
+  return p.then(({ blob, filename }) => saveBlob(blob, filename || name)).catch(e => toastErr?.(e?.message || 'Could not export.'));
+}
+
+function Coverage({ toastErr }) {
+  const [data, setData] = useState(null);
+  const [only, setOnly] = useState('open');
+  useEffect(() => { api.noticeCoverage().then(setData).catch(e => { toastErr?.(e?.message || 'Could not load coverage.'); setData({ people: [], totals: {} }); }); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  if (!data) return <SkeletonBlocks count={3} height={60} />;
+  const t = data.totals || {};
+  const open = (p) => p.owed.length || p.notGiven.length || p.emergency === 'open' || (p.country === 'US' && p.workerType === 'employee' && !p.state);
+  const rows = data.people.filter(p => only === 'all' || open(p));
+  const tile = (n, label, warn) => (
+    <div style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, padding: '10px 14px', minWidth: 130 }}>
+      <div style={{ fontSize: 22, fontWeight: 800, color: warn && n ? '#b91c1c' : 'var(--ink)' }}>{n ?? 0}</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</div>
+    </div>
+  );
+  return (
+    <div>
+      <div style={{ ...CARD, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        {tile(t.allDone, `of ${t.people || 0} people are complete`)}
+        {tile(t.owing, 'still owe an acknowledgment', false)}
+        {tile(t.overdue, 'are overdue', true)}
+        {tile(t.notGiven, 'new hires missing at-hire notices', true)}
+        {tile(t.unplaced, 'cannot be placed in a state', true)}
+        {tile(t.emergencyOpen, 'have not answered the emergency contact question')}
+        <span style={{ flex: 1 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button className="secondary-btn" onClick={() => download(api.exportNoticesAll(), 'workplace-notices-record.csv', toastErr)} style={{ fontSize: 12 }}>Export Every Delivery</button>
+          <button className="secondary-btn" onClick={() => download(api.exportNoticeVersions(), 'workplace-notice-versions.csv', toastErr)} style={{ fontSize: 12 }}>Export Every Version</button>
+        </div>
+      </div>
+      <div style={CARD}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+          <span style={HD}>People</span><span style={{ flex: 1 }} />
+          <button className={only === 'open' ? 'primary-btn' : 'secondary-btn'} onClick={() => setOnly('open')} style={{ fontSize: 12 }}>Needs Something</button>
+          <button className={only === 'all' ? 'primary-btn' : 'secondary-btn'} onClick={() => setOnly('all')} style={{ fontSize: 12 }}>Everyone</button>
+        </div>
+        {!rows.length && <div style={{ fontSize: 13, color: 'var(--muted)' }}>Everyone is complete.</div>}
+        {rows.map(p => (
+          <div key={p.email} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '9px 0', borderTop: '1px solid var(--wk-line2)', flexWrap: 'wrap' }}>
+            <span style={{ flex: '1 1 260px', fontSize: 13 }}>
+              <b>{p.name}</b> <span style={{ color: 'var(--muted)', fontSize: 12 }}>{p.country === 'IN' ? 'India' : p.state ? areaLabel(`US-${p.state}`) : 'Location unknown'}</span>
+              <span style={{ display: 'block', fontSize: 12.5, color: 'var(--muted)' }}>
+                {p.owed.map(o => `${o.title} ${o.overdue ? 'overdue since' : 'due'} ${day(o.due)}`).join('; ')}
+                {p.notGiven.length > 0 && `${p.owed.length ? ' - ' : ''}Not given: ${p.notGiven.join(', ')}`}
+                {p.emergency === 'open' && `${p.owed.length || p.notGiven.length ? ' - ' : ''}Emergency contact question open`}
+                {!p.owed.length && !p.notGiven.length && p.emergency !== 'open' && (p.state || p.country === 'IN') && 'Complete'}
+              </span>
+            </span>
+            <button className="secondary-btn" onClick={() => download(api.exportNoticePerson(p.email), `workplace-notices-${p.email.split('@')[0]}.csv`, toastErr)} style={{ fontSize: 12 }}>Export Record</button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

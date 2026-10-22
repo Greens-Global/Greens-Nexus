@@ -1152,3 +1152,158 @@ def posting_photo(pid: str, user: dict = Depends(get_current_user), db: Session 
     if not res.is_success:
         raise HTTPException(502, "Could not open the photo")
     return Response(content=res.content, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+
+
+# ── Coverage and the audit record ────────────────────────────────────────────
+
+def _hire_missing(db: Session, e, pc: dict, cfg: dict, rows: list, by: dict, delivered: set) -> list:
+    """At-hire notices this new hire has not been given (people who started
+    before the module are out of scope - they were onboarded on paper)."""
+    since = cfg.get("hireSince") or ""
+    if not e.start_date or not since or e.start_date[:10] < since:
+        return []
+    out = []
+    for n in rows:
+        if n.trigger in ("hire", "hire_annual") and n.mode in ("deliver", "both") and n.kind != "form" \
+                and core.applies(n, pc, cfg) and core.live_version(db, n.id, rows=by.get(n.id, [])) \
+                and (pc["email"], n.id) not in delivered:
+            out.append(n.title)
+    return out
+
+
+@router.get("/coverage")
+def coverage(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Per person: what they still owe, what they were not given, where they
+    are placed, and (California) the emergency contact question; plus the
+    totals HR reports on."""
+    _require_manage(db, user)
+    cfg = core.settings(db)
+    emps = core.active_people(db)
+    ctx = core.preload(db, emps)
+    rows = (db.query(models.WorkplaceNotice).filter(models.WorkplaceNotice.status == "active")
+            .order_by(models.WorkplaceNotice.sort).all())
+    by = _versions_by_notice(db)
+    numbers = core.version_numbers(db)
+    delivered = {(core.norm(e), n) for e, n in db.query(models.WorkplaceNoticeDelivery.email,
+                                                          models.WorkplaceNoticeDelivery.notice_id)
+                 .filter(models.WorkplaceNoticeDelivery.reason == "hire").all()}
+    sb = db.get(models.WorkplaceNotice, "ca-sb294")
+    people = []
+    for e in emps:
+        pc = core.person_context(db, e, ctx)
+        owed = core.owed(db, e, ctx, cfg, by, rows, numbers)
+        sb_row = ctx["people"].get(pc["email"])
+        people.append({
+            "email": pc["email"], "name": core.person_name(e), "company": pc["company"], "country": pc["country"],
+            "state": pc["state"], "stateLabel": pc["stateLabel"], "workerType": pc["workerType"],
+            "owed": [{"title": n.title, "due": st["due"], "overdue": st["overdue"], "reason": st["reason"]} for n, st in owed],
+            "notGiven": _hire_missing(db, e, pc, cfg, rows, by, delivered),
+            "emergency": ("" if not (sb is not None and core.applies(sb, pc, cfg))
+                          else ("answered" if (sb_row and (sb_row.sb294 or {}).get("answeredAt")) else "open")),
+        })
+    people.sort(key=lambda p: (-len([o for o in p["owed"] if o["overdue"]]), -len(p["owed"]), p["name"].lower()))
+    return {"people": people, "totals": {
+        "people": len(people), "allDone": sum(1 for p in people if not p["owed"] and not p["notGiven"]),
+        "owing": sum(1 for p in people if p["owed"]), "overdue": sum(1 for p in people if any(o["overdue"] for o in p["owed"])),
+        "notGiven": sum(1 for p in people if p["notGiven"]), "unplaced": sum(1 for p in people if p["country"] == "US" and p["workerType"] == "employee" and not p["state"]),
+        "emergencyOpen": sum(1 for p in people if p["emergency"] == "open")}}
+
+
+def _csv(name: str, header: list, rows: list) -> Response:
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(header)
+    for r in rows:
+        w.writerow(r)
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "private, no-store"})
+
+
+_REC_HEADER = ["Person", "Email", "Notice", "Form", "Version", "Version Effective", "What Happened", "Channel", "Sent To",
+               "Sent", "Opened", "Acknowledged", "Typed Name", "IP", "Device", "File Fingerprint (SHA-256)", "Email Error"]
+_WHAT = {"hire": "Given at hire", "annual": "Yearly notice", "separation": "Given at separation", "manual": "Sent by HR",
+         "acknowledge": "Acknowledged", "portal": "Opened in Nexus", "new_version": "New version"}
+
+
+def _us_dt(iso: str) -> str:
+    """MM/DD/YYYY hh:mm AM/PM UTC for the record (US format everywhere)."""
+    if not iso:
+        return ""
+    try:
+        from datetime import datetime as _dt
+        t = _dt.fromisoformat(iso.replace("Z", "+00:00"))
+        return t.strftime("%m/%d/%Y %I:%M %p UTC")
+    except ValueError:
+        return iso
+
+
+def _record_rows(db: Session, q) -> list:
+    titles = {n.id: (n.title, n.form_code or "") for n in db.query(models.WorkplaceNotice).all()}
+    vers = {v.id: v for v in db.query(models.WorkplaceNoticeVersion).all()}
+    cache: dict = {}
+    out = []
+    for r in q.order_by(models.WorkplaceNoticeDelivery.created_at).all():
+        v = vers.get(r.version_id)
+        t, f = titles.get(r.notice_id, ("", ""))
+        out.append([_name_of(db, r.email, cache), r.email, t, f, (v.label or f"Version {v.number}") if v else "",
+                    _us(v.effective_date) if v else "", _WHAT.get(r.reason, r.reason), r.channel, r.sent_to or "",
+                    _us_dt(r.sent_at), _us_dt(r.viewed_at), _us_dt(r.acknowledged_at), r.typed_name or "",
+                    r.ip or "", r.user_agent or "", r.content_hash or "", r.error or ""])
+    return out
+
+
+@router.get("/export/person/{email}")
+def export_person(email: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Everything one person was given, opened and acknowledged - the answer
+    to "show me what this employee received, and when"."""
+    me = _require_manage(db, user)
+    em = core.norm(email)
+    rows = _record_rows(db, db.query(models.WorkplaceNoticeDelivery).filter(models.WorkplaceNoticeDelivery.email == em))
+    core.log_event(db, me, "exported", scope="person", email=em, rows=len(rows))
+    db.commit()
+    return _csv(f"workplace-notices-{em.split('@')[0]}.csv", _REC_HEADER, rows)
+
+
+@router.get("/export/notice/{nid}")
+def export_notice(nid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Everyone a notice went to, and who acknowledged which version."""
+    me = _require_manage(db, user)
+    if db.get(models.WorkplaceNotice, nid) is None:
+        raise HTTPException(404, "Notice not found")
+    rows = _record_rows(db, db.query(models.WorkplaceNoticeDelivery).filter(models.WorkplaceNoticeDelivery.notice_id == nid))
+    core.log_event(db, me, "exported", nid, scope="notice", rows=len(rows))
+    db.commit()
+    return _csv(f"workplace-notice-{nid}.csv", _REC_HEADER, rows)
+
+
+@router.get("/export/all")
+def export_all(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    me = _require_manage(db, user)
+    rows = _record_rows(db, db.query(models.WorkplaceNoticeDelivery))
+    core.log_event(db, me, "exported", scope="all", rows=len(rows))
+    db.commit()
+    return _csv("workplace-notices-record.csv", _REC_HEADER, rows)
+
+
+@router.get("/export/versions")
+def export_versions(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Every version of every notice: when it was in effect, who prepared and
+    approved it, and the fingerprint of each file."""
+    me = _require_manage(db, user)
+    titles = {n.id: (n.title, n.form_code or "", n.area) for n in db.query(models.WorkplaceNotice).all()}
+    cache: dict = {}
+    rows = []
+    for v in (db.query(models.WorkplaceNoticeVersion)
+              .order_by(models.WorkplaceNoticeVersion.notice_id, models.WorkplaceNoticeVersion.number).all()):
+        t, f, a = titles.get(v.notice_id, ("", "", ""))
+        rows.append([t, f, a, v.number, v.label or "", STATUS_LABEL.get(v.status, v.status), _us(v.effective_date),
+                     v.agency_revision or "", v.summary or "", _name_of(db, v.prepared_by, cache) or v.prepared_by,
+                     _us_dt(v.prepared_at), _name_of(db, v.approved_by, cache), _us_dt(v.approved_at), v.origin or "",
+                     "; ".join(f"{x.get('lang')}:{x.get('sha256', '')}" for x in (v.files or []))])
+    core.log_event(db, me, "exported", scope="versions", rows=len(rows))
+    db.commit()
+    return _csv("workplace-notice-versions.csv",
+                ["Notice", "Form", "Area", "Number", "Label", "Status", "Effective", "Agency Revision", "What Changed",
+                 "Prepared By", "Prepared", "Approved By", "Approved", "Origin", "Files (language:SHA-256)"], rows)
