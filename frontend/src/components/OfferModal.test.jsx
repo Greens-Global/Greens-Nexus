@@ -12,7 +12,9 @@ const letter = { id: 's-offer', name: 'US Employee Offer', documents: ['Offer Of
   hrQuestions: [{ token: 'probation_period', label: 'Probation Period', type: 'text', required: true, pay: false, options: [] },
                 { token: 'joining_bonus', label: 'Joining Bonus', type: 'text', required: false, pay: true, options: [] }] };
 const packet = { id: 's-hire', name: 'Analyst Hiring', documents: ['NDA'], problems: [], prints: [], hrQuestions: [], personQuestions: ['PAN Number'] };
+const head = { current: { email: 'ada@x.com', name: 'Ada Lee' } };
 const offerOptions = vi.fn((cid, p) => Promise.resolve({
+  offerFrom: { hr: { email: 'hana@x.com', name: 'Hana Lee' }, department_head: head.current, department: 'Accounting' },
   country: 'US', companyCountry: 'US', choices: [{ id: 's-offer', name: 'US Employee Offer', workerType: 'employee', country: 'US' }],
   offerLetter: p.worker_type === 'employee' ? letter : null,
   hiringPacket: p.worker_type === 'employee' ? packet : null,
@@ -68,6 +70,39 @@ describe('OfferModal', () => {
       work_location: 'Irvine, CA', merge: { probation_period: '90 days' } });
     expect(body.pay_values).toEqual({ joining_bonus: '$2,000' });            // pay never goes in merge
     expect(body.pay).toMatchObject({ base: 85000, payBasis: 'salary' });
+  });
+
+  // Neil, Oct 22: Supervisor keeps its name with a Reports To tip; the offer
+  // comes from the head of HR unless HR picks the department head.
+  it('Supervisor says Reports To, and the offer comes from Head of HR or the department head', async () => {
+    startOffer.mockClear();
+    render(<OfferModal candidate={cand} canSeePay={false} onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    fireEvent.click(await screen.findByRole('radio', { name: 'Employee' }));
+    await waitFor(() => expect(screen.getByText('US Employee Offer')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
+    next();
+    expect(screen.getByText(/Reports To - the person this hire reports to day to day/)).toBeTruthy();
+    const from = screen.getByLabelText('Offer Comes From');
+    expect(from.value).toBe('hr');
+    expect(screen.getByText('Head of HR - Hana Lee')).toBeTruthy();
+    fireEvent.change(from, { target: { value: 'department_head' } });
+    next();
+    fireEvent.change(screen.getByLabelText('Probation Period *'), { target: { value: '90 days' } });
+    fireEvent.click(screen.getByText('Create Offer Letter'));
+    await waitFor(() => expect(startOffer).toHaveBeenCalled());
+    expect(startOffer.mock.calls[0][1].inputs.offer_from).toBe('department_head');
+  });
+
+  it('no department head: that choice is off and says why', async () => {
+    head.current = null;
+    render(<OfferModal candidate={cand} canSeePay={false} onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    fireEvent.click(await screen.findByRole('radio', { name: 'Employee' }));
+    await waitFor(() => expect(screen.getByText('US Employee Offer')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
+    next();
+    expect(screen.getByText('Department Head - none set up').disabled).toBe(true);
+    expect(screen.getByText(/The Accounting department has no head set up/)).toBeTruthy();
+    head.current = { email: 'ada@x.com', name: 'Ada Lee' };
   });
 
   it('hides pay from someone without Pay & Benefits', async () => {

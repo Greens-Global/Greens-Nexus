@@ -633,6 +633,11 @@ def event_values(db: Session, kind: str, d: dict) -> dict:
                     "work_location": d.get("work_location", ""), "work_country": _country_name(d.get("country", ""))})
         if d.get("manager_email"):
             out["manager"] = out["supervisor"] = name_of(db, d["manager_email"])
+        if kind == "offer" and d.get("offer_from_email"):
+            # Offer Comes From (Neil, Oct 22): the name the letter closes with.
+            p = person(db, d["offer_from_email"])
+            title = ((p.job_title or p.designation) if p else "") or ""
+            out["signatory"] = ", ".join(x for x in (name_of(db, d["offer_from_email"]), title.strip()) if x)
         if d.get("employee_code"):
             out["employee_code"] = d["employee_code"]
     elif kind == "promotion":

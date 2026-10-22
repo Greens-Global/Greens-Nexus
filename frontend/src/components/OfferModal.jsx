@@ -16,7 +16,7 @@
 //     hired, and the hiring packet starts by itself.
 // Problems show only when Continue is pressed, on the step they belong to.
 import { useEffect, useMemo, useState } from 'react';
-import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check } from 'lucide-react';
+import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info } from 'lucide-react';
 import { api } from '../api';
 import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
@@ -37,6 +37,7 @@ const h2 = { fontSize: 17, fontWeight: 800, margin: '22px 0 4px', color: 'var(--
 const lead = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, margin: 0 };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 18px' };
 const card = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' };
+const REPORTS_TO = 'Reports To - the person this hire reports to day to day. They become the manager on the profile.';
 const smallBtn = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 };
 
 function Warn({ children }) {
@@ -75,6 +76,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
     // A week is the usual window - still HR's call.
     offer_expires: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
     manager_email: '', work_location: '',
+    offer_from: 'hr',          // Offer Comes From (Neil, Oct 22): Head of HR, or the department head
   }));
   const [person, setPerson] = useState({ first_name: c.firstName || '', last_name: c.lastName || '', address: '' });
   const [timing, setTiming] = useState({ work_start: '09:00', work_end: '17:00', work_days: ['mon', 'tue', 'wed', 'thu', 'fri'], timings_text: '' });
@@ -120,6 +122,9 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
     return [...(letter?.hrQuestions || []), ...(packet?.hrQuestions || [])].filter(q => !seen.has(q.token) && seen.add(q.token));
   }, [letter, packet]);
   const manager = people.find(p => p.email === f.manager_email);
+  const from = opts?.offerFrom || {};
+  // A role whose department has no head: back to Head of HR, never a refused send.
+  useEffect(() => { if (opts && !opts.offerFrom?.department_head?.email) setF(p => (p.offer_from === 'hr' ? p : { ...p, offer_from: 'hr' })); }, [opts]);
   const contractor = who.worker_type === 'contractor';
   const countries = useMemo(() => [...new Set([opts?.companyCountry, 'US', 'IN', who.country].filter(Boolean))], [opts, who.country]);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
@@ -281,13 +286,30 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           <div style={{ gridColumn: '1 / -1' }}><label style={lbl} htmlFor="of-loc">Primary Work Location</label>
             <input id="of-loc" className="form-input" style={{ width: '100%' }} value={f.work_location} onChange={e => set('work_location', e.target.value)} placeholder="e.g. Irvine, CA - or Remote" /></div>
         )}
-        <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Supervisor</label>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={{ ...lbl, display: 'flex', alignItems: 'center', gap: 6 }} title={REPORTS_TO}>
+            Supervisor <Info size={13} aria-label={REPORTS_TO} style={{ color: 'var(--muted)', cursor: 'help' }} />
+          </label>
           {manager ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 13.5, fontWeight: 600 }}>{manager.name || manager.email}</span>
               <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => set('manager_email', '')}>Change</button>
             </div>
           ) : <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people }]} onPick={v => set('manager_email', v)} />}
+          <div style={hint}>{REPORTS_TO}</div>
+        </div>
+        <div style={{ gridColumn: '1 / -1' }}><label style={lbl} htmlFor="of-from">Offer Comes From</label>
+          <select id="of-from" className="form-input" style={{ width: '100%' }} value={f.offer_from} onChange={e => set('offer_from', e.target.value)}>
+            <option value="hr">Head of HR{from.hr?.name ? ` - ${from.hr.name}` : ''}</option>
+            <option value="department_head" disabled={!from.department_head?.email}>
+              Department Head{from.department_head?.name ? ` - ${from.department_head.name}` : ' - none set up'}
+            </option>
+          </select>
+          <div style={hint}>
+            {!from.department_head?.email
+              ? `${from.department ? `The ${from.department} department` : 'This department'} has no head set up (Company Settings > Departments), so the offer comes from HR.`
+              : 'The letter closes with their name and the offer email comes from them. It still says who they report to.'}
+          </div>
         </div>
       </div>
 

@@ -1028,7 +1028,37 @@ def offer_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
     country = re.sub(r"[^A-Za-z]", "", str(inputs.get("country") or "")).upper()[:2] or country_of(db, cand.company)
     d.update({"worker_type": wt, "country": country,
               "work_location": re.sub(r"[\x00-\x1f\x7f]", "", str(inputs.get("work_location") or "")).strip()[:200]})
+    frm = "department_head" if inputs.get("offer_from") == "department_head" else "hr"
+    email = offer_from_people(db, cand.company, d["department"])[frm]
+    if frm == "department_head" and not email:
+        dept = f"The {d['department']} department" if d["department"] else "This role's department"
+        raise PacketError(f"{dept} has no head set up - choose Head of HR, or set the head under "
+                          f"Company Settings > Departments.")
+    d.update({"offer_from": frm, "offer_from_email": email})
     return d
+
+
+def offer_from_people(db: Session, company: str, department: str) -> dict:
+    """Who an offer comes from (Neil, Oct 22): {"hr": the head of HR - the
+    company's HR department head, else its HR contact; "department_head": the
+    head of the role's department}. '' = nobody set up (or no longer here)."""
+    from models import HrDepartment
+    from hiring_screening import _person
+    want = (department or "").strip().lower()
+    hr = head = ""
+    for row in db.query(HrDepartment).filter(HrDepartment.company_id == (company or "")).all():
+        name, lead = (row.name or "").strip().lower(), (row.lead_email or "").strip().lower()
+        if not _person(db, lead):
+            continue
+        if name in ("hr", "human resources") and not hr:
+            hr = lead
+        if want and name == want:
+            head = lead
+    if not hr:
+        ent = db.query(HrEntity).filter(HrEntity.id == company).first() if company else None
+        contact = ((ent.hr_contact_email if ent else "") or "").strip().lower()
+        hr = contact if _person(db, contact) else ""
+    return {"hr": hr, "department_head": head}
 
 
 def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", role_id: str = "") -> Optional[dict]:
@@ -1074,6 +1104,10 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
     department = (role.department if role is not None else "") or department or cand.department or ""
     out["offerLetter"] = _describe(db, letter, department, role_id)
     out["hiringPacket"] = _describe(db, packet, department, role_id)
+    from hr_packet_docs import name_of
+    out["offerFrom"] = {k: {"email": e, "name": name_of(db, e) if e else ""}
+                        for k, e in offer_from_people(db, cand.company, department).items()}
+    out["offerFrom"]["department"] = department
     if letter is None:
         out["missing"] = (f"No offer letter is set up for {kind_of_hire(wt, country)} at {company} yet - add one "
                           f"under Settings > Hiring > Hiring Documents > Offer Letter.")
