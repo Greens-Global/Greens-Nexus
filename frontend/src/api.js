@@ -2850,6 +2850,8 @@ export const api = {
     service: "", tags: (d.tags || []).join(","), body: { purpose: d.summary || "" }, content_text: d.summary || "",
   }))),
   kbCorpusCourses: () => req("/kb/courses").then((rows) => (rows || []).map((c) => ({ ...c, course_code: c.code, overview: [] }))),
+  // What The New Hire Will Be Asked - the packet editor's unsaved documents and form
+  packetIntakePreview: (data) => req('/hr/packets/intake-preview', { method: 'POST', body: JSON.stringify(data) }),
 
 };
 

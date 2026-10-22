@@ -442,6 +442,26 @@ def _once_holder_or_403(db: Session, setting: HrPacketSetting, step_key: str, en
                                  f"({s['roleLabel']}) can sign this packet once.")
 
 
+class IntakePreviewIn(BaseModel):
+    doc_template_ids: Optional[list] = None
+    extra_docs:       Optional[list] = None      # [{templateIds}] - the team / role documents
+    details_form:     Optional[list] = None
+
+
+@router.post("/packets/intake-preview")
+def packet_intake_preview(body: IntakePreviewIn, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """What The New Hire Will Be Asked, for the packet editor's unsaved
+    state - computed by the intake page's own rules. Nothing is saved."""
+    ids = [str(t) for t in (body.doc_template_ids or [])]
+    for r in body.extra_docs or []:
+        if isinstance(r, dict):
+            ids += [str(t) for t in (r.get("templateIds") or [])]
+    try:
+        return hpd.intake_preview(db, ids, body.details_form or [])
+    except hpd.PacketProblem as e:
+        raise HTTPException(400, str(e))
+
+
 @router.get("/packets/{sid}/readiness")
 def packet_readiness(sid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """The packet's Ready To Send checklist, read again after a fix."""

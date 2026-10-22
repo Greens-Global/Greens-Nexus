@@ -98,6 +98,34 @@ class SourceTests(ReviewCase):
         self.assertEqual(ev.status, "review")
         self.assertEqual(ev.intake["answers"]["pan_number"], "ABCDE1234F")
 
+    def test_what_the_new_hire_will_be_asked_is_the_intake_pages_own_list(self):
+        # The editor's unsaved state: a document twice, a team document, and
+        # packet-only fields - one of them a variable the NDA also asks for.
+        r = self.client.post("/hr/packets/intake-preview", json={
+            "doc_template_ids": ["t-offer", "t-nda"], "extra_docs": [{"templateIds": ["t-nda"]}],
+            "details_form": [{"label": "Nationality", "type": "text", "required": True},
+                             {"label": "Bank Name", "type": "text"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        out = r.json()
+        self.assertEqual([f["key"] for f in out["standard"]][:4], ["first_name", "last_name", "preferred_name", "phone"])
+        self.assertTrue(next(f for f in out["standard"] if f["key"] == "address")["required"])
+        by = {f["key"]: f for f in out["form"]}
+        self.assertEqual(list(by), ["nationality", "bank_name", "pan_number"])        # each once
+        self.assertEqual((by["pan_number"]["documents"], by["pan_number"]["packetOnly"]), (["NDA"], False))
+        self.assertTrue(by["pan_number"]["sensitive"])                                 # Private kept
+        self.assertEqual((by["nationality"]["documents"], by["nationality"]["packetOnly"]), ([], True))
+        self.assertEqual(by["bank_name"]["documents"], ["NDA"])
+        self.assertEqual([(q["token"], q["documents"]) for q in out["hrAtOffer"]], [("probation_period", ["NDA"])])
+        # With no extra fields it is exactly the form the saved packet's link shows.
+        bare = self.client.post("/hr/packets/intake-preview", json={"doc_template_ids": ["t-offer", "t-nda"]}).json()
+        self.assertEqual([f["key"] for f in bare["form"]], ["pan_number", "bank_name"])
+
+    def test_a_field_that_would_not_save_says_why(self):
+        r = self.client.post("/hr/packets/intake-preview", json={"doc_template_ids": ["t-nda"],
+                                                                 "details_form": [{"label": "Phone"}]})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("already fills", r.json()["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -35,6 +35,7 @@ import { flowFor, keyLabel, formKey, readinessSummary } from '../lib/packetFlow'
 import { Spinner } from './AsyncState';
 import SignOnceModal from './SignOnceModal';
 import PacketReadiness from './PacketReadiness';
+import PacketIntakePanel from './PacketIntakePanel';
 import { formatDate } from '../lib/datetime';
 
 // Roomy, plain: normal-case labels, one short hint only where it helps.
@@ -367,7 +368,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
         <button type="button" className="primary-btn" disabled={!adding} onClick={() => { setDocs([...p.docIds, adding]); setAdding(''); }} style={smallBtn}><Plus size={13} /> Add Document</button>
       </div>
 
-      {(asked.person.length > 0 || asked.hr.length > 0) && (
+      {event !== 'hire' && (asked.person.length > 0 || asked.hr.length > 0) && (
         <div style={{ ...card, marginTop: 18, background: 'var(--mist)', fontSize: 13, lineHeight: 1.6 }}>
           {asked.hr.length > 0 && <div><b>HR answers when making the offer:</b> {asked.hr.join(', ')}</div>}
           {asked.person.length > 0 && <div><b>The {who} is asked on their form:</b> {asked.person.join(', ')}</div>}
@@ -422,8 +423,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
       )}
 
       {event === 'hire' && (
-        <More title={`Ask the new hire for more on their form${p.detailsForm.length ? ` (${p.detailsForm.length})` : ''}`} open={p.detailsForm.length > 0 || wanted.length > 0}>
-          <div style={hint}>Name, phone, address and emergency contact are always asked, and so is anything the templates mark Ask The Person. Add fields here only for something else - each one is a variable the templates can print.</div>
+        <PacketIntakePanel docIds={p.docIds} extraDocs={p.extraDocs} detailsForm={p.detailsForm} companyName={companyName}>
           {wanted.length > 0 && (
             <div style={{ border: '1.5px dashed var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 10, fontSize: 13 }}>
               Your documents print these, and nothing fills them yet:
@@ -474,7 +474,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
             <button type="button" className="secondary-btn" onClick={() => addField({})} style={smallBtn}><Plus size={12} /> Add Field</button>
             <button type="button" className="secondary-btn" onClick={() => addField({ type: 'heading' })} style={smallBtn}><Heading size={12} /> Add Section Heading</button>
           </div>
-        </More>
+        </PacketIntakePanel>
       )}
     </>
   );

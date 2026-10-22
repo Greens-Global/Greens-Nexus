@@ -1454,6 +1454,7 @@ export const DOCS = [
           "Easier: mark the variable in the template itself (From Word File, Template Fields or the variable's own editor) as Ask The Person - it goes on their form by itself, asked once however many documents print it, and Private keeps it to Pay & Benefits. HR Answers At Offer variables are asked on Make An Offer. The packet lists both under its documents.",
           "Hired As and Works In pick the packet the same way as an offer letter - for example one packet for India contractors, one for US employees.",
           "Added For A Team Or Role: the documents that change by team - each team's own confidentiality agreement - go here, so one packet covers every role. Pick Team (department) or Role, then the documents; they are added only for people in that team or role.",
+          "What The New Hire Will Be Asked (on the Documents step) lists the whole intake form as you build the packet: Always Asked (name, phone, address, emergency contact), From The Documents (every field a template marks The New Hire (Intake Form), with the documents that print it and a Private chip) and Also Ask (Saved To Their Record, Not Printed In A Document) - the packet's own extra fields, edited right there. Filled At The Offer By HR lists what Make An Offer will ask. Preview Intake Form shows exactly the page the new hire sees; nothing is sent.",
           "Where an offer letter is set up, the hiring packet is never sent at Offer: it starts by itself once the offer is signed (Make an Offer above).",
         ],
       },

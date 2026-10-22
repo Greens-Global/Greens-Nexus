@@ -14,6 +14,7 @@ vi.mock('../api', () => ({
     getDocLetterheads: () => Promise.resolve([]),
     saveDocumentsPacket: (...a) => save(...a),
     packetReadiness: () => Promise.resolve({ readiness: [] }),
+    packetIntakePreview: () => Promise.resolve({ standard: [], form: [], hrAtOffer: [], problems: [] }),
     getPeopleDirectory: () => Promise.resolve([]),
     signOnceStatus: () => Promise.resolve([{ key: 'company', roleLabel: 'HR', name: 'Charmi Shah', email: 'charmi@x.com', signed: false, isMe: true }]),
   },
