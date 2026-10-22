@@ -7942,3 +7942,170 @@ class KbReminderLog(Base):
     recipient  = Column(String, default="", index=True)
     day        = Column(String, default="")
     created_at = Column(String, default="")
+
+
+# ── Workplace Notices + Employee Manual (Neil, Oct 21 2026; notices.py) ──────
+# Every worker sees the manual and the labor law notices for where they work;
+# HR approves each version (two people); every delivery and acknowledgment is
+# a dated record. Nothing here is ever deleted - a notice is retired, a
+# version is retired, a delivery row stays. New tables: RLS lines in main.py.
+
+class WorkplaceNotice(Base):
+    """One notice, poster, handout or manual. Catalog rows (notices_catalog.py)
+    keep their slug id; HR-added ones get a uuid. `applies` is the rule for who
+    it is for (notices.applies)."""
+    __tablename__ = "workplace_notices"
+    id            = Column(String, primary_key=True)
+    title         = Column(String, default="")
+    form_code     = Column(String, default="")      # the agency's form number, e.g. "DWC 7"
+    agency        = Column(String, default="")
+    kind          = Column(String, default="poster")  # poster | handout | form | manual | addendum | policy | contractor_code | closures
+    area          = Column(String, default="US")    # US | US-CA | US-CA:SAN DIEGO | US-TX | IN
+    mode          = Column(String, default="post")  # post | deliver | both | read
+    trigger       = Column(String, default="always")  # always | hire | annual | hire_annual | separation | event | election | window
+    annual_due    = Column(String, default="")      # MM-DD for annual deliveries ("02-01")
+    window        = Column(JSON, default=list)      # ["02-01", "04-30"] for a seasonal posting
+    applies       = Column(JSON, default=dict)
+    requires_ack  = Column(Boolean, default=False)
+    languages     = Column(JSON, default=list)      # languages the agency publishes
+    source_url    = Column(String, default="")      # the official file or page the watcher checks
+    notes         = Column(Text, default="")
+    sort          = Column(Integer, default=0)
+    status        = Column(String, default="active")  # active | retired
+    review_every_months = Column(Integer, default=12)
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_by    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class WorkplaceNoticeVersion(Base):
+    """One version of a notice: its files, effective date and the two people
+    who prepared and approved it. Approved = frozen. The live version is the
+    newest approved one whose effective date has come (computed on read)."""
+    __tablename__ = "workplace_notice_versions"
+    id            = Column(String, primary_key=True)
+    notice_id     = Column(String, index=True)
+    number        = Column(Integer, default=1)
+    label         = Column(String, default="")      # "2027", "v4"
+    major         = Column(Boolean, default=True)   # major = everyone acknowledges again
+    files         = Column(JSON, default=list)      # [{lang, path, name, size, sha256}]
+    agency_revision = Column(String, default="")    # the date or code printed on the agency's form
+    effective_date = Column(String, default="")     # YYYY-MM-DD
+    summary       = Column(Text, default="")        # what changed, in plain words
+    status        = Column(String, default="draft", index=True)  # draft | in_review | approved | rejected | retired
+    origin        = Column(String, default="manual")  # manual | watcher | egnyte
+    source_hash   = Column(String, default="")      # the watcher's fingerprint of the source it came from
+    prepared_by   = Column(String, default="")
+    prepared_at   = Column(String, default="")
+    submitted_at  = Column(String, default="")
+    approved_by   = Column(String, default="")
+    approved_at   = Column(String, default="")
+    review_note   = Column(Text, default="")
+    retired_at    = Column(String, default="")
+    announced_at  = Column(String, default="")      # when the "new version" bells and site tasks went out
+
+
+class WorkplaceNoticeDelivery(Base):
+    """One person's copy of one version: sent, opened, acknowledged. The proof
+    a regulator asks for (SB 294 keeps 3 years; we keep everything)."""
+    __tablename__ = "workplace_notice_deliveries"
+    id            = Column(String, primary_key=True)
+    notice_id     = Column(String, index=True)
+    version_id    = Column(String, index=True)
+    email         = Column(String, index=True)
+    reason        = Column(String, default="")      # hire | annual | separation | new_version | yearly_ack | manual | portal
+    cycle         = Column(String, default="")      # "2027" for a yearly round
+    channel       = Column(String, default="portal")  # portal | email
+    sent_to       = Column(String, default="")      # the address an email went to
+    lang          = Column(String, default="en")
+    due_date      = Column(String, default="")      # YYYY-MM-DD, for an acknowledgment
+    sent_at       = Column(String, default="")
+    viewed_at     = Column(String, default="")
+    acknowledged_at = Column(String, default="")
+    typed_name    = Column(String, default="")
+    ip            = Column(String, default="")
+    user_agent    = Column(String, default="")
+    content_hash  = Column(String, default="")      # sha256 of the file acknowledged
+    error         = Column(String, default="")      # why an email did not go
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+
+
+class WorkplaceNoticeSite(Base):
+    """What the notices need to know about a Location Library site: its kind
+    (wage orders and job-site notices follow it), the city whose limits it is
+    in when the mailing city differs, and who confirms the paper posters."""
+    __tablename__ = "workplace_notice_sites"
+    site_id       = Column(String, primary_key=True)   # HrWorkSite.id
+    kind          = Column(String, default="")      # office | jobsite | storage
+    city          = Column(String, default="")      # override of the address's city
+    lead_email    = Column(String, default="")
+    updated_by    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class WorkplaceNoticePosting(Base):
+    """A paper poster to put up at a site, then confirmed with a photo."""
+    __tablename__ = "workplace_notice_postings"
+    id            = Column(String, primary_key=True)
+    site_id       = Column(String, index=True)
+    notice_id     = Column(String, index=True)
+    version_id    = Column(String, index=True)
+    status        = Column(String, default="pending")  # pending | confirmed
+    photo_path    = Column(String, default="")
+    note          = Column(Text, default="")
+    confirmed_by  = Column(String, default="")
+    confirmed_at  = Column(String, default="")
+    created_at    = Column(String, default="")
+
+
+class WorkplaceNoticeSource(Base):
+    """An official page or file the nightly watcher fingerprints."""
+    __tablename__ = "workplace_notice_sources"
+    notice_id     = Column(String, primary_key=True)
+    url           = Column(String, default="")
+    last_hash     = Column(String, default="")
+    last_checked_at = Column(String, default="")
+    last_changed_at = Column(String, default="")
+    last_error    = Column(String, default="")
+    fail_count    = Column(Integer, default=0)
+
+
+class WorkplaceNoticePerson(Base):
+    """Per person: where notices place them when Nexus cannot tell (a remote
+    worker's home state), their language, and the SB 294 emergency contact
+    choices (LC 1555)."""
+    __tablename__ = "workplace_notice_people"
+    email         = Column(String, primary_key=True)
+    notice_state  = Column(String, default="")      # 2-letter override
+    notice_city   = Column(String, default="")
+    language      = Column(String, default="")      # "" = English
+    sb294         = Column(JSON, default=dict)      # {useProfile, name, phone, relationship, worksite, offsite, answeredAt, history}
+    updated_by    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class WorkplaceNoticeEvent(Base):
+    """Append-only log: every change, approval, publish, delivery batch and export."""
+    __tablename__ = "workplace_notice_events"
+    id            = Column(String, primary_key=True)
+    at            = Column(String, default="", index=True)
+    actor         = Column(String, default="")
+    action        = Column(String, default="")
+    notice_id     = Column(String, default="", index=True)
+    version_id    = Column(String, default="")
+    detail        = Column(JSON, default=dict)
+
+
+class WorkplaceNoticeReview(Base):
+    """The December sign-off of every notice for the coming year."""
+    __tablename__ = "workplace_notice_reviews"
+    id            = Column(String, primary_key=True)   # the year it covers, "2027"
+    status        = Column(String, default="open")  # open | signed
+    items         = Column(JSON, default=list)      # snapshot at signing
+    signed_by     = Column(String, default="")
+    typed_name    = Column(String, default="")
+    signed_at     = Column(String, default="")
+    note          = Column(Text, default="")
+    opened_at     = Column(String, default="")

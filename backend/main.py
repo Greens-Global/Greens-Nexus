@@ -2853,6 +2853,17 @@ def _run_migrations():
         "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS vendor_name VARCHAR DEFAULT ''",
         # Contractor invoices (Oct 21): the company's payer emails. models.HrEntity.
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS invoice_recipients JSONB DEFAULT '[]'::jsonb",
+        # Workplace Notices + Employee Manual (Neil, Oct 21 2026, notices.py) -
+        # nine new tables, explicit RLS on top of the _enable_rls_everywhere sweep.
+        "ALTER TABLE workplace_notices ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workplace_notice_versions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workplace_notice_deliveries ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workplace_notice_sites ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workplace_notice_postings ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workplace_notice_sources ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workplace_notice_people ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workplace_notice_events ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE workplace_notice_reviews ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
