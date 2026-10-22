@@ -33,6 +33,10 @@ from routers.task_util import (
     task_assignees, set_task_assignees,
     purge_task_permanently, assert_person_on_task, COMMENT_REACTIONS,
     extract_mentions,
+    assert_task_wall, require_project_access, wall_rows, wall_teams,
+    config_admits, config_company_for_new, assert_config_editable,
+    task_visible_to, assert_person_assignable, project_role_for, PROJECT_ROLE_RANK, row_company,
+    split_people, note_dropped_people,
 )
 from task_notify import notify_task_event
 import task_due
@@ -331,15 +335,10 @@ def _wall_task(db: Session, user: dict, task_id: str) -> models.Task:
     subtask carries no project of its own, so it is also admitted through the
     project its top-level ancestor sits in.
     """
-    import auth
     t = _get_task(db, task_id)
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
-    if not is_manager(user):
-        visible = visible_project_ids(db, user)
-        if not task_is_visible(t, user, visible):
-            proj = project_for_task(db, t) if not t.project_id else None
-            if not (proj and proj.id in visible):
-                raise HTTPException(404, "Task not found")
+    assert_task_wall(db, user, t)
+    if not task_visible_to(db, user, t):   # one rule with require_task_role
+        raise HTTPException(404, "Task not found")
     return t
 
 
@@ -522,6 +521,151 @@ def validate_task_payload(db: Session, data: dict, task_id: str = "") -> dict:
     return data
 
 
+def _require_dependency_targets(db: Session, user: dict, t, data: dict, task_id: str = "") -> None:
+    """The other end of every dependency edge this payload changes must be a
+    task the caller can see AND edit (Oct 21 2026). Writing blocked_by_ids
+    writes the other task's blocking_ids, and writing blocking_ids writes the
+    other task's blocked_by_ids - the side the completion gate reads - so it
+    could stall (or release) somebody else's work, or probe for tasks by id.
+
+    blocked_by_ids: each ADDED blocker is checked. Removing one only ever
+    un-gates your own task, and must stay possible even when the blocker has
+    since moved out of your sight - otherwise a task could be left gated
+    forever by something nobody on it can open.
+    blocking_ids: added AND removed ids are checked - either way it changes
+    the other task's own gate.
+
+    require_task_role does the work: company wall (404), role (403), sight
+    (404). `t` is None on create, where every id is new. The cycle guard in
+    validate_task_payload is unchanged and runs first."""
+    for field, check_removed in (("blocked_by_ids", False), ("blocking_ids", True)):
+        if field not in data or data[field] is None:
+            continue
+        before = {i for i in ((getattr(t, field) or []) if t is not None else []) if i}
+        after = {i for i in (data[field] or []) if i}
+        changed = (after - before) | ((before - after) if check_removed else set())
+        changed.discard(task_id or (t.id if t is not None else ""))
+        if not changed:
+            continue
+        for other in db.query(models.Task).filter(models.Task.id.in_(changed)).all():
+            require_task_role(db, user, other, "editor")
+
+
+def _require_people(db: Session, t, emails, actor: str = "", user=None, emp_map: dict | None = None) -> None:
+    """For an EDIT (PATCH, bulk): every NEWLY added assignee / collaborator
+    must be in the Nexus directory and not offboarded - and, behind the
+    company wall only, on the task's side of it (task_util.person_problem);
+    422 naming them otherwise. People already on the task are never
+    re-checked, so a task still holding somebody who has since left stays
+    editable. The caller themselves is not checked - they are signed in, and
+    following or taking a task you can already edit must keep working for an
+    account the People list does not carry. Create paths drop instead of
+    refusing (split_people)."""
+    me = (actor or "").strip().lower()
+    names = [w for w in (str(x or "").strip().lower() for x in (emails or [])) if w and w != me]
+    if not names:
+        return
+    # No directory-wide map here: person_problem gets it once per request,
+    # and only when the company wall applies (task_util.people_wall).
+    for w in names:
+        assert_person_assignable(db, t, w, user=user, emp_map=emp_map)
+
+
+def _may_open_up(db: Session, user: dict, t) -> bool:
+    """Who may widen a task from restricted to org-wide (Oct 21 2026): a
+    manager, the task's owner or creator, or an editor-or-better of its
+    project by the project's OWN roles. Not an assignee as such - an
+    assignee is handed editor on their one task by require_task_role (being
+    given the work is the grant), and that grant is for doing the work, not
+    for publishing a restricted task to the whole organization. A task with
+    no project has no project roles: owner, creator or manager only."""
+    if is_manager(user):
+        return True
+    me = (user.get("email") or "").lower()
+    if me and me in ((t.owner_email or "").lower(), (t.created_by or "").lower()):
+        return True
+    project = project_for_task(db, t)
+    if project is None:
+        return False
+    return PROJECT_ROLE_RANK.get(project_role_for(db, me, project), 0) >= PROJECT_ROLE_RANK["editor"]
+
+
+def _require_destination_projects(db: Session, user: dict, ids) -> None:
+    """Moving or linking a task INTO a project takes editor on that project
+    (Oct 21 2026), the bar for creating a task there - otherwise anyone who
+    could edit a task could drop it into a restricted project they have no
+    role on. The company wall comes first, managers included. An id that is
+    no project is refused rather than stored as a dangling pointer."""
+    for pid in dict.fromkeys(i for i in (ids or []) if i):
+        project = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
+        if project is None:
+            raise HTTPException(404, "Project not found")
+        require_project_access(db, user, project, "editor")
+
+
+def _newly_missing_required(db: Session, t, project_before: str, values_before, project_after: str,
+                            values_after) -> list:
+    """The required custom fields an edit would leave empty (Oct 21 2026).
+
+    Only what the EDIT causes: a value cleared that a required field held. A task
+    that was already missing a required value (created before the field was
+    required, or by an import) is not refused for an unrelated edit - that
+    would make every older task uneditable until somebody filled it in.
+    Top-level tasks only, like create_task: a subtask is part of its parent.
+    A company's own field binds only that company's tasks."""
+    if t.parent_task_id or not project_after:
+        return []
+    company = row_company(db, t)
+    after = missing_required_fields(db, project_after, values_after, task_company=company)
+    # Judged in the project the task ends up in: a field the task HAD a value
+    # for and no longer does. Moving into a project where a required field is
+    # empty is not refused - the drawer can only show that project's fields
+    # once the task is in it, so refusing the move left no way to fill them.
+    was = {f.id for f in missing_required_fields(db, project_after, values_before, task_company=company)}
+    return [f for f in after if f.id not in was]
+
+
+def _required_message(db: Session, missing: list, project_id: str) -> str:
+    """create_task's wording for missing required fields."""
+    project = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first() if project_id else None
+    names = ", ".join(f.name for f in missing)
+    where = f" in {project.name}" if project and project.name else " in this project"
+    return f"{names} {'is' if len(missing) == 1 else 'are'} required for tasks{where}."
+
+
+def _check_update_access(db: Session, user: dict, t, data: dict) -> None:
+    """Everything a single PATCH must clear beyond editor on the task itself
+    (Oct 21 2026), checked before anything is written: dependency targets,
+    destination projects, widening restricted -> org, newly added people,
+    and required custom fields the edit itself would leave empty."""
+    _require_dependency_targets(db, user, t, data, t.id)
+    current_extras = {p for p in (t.project_ids or []) if p}
+    dest = []
+    if "project_id" in data and (data["project_id"] or "") != (t.project_id or ""):
+        dest.append(data["project_id"] or "")
+    if data.get("project_ids") is not None:
+        dest += [p for p in data["project_ids"] if p and p not in current_extras and p != (t.project_id or "")]
+    _require_destination_projects(db, user, dest)
+    if (data.get("access_level") == "org" and (t.access_level or "org") != "org"
+            and not _may_open_up(db, user, t)):
+        raise HTTPException(403, "Only the task's owner, its creator, a project editor or a manager can make "
+                                 "this task visible to everyone.")
+    prev = set(task_assignees(t))
+    wanted = _assignees_from(data, list(prev))
+    added = [w for w in (wanted or []) if (w or "").strip().lower() not in prev]
+    if data.get("follower_emails") is not None:
+        had = set(email_list(t.follower_emails))
+        added += [f for f in data["follower_emails"] if (f or "").strip().lower() not in had]
+    _require_people(db, t, added, actor=user.get("email") or "", user=user)
+    if "custom_field_values" in data or "project_id" in data:
+        project_after = (data["project_id"] if "project_id" in data else t.project_id) or ""
+        values_after = data["custom_field_values"] if "custom_field_values" in data else (t.custom_field_values or {})
+        missing = _newly_missing_required(db, t, t.project_id or "", t.custom_field_values or {},
+                                          project_after, values_after)
+        if missing:
+            raise HTTPException(422, _required_message(db, missing, project_after))
+
+
 def _require_tasks_exist(db: Session, ids: list) -> None:
     """A dependency on an id that doesn't resolve is invisible: the drawer's
     blockedBy lookup silently drops it and the completion gate ignores it, so
@@ -568,6 +712,93 @@ def _sync_reciprocal_dependencies(db: Session, t: models.Task, data: dict) -> No
                 other.modified_at = now_iso()
 
 
+def _require_may_move(db: Session, user: dict, task_id: str) -> None:
+    """The caller may put this task into (or take it out of) a parent/subtask
+    link: same company wall and visibility as opening it (_wall_task - 404 if
+    not), and editor on it (require_task_role - 403 if not). Without this a
+    subtask_ids PATCH could pull anyone's task, or another company's, under a
+    task of the caller's own."""
+    other = _wall_task(db, user, task_id)
+    require_task_role(db, user, other, "editor")
+
+
+def _check_hierarchy_patch(db: Session, user: dict, t: models.Task, data: dict) -> None:
+    """Refuse a PATCH that would break the subtask tree (Oct 21 2026). The
+    parent half of the cycle guard is validate_task_payload's; this adds:
+      * a new parent must be a live task - one that is not there leaves the
+        task out of every list (a subtask is drawn under its parent only);
+      * `subtask_ids` may name only live tasks, never the task itself or one
+        of its own ancestors (that would make a loop);
+      * the caller must be able to edit the new parent and every task newly
+        listed as a subtask (_require_may_move)."""
+    if data.get("parent_task_id") and (data["parent_task_id"] or "") != (t.parent_task_id or ""):
+        if not db.query(models.Task.id).filter(models.Task.id == data["parent_task_id"]).first():
+            raise HTTPException(422, "That parent task does not exist or is in the Recycle Bin.")
+        _require_may_move(db, user, data["parent_task_id"])
+    if "subtask_ids" in data and isinstance(data["subtask_ids"], list):
+        ids = [i for i in data["subtask_ids"] if i]
+        if t.id in ids:
+            raise HTTPException(422, "A task cannot be its own subtask.")
+        current = set(t.subtask_ids or [])
+        added = [i for i in ids if i not in current]
+        if added:
+            _require_tasks_exist(db, added)
+            parent = data["parent_task_id"] if "parent_task_id" in data else (t.parent_task_id or "")
+            for child in added:
+                if parent and _walk_reaches(db, [parent], child, models.Task.parent_task_id):
+                    raise HTTPException(422, "That subtask would create a circular subtask chain.")
+            for child in added:
+                _require_may_move(db, user, child)
+        # A task taken off the list is changed too (it becomes top-level).
+        listed = set(ids)
+        for child in [i for i in current if i and i not in listed]:
+            row = db.query(models.Task).filter(models.Task.id == child).first()
+            if row is not None and (row.parent_task_id or "") == t.id:
+                _require_may_move(db, user, child)
+
+
+def _sync_hierarchy(db: Session, t: models.Task, data: dict, prev_parent: str, prev_subtasks: list) -> None:
+    """Keep both ends of a parent/subtask link in step after a PATCH (Oct 21
+    2026). parent_task_id is the authoritative pointer (purge, trash, the
+    project walk all read it); subtask_ids is the parent's ordered list.
+
+      * parent_task_id changed: the task leaves its old parent's list and
+        joins the end of its new parent's.
+      * subtask_ids changed: every task newly listed moves under this one
+        (leaving its old parent's list); every task taken off the list that
+        still points here becomes a top-level task.
+    Only the ends this PATCH moved are touched."""
+    now = now_iso()
+    if "parent_task_id" in data and (t.parent_task_id or "") != prev_parent:
+        if prev_parent:
+            old = db.query(models.Task).filter(models.Task.id == prev_parent).first()
+            if old is not None and t.id in (old.subtask_ids or []):
+                old.subtask_ids = [x for x in old.subtask_ids if x != t.id]
+                old.modified_at = now
+        if t.parent_task_id:
+            new = db.query(models.Task).filter(models.Task.id == t.parent_task_id).first()
+            if new is not None and t.id not in (new.subtask_ids or []):
+                new.subtask_ids = list(new.subtask_ids or []) + [t.id]
+                new.modified_at = now
+    if "subtask_ids" in data and isinstance(data["subtask_ids"], list):
+        wanted = [i for i in (t.subtask_ids or []) if i]
+        before, after = set(prev_subtasks), set(wanted)
+        added = [i for i in wanted if i not in before]
+        removed = [i for i in prev_subtasks if i not in after]
+        for child in (db.query(models.Task).filter(models.Task.id.in_(added)).all() if added else []):
+            if (child.parent_task_id or "") == t.id:
+                continue
+            if child.parent_task_id:
+                old = db.query(models.Task).filter(models.Task.id == child.parent_task_id).first()
+                if old is not None and child.id in (old.subtask_ids or []):
+                    old.subtask_ids = [x for x in old.subtask_ids if x != child.id]
+                    old.modified_at = now
+            child.parent_task_id, child.modified_at = t.id, now
+        for child in (db.query(models.Task).filter(models.Task.id.in_(removed)).all() if removed else []):
+            if (child.parent_task_id or "") == t.id:
+                child.parent_task_id, child.modified_at = "", now
+
+
 def _is_starting(prev_status: str, new_status: str) -> bool:
     """Has the task just LEFT Not Started - i.e. did work begin on it?
 
@@ -611,11 +842,14 @@ def _autostamp_start(t: models.Task, prev_status: str, new_status: str) -> bool:
 
 
 def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_completed: bool,
-                            new_status: str, new_completed: bool) -> None:
+                            new_status: str, new_completed: bool,
+                            assume_done: frozenset = frozenset()) -> None:
     """Enforce blockedBy relationship types before a status/completion change lands.
     FS/SS gate the task *starting* (leaving not_started); FF/SF gate it *finishing*
     (completed). 'Started' on the blocker means it has left not_started OR is
-    completed. Raises 400 with a message naming the still-blocking task."""
+    completed. Raises 400 with a message naming the still-blocking task.
+    `assume_done`: blockers being completed in the same bulk call that have
+    passed their own gate - they count as completed (bulk_update only)."""
     if not t.blocked_by_ids:
         return
     starting_now = _is_starting(prev_status, new_status)
@@ -629,8 +863,8 @@ def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_c
         if not blocker:
             continue
         dep_type = dep_types.get(blocker_id, "FS")
-        blocker_started = blocker.status != "not_started" or blocker.completed
-        blocker_completed = bool(blocker.completed)
+        blocker_started = blocker.status != "not_started" or blocker.completed or blocker_id in assume_done
+        blocker_completed = bool(blocker.completed) or blocker_id in assume_done
         # Title, never the code: task numbers are not shown anywhere in the
         # module, so "Blocked by TASK-1983" would name something the reader
         # has no way to find.
@@ -683,6 +917,52 @@ def _apply_completion(t: models.Task, new_completed: bool, prev_completed: bool)
         t.completed_at = ""
         if t.status in ("completed", MISSED):
             t.status = "not_started"
+
+
+# ── The completion path, shared ──────────────────────────────────────────────
+# A person ticking a task done (update_task) and an automation rule closing it
+# on its due date (task_automation.run_scheduled) are the same event, so they
+# run the same three steps: land the flag (+ the HR checklist), log it, then
+# roll the series forward and tell the ticket. None of them fires automation
+# rules - the engine never chains (task_automation.py).
+
+def _land_completion(db: Session, t: models.Task, new_completed: bool, prev_completed: bool,
+                     actor_email: str) -> None:
+    """_apply_completion, plus the HR checklist steps that follow the task:
+    an HR checklist task closes (or reopens) its checklist steps (Oct 20)."""
+    _apply_completion(t, new_completed, prev_completed)
+    if bool(new_completed) != bool(prev_completed):
+        import hr_checklists
+        hr_checklists.task_completed(db, t, bool(new_completed), actor_email)
+
+
+def _log_completed(db: Session, t: models.Task, actor_email: str) -> str:
+    """The "completed this task" activity row. Returns its id for the caller
+    to put on t.activity_ids (update_task rebuilds that list itself)."""
+    return log_activity(db, type="completed", actor_email=actor_email,
+                        entity_id=t.id, entity_code=t.code, entity_title=t.title,
+                        detail="completed this task")
+
+
+def _after_completed(db: Session, t: models.Task, user: dict, prev_completed: bool,
+                     spawn_as: Optional[dict] = None, notify: bool = True,
+                     carry_open=frozenset(), pending: Optional[dict] = None) -> Optional[models.Task]:
+    """What a completion sets off once it has landed: a recurring task rolls
+    forward to its next occurrence, and a ticket's task tells its ticket.
+    `spawn_as` is who the next occurrence is created by when that is not the
+    person who completed it (an automation rule has no person). `notify`
+    False leaves the bells to the caller - bulk_update sends the "Recurring
+    Task Due" bell once per person and the ticket's "All Tasks ... Done" once
+    per ticket for the whole batch. `carry_open`: see _carry_subtasks;
+    `pending`: see _task_by_id.
+    Returns the new occurrence, if any. Does not commit."""
+    if not (t.completed and not prev_completed):
+        return None
+    spawned = _spawn_next_occurrence(db, t, spawn_as or user, notify=notify, carry_open=carry_open,
+                                     pending=pending)
+    if t.source_ticket_id:
+        _tell_ticket_task_done(db, t, user, notify=notify)
+    return spawned
 
 
 # ── Recurrence: occurrence generation ────────────────────────────────────────
@@ -819,7 +1099,9 @@ def _next_due(base_iso: str, rec: dict) -> str:
 
 
 def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
-                           next_due_override: str = "") -> Optional[models.Task]:
+                           next_due_override: str = "", skip_locked: bool = False,
+                           notify: bool = True, carry_open=frozenset(),
+                           pending: Optional[dict] = None) -> Optional[models.Task]:
     """Create the occurrence after `t` (unless the end condition - `until` date
     or `count` - is reached). Returns the new task, or None if the series has
     ended or `t` already rolled forward.
@@ -864,11 +1146,37 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
     if until and next_due > until:
         return None  # past the series end date
 
+    # Two people completing the same occurrence at once (or a completion
+    # racing the daily schedule) both get here with a rule that has no
+    # marker yet. Re-read the stored rule under a row lock: the second one
+    # waits for the first to commit and then sees its `nextOccurrenceId`.
+    # A column read, not the entity, so the caller's unflushed edits on `t`
+    # are left alone (autoflush is off). Taken only once a copy is really
+    # about to be made, so every caller that gets here commits soon after.
+    # Every other existing row this roll-forward writes is locked with it, in
+    # id order, BEFORE _next_code takes the counter (_lock_task_rows).
+    # `skip_locked` is the daily schedule's (spawn_scheduled_occurrences): it
+    # never WAITS for a row somebody holds, it leaves the task for the next
+    # tick instead. FOR UPDATE (and SKIP LOCKED) is a no-op on SQLite.
+    want = [t.id] + _spawn_write_ids(db, t, pending)
+    got = _lock_task_rows(db, want, skip_locked=skip_locked)
+    if skip_locked and db.bind.dialect.name == "postgresql" and len(got) < len(set(want)):
+        return None   # somebody holds one of them right now - next tick
+    stored_rec = got.get(t.id)
+    if isinstance(stored_rec, dict) and stored_rec.get("nextOccurrenceId"):
+        t.recurrence = {**rec, "nextOccurrenceId": stored_rec["nextOccurrenceId"]}
+        return None
+
     new_rec = {k: v for k, v in rec.items() if k not in ("nextOccurrenceId", "closedAsMissed")}
     if count is not None:
         new_rec["count"] = int(count) - 1
+    # The series travels with every copy (see _series_key). A series that
+    # began before series ids existed is named after the occurrence it rolls
+    # forward from; that row itself is left as it was (_series_groups links
+    # it to the new copy through nextOccurrenceId).
+    new_rec["seriesId"] = rec.get("seriesId") or t.id
 
-    parent = _current_occurrence(db, t.parent_task_id) if t.parent_task_id else None
+    parent = _current_occurrence(db, t.parent_task_id, pending) if t.parent_task_id else None
     now = now_iso()
     nid = gen_id()
     nxt = models.Task(
@@ -887,6 +1195,9 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
         liked_by_emails=[],
         access_level=t.access_level or "org",
         project_id=t.project_id or "",
+        # The "also in" projects too - without them the next occurrence
+        # silently dropped out of every project but the primary one.
+        project_ids=list(t.project_ids or []),
         section_id=t.section_id or "",
         team_id=t.team_id or "",
         parent_task_id=parent.id if parent is not None else "",
@@ -910,7 +1221,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
     # The checklist travels with the series, every line unticked: a recurring
     # "monthly close" is the same steps each month.
     _copy_checklist(db, t.id, nxt, user, now)
-    nxt.subtask_ids = _carry_subtasks(db, t, nxt, user)
+    nxt.subtask_ids = _carry_subtasks(db, t, nxt, user, carry_open)
     nxt.subtask_order = t.subtask_order or ""
     if parent is not None:
         parent.subtask_ids = list(parent.subtask_ids or []) + [nid]
@@ -920,35 +1231,62 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
                        entity_code=nxt.code, entity_title=nxt.title,
                        detail=f"recurring occurrence generated from {t.title}")
     nxt.activity_ids = [aid]
-    for _who in task_assignees(nxt):
-        if _who == user["email"].lower():
-            continue
-        task_notify(db, kind="task_assigned", for_email=_who,
-                    title="Recurring Task Due",
-                    body=f"{nxt.title} (due {_us(next_due)})", task_id=nid,
-                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    if notify:
+        for _who in task_assignees(nxt):
+            if _who == user["email"].lower():
+                continue
+            _recurring_due_bell(db, _who, [nxt])
     return nxt
 
 
-def _tell_ticket_task_done(db: Session, t: models.Task, user: dict) -> None:
+def _recurring_due_bell(db: Session, who: str, occurrences: list) -> None:
+    """The bell that tells an assignee their next occurrence is out: one
+    task reads exactly as it always has, several (a bulk completion) are ONE
+    bell - one notification per action, never one per task."""
+    if len(occurrences) == 1:
+        nxt = occurrences[0]
+        task_notify(db, kind="task_assigned", for_email=who,
+                    title="Recurring Task Due",
+                    body=f"{nxt.title} (due {_us(nxt.due_on)})", task_id=nxt.id,
+                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+        return
+    task_notify(db, kind="task_assigned", for_email=who,
+                title=f"{len(occurrences)} Recurring Tasks Due",
+                body=", ".join(f"{o.title or 'Untitled task'} (due {_us(o.due_on)})" for o in occurrences[:5])
+                     + (f" and {len(occurrences) - 5} more" if len(occurrences) > 5 else ""),
+                nexus_action={"view": "tasks", "sub": "mine", "label": "View tasks"})
+
+
+def _tell_ticket_task_done(db: Session, t: models.Task, user: dict, notify: bool = True):
     """A task from a ticket was completed (Oct 14 2026): the ticket's history
     says so, and once the LAST of its open tasks is done, whoever works the
     ticket is told it may be ready to resolve. Told, never resolved for them -
     the task being done is not the same as the requester's problem being
-    fixed."""
-    from ticket_code import ticket_no
+    fixed. `notify` False writes only the history line and returns the
+    ticket, for the caller to tell once (_tell_ticket_all_done)."""
     tk = db.query(models.TaskTicket).filter(models.TaskTicket.id == t.source_ticket_id).first()
     # The task a ticket was CONVERTED from is closed because its work moved
     # onto the ticket - that is not work done for it.
     if tk is None or tk.linked_task_id == t.id:
-        return
+        return None
     actor = user["email"].lower()
     log_activity(db, type="task_completed", actor_email=actor, entity_kind="ticket", entity_id=tk.id,
                  entity_code=tk.code, entity_title=tk.subject, detail=f"completed task {t.code} · {t.title}")
+    if notify:
+        _tell_ticket_all_done(db, tk, actor, {t.id})
+    return tk
+
+
+def _tell_ticket_all_done(db: Session, tk, actor: str, done_ids: set) -> None:
+    """Once every task of `tk` is done (`done_ids` are the ones just
+    completed), tell whoever works the ticket it may be ready to resolve -
+    one bell per ticket however many of its tasks were completed together."""
+    from ticket_code import ticket_no
     if tk.status in ("resolved", "closed"):
         return
     ids = [i for i in (tk.task_ids or []) if i]
-    others = (db.query(models.Task).filter(models.Task.id.in_(ids), models.Task.id != t.id).all() if ids else [])
+    others = (db.query(models.Task).filter(models.Task.id.in_(ids), models.Task.id.notin_(list(done_ids))).all()
+              if ids else [])
     if any(not o.completed for o in others):
         return
     who = (tk.assignee_email or "").lower()
@@ -969,23 +1307,70 @@ def _copy_checklist(db: Session, src_id: str, dst: models.Task, user: dict, now:
     dst.checklist_total, dst.checklist_done = len(items), 0
 
 
-def _current_occurrence(db: Session, task_id: str) -> Optional[models.Task]:
+def _task_by_id(db: Session, task_id: str, pending: Optional[dict] = None) -> Optional[models.Task]:
+    """A live task by id. `pending` ({id: task}) holds occurrences made
+    earlier in the SAME request and not yet written (autoflush is off, so a
+    query cannot see them): a bulk completion rolls a main task forward and
+    then its subtask, whose next copy belongs under the main task's brand-new
+    occurrence. bulk_update keeps that index as it goes."""
+    if pending and task_id in pending:
+        return pending[task_id]
+    return db.query(models.Task).filter(models.Task.id == task_id).first()
+
+
+def _lock_task_rows(db: Session, ids, skip_locked: bool = False) -> dict:
+    """Row-lock these tasks (FOR UPDATE, in id order) and return {id:
+    stored recurrence} for the rows locked. The lock order for task writes
+    that also take the task-code counter (Oct 21 2026): the existing task rows
+    are locked FIRST, in id order, and the counter (code_sequence) after.
+    Creating a subtask (its parent), rolling a series forward (the task, its
+    parent occurrence, its subtasks), a bulk completion (those, for every row
+    that will roll - none otherwise) and the daily schedule follow it.
+    Not covered: an HR
+    checklist sync that creates a new task while a completion lands takes the
+    counter before the roll-forward's locks. A column read, so unflushed
+    edits on the rows in hand are left alone. `skip_locked` returns without
+    the rows somebody else holds instead of waiting. A no-op lock on SQLite."""
+    ids = sorted({i for i in (ids or []) if i})
+    if not ids:
+        return {}
+    rows = (db.query(models.Task.id, models.Task.recurrence).filter(models.Task.id.in_(ids))
+            .order_by(models.Task.id).with_for_update(skip_locked=skip_locked).all())
+    return {r[0]: r[1] for r in rows}
+
+
+def _spawn_write_ids(db: Session, t: models.Task, pending: Optional[dict] = None) -> list:
+    """The existing task rows rolling `t` forward writes besides `t`: the
+    parent occurrence a subtask's copy is listed under, and `t`'s own live
+    subtasks (moved to the new occurrence, or closed with a Missed one).
+    Rows only added in this request are not in the database to lock."""
+    from sqlalchemy import inspect as sa_inspect
+    ids = []
+    if t.parent_task_id:
+        parent = _current_occurrence(db, t.parent_task_id, pending)
+        if parent is not None and sa_inspect(parent).persistent:
+            ids.append(parent.id)
+    ids += [r[0] for r in db.query(models.Task.id).filter(models.Task.parent_task_id == t.id).all()]
+    return ids
+
+
+def _current_occurrence(db: Session, task_id: str, pending: Optional[dict] = None) -> Optional[models.Task]:
     """The live occurrence of the series `task_id` belongs to: follow the
     nextOccurrenceId links forward (skipping the Recycle Bin). A task that does
-    not repeat is its own current occurrence."""
-    cur = db.query(models.Task).filter(models.Task.id == task_id).first()
+    not repeat is its own current occurrence. `pending`: see _task_by_id."""
+    cur = _task_by_id(db, task_id, pending)
     seen = set()
     while cur is not None and cur.id not in seen:
         seen.add(cur.id)
         nid = (cur.recurrence or {}).get("nextOccurrenceId") if isinstance(cur.recurrence, dict) else None
-        nxt = db.query(models.Task).filter(models.Task.id == nid).first() if nid else None
+        nxt = _task_by_id(db, nid, pending) if nid else None
         if nxt is None or nxt.deleted_at:
             break
         cur = nxt
     return cur
 
 
-def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict) -> list:
+def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict, carry_open=frozenset()) -> list:
     """The subtasks of a recurring task come along to its next occurrence
     (Neil, Oct 14 2026: a yearly tax return is the same eleven steps every
     year - they had to be typed in again each time). Each one starts open
@@ -993,8 +1378,10 @@ def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict) -
     moves by as much as the main task's did. A subtask switched off on its
     own Recurrence row ({"skip": true}) stays behind. One on a schedule of its
     own (`freq`) is not copied: while open it MOVES to the new occurrence, and
-    it makes its own next copies (_spawn_next_occurrence). Returns the ids now
-    under `nxt`."""
+    it makes its own next copies (_spawn_next_occurrence). `carry_open` are
+    subtasks completed in the SAME bulk call as the main task: they count as
+    open, as they were when it rolled - the result matches completing the
+    main task first and the subtask after. Returns the ids now under `nxt`."""
     subs = (db.query(models.Task)
             .filter(models.Task.parent_task_id == t.id,
                     (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None)))
@@ -1013,7 +1400,7 @@ def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict) -
         if isinstance(s.recurrence, dict) and s.recurrence.get("skip"):
             continue
         if isinstance(s.recurrence, dict) and s.recurrence.get("freq"):
-            if not s.completed:
+            if not s.completed or s.id in carry_open:
                 s.parent_task_id, s.modified_at = nxt.id, now
                 moved.append(s.id)
                 ids.append(s.id)
@@ -1032,7 +1419,8 @@ def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict) -
             assignee_email=s.assignee_email or "", assignee_emails=list(task_assignees(s)),
             owner_email=s.owner_email or "", follower_emails=list(s.follower_emails or []),
             liked_by_emails=[], access_level=s.access_level or "org",
-            project_id=s.project_id or "", section_id=s.section_id or "", team_id=s.team_id or "",
+            project_id=s.project_id or "", project_ids=list(s.project_ids or []),
+            section_id=s.section_id or "", team_id=s.team_id or "",
             parent_task_id=nxt.id, position=s.position or 0.0,
             subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={},
             tags=list(s.tags or []), custom_field_values=dict(s.custom_field_values or {}),
@@ -1103,7 +1491,7 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
     marker did not exist yet), so the first scheduled scan spawned a copy from
     EACH of them - all on the same latest date - and every copy then carried
     the series on as a chain of its own ("Take out all Trash" x13 on 09/28).
-    So rows are grouped by series (_series_key), only the series' newest
+    So rows are grouped by series (_series_groups), only the series' newest
     occurrence may roll forward, a date the series already has is never
     created again, and every other unmarked row is stamped as rolled forward
     so it can never start a chain. Tasks in the Recycle Bin never spawn."""
@@ -1114,14 +1502,11 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
             .all())
     # Subtasks on a schedule of their own roll forward here too (Oct 14 2026).
     by_id = {t.id: t for t in rows}
-    series: dict[tuple, list[models.Task]] = {}
-    for t in rows:
-        rec = t.recurrence
-        if isinstance(rec, dict) and rec.get("freq") in _SCHEDULED_FREQS and t.due_on:
-            series.setdefault(_series_key(t, by_id), []).append(t)
+    scheduled = [t for t in rows
+                 if isinstance(t.recurrence, dict) and t.recurrence.get("freq") in _SCHEDULED_FREQS and t.due_on]
     touched = False
     closed: list[str] = []
-    for members in series.values():
+    for members in _series_groups(scheduled, by_id):
         dates = {(m.due_on or "")[:10]: m for m in members}
         # The series' newest occurrence carries it forward; among several on
         # that date, an open one first, then the oldest-created (stable).
@@ -1159,7 +1544,17 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
             touched = True
             continue
         owner = head.owner_email or head.created_by or head.assignee_email or "system"
-        nxt = _spawn_next_occurrence(db, head, {"email": owner}, next_due_override=nd)
+        # ONE transaction per new occurrence (Oct 21 2026). A spawn locks the
+        # rows it writes (the head, its parent occurrence, its subtasks) and
+        # then takes the task-code counter - the order every other writer
+        # follows (_lock_task_rows). Committing what came before releases
+        # every earlier lock first, and committing right after releases these
+        # - so the schedule never sits on the counter while asking for another
+        # row. Rows somebody holds are skipped, never waited for (skip_locked).
+        if touched:
+            db.commit()
+            touched = False
+        nxt = _spawn_next_occurrence(db, head, {"email": owner}, next_due_override=nd, skip_locked=True)
         if nxt is not None:
             spawned.append(nxt)
             # The next date arrived before this one was done: it closes as
@@ -1168,6 +1563,7 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
             if not head.completed and not (head.recurrence or {}).get("closedAsMissed"):
                 _close_as_missed(db, head, f"the next occurrence {nxt.code} is due {_us(nd)}")
                 closed.append(head.id)
+        db.commit()
     if spawned or touched:
         db.commit()
     for tid in closed:
@@ -1175,28 +1571,111 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
     return spawned
 
 
+# Server-side keys on a rule that are not part of WHAT the rule says: the
+# roll-forward and Missed markers, `count` (it counts down along the series)
+# and the series id itself.
+_SERIES_MARKERS = ("nextOccurrenceId", "count", "closedAsMissed", "seriesId")
+
+
+def _with_series_id(rec, task_id: str):
+    """A rule as a NEW series starts it: its own task id as the series id
+    (Oct 21 2026). Whatever series id the caller sent is replaced - a
+    duplicate or a template copy carries the original's rule, and keeping its
+    id would make two separate tasks one series again."""
+    if isinstance(rec, dict) and rec.get("freq"):
+        return {**rec, "seriesId": task_id}
+    return rec
+
+
 def _series_key(t: models.Task, by_id: Optional[dict] = None) -> tuple:
-    """What makes two tasks occurrences of the same recurring series. There is
-    no series id on a task, but every occurrence is a copy of the one before
-    it (_spawn_next_occurrence): same title, project, assignees and rule. The
-    rule is compared without its server-side markers (nextOccurrenceId,
-    closedAsMissed, and
-    `count`, which counts down along the series)."""
-    rec = {k: v for k, v in (t.recurrence or {}).items() if k not in ("nextOccurrenceId", "count", "closedAsMissed")}
-    key = ((t.title or "").strip().lower(), t.project_id or "", tuple(sorted(task_assignees(t))),
-           json.dumps(rec, sort_keys=True, default=str))
+    """What makes two tasks occurrences of the same recurring series.
+
+    Since Oct 21 2026 a series carries its own id: `seriesId` on the rule, set
+    when the series starts (create_task, a rule switched on, a template) and
+    copied to every occurrence by _spawn_next_occurrence. Before that there
+    was no id, and two INDEPENDENT tasks with the same title, project,
+    assignees and rule were taken for one series - all but one were closed as
+    Missed and stopped repeating.
+
+    Rows from before then (no `seriesId`) keep the old fingerprint, now with
+    the company in it - see _legacy_series_key. _series_groups also joins a
+    series' last id-less occurrence to its first copy with an id, through
+    that row's nextOccurrenceId."""
+    sid = t.recurrence.get("seriesId") if isinstance(t.recurrence, dict) else None
+    if sid:
+        return ("series", str(sid))
+    return _legacy_series_key(t, by_id)
+
+
+def _legacy_series_key(t: models.Task, by_id: Optional[dict] = None) -> tuple:
+    """The pre-series-id fingerprint: every occurrence is a copy of the one
+    before it (_spawn_next_occurrence) - same company, title, project,
+    assignees and rule. The rule is compared without its server-side markers
+    (_SERIES_MARKERS)."""
+    rec = {k: v for k, v in (t.recurrence or {}).items() if k not in _SERIES_MARKERS}
+    key = ((getattr(t, "company_id", "") or ""), (t.title or "").strip().lower(), t.project_id or "",
+           tuple(sorted(task_assignees(t))), json.dumps(rec, sort_keys=True, default=str))
     if t.parent_task_id:
         # A subtask on its own schedule: the same step under two different
         # main tasks is two series. Its copies move from occurrence to
         # occurrence of the main task, so the main task's own series - not its
         # id - is what they share; a main task that does not repeat is known
         # by its id. (`by_id` holds only rows with a rule, which every main
-        # task that repeats has.)
+        # task that repeats has.) The main task's FINGERPRINT, even once it
+        # has a series id: copies of this step already sit under its older,
+        # id-less occurrences, and those must keep matching.
         parent = (by_id or {}).get(t.parent_task_id)
         if parent is None or not (parent.recurrence or {}).get("freq"):
             return ("sub", t.parent_task_id) + key
-        return ("sub", _series_key(parent, by_id)) + key
+        return ("sub", _legacy_series_key(parent, by_id)) + key
     return key
+
+
+def _series_groups(rows: list, by_id: Optional[dict] = None) -> list[list[models.Task]]:
+    """Split recurring rows into series. Two rows are one series when
+      * they carry the same `seriesId`, or
+      * one's `nextOccurrenceId` names the other AND that other carries a
+        series id - the bridge from a series' last id-less occurrence to the
+        first copy made after series ids existed, or
+      * NEITHER has a series id and their legacy fingerprints match - exactly
+        the grouping the scan has always used for rows from before series ids.
+    Connected through any mix of those (union-find). A link between two
+    id-less rows is NOT followed: those rows group exactly as they always
+    have (by fingerprint), so a legacy chain whose title, assignee or rule
+    was edited along the way is not suddenly merged and closed as Missed.
+    A series started after Oct 21 2026 is never merged with another by its
+    title."""
+    ids = [t.id for t in rows]
+    root = {i: i for i in ids}
+    by_row = {t.id: t for t in rows}
+
+    def find(i):
+        while root[i] != i:
+            root[i] = root[root[i]]
+            i = root[i]
+        return i
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            root[rb] = ra
+
+    first: dict[tuple, str] = {}
+    for t in rows:
+        rec = t.recurrence if isinstance(t.recurrence, dict) else {}
+        key = _series_key(t, by_id)   # ("series", id), or the legacy fingerprint
+        if key in first:
+            union(first[key], t.id)
+        else:
+            first[key] = t.id
+        nxt = rec.get("nextOccurrenceId")
+        if nxt and nxt in root and isinstance(by_row[nxt].recurrence, dict) \
+                and by_row[nxt].recurrence.get("seriesId"):
+            union(t.id, nxt)
+    groups: dict[str, list[models.Task]] = {}
+    for t in rows:
+        groups.setdefault(find(t.id), []).append(t)
+    return list(groups.values())
 
 
 @router.get("")
@@ -1381,13 +1860,16 @@ def export_tasks_excel(
     buf.seek(0)
 
     # -- Filename: say what is in the sheet ----------------------------------
-    # "2026-08-21 - Task Export"                      (no filters)
-    # "2026-08-21 - Test Project Task Export"         (one project)
-    # "2026-08-21 - Sagar Shoundik's Tasks"           (one person)
-    # "2026-08-21 - Test Project - Sagar Shoundik's Tasks"  (both)
+    # "08-21-2026 - Task Export"                      (no filters)
+    # "08-21-2026 - Test Project Task Export"         (one project)
+    # "08-21-2026 - Sagar Shoundik's Tasks"           (one person)
+    # "08-21-2026 - Test Project - Sagar Shoundik's Tasks"  (both)
     # Several of either collapse to a count ("3 Projects", "4 People's Tasks")
     # rather than running the name past what a file manager will show.
-    stamp = today if re.fullmatch(r"\d{4}-\d{2}-\d{2}", today or "") else datetime.utcnow().strftime("%Y-%m-%d")
+    # The date is US order (MM-DD-YYYY) like every date a person reads; hyphens
+    # because a slash cannot go in a filename.
+    iso_day = today if re.fullmatch(r"\d{4}-\d{2}-\d{2}", today or "") else datetime.utcnow().strftime("%Y-%m-%d")
+    stamp = f"{iso_day[5:7]}-{iso_day[8:10]}-{iso_day[:4]}"
 
     picked_projects = [projects[p] for p in sorted(want_projects) if projects.get(p)]
     picked_people = [person(a) for a in sorted(want_assignees)]
@@ -1434,6 +1916,12 @@ def export_tasks_excel(
     )
 
 
+def _is_external(e) -> bool:
+    """A guest / external identity (their org is external_company, not one of
+    our companies) - see models.NexusEmployee.identity_type."""
+    return (getattr(e, "identity_type", "") or "") in ("guest", "external")
+
+
 @router.get("/search")
 def search_everything(q: str = "", limit: int = 6,
                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1470,20 +1958,34 @@ def search_everything(q: str = "", limit: int = 6,
              if (term in (t.title or "").lower() or term in (t.code or "").lower())
              and not t.completed
              and (manager or task_is_visible(t, user, visible))]
-    project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
+    # The company wall applies to every group, not only tasks (Oct 21 2026):
+    # a project, portfolio or team name - and the people list - from another
+    # company is as much a leak as a task title. Walled before the per-group
+    # cap, so a capped list is never short because the cap ate admitted rows.
+    import auth
+    scope = auth.company_scope(user, db)
+    all_projects = wall_rows(db, user, db.query(models.TaskProject).all(), scope=scope)
+    project_names = {p.id: p.name for p in all_projects}
     # Archived projects DO appear here. Archiving hides a project from the
     # active list and from task pickers - it is not deletion, and search is how
     # you get back to finished work. The result carries `archived` so the UI can
     # mark it rather than pass it off as live.
-    projects = [p for p in db.query(models.TaskProject).all()
+    projects = [p for p in all_projects
                 if term in (p.name or "").lower()
                 and (manager or p.id in visible)]
-    portfolios = [p for p in db.query(models.TaskPortfolio).all() if term in (p.name or "").lower()]
-    teams = [t for t in db.query(models.TaskTeam).all() if term in (t.name or "").lower()]
+    portfolios = [p for p in wall_rows(db, user, db.query(models.TaskPortfolio).all(), scope=scope)
+                  if term in (p.name or "").lower()]
+    teams = [t for t in wall_teams(db, user, db.query(models.TaskTeam).all(), scope=scope)
+             if term in (t.name or "").lower()]
 
     people = []
     for e in db.query(models.NexusEmployee).all():
         if (e.status or "") in ("inactive", "offboarded"):
+            continue
+        # An external (guest / external identity) belongs to a partner org -
+        # external_company is its free-text name, never one of our companies -
+        # so the company wall does not hide them; they are found as before.
+        if not _is_external(e) and not auth.company_ok((e.company or "").strip(), scope):
             continue
         name = f"{e.first_name or ''} {e.last_name or ''}".strip()
         if term in name.lower() or term in (e.work_email or "").lower():
@@ -1558,12 +2060,20 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
         raise HTTPException(404, "Person not found")
     emp = db.query(models.NexusEmployee).filter(
         models.NexusEmployee.work_email == email).first()
+    # Somebody in another company is not on this side of the wall (Oct 21
+    # 2026): their directory card is as walled as their work. No-op while the
+    # walls are off and for a Global Admin.
+    import auth
+    if (emp is not None and not _is_external(emp)
+            and not auth.company_ok((emp.company or "").strip(), auth.company_scope(user, db))):
+        raise HTTPException(404, "Person not found")
 
     manager = is_manager(user)
     visible = None if manager else visible_project_ids(db, user)
     rows = [t for t in wall_tasks(db, user, db.query(models.Task).all())
             if manager or task_is_visible(t, user, visible)]
-    project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
+    walled_projects = wall_rows(db, user, db.query(models.TaskProject).all())
+    project_names = {p.id: p.name for p in walled_projects}
 
     def shape(t):
         return {"id": t.id, "code": t.code or "", "title": t.title,
@@ -1597,12 +2107,12 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
 
     today = date.today().isoformat()
     open_assigned = [t for t in assigned if not t.completed]
-    projects = [p for p in db.query(models.TaskProject).all()
+    projects = [p for p in walled_projects
                 if (manager or p.id in visible) and not p.archived
                 and (email in email_list(p.member_emails)
                      or (p.owner_email or "").lower() == email
                      or p.id in {t.project_id for t in assigned if t.project_id})]
-    teams = [t for t in db.query(models.TaskTeam).all()
+    teams = [t for t in wall_teams(db, user, db.query(models.TaskTeam).all())
              if email in email_list(t.member_emails)]
 
     return {
@@ -1646,34 +2156,65 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
     `server_time` is captured BEFORE the query runs, not after - same
     reasoning as asana_sync._pull_window's "stamped from when the fetch
     STARTED": a task edited mid-query must fall in the NEXT delta window,
-    never be missed because it looked "already covered" by this one."""
+    never be missed because it looked "already covered" by this one.
+
+    `deletedIds` (Oct 21 2026) is every id the caller's copy must DROP, not
+    only the trashed ones: a task changed in this window that the caller can
+    no longer see - made private, moved to a project they are not in, behind
+    the company wall - is in it too, as is one binned in the window without a
+    tombstone (a project's tasks go to the bin with it). Only rows changed
+    since `since` are looked at, the same rows the query already reads, so
+    the call costs what it did. A task that went out of sight WITHOUT being
+    touched (the caller was taken off its project) is not caught here; the
+    next full load drops it. An id that is in `tasks` is never in
+    `deletedIds` (a task binned and restored inside one window is live)."""
     server_time = now_iso()
     q = db.query(models.Task)
     if since:
-        q = q.filter(models.Task.modified_at > since)
-    rows = wall_tasks(db, user, q.all())   # company wall first
+        # Trashed rows too (their deleted_at is set): they leave the caller's
+        # list like any other row they can no longer see.
+        q = q.execution_options(include_deleted=True).filter(models.Task.modified_at > since)
+    fetched = q.all()
+    live = [t for t in fetched if not t.deleted_at]
+    rows = wall_tasks(db, user, live)   # company wall first
     if not is_manager(user):
         visible_projects = visible_project_ids(db, user)
         rows = [t for t in rows if task_is_visible(t, user, visible_projects)]
-    deleted = (db.query(models.TaskDeleteLog).filter(models.TaskDeleteLog.deleted_at > since).all()
-              if since else [])
+    kept = {t.id for t in rows}
+    gone: list[str] = []
+    if since:
+        logged = (db.query(models.TaskDeleteLog.task_id)
+                  .filter(models.TaskDeleteLog.deleted_at > since).all())
+        gone = [d.task_id for d in logged] + [t.id for t in fetched if t.id not in kept]
+    seen: set = set()
+    deleted_ids = []
+    for i in gone:
+        if i and i not in kept and i not in seen:
+            seen.add(i)
+            deleted_ids.append(i)
     return {"tasks": [task_to_dict(t) for t in rows],
-            "deletedIds": [d.task_id for d in deleted],
+            "deletedIds": deleted_ids,
             "serverTime": server_time}
 
 
 @router.post("", status_code=201)
 def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    return _create_task(body, background_tasks, user, db)
+    return _create_task(body, background_tasks, user, db, check_people=True)
 
 
 def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict, db: Session,
-                 before_commit=None):
+                 before_commit=None, check_people: bool = False):
     """create_task's body. `before_commit(task)` runs on the new row just
     before the one commit, so a caller's own writes land in the same
     transaction - a ticket's "Create Task from Ticket" links both sides there,
-    and a task can never exist without its link (routers/tickets.py)."""
+    and a task can never exist without its link (routers/tickets.py).
+
+    `check_people` (the HTTP create and Use Template, Oct 21 2026): every
+    assignee and collaborator named in the body must be a current directory
+    person on the task's side of the company wall. Off for the in-process
+    callers that bring their own people rules (a ticket's desk assignee and
+    watchers, a Knowledge Base SOP task)."""
     now = now_iso()
     tid = body.id or gen_id()
     # No explicit access_level -> inherit the project's (so a task in a
@@ -1681,14 +2222,40 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     # -> falls back to org, same as before.
     project = (db.query(models.TaskProject).filter(models.TaskProject.id == body.project_id).first()
                if body.project_id else None)
-    if not project and body.parent_task_id:
-        parent = db.query(models.Task).filter(models.Task.id == body.parent_task_id).first()
-        if parent:
-            project = project_for_task(db, parent)
-    require_project_role(db, user, project, "editor")
+    parent = (db.query(models.Task).filter(models.Task.id == body.parent_task_id).first()
+              if body.parent_task_id else None)
+    if parent is not None:
+        # A subtask goes under a task on the caller's side of the company
+        # wall only (Oct 21 2026) - 404, as for any task over it - and one
+        # the caller can see: a restricted standalone parent has no project
+        # role to refuse anybody, so sight is the check.
+        assert_task_wall(db, user, parent)
+        if not task_visible_to(db, user, parent):
+            raise HTTPException(404, "Task not found")
+    if not project and parent is not None:
+        project = project_for_task(db, parent)
+    # The company wall on the project too: a manager clears the role check, so
+    # without it a task could be created inside another company's project.
+    require_project_access(db, user, project, "editor")
     # Normalizes tags/followers in place too, so the row is written clean rather
     # than needing a later PATCH to tidy it.
     validate_task_payload(db, body.__dict__, task_id=tid)
+    # Dependencies and extra projects named at create answer to the same
+    # rules as an edit (Oct 21 2026): the other task must be the caller's to
+    # see and edit, an extra project theirs to add work to.
+    _require_dependency_targets(db, user, None, body.__dict__, tid)
+    _require_destination_projects(db, user, _extra_project_ids(body.project_ids, body.project_id or ""))
+    if parent is not None:
+        # The parent's row is written (its subtask list) - lock it now, before
+        # the task-code counter below: task rows are always locked before the
+        # counter, never after (see _lock_task_rows).
+        _lock_task_rows(db, [parent.id])
+    # Company wall: stamp the creator's company so the task is fixed on their side
+    # of the wall even if they later change companies (task_util.task_company falls
+    # back to deriving it for legacy/sync rows that were never stamped).
+    _creator = (db.query(models.NexusEmployee.company)
+                .filter(func.lower(models.NexusEmployee.work_email) == user["email"].lower()).first())
+    company_id = (_creator.company if _creator else "") or ""
     # A project's required custom fields (Oct 13 2026: "no one can create a
     # task in that project without" them). Checked here, not just in the
     # forms, so the quick-add rows, request forms and anything else that
@@ -1696,19 +2263,16 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     # subtask is part of its parent, and a task with no project has no
     # project to require anything.
     if body.project_id and not body.parent_task_id:
+        # A field that belongs to one company binds only that company's tasks
+        # (Oct 21 2026); a shared field binds every task, as before.
         missing = missing_required_fields(db, body.project_id,
-                                          coerce_custom_field_values(db, body.custom_field_values))
+                                          coerce_custom_field_values(db, body.custom_field_values),
+                                          task_company=company_id)
         if missing:
             names = ", ".join(f.name for f in missing)
             where = f" in {project.name}" if project and project.name else " in this project"
             raise HTTPException(422, f"{names} {'is' if len(missing) == 1 else 'are'} required for tasks{where}.")
     access_level = body.access_level or (project.access_level if project else None) or "org"
-    # Company wall: stamp the creator's company so the task is fixed on their side
-    # of the wall even if they later change companies (task_util.task_company falls
-    # back to deriving it for legacy/sync rows that were never stamped).
-    _creator = (db.query(models.NexusEmployee.company)
-                .filter(func.lower(models.NexusEmployee.work_email) == user["email"].lower()).first())
-    company_id = (_creator.company if _creator else "") or ""
     t = models.Task(
         id=tid,
         company_id=company_id,
@@ -1749,7 +2313,8 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
         due_on=body.due_on or "",
         estimate_hours=body.estimate_hours,
         actual_hours=body.actual_hours,
-        recurrence=body.recurrence,
+        # A repeating task starts its own series - see _with_series_id.
+        recurrence=_with_series_id(body.recurrence, tid),
         is_milestone=bool(body.is_milestone),
         approval_status=body.approval_status or "none",
         # Not hardcoded False any more: a task created straight INTO the
@@ -1763,6 +2328,19 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
         created_at=now, modified_at=now, created_by=user["email"],
     )
     set_task_assignees(t, _assignees_from(body.__dict__, []) or [])
+    dropped_people: list = []
+    if check_people:
+        # People who may not be put on it (not in the directory, offboarded,
+        # or - behind the wall - another company) are LEFT OFF, not refused:
+        # Add Subtask, Duplicate and Use Template carry people over from a
+        # source task, and one departed collaborator must not fail the whole
+        # create. The task's history says who was not added and why, and the
+        # response lists them (droppedPeople). Oct 21 2026.
+        kept_a, gone_a = split_people(db, t, task_assignees(t), user, user["email"])
+        kept_f, gone_f = split_people(db, t, t.follower_emails or [], user, user["email"])
+        set_task_assignees(t, kept_a)
+        t.follower_emails = kept_f
+        dropped_people = gone_a + gone_f
     # Whoever raised the task follows it - see _follow_as_actor.
     _follow_as_actor(t, user["email"])
     # A date set for somebody else is a target they still have to confirm.
@@ -1777,6 +2355,7 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     aid = log_activity(db, type="created", actor_email=user["email"], entity_id=tid,
                        entity_code=t.code, entity_title=t.title, detail="created this task")
     t.activity_ids = [aid]
+    note_dropped_people(db, t, dropped_people, user["email"])
     # Automation rules that fire on creation (task_automation.py) write onto
     # this same row before anyone is told about it, so a rule that assigns or
     # re-dates the task notifies exactly as a person doing it would.
@@ -1804,7 +2383,10 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     fire_task_event(tid, "created")
     background_tasks.add_task(notify_task_event, tid, "created", user["email"])
     task_automation.run_after_commit(db, auto, background_tasks.add_task)
-    return task_to_dict(t)
+    out = task_to_dict(t)
+    if dropped_people:
+        out["droppedPeople"] = [{**d, "taskId": t.id} for d in dropped_people]
+    return out
 
 
 _MODIFIED_FIELD_LABELS = {"title": "Title changed", "description": "Description changed",
@@ -1817,8 +2399,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _get_task(db, task_id)
     # Company wall: another company's task is 404 (before the role check).
-    import auth
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    assert_task_wall(db, user, t)
     # The assignee counts on their OWN task - see require_task_role.
     require_task_role(db, user, t, "editor")
     data = upd.model_dump(exclude_unset=True)
@@ -1834,11 +2415,15 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         data["custom_field_values"] = coerce_custom_field_values(db, data["custom_field_values"])
     if "actual_hours" in data and int(t.time_entry_count or 0) > 0:
         raise HTTPException(409, "This task's time comes from its time entries - add or edit an entry instead.")
+    _check_update_access(db, user, t, data)
     prev_assignees = set(task_assignees(t))
     prev_status = t.status
     prev_completed = bool(t.completed)
     prev_followers = set((t.follower_emails or []))
     prev_due = (t.due_on or "")[:10]
+    prev_parent = t.parent_task_id or ""
+    prev_subtasks = [i for i in (t.subtask_ids or []) if i]
+    _check_hierarchy_patch(db, user, t, data)
     auto_before = task_automation.snapshot(t)
     modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
@@ -1871,6 +2456,16 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
             missed_at = (t.recurrence or {}).get("closedAsMissed") if isinstance(t.recurrence, dict) else None
             if missed_at and "closedAsMissed" not in val:
                 val = {**val, "closedAsMissed": missed_at}
+            # The series id is the server's, never the editor's: kept as it
+            # was; a rule switched on here starts a series of its own; a
+            # series from before series ids stays without one, so it keeps
+            # matching its older occurrences (_series_groups).
+            old_rule = t.recurrence if isinstance(t.recurrence, dict) else {}
+            val = {k: v for k, v in val.items() if k != "seriesId"}
+            if old_rule.get("seriesId"):
+                val["seriesId"] = old_rule["seriesId"]
+            elif val.get("freq") and not old_rule.get("freq"):
+                val["seriesId"] = t.id
         setattr(t, field, val)
 
     # Assignment goes through the setter so the legacy mirror can never drift
@@ -1885,6 +2480,9 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # the primary duplicated inside the extras or a since-removed blank behind.
     if "project_id" in data or "project_ids" in data:
         t.project_ids = _extra_project_ids(t.project_ids, t.project_id or "")
+
+    # Both ends of a parent/subtask link move together - see _sync_hierarchy.
+    _sync_hierarchy(db, t, data, prev_parent, prev_subtasks)
 
     # Automation rules (task_automation.py) see the row as this edit leaves it
     # and write onto the same row. Whatever they changed is merged into `data`
@@ -1908,11 +2506,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
 
     # Keeps `completed`, its timestamp and `status` in step regardless of which
     # one the caller actually sent.
-    _apply_completion(t, new_completed, prev_completed)
-    if bool(new_completed) != bool(prev_completed):
-        # An HR checklist task closes (or reopens) its checklist steps (Oct 20).
-        import hr_checklists
-        hr_checklists.task_completed(db, t, bool(new_completed), user["email"])
+    _land_completion(db, t, new_completed, prev_completed, user["email"])
     if (t.due_on or "")[:10] != (auto_before.get("due_on") or ""):
         # ...and a checklist subtask's new due date moves its step (Oct 20).
         import hr_checklists
@@ -1950,9 +2544,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
                             body=f"{t.title}", task_id=t.id,
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     if t.completed and not prev_completed:
-        acts.append(log_activity(db, type="completed", actor_email=user["email"],
-                                 entity_id=t.id, entity_code=t.code, entity_title=t.title,
-                                 detail="completed this task"))
+        acts.append(_log_completed(db, t, user["email"]))
     t.activity_ids = acts
 
     # After activity_ids is rebuilt above - task_due appends its own entries.
@@ -1990,9 +2582,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         task_due.settle_agreement(t, user["email"])
 
     # Completing a recurring task rolls the series forward to the next occurrence.
-    spawned = _spawn_next_occurrence(db, t, user) if (t.completed and not prev_completed) else None
-    if t.completed and not prev_completed and t.source_ticket_id:
-        _tell_ticket_task_done(db, t, user)
+    spawned = _after_completed(db, t, user, prev_completed)
 
     db.commit()
     db.refresh(t)
@@ -2043,16 +2633,11 @@ def reschedule_task(task_id: str, body: RescheduleBody, background_tasks: Backgr
     t = _get_task(db, task_id)
     moved, skipped = [], []
     if body.cascade:
-        import auth
-        scope = auth.company_scope(user, db)
-
         def _can_edit(d: models.Task) -> bool:
             # The company wall first (Oct 12 review): a manager clears every
             # role check, so without it a link to another company's task
             # would let this drag move that task. Reported as skipped.
-            if scope is not None and not auth.company_ok(
-                    getattr(d, "company_id", "") or auth.company_of(d.created_by or d.owner_email or "", db), scope):
-                return False
+            # require_task_role applies the wall itself (Oct 21 2026).
             try:
                 require_task_role(db, user, d, "editor")
                 return True
@@ -2196,6 +2781,81 @@ def withdraw_due(task_id: str, user: dict = Depends(get_current_user), db: Sessi
     return _due_done(db, t)
 
 
+def _live_descendants(db: Session, root_ids: list) -> list[models.Task]:
+    """Every LIVE task under `root_ids` - subtasks, their subtasks, and so on -
+    walking parent_task_id down a level at a time. The roots themselves are
+    not included. Cycle-safe: a task is visited once however the data loops.
+    Trashed rows are invisible to the query, so a branch already in the bin
+    is not walked into."""
+    seen = set(i for i in root_ids if i)
+    frontier = list(seen)
+    out: list[models.Task] = []
+    while frontier:
+        kids = db.query(models.Task).filter(models.Task.parent_task_id.in_(frontier)).all()
+        frontier = []
+        for k in kids:
+            if k.id in seen:
+                continue
+            seen.add(k.id)
+            out.append(k)
+            frontier.append(k.id)
+    return out
+
+
+def restore_task_tree(db: Session, t: models.Task, now: str) -> list[models.Task]:
+    """Take a trashed task out of the Recycle Bin with exactly what was binned
+    WITH it (Oct 21 2026) - shared by POST /tasks/{id}/restore and the
+    Recycle Bin's restore (routers/task_projects.py), so the two cannot drift.
+
+    "With it" is deleted_with == this task (delete_task stamps its whole
+    subtree). A direct subtask binned before that stamp existed counts when it
+    went in the very same delete - its deleted_at is the identical stamp.
+    A subtask somebody deleted separately earlier stays in the bin.
+
+    The task goes back into its parent's subtask list if that parent is live
+    (delete_task cut it out), and each restored subtask is back on its own
+    parent's list. Returns the restored rows other than `t`. Does not commit.
+
+    A subtask whose parent is itself still in the Recycle Bin is refused
+    (409): brought back alone it would be live under a parent nobody can see,
+    so it would show up nowhere. One whose parent is gone for good (purged)
+    comes back as a top-level task for the same reason."""
+    parent_gone = False
+    if t.parent_task_id:
+        parent_row = (db.query(models.Task).execution_options(include_deleted=True)
+                      .filter(models.Task.id == t.parent_task_id).first())
+        if parent_row is not None and parent_row.deleted_at:
+            raise HTTPException(409, "Restore its parent task first - it is in the Recycle Bin.")
+        parent_gone = parent_row is None
+    stamp = t.deleted_at or ""
+    q = db.query(models.Task).execution_options(include_deleted=True)
+    rows = q.filter(models.Task.deleted_with == t.id, models.Task.deleted_at != "").all()
+    if stamp:
+        rows += q.filter(models.Task.parent_task_id == t.id, models.Task.deleted_at == stamp,
+                         (models.Task.deleted_with == "") | (models.Task.deleted_with.is_(None))).all()
+    back = {r.id: r for r in rows if r.id != t.id}
+    for row in [t, *back.values()]:
+        row.deleted_at = ""
+        row.deleted_by = ""
+        row.deleted_with = ""
+        row.modified_at = now
+    if parent_gone:
+        t.parent_task_id = ""
+    # Re-link each one into its parent's list. A parent restored in this same
+    # call is still binned in the database (nothing is flushed yet), so the
+    # rows in hand are looked at first.
+    in_hand = {t.id: t, **back}
+    for row in [t, *back.values()]:
+        if not row.parent_task_id:
+            continue
+        parent = in_hand.get(row.parent_task_id) or (
+            db.query(models.Task).filter(models.Task.id == row.parent_task_id).first())
+        if parent is not None and row.id not in (parent.subtask_ids or []):
+            parent.subtask_ids = list(parent.subtask_ids or []) + [row.id]
+            parent.modified_at = now
+    return list(back.values())
+
+
 @router.delete("/{task_id}", status_code=204)
 def delete_task(task_id: str, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -2209,10 +2869,11 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
     do_orm_execute hook in database.py), so a dangling blockedByIds/
     subtaskIds entry left pointing at it would read as a broken reference on
     the tasks LEFT BEHIND, not as "this one's in the trash". Restore brings
-    the task itself back, not those severed links."""
+    the task back into its parent's subtask list (restore_task_tree), not the
+    severed dependency links."""
     t = _get_task(db, task_id)
-    import auth   # company wall: another company's task is 404
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    # company wall: another company's task is 404
+    assert_task_wall(db, user, t)
     # The assignee counts on their own task here too. Note this cascade takes
     # the task's SUBTASKS with it (below), which may be assigned to other
     # people - deleting your own task can therefore remove someone else's.
@@ -2242,11 +2903,15 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
             other.blocking_ids = [x for x in other.blocking_ids if x != task_id]; changed = True
         if changed:
             other.modified_at = now_iso()
-    # trash subtasks alongside their parent - a subtask can also be trashed on
-    # its own later (this endpoint doesn't care whether its parent is trashed),
-    # so trash_purge_loop purges each row independently rather than assuming
-    # only top-level trashed tasks need walking.
-    subs = db.query(models.Task).filter(models.Task.parent_task_id == task_id).all()
+    # Trash the WHOLE subtree with it (Oct 21 2026 - only the direct subtasks
+    # went before, leaving grandchildren live under a binned parent, where no
+    # list can show them). Each one is stamped deleted_with = this task, the
+    # way a project bins its tasks: restore brings back exactly that set, and
+    # the Recycle Bin lists only this task, not every step under it. A
+    # subtask trashed on its own earlier is already gone from the live tree,
+    # so it is not swept in and keeps its own bin entry. trash_purge_loop
+    # still purges each row independently.
+    subs = _live_descendants(db, [task_id])
     gone_ids = [task_id] + [sub.id for sub in subs]
     # Tombstone every id going to trash, in this same transaction - a delta
     # fetch (GET /tasks/delta) otherwise can't tell "gone" apart from
@@ -2258,6 +2923,7 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
         row.deleted_at = deleted_stamp
         row.deleted_by = user["email"]
         row.modified_at = deleted_stamp
+        row.deleted_with = task_id if row is not t else ""   # the task itself is its own bin entry
     # A timer still running on a trashed task would otherwise sit there
     # unstoppable and block that person's next Start; close it with the trash.
     for e in (db.query(models.TaskTimeEntry)
@@ -2338,27 +3004,22 @@ def list_deleted_tasks(scope: str = "", user: dict = Depends(get_current_user),
 
 @router.post("/{task_id}/restore")
 def restore_task(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Put a trashed task - and any subtasks trashed alongside it - back,
-    exactly as they were. Parent/dependency links severed at delete time are
-    NOT re-attached (delete_task's docstring explains why they were cut);
-    reconnect them by hand if the task needs them again."""
+    """Put a trashed task - and the subtasks trashed alongside it - back,
+    exactly as they were (restore_task_tree). The task rejoins its parent's
+    subtask list when that parent is live; dependency links severed at delete
+    time are NOT re-attached (delete_task's docstring explains why they were
+    cut) - reconnect them by hand if the task needs them again."""
     t = (db.query(models.Task).execution_options(include_deleted=True)
            .filter(models.Task.id == task_id).first())
     if not t:
         raise HTTPException(404, "Task not found")
-    import auth   # company wall: another company's trashed task is 404
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    # company wall: another company's trashed task is 404
+    assert_task_wall(db, user, t)
     if not _may_untrash(user, t):
         raise HTTPException(403, "Only a manager, or whoever deleted it, can restore this task.")
     if not t.deleted_at:
         return task_to_dict(t)
-    subs = (db.query(models.Task).execution_options(include_deleted=True)
-              .filter(models.Task.parent_task_id == task_id, models.Task.deleted_at != "").all())
-    now = now_iso()
-    for row in [t, *subs]:
-        row.deleted_at = ""
-        row.deleted_by = ""
-        row.modified_at = now
+    restore_task_tree(db, t, now_iso())
     log_activity(db, type="restored", actor_email=user["email"], entity_id=task_id,
                  entity_code=t.code, entity_title=t.title, detail="restored this task from Trash")
     db.commit()
@@ -2377,8 +3038,8 @@ def delete_task_permanent(task_id: str, user: dict = Depends(get_current_user), 
     t = (db.query(models.Task).execution_options(include_deleted=True)
            .filter(models.Task.id == task_id).first())
     if t:
-        import auth   # company wall: another company's trashed task is 404
-        auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+        # company wall: another company's trashed task is 404
+        assert_task_wall(db, user, t)
         if not _may_untrash(user, t):
             raise HTTPException(403, "Only a manager, or whoever deleted it, can permanently delete this task.")
     if not purge_task_permanently(db, task_id, actor_email=user["email"]):
@@ -2417,6 +3078,37 @@ def _merge_custom_field_values(db: Session, current, change) -> dict:
     return merged
 
 
+def _blockers_first(rows: list, completing) -> list:
+    """`rows` with every task after the in-batch tasks that block it
+    (Kahn's algorithm over blocked_by_ids edges whose blocker is in the batch
+    and being completed - `completing(row)` says which), otherwise in their
+    given order. Tasks caught in a loop among themselves come last: none of
+    them can be assumed done first, so the gate refuses them. Linear in the
+    batch and its edges."""
+    by_id = {t.id: t for t in rows}
+    done_ids = {t.id for t in rows if completing(t)}
+    waits: dict = {t.id: 0 for t in rows}
+    unblocks: dict = {t.id: [] for t in rows}
+    for t in rows:
+        for b in dict.fromkeys(i for i in (t.blocked_by_ids or []) if i):
+            if b in done_ids and b != t.id:
+                waits[t.id] += 1
+                unblocks[b].append(t.id)
+    ready = [t.id for t in rows if waits[t.id] == 0]
+    order, i = [], 0
+    while i < len(ready):
+        tid = ready[i]
+        i += 1
+        order.append(tid)
+        for d in unblocks[tid]:
+            waits[d] -= 1
+            if waits[d] == 0:
+                ready.append(d)
+    placed = set(order)
+    order += [t.id for t in rows if t.id not in placed]
+    return [by_id[x] for x in order]
+
+
 @router.post("/bulk")
 def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     patch = {k: v for k, v in (body.patch or {}).items() if k in _BULK_ALLOWED}
@@ -2424,20 +3116,80 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # an arbitrary status set here still created a phantom board column.
     validate_task_payload(db, patch)
     rows = db.query(models.Task).filter(models.Task.id.in_(body.ids)).all()
+    # The company wall, all-or-nothing like the editor check below (Oct 21
+    # 2026). A manager clears every role check, so without this one batch
+    # could reassign or close another company's tasks by id. 404, as for one
+    # task: the caller learns nothing about which ids exist over the wall.
+    import auth
+    scope = auth.company_scope(user, db)   # once for the batch
+    if len(wall_tasks(db, user, rows, scope=scope)) != len(rows):
+        raise HTTPException(404, "Task not found")
     # Same editor requirement update_task enforces per task. Without this, bulk
     # was a straight bypass of it: _BULK_ALLOWED covers assignee, project,
     # completed and due date, so anyone who could merely VIEW a task could
     # reassign or close it by routing through here instead of PATCH.
     # All-or-nothing on purpose - a partial apply would leave the caller with no
     # way to tell which ids were silently skipped.
+    seen: dict = {}   # an external's visible projects, worked out once for the batch
     for t in rows:
-        require_task_role(db, user, t, "editor")
+        require_task_role(db, user, t, "editor", scope=scope, visible_cache=seen)
+    # The rest of what a single PATCH checks (Oct 21 2026), all before any row
+    # is written so the batch stays all-or-nothing: editor on the project the
+    # tasks are moved into, newly added assignees are directory people on each
+    # task's side of the wall, and no required custom field is left empty by
+    # this edit (see _newly_missing_required for what is NOT refused).
+    dest = (patch.get("project_id") or "") if "project_id" in patch else ""
+    if dest and any((t.project_id or "") != dest for t in rows):
+        _require_destination_projects(db, user, [dest])
+    for t in rows:
+        current = task_assignees(t)
+        wanted = _assignees_from(patch, list(current))
+        _require_people(db, t, [w for w in (wanted or []) if w not in current], actor=user["email"],
+                        user=user)
+        if "custom_field_values" in patch or "project_id" in patch:
+            project_after = (patch["project_id"] if "project_id" in patch else t.project_id) or ""
+            values_after = (_merge_custom_field_values(db, t.custom_field_values, patch["custom_field_values"])
+                            if "custom_field_values" in patch else (t.custom_field_values or {}))
+            missing = _newly_missing_required(db, t, t.project_id or "", t.custom_field_values or {},
+                                              project_after, values_after)
+            if missing:
+                raise HTTPException(422, f"{t.title}: {_required_message(db, missing, project_after)}")
     if "status" in patch or "completed" in patch:
-        for t in rows:
+        # Same-batch dependencies (Oct 21 2026): when A blocks B and both are
+        # completed in this one call, A counts as done for B's gate once A has
+        # passed its OWN gate. The batch is put in blocker-first order over
+        # its in-batch edges (_blockers_first) and gated in one pass; a task
+        # whose in-batch blocker has not passed - a loop among them included -
+        # refuses the whole batch with the usual 400. A single PATCH is
+        # unchanged.
+        done_in_batch: set = set()
+        for t in _blockers_first(rows, lambda r: _resolve_completed(patch, bool(r.completed)) and not r.completed):
             prev_status, prev_completed = t.status, bool(t.completed)
             new_status = patch.get("status", prev_status)
             new_completed = bool(patch.get("completed", prev_completed)) or (patch.get("status") == "completed")
-            _check_dependency_gate(db, t, prev_status, prev_completed, new_status, new_completed)
+            _check_dependency_gate(db, t, prev_status, prev_completed, new_status, new_completed,
+                                   assume_done=frozenset(done_in_batch))
+            if new_completed and not prev_completed:
+                done_in_batch.add(t.id)
+    # Lock order (Oct 21 2026, see _lock_task_rows). Only when this call will
+    # roll a series forward: the rows that will roll and the rows each one
+    # writes besides itself (its parent occurrence, its subtasks) are locked
+    # HERE, in id order, before the HR checklist landing below writes rows and
+    # before any next occurrence takes the task-code counter. A patch that
+    # completes nothing recurring takes no locks up front, as before.
+    def _will_roll(r, completing: bool) -> bool:
+        rec = r.recurrence if isinstance(r.recurrence, dict) else {}
+        return bool(completing and rec.get("freq") and not rec.get("nextOccurrenceId"))
+    locked: set = set()
+
+    def _lock_rolling(heads) -> None:
+        ids = set()
+        for h in heads:
+            ids |= {h.id, *_spawn_write_ids(db, h)}
+        if ids - locked:
+            _lock_task_rows(db, ids - locked)
+            locked.update(ids)
+    _lock_rolling([t for t in rows if _will_roll(t, _resolve_completed(patch, bool(t.completed)) and not t.completed)])
     # Captured before the patch lands so the activity entries below can say what
     # actually changed rather than restating the new value for every row.
     before = {t.id: (t.status, bool(t.completed), tuple(task_assignees(t))) for t in rows}
@@ -2497,14 +3249,26 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             new_completed = _resolve_completed({**patch, **auto.changed}, prev_completed)
         if auto.after_commit:
             auto_results.append(auto)
-        _apply_completion(t, new_completed, prev_completed)
+        # The shared completion path (flag + HR checklist), as update_task.
+        _land_completion(db, t, new_completed, prev_completed, user["email"])
         t.modified_at = now_iso()
-        if bool(new_completed) != bool(prev_completed):
-            import hr_checklists
-            hr_checklists.task_completed(db, t, bool(new_completed), user["email"])
         if (t.due_on or "")[:10] != (auto_before[t.id].get("due_on") or ""):
             import hr_checklists
             hr_checklists.task_due_changed(db, t, user["email"])
+
+    # The FINAL state, after the automation rules (Oct 21 2026). A rule may
+    # have reopened a task the gate above counted as done for its dependent,
+    # or completed one nobody asked for: every row whose status or completion
+    # moved is gated again against what the batch now really holds (rows in
+    # the batch read back as they stand in this request). Still all or
+    # nothing - the raise drops the whole uncommitted batch.
+    for t in rows:
+        prev_status, prev_completed, _ = before[t.id]
+        if t.status != prev_status or bool(t.completed) != prev_completed:
+            _check_dependency_gate(db, t, prev_status, prev_completed, t.status or "", bool(t.completed))
+    # ...and a recurring row a rule completed is locked (with its extra rows)
+    # now, before any next occurrence below takes the task-code counter.
+    _lock_rolling([t for t in rows if _will_roll(t, bool(t.completed) and not before[t.id][1])])
 
     # Activity + notifications. Bulk previously did NEITHER: reassigning fifty
     # tasks told nobody and left no audit trail, while the same edit made one at
@@ -2540,9 +3304,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             if (now_assignees - set(prev_assignees)) and "follower_emails" not in patch:
                 _follow_as_actor(t, actor)
         if t.completed and not prev_completed:
-            acts.append(log_activity(db, type="completed", actor_email=user["email"],
-                                     entity_id=t.id, entity_code=t.code, entity_title=t.title,
-                                     detail="completed this task"))
+            acts.append(_log_completed(db, t, user["email"]))
         t.activity_ids = acts
         # After activity_ids is rebuilt - task_due appends its own entries.
         # Logged and counted like a single edit, but no per-row email (see above).
@@ -2564,6 +3326,49 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             task_due.record_due_change(db, t, before_due[t.id], t.due_on or "", actor=actor, source="bulk")
         elif now_assignees != set(prev_assignees) and t.due_on:
             task_due.settle_agreement(t, actor)
+
+    # Completing in bulk is completing (Oct 21 2026): each recurring task rolls
+    # forward and each ticket's task tells its ticket, through the same
+    # _after_completed a single completion runs - before, a periodic task
+    # completed here simply ended its series. Every check above already
+    # passed, so nothing here can refuse part of the batch. The rows were
+    # locked above, before any write.
+    #
+    # Main tasks before their subtasks: a subtask's next copy belongs under
+    # the main task's NEW occurrence, and one completed alongside it moves
+    # there as an open subtask would - the same result as completing the main
+    # task first and the subtask after (carry_open).
+    #
+    # Bells once for the batch: "Recurring Task Due" one per person, a
+    # ticket's "All Tasks ... Done" one per ticket.
+    completing = [t for t in rows if t.completed and not before[t.id][1]]
+    batch_ids = {t.id for t in completing}
+    by_id_batch = {t.id: t for t in completing}
+
+    def _depth(t):
+        d, seen, cur = 0, {t.id}, t
+        while cur.parent_task_id in by_id_batch and cur.parent_task_id not in seen:
+            seen.add(cur.parent_task_id)
+            cur = by_id_batch[cur.parent_task_id]
+            d += 1
+        return d
+    completing.sort(key=lambda t: (_depth(t), t.id))
+    next_due_for: dict[str, list] = {}
+    made: dict = {}   # occurrences made in this call, for the subtasks after them (_task_by_id)
+    for t in completing:
+        nxt = _after_completed(db, t, user, before[t.id][1], notify=False, carry_open=frozenset(batch_ids),
+                               pending=made)
+        if nxt is not None:
+            made[nxt.id] = nxt
+            for who in task_assignees(nxt):
+                if who != actor:
+                    next_due_for.setdefault(who, []).append(nxt)
+    for who, occurrences in next_due_for.items():
+        _recurring_due_bell(db, who, occurrences)
+    tickets = {t.source_ticket_id for t in completing if t.source_ticket_id}
+    for tk in (db.query(models.TaskTicket).filter(models.TaskTicket.id.in_(tickets)).all() if tickets else []):
+        if any(t.source_ticket_id == tk.id and tk.linked_task_id != t.id for t in completing):
+            _tell_ticket_all_done(db, tk, actor, batch_ids)
 
     for email, assigned in newly_assigned.items():
         # One task through bulk is the same action as one through PATCH, so it
@@ -2807,10 +3612,18 @@ def delete_comment(comment_id: str, user: dict = Depends(get_current_user),
     if not c:
         raise HTTPException(404, "Comment not found")
     t = db.query(models.Task).filter(models.Task.id == c.task_id).first()
+    if t is not None:
+        assert_task_wall(db, user, t)   # company wall first (Oct 21 2026)
     if (c.author_email or "").lower() != (user["email"] or "").lower():
         require_project_role(db, user, project_for_task(db, t) if t else None, "editor")
         if user.get("level", 1) < 3:
             raise HTTPException(403, "Only the author or a manager can delete a comment.")
+    if t is not None and not task_visible_to(db, user, t):
+        # ...and sight of the task, the author included (as edit_comment):
+        # "no project" reads as editor for everybody, so on a restricted
+        # standalone task the role check above admitted anyone. After the
+        # role checks so their 403s stand.
+        raise HTTPException(404, "Task not found")
     # A thread's root holds other people's replies. Its author cannot take
     # those down with it; a manager moderating the thread removes the lot.
     replies = db.query(models.TaskComment).filter(models.TaskComment.parent_id == comment_id).all()
@@ -3180,8 +3993,7 @@ def add_checklist_items(task_id: str, body: ChecklistItemCreate, user: dict = De
 def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = Depends(get_current_user),
                           db: Session = Depends(get_db)):
     i, t = _checklist_item(db, item_id)
-    import auth
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    assert_task_wall(db, user, t)
     data = upd.model_dump(exclude_unset=True)
     me = (user["email"] or "").lower()
     only_ticking = set(data) <= {"done"}
@@ -3222,8 +4034,7 @@ def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = D
 @router.delete("/checklist/{item_id}")
 def delete_checklist_item(item_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     i, t = _checklist_item(db, item_id)
-    import auth
-    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    assert_task_wall(db, user, t)
     require_task_role(db, user, t, "editor")
     db.delete(i)
     _recount_checklist(db, t)
@@ -3260,6 +4071,29 @@ def list_attachments(task_id: str, user: dict = Depends(get_current_user), db: S
     return [attachment_to_dict(a) for a in rows]
 
 
+_URL_SCHEME_RE = re.compile(r"^https?://", re.I)
+
+
+def _check_attachment_url(url) -> None:
+    """What an attachment may point at (Oct 21 2026). The Tasks screens only
+    ever send a file they just stored - its canonical Supabase storage URL -
+    or, with no storage configured, the file inline as a data: URL (stored
+    below, or kept inline). There is no "add a link" attachment, so anything
+    else is refused: a javascript: / vbscript: / file: URL would run or open
+    from the Attachments list, and an outside https URL is not our evidence.
+    Non-data URLs go through the app's own _validate_photo_url (Supabase
+    storage only, 400) after an http(s) scheme check that holds even where
+    storage is not configured (local dev, where that check is a no-op).
+    Blank stays allowed (a failed upload still records the file's name)."""
+    u = (url or "").strip()
+    if not u or u.lower().startswith("data:"):
+        return
+    if not _URL_SCHEME_RE.match(u):
+        raise HTTPException(400, "Attachment must be a file uploaded to Nexus.")
+    from routers.items import _validate_photo_url
+    _validate_photo_url(u, "Attachment")
+
+
 @router.post("/{task_id}/attachments", status_code=201)
 def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(get_current_user),
                    db: Session = Depends(get_db)):
@@ -3269,6 +4103,7 @@ def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(ge
     # editor here would 403 exactly the people that flow exists for. Matches
     # add_comment's own threshold.
     require_task_role(db, user, t, "commenter")
+    _check_attachment_url(body.url)
     # An attachment tagged with a comment from a DIFFERENT task is incoherent:
     # the comment view groups by comment id within one task, so the file would
     # simply never render, while the row claims an association that isn't real.
@@ -3309,10 +4144,18 @@ def delete_attachment(attachment_id: str, user: dict = Depends(get_current_user)
     if not a:
         raise HTTPException(404, "Attachment not found")
     t = db.query(models.Task).filter(models.Task.id == a.task_id).first()
+    if t is not None:
+        assert_task_wall(db, user, t)   # company wall first (Oct 21 2026)
     # Whoever uploaded it can remove it; otherwise it takes an editor. Removing
     # someone else's evidence from a task shouldn't be open to every viewer.
     if (a.added_by or "").lower() != (user["email"] or "").lower():
         require_project_role(db, user, project_for_task(db, t) if t else None, "editor")
+    if t is not None and not task_visible_to(db, user, t):
+        # Sight of the task too, the uploader included (Oct 21 2026): a file
+        # on a task you can no longer open is not yours to reach by id, and
+        # the editor check above reads "no project" as editor for everybody.
+        # After the role check so its 403 stands.
+        raise HTTPException(404, "Task not found")
     if t:
         t.attachment_ids = [x for x in (t.attachment_ids or []) if x != attachment_id]
         act = log_activity(db, type="attachment_removed", actor_email=user["email"], entity_id=t.id,
@@ -3346,15 +4189,40 @@ def global_activity_feed(limit: int = 500, user: dict = Depends(get_current_user
     Tasks grant and manager level (Sep 30 review: the route took no user at
     all), and a manager behind a company wall sees only the task rows on their
     side of it. global_activity above builds the rows."""
-    rows = global_activity(limit=limit, db=db)
     import auth
     if auth.company_scope(user, db) is None:
-        return rows   # walls off, or a Global Admin
-    ids = {r["entityId"] for r in rows if r["entityKind"] == "task" and r["entityId"]}
-    tasks = (db.query(models.Task).execution_options(include_deleted=True)
-             .filter(models.Task.id.in_(ids)).all()) if ids else []
-    admitted = {t.id for t in wall_tasks(db, user, tasks)}
-    return [r for r in rows if r["entityKind"] != "task" or r["entityId"] in admitted]
+        return global_activity(limit=limit, db=db)   # walls off, or a Global Admin
+    # Behind a wall (Oct 21 2026): project rows are walled as well as task
+    # rows (a project's name is as much a leak as a task's title), anything
+    # whose task or project cannot be placed is left out, and the wall is
+    # applied BEFORE the limit - filtering the newest `limit` rows afterwards
+    # handed a walled manager a short, arbitrarily truncated page. Scans in
+    # pages, newest first, up to a bounded depth.
+    want = max(1, min(limit, 2000))
+    page, scanned, out = 2000, 0, []
+    while len(out) < want and scanned < 50_000:
+        chunk = (db.query(models.TaskActivity)
+                 .filter(or_(models.TaskActivity.entity_kind.is_(None),
+                             models.TaskActivity.entity_kind != "ticket"))
+                 .order_by(models.TaskActivity.at.desc(), models.TaskActivity.id)
+                 .offset(scanned).limit(page).all())
+        if not chunk:
+            break
+        scanned += len(chunk)
+        task_ids = {a.entity_id for a in chunk if (a.entity_kind or "task") == "task" and a.entity_id}
+        proj_ids = {a.entity_id for a in chunk if a.entity_kind == "project" and a.entity_id}
+        tasks = (db.query(models.Task).execution_options(include_deleted=True)
+                 .filter(models.Task.id.in_(task_ids)).all()) if task_ids else []
+        projs = (db.query(models.TaskProject).execution_options(include_deleted=True)
+                 .filter(models.TaskProject.id.in_(proj_ids)).all()) if proj_ids else []
+        admitted = {("task", t.id) for t in wall_tasks(db, user, tasks)} \
+            | {("project", p.id) for p in wall_rows(db, user, projs)}
+        for a in chunk:
+            if ((a.entity_kind or "task"), a.entity_id) in admitted:
+                out.append(activity_to_dict(a))
+                if len(out) >= want:
+                    break
+    return out
 
 
 @router.get("/{task_id}/activity")
@@ -3873,7 +4741,7 @@ def _require_section_editor(db: Session, user: dict, project_id: str) -> None:
     if not project_id:
         return
     project = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
-    require_project_role(db, user, project, "editor")
+    require_project_access(db, user, project, "editor")   # company wall, then the role
 
 
 @router.post("/meta/sections", status_code=201)
@@ -3937,7 +4805,7 @@ class CustomStatusBody(BaseModel):
 
 
 @router.post("/meta/custom-statuses/dedupe", dependencies=[Depends(require_manager)])
-def dedupe_custom_statuses(db: Session = Depends(get_db)):
+def dedupe_custom_statuses(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Collapse same-named statuses onto one row scoped to every project that
     used them.
 
@@ -3948,20 +4816,32 @@ def dedupe_custom_statuses(db: Session = Depends(get_db)):
     Safe to run repeatedly - a no-op once there is nothing to merge. It remaps
     Task.status off every row it deletes, so no task is left pointing at a
     status that no longer exists.
+
+    Behind a company wall (Oct 21 2026) a manager merges only their own
+    companies' statuses; the shared ones are a Global Admin's.
     """
+    import auth
     import task_status_dedupe
-    result = task_status_dedupe.dedupe_custom_statuses(db)
+    scope = auth.company_scope(user, db) if isinstance(user, dict) else None
+    result = task_status_dedupe.dedupe_custom_statuses(db, companies=scope)
     db.commit()
     return result
 
 
 @router.get("/meta/custom-statuses")
-def list_custom_statuses(project_id: str = "", db: Session = Depends(get_db)):
+def list_custom_statuses(project_id: str = "", user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
     """`project_id` narrows to the statuses that project actually uses (its own
     plus any global one). Omitted returns every status, which is what Manage
     needs - the board passes it so a stage invented for one project stops
-    appearing as a column on every other."""
-    rows = db.query(models.TaskCustomStatus).all()
+    appearing as a column on every other.
+
+    Behind a company wall (Oct 21 2026) a company's own statuses are its own;
+    shared ('') ones are everybody's, as every status was before."""
+    import auth
+    scope = auth.company_scope(user, db)
+    rows = [s for s in db.query(models.TaskCustomStatus).all()
+            if config_admits(getattr(s, "company_id", "") or "", scope)]
     if project_id:
         rows = [s for s in rows
                 if not [p for p in (s.project_ids or []) if p]
@@ -3970,10 +4850,12 @@ def list_custom_statuses(project_id: str = "", db: Session = Depends(get_db)):
 
 
 @router.post("/meta/custom-statuses", status_code=201, dependencies=[Depends(require_manager)])
-def create_custom_status(body: CustomStatusBody, db: Session = Depends(get_db)):
+def create_custom_status(body: CustomStatusBody, user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
     s = models.TaskCustomStatus(id=body.id or gen_id(), label=body.label or "",
                                 color=body.color or "", position=body.position or 0,
-                                project_ids=[p for p in (body.project_ids or []) if p])
+                                project_ids=[p for p in (body.project_ids or []) if p],
+                                company_id=config_company_for_new(db, user, body.project_ids or []))
     db.add(s)
     db.commit()
     db.refresh(s)
@@ -3981,10 +4863,12 @@ def create_custom_status(body: CustomStatusBody, db: Session = Depends(get_db)):
 
 
 @router.patch("/meta/custom-statuses/{status_id}", dependencies=[Depends(require_manager)])
-def update_custom_status(status_id: str, body: CustomStatusBody, db: Session = Depends(get_db)):
+def update_custom_status(status_id: str, body: CustomStatusBody, user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
     s = db.query(models.TaskCustomStatus).filter(models.TaskCustomStatus.id == status_id).first()
     if not s:
         raise HTTPException(404, "Custom status not found")
+    assert_config_editable(db, user, getattr(s, "company_id", "") or "")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
     if "project_ids" in data:
         data["project_ids"] = [p for p in (data["project_ids"] or []) if p]
@@ -3996,9 +4880,44 @@ def update_custom_status(status_id: str, body: CustomStatusBody, db: Session = D
 
 
 @router.delete("/meta/custom-statuses/{status_id}", status_code=204, dependencies=[Depends(require_manager)])
-def delete_custom_status(status_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskCustomStatus).filter(models.TaskCustomStatus.id == status_id).delete()
+def delete_custom_status(status_id: str, user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """Delete a status and move every task still in it back to Not Started -
+    in the same transaction (Oct 21 2026).
+
+    Deleting the row alone left those tasks holding an id nothing resolves:
+    a phantom board column, every statusMeta lookup missing, and a PATCH of
+    any other field refused by _valid_statuses only if it resent the status.
+    The board's own Delete Column already promised "Tasks in it move back to
+    Not Started", but did it from the browser for the tasks it could see,
+    racing this call - so tasks in other projects, hidden by a filter, or in
+    the Trash were left behind. Moving them here rather than refusing the
+    delete keeps that promise for all of them; refusing would have broken the
+    board's flow, which fires the delete without waiting for its moves."""
+    s = db.query(models.TaskCustomStatus).filter(models.TaskCustomStatus.id == status_id).first()
+    if not s:
+        return
+    assert_config_editable(db, user, getattr(s, "company_id", "") or "")
+    now = now_iso()
+    # Locked: a concurrent edit of one of these tasks must not write the
+    # deleted status back after this moves it (no-op on SQLite).
+    moved = (db.query(models.Task).execution_options(include_deleted=True)
+             .filter(models.Task.status == status_id).with_for_update().all())
+    # One history line per moved task, Trash included - a restored task should
+    # still say why its status changed.
+    for t in moved:
+        t.status = "not_started"
+        t.modified_at = now
+        t.activity_ids = list(t.activity_ids or []) + [
+            log_activity(db, type="status_changed", actor_email=user["email"], entity_id=t.id,
+                         entity_code=t.code, entity_title=t.title,
+                         detail=f'changed status to not_started ("{s.label}" was deleted)')]
+    db.delete(s)
     db.commit()
+    if moved:
+        # ONE ping for the batch, as bulk_update sends - a ping per task is a
+        # thread and an HTTP call each.
+        fire_task_event("", "bulk")
 
 
 # ── Task email notification settings (admin) ─────────────────────────────────

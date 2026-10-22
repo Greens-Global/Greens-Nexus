@@ -19,9 +19,14 @@ from typing import Optional
 import models
 from database import get_db
 from auth import get_current_user, require_manager, require_any_module_grant, module_owner_acts_as
+import auth
 from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible_project_ids,
-                               require_project_role, team_project_ids, log_activity,
-                               task_assignees, set_task_assignees, team_is_approved)
+                               team_project_ids, log_activity,
+                               task_assignees, set_task_assignees, team_is_approved,
+                               require_project_access, wall_rows, wall_teams, wall_tasks,
+                               assert_row_wall, assert_team_wall, assert_task_wall,
+                               config_admits, config_company_for_new, assert_config_editable,
+                               teams_editable, tenant_company_for_new)
 from routers.hr import _ensure_departments
 from routers.task_config import coerce_custom_field_values
 
@@ -316,7 +321,7 @@ def put_shared_chart(project_id: str, chart_id: str, body: dict,
     p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).with_for_update().first()
     if not p:
         raise HTTPException(404, "Project not found")
-    require_project_role(db, user, p, "editor")
+    require_project_access(db, user, p, "editor")
     chart = clean_shared_chart({**(body or {}), "id": chart_id})
     charts = [c for c in (p.shared_charts or []) if isinstance(c, dict)]
     idx = next((i for i, c in enumerate(charts) if c.get("id") == chart["id"]), None)
@@ -339,7 +344,7 @@ def delete_shared_chart(project_id: str, chart_id: str,
     p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).with_for_update().first()
     if not p:
         raise HTTPException(404, "Project not found")
-    require_project_role(db, user, p, "editor")
+    require_project_access(db, user, p, "editor")
     p.shared_charts = [c for c in (p.shared_charts or []) if not (isinstance(c, dict) and c.get("id") == chart_id)]
     p.modified_at = now_iso()
     db.commit()
@@ -357,7 +362,9 @@ def list_project_departments(user: dict = Depends(get_current_user), db: Session
     no leads, no contact details), which is all the project picker renders.
     """
     entities = {e.id: e.name for e in db.query(models.HrEntity).all()}
-    rows = db.query(models.HrDepartment).all()
+    # Another company's department names are its own (company wall, Oct 21 2026).
+    scope = auth.company_scope(user, db)
+    rows = [d for d in db.query(models.HrDepartment).all() if auth.company_ok(d.company_id or "", scope)]
     out = [{
         "id": d.id,
         "name": d.name,
@@ -370,7 +377,9 @@ def list_project_departments(user: dict = Depends(get_current_user), db: Session
 
 @router.get("/task-projects")
 def list_projects(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = db.query(models.TaskProject).all()
+    # The company wall first (Oct 21 2026): a manager's see-everything stops
+    # at their companies. No-op while the walls are off / for a Global Admin.
+    rows = wall_rows(db, user, db.query(models.TaskProject).all())
     if is_manager(user):
         return [project_to_dict(p) for p in rows]
     # User dict, not email: externals only see projects they explicitly belong to (Aug 17).
@@ -384,8 +393,13 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
         raise HTTPException(422, "Project name is required")
     now = now_iso()
     hr_dept_id, hr_dept_name = _resolve_hr_department(db, user["email"])
+    _require_portfolio_wall(db, user, body.portfolio_id)
     p = models.TaskProject(
         id=body.id or gen_id(), name=body.name, description=body.description or "",
+        # Company wall: stamped only while the walls are on - the owner's
+        # company, else the creator's (task_util.tenant_company_for_new). With
+        # them off it stays '' and derives from the owner, as before.
+        company_id=tenant_company_for_new(db, user, body.owner_email or ""),
         color=clean_project_color(body.color), icon=clean_project_icon(body.icon),
         owner_email=(body.owner_email or user["email"]).lower(),
         member_emails=body.member_emails or [], portfolio_id=body.portfolio_id or "",
@@ -416,6 +430,63 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
     db.commit()
     db.refresh(p)
     return project_to_dict(p)
+
+
+def _require_portfolio_wall(db: Session, user: dict, portfolio_id) -> None:
+    """A project can only be filed in a portfolio on the caller's side of the
+    company wall - 404 for one over it, as if it did not exist."""
+    pid = (portfolio_id or "").strip()
+    if not pid:
+        return
+    pf = db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == pid).first()
+    if pf is not None:
+        assert_row_wall(db, user, pf)
+
+
+def _require_projects_wall(db: Session, user: dict, project_ids) -> None:
+    """Every project named must be on the caller's side of the company wall
+    (managers included - they skip the role checks). Unknown ids are left to
+    the caller's own handling."""
+    ids = [(i or "").strip() for i in (project_ids or []) if (i or "").strip()]
+    if not ids:
+        return
+    scope = auth.company_scope(user, db)   # once for the batch
+    if scope is None:
+        return
+    for proj in db.query(models.TaskProject).filter(models.TaskProject.id.in_(ids)).all():
+        assert_row_wall(db, user, proj, scope=scope)
+
+
+def _keep_hidden_projects(db: Session, user: dict, prev_ids, sent_ids) -> list:
+    """A portfolio's project list as the caller saves it, with every project
+    they cannot see (another company's, behind the wall) kept where it was.
+
+    list_portfolios leaves those ids out, so the Edit form - which always
+    sends projectIds back - would otherwise drop them on a mere rename and
+    clear those projects' portfolio_id. The caller's own ids take the order
+    they sent; each hidden id keeps its original slot. Unchanged with the
+    walls off."""
+    sent = [i for i in dict.fromkeys(sent_ids or []) if i]
+    scope = auth.company_scope(user, db)
+    prev = [i for i in (prev_ids or []) if i]
+    if scope is None or not prev:
+        return sent
+    rows = db.query(models.TaskProject).filter(models.TaskProject.id.in_(prev)).all()
+    seen = {r.id for r in wall_rows(db, user, rows, scope=scope)}
+    hidden = {r.id for r in rows if r.id not in seen}
+    if not hidden:
+        return sent
+    mine = iter([i for i in sent if i not in hidden])
+    out = []
+    for pid in prev:
+        if pid in hidden:
+            out.append(pid)
+        else:
+            nxt = next(mine, None)
+            if nxt is not None:
+                out.append(nxt)
+    out += list(mine)
+    return list(dict.fromkeys(out))
 
 
 def _sync_portfolio_membership(db: Session, project_id: str, portfolio_id: str) -> None:
@@ -454,7 +525,9 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
     # not "Editor" (which only covers the tasks inside it). Curating the
     # project's shared dashboard charts is editor work, like the tasks.
     data = body.model_dump(exclude_unset=True, exclude={"id"})
-    require_project_role(db, user, p, "editor" if set(data) <= {"shared_charts"} else "owner")
+    require_project_access(db, user, p, "editor" if set(data) <= {"shared_charts"} else "owner")
+    if "portfolio_id" in data:
+        _require_portfolio_wall(db, user, data["portfolio_id"])
     for k, v in data.items():
         if k == "default_view":
             v = clean_default_view(v)
@@ -505,7 +578,7 @@ def delete_project(project_id: str, user: dict = Depends(get_current_user),
     p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
     if not p:
         raise HTTPException(404, "Project not found")
-    require_project_role(db, user, p, "owner")
+    require_project_access(db, user, p, "owner")
 
     # Soft delete (Sept 2026). The project, and its tasks with it - the hard
     # delete took them, and a project restored empty is not a restore.
@@ -518,9 +591,14 @@ def delete_project(project_id: str, user: dict = Depends(get_current_user),
     # plus its 200 tasks.
     now = now_iso()
     binned = 0
-    for t in (db.query(models.Task).execution_options(include_deleted=True)
-              .filter(models.Task.project_id == project_id,
-                      (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None))).all()):
+    in_project = (db.query(models.Task).execution_options(include_deleted=True)
+                  .filter(models.Task.project_id == project_id,
+                          (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None))).all())
+    # Their subtasks too, however deep (Oct 21 2026): a subtask's own
+    # project_id is blank - it reaches the project through its parent - so the
+    # filter above never found one, and they stayed live under binned parents.
+    from routers.tasks import _live_descendants   # lazy, like this file's other routers.tasks imports
+    for t in in_project + _live_descendants(db, [x.id for x in in_project]):
         t.deleted_at = now
         t.deleted_by = user["email"]
         t.deleted_with = project_id
@@ -541,7 +619,7 @@ def delete_project(project_id: str, user: dict = Depends(get_current_user),
 
 
 @router.post("/task-projects/backfill-teams", dependencies=[Depends(require_manager)])
-def backfill_task_teams(apply: bool = False, db: Session = Depends(get_db)):
+def backfill_task_teams(apply: bool = False, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Give tasks the team their project already implies.
 
     A task's `team_id` is really an override of its project's team, but nothing
@@ -565,7 +643,8 @@ def backfill_task_teams(apply: bool = False, db: Session = Depends(get_db)):
     rows = (db.query(models.Task)
             .filter(models.Task.project_id.in_(list(solo.keys())))
             .all())
-    todo = [t for t in rows if not (t.team_id or "")]
+    # Company wall (Oct 21 2026): a manager fills in their own companies' tasks only.
+    todo = [t for t in wall_tasks(db, user, rows) if not (t.team_id or "")]
     if apply:
         now = now_iso()
         for t in todo:
@@ -695,6 +774,10 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
             description=f"Tasks handed over from {label} on offboarding.",
             owner_email=to_email, member_emails=[to_email], member_roles={to_email: "owner"},
             access_level="restricted", status="not_started",
+            # The leaver's company while the walls are on; '' (derived) with
+            # them off, like every other new project.
+            company_id=((getattr(who, "company", "") or "") if who is not None else "")
+            if auth._company_walls_on(db) else "",
             created_at=now, modified_at=now, created_by=actor or to_email,
         )
         db.add(project)
@@ -776,10 +859,16 @@ class PortfolioBody(BaseModel):
 
 
 @router.get("/task-portfolios")
-def list_portfolios(db: Session = Depends(get_db)):
+def list_portfolios(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     owner_of = project_portfolio_map(db)
-    return [portfolio_to_dict(p, portfolio_project_ids(p, owner_of))
-            for p in db.query(models.TaskPortfolio).all()]
+    # Company wall (Oct 21 2026): another company's portfolios, and another
+    # company's projects inside one of yours, are left out.
+    if auth.company_scope(user, db) is None:
+        return [portfolio_to_dict(p, portfolio_project_ids(p, owner_of))
+                for p in db.query(models.TaskPortfolio).all()]
+    admitted = {p.id for p in wall_rows(db, user, db.query(models.TaskProject).all())}
+    return [portfolio_to_dict(p, [i for i in portfolio_project_ids(p, owner_of) if i in admitted])
+            for p in wall_rows(db, user, db.query(models.TaskPortfolio).all())]
 
 
 @router.post("/task-portfolios", status_code=201)
@@ -790,8 +879,11 @@ def create_portfolio(body: PortfolioBody, user: dict = Depends(get_current_user)
     parent_id = (body.parent_id or "").strip()
     if parent_id and not db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == parent_id).first():
         raise HTTPException(404, "Parent portfolio not found")
+    _require_portfolio_wall(db, user, parent_id)
+    _require_projects_wall(db, user, body.project_ids)
     p = models.TaskPortfolio(
         id=body.id or gen_id(), name=body.name, description=body.description or "",
+        company_id=tenant_company_for_new(db, user, body.owner_email or ""),   # walls on only, like a project
         color=body.color or "", owner_email=(body.owner_email or user["email"]).lower(),
         parent_id=parent_id,
         project_ids=body.project_ids or [], archived=bool(body.archived),   # same drop as create_project had
@@ -813,11 +905,18 @@ def create_portfolio(body: PortfolioBody, user: dict = Depends(get_current_user)
 
 
 @router.patch("/task-portfolios/{portfolio_id}")
-def update_portfolio(portfolio_id: str, body: PortfolioBody, db: Session = Depends(get_db)):
+def update_portfolio(portfolio_id: str, body: PortfolioBody, user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
     p = db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == portfolio_id).first()
     if not p:
         raise HTTPException(404, "Portfolio not found")
+    assert_row_wall(db, user, p)   # company wall (Oct 21 2026)
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    _require_portfolio_wall(db, user, data.get("parent_id"))
+    if "project_ids" in data:
+        _require_projects_wall(db, user, set(data["project_ids"] or []) - set(p.project_ids or []))
+        # Another company's projects stay in it, in place (see _keep_hidden_projects).
+        data["project_ids"] = _keep_hidden_projects(db, user, p.project_ids, data["project_ids"])
     if "parent_id" in data:
         parent_id = (data["parent_id"] or "").strip()
         if parent_id:
@@ -861,7 +960,8 @@ class MoveProjectsBody(BaseModel):
 
 
 @router.post("/task-portfolios/move-projects")
-def move_projects_between_portfolios(body: MoveProjectsBody, db: Session = Depends(get_db)):
+def move_projects_between_portfolios(body: MoveProjectsBody, user: dict = Depends(get_current_user),
+                                     db: Session = Depends(get_db)):
     """Move a batch of projects into one portfolio, or out of all of them.
 
     A project belongs to at most ONE portfolio, so a move is a remove and an add
@@ -885,9 +985,12 @@ def move_projects_between_portfolios(body: MoveProjectsBody, db: Session = Depen
         dest = db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == body.portfolio_id).first()
         if not dest:
             raise HTTPException(404, "Portfolio not found")
+        assert_row_wall(db, user, dest)   # company wall (Oct 21 2026)
     found = {p.id: p for p in db.query(models.TaskProject).filter(models.TaskProject.id.in_(ids)).all()}
     if not found:
         raise HTTPException(404, "None of those projects exist.")
+    # All-or-nothing across the wall, like the bulk task edit.
+    _require_projects_wall(db, user, list(found))
     # Walk the CALLER's order, not the query's. `IN` comes back in whatever order
     # the database feels like, and these ids land at the end of a hand-curated
     # list - so the arrivals would sit in an order nobody chose.
@@ -919,10 +1022,7 @@ def move_projects_between_portfolios(body: MoveProjectsBody, db: Session = Depen
             dest.modified_at = now
     db.commit()
 
-    owner_of = project_portfolio_map(db)
-    return {"moved": len(moved),
-            "portfolios": [portfolio_to_dict(p, portfolio_project_ids(p, owner_of))
-                           for p in db.query(models.TaskPortfolio).all()]}
+    return {"moved": len(moved), "portfolios": list_portfolios(user=user, db=db)}
 
 
 @router.delete("/task-portfolios/{portfolio_id}", status_code=204)
@@ -931,6 +1031,7 @@ def delete_portfolio(portfolio_id: str, user: dict = Depends(get_current_user),
     p = db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == portfolio_id).first()
     if not p:
         raise HTTPException(404, "Portfolio not found")
+    assert_row_wall(db, user, p)   # company wall (Oct 21 2026)
     # Soft delete (Sept 2026): the row stays, hidden from every read by
     # database.py's _hide_soft_deleted hook, and the Recycle Bin can put it back.
     #
@@ -967,7 +1068,13 @@ def list_bookmarks(user: dict = Depends(get_current_user), db: Session = Depends
     rows = (db.query(models.TaskProjectBookmark)
             .filter(models.TaskProjectBookmark.owner_email == user["email"].lower())
             .order_by(models.TaskProjectBookmark.position).all())
-    live = {p.id for p in db.query(models.TaskProject.id).all()} if rows else set()
+    # Behind a company wall, a bookmark on a project over it reads as gone.
+    if not rows:
+        live = set()
+    elif auth.company_scope(user, db) is None:
+        live = {p.id for p in db.query(models.TaskProject.id).all()}   # ids only, as before
+    else:
+        live = {p.id for p in wall_rows(db, user, db.query(models.TaskProject).all())}
     return [{"id": r.id, "projectId": r.project_id, "position": r.position or 0}
             for r in rows if r.project_id in live]
 
@@ -975,8 +1082,10 @@ def list_bookmarks(user: dict = Depends(get_current_user), db: Session = Depends
 @router.post("/task-bookmarks", status_code=201)
 def add_bookmark(body: BookmarkBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     email = user["email"].lower()
-    if not db.query(models.TaskProject).filter(models.TaskProject.id == body.project_id).first():
+    proj = db.query(models.TaskProject).filter(models.TaskProject.id == body.project_id).first()
+    if not proj:
         raise HTTPException(404, "Project not found")
+    assert_row_wall(db, user, proj)
     existing = (db.query(models.TaskProjectBookmark)
                 .filter(models.TaskProjectBookmark.owner_email == email,
                         models.TaskProjectBookmark.project_id == body.project_id).first())
@@ -1047,7 +1156,7 @@ def list_teams(user: dict = Depends(get_current_user), db: Session = Depends(get
     list is every team in the workspace."""
     me = (user.get("email") or "").lower()
     is_mgr = (user.get("level") or 0) >= 3
-    rows = [d for d in db.query(models.TaskTeam).all()
+    rows = [d for d in wall_teams(db, user, db.query(models.TaskTeam).all())   # company wall first
             if team_is_approved(d) or is_mgr or (d.created_by or "").lower() == me]
     return [team_to_dict(d) for d in rows]
 
@@ -1073,18 +1182,21 @@ def create_team(body: TeamBody, user: dict = Depends(get_current_user),
     if not (body.name or "").strip():
         raise HTTPException(422, "Team name is required")
     personal = bool(body.personal) or (user.get("level") or 0) < 3
+    # Every project named must be on the caller's side of the company wall -
+    # managers too, who skip the owner check below (Oct 21 2026).
+    _require_projects_wall(db, user, body.project_ids if body.project_ids is not None else [body.project_id])
     if not is_manager(user):
         asked = body.project_ids if body.project_ids is not None else [body.project_id]
         for pid in {(p or "").strip() for p in (asked or []) if (p or "").strip()}:
             proj = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
             if not proj:
                 raise HTTPException(404, "Project not found")
-            require_project_role(db, user, proj, "owner")
+            require_project_access(db, user, proj, "owner")
     d = models.TaskTeam(id=body.id or gen_id(), name=body.name, color=body.color or "",
                         icon=body.icon or "", member_emails=body.member_emails or [],
                         created_at=now_iso(), created_by=user["email"],
                         approval_status="personal" if personal else "approved",
-                        granted_emails={})
+                        granted_emails={}, company_id=tenant_company_for_new(db, user))
     _set_team_projects(d, body.project_ids if body.project_ids is not None
                        else ([body.project_id] if body.project_id else []))
     db.add(d)
@@ -1112,6 +1224,10 @@ def _require_team_edit(db: Session, user: dict, d: models.TaskTeam, data: dict) 
     hands its members access to its projects, so listing somebody else's
     restricted project would be a way in.
     """
+    if "project_ids" in data or "project_id" in data:
+        # The company wall on every project the team is put on - managers
+        # included, who return just below (Oct 21 2026).
+        _require_projects_wall(db, user, data["project_ids"] if "project_ids" in data else [data["project_id"]])
     if is_manager(user):
         return
     me = (user.get("email") or "").lower()
@@ -1134,7 +1250,7 @@ def _require_team_edit(db: Session, user: dict, d: models.TaskTeam, data: dict) 
         proj = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
         if not proj:
             raise HTTPException(404, "Project not found")
-        require_project_role(db, user, proj, "owner")
+        require_project_access(db, user, proj, "owner")
 
 
 @router.patch("/task-teams/{team_id}")
@@ -1143,6 +1259,7 @@ def update_team(team_id: str, body: TeamBody, user: dict = Depends(get_current_u
     d = db.query(models.TaskTeam).filter(models.TaskTeam.id == team_id).first()
     if not d:
         raise HTTPException(404, "Team not found")
+    assert_team_wall(db, user, d)   # company wall (Oct 21 2026)
     data = body.model_dump(exclude_unset=True, exclude={"id"})
     _require_team_edit(db, user, d, data)
     # Projects go through _set_team_projects so the legacy mirror can never
@@ -1177,6 +1294,7 @@ def delete_team(team_id: str, user: dict = Depends(get_current_user),
          .filter(models.TaskTeam.id == team_id).first())
     if not t:
         raise HTTPException(404, "Team not found")
+    assert_team_wall(db, user, t)   # company wall (Oct 21 2026)
     # Same people who may edit it: a manager any team, the creator their own
     # unapproved one. Binning an approved team takes access from everybody it
     # serves, so it is not something any signed-in person may do.
@@ -1205,13 +1323,21 @@ class DecideBody(BaseModel):
 
 
 @router.get("/task-member-requests")
-def list_member_requests(db: Session = Depends(get_db)):
-    return [member_request_to_dict(m) for m in db.query(models.TaskMemberRequest).all()]
+def list_member_requests(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = db.query(models.TaskMemberRequest).all()
+    if auth.company_scope(user, db) is not None:
+        # Company wall (Oct 21 2026): a request is on its team's side. One
+        # whose team is gone cannot be placed, so it is left out.
+        teams = {t.id for t in wall_teams(db, user, db.query(models.TaskTeam).all())}
+        rows = [m for m in rows if m.department_id in teams]
+    return [member_request_to_dict(m) for m in rows]
 
 
 @router.post("/task-member-requests", status_code=201)
 def raise_member_request(body: MemberRequestBody, user: dict = Depends(get_current_user),
                          db: Session = Depends(get_db)):
+    req_team = db.query(models.TaskTeam).filter(models.TaskTeam.id == body.team_id).first()
+    assert_team_wall(db, user, req_team)   # company wall (Oct 21 2026)
     m = models.TaskMemberRequest(
         id=body.id or gen_id(), department_id=body.team_id,
         user_email=(body.user_email or "").lower(), kind=body.kind or "add",
@@ -1239,6 +1365,7 @@ def decide_member_request(request_id: str, body: DecideBody, user: dict = Depend
     m = db.query(models.TaskMemberRequest).filter(models.TaskMemberRequest.id == request_id).first()
     if not m:
         raise HTTPException(404, "Request not found")
+    assert_team_wall(db, user, db.query(models.TaskTeam).filter(models.TaskTeam.id == m.department_id).first())
     if m.status != "pending":
         raise HTTPException(400, "Request already decided")
     m.status = "approved" if body.status == "approved" else "rejected"
@@ -1578,7 +1705,7 @@ def _adopt_legacy_definitions(db: Session, payload: dict, project_id: str) -> No
         _widen_scope(st, project_id)
 
 
-def _resolve_custom_fields(db: Session, payload: dict, project_id: str) -> dict:
+def _resolve_custom_fields(db: Session, payload: dict, project_id: str, user: dict | None = None) -> dict:
     """Make sure every custom field the payload names exists, and is visible on
     the new project. Returns {payloadKey: realFieldId}.
 
@@ -1592,7 +1719,13 @@ def _resolve_custom_fields(db: Session, payload: dict, project_id: str) -> dict:
     project as well; a global one is left global - narrowing it here would take
     an existing column off every other board that shows it."""
     out = {}
-    existing = db.query(models.TaskCustomField).all()
+    # Behind a company wall only definitions the caller's companies can use
+    # are matched, and a new one is stamped like a hand-made field (Oct 21 2026).
+    scope = auth.company_scope(user, db) if user is not None else None
+    existing = [f for f in db.query(models.TaskCustomField).all()
+                if config_admits(getattr(f, "company_id", "") or "", scope)]
+    def new_company():   # only asked when a definition is actually minted
+        return config_company_for_new(db, user, [project_id]) if user is not None else ""
     by_name = {}
     for f in existing:
         by_name.setdefault(((f.name or "").strip().lower(), (f.type or "text").lower()), f)
@@ -1613,7 +1746,7 @@ def _resolve_custom_fields(db: Session, payload: dict, project_id: str) -> dict:
                 project_ids=[project_id],
                 required=bool(spec.get("required")), read_only=bool(spec.get("readOnly")),
                 applies_to=_dump_applies_to(spec.get("appliesTo") or ["task"]),
-                asana_gid="",
+                asana_gid="", company_id=new_company(),
             )
             db.add(f)
             db.flush()   # autoflush=False - the id must be visible to the tasks below
@@ -1624,7 +1757,7 @@ def _resolve_custom_fields(db: Session, payload: dict, project_id: str) -> dict:
     return out
 
 
-def _resolve_custom_statuses(db: Session, payload: dict, project_id: str) -> dict:
+def _resolve_custom_statuses(db: Session, payload: dict, project_id: str, user: dict | None = None) -> dict:
     """Custom statuses the same way, matched by LABEL.
 
     Label, not id, on purpose: TaskCustomStatus already treats the label as
@@ -1632,7 +1765,11 @@ def _resolve_custom_statuses(db: Session, payload: dict, project_id: str) -> dic
     docstring), so a template must not mint a second "Waiting" beside the one
     the workspace already runs on."""
     out = {}
-    existing = db.query(models.TaskCustomStatus).all()
+    scope = auth.company_scope(user, db) if user is not None else None   # see _resolve_custom_fields
+    existing = [s for s in db.query(models.TaskCustomStatus).all()
+                if config_admits(getattr(s, "company_id", "") or "", scope)]
+    def new_company():   # only asked when a definition is actually minted
+        return config_company_for_new(db, user, [project_id]) if user is not None else ""
     by_label = {}
     for s in existing:
         by_label.setdefault((s.label or "").strip().lower(), s)
@@ -1647,6 +1784,7 @@ def _resolve_custom_statuses(db: Session, payload: dict, project_id: str) -> dic
                 id=gen_id(), label=lbl, color=spec.get("color") or "",
                 position=int(spec.get("position") or 0),
                 project_ids=[project_id], asana_option_gid="", asana_option_gids=[],
+                company_id=new_company(),
             )
             db.add(s)
             db.flush()
@@ -1757,12 +1895,15 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
         archived=bool(given.get("archived")),
         activity_ids=[], created_at=now, modified_at=now, created_by=user["email"],
         custom_field_values={},   # re-keyed below, once the field ids are known
+        company_id=tenant_company_for_new(db, user, owner),   # walls on only, like create_project
     )
     db.add(p)
     db.flush()   # autoflush=False - p.id must be visible to the rows built below
 
     if p.portfolio_id:
         pf = db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == p.portfolio_id).first()
+        if pf is not None and not wall_rows(db, user, [pf]):
+            pf = None   # over the company wall: treated like a portfolio that is gone
         if pf:
             pf.project_ids = list(pf.project_ids or []) + [p.id]
         else:
@@ -1772,13 +1913,20 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
     team_ids = list(given.get("team_ids") or [])
     if include_teams and not blueprint:
         team_ids += [t for t in (src.get("teamIds") or []) if t not in team_ids]
+    named = (db.query(models.TaskTeam).filter(models.TaskTeam.id.in_(team_ids)).all()) if team_ids else []
+    # Attaching a team changes it, so it takes the team's OWN company (one check
+    # for the lot; another company's team is not attached).
+    ok_ids = {t.id for t in teams_editable(db, user, named)}
+    by_id = {t.id: t for t in named}
     for tid in team_ids:
-        team = db.query(models.TaskTeam).filter(models.TaskTeam.id == tid).first()
+        team = by_id.get(tid)
+        if team is not None and team.id not in ok_ids:
+            continue
         if team and p.id not in team_project_ids(team):
             _set_team_projects(team, team_project_ids(team) + [p.id])
 
-    field_ids = _resolve_custom_fields(db, payload, p.id)
-    status_ids = _resolve_custom_statuses(db, payload, p.id)
+    field_ids = _resolve_custom_fields(db, payload, p.id, user)
+    status_ids = _resolve_custom_statuses(db, payload, p.id, user)
     if legacy:
         _adopt_legacy_definitions(db, payload, p.id)
 
@@ -1819,7 +1967,7 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
             task_ids[spec.get("key")] = tid
             saved_status = spec.get("status") or status_ids.get(str(spec.get("statusKey")), "")
             row = models.Task(
-                id=tid, code=_next_code(db),
+                id=tid, code=_next_code(db), company_id=p.company_id or "",
                 title=spec.get("title") or "Untitled task",
                 description=spec.get("description") or "",
                 type=spec.get("type") or "task",
@@ -1990,7 +2138,9 @@ def _require_template_owner(t: models.TaskProjectTemplate, user: dict) -> None:
 
 @router.get("/task-project-templates")
 def list_project_templates(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = [t for t in db.query(models.TaskProjectTemplate).all() if _template_visible(t, user)]
+    # Company wall (Oct 21 2026): a template is its owner's company's.
+    rows = [t for t in wall_rows(db, user, db.query(models.TaskProjectTemplate).all())
+            if _template_visible(t, user)]
     rows.sort(key=lambda t: (bool(t.archived), (t.name or "").lower()))
     return [project_template_to_dict(t) for t in rows]
 
@@ -2007,7 +2157,7 @@ def create_project_template(body: ProjectTemplateBody, user: dict = Depends(get_
             raise HTTPException(404, "Project not found")
         # Capturing a project reads everything inside it, so it takes the same
         # tier as editing that project's contents.
-        require_project_role(db, user, source, "editor")
+        require_project_access(db, user, source, "editor")
 
     name = (body.name or (source.name if source else "")).strip()
     if not name:
@@ -2048,6 +2198,7 @@ def create_project_template(body: ProjectTemplateBody, user: dict = Depends(get_
 def update_project_template(template_id: str, body: ProjectTemplatePatch,
                             user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _get_template(db, template_id)
+    assert_row_wall(db, user, t)
     _require_template_owner(t, user)
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(t, k, v)
@@ -2063,6 +2214,7 @@ def delete_project_template(template_id: str, user: dict = Depends(get_current_u
     """Delete the blueprint only. Projects already built from it are ordinary
     projects and are never touched - the template was a snapshot, not a link."""
     t = _get_template(db, template_id)
+    assert_row_wall(db, user, t)
     _require_template_owner(t, user)
     # Soft delete: a template is hand-built from a project that may since have
     # changed, so a mis-click is not something you can simply redo.
@@ -2097,6 +2249,7 @@ def recapture_project_template(template_id: str, body: RecaptureBody,
     Only the payload is replaced. Projects already built from this template are
     untouched, as always - a template was never a live link."""
     t = _get_template(db, template_id)
+    assert_row_wall(db, user, t)
     _require_template_owner(t, user)
     pid = (body.project_id or t.source_project_id or "").strip()
     if not pid:
@@ -2106,7 +2259,7 @@ def recapture_project_template(template_id: str, body: RecaptureBody,
     if not source:
         raise HTTPException(404, "The project this template was captured from no longer exists. "
                                  "Pick another project to capture from.")
-    require_project_role(db, user, source, "editor")
+    require_project_access(db, user, source, "editor")
 
     t.payload = _snapshot_project(db, source, blueprint=True,
                                   include_tasks=bool(body.include_tasks),
@@ -2127,6 +2280,7 @@ def use_project_template(template_id: str, body: UseTemplateBody,
     """Build a new project from a template. Every project setting comes from
     THIS request - the template holds none of them (see the module note)."""
     t = _get_template(db, template_id)
+    assert_row_wall(db, user, t)
     if not _template_visible(t, user):
         raise HTTPException(403, "This template isn't shared with you.")
     if not (body.name or "").strip():
@@ -2166,7 +2320,7 @@ def duplicate_project(project_id: str, body: DuplicateProjectBody,
     src = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
     if not src:
         raise HTTPException(404, "Project not found")
-    require_project_role(db, user, src, "editor")
+    require_project_access(db, user, src, "editor")
     payload = _snapshot_project(db, src, blueprint=False,
                                 include_tasks=bool(body.include_tasks),
                                 include_subtasks=bool(body.include_subtasks),
@@ -2203,7 +2357,7 @@ def preview_project_template(project_id: str, include_subtasks: bool = True,
     p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
     if not p:
         raise HTTPException(404, "Project not found")
-    require_project_role(db, user, p, "viewer")
+    require_project_access(db, user, p, "viewer")
     payload = _snapshot_project(db, p, blueprint=blueprint, include_subtasks=include_subtasks,
                                 include_completed=include_completed)
     tasks = payload.get("tasks") or []
@@ -2316,7 +2470,48 @@ def list_recycle_bin(scope: str = "", user: dict = Depends(get_current_user),
         add("task_template", tpl, tpl.name or "(untitled template)", "Task template")
 
     out.sort(key=lambda r: r["deletedAt"], reverse=True)
-    return out
+    return _wall_recycle(db, user, out)
+
+
+def _wall_recycle(db: Session, user: dict, rows: list) -> list:
+    """The Recycle Bin behind a company wall (Oct 21 2026): each row is its
+    record's company's, read the same way the live lists read it."""
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return rows
+
+    def binned(model, kind):
+        want = [r["id"] for r in rows if r["kind"] == kind]
+        return (db.query(model).execution_options(include_deleted=True)
+                .filter(model.id.in_(want)).all()) if want else []
+    ok = set()
+    ok |= {("task", t.id) for t in wall_tasks(db, user, binned(models.Task, "task"))}
+    ok |= {("project", p.id) for p in wall_rows(db, user, binned(models.TaskProject, "project"))}
+    ok |= {("portfolio", p.id) for p in wall_rows(db, user, binned(models.TaskPortfolio, "portfolio"))}
+    ok |= {("team", t.id) for t in wall_teams(db, user, binned(models.TaskTeam, "team"))}
+    ok |= {("template", t.id) for t in wall_rows(db, user, binned(models.TaskProjectTemplate, "template"))}
+    ok |= {("task_template", t.id) for t in binned(models.TaskTemplate, "task_template")
+           if config_admits(getattr(t, "company_id", "") or "", scope)}
+    return [r for r in rows if (r["kind"], r["id"]) in ok]
+
+
+def _assert_recycle_wall(db: Session, user: dict, kind: str, row) -> None:
+    """The per-row form of _wall_recycle, for restore and purge."""
+    if kind == "task":
+        assert_task_wall(db, user, row)
+    elif kind == "team":
+        assert_team_wall(db, user, row)
+    elif kind == "task_template":
+        # Whoever saved it may restore it, as they may delete it (delete_template):
+        # only another company's template is out of reach. Anyone else needs
+        # the edit right (a shared one is a Global Admin's behind a wall).
+        if (row.created_by or "").lower() == (user.get("email") or "").lower():
+            if not config_admits(getattr(row, "company_id", "") or "", auth.company_scope(user, db)):
+                raise HTTPException(404, "Not found")
+        else:
+            assert_config_editable(db, user, getattr(row, "company_id", "") or "")
+    else:
+        assert_row_wall(db, user, row)
 
 
 def _recycle_row(db: Session, kind: str, item_id: str):
@@ -2352,9 +2547,17 @@ def _may_untrash_row(user: dict, row, db: Session) -> bool:
 def restore_from_recycle_bin(kind: str, item_id: str, user: dict = Depends(get_current_user),
                              db: Session = Depends(get_db)):
     row = _recycle_row(db, kind, item_id)
+    _assert_recycle_wall(db, user, kind, row)
     if not _may_untrash_row(user, row, db):
         raise HTTPException(403, "Only a manager, or whoever deleted it, can restore this.")
     now = now_iso()
+    if kind == "task":
+        # A task comes back with the subtasks binned WITH it (they are not
+        # listed on their own) - the same restore as POST /tasks/{id}/restore.
+        from routers.tasks import restore_task_tree
+        restored = 1 + len(restore_task_tree(db, row, now))
+        db.commit()
+        return {"kind": kind, "id": item_id, "restored": restored}
     row.deleted_at = ""
     row.deleted_by = ""
     if hasattr(row, "modified_at"):
@@ -2381,6 +2584,7 @@ def purge_from_recycle_bin(kind: str, item_id: str, user: dict = Depends(get_cur
     """Remove one binned item for good, ahead of the retention sweep.
     Irreversible - this is the delete the soft delete was protecting against."""
     row = _recycle_row(db, kind, item_id)
+    _assert_recycle_wall(db, user, kind, row)
     if not _may_untrash_row(user, row, db):
         raise HTTPException(403, "Only a manager, or whoever deleted it, can permanently delete this.")
     if kind == "task":
@@ -2393,8 +2597,11 @@ def purge_from_recycle_bin(kind: str, item_id: str, user: dict = Depends(get_cur
         # then the membership pointers. Its archived Asana map row, if any, is
         # left alone (asana_legacy.py).
         from routers.task_util import purge_task_permanently
+        # deleted_with too: the project's subtasks (blank project_id) went to
+        # the bin with it (Oct 21 2026). purge_task_permanently takes each
+        # task's binned subtree; one already purged with its parent is a no-op.
         for t in (db.query(models.Task).execution_options(include_deleted=True)
-                  .filter(models.Task.project_id == item_id).all()):
+                  .filter((models.Task.project_id == item_id) | (models.Task.deleted_with == item_id)).all()):
             purge_task_permanently(db, t.id, actor_email=user["email"])
         for team in db.query(models.TaskTeam).execution_options(include_deleted=True).all():
             ids = team_project_ids(team)
@@ -2490,6 +2697,7 @@ def request_team_approval(team_id: str, user: dict = Depends(get_current_user),
     t = db.query(models.TaskTeam).filter(models.TaskTeam.id == team_id).first()
     if not t:
         raise HTTPException(404, "Team not found")
+    assert_team_wall(db, user, t)
     if (t.created_by or "").lower() != (user["email"] or "").lower() and (user.get("level") or 0) < 3:
         raise HTTPException(403, "Only the person who created this team can ask for it to be approved.")
     if team_is_approved(t):
@@ -2521,6 +2729,7 @@ def decide_team_approval(team_id: str, body: TeamApprovalBody,
     t = db.query(models.TaskTeam).filter(models.TaskTeam.id == team_id).first()
     if not t:
         raise HTTPException(404, "Team not found")
+    assert_team_wall(db, user, t)
     decision = (body.decision or "").lower()
     if decision not in ("approved", "rejected"):
         raise HTTPException(422, "decision must be approved or rejected")

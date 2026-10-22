@@ -3080,6 +3080,11 @@ class TaskProject(Base):
     # default folder, which is what every project showed before. Set with
     # `color` from the Edit Project form; routers/task_projects.clean_project_icon.
     icon          = Column(String, default="")
+    # Company wall (Oct 21 2026): the creator's company, stamped on create so
+    # the row stays on its side of the wall. '' = not stamped (rows from before
+    # this): the company is then derived from the owner / creator
+    # (routers/task_util.row_company), like an unstamped Task.
+    company_id    = Column(String, default="")
 
 
 class TaskPortfolio(Base):
@@ -3117,6 +3122,11 @@ class TaskPortfolio(Base):
     # retention window, then purged by task_trash.trash_purge_loop.
     deleted_at    = Column(String, default="", index=True)
     deleted_by    = Column(String, default="")
+    # Company wall (Oct 21 2026): the creator's company, stamped on create so
+    # the row stays on its side of the wall. '' = not stamped (rows from before
+    # this): the company is then derived from the owner / creator
+    # (routers/task_util.row_company), like an unstamped Task.
+    company_id    = Column(String, default="")
 
 
 class TaskTeam(Base):
@@ -3175,6 +3185,11 @@ class TaskTeam(Base):
     # retention window, then purged by task_trash.trash_purge_loop.
     deleted_at    = Column(String, default="", index=True)
     deleted_by    = Column(String, default="")
+    # Company wall (Oct 21 2026): the creator's company, stamped on create so
+    # the row stays on its side of the wall. '' = not stamped (rows from before
+    # this): the company is then derived from the creator, else the team's
+    # projects (routers/task_util.team_company).
+    company_id    = Column(String, default="")
 
 
 class TaskSection(Base):
@@ -3217,6 +3232,11 @@ class TaskCustomStatus(Base):
     # the gids here gives one row scoped to many projects, while still letting a
     # rename in Asana be recognised rather than orphaned.
     asana_option_gids = Column(JSON, default=list)
+    # Company wall (Oct 21 2026): '' = shared by every company - what every
+    # row was before, and what a row made while the walls are off or by a
+    # Global Admin still is. A company here confines the row to that company
+    # (routers/task_util.config_admits).
+    company_id    = Column(String, default="")
 
 
 class TaskComment(Base):
@@ -3317,6 +3337,11 @@ class TaskAutomationRule(Base):
     conditions  = Column(JSON, default=list)
     run_count   = Column(Integer, default=0)
     last_run_at = Column(String, default="")
+    # Company wall (Oct 21 2026): '' = shared by every company - what every
+    # row was before, and what a row made while the walls are off or by a
+    # Global Admin still is. A company here confines the row to that company
+    # (routers/task_util.config_admits).
+    company_id    = Column(String, default="")
 
 
 class TaskTemplate(Base):
@@ -3341,6 +3366,11 @@ class TaskTemplate(Base):
     checklist      = Column(JSON, default=list)
     source_task_id = Column(String, default="")
     created_by     = Column(String, default="")
+    # Company wall (Oct 21 2026): '' = shared by every company - what every
+    # row was before, and what a row made while the walls are off or by a
+    # Global Admin still is. A company here confines the row to that company
+    # (routers/task_util.config_admits).
+    company_id    = Column(String, default="")
 
 
 class TaskIntakeForm(Base):
@@ -3350,6 +3380,11 @@ class TaskIntakeForm(Base):
     fields            = Column(JSON, default=list)       # [{label,type,required}]
     target_project_id = Column(String, default="")
     created_at        = Column(String, default="")
+    # Company wall (Oct 21 2026): '' = shared by every company - what every
+    # row was before, and what a row made while the walls are off or by a
+    # Global Admin still is. A company here confines the row to that company
+    # (routers/task_util.config_admits).
+    company_id    = Column(String, default="")
 
 
 class TaskCustomField(Base):
@@ -3405,6 +3440,11 @@ class TaskCustomField(Base):
     # this list is the per-project version. Enforced on create by
     # routers/tasks.py create_task and in every create form.
     required_project_ids = Column(JSON, default=list)
+    # Company wall (Oct 21 2026): '' = shared by every company - what every
+    # row was before, and what a row made while the walls are off or by a
+    # Global Admin still is. A company here confines the row to that company
+    # (routers/task_util.config_admits).
+    company_id    = Column(String, default="")
 
 
 class TaskMemberRequest(Base):

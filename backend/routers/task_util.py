@@ -348,16 +348,254 @@ def task_company(t, emp_company: dict) -> str:
     return ""
 
 
-def wall_tasks(db: Session, user, rows):
+_UNSET = object()
+
+
+def _scope_for(db: Session, user, scope=_UNSET):
+    """auth.company_scope, unless the caller already worked it out for this
+    request (a bulk edit checks many rows against one scope)."""
+    if scope is not _UNSET:
+        return scope
+    import auth
+    return auth.company_scope(user, db)
+
+
+def wall_tasks(db: Session, user, rows, scope=_UNSET):
     """Keep only the tasks the caller's company scope admits. No-op when the walls
     are off or the caller is a Global Admin (auth.company_scope → None). Untagged
     tasks (no company, no owner/creator company) stay Global-Admin-only."""
-    import auth
-    scope = auth.company_scope(user, db)
+    scope = _scope_for(db, user, scope)
     if scope is None:
         return list(rows)
     emp = _emp_company_map(db)
     return [t for t in rows if task_company(t, emp) in scope]
+
+
+# ── Company wall for the module's other records (Oct 21 2026) ────────────────
+# Projects, portfolios and teams are tenant data, like tasks: a stamped
+# company_id wins, else the company of the owner / creator (task_company works
+# on any row carrying those columns), and an untagged one is Global-Admin-only
+# once the walls are armed. A team with no creator company falls back to its
+# projects' company.
+#
+# The module's CONFIGURATION rows (automation rules, task templates, custom
+# fields, custom statuses, intake forms) use the opposite convention for a
+# blank company: '' = shared by every company, which is what every such row
+# was before the walls existed. A company on one of those rows confines it to
+# that company (config_admits / config_company_for_new below).
+def row_company(db: Session, row, emp: dict | None = None) -> str:
+    """The company a project / portfolio / task row belongs to - task_company,
+    with the owner / creator lookup done per row unless `emp` (the full
+    employee -> company map) is passed for a list."""
+    if emp is not None:
+        return task_company(row, emp)
+    c = (getattr(row, "company_id", "") or "").strip()
+    if c:
+        return c
+    import auth
+    for who in ((getattr(row, "owner_email", "") or ""), (getattr(row, "created_by", "") or "")):
+        if who.strip():
+            c2 = auth.company_of(who, db)
+            if c2:
+                return c2
+    return ""
+
+
+def team_company(db: Session, team, emp: dict | None = None, proj_company: dict | None = None) -> str:
+    """A team's company: stamped, else its creator's, else the first of its
+    projects that has one (teams set up from Manage before creators were
+    recorded have no creator)."""
+    c = row_company(db, team, emp)
+    if c:
+        return c
+    for pid in team_project_ids(team):
+        if proj_company is not None:
+            c2 = proj_company.get(pid, "")
+        else:
+            p = db.query(TaskProject).filter(TaskProject.id == pid).first()
+            c2 = row_company(db, p) if p is not None else ""
+        if c2:
+            return c2
+    return ""
+
+
+def wall_rows(db: Session, user, rows, company_of_row=None, scope=_UNSET):
+    """wall_tasks for any tenant row (projects, portfolios, teams): the rows
+    the caller's company scope admits. No-op when the walls are off or the
+    caller is a Global Admin. `company_of_row(row, emp)` overrides how a row's
+    company is read."""
+    import auth
+    scope = _scope_for(db, user, scope)
+    if scope is None:
+        return list(rows)
+    emp = _emp_company_map(db)
+    read = company_of_row or (lambda r, e: task_company(r, e))
+    return [r for r in rows if auth.company_ok(read(r, emp), scope)]
+
+
+def _team_project_companies(db: Session, teams, emp: dict) -> dict:
+    """{project_id: company} for just the projects these teams serve - one
+    query, not one per team."""
+    pids = {pid for t in teams for pid in team_project_ids(t)}
+    if not pids:
+        return {}
+    return {p.id: task_company(p, emp)
+            for p in db.query(TaskProject).execution_options(include_deleted=True)
+            .filter(TaskProject.id.in_(pids)).all()}
+
+
+def wall_teams(db: Session, user, rows, scope=_UNSET):
+    """The teams a caller may SEE behind the wall: those whose own company
+    (team_company) is in scope, and those serving any project of a company in
+    scope - a legacy team spanning two companies' projects is visible on both
+    sides. Changing a team takes its OWN company (assert_team_wall)."""
+    import auth
+    rows = list(rows)
+    scope = _scope_for(db, user, scope)
+    if scope is None:
+        return rows
+    emp = _emp_company_map(db)
+    proj_company = _team_project_companies(db, rows, emp)
+    out = []
+    for t in rows:
+        if (auth.company_ok(team_company(db, t, emp, proj_company), scope)
+                or any(auth.company_ok(proj_company.get(pid, ""), scope) for pid in team_project_ids(t))):
+            out.append(t)
+    return out
+
+
+def teams_editable(db: Session, user, rows, scope=_UNSET) -> list:
+    """The teams whose OWN company is in the caller's scope - the ones they
+    may change or attach to a project. Everything with the walls off."""
+    import auth
+    rows = list(rows)
+    scope = _scope_for(db, user, scope)
+    if scope is None:
+        return rows
+    emp = _emp_company_map(db)
+    proj_company = _team_project_companies(db, rows, emp)
+    return [t for t in rows if auth.company_ok(team_company(db, t, emp, proj_company), scope)]
+
+
+def assert_row_wall(db: Session, user: dict, row, company: str | None = None, scope=_UNSET) -> None:
+    """404 unless the caller's company scope admits `row` (a task, project or
+    portfolio; pass `company` when it was worked out another way, e.g. a
+    team). Same answer as the lists: wall_tasks / wall_rows."""
+    import auth
+    scope = _scope_for(db, user, scope)
+    if scope is None or row is None:
+        return
+    if not auth.company_ok(row_company(db, row) if company is None else company, scope):
+        raise HTTPException(404, "Not found")
+
+
+def assert_task_wall(db: Session, user: dict, task, scope=_UNSET) -> None:
+    """The company wall for ONE task - the per-record form of wall_tasks, so a
+    task a list hides is also a 404 when fetched by id."""
+    assert_row_wall(db, user, task, scope=scope)
+
+
+def assert_team_wall(db: Session, user: dict, team, scope=_UNSET) -> None:
+    """Changing a team (or deciding on it): its OWN company must be in scope.
+    Seeing one is wider - see wall_teams."""
+    if team is None:
+        return
+    scope = _scope_for(db, user, scope)
+    if scope is None:
+        return
+    assert_row_wall(db, user, team, company=team_company(db, team), scope=scope)
+
+
+def require_project_access(db: Session, user: dict, project, min_role: str) -> None:
+    """require_project_role for an endpoint that acts ON a project (its
+    settings, its sharing, moving work into it): the company wall first - a
+    manager clears every role check, so without it a manager could edit or
+    fill another company's project - then the role."""
+    if project is not None:
+        assert_row_wall(db, user, project)
+    require_project_role(db, user, project, min_role)
+
+
+def tenant_company_for_new(db: Session, user: dict, owner_email: str = "") -> str:
+    """The company to STAMP on a new project / portfolio / team (Oct 21 2026).
+
+    '' while the walls are off - the row then derives its company from its
+    owner / creator exactly as every row did before (row_company), so a
+    stamp can never pile up on rows made while nothing reads it. Behind the
+    walls: the named owner's company (when it is one the caller may act in),
+    else the caller's own company; a Global Admin who names no owner leaves
+    it blank (derived)."""
+    import auth
+    if not auth._company_walls_on(db):
+        return ""
+    scope = auth.company_scope(user, db)
+    me = (user.get("email") or "").strip().lower()
+    owner = (owner_email or "").strip().lower()
+    if owner and owner != me:
+        oc = auth.company_of(owner, db)
+        if oc and (scope is None or oc in scope):
+            return oc
+    if scope is None:
+        return ""
+    home = auth.company_of(user, db)
+    if home and home in scope:
+        return home
+    if len(scope) == 1:
+        return next(iter(scope))
+    return ""
+
+
+def config_admits(company_id: str, scope) -> bool:
+    """Whether a configuration row (rule, template, custom field, custom
+    status, intake form) is visible to a caller with `scope`: shared ('') rows
+    always, a company's rows only inside that company."""
+    c = (company_id or "").strip()
+    return scope is None or not c or c in scope
+
+
+def config_company_for_new(db: Session, user: dict, project_ids=None) -> str:
+    """The company to stamp on a NEW configuration row. '' (shared, as every
+    row was before) while the walls are off and for a Global Admin. Behind a
+    wall: a row scoped to projects takes THEIR company (each must be inside
+    the caller's scope - 404 otherwise); one tied to no project, the
+    creator's own company, or the one company in their scope - so a
+    company's manager can never make a row that reaches another company."""
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return ""
+    pids = [i for i in dict.fromkeys(project_ids or []) if i]
+    if pids:
+        companies = set()
+        for proj in db.query(TaskProject).filter(TaskProject.id.in_(pids)).all():
+            c = row_company(db, proj)
+            if not auth.company_ok(c, scope):
+                raise HTTPException(404, "Project not found")
+            companies.add(c)
+        if len(companies) == 1:
+            return next(iter(companies))
+    home = auth.company_of(user, db)
+    if home and home in scope:
+        return home
+    if len(scope) == 1:
+        return next(iter(scope))
+    raise HTTPException(403, "Your account is not placed in one company, so this cannot be "
+                             "created for a company. Ask a Global Admin.")
+
+
+def assert_config_editable(db: Session, user: dict, company_id: str) -> None:
+    """Edits and deletes of a configuration row: another company's row is a
+    404 (as if absent); a shared ('') row reaches every company, so behind a
+    wall only a Global Admin may change it. No-op with the walls off."""
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return
+    c = (company_id or "").strip()
+    if c and c not in scope:
+        raise HTTPException(404, "Not found")
+    if not c:
+        raise HTTPException(403, "This is shared by every company - only a Global Admin can change it.")
 
 
 # ── Project access roles (Share panel, Jul 2026) ─────────────────────────────
@@ -439,6 +677,100 @@ def require_project_role(db: Session, user: dict, project, min_role: str) -> Non
         raise HTTPException(403, f"You need at least {min_role} access to {name}.")
 
 
+def people_wall(db: Session, user=None) -> tuple:
+    """(walled, emp_map) for the people checks below, worked out ONCE per
+    request (Oct 21 2026): `walled` is whether the company comparison applies
+    (`user`'s scope; with no user, whether the walls are armed) and `emp_map`
+    the employee -> company map, built only when it does - with the walls off
+    nothing loads the whole directory. Kept on the request's session
+    (`db.info`), keyed by the caller and the walls switch, so a create that
+    checks people on a task and each of its subtasks pays for it once."""
+    import auth
+    on = auth._company_walls_on(db)
+    who = (user.get("email") or "").lower() if isinstance(user, dict) else ""
+    key = ("people_wall", who, isinstance(user, dict), on)
+    hit = db.info.get(key)
+    if hit is None:
+        walled = (auth.company_scope(user, db) is not None) if isinstance(user, dict) else on
+        hit = (walled, _emp_company_map(db) if walled else None)
+        db.info[key] = hit
+    return hit
+
+
+def person_problem(db: Session, task, email: str, user=None, emp_map: dict | None = None) -> str:
+    """Why `email` may not be put ON `task` as an assignee or collaborator, or
+    "" when they may (Oct 21 2026). Being put there is itself what lets them
+    see it (task_is_visible), so unlike assert_person_on_task this does not
+    ask that they can see it already. The rule matches the People picker
+    (/myhr/directory): a directory row that is not offboarded. The company
+    comparison only applies behind the company wall (`user`'s scope; with no
+    user, whether the walls are armed) - with them off, a US manager assigns
+    a Greens India colleague exactly as before. `emp_map` is the employee ->
+    company map when the caller already has it (else people_wall's, built
+    once per request and only behind the wall)."""
+    from sqlalchemy import func
+    from models import NexusEmployee
+    who = (email or "").strip().lower()
+    if not who:
+        return ""
+    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == who).first()
+    if emp is None:
+        return "is not in the Nexus directory"
+    if (emp.status or "") == "offboarded":
+        return "has left"
+    walled, wall_map = people_wall(db, user)
+    if walled:
+        task_co = task_company(task, emp_map if emp_map is not None else wall_map)
+        if task_co and (emp.company or "") and emp.company != task_co:
+            return "is in another company"
+    return ""
+
+
+def assert_person_assignable(db: Session, task, email: str, user=None, emp_map: dict | None = None) -> str:
+    """`email` lowercased once person_problem has nothing against it - else
+    422 naming the person and the reason ("x has left and can't be re-added"
+    reads right on an Undo that puts a departed assignee back)."""
+    who = (email or "").strip().lower()
+    problem = person_problem(db, task, who, user, emp_map)
+    if problem == "has left":
+        raise HTTPException(422, f"{who} has left and can't be re-added.")
+    if problem:
+        raise HTTPException(422, f"{who} {problem}.")
+    return who
+
+
+def split_people(db: Session, task, emails, user=None, actor: str = "") -> tuple[list, list]:
+    """For CREATE paths (a new task, a subtask, a duplicate, a template use):
+    (kept, dropped) - the people who pass person_problem, in order and
+    de-duplicated, and [{email, reason}] for those who do not. Create flows
+    carry people over from a source task, and one departed collaborator must
+    not fail the whole action; they are left off and the task says so
+    (note_dropped_people). The caller adding themselves always passes."""
+    me = (actor or "").strip().lower()
+    kept, dropped, seen = [], [], set()
+    for raw in emails or []:
+        who = str(raw or "").strip().lower()
+        if not who or who in seen:
+            continue
+        seen.add(who)
+        problem = "" if who == me else person_problem(db, task, who, user)
+        if problem:
+            dropped.append({"email": who, "reason": problem})
+        else:
+            kept.append(who)
+    return kept, dropped
+
+
+def note_dropped_people(db: Session, task, dropped: list, actor: str) -> None:
+    """One activity row on `task` naming who was not added and why."""
+    if not dropped:
+        return
+    detail = "did not add " + ", ".join(f"{d['email']} ({d['reason']})" for d in dropped)
+    task.activity_ids = list(task.activity_ids or []) + [
+        log_activity(db, type="people_not_added", actor_email=actor, entity_id=task.id,
+                     entity_code=task.code or "", entity_title=task.title or "", detail=detail)]
+
+
 def assert_person_on_task(db: Session, task, email: str) -> str:
     """`email` lowercased, once it is a current person who can already open
     `task` - else 422. For hand-offs that name someone on a thing INSIDE a
@@ -465,7 +797,8 @@ def assert_person_on_task(db: Session, task, email: str) -> str:
     return who
 
 
-def require_task_role(db: Session, user: dict, task, min_role: str) -> None:
+def require_task_role(db: Session, user: dict, task, min_role: str, scope=_UNSET,
+                      visible_cache: dict | None = None) -> None:
     """require_project_role for a check about ONE task, where anyone the task
     is assigned to always counts.
 
@@ -488,7 +821,15 @@ def require_task_role(db: Session, user: dict, task, min_role: str) -> None:
     this is ever revisited: delete_task cascades to SUBTASKS, so an assignee
     removing their own task also removes children that may belong to other
     people - the only place this grant reaches beyond the one task it is
-    scoped to."""
+    scoped to.
+
+    The company wall comes first (Oct 21 2026): the manager bypass below
+    clears every role check, so without it a manager behind a wall could act
+    on another company's task through any caller that relies on this alone
+    (bulk edits, ticket links, Outlook actions). 404, like every other wall.
+    No-op while the walls are off and for a Global Admin."""
+    if task is not None:
+        assert_task_wall(db, user, task, scope=scope)
     if is_manager(user):
         return
     email = (user.get("email") or "").lower()
@@ -496,7 +837,54 @@ def require_task_role(db: Session, user: dict, task, min_role: str) -> None:
             and email in task_assignees(task)
             and PROJECT_ROLE_RANK[min_role] <= PROJECT_ROLE_RANK["editor"]):
         return
-    require_project_role(db, user, project_for_task(db, task) if task is not None else None, min_role)
+    project = project_for_task(db, task) if task is not None else None
+    require_project_role(db, user, project, min_role)
+    # A role is not sight (Oct 21 2026). project_role_for reads "no project"
+    # as editor for everyone, so a RESTRICTED standalone task - visible only
+    # to its owner, creator, assignees and collaborators - could be edited,
+    # deleted, commented on or saved as a template by anyone holding its id.
+    # Likewise it hands an EXTERNAL caller editor on any org-wide project,
+    # which externals never see. In those two cases the task must also be one
+    # the caller can see, by the same rule the lists and _wall_task apply;
+    # 404 like them. Checked after the role so a refusal the role already
+    # gave keeps its 403. A role an internal caller holds on the task's
+    # project already means they can see that project (visible_project_ids
+    # counts the same owner / member / team / org grants), so the common case
+    # pays for no extra scan.
+    if task is not None and (project is None or user.get("external")):
+        visible = None
+        if visible_cache is not None and user.get("external"):
+            # A batch (bulk edit) checks many tasks for one external: their
+            # visible projects are worked out once, not per row.
+            if "v" not in visible_cache:
+                visible_cache["v"] = visible_project_ids(db, user)
+            visible = visible_cache["v"]
+        if not task_visible_to(db, user, task, visible):
+            raise HTTPException(404, "Task not found")
+
+
+def task_visible_to(db: Session, user: dict, task, visible: set | None = None) -> bool:
+    """Whether `user` can see `task`: THE per-task visibility rule, shared by
+    require_task_role and routers/tasks._wall_task. Managers see everything
+    inside their company wall (the wall is checked separately); everybody
+    else what task_is_visible admits, with a subtask (no project of its own)
+    also admitted through its top-level ancestor's project. `visible` is the
+    caller's visible_project_ids when already worked out; it is only built
+    when the cheap checks (org task, owner / creator / assignee / follower)
+    have not already answered."""
+    if is_manager(user):
+        return True
+    if task_is_visible(task, user, set()):
+        return True
+    extras = [p for p in (task.project_ids or []) if p]
+    proj = project_for_task(db, task) if (not task.project_id and task.parent_task_id) else None
+    if not (task.project_id or extras or proj):
+        return False   # no project anywhere: nothing but the checks above can admit it
+    if visible is None:
+        visible = visible_project_ids(db, user)
+    if task_is_visible(task, user, visible):
+        return True
+    return bool(proj and proj.id in visible)
 
 
 def can_comment(db: Session, email: str, project) -> bool:
@@ -684,10 +1072,42 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
 # ── Trash (Aug 27) ────────────────────────────────────────────────────────────
 # Moved here from routers/tasks.py's old hard-delete cascade so
 # purge_task_permanently (below) and any future caller share one copy.
+def _binned_subtree_ids(db: Session, task_id: str) -> list:
+    """`task_id` plus every BINNED task under it, however deep (Oct 21 2026 -
+    only the direct subtasks went before, and deeper ones were left behind),
+    plus anything stamped deleted_with = it. Cycle-safe.
+
+    A LIVE task found under it is not purged: it is made top-level instead,
+    so it stays visible rather than vanishing with a parent it no longer
+    belonged to (only older data has one - a delete bins the whole subtree
+    and a subtask cannot be restored under a binned parent)."""
+    q = db.query(Task).execution_options(include_deleted=True)
+    ids, seen, frontier = [task_id], {task_id}, [task_id]
+    while frontier:
+        kids = q.filter(Task.parent_task_id.in_(frontier)).all()
+        frontier = []
+        for k in kids:
+            if k.id in seen:
+                continue
+            seen.add(k.id)
+            if k.deleted_at:
+                ids.append(k.id)
+                frontier.append(k.id)
+            else:
+                k.parent_task_id = ""
+                k.modified_at = now_iso()
+    for k in q.filter(Task.deleted_with == task_id).all():
+        if k.id not in seen and k.deleted_at:
+            seen.add(k.id)
+            ids.append(k.id)
+    return ids
+
+
 def purge_task_permanently(db: Session, task_id: str, actor_email: str = "") -> bool:
     """Permanently remove an already-TRASHED task and everything under it - the
     full cascade delete_task ran immediately before soft delete existed:
-    subtasks, comments, attachments. Returns False if the id doesn't exist or
+    subtasks at every depth (_binned_subtree_ids), comments, attachments.
+    Returns False if the id doesn't exist or
     was never trashed (live tasks are never purged from here).
 
     Its Asana link rows (AsanaTaskLink) are deliberately LEFT: every asana_*
@@ -707,9 +1127,7 @@ def purge_task_permanently(db: Session, task_id: str, actor_email: str = "") -> 
            .filter(Task.id == task_id).first())
     if not t or not t.deleted_at:
         return False
-    subs = (db.query(Task).execution_options(include_deleted=True)
-              .filter(Task.parent_task_id == task_id).all())
-    gone_ids = [task_id] + [s.id for s in subs]
+    gone_ids = _binned_subtree_ids(db, task_id)
     log_activity(db, type="purged", actor_email=actor_email or t.deleted_by or "",
                 entity_id=task_id, entity_code=t.code, entity_title=t.title,
                 detail="permanently deleted this task")

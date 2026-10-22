@@ -50,7 +50,7 @@ from sqlalchemy.orm import Session
 import models
 from routers.task_util import (
     gen_id, now_iso, log_activity, task_assignees, set_task_assignees, email_list,
-    create_comment, fire_task_event, task_notify,
+    create_comment, fire_task_event, task_notify, row_company,
 )
 import task_due
 
@@ -358,6 +358,23 @@ def _enabled_rules(db: Session) -> list[models.TaskAutomationRule]:
             .all())
 
 
+def _rule_reaches(db: Session, rule: models.TaskAutomationRule, t: models.Task, cache: dict) -> bool:
+    """Whether `rule` may act on `t` across the company wall (Oct 21 2026).
+
+    A rule with no company (every rule made before the walls, and any made
+    while they are off or by a Global Admin) is shared and reaches every task,
+    exactly as before. A rule a company made fires only on that company's
+    tasks - read the way the task lists read a task's company
+    (task_util.row_company: stamped, else its owner's / creator's). `cache`
+    holds the task's company for the rest of this pass."""
+    rc = (getattr(rule, "company_id", "") or "").strip()
+    if not rc:
+        return True
+    if "company" not in cache:
+        cache["company"] = row_company(db, t)
+    return cache["company"] == rc
+
+
 def _record(db: Session, rule: models.TaskAutomationRule, t: models.Task, *, event: str,
             lines: list[str], dedupe_key: str = "") -> None:
     db.add(models.TaskAutomationRun(
@@ -402,9 +419,12 @@ def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
         elif after["status"] in ("completed", "missed"):
             after["status"] = "not_started"
     completing = bool(after["completed"]) and not before["completed"]
+    company_cache: dict = {}
     for rule in rules:
         trigger = rule.trigger if isinstance(rule.trigger, dict) else {}
         if trigger.get("type") == "due_date_arrives":
+            continue
+        if not _rule_reaches(db, rule, t, company_cache):
             continue
         try:
             if not _matches_trigger(trigger, event, before, after, completing=completing, today=today):
@@ -453,7 +473,9 @@ def run_scheduled(db: Session, today_iso: str) -> int:
     if not rules:
         return 0
     today = date.fromisoformat(today_iso[:10])
-    from routers.tasks import _check_dependency_gate   # lazy: routers.tasks imports this module
+    # lazy: routers.tasks imports this module
+    from routers.tasks import (_check_dependency_gate, _resolve_completed, _land_completion,
+                               _log_completed, _after_completed)
     fired = 0
     for rule in rules:
         try:
@@ -479,6 +501,8 @@ def run_scheduled(db: Session, today_iso: str) -> int:
             key = f"{rule.id}:{t.id}:{target}"
             if key in done:
                 continue
+            if not _rule_reaches(db, rule, t, {}):
+                continue   # another company's task (company wall)
             before = snapshot(t)
             if not conditions_ok(rule.conditions if isinstance(rule.conditions, list) else [], before):
                 continue
@@ -493,11 +517,18 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                                          prev_status=before["status"], prev_completed=before["completed"])
                     if line:
                         lines.append(line)
-                # Keep status and the completed flag in step, as update_task does.
-                if res.changed.get("status") == "completed" and not t.completed:
-                    t.completed, t.completed_at = True, now_iso()
-                elif "status" in res.changed and t.completed:
-                    t.completed, t.completed_at = False, ""
+                # Keep status and the completed flag in step - through the same
+                # completion path a person's tick goes through (Oct 21 2026):
+                # the HR checklist steps follow here, and the activity and the
+                # series roll-forward below. Before, the flag was flipped by
+                # hand and a recurring task closed by a rule never repeated.
+                prev_completed = bool(before["completed"])
+                if "status" in res.changed:
+                    _land_completion(db, t, _resolve_completed({"status": res.changed["status"]}, prev_completed),
+                                     prev_completed, AUTOMATION_ACTOR)
+                completed_now = bool(t.completed) and not prev_completed
+                if completed_now:
+                    t.activity_ids = list(t.activity_ids or []) + [_log_completed(db, t, AUTOMATION_ACTOR)]
                 if lines:
                     # Only a real change marks the row modified; a no-op pass
                     # must not make every client's delta fetch re-pull the task.
@@ -520,6 +551,17 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                     task_notify(db, kind="task_assigned", for_email=who, title="You Were Assigned a Task",
                                 body=f"{t.title}", task_id=t.id,
                                 nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+                # A recurring task rolls forward and a ticket's task tells its
+                # ticket, as when a person completes it. The next occurrence is
+                # created as its owner (as the daily schedule does): the
+                # creator is who the due-date notices treat as the requester,
+                # and that must be a person, not the rule. Spawning a task runs
+                # no rules - the engine still never chains.
+                spawned = None
+                if completed_now:
+                    owner = t.owner_email or t.created_by or t.assignee_email or "system"
+                    spawned = _after_completed(db, t, {"email": AUTOMATION_ACTOR}, prev_completed,
+                                               spawn_as={"email": owner})
                 # Logged even when nothing changed, so the dedupe holds and the
                 # Runs panel shows the rule looked.
                 _record(db, rule, t, event="scheduled", lines=lines or ["nothing to change"], dedupe_key=key)
@@ -528,6 +570,13 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                 if lines:
                     fire_task_event(t.id, "updated")
                     fired += 1
+                if spawned is not None:
+                    fire_task_event(spawned.id, "created")
+                if completed_now:
+                    # The "completed" email, as update_task sends for a person
+                    # (inline: this already runs on a worker thread).
+                    import task_notify as _mail
+                    _mail.notify_task_event(t.id, "completed", AUTOMATION_ACTOR)
                 if added:
                     # Already on a worker thread (task_notify's scan runs in
                     # asyncio.to_thread), so the email goes inline. Lazy:
