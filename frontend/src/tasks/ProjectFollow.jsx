@@ -89,13 +89,13 @@ export default function ProjectFollowControl({ project, compact = false }) {
 }
 
 export function FollowersModal({ project, me, isManager, onClose, initialError = '' }) {
-  const { nameOf, addProjectFollower, removeProjectFollower, unfollowProject } = useTasks();
+  const { nameOf, teams, addProjectFollower, removeProjectFollower, unfollowProject } = useTasks();
   const people = usePeople();
   const [pick, setPick] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(initialError);
   const followers = projectFollowers(project);
-  const manage = canManageFollowers(project, me, isManager);
+  const manage = canManageFollowers(project, me, isManager, teams);
   const nameFor = (em) => people.find((p) => p.email === em)?.name || nameOf?.(em) || em;
 
   const run = async (fn) => {

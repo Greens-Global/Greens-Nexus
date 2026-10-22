@@ -248,6 +248,17 @@ class OwnerManagesFollowersTests(Base):
             p.id, P.FollowerBody(email=FAN["email"]), user=OWNER, db=self.db)), 422)
         self.assertEqual(self.followers(p), [])
 
+    def test_an_inactive_person_cannot_be_added(self):
+        p = self.project()
+        emp = self.db.query(models.NexusEmployee).filter_by(work_email=FAN["email"]).one()
+        emp.status = "inactive"
+        self.db.commit()
+        with self.assertRaises(HTTPException) as e:
+            P.add_project_follower(p.id, P.FollowerBody(email=FAN["email"]), user=OWNER, db=self.db)
+        self.assertEqual(e.exception.status_code, 422)
+        self.assertIn("is inactive", e.exception.detail)
+        self.assertEqual(self.followers(p), [])
+
     def test_walls_refuse_adding_another_companys_person(self):
         p = self.project(access="org")
         self.arm_walls()
@@ -346,6 +357,100 @@ class WhatFollowersHearTests(Base):
         task_notify_prefs.save(self.db, FAN["email"], {"mutedProjectIds": [p.id]})
         self.event(self.task(p), "created")
         self.assertEqual(self.queued(), [])
+        self.assertEqual(self.bells(), [])
+
+    def test_muting_the_followed_extra_project_silences_it(self):
+        """The task's PRIMARY project is not followed or muted; the extra
+        project it reaches FAN through is muted - nothing at all."""
+        home = self.project()
+        followed = self.project(followers=[FAN["email"]])
+        task_notify_prefs.save(self.db, FAN["email"], {"mutedProjectIds": [followed.id]})
+        self.event(self.task(home, project_ids=[followed.id]), "created")
+        self.assertEqual(self.queued(), [])
+        self.assertEqual(self.bells(), [])
+
+    def test_muting_after_queueing_drops_the_email(self):
+        p = self.project(followers=[FAN["email"]])
+        home = self.project()
+        self.event(self.task(home, project_ids=[p.id]), "created")
+        self.assertEqual(len(self.queued()), 1)
+        task_notify_prefs.save(self.db, FAN["email"], {"mutedProjectIds": [p.id]})
+        self.assertEqual(self.flush(), 0)
+
+    def test_the_email_says_why_it_came(self):
+        p = self.project(followers=[FAN["email"]])
+        self.event(self.task(p), "created")
+        self.flush()
+        html = self.sent[0]["html"]
+        self.assertIn("You follow Pump Station", html)
+        self.assertIn(f"/tasks/projects?project={p.id}", html)
+        # A batch keeps its format and says it per task.
+        self.sent.clear()
+        self.event(self.task(p, title="One"), "created")
+        self.event(self.task(p, title="Two"), "created")
+        self.flush()
+        self.assertEqual(self.sent[0]["event_type"], "batch")
+        self.assertEqual(self.sent[0]["html"].count("You follow Pump Station"), 2)
+        self.assertIn("Open Project", self.sent[0]["html"])
+
+    def test_bell_day_is_the_followers_own_day_and_one_row(self):
+        task_notify_prefs.save(self.db, FAN["email"], {"timezone": "Asia/Kolkata"})
+        p = self.project(followers=[FAN["email"]])
+        self.event(self.task(p), "created")
+        self.event(self.task(p, title="Second"), "created")
+        day = task_notify_prefs.local_now(task_notify_prefs.load(self.db, FAN["email"])).date().isoformat()
+        bells = self.bells()
+        self.assertEqual(len(bells), 1)
+        self.assertEqual(bells[0].id, PF.bell_id(p.id, day, FAN["email"]))
+        self.assertEqual(bells[0].request_id, f"project-follow:{p.id}:{day}")
+
+    def test_a_failed_bell_still_sends_the_emails(self):
+        p = self.project(followers=[FAN["email"]])
+        real = PF.ring_bells
+
+        def boom(*a, **kw):
+            raise RuntimeError("bell store down")
+        PF.ring_bells = boom
+        try:
+            t = self.task(p)
+            self.event(t, "created")
+        finally:
+            PF.ring_bells = real
+        self.assertEqual([r.role for r in self.queued()], ["project_follower"])
+        errs = self.db.query(models.TaskActivity).filter_by(entity_id=t.id, type="notify_error").all()
+        self.assertEqual(len(errs), 1)
+        self.assertIn("bell", errs[0].detail)
+
+    def test_visibility_is_worked_out_once_per_follower(self):
+        """Followers who reach a restricted project only through a team need
+        the whole-table walk - once each per event, once each per flush."""
+        p = self.project(member_emails=[], member_roles={}, followers=[FAN["email"], FAN2["email"]])
+        self.db.add(models.TaskTeam(id=gen_id(), name="Pumps", project_ids=[p.id], project_id=p.id,
+                                    member_emails=[FAN["email"], FAN2["email"]], access_role="viewer",
+                                    created_at=now_iso()))
+        self.db.commit()
+        import routers.task_util as TU
+        calls = {"pf": 0, "tu": 0}
+        real_pf, real_tu = PF.visible_project_ids, TU.visible_project_ids
+
+        def counting_pf(db, user):
+            calls["pf"] += 1
+            return real_pf(db, user)
+
+        def counting_tu(db, user):
+            calls["tu"] += 1
+            return real_tu(db, user)
+        PF.visible_project_ids, TU.visible_project_ids = counting_pf, counting_tu
+        try:
+            self.event(self.task(p, access_level="restricted"), "created")
+            self.assertEqual(calls, {"pf": 2, "tu": 0})            # one per follower
+            self.event(self.task(p, title="Again", access_level="restricted"), "created")
+            self.assertEqual(calls["pf"], 4)
+            calls["pf"] = 0
+            self.assertEqual(self.flush(), 2)                       # two people, two rows each
+            self.assertEqual(calls, {"pf": 2, "tu": 0})            # one per recipient
+        finally:
+            PF.visible_project_ids, TU.visible_project_ids = real_pf, real_tu
 
     def test_end_to_end_through_create_task(self):
         p = self.project(followers=[FAN["email"]])
@@ -401,6 +506,42 @@ class AccessAtSendTimeTests(Base):
         self.event(self.task(p), "created")
         self.assertEqual(self.queued(), [])
         self.assertEqual(self.bells(), [])
+
+    def _external(self, email, expires_at=""):
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email=email, first_name="Ext", status="active",
+                                         company=COA, identity_type="external", expires_at=expires_at))
+        self.db.commit()
+        auth.invalidate_external_cache()
+
+    def test_an_expired_external_follower_hears_nothing(self):
+        live, gone = "partner@vendor.com", "lapsed@vendor.com"
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        self._external(live, (date.today() + timedelta(days=30)).isoformat())
+        self._external(gone, yesterday)
+        p = self.project(member_emails=[live, gone], followers=[live, gone])
+        self.event(self.task(p), "created")
+        self.assertEqual(len(self.queued({"email": live})), 1)
+        self.assertEqual(self.queued({"email": gone}), [])
+        self.assertEqual(self.bells({"email": gone}), [])
+        # Expiring after the event drops the queued email too.
+        emp = self.db.query(models.NexusEmployee).filter_by(work_email=live).one()
+        emp.expires_at = yesterday
+        self.db.commit()
+        auth.invalidate_external_cache()
+        self.assertEqual(self.flush(), 0)
+
+    def test_an_expired_external_task_collaborator_gets_no_email(self):
+        """The same gap closed for plain task collaborators (_is_sendable)."""
+        gone = "lapsed2@vendor.com"
+        self._external(gone, (date.today() - timedelta(days=1)).isoformat())
+        t = self.task(None, follower_emails=[gone])
+        self.event(t, "commented", comment_body="<p>update</p>")
+        self.assertEqual(self.queued({"email": gone}), [])
+        self.assertFalse(task_notify._is_sendable(self.db, gone))
+        emp = self.db.query(models.NexusEmployee).filter_by(work_email=gone).one()
+        emp.expires_at = ""
+        self.db.commit()
+        self.assertTrue(task_notify._is_sendable(self.db, gone))
 
     def test_walls_stop_a_follower_in_another_company(self):
         p = self.project(access="org", followers=[BEMP["email"]])

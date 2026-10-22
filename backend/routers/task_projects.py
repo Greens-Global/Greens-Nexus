@@ -701,8 +701,15 @@ def add_project_follower(project_id: str, body: FollowerBody, user: dict = Depen
     if p.archived:
         raise HTTPException(422, "This project is archived. Restore it to add followers.")
     problem = person_problem(db, p, who, user)
+    if not problem:
+        # person_problem refuses only the offboarded; a follower must also
+        # be someone who can still be told anything (not inactive, not an
+        # external whose access is deactivated or expired).
+        emp = (db.query(models.NexusEmployee)
+               .filter(func.lower(models.NexusEmployee.work_email) == who).first())
+        problem = project_follow.person_lapsed(emp)
     if problem:
-        raise HTTPException(422, f"{who} {problem}.")
+        raise HTTPException(422, f"{who} {problem} and can't follow projects.")
     if not project_follow.can_see_project(db, project_follow.person_user(db, who), p):
         raise HTTPException(422, f"{who} cannot see this project. Share it with them first.")
     me = (user.get("email") or "").lower()

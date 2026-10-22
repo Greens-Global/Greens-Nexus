@@ -60,6 +60,36 @@ describe('follow helpers', () => {
     expect(canManageFollowers(project({ memberRoles: { [ME]: 'commenter' } }), ME)).toBe(false);
     expect(canManageFollowers(project({ memberRoles: { [ME]: 'viewer' } }), ME, true)).toBe(true);
   });
+
+  it("reads the email's project link", async () => {
+    const { projectIdFromUrl } = await import('./lib');
+    window.history.pushState({}, '', '/tasks/projects?project=p9');
+    expect(projectIdFromUrl()).toBe('p9');
+    window.history.pushState({}, '', '/tasks/projects');
+    expect(projectIdFromUrl()).toBe('');
+  });
+
+  it('taskRoleFor reads team roles through the shared helper, unchanged', async () => {
+    const { taskRoleFor, projectRoleWithTeams } = await import('./lib');
+    const p = project({ memberIds: [], memberRoles: {} });
+    const teams = [{ id: 't1', projectIds: ['p1'], memberIds: [ME], accessRole: 'commenter' }];
+    const t = { id: 'x', projectId: 'p1', assigneeIds: [] };
+    expect(projectRoleWithTeams(p, ME, teams)).toBe('commenter');
+    expect(taskRoleFor(t, { projects: [p], teams, email: ME })).toBe('commenter');
+    expect(taskRoleFor({ ...t, assigneeIds: [ME] }, { projects: [p], teams, email: ME })).toBe('editor');
+    expect(taskRoleFor(t, { projects: [p], teams: [], email: ME })).toBe(null);
+  });
+
+  it('counts an editor role held through an approved team, not an unapproved one', () => {
+    const p = project({ memberIds: [], memberRoles: {} });           // restricted, no direct grant
+    const team = (over = {}) => ({ id: 't1', projectIds: ['p1'], memberIds: [ME], accessRole: 'editor', ...over });
+    expect(canManageFollowers(p, ME, false, [])).toBe(false);
+    expect(canManageFollowers(p, ME, false, [team()])).toBe(true);
+    expect(canManageFollowers(p, ME, false, [team({ accessRole: 'viewer' })])).toBe(false);
+    expect(canManageFollowers(p, ME, false, [team({ approvalStatus: 'pending' })])).toBe(false);
+    // A team can only raise a direct grant, never lower it.
+    expect(canManageFollowers(project({ memberRoles: { [ME]: 'editor' } }), ME, false, [team({ accessRole: 'viewer' })])).toBe(true);
+  });
 });
 
 describe('ProjectFollowControl', () => {
@@ -144,6 +174,16 @@ describe('ProjectFollowControl', () => {
     expect(screen.queryByText('Add Follower', { selector: 'div' })).toBeNull();
     expect(within(list).queryByLabelText('Remove Ann Lee')).toBeNull();
     expect(within(list).getByLabelText('Stop Following')).toBeInTheDocument();
+  });
+
+  it('an editor through a team gets Add Follower', async () => {
+    const p = project({ followerIds: ['ann@x.com'], memberIds: [], memberRoles: {} });
+    state = makeStore(p);
+    state.teams = [{ id: 't1', projectIds: ['p1'], memberIds: [ME], accessRole: 'editor' }];
+    render(<ProjectFollowControl project={p} />);
+    fireEvent.click(screen.getByTestId('project-followers'));
+    await screen.findByTestId('followers-list');
+    expect(screen.getByText('Add Follower', { selector: 'div' })).toBeInTheDocument();
   });
 
   it('says so when nobody follows yet', async () => {

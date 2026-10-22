@@ -486,6 +486,25 @@ export function projectRoleOf(project, email, isManager = false) {
 const ROLE_RANK = { viewer: 1, commenter: 2, editor: 3, owner: 4 };
 export const roleAtLeast = (role, min) => (ROLE_RANK[role] || 0) >= (ROLE_RANK[min] || 0);
 
+/** projectRoleOf raised by any APPROVED team on the project the caller is in
+ *  (the team's accessRole, default editor) - the server's project_role_for.
+ *  Shared by taskRoleFor and the project-level checks (followRules.js). */
+export function projectRoleWithTeams(project, email, teams = [], isManager = false) {
+  if (!project) return null;
+  if (isManager) return 'owner';
+  const me = (email || '').toLowerCase();
+  let role = projectRoleOf(project, me, false);
+  if (!me) return role;
+  for (const tm of teams || []) {
+    if ((tm.approvalStatus || 'approved') !== 'approved') continue;
+    if (!teamProjectIds(tm).includes(project.id)) continue;
+    if (!(tm.memberIds || []).some((e) => (e || '').toLowerCase() === me)) continue;
+    const r = tm.accessRole || 'editor';
+    role = role && (ROLE_RANK[role] || 0) >= (ROLE_RANK[r] || 0) ? role : r;
+  }
+  return role;
+}
+
 /**
  * The caller's role on ONE task, decided the way the server decides it
  * (backend task_util.require_task_role + project_role_for), so the drawer can
@@ -521,13 +540,7 @@ export function taskRoleFor(task, { projects = [], teams = [], taskById = null, 
   if (!projectId) return 'editor';
   const project = (projects || []).find((p) => p.id === projectId);
   if (!project) return assigned ? 'editor' : null;
-  let role = projectRoleOf(project, me, false);
-  for (const tm of teams || []) {
-    if ((tm.approvalStatus || 'approved') !== 'approved') continue;
-    if (!teamProjectIds(tm).includes(projectId)) continue;
-    if (!(tm.memberIds || []).some((e) => (e || '').toLowerCase() === me)) continue;
-    role = role ? atLeast(role, tm.accessRole || 'editor') : (tm.accessRole || 'editor');
-  }
+  let role = projectRoleWithTeams(project, me, teams, false);
   if (assigned) role = role ? atLeast(role, 'editor') : 'editor';
   // A role name this file does not know is not guessed at.
   return ROLE_RANK[role] ? role : null;
@@ -1000,6 +1013,12 @@ export function fmtHours(h) {
 export function taskIdFromUrl() {
   if (typeof window === 'undefined') return '';
   return new URLSearchParams(window.location.search).get('task') || '';
+}
+
+/** ?project=<id> - the project a followed project's email links to (Oct 22 2026). */
+export function projectIdFromUrl() {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('project') || '';
 }
 
 /** Asana-imported comments are stamped "[Asana · Name · date]\n<text>" so the
