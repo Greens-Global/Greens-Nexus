@@ -5443,6 +5443,17 @@ class HrChecklist(Base):
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
     closed_at   = Column(String, default="")
+    # The job role whose steps it carries (Oct 23 2026), so a role's template
+    # change reaches it (hr_checklists.reconcile). '' = no role; NULL = started
+    # before the column - filled from the role the person holds on first use.
+    role_id     = Column(String, nullable=True)
+    # Its ONE task (Neil, Oct 22: "Onboarding - <name>" in the HR project,
+    # assigned to the head of HR); each step's subtask hangs under it.
+    task_id     = Column(String, default="")
+    # An Onboarding Audit of someone already working here (Neil, Oct 22: "if
+    # the person is an existing employee, we can have an option to do an
+    # audit"): dated from the audit, never moved by their old start date.
+    audit       = Column(Boolean, default=False)
 
 
 class HrChecklistItem(Base):
@@ -5479,6 +5490,9 @@ class HrChecklistItem(Base):
     # Comments made while the step had no subtask; the rest live on the subtask
     # as task comments, so both sides show the same thread (hr_checklists.comments_for).
     comments     = Column(JSON, default=list)
+    # Which condition ticked it when done_by is "Nexus" (Oct 23 2026), e.g.
+    # "An ID document is on file" - the proof of what was on record and when.
+    done_reason  = Column(String, default="")
 
 
 class AccountingLoanSchedule(Base):

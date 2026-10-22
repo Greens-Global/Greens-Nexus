@@ -23,7 +23,8 @@ Checklist Library (and per company in Company Settings > Checklists). Each row:
   applies   who the row is for: types (full_time, part_time, intern,
             contractor, or "employee" = anything but contractor), countries
             (US, IN), exit_types (offboarding only). Empty = everyone.
-  signal    optional - lets Nexus tick the row by itself (hr_checklists.SIGNALS)
+  signal    optional - lets Nexus tick the row by itself (hr_checklists.SIGNALS);
+            several are joined by "|" and any one met ticks it
 
 Rows never ask for, or store, a full SSN, Aadhaar, PAN or bank number.
 """
@@ -103,8 +104,10 @@ ONBOARDING = [
          hint="Provisioning already sets Active. Tick this once the person has actually started, signed in and done I-9 Section 1."),
 
     _row("ON-23", P4, "Form I-9 Section 2 (And E-Verify If Used)", "hr", "S", 3, bd=True, applies=US_EMP,
+         signal="id_on_file",
          hint="The employer examines the original documents within 3 business days of the start date."),
     _row("ON-24", P4, "Right-To-Work Recorded On The Compliance Tab", "hr", "S", 3, bd=True,
+         signal="work_auth_verified",
          hint="Dates only, no document numbers."),
     _row("ON-25", P4, "Benefits Notice And Enrollment", "hr", "S", 14, applies=US_EMP),
     _row("ON-26", P4, "PF And ESI Enrollment", "accounting", "none", applies=IN_EMP,
