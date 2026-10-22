@@ -1,6 +1,7 @@
-// Role change approvals (Pranshu, Oct 13). A role change without a promotion
-// is a REQUEST: the employee's manager or their company's HR contact reads the
-// reason and approves (the role changes then) or declines. Shown two ways:
+// Role change requests (Pranshu, Oct 13). Since Neil's Oct 22 call nobody asks
+// any more - HR, IT Admins and Global Admins change a role directly, with a
+// reason. Requests still pending from before stay decidable here: those same
+// people approve (the role changes then), decline or cancel. Shown two ways:
 //
 //   RoleChangeRequestCard  - on the person's Role tab in People (Access in
 //                            Settings > Access): the pending request, with
@@ -20,8 +21,6 @@ import { api } from '../api';
 import { Spinner } from './AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 
-const roleLabel = { manager: 'Manager', hr: 'HR' };
-
 function Details({ r }) {
   return (
     <>
@@ -35,7 +34,7 @@ function Details({ r }) {
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10, lineHeight: 1.5 }}>
         Asked by {r.requestedByName || r.requestedBy} on {formatDateTime(r.createdAt)}.{' '}
         {r.status === 'pending'
-          ? <>Waiting on {r.approvers.map(a => `${a.name} (${roleLabel[a.as] || a.as})`).join(' or ')} - the role changes when one of them approves.</>
+          ? <>Asked before role changes stopped needing approval - HR, an IT Admin or a Global Admin approves or declines it.</>
           : <>{r.statusLabel}{r.decidedByName ? ` by ${r.decidedByName}` : ''}{r.decidedAt ? ` on ${formatDateTime(r.decidedAt)}` : ''}.{r.decisionNote ? ` Note: ${r.decisionNote}` : ''}</>}
       </div>
     </>
@@ -169,7 +168,7 @@ export function RoleChangeDecisionModal({ requestId, onClose, onDecided, toastOk
                 <>
                   <Details r={r} />
                   {r.status === 'pending' && !r.canDecide && !r.canCancel && (
-                    <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 12 }}>Only their manager or HR can approve this.</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 12 }}>Only HR, an IT Admin or a Global Admin can approve this.</div>
                   )}
                   <Actions r={r} toastErr={toastErr} onDone={(out, kind) => { toastOk?.(DONE_TEXT[kind]); onDecided?.(out, kind); }} />
                 </>
@@ -186,7 +185,7 @@ function outcome(h) {
   if (h.kind === 'promotion') {
     return h.signers.length ? `Signed by ${h.signers.map(s => s.name).join(', ')}` : 'Signed through Nexus Sign';
   }
-  if (h.kind === 'direct') return 'Changed directly in People - no approval needed';
+  if (h.kind === 'direct') return 'Changed directly - no approval needed';
   if (h.status === 'approved') return `Approved by ${h.decidedByName || h.decidedBy}`;
   if (h.status === 'declined') return `Declined by ${h.decidedByName || h.decidedBy}${h.note ? ` - ${h.note}` : ''}`;
   return `Canceled by ${h.decidedByName || h.decidedBy}${h.note ? ` - ${h.note}` : ''}`;

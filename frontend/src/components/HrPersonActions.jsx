@@ -4,10 +4,9 @@
 //
 //   RoleChangeModal - Change Role. In People it asks first: a role change
 //                  without a promotion switches the role now (no letter,
-//                  no approval); a promotion opens PromoteModal. From
-//                  Settings > Access (`approval`) there is no promotion - it
-//                  only sends the change, with a reason, to the employee's
-//                  manager and HR, and one of them approves (Pranshu, Oct 13-14).
+//                  no approval) with a required reason; a promotion opens
+//                  PromoteModal. Settings > Access passes no onPromote, so it
+//                  is only the direct change (Neil, Oct 22).
 //   PromoteModal - Promote: the new role, title, effective date
 //                  (can be in the past), responsibilities and pay -> a preview
 //                  of the letter's signing order -> sent through Nexus Sign:
@@ -37,13 +36,13 @@ function Warn({ children }) {
 }
 
 // Change Role (Pranshu, Oct 13): "it should be simple" - ask whether it is a
-// promotion. Without one, it is a REQUEST with a reason: the employee's
-// manager or HR approves it and only then does the role change
-// (RoleChangeRequests.jsx). A promotion goes to the letter. Used in People
-// and in Settings > Access (which passes its own `roles` and knows the
-// person by workEmail).
-export function RoleChangeModal({ employee: e, roles: givenRoles, approval = false, onClose, onPromote, onChanged, toastErr }) {
-  const [plain, setPlain] = useState(approval);
+// promotion. Without one, the role changes now - only HR, IT Admins and
+// Global Admins see this (Neil, Oct 22: no approval, but never without a
+// logged reason). A promotion goes to the letter. Used in People and in
+// Settings > Access (which passes its own `roles`, no onPromote, and knows
+// the person by workEmail).
+export function RoleChangeModal({ employee: e, roles: givenRoles, onClose, onPromote, onChanged, toastErr }) {
+  const [plain, setPlain] = useState(!onPromote);
   const [fetched, setFetched] = useState(null);
   const [roleId, setRoleId] = useState('');
   const [reason, setReason] = useState('');
@@ -59,10 +58,8 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, approval = fal
   async function save() {
     setBusy(true);
     try {
-      onChanged(approval
-        ? await api.requestRoleChange({ employee_id: e.id || '', email: e.workEmail || '', role_id: roleId, reason })
-        : await api.changeRoleNow(e.id, { role_id: roleId, reason }));
-    } catch (err) { toastErr(err?.message || (approval ? 'Could not send the request.' : 'Could not change the role.')); setBusy(false); }
+      onChanged(await api.changeRoleNow(e.id || e.workEmail, { role_id: roleId, reason }));
+    } catch (err) { toastErr(err?.message || 'Could not change the role.'); setBusy(false); }
   }
   const choice = (on, Icon, color, title, sub, onClick) => (
     <button type="button" onClick={onClick}
@@ -84,11 +81,9 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, approval = fal
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div className="nx-fill" style={{ overflowY: 'auto', padding: '6px 22px 18px' }}>
-          {approval ? (
-            <div style={{ ...hint, marginTop: 14 }}>The change goes to their manager and HR. It takes effect when one of them approves.</div>
-          ) : choice(plain, Shield, 'var(--pine)', 'Role Change Without Promotion',
+          {onPromote && choice(plain, Shield, 'var(--pine)', 'Role Change Without Promotion',
             'Their access and title follow the new role right away - no letter to sign.', () => setPlain(true))}
-          {!approval && onPromote && choice(false, TrendingUp, 'hsl(var(--color-green))', 'Promotion',
+          {onPromote && choice(false, TrendingUp, 'hsl(var(--color-green))', 'Promotion',
             'A promotion letter with the new responsibilities, pay and effective date, signed through Nexus Sign.', onPromote)}
           {plain && (
             <>
@@ -102,20 +97,18 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, approval = fal
                 <option value="">{roles === null ? 'Loading roles...' : '- pick a role -'}</option>
                 {(roles || []).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
               </select>
-              <label style={lbl}>Reason{approval ? ' *' : ''}</label>
+              <label style={lbl}>Reason *</label>
               <textarea className="form-input" rows={3} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
                 value={reason} onChange={ev => setReason(ev.target.value)} placeholder="e.g. Moving to the Accounting team to cover month-end close" />
-              <div style={hint}>{approval
-                ? 'Their manager and HR read this. The role changes when one of them approves - until then nothing changes.'
-                : 'Optional - kept with the change in the audit log, and their manager sees it.'}</div>
+              <div style={hint}>Required - kept in their role history, and their manager sees it.</div>
             </>
           )}
         </div>
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           {plain && (
-            <button className="primary-btn" onClick={save} disabled={busy || !roleId || (approval && !reason.trim())} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy ? <Spinner size={14} /> : approval ? <Send size={14} /> : <Shield size={14} />} {approval ? 'Send For Approval' : 'Change Role'}
+            <button className="primary-btn" onClick={save} disabled={busy || !roleId || !reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {busy ? <Spinner size={14} /> : <Shield size={14} />} Change Role
             </button>
           )}
         </div>

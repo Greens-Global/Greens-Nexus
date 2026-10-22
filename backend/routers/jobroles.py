@@ -169,6 +169,7 @@ class JobRoleUpdate(BaseModel):
 
 class AssignBody(BaseModel):
     email: str
+    reason: Optional[str] = ""   # required when it swaps an employee's role (assign_job_role)
 
 class ApplyManagerBody(BaseModel):
     manager_email: str
@@ -471,19 +472,27 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
     email = body.email.lower().strip()
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
+    # Swapping an employee's role is HR's, IT's or a Global Admin's, with a
+    # reason, and is logged (Neil, Oct 22 - role_change.change_now does all
+    # three, and runs check_can_assign on the HR path, so an HR editor below
+    # IT Admin may swap here as in People). A first role, re-applying the same
+    # role (reset to the role's tier) and external users are unchanged.
+    from hr_life_events import current_job_role
+    cur = current_job_role(db, email)
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+    if cur and cur.id != jr.id and emp and (emp.identity_type or "internal") == "internal":
+        import role_change as rc
+        if not rc.can_change_roles(db, user):
+            raise HTTPException(status_code=403, detail="Only HR, an IT Admin or a Global Admin can change someone's role.")
+        try:
+            jr, warning = rc.change_now(db, user, emp, jr.id, body.reason)
+        except rc.RoleChangeError as e:
+            db.rollback()
+            raise HTTPException(status_code=e.status, detail=str(e))
+        db.commit()
+        return {"assigned": email, "job_role": jr.name, "tier": _clean_tier(jr.tier or "employee"),
+                "company_id": (jr.company_id or "").strip(), "warning": warning}
     warning = check_can_assign(db, user, jr, email)
-    # Swapping an employee's role needs their manager's or HR's approval
-    # (Pranshu, Oct 13 - role_change.py); only a Global Admin may still do it
-    # directly. A first role, re-applying the same role (reset to the role's
-    # tier) and external users are unchanged.
-    if user["role"] != "owner":
-        from hr_life_events import current_job_role
-        cur = current_job_role(db, email)
-        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
-        if cur and cur.id != jr.id and emp and (emp.identity_type or "internal") == "internal":
-            raise HTTPException(status_code=409, detail=(
-                "Changing someone's role needs their manager's or HR's approval - use Change Role "
-                "on their People profile or in Settings > Access."))
     tier = apply_job_role(db, jr, email, user["email"])
     db.commit()
     return {"assigned": email, "job_role": jr.name, "tier": tier,
