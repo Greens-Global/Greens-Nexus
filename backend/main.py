@@ -1272,6 +1272,8 @@ def _run_migrations():
             "ALTER TABLE task_custom_fields ADD COLUMN formula_format JSON DEFAULT '{}'",
             # Tasks conditional row colors (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
+            # Skip Interview (Neil, Oct 22) - see the Postgres list.
+            "ALTER TABLE hr_candidates ADD COLUMN interview_skipped_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2924,6 +2926,9 @@ def _run_migrations():
         # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
         # the _enable_rls_everywhere sweep. models.TimecardBonus.
         "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
+        # Skip Interview (Neil, Oct 22): who moved the candidate to Decision
+        # without an interview. models.HrCandidate.interview_skipped_by.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS interview_skipped_by VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

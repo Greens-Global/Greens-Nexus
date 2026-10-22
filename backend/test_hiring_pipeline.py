@@ -198,6 +198,25 @@ class StageTests(PipelineCase):
         self.assertEqual(self._move(cid, "rejected")["stage"], "rejected")
         self.assertEqual(self._move(cid, "applied")["stage"], "applied")     # reopen
 
+    def test_skip_interview_goes_to_decision_only_on_purpose_and_says_who_and_why(self):
+        # Neil, Oct 22: "it could be the interview has already happened".
+        cid = self._cand("screening")
+        with self.assertRaises(HTTPException):          # no flag: still refused
+            self._move(cid, "decision")
+        out = hr.update_candidate(cid, hr.CandidateUpdate(stage="decision", skip_interview=True,
+                                                          stage_note="Met in person last week"),
+                                  user=HR_USER, db=self.db)
+        self.assertEqual((out["stage"], out["interviewSkippedBy"]), ("decision", HR_USER["email"]))
+        moves = [r for r in hr.candidate_history(cid, user=HR_USER, db=self.db) if r["toStage"] == "decision"]
+        self.assertEqual(moves[-1]["note"], "Interview skipped - Met in person last week")
+        self.assertEqual(moves[-1]["byEmail"], HR_USER["email"])
+        with self.assertRaises(HTTPException):          # the flag never opens any other move
+            hr.update_candidate(self._cand("interview"), hr.CandidateUpdate(stage="decision", skip_interview=True),
+                                user=HR_USER, db=self.db)
+        self.assertEqual(self._move(cid, "screening")["interviewSkippedBy"], "")   # back: the interview is owed again
+        self.db.query(models.Task).delete()
+        self.db.commit()
+
     def test_scheduling_invites_candidate_and_interviewers_and_moves_to_interview(self):
         cid = self._cand("screening", role_id="role-analyst")
         out = self._schedule(cid, duration_min=60, interviewer_emails=[NEIL])

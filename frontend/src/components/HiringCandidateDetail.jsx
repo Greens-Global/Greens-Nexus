@@ -279,7 +279,8 @@ export default function CandidateDetailModal({
     catch (e) { toastErr?.(e?.message || 'Could not cancel it.'); }
   }
   async function toOffer() {
-    if (!hadInterview && !await dialog.confirm('No interview has been completed yet. Make the offer anyway?', { title: 'Make Offer', confirmText: 'Continue' })) return;
+    // An interview skipped on purpose (Skip Interview) is not a missing one.
+    if (!hadInterview && !c.interviewSkippedBy && !await dialog.confirm('No interview has been completed yet. Make the offer anyway?', { title: 'Make Offer', confirmText: 'Continue' })) return;
     if (c.stage === 'decision' && c.decision !== 'hire' && !await dialog.confirm(
       c.decision === 'reject' ? 'The department head said No. Make the offer anyway?' : 'The department head has not made the final call yet. Make the offer anyway?',
       { title: 'Make Offer', confirmText: 'Continue' })) return;

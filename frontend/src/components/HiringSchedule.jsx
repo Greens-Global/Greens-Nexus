@@ -10,6 +10,9 @@
 //
 // The Teams invite goes to the candidate and every interviewer; scheduling
 // moves the candidate to Interview (or back from Offer for another round).
+// Skip Interview (Neil, Oct 22: "it could be the interview has already
+// happened") sits far left in the footer, quiet, so nobody clicks it by
+// accident; it moves them straight to Decision with an optional reason.
 import { useEffect, useState } from 'react';
 import { X, Video, CalendarDays } from 'lucide-react';
 import { api } from '../api';
@@ -19,6 +22,7 @@ import { formatDateTime } from '../lib/datetime';
 import PersonSearchSelect from './PersonSearchSelect';
 import { Spinner } from './AsyncState';
 import { DateField } from '../tasks/components';
+import { dialog } from '../ui/dialog';
 
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
 const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4 };
@@ -124,6 +128,20 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
   }, [c.company, c.department]);
   const problems = scheduleProblems(v);
   const name = [c.firstName, c.lastName].filter(Boolean).join(' ');
+  const canSkip = !replace && ['applied', 'screening'].includes(c.stage);
+
+  async function skip() {
+    if (busy) return;
+    const why = await dialog.prompt(`Skip the interview and move ${name} to Decision? Add a note for why, for example "the interview already happened" (optional).`,
+      { title: 'Skip Interview', confirmText: 'Skip Interview', placeholder: 'Why it is skipped (optional)' });
+    if (why === null) return;
+    setBusy(true);
+    try {
+      await api.updateCandidate(c.id, { stage: 'decision', skip_interview: true, stage_note: why.trim() });
+      toastOk?.(`${name} moved to Decision - interview skipped.`);
+      onScheduled?.(null);
+    } catch (e) { toastErr?.(e?.message || 'Could not skip the interview.'); setBusy(false); }
+  }
 
   async function go() {
     if (problems.length || busy) return;
@@ -154,8 +172,14 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
           {!c.email && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))', marginBottom: 12 }}>Add the candidate's email first (Edit) - the invite goes there.</div>}
           <SchedulingFields value={v} onChange={setV} roleId={c.roleId} tpls={tpls} department={c.department} leads={leads} />
         </div>
-        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
-          {problems.length > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)', marginRight: 'auto' }}>Still needed: {problems.join(', ')}</span>}
+        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+          {canSkip && (
+            <button type="button" onClick={skip} disabled={busy} title="The interview already happened, or is not needed - move them to Decision"
+              style={{ marginRight: 'auto', background: 'none', border: 'none', padding: '6px 0', cursor: 'pointer', fontSize: 12.5, color: 'var(--muted)', textDecoration: 'underline', fontFamily: 'inherit' }}>
+              Skip Interview
+            </button>
+          )}
+          {problems.length > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)', marginRight: canSkip ? 0 : 'auto' }}>Still needed: {problems.join(', ')}</span>}
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={go} disabled={busy || !!problems.length || !c.email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy ? <Spinner size={14} /> : replace ? <CalendarDays size={14} /> : <Video size={14} />} {replace ? 'Reschedule' : 'Schedule And Send Invite'}
