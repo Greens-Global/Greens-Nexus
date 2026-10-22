@@ -877,6 +877,15 @@ class PromotionTests(LifeEventCase):
                             {"email": MGR, "level": 3, "role": "manager"}, self.db)
         self.assertIn(e.exception.status_code, (401, 403))
 
+    def test_an_hr_editor_swaps_a_role_from_the_assign_dialog_with_a_reason(self):
+        import role_change as rc
+        from routers.jobroles import AssignBody, assign_job_role
+        self._hr_editor()                                                          # People editor, below IT Admin
+        out = assign_job_role("jr-2", AssignBody(email=ERIN, reason="Moving to the platform team"), HR_ONLY, self.db)
+        self.assertEqual((out["job_role"], self._role_of_erin()), ("IT Dev Associate II", ["jr-2"]))
+        row = rc.role_history(self.db, self._erin())[0]
+        self.assertEqual((row["kind"], row["reason"], row["raisedBy"]), ("direct", "Moving to the platform team", HR))
+
 
 SEP_BODY = ["{{full_name}}: your last day is {{last_day}} ({{separation_type}}).",
             "For the company:", "[[sign:company]]", "Acknowledged:", "[[sign:employee]]"]

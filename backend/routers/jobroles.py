@@ -472,11 +472,11 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
     email = body.email.lower().strip()
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
-    warning = check_can_assign(db, user, jr, email)
     # Swapping an employee's role is HR's, IT's or a Global Admin's, with a
     # reason, and is logged (Neil, Oct 22 - role_change.change_now does all
-    # three). A first role, re-applying the same role (reset to the role's
-    # tier) and external users are unchanged.
+    # three, and runs check_can_assign on the HR path, so an HR editor below
+    # IT Admin may swap here as in People). A first role, re-applying the same
+    # role (reset to the role's tier) and external users are unchanged.
     from hr_life_events import current_job_role
     cur = current_job_role(db, email)
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
@@ -484,9 +484,6 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
         import role_change as rc
         if not rc.can_change_roles(db, user):
             raise HTTPException(status_code=403, detail="Only HR, an IT Admin or a Global Admin can change someone's role.")
-        if not (body.reason or "").strip():
-            raise HTTPException(status_code=400, detail=(
-                "Changing someone's role needs a reason - use Change Role on their Access tab."))
         try:
             jr, warning = rc.change_now(db, user, emp, jr.id, body.reason)
         except rc.RoleChangeError as e:
@@ -495,6 +492,7 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
         db.commit()
         return {"assigned": email, "job_role": jr.name, "tier": _clean_tier(jr.tier or "employee"),
                 "company_id": (jr.company_id or "").strip(), "warning": warning}
+    warning = check_can_assign(db, user, jr, email)
     tier = apply_job_role(db, jr, email, user["email"])
     db.commit()
     return {"assigned": email, "job_role": jr.name, "tier": tier,

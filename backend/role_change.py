@@ -211,10 +211,10 @@ def change_now(db: Session, user: dict, emp: models.NexusEmployee, role_id: str,
     from routers.jobroles import apply_job_role
     if not can_change_roles(db, user):
         raise RoleChangeError("Only HR, an IT Admin or a Global Admin can change someone's role.", 403)
+    emp, email, jr, cur, warning = _checked(db, user, emp, role_id)
     reason = (reason or "").strip()[:1000]
     if not reason:
         raise RoleChangeError("Add the reason - it is kept in their role history.")
-    emp, email, jr, cur, warning = _checked(db, user, emp, role_id)
     me = user["email"].lower()
     # A People editor below administrator may hand out up to the Manager tier
     # (check_can_assign, hr_path) - to others. Their own role is somebody

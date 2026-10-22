@@ -1682,10 +1682,25 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
 // offered - the server would refuse them.
 export function AssignModal({ role, onClose, onAssigned, onErr }) {
   const { data: dir } = usePeopleDirectory();
+  const { canAccessModule, hrTeam } = useRole();
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState('');
   const [warning, setWarning] = useState('');
   const roleCompany = role.company_id || '';
+  // Someone who already holds ANOTHER job role is a role change (Neil, Oct 22):
+  // HR, IT Admins and Global Admins only (the server's can_change_roles), with
+  // one required reason for everyone picked. People with no role go straight on.
+  const canSwap = !hrTeam && typeof canAccessModule === 'function' && canAccessModule('hr', 'administrator', 'editor');
+  const [heldRole, setHeldRole] = useState({});   // email -> the other role they hold now
+  const [swaps, setSwaps] = useState([]);         // picked people who hold another role
+  const [reason, setReason] = useState('');
+  useEffect(() => {
+    api.getJobRoles().then(rs => {
+      const m = {};
+      (rs || []).forEach(r => { if (r.id !== role.id) (r.members || []).forEach(em => { m[(em || '').toLowerCase()] = r.name; }); });
+      setHeldRole(m);
+    }).catch(() => {});
+  }, [role.id]);
   // Everyone already on this role, plus anyone added during this sitting - so the
   // dialog stays open and you can add several people in a row without reopening.
   const [added, setAdded] = useState(() => new Set((role.members || []).map(e => (e || '').toLowerCase())));
@@ -1696,23 +1711,40 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
   }, [dir, roleCompany]);
   const filtered = matchPeople(people, q);
   const listed = filtered.slice(0, 60);
-  const nav = useListNav(listed, { open: !!q.trim(), query: q, onPick: (p) => assign(p) });
+  const nav = useListNav(listed, { open: !!q.trim(), query: q, onPick: (p) => pick(p) });
   const addedThisSitting = [...added].filter(e => !(role.members || []).map(m => (m || '').toLowerCase()).includes(e)).length;
 
-  async function assign(p) {
-    if (added.has(p.email) || busy) return;
-    setBusy(p.email);
+  async function send(p, why) {
     try {
-      const res = await api.assignJobRole(role.id, p.email);
+      const res = await api.assignJobRole(role.id, p.email, why);
       setAdded(s => new Set(s).add(p.email)); setWarning(res?.warning || ''); onAssigned(p.name || p.email);
+      return true;
     }
-    catch (e) { onErr(e?.message || 'Could not assign.'); }
+    catch (e) { onErr(e?.message || 'Could not assign.'); return false; }
+  }
+  async function pick(p) {
+    if (added.has(p.email) || busy) return;
+    if (heldRole[p.email]) {
+      if (canSwap) setSwaps(s => s.some(x => x.email === p.email) ? s.filter(x => x.email !== p.email) : [...s, p]);
+      return;
+    }
+    setBusy(p.email);
+    await send(p);
+    setBusy('');
+  }
+  async function assignSwaps() {
+    if (!reason.trim() || busy) return;
+    setBusy('swaps');
+    const left = [];
+    for (const p of swaps) if (!await send(p, reason.trim())) left.push(p);
+    setSwaps(left);
+    if (!left.length) setReason('');
     setBusy('');
   }
 
   return (
     <Modal onClose={onClose} title={`Assign to “${role.name}”`}>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like - this stays open until you close it.{roleCompany ? ' Only people at this role’s company are listed, plus anyone with no company set.' : ''}</div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like - this stays open until you close it. Someone who already holds another role is a role change: pick them, write the reason, then click Assign.{roleCompany ? ' Only people at this role’s company are listed, plus anyone with no company set.' : ''}</div>
       <div style={{ position: 'relative', marginBottom: 10 }}>
         <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
         <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…"
@@ -1723,17 +1755,35 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
         {!dir ? <ListSkeleton /> : filtered.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 16, textAlign: 'center' }}>No matches.</div>
           : listed.map((p, i) => {
             const isAdded = added.has(p.email);
+            const held = !isAdded && heldRole[p.email];
+            const picked = swaps.some(x => x.email === p.email);
             return (
-              <button key={p.email} {...nav.optionProps(i)} onClick={() => assign(p)} disabled={!!busy || isAdded}
+              <button key={p.email} {...nav.optionProps(i)} onClick={() => pick(p)} disabled={!!busy || isAdded || (held && !canSwap)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: isAdded ? 'hsla(var(--color-green),0.07)' : 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: isAdded ? 'default' : 'pointer', opacity: (busy && !isAdded && busy !== p.email) ? 0.6 : 1 }}>
-                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}{roleCompany && !p.company ? ' · No company set' : ''}</div></div>
+                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}{roleCompany && !p.company ? ' · No company set' : ''}</div>
+                  {held && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Holds {held}{canSwap ? '' : ' - only HR, an IT Admin or a Global Admin can change their role'}</div>}</div>
                 {busy === p.email ? <Spinner size={15} />
+                  : picked ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--pine)' }}><Check size={14} /> Picked</span>
                   : isAdded ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))' }}><Check size={14} /> Added</span>
                   : <ChevronRight size={15} style={{ color: 'var(--muted)' }} />}
               </button>
             );
           })}
       </div>
+      {swaps.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <label htmlFor="assign-reason" style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.04em' }}>Reason For The Change *</label>
+          <textarea id="assign-reason" className="form-input" rows={2} value={reason} onChange={e => setReason(e.target.value)}
+            placeholder={`Why ${swaps.length === 1 ? swaps[0].name : `these ${swaps.length} people`} move to ${role.name}`}
+            style={{ ...input, resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+            <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1 }}>Shown on their Role History. {swaps.length === 1 ? 'They already hold' : 'Each already holds'} another role - it changes now.</span>
+            <button className="primary-btn" onClick={assignSwaps} disabled={!!busy || !reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {busy === 'swaps' ? <Spinner size={14} /> : null} Assign {swaps.length}
+            </button>
+          </div>
+        </div>
+      )}
       {warning && (
         <div role="status" style={{ marginTop: 10, background: 'hsla(38,92%,50%,0.1)', border: '1px solid hsla(38,92%,50%,0.35)', borderRadius: 10, padding: '8px 12px', fontSize: 12.5, color: 'var(--ink)' }}>{warning}</div>
       )}
