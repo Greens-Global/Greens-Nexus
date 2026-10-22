@@ -559,6 +559,37 @@ class ReviewFixTests(Base):
                 for col in model.__table__.columns:
                     self.assertNotIn("[[import-code-", str(getattr(row, col.key)), (model.__name__, col.key))
 
+    def test_text_that_looks_like_a_placeholder_is_left_alone(self):
+        f = models.TaskCustomField(id=gen_id(), name="Note", type="text", project_ids=[self.p.id])
+        self.db.add(f)
+        self.db.commit()
+        r = self.run_import([
+            {"row": 2, "title": "Ref [[import-code-0]] here", "description": "[[import-code-99]]",
+             "tags": "[[import-code-1]]", "custom": {f.id: "[[import-code-0]]"}},
+            {"row": 3, "title": "[[import-code-99]]", "parent": "2"},
+        ])
+        self.assertEqual(r["created"], 2)
+        t = self.by_title()
+        first, second = t["Ref [[import-code-0]] here"], t["[[import-code-99]]"]
+        self.assertEqual(first.description, "<p>[[import-code-99]]</p>")
+        self.assertEqual(first.tags, ["[[import-code-1]]"])
+        self.assertEqual(first.custom_field_values, {f.id: "[[import-code-0]]"})
+        for x in (first, second):
+            self.assertRegex(x.code, r"^TASK-\d{3,}$")
+        for a in self.db.query(models.TaskActivity).filter(models.TaskActivity.entity_kind == "task").all():
+            self.assertRegex(a.entity_code, r"^TASK-\d{3,}$")
+            self.assertEqual(a.entity_title, t[a.entity_title].title)
+
+    def test_a_placeholder_index_past_the_codes_is_left_as_it_is(self):
+        ph = task_import._Placeholders()
+        a = models.TaskActivity(id=gen_id(), entity_kind="task", entity_code=ph.code(0),
+                                detail=f"{ph.code(0)} and {ph.code(5)}")
+        self.db.add(a)
+        ph.swap(self.db, ["TASK-900"])
+        self.assertEqual(a.entity_code, "TASK-900")
+        self.assertEqual(a.detail, f"TASK-900 and {ph.code(5)}")
+        self.db.rollback()
+
     def test_a_repeat_of_the_same_import_is_refused(self):
         rows = [{"title": "Once"}]
         self.run_import(rows, dry=True, import_id="abc-123")

@@ -694,8 +694,36 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
     }
 
 
-_PLACEHOLDER = "[[import-code-{}]]"
-_PLACEHOLDER_RE = re.compile(r"\[\[import-code-(\d+)\]\]")
+class _Placeholders:
+    """The stand-in codes one import builds its rows with. A random token per
+    import, so text a person typed into the file ("see [[import-code-0]]")
+    can never look like one, and only the columns that copy a task's code
+    are ever touched."""
+
+    def __init__(self):
+        self.token = uuid.uuid4().hex
+        self.re = re.compile(r"\[\[import-code-" + self.token + r"-(\d+)\]\]")
+
+    def code(self, i: int) -> str:
+        return f"[[import-code-{self.token}-{i}]]"
+
+    def swap(self, db: Session, codes: list[str]) -> None:
+        """Every pending row's placeholder -> its real code: Task.code, and
+        the copies made of it - activity rows (entity_code, and detail for
+        safety) and automation run rows (task_code). An index past the codes
+        handed out is left as it is rather than failing the import."""
+        def fix(v):
+            if not isinstance(v, str) or self.token not in v:
+                return v
+            return self.re.sub(lambda m: codes[int(m.group(1))] if int(m.group(1)) < len(codes) else m.group(0), v)
+        columns = {models.Task: ("code",), models.TaskActivity: ("entity_code", "detail"),
+                   models.TaskAutomationRun: ("task_code",)}
+        for obj in list(db.new):
+            for key in columns.get(type(obj), ()):
+                val = getattr(obj, key, None)
+                new = fix(val)
+                if new != val:
+                    setattr(obj, key, new)
 
 
 def _import_key(project_id: str, import_id: str) -> str:
@@ -705,30 +733,6 @@ def _import_key(project_id: str, import_id: str) -> str:
     if not iid:
         return ""
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"nexus-task-import:{project_id}:{iid}"))
-
-
-def _swap_codes(db: Session, codes: list[str]) -> None:
-    """Every pending row's placeholder code -> its real one. Scans every
-    string column (and JSON values) of everything new or changed in the
-    session, so anything that copied a code - activity rows, automation run
-    rows, a rule's activity line - is caught without listing them here."""
-    def fix(v):
-        if isinstance(v, str):
-            return _PLACEHOLDER_RE.sub(lambda m: codes[int(m.group(1))], v) if "[[import-code-" in v else v
-        if isinstance(v, list):
-            return [fix(x) for x in v]
-        if isinstance(v, dict):
-            return {k: fix(x) for k, x in v.items()}
-        return v
-    for obj in list(db.new) + list(db.dirty):
-        table = getattr(obj, "__table__", None)
-        if table is None:
-            continue
-        for col in table.columns:
-            val = getattr(obj, col.key, None)
-            new = fix(val)
-            if new != val:
-                setattr(obj, col.key, new)
 
 
 def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_options: dict,
@@ -772,6 +776,7 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
     rules = task_automation._enabled_rules(db)
     order = sorted(good, key=lambda r: (r.depth, r.index))
     base = time.time()
+    placeholders = _Placeholders()
     assigned: dict = {}
     autos = []
     for i, r in enumerate(order):
@@ -797,7 +802,7 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
         except HTTPException as e:
             raise HTTPException(422, f"Row {r.n}: {e.detail}")
         data.update({k: checked[k] for k in ("tags", "assignee_emails", "follower_emails")})
-        t = _new_task_row(db, TaskCreate(**data), tid=tid, code=_PLACEHOLDER.format(i), company_id=ctx.company_id,
+        t = _new_task_row(db, TaskCreate(**data), tid=tid, code=placeholders.code(i), company_id=ctx.company_id,
                           access_level=ctx.access_level, user=user, now=now, field_defs=ctx.defs)
         set_task_assignees(t, data["assignee_emails"])
         _follow_as_actor(t, actor)
@@ -851,7 +856,7 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
     project.modified_at = now
     # The codes, last of all: the counter's row lock is held from here to
     # the commit just below, not while the rows above were built.
-    _swap_codes(db, code_sequence.next_task_codes(db, len(order)))
+    placeholders.swap(db, code_sequence.next_task_codes(db, len(order)))
     # Ids taken before the commit expires the rows (each read after it would
     # re-SELECT its row).
     assigned_ids = {who: [t.id for t in tasks] for who, tasks in assigned.items()}
