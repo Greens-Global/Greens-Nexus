@@ -65,6 +65,8 @@ export default function WorkplaceNotices({ toastOk, toastErr }) {
         </div>
       )}
 
+      {ctx.country === 'US' && ctx.state === 'CA' && <EmergencyCard toastOk={toastOk} toastErr={toastErr} />}
+
       <div style={CARD}>
         <div style={{ ...HD, marginBottom: 4 }}>{ctx.country === 'IN' ? 'Code of Conduct And Policies' : 'Employee Manual And Policies'}</div>
         {!data.documents.length && <div style={{ fontSize: 13, color: 'var(--muted)' }}>Nothing here yet.</div>}
@@ -133,6 +135,67 @@ export default function WorkplaceNotices({ toastOk, toastErr }) {
         onOpened={() => api.recordNoticeView(viewing.id).catch(() => {})} onClose={() => setViewing(null)} toastErr={toastErr} />}
       {signing && <AckModal doc={signing} name={data.name} onClose={() => setSigning(null)}
         onDone={() => { setSigning(null); toastOk?.('Acknowledged. Thank you.'); load(); }} toastErr={toastErr} />}
+    </div>
+  );
+}
+
+// California Labor Code 1555 (SB 294): name someone to be told if you are
+// arrested or detained at work. Optional - the card stays folded once answered.
+function EmergencyCard({ toastOk, toastErr }) {
+  const [s, setS] = useState(null);
+  const [edit, setEdit] = useState(false);
+  const [f, setF] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.myEmergencyContact().then(setS).catch(() => setS({ applies: false })); }, []);
+  if (!s?.applies) return null;
+  const open = !s.answered || edit;
+  const form = f || { choice: s.choice || (s.profile.name ? 'profile' : 'other'), name: s.name, phone: s.phone, relationship: s.relationship,
+    worksite: s.answered ? s.worksite : true, offsite: s.answered ? s.offsite : true };
+  const set = (k, v) => setF({ ...form, [k]: v });
+  const save = (body) => {
+    setBusy(true);
+    api.setMyEmergencyContact(body).then(r => { setS(r); setEdit(false); setF(null); toastOk?.('Saved.'); })
+      .catch(e => toastErr?.(e?.message || 'Could not save it.')).finally(() => setBusy(false));
+  };
+  const summary = !s.answered ? '' : s.choice === 'decline' ? 'You chose not to name anyone.'
+    : `${s.choice === 'profile' ? s.profile.name : s.name} will be told${s.worksite ? ' if you are arrested or detained at work' : ''}${s.worksite && s.offsite ? ' or' : ''}${s.offsite ? ' during work hours away from the work site' : ''}.`;
+  return (
+    <div style={{ ...CARD, ...(open && !s.answered ? { borderColor: '#f59e0b' } : {}) }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={HD}>Emergency Contact If You Are Arrested Or Detained At Work</span>
+        <span style={{ flex: 1 }} />
+        {s.answered && !edit && <button className="secondary-btn" onClick={() => setEdit(true)} style={{ fontSize: 12 }}>Change</button>}
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', margin: '4px 0 8px' }}>
+        California law lets you name someone Greens will contact if immigration or other authorities arrest or detain you. This is optional and you can change it at any time.
+      </div>
+      {!open ? <div style={{ fontSize: 13 }}>{summary} <span style={{ color: 'var(--muted)' }}>Saved {day(s.answeredAt)}.</span></div> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
+          {s.profile.name && (
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="radio" name="sb294-choice" checked={form.choice === 'profile'} onChange={() => set('choice', 'profile')} />
+              My emergency contact on my profile: {s.profile.name}{s.profile.phone ? ` (${s.profile.phone})` : ''}</label>
+          )}
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="radio" name="sb294-choice" checked={form.choice === 'other'} onChange={() => set('choice', 'other')} /> Someone else</label>
+          {form.choice === 'other' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
+              <input id="sb294-name" aria-label="Their name" className="form-input" placeholder="Their name" value={form.name} onChange={e => set('name', e.target.value)} />
+              <input id="sb294-phone" aria-label="Their phone" className="form-input" placeholder="Phone" value={form.phone} onChange={e => set('phone', e.target.value)} />
+              <input id="sb294-rel" aria-label="Relationship" className="form-input" placeholder="Relationship" value={form.relationship} onChange={e => set('relationship', e.target.value)} />
+            </div>
+          )}
+          {form.choice !== 'decline' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 4 }}>
+              <label style={{ display: 'flex', gap: 8 }}><input type="checkbox" checked={form.worksite} onChange={e => set('worksite', e.target.checked)} /> Tell them if I am arrested or detained at my work site</label>
+              <label style={{ display: 'flex', gap: 8 }}><input type="checkbox" checked={form.offsite} onChange={e => set('offsite', e.target.checked)} /> Tell them if it happens during work hours away from the work site (when Greens knows of it)</label>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="primary-btn" disabled={busy || form.choice === 'decline'} onClick={() => save(form)} style={{ fontSize: 12.5 }}>Save</button>
+            <button className="secondary-btn" disabled={busy} onClick={() => save({ choice: 'decline' })} style={{ fontSize: 12.5 }}>No Thanks</button>
+            {edit && <button className="secondary-btn" onClick={() => { setEdit(false); setF(null); }} style={{ fontSize: 12.5 }}>Cancel</button>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

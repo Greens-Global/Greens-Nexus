@@ -2841,6 +2841,9 @@ export const api = {
   acknowledgeNotice:     (id, body)  => req(`/notices/my/${encodeURIComponent(id)}/acknowledge`, { method: 'POST', body: JSON.stringify(body) }),
   recordNoticeView:      (vid)       => req(`/notices/my/view/${vid}`, { method: 'POST' }),
   myClosures:            ()          => req('/notices/my/closures'),
+  sendNotice:            (id, body)  => req(`/notices/notice/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify(body) }),
+  myEmergencyContact:    ()          => req('/notices/my/emergency'),
+  setMyEmergencyContact: (body)      => req('/notices/my/emergency', { method: 'PUT', body: JSON.stringify(body) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

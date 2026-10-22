@@ -100,6 +100,7 @@ BUILTIN_VARIABLES = [
     ("company_address", "Company address", "Company"),
     ("signatory", "Company signatory", "Company"),
     ("hr_contact", "Company HR contact", "Company"),
+    ("handbook_link", "Employee Manual link (Workplace Notices in Nexus)", "Company"),
     ("today", "Today's date", "Document"),
     # HR packets (Oct 14) - filled from what HR picks when a packet starts
     # (the role, pay, timings and job description) and from the event.
@@ -145,7 +146,10 @@ def resolve_merge_data(db: Session, employee_id: str = "", candidate_id: str = "
     """Merge dict for {{token}} resolution. Subject person + company + the
     template's own metadata + overrides (overrides win - e.g. salary is typed
     in by the caller, never read from a compensation column)."""
-    data = {"today": datetime.now(timezone.utc).strftime("%B %d, %Y")}
+    from app_url import app_url
+    data = {"today": datetime.now(timezone.utc).strftime("%B %d, %Y"),
+            # Workday > Workplace Notices, where the current manual lives (Oct 22 2026)
+            "handbook_link": f"{app_url()}/workday/notices"}
     data.update(template_merge_data(template))
     if employee_id:
         e = db.query(NexusEmployee).filter(NexusEmployee.id == employee_id).first()

@@ -599,7 +599,9 @@ def _merge_data(db: Session, employee_id: str, candidate_id: str, entity_id: str
     """Merge dict for {{token}} resolution. Subject person + company + overrides
     (overrides win - e.g. salary is typed by the sender, never read from the
     hr_comp-restricted compensation column)."""
-    data = {"today": datetime.now(timezone.utc).strftime("%B %d, %Y")}
+    data = {"today": datetime.now(timezone.utc).strftime("%B %d, %Y"),
+            # Workday > Workplace Notices, where the current manual lives (Oct 22 2026)
+            "handbook_link": f"{_app_url_fn()}/workday/notices"}
     if employee_id:
         e = db.query(NexusEmployee).filter(NexusEmployee.id == employee_id).first()
         if e:
@@ -1330,6 +1332,7 @@ MERGE_FIELD_KEYS = {
     "company": "Company", "company_legal": "Company Legal Name",
     "company_address": "Company Address", "today": "Date Sent",
     "old_title": "Previous Title", "new_title": "New Title",
+    "handbook_link": "Employee Manual Link",
 }
 
 
@@ -1497,7 +1500,7 @@ _STARTER_TEMPLATES = [
      "roles": [{"key": "employee", "label": "Employee", "order": 1}],
      "body": [
          "EMPLOYEE HANDBOOK ACKNOWLEDGMENT",
-         "I, {{full_name}}, acknowledge that I have received access to the {{company}} Employee Handbook, and that I have read, understood, and agree to abide by the policies it contains.",
+         "I, {{full_name}}, acknowledge that I have received access to the {{company}} Employee Handbook (in Nexus: Workday > Workplace Notices, {{handbook_link}}), and that I have read, understood, and agree to abide by the policies it contains.",
          "I understand the handbook is not an employment contract and that the Company may revise its policies at any time.",
          "[[check:employee:I acknowledge the above]]",
          "[[sign:employee]]",

@@ -12,6 +12,8 @@ vi.mock('../api', () => ({
     acknowledgeNotice: (...a) => ack(...a),
     recordNoticeView: vi.fn().mockResolvedValue({}),
     myClosures: vi.fn().mockResolvedValue({ days: [] }),
+    myEmergencyContact: vi.fn().mockResolvedValue({ applies: true, answered: false, choice: '', name: '', phone: '', relationship: '', worksite: false, offsite: false, answeredAt: '', profile: { name: 'Bob Test', phone: '555', relationship: 'Brother' } }),
+    setMyEmergencyContact: vi.fn(),
     noticeFile: vi.fn().mockReturnValue(new Promise(() => {})),
   },
 }));
@@ -49,6 +51,7 @@ describe('WorkplaceNotices', () => {
     expect(screen.getByText('Federal')).toBeInTheDocument();
     expect(screen.getByText(/Coming soon/)).toBeInTheDocument();
     expect(screen.getByText('Posted at your site')).toBeInTheDocument();
+    expect(await screen.findByText(/Arrested Or Detained/)).toBeInTheDocument();   // California: SB 294 emergency contact
   });
 
   it('acknowledges with my typed name', async () => {

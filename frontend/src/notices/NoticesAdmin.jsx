@@ -236,6 +236,7 @@ function NoticeDetail({ id, canApprove, onClose, toastOk, toastErr }) {
   const [editing, setEditing] = useState(null);
   const [newVer, setNewVer] = useState(null);
   const [viewing, setViewing] = useState(null);
+  const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => { api.noticeDetail(id).then(setN).catch(e => { toastErr?.(e?.message || 'Could not open it.'); onClose(); }); }, [id]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
@@ -254,6 +255,7 @@ function NoticeDetail({ id, canApprove, onClose, toastOk, toastErr }) {
   return (
     <Modal title={n.title} onClose={onClose}
       footer={<><button className="secondary-btn" onClick={retire} disabled={busy}>{n.status === 'active' ? 'Retire Notice' : 'Restore Notice'}</button>
+        {n.live && n.kind !== 'form' && <button className="secondary-btn" onClick={() => setSending(true)} disabled={busy}>Send To People</button>}
         <span style={{ flex: 1 }} /><button className="primary-btn" onClick={onClose}>Done</button></>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -311,6 +313,47 @@ function NoticeDetail({ id, canApprove, onClose, toastOk, toastErr }) {
         </details>
       </div>
       {viewing && <NoticePdfModal versionId={viewing.id} lang={viewing.lang} title={viewing.title} onClose={() => setViewing(null)} toastErr={toastErr} />}
+      {sending && <SendModal notice={n} onClose={() => setSending(false)} onSent={(k) => { setSending(false); toastOk?.(`Sent to ${k} ${k === 1 ? 'person' : 'people'}.`); load(); }} toastErr={toastErr} />}
+    </Modal>
+  );
+}
+
+// Give the live version to chosen people - an event (an injury, a leave, an
+// inspection) or someone who needs a copy. Each gets an email with the file.
+function SendModal({ notice, onClose, onSent, toastErr }) {
+  const [people, setPeople] = useState(null);
+  const [q, setQ] = useState('');
+  const [picked, setPicked] = useState([]);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.getPeopleDirectory().then(r => setPeople(Array.isArray(r) ? r : (r?.people || []))).catch(() => setPeople([])); }, []);
+  const rows = (people || []).filter(p => p.email && (!q || `${p.name} ${p.email}`.toLowerCase().includes(q.toLowerCase()))).slice(0, 60);
+  const toggle = (e) => setPicked(x => (x.includes(e) ? x.filter(y => y !== e) : [...x, e]));
+  const go = () => {
+    setBusy(true);
+    api.sendNotice(notice.id, { emails: picked, note }).then(r => onSent(r.sent))
+      .catch(e => toastErr?.(e?.message || 'Could not send it.')).finally(() => setBusy(false));
+  };
+  return (
+    <Modal title={`Send ${notice.title}`} onClose={onClose} isDirty={picked.length > 0}
+      footer={<><button className="secondary-btn" onClick={onClose}>Cancel</button>
+        <button className="primary-btn" onClick={go} disabled={busy || !picked.length}>Send To {picked.length || ''} {picked.length === 1 ? 'Person' : 'People'}</button></>}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>Each person gets an email with {notice.live?.label} attached, and it shows under Given To You in their Workday.</div>
+        <input aria-label="Search people" className="form-input" placeholder="Search people" value={q} onChange={e => setQ(e.target.value)} />
+        {!people ? <SkeletonBlocks count={2} height={40} /> : (
+          <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 10 }}>
+            {rows.map(p => (
+              <label key={p.email} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '7px 10px', borderTop: '1px solid var(--wk-line2)', fontSize: 13 }}>
+                <input type="checkbox" checked={picked.includes(p.email.toLowerCase())} onChange={() => toggle(p.email.toLowerCase())} />
+                <span style={{ flex: 1 }}>{p.name || p.email}</span><span style={{ color: 'var(--muted)', fontSize: 12 }}>{p.email}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><span style={LBL}>Message (Optional)</span>
+          <textarea id="notice-send-note" className="form-input" rows={2} value={note} onChange={e => setNote(e.target.value)} /></label>
+      </div>
     </Modal>
   );
 }

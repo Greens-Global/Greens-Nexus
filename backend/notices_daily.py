@@ -10,8 +10,11 @@ thread). Each step has its own commit, so one failing never undoes another.
   escalate   on Mondays, each manager hears which direct reports are more than
              7 days overdue (one bell + one email).
 
-Later parts add: deliveries at hire / every year / at separation, the source
-watcher, the calendar and the December review, and site poster tasks.
+  deliver    the at-hire bundle, the yearly round (SB 294 by 02/01, held until
+             this year's version is approved) and the separation notices.
+
+Later parts add: the source watcher, the calendar and the December review,
+and site poster tasks.
 """
 from __future__ import annotations
 
@@ -57,7 +60,7 @@ def mail(to: str, subject: str, lines: list[str], sub: str = "notices", attachme
     items = "".join(f"<li style='margin:4px 0'>{ln}</li>" for ln in lines)
     html = (f"<div style='font-family:Inter,Segoe UI,Arial,sans-serif;font-size:14px;color:#0f172a'>"
             f"<p>{intro or subject}</p><ul>{items}</ul>"
-            f"<p><a href='{app_url()}/myhr/{sub}' style='color:#1e7b4e;font-weight:600'>Open Workplace Notices in Nexus</a></p></div>")
+            f"<p><a href='{app_url()}/workday/{sub}' style='color:#1e7b4e;font-weight:600'>Open Workplace Notices in Nexus</a></p></div>")
     try:
         graph_mail.send_mail(from_email=frm, to=[to], cc=[], subject=subject, html=html, attachments=attachments)
         return ""
@@ -184,9 +187,203 @@ def escalate(db, on: date | None = None) -> int:
     return len(late)
 
 
+# ── deliver: at hire, every year, at separation ──────────────────────────────
+# A DELIVER notice reaches each person on its own: one email per person per
+# pass with every file attached (links instead when the files are too big),
+# a delivery row per notice (who, which version, when, to which address),
+# and it shows under "Given To You" in Workday. A "form" (filled in per
+# person - LC 2810.5) is never sent from here: it goes through Documents.
+
+MAX_ATTACH = 3 * 1024 * 1024
+HIRE_TRIGGERS = ("hire", "hire_annual")
+ANNUAL_TRIGGERS = ("annual", "hire_annual")
+
+
+def _files_for(versions: list) -> list:
+    """[(filename, type, bytes)] for the versions, or [] when too big / missing."""
+    from routers.notices import file_bytes
+    out, total = [], 0
+    for v in versions:
+        try:
+            data, f = file_bytes(v, "en")
+        except Exception:  # noqa: BLE001 - a missing file means links, not a failed pass
+            return []
+        total += len(data)
+        if total > MAX_ATTACH:
+            return []
+        out.append((f.get("name") or f"{v.notice_id}.pdf", f.get("type") or "application/pdf", data))
+    return out
+
+
+def send_bundle(db, emp, items: list, reason: str, cycle: str = "", to: str = "", actor: str = "system",
+                intro: str = "") -> int:
+    """Deliver [(notice, version)] to one person. Returns rows written."""
+    if not items:
+        return 0
+    email = core.norm(emp.work_email)
+    to = core.norm(to) or email or core.norm(emp.personal_email)
+    stamp = core.now_iso()
+    files = _files_for([v for _n, v in items])
+    lines = [f"{n.title}{' (' + n.form_code + ')' if n.form_code else ''}" for n, _v in items]
+    if not files:
+        lines.append("Open them in Nexus: Workday > Workplace Notices > Given To You.")
+    subject = {"hire": "Your new-hire notices", "annual": "Your yearly workplace notices",
+               "separation": "Important information for you", "manual": "A workplace notice for you"}.get(reason, "Workplace notices")
+    err = mail(to, f"{subject} - Greens", lines, attachments=files or None,
+               intro=intro or "These notices are required by law. Please read them and keep them for your records:")
+    for n, v in items:
+        db.add(models.WorkplaceNoticeDelivery(
+            id=str(uuid.uuid4()), notice_id=n.id, version_id=v.id, email=email or to, reason=reason, cycle=cycle,
+            channel="email", sent_to=to, lang="en", sent_at=stamp if not err else "", error=err,
+            content_hash=next((f.get("sha256", "") for f in (v.files or []) if f.get("lang") == "en"), ""),
+            created_by=actor, created_at=stamp))
+    core.log_event(db, actor, "delivered", detail_reason=reason, to=to, count=len(items),
+                   notices=[n.id for n, _v in items], error=err)
+    if email:
+        _bell(db, email, NEW_TYPE, {"hire": "Your New-Hire Notices", "annual": "Your Yearly Notices",
+                                    "manual": "A Notice For You"}.get(reason, "Workplace Notices"),
+              "; ".join(lines[:4]) + ". They are in Workday > Workplace Notices > Given To You.")
+    return len(items)
+
+
+def _delivered(db, reason: str, cycle: str = "") -> set:
+    q = db.query(models.WorkplaceNoticeDelivery.email, models.WorkplaceNoticeDelivery.notice_id).filter(
+        models.WorkplaceNoticeDelivery.reason == reason)
+    if cycle:
+        q = q.filter(models.WorkplaceNoticeDelivery.cycle == cycle)
+    return {(core.norm(e), n) for e, n in q.all()}
+
+
+def deliver_hire(db, on: date | None = None) -> int:
+    """Everyone who started on or after the module's first day gets the
+    at-hire notices that apply to them, once."""
+    emps, ctx, cfg, rows, by = _roster(db)
+    since = cfg.get("hireSince") or core.today().isoformat()
+    done = _delivered(db, "hire")
+    sent = 0
+    for e in emps:
+        if not e.start_date or e.start_date[:10] < since:
+            continue
+        pc = core.person_context(db, e, ctx)
+        items = []
+        for n in rows:
+            if n.trigger not in HIRE_TRIGGERS or n.mode not in ("deliver", "both") or n.kind == "form":
+                continue
+            if (pc["email"], n.id) in done or not core.applies(n, pc, cfg):
+                continue
+            v = core.live_version(db, n.id, rows=by.get(n.id, []), on=on)
+            if v is not None:
+                items.append((n, v))
+        sent += send_bundle(db, e, items, "hire")
+    db.commit()
+    return sent
+
+
+def _due_this_cycle(n, d: date) -> tuple[str, bool]:
+    """(cycle, in its sending window): the window runs from Jan 2 to the
+    notice's MM-DD due date."""
+    if not n.annual_due:
+        return "", False
+    try:
+        due = date(d.year, int(n.annual_due[:2]), int(n.annual_due[3:5]))
+    except ValueError:
+        return "", False
+    return str(d.year), date(d.year, 1, 2) <= d <= due
+
+
+def deliver_annual(db, on: date | None = None) -> int:
+    """The yearly round (SB 294 by 02/01). A notice marked freshEachYear goes
+    only once THIS year's version is approved; until then HR hears about it
+    once a week."""
+    d = on or core.today()
+    emps, ctx, cfg, rows, by = _roster(db)
+    sent = 0
+    ready = {}
+    for n in rows:
+        if n.trigger not in ANNUAL_TRIGGERS or n.mode not in ("deliver", "both") or n.kind == "form":
+            continue
+        cycle, open_ = _due_this_cycle(n, d)
+        if not open_:
+            continue
+        v = core.live_version(db, n.id, rows=by.get(n.id, []), on=d)
+        fresh = (n.applies or {}).get("freshEachYear")
+        if v is None or (fresh and (v.effective_date or "") < f"{cycle}-01-01"):
+            _warn_hr(db, n, cycle)
+            continue
+        ready[n.id] = (n, v, cycle)
+    if not ready:
+        db.commit()
+        return 0
+    done = {c: _delivered(db, "annual", c) for c in {x[2] for x in ready.values()}}
+    hired = {(core.norm(e), nid): at for e, nid, at in db.query(
+        models.WorkplaceNoticeDelivery.email, models.WorkplaceNoticeDelivery.notice_id,
+        models.WorkplaceNoticeDelivery.sent_at).filter(models.WorkplaceNoticeDelivery.reason == "hire").all()}
+    for e in emps:
+        pc = core.person_context(db, e, ctx)
+        items, cycle = [], ""
+        for nid, (n, v, cyc) in ready.items():
+            if (pc["email"], nid) in done[cyc] or not core.applies(n, pc, cfg):
+                continue
+            if (hired.get((pc["email"], nid)) or "") >= f"{cyc}-01-01":
+                continue          # got this year's copy at hire
+            items.append((n, v))
+            cycle = cyc
+        sent += send_bundle(db, e, items, "annual", cycle=cycle)
+    db.commit()
+    return sent
+
+
+def _warn_hr(db, n, cycle: str) -> None:
+    from routers.notices import approvers
+    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    for a in approvers(db):
+        if db.query(models.NexusNotification.id).filter(
+                models.NexusNotification.recipient == a, models.NexusNotification.type == "workplace_notice_hr",
+                models.NexusNotification.ref_id == n.id, models.NexusNotification.created_at >= since).first():
+            continue
+        _bell(db, a, "workplace_notice_hr", f"{n.title}: {cycle} Version Needed",
+              f"The {cycle} {n.title} must reach every employee by {_us(f'{cycle}-{n.annual_due}')}. "
+              "Prepare and approve this year's version in People > Notices - nothing is sent until then.",
+              ref_id=n.id, priority=1, action={"view": "hr", "sub": "hr-notices"})
+
+
+def deliver_separation(db, on: date | None = None) -> int:
+    """Someone who left (inactive / offboarded) after the module's first day
+    gets the separation notices, at their personal email when they have one."""
+    cfg = core.settings(db)
+    since = cfg.get("hireSince") or core.today().isoformat()
+    rows = (db.query(models.WorkplaceNotice).filter(models.WorkplaceNotice.status == "active",
+                                                     models.WorkplaceNotice.trigger == "separation").all())
+    if not rows:
+        return 0
+    done = _delivered(db, "separation")
+    gone = (db.query(models.NexusEmployee)
+            .filter(models.NexusEmployee.status.in_(("inactive", "offboarded")),
+                    (models.NexusEmployee.deleted_at == "") | (models.NexusEmployee.deleted_at.is_(None))).all())
+    ctx = core.preload(db, gone)
+    sent = 0
+    for e in gone:
+        left = max([str(x.get("at") or x.get("effectiveDate") or "") for x in (e.status_log or [])
+                    if isinstance(x, dict) and x.get("to") in ("inactive", "offboarded")] or [""])
+        if not left or left[:10] < since:
+            continue
+        pc = core.person_context(db, e, ctx)
+        email = pc["email"] or core.norm(e.personal_email)
+        items = []
+        for n in rows:
+            if (email, n.id) in done or n.kind == "form" or not core.applies(n, pc, cfg):
+                continue
+            v = core.live_version(db, n.id, on=on)
+            if v is not None:
+                items.append((n, v))
+        sent += send_bundle(db, e, items, "separation", to=e.personal_email or e.work_email)
+    db.commit()
+    return sent
+
+
 def run_daily() -> None:
     """Called once a day from reminders_loop (in a thread)."""
-    for step in (announce, remind, escalate):
+    for step in (announce, deliver_hire, deliver_annual, deliver_separation, remind, escalate):
         db = SessionLocal()
         try:
             core.ensure_catalog(db)

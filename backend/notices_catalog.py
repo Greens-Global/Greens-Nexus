@@ -139,7 +139,7 @@ CATALOG = [
        trigger="event", sort=218, url="https://www.dir.ca.gov/DLSE/LC_90.2_EE_Notice.pdf",
        notes="Post within 72 hours of receiving an I-9 inspection notice."),
     _n("ca-sb294", "Workplace Know Your Rights", form="SB 294", agency="DIR", area="US-CA", kind="handout",
-       mode="deliver", trigger="hire_annual", annual_due="02-01", sort=230,
+       mode="deliver", trigger="hire_annual", annual_due="02-01", sort=230, applies={"freshEachYear": True},
        url="https://www.dir.ca.gov/dlse/Know-Your-Rights-Notice/Know-Your-Rights-Notice-English.pdf",
        notes="To every employee by 02/01 each year and to each new hire. New template every year (LC 1554). Records kept 3 years."),
     _n("ca-dwc-hire", "Workers' Comp Time of Hire Notice", form="DWC TOH", agency="DIR DWC", area="US-CA",

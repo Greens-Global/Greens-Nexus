@@ -803,3 +803,111 @@ def owed_count(db: Session, me: str) -> int:
     if emp is None:
         return 0
     return len(core.owed(db, emp))
+
+
+# ── HR sends a notice (events: an injury, a leave, an inspection) ───────────
+
+class SendIn(BaseModel):
+    emails: List[str]
+    note: str = ""
+
+
+@router.post("/notice/{nid}/send")
+def send_notice(nid: str, body: SendIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Give the live version to the people HR picks - the DWC-1 claim form
+    after an injury, DE 2320 on a leave of absence, the inspection notice.
+    Each person gets an email with the file and a dated delivery row."""
+    import notices_daily
+    me = _require_manage(db, user)
+    n = db.get(models.WorkplaceNotice, nid)
+    if n is None:
+        raise HTTPException(404, "Notice not found")
+    live = core.live_version(db, nid)
+    if live is None:
+        raise HTTPException(409, "Approve a version with its file first")
+    emails = sorted({core.norm(e) for e in body.emails or [] if core.norm(e)})
+    if not emails or len(emails) > 200:
+        raise HTTPException(400, "Pick 1 to 200 people")
+    people = (db.query(models.NexusEmployee)
+              .filter(func.lower(models.NexusEmployee.work_email).in_(emails)).all())
+    if len(people) != len(emails):
+        raise HTTPException(400, "Everyone must be in Nexus People")
+    note = (body.note or "").strip()[:500]
+    sent = 0
+    for e in people:
+        sent += notices_daily.send_bundle(db, e, [(n, live)], "manual", actor=me,
+                                          intro=note or "Please read this notice and keep it for your records:")
+    db.commit()
+    return {"sent": sent}
+
+
+# ── SB 294 emergency contact (California Labor Code 1555) ───────────────────
+# Each California employee may name an emergency contact to be told if they
+# are arrested or detained at work (and, separately, during work hours off
+# site). Optional for them; offering it is the employer's duty - the offer is
+# the Workday card plus the Know Your Rights notice.
+
+class EmergencyIn(BaseModel):
+    choice: str                 # profile | other | decline
+    name: str = ""
+    phone: str = ""
+    relationship: str = ""
+    worksite: bool = False
+    offsite: bool = False
+
+
+def _sb294_out(db: Session, emp, row) -> dict:
+    s = (row.sb294 if row else None) or {}
+    em = ((emp.personal or {}).get("emergency") or {}) if emp is not None else {}
+    return {"answered": bool(s.get("answeredAt")), "choice": s.get("choice", ""), "name": s.get("name", ""),
+            "phone": s.get("phone", ""), "relationship": s.get("relationship", ""),
+            "worksite": bool(s.get("worksite")), "offsite": bool(s.get("offsite")), "answeredAt": s.get("answeredAt", ""),
+            "profile": {"name": em.get("name", ""), "phone": em.get("phone", ""), "relationship": em.get("relationship", "")}}
+
+
+def sb294_applies(db: Session, emp) -> bool:
+    n = db.get(models.WorkplaceNotice, "ca-sb294")
+    return bool(emp is not None and n is not None and core.applies(n, core.person_context(db, emp), core.settings(db)))
+
+
+@router.get("/my/emergency")
+def my_emergency(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    me, emp = _me(db, user)
+    if not sb294_applies(db, emp):
+        return {"applies": False}
+    return {"applies": True, **_sb294_out(db, emp, db.get(models.WorkplaceNoticePerson, me))}
+
+
+@router.put("/my/emergency")
+def set_my_emergency(body: EmergencyIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    me, emp = _me(db, user)
+    if not sb294_applies(db, emp):
+        raise HTTPException(404, "This applies to California employees")
+    if body.choice not in ("profile", "other", "decline"):
+        raise HTTPException(400, "Pick an option")
+    rec = {"choice": body.choice, "worksite": False, "offsite": False, "name": "", "phone": "", "relationship": ""}
+    if body.choice != "decline":
+        if not (body.worksite or body.offsite):
+            raise HTTPException(400, "Pick when they should be told, or choose No Thanks")
+        rec.update(worksite=bool(body.worksite), offsite=bool(body.offsite))
+        if body.choice == "other":
+            name, phone = (body.name or "").strip(), (body.phone or "").strip()
+            if not name or not re.sub(r"\D", "", phone):
+                raise HTTPException(400, "Give their name and phone number")
+            rec.update(name=name[:120], phone=phone[:40], relationship=(body.relationship or "").strip()[:60])
+        else:
+            em = (emp.personal or {}).get("emergency") or {}
+            if not (em.get("name") and em.get("phone")):
+                raise HTTPException(400, "Your profile has no emergency contact yet - add one there or name someone here")
+    row = db.get(models.WorkplaceNoticePerson, me)
+    if row is None:
+        row = models.WorkplaceNoticePerson(email=me, sb294={})
+        db.add(row)
+    stamp = core.now_iso()
+    old = dict(row.sb294 or {})
+    history = list(old.get("history") or []) + [{"at": stamp, **{k: v for k, v in old.items() if k != "history"}}] if old else []
+    row.sb294 = {**rec, "answeredAt": stamp, "history": history[-20:]}
+    row.updated_by, row.updated_at = me, stamp
+    core.log_event(db, me, "emergency_contact_set", "ca-sb294", choice=body.choice)
+    db.commit()
+    return {"applies": True, **_sb294_out(db, emp, row)}
