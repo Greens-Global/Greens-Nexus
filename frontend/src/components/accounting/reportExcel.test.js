@@ -71,8 +71,9 @@ describe('statement workbook', () => {
     const r = await runReport({ getAccountingBuckets: async () => months }, resolveConfig({ ...defaultConfig(NOW), cols: 'month' }, NOW));
     const { rows } = statementCells({ title: 'Income Statement', result: r });
     const account = rows.find((row) => row[0]?.text === '41000');
-    // C and D are the months, E the Total across the row.
-    expect(account[4]).toMatchObject({ f: 'SUM(C6,D6)', num: 1000 });
+    // C..K are September back to January (CR-06: a month with no postings keeps its column), L the Total across the row.
+    expect(r.columns.map((c) => c.label)).toEqual(['Sep 2026', 'Aug 2026', 'Jul 2026', 'Jun 2026', 'May 2026', 'Apr 2026', 'Mar 2026', 'Feb 2026', 'Jan 2026', 'Total']);
+    expect(account[11]).toMatchObject({ f: 'SUM(C6,D6,E6,F6,G6,H6,I6,J6,K6)', num: 1000 });
   });
 
   it('writes a workbook Excel can open: styles, one sheet, frozen header, formulas in the XML', async () => {

@@ -1,4 +1,5 @@
 import { formatDate } from '../../lib/datetime';
+import { T12_INCLUDE_CURRENT_MONTH, T12_MONTHS } from './assumptions';
 
 // The logic behind Accounting -> Reports, free of React so the screen, the CSV
 // export and the reporting-package PDF all read a statement the same way.
@@ -72,11 +73,12 @@ const LEGACY_PRESET = { month: 'mtd', quarter: 'qtd' };
 
 // Quick views from the Reports menu (Neil and Charmi, 10/22: "quick filters on
 // it so that she doesn't have to refilter"): a statement opened with its
-// period and columns already set. T12 is the last twelve complete months, one
-// column each; This Month vs Last Month is the whole month against the one
+// period and columns already set. T12 is the Trailing 12 Months period - the
+// last twelve complete months (CR-06, presetRange) - one column each and a
+// Total; This Month vs Last Month is the whole month against the one
 // before it (vs Prior Period).
 export const REPORT_VIEWS = {
-  'pnl-t12': { report: 'pnl', cols: 'month', range: 't12-months' },
+  'pnl-t12': { report: 'pnl', cols: 'month', preset: 't12m' },
   'pnl-ytd-py': { report: 'pnl', preset: 'ytd', cols: 'prior_year' },
   'pnl-mom': { report: 'pnl', preset: 'this-month', cols: 'prior_period' },
   'budget-ytd': { report: 'budget', preset: 'ytd' },
@@ -86,13 +88,8 @@ export const REPORT_VIEWS = {
 export function viewConfig(key, now = new Date()) {
   const v = REPORT_VIEWS[key];
   if (!v) return null;
-  const { range, ...rest } = v;
-  if (range === 't12-months') {
-    const y = now.getFullYear();
-    const m = now.getMonth();
-    return { ...rest, preset: 'custom', from: iso(new Date(y, m - 12, 1)), to: iso(endOfMonth(y, m - 1)) };
-  }
-  return rest;
+  const [from, to] = v.preset ? presetRange(v.preset, now).map(iso) : [];
+  return v.preset ? { ...v, from, to } : { ...v };
 }
 export const presetLabel = (key) => PRESETS.find((p) => p.key === key)?.label || 'Custom';
 
@@ -254,7 +251,8 @@ export function presetRange(key, now = new Date()) {
     case 'last-quarter': return [new Date(y, q - 3, 1), new Date(y, q, 0)];
     case 'this-year': return [new Date(y, 0, 1), new Date(y, 11, 31)];
     case 'last-year': return [new Date(y - 1, 0, 1), new Date(y - 1, 11, 31)];
-    case 't12m': return [new Date(y - 1, m, now.getDate() + 1), today];
+    // CR-06 (Neil, 23 Oct): the last T12_MONTHS full months, the month in progress left out.
+    case 't12m': return [new Date(y, m - T12_MONTHS, 1), T12_INCLUDE_CURRENT_MONTH ? today : endOfMonth(y, m - 1)];
     default: return [new Date(y, 0, 1), today];
   }
 }
@@ -272,7 +270,6 @@ export function stepRange(preset, from, to, dir) {
     return [iso(new Date(f.getFullYear(), q, 1)), iso(new Date(f.getFullYear(), q + 3, 0))];
   }
   if (['this-year', 'last-year', 'ytd'].includes(kind)) return [iso(new Date(f.getFullYear() + dir, 0, 1)), iso(new Date(f.getFullYear() + dir, 11, 31))];
-  if (kind === 't12m') return [iso(new Date(f.getFullYear() + dir, f.getMonth(), f.getDate())), iso(new Date(t.getFullYear() + dir, t.getMonth(), t.getDate()))];
   if (isMonthStart(from) && isMonthEnd(to)) {
     const months = (t.getFullYear() - f.getFullYear()) * 12 + (t.getMonth() - f.getMonth()) + 1;
     return [iso(new Date(f.getFullYear(), f.getMonth() + dir * months, 1)), iso(endOfMonth(t.getFullYear(), t.getMonth() + dir * months))];
@@ -305,6 +302,19 @@ export function priorPeriod(from, to) {
   const days = Math.max(1, Math.round((t - f) / 86_400_000) + 1);
   const pt = new Date(f.getTime() - 86_400_000);
   return [iso(new Date(pt.getTime() - (days - 1) * 86_400_000)), iso(pt)];
+}
+/** 'YYYY-MM-01' for every month from `from` through `to` - the by-month bucket keys. */
+export function monthKeys(from, to) {
+  const out = [];
+  let y = Number(from.slice(0, 4));
+  let m = Number(from.slice(5, 7));
+  const ey = Number(to.slice(0, 4));
+  const em = Number(to.slice(5, 7));
+  while ((y < ey || (y === ey && m <= em)) && out.length < 600) {
+    out.push(`${y}-${String(m).padStart(2, '0')}-01`);
+    if (m === 12) { y += 1; m = 1; } else m += 1;
+  }
+  return out;
 }
 export const priorMonthEnd = (s) => { const d = parse(s); return iso(endOfMonth(d.getFullYear(), d.getMonth() - 1)); };
 const lastYearEnd = (s) => `${Number(s.slice(0, 4)) - 1}-12-31`;
@@ -748,6 +758,9 @@ async function readColumns(api, config, entities = []) {
   const labels = data.labels || {};
   const statements = statementsByBucket(rows, SECTIONS[report].map(([k]) => k));
   let keys = [...new Set(rows.filter((r) => (isBs ? true : PL_KEYS.includes(r.section))).map((r) => r.bucket))];
+  // CR-06: an income statement by month has a column for every month of its
+  // range, a month with no postings included (T12 is always 12 + Total).
+  if (!isBs && mode === 'month' && range?.from && range?.to) keys = [...new Set([...keys, ...monthKeys(range.from, range.to)])];
   if (isBs) {
     const total = earningsByBucket(rows);
     const prior = earningsByBucket(foldBuckets(mode, before?.rows || []).rows);

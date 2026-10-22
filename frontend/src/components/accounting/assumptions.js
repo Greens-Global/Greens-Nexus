@@ -106,6 +106,29 @@ export const BUILDER_PUBLISH_MIN_LEVEL = 'viewer';
 // memorized report's `shared` flag, the existing sharing workflow).
 export const BUILDER_PUBLISH_SHARES = false;
 
+// ── CR-06 Trial Balance and T12 ─────────────────────────────────────────────
+// Team answers, 23 Oct - Charmi: "Trial balance should go under both cash and
+// accrual". Neil: "Trial should be for both. T12 should mean the last 12 full
+// months, meaning it should show 13."
+
+// CR-06 (confirmed by team, 23 Oct): the Trial Balance's Book box offers
+// Accrual, Cash and Accrual and Cash side by side (reportModel bookOptions /
+// canBothBooks). Chosen (assumption, Charmi to confirm): it OPENS on
+// Accrual, the book every other statement opens on.
+export const TRIAL_BALANCE_DEFAULT_BOOK = 'accrual';
+
+// CR-06 (confirmed by team, 23 Oct): T12 = the last 12 FULL months (the
+// month in progress left out), one column each. Read (assumption, Charmi to
+// confirm) "it should show 13" as the 12 month columns plus the Total column
+// - 13 columns. The Income Statement's T12 quick view, the "Trailing 12
+// Months" period of every report and the Report Builder all use this one
+// definition (reportModel presetRange 't12m'). A month with no postings
+// still gets its column.
+export const T12_MONTHS = 12;
+// CR-06 (assumption, Charmi to confirm): the other reading of "13" - the 12
+// full months AND the current month to date as a 13th column. Off.
+export const T12_INCLUDE_CURRENT_MONTH = false;
+
 // ── CR-13: AMA (Ask My Accountant) ─────────────────────────────────────────
 
 // CR-13 (confirmed by team, 23 Oct - Neil: "Show all offsetting accounts"):

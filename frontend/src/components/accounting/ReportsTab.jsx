@@ -13,6 +13,7 @@ import { linesFile } from './linesExport';
 import { clearParkedReport, peekParkedReport, takePendingDrill } from './drill';
 import { isBuilderConfig } from './builderModel';
 import { useAccountingPrefs } from './prefs';
+import { TRIAL_BALANCE_DEFAULT_BOOK } from './assumptions';
 import { useColumnWidths, useCustomizePrefs } from './tableHooks';
 import Amount, { Figure } from './Amount';
 import {
@@ -78,6 +79,11 @@ import {
 // and Flux Analysis is a report of its own, with an Explanation per account
 // kept in Nexus.
 
+// CR-06 (Charmi / Neil, 23 Oct: "Trial should be for both"): the Trial
+// Balance offers Accrual, Cash and the two side by side; opened from the
+// menu it starts on TRIAL_BALANCE_DEFAULT_BOOK.
+const openingBook = (report) => (report === 'trial-balance' ? { book: TRIAL_BALANCE_DEFAULT_BOOK } : {});
+
 // What a memorized report keeps: the controls, never the figures. A named
 // period is kept by name so it moves with the calendar.
 const storable = (c) => ({
@@ -106,7 +112,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const [parked] = useState(() => peekParkedReport(false));
   useEffect(() => { if (parked) clearParkedReport(parked); }, [parked]);
   const [config, setConfig] = useState(() => (parked ? resolveConfig(parked.config)
-    : report ? resolveConfig({ ...defaultConfig(), report, ...viewConfig(view), ...activityConfig(link) }) : defaultConfig()));
+    : report ? resolveConfig({ ...defaultConfig(), report, ...openingBook(report), ...viewConfig(view), ...activityConfig(link) }) : defaultConfig()));
   const [entities, setEntities] = useState([]);
   const [limited, setLimited] = useState(false);
   const [result, setResult] = useState(null);
@@ -134,7 +140,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const patch = useCallback((p) => setConfig((c) => resolveConfig({ ...c, ...p })), []);
   // The menu picked another statement: show it (a new pick, not an edit).
   useEffect(() => {
-    if (report) setConfig((c) => (c.report === report ? c : resolveConfig({ ...c, report, accounts: [] })));
+    if (report) setConfig((c) => (c.report === report ? c : resolveConfig({ ...c, report, ...openingBook(report), accounts: [] })));
   }, [report]);
   // A quick view picked from the menu: its period and columns, over whatever is set.
   const shownView = useRef(view);

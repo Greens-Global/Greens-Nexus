@@ -39,7 +39,8 @@ describe('periods', () => {
     expect(r('this-year')).toEqual(['2026-01-01', '2026-12-31']);
     expect(r('ytd')).toEqual(['2026-01-01', '2026-09-28']);
     expect(r('last-year')).toEqual(['2025-01-01', '2025-12-31']);
-    expect(r('t12m')).toEqual(['2025-09-29', '2026-09-28']);
+    // CR-06 (Neil, 23 Oct): the last 12 FULL months, the month in progress left out.
+    expect(r('t12m')).toEqual(['2025-09-01', '2026-08-31']);
   });
 
   it('steps a month, a quarter or a year at a time', () => {

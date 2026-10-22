@@ -1,6 +1,6 @@
 import { formatDate } from '../../lib/datetime';
 import {
-  BOOKS, DIM_KINDS, EMPTY_DIMS, bucketLabel, fetchBuckets, isUserBook, iso, pct, presetLabel, priorMonthEnd, priorPeriod, resolveConfig, sortKeys,
+  BOOKS, DIM_KINDS, EMPTY_DIMS, bucketLabel, fetchBuckets, isUserBook, iso, monthKeys, pct, presetLabel, priorMonthEnd, priorPeriod, resolveConfig, sortKeys,
   trialBalanceLines, yearBack,
 } from './reportModel';
 import { BUILDER_COMPARE_OPTIONS, BUILDER_DEFAULT_COMPARE, BUILDER_VARIANCE_COLUMNS } from './assumptions';
@@ -268,7 +268,10 @@ export async function runBuilder(api, config, { name = '', entities = [], chart 
     const d = await fetchBuckets(api, statementOf(c), { from: c.from, to: c.to }, c.cols, book, entities);
     const rows = d?.rows || [];
     const labels = d?.labels || {};
-    const keys = c.cols === 'total' ? [rows[0]?.bucket ?? 'total'] : sortKeys(c.cols, [...new Set(rows.map((r) => r.bucket))], labels);
+    // By Month lists every month of the period, one with no postings too
+    // (CR-06: Trailing 12 Months is always twelve columns and a Total).
+    const seen = [...new Set(rows.map((r) => r.bucket)), ...(c.cols === 'month' ? monthKeys(c.from, c.to) : [])];
+    const keys = c.cols === 'total' ? [rows[0]?.bucket ?? 'total'] : sortKeys(c.cols, [...new Set(seen)], labels);
     cols = c.cols === 'total'
       ? [{ key: 'cur', label: `${formatDate(c.from)} - ${formatDate(c.to)}` }]
       : keys.map((k) => ({ key: k || '~none', label: bucketLabel(c.cols, k, labels) }));
