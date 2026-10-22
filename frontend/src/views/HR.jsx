@@ -1938,7 +1938,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         </div>
       )}
       {!teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} />}
-      {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
+      {!teamView && <PersonLifeEvents employeeId={e.id} workEmail={e.workEmail} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
       {roleAction === 'choose' && <RoleChangeModal employee={e} toastErr={toastErr}
         onClose={() => setRoleAction(null)} onPromote={() => setRoleAction('promotion')}
         onChanged={res => {
