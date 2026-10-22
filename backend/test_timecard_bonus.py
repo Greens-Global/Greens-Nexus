@@ -216,6 +216,10 @@ class BonusWorkflowTests(ReviewCase):
         log = tsr.approval_log(self.db, self._r())
         self.assertTrue(any(x.startswith("Hours changed by Hana Test (HR)") for x in log), log)
         self.assertTrue(any('"added a bonus: Holiday cover"' in x for x in log), log)
+        # The PDF's Approval History table: the hours row, then the bonus row - not two "Hours changed".
+        steps = [(h["step"], h.get("note", "")) for h in tsr.approval_history(self.db, self._r())]
+        self.assertIn(("Hours changed by HR", ""), steps)
+        self.assertIn(("Changed by HR", "added a bonus: Holiday cover"), steps)
 
     def test_removing_one_after_approval_reopens_it_too(self):
         bid = self._add(MANAGER)["id"]

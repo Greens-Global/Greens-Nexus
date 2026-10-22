@@ -1180,6 +1180,8 @@ def approval_history(db: Session, r: TimesheetReview, offset: int = 0) -> list:
     out = []
     for e in (r.rounds or []):
         step = _HISTORY_STEPS.get(e.get("action"))
+        if e.get("action") == "hr_edited" and e.get("note"):
+            step = "Changed by HR"   # the note says what - a bonus is not hours (Oct 22)
         if not step:
             continue
         out.append({"step": step, "by": _who(db, e), "when": us_datetime(e.get("at", ""), offset),
