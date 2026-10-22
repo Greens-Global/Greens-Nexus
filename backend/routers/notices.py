@@ -1013,3 +1013,142 @@ def check_now(nid: str, user: dict = Depends(get_current_user), db: Session = De
     core.log_event(db, me, "checked_now", nid, result=result)
     db.commit()
     return {"result": result, "lastError": src.last_error or ""}
+
+
+# ── Paper posters at each site ───────────────────────────────────────────────
+# Online copies supplement the paper ones; they never replace them for the
+# office and the job sites (DOL FAB 2020-7, OSHA 1903.2). Each Location
+# Library site has the posters its state, city, kind and headcount call for;
+# a site lead (or HR) confirms each current version is up with a photo.
+
+MAX_PHOTO_BYTES = 15 * 1024 * 1024
+
+
+def site_board(db: Session, site_id: str, cfg: dict | None = None, ctx: dict | None = None,
+               rows: list | None = None, by: dict | None = None, confirmed: dict | None = None) -> dict:
+    """{required: [{noticeId, title, versionId, label, status, confirmedAt, confirmedBy}], missing}."""
+    cfg = cfg or core.settings(db)
+    ctx = ctx if ctx is not None else {}
+    by = by if by is not None else _versions_by_notice(db)
+    if confirmed is None:
+        confirmed = {}
+        for p in db.query(models.WorkplaceNoticePosting).filter(models.WorkplaceNoticePosting.site_id == site_id,
+                                                                models.WorkplaceNoticePosting.status == "confirmed").all():
+            confirmed.setdefault((p.site_id, p.version_id), p)
+    out = []
+    for n in core.site_notices(db, site_id, cfg, rows=rows, ctx=ctx):
+        live = core.live_version(db, n.id, rows=by.get(n.id, []))
+        p = confirmed.get((site_id, live.id)) if live else None
+        out.append({"noticeId": n.id, "title": n.title, "formCode": n.form_code or "", "area": n.area,
+                    "versionId": live.id if live else "", "label": (live.label if live else "") or "",
+                    "status": "confirmed" if p else ("no_file" if live is None else "missing"),
+                    "confirmedAt": p.confirmed_at if p else "", "confirmedBy": p.confirmed_by if p else "",
+                    "postingId": p.id if p else ""})
+    return {"required": out, "missing": sum(1 for x in out if x["status"] == "missing")}
+
+
+@router.get("/sites")
+def sites(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _require_manage(db, user)
+    cfg = core.settings(db)
+    ctx: dict = {}
+    info = core.site_info(db, ctx)
+    rows = (db.query(models.WorkplaceNotice).filter(models.WorkplaceNotice.status == "active")
+            .order_by(models.WorkplaceNotice.sort).all())
+    by = _versions_by_notice(db)
+    confirmed: dict = {}
+    for p in db.query(models.WorkplaceNoticePosting).filter(models.WorkplaceNoticePosting.status == "confirmed").all():
+        confirmed.setdefault((p.site_id, p.version_id), p)
+    cache: dict = {}
+    out = []
+    for sid, s in sorted(info.items(), key=lambda kv: kv[1]["name"].lower()):
+        b = site_board(db, sid, cfg, ctx, rows, by, confirmed)
+        out.append({**s, "leadName": _name_of(db, s["lead"], cache), **b})
+    return {"sites": out}
+
+
+class SiteIn(BaseModel):
+    kind: str = ""
+    city: str = ""
+    lead_email: str = ""
+
+
+@router.put("/sites/{site_id}")
+def set_site(site_id: str, body: SiteIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    me = _require_manage(db, user)
+    if db.get(models.HrWorkSite, site_id) is None:
+        raise HTTPException(404, "Not in the Location Library")
+    if body.kind and body.kind not in core.SITE_KINDS:
+        raise HTTPException(400, "Kind is office, jobsite or storage")
+    lead = core.norm(body.lead_email)
+    if lead and db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == lead).first() is None:
+        raise HTTPException(400, "The site lead must be someone in Nexus People")
+    row = db.get(models.WorkplaceNoticeSite, site_id)
+    if row is None:
+        row = models.WorkplaceNoticeSite(site_id=site_id)
+        db.add(row)
+    before = {"kind": row.kind or "", "city": row.city or "", "lead": row.lead_email or ""}
+    row.kind, row.city, row.lead_email = body.kind, (body.city or "").strip()[:60], lead
+    row.updated_by, row.updated_at = me, core.now_iso()
+    core.log_event(db, me, "site_set", site=site_id, before=before, after={"kind": body.kind, "city": row.city, "lead": lead})
+    db.commit()
+    return {"ok": True}
+
+
+def _may_confirm(db: Session, me: str, site_id: str) -> bool:
+    row = db.get(models.WorkplaceNoticeSite, site_id)
+    return can_manage(db, me) or bool(row and core.norm(row.lead_email) == me)
+
+
+@router.get("/my-sites")
+def my_sites(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The sites I lead - their posters to put up and confirm."""
+    me = core.norm(user.get("email"))
+    ids = [r.site_id for r in db.query(models.WorkplaceNoticeSite).filter(func.lower(models.WorkplaceNoticeSite.lead_email) == me).all()]
+    info = core.site_info(db)
+    return {"sites": [{**info[s], **site_board(db, s)} for s in ids if s in info]}
+
+
+@router.post("/sites/{site_id}/confirm")
+def confirm_posting(site_id: str, notice_ids: str = Form(...), note: str = Form(""), photo: UploadFile = File(...),
+                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """These posters are up at this site - one photo can show several."""
+    me = core.norm(user.get("email"))
+    if not _may_confirm(db, me, site_id):
+        raise HTTPException(403, "Only the site lead or HR confirms this site's posters")
+    ctype = (photo.content_type or "").lower()
+    if not ctype.startswith("image/"):
+        raise HTTPException(400, "The proof is a photo of the posters on the wall")
+    data = photo.file.read()
+    if not data or len(data) > MAX_PHOTO_BYTES:
+        raise HTTPException(400, "The photo is empty or over 15 MB")
+    ids = [x.strip() for x in (notice_ids or "").split(",") if x.strip()]
+    board = {x["noticeId"]: x for x in site_board(db, site_id)["required"]}
+    todo = [board[i] for i in ids if i in board and board[i]["versionId"]]
+    if not todo:
+        raise HTTPException(400, "Pick the posters this photo shows")
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", photo.filename or "photo.jpg")[:80]
+    path = f"workplace-notices/sites/{site_id}/{uuid.uuid4().hex[:10]}-{safe}"
+    res = _storage_put(_DOC_BUCKET, path, data, ctype)
+    if not res.is_success:
+        raise HTTPException(502, f"Storage upload failed: {res.text[:200]}")
+    stamp = core.now_iso()
+    for x in todo:
+        db.add(models.WorkplaceNoticePosting(id=str(uuid.uuid4()), site_id=site_id, notice_id=x["noticeId"],
+                                             version_id=x["versionId"], status="confirmed", photo_path=path,
+                                             note=(note or "").strip()[:500], confirmed_by=me, confirmed_at=stamp,
+                                             created_at=stamp))
+    core.log_event(db, me, "posting_confirmed", site=site_id, notices=[x["noticeId"] for x in todo], photo=path)
+    db.commit()
+    return site_board(db, site_id)
+
+
+@router.get("/postings/{pid}/photo")
+def posting_photo(pid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    p = db.get(models.WorkplaceNoticePosting, pid)
+    if p is None or not _may_confirm(db, core.norm(user.get("email")), p.site_id):
+        raise HTTPException(404, "Not found")
+    res = _storage_fetch(_DOC_BUCKET, p.photo_path)
+    if not res.is_success:
+        raise HTTPException(502, "Could not open the photo")
+    return Response(content=res.content, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})

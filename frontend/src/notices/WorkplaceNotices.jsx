@@ -9,6 +9,7 @@ import { api } from '../api';
 import { formatDateTime } from '../lib/datetime';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { Chip, NoticePdfModal, areaLabel, day } from './lib';
+import SitePosters from './SitePosters';
 
 const CARD = { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' };
 const HD = { fontSize: 14, fontWeight: 700, color: 'var(--ink)' };
@@ -65,6 +66,7 @@ export default function WorkplaceNotices({ toastOk, toastErr }) {
         </div>
       )}
 
+      <SitesILead toastOk={toastOk} toastErr={toastErr} />
       {ctx.country === 'US' && ctx.state === 'CA' && <EmergencyCard toastOk={toastOk} toastErr={toastErr} />}
 
       <div style={CARD}>
@@ -198,6 +200,21 @@ function EmergencyCard({ toastOk, toastErr }) {
       )}
     </div>
   );
+}
+
+// The sites I lead: their paper posters to put up and confirm with a photo.
+function SitesILead({ toastOk, toastErr }) {
+  const [sites, setSites] = useState(null);
+  const load = useCallback(() => { api.myNoticeSites().then(r => setSites(r.sites || [])).catch(() => setSites([])); }, []);
+  useEffect(() => { load(); }, [load]);
+  if (!sites?.length) return null;
+  return sites.map(s => (
+    <div key={s.id} style={{ ...CARD, ...(s.missing ? { borderColor: '#f59e0b' } : {}) }}>
+      <div style={{ ...HD, marginBottom: 2 }}>Posters At {s.name}</div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 8 }}>You lead this site. Keep these paper posters up, and confirm each new one with a photo.</div>
+      <SitePosters site={s} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+    </div>
+  ));
 }
 
 function ClosureList() {

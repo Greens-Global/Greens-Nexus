@@ -11,6 +11,7 @@ import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import EgnyteBrowser from '../components/EgnyteBrowser';
 import { DateField, Modal } from '../tasks/components';
 import { filesFromPaste } from '../tasks/lib';
+import SitePosters from './SitePosters';
 import {
   Chip, KIND_LABEL, MODE_LABEL, NoticePdfModal, SITE_KIND_LABEL, STATE_CHIP, TRIGGER_LABEL, VERSION_CHIP,
   appliesText, areaLabel, day,
@@ -23,6 +24,7 @@ const SECTIONS = [
   { key: 'library', label: 'Library' },
   { key: 'queue', label: 'Review Queue' },
   { key: 'unplaced', label: 'Location Unknown' },
+  { key: 'sites', label: 'Sites' },
   { key: 'calendar', label: 'Calendar' },
   { key: 'review', label: 'Annual Review' },
   { key: 'settings', label: 'Settings' },
@@ -63,6 +65,7 @@ export default function NoticesAdmin({ toastOk, toastErr }) {
       {section === 'unplaced' && <Unplaced data={data} onSaved={load} toastOk={toastOk} toastErr={toastErr} />}
       {section === 'settings' && <Settings data={data} onSaved={load} toastOk={toastOk} toastErr={toastErr} />}
       {section === 'activity' && <Activity />}
+      {section === 'sites' && <Sites toastOk={toastOk} toastErr={toastErr} />}
       {section === 'calendar' && <CalendarView onOpen={setOpenId} />}
       {section === 'review' && <AnnualReview onOpen={setOpenId} toastOk={toastOk} toastErr={toastErr} />}
       {openId && <NoticeDetail id={openId} canApprove={data.canApprove} onClose={() => { setOpenId(''); load(); }}
@@ -610,6 +613,48 @@ function Settings({ data, onSaved, toastOk, toastErr }) {
         <input id="notice-elections" className="form-input" value={elections} onChange={e => setElections(e.target.value)} placeholder="2026-11-03, 2028-03-05" />
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>Dates as YYYY-MM-DD. Time Off to Vote shows from 10 days before each one.</span></label>
       <div><button className="primary-btn" onClick={save} disabled={busy}>Save Settings</button></div>
+    </div>
+  );
+}
+
+// ── Sites (paper posters) ───────────────────────────────────────────────────
+
+function Sites({ toastOk, toastErr }) {
+  const [rows, setRows] = useState(null);
+  const [people, setPeople] = useState([]);
+  const [openId, setOpenId] = useState('');
+  const load = useCallback(() => { api.noticeSites().then(r => setRows(r.sites || [])).catch(e => { toastErr?.(e?.message || 'Could not load the sites.'); setRows([]); }); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); api.getPeopleDirectory().then(r => setPeople(Array.isArray(r) ? r : [])).catch(() => {}); }, [load]);
+  if (!rows) return <SkeletonBlocks count={3} height={60} />;
+  const save = (s, patchBody) => api.setNoticeSite(s.id, { kind: s.kind, city: s.city, lead_email: s.lead, ...patchBody })
+    .then(() => { toastOk?.('Saved.'); load(); }).catch(e => toastErr?.(e?.message || 'Could not save.'));
+  return (
+    <div>
+      <div style={{ ...CARD, fontSize: 12.5, color: 'var(--muted)' }}>
+        Every Location Library site with the paper posters it needs. Set each site&apos;s kind (wage orders and job-site notices follow it) and its lead, who confirms each new poster with a photo. The online copies add to the paper posters; they do not replace them.
+      </div>
+      <datalist id="notice-site-people">{people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}</datalist>
+      {rows.map(s => (
+        <div key={s.id} style={CARD}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ flex: '1 1 220px' }}><span style={HD}>{s.name}</span>
+              <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{s.address || 'No address'}{s.state ? '' : ' - no state found'}</span></span>
+            <select aria-label={`Kind of ${s.name}`} className="form-input" value={s.kind} onChange={e => save(s, { kind: e.target.value })} style={{ width: 190 }}>
+              <option value="">Kind Not Set (All Apply)</option>
+              {Object.entries(SITE_KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <input aria-label={`Lead of ${s.name}`} className="form-input" list="notice-site-people" defaultValue={s.lead} placeholder="Site lead email"
+              onBlur={e => e.target.value.trim().toLowerCase() !== s.lead && save(s, { lead_email: e.target.value.trim() })} style={{ width: 220 }} />
+            <input aria-label={`City limits of ${s.name}`} className="form-input" defaultValue={s.city} placeholder="City limits"
+              title="The city whose limits the site is in, when it differs from the mailing address"
+              onBlur={e => e.target.value.trim().toUpperCase() !== s.city && save(s, { city: e.target.value.trim() })} style={{ width: 150 }} />
+            <Chip spec={s.missing ? STATE_CHIP.needs_file : STATE_CHIP.current}>{s.missing ? `${s.missing} Not Confirmed` : 'All Posted'}</Chip>
+            <button className="secondary-btn" onClick={() => setOpenId(openId === s.id ? '' : s.id)} style={{ fontSize: 12 }}>{openId === s.id ? 'Hide Posters' : 'Posters'}</button>
+          </div>
+          {openId === s.id && <div style={{ marginTop: 10 }}><SitePosters site={s} onChanged={load} toastOk={toastOk} toastErr={toastErr} /></div>}
+        </div>
+      ))}
+      {!rows.length && <div style={{ ...CARD, fontSize: 13, color: 'var(--muted)' }}>No sites in the Location Library yet.</div>}
     </div>
   );
 }

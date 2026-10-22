@@ -124,11 +124,34 @@ def announce(db, on: date | None = None) -> int:
             names = ", ".join(n.title for n in posters[:3]) + (f" and {len(posters) - 3} more" if len(posters) > 3 else "")
             _bell(db, pc["email"], NEW_TYPE, "Workplace Notices Updated", f"Updated: {names}.")
             sent += 1
+    sent += _tell_sites(db, live_ids, cfg, ctx)
     stamp = core.now_iso()
     for v in fresh:
         v.announced_at = stamp
         core.log_event(db, "system", "version_announced", v.notice_id, v.id)
     db.commit()
+    return sent
+
+
+def _tell_sites(db, live_ids: dict, cfg: dict, ctx: dict) -> int:
+    """Each site that needs one of the new posters: its lead (else the
+    approvers) hears which paper posters to put up and confirm with a photo."""
+    if not live_ids:
+        return 0
+    from routers.notices import approvers
+    leads = {r.site_id: core.norm(r.lead_email) for r in db.query(models.WorkplaceNoticeSite).all()}
+    sent = 0
+    for sid, s in core.site_info(db, ctx).items():
+        new = [n for n in core.site_notices(db, sid, cfg, ctx=ctx) if n.id in live_ids]
+        if not new:
+            continue
+        names = ", ".join(n.title for n in new[:4]) + (f" and {len(new) - 4} more" if len(new) > 4 else "")
+        lead = leads.get(sid, "")
+        for to in ([lead] if lead else approvers(db)):
+            _bell(db, to, "workplace_notice_site", f"New Posters For {s['name']}",
+                  f"Put up the new paper posters at {s['name']}: {names}. Then confirm with a photo in Workday > Workplace Notices.",
+                  ref_id=sid, priority=1, action=MY_ACTION if lead else {"view": "hr", "sub": "hr-notices"})
+            sent += 1
     return sent
 
 

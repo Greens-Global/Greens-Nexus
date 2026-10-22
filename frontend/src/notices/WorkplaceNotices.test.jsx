@@ -14,6 +14,7 @@ vi.mock('../api', () => ({
     myClosures: vi.fn().mockResolvedValue({ days: [] }),
     myEmergencyContact: vi.fn().mockResolvedValue({ applies: true, answered: false, choice: '', name: '', phone: '', relationship: '', worksite: false, offsite: false, answeredAt: '', profile: { name: 'Bob Test', phone: '555', relationship: 'Brother' } }),
     setMyEmergencyContact: vi.fn(),
+    myNoticeSites: vi.fn().mockResolvedValue({ sites: [] }),
     noticeFile: vi.fn().mockReturnValue(new Promise(() => {})),
   },
 }));

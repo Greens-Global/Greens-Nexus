@@ -2849,6 +2849,10 @@ export const api = {
   openNoticeReview:      (year)      => req(`/notices/review/${year}/open`, { method: 'POST' }),
   signNoticeReview:      (year, body) => req(`/notices/review/${year}/sign`, { method: 'POST', body: JSON.stringify(body) }),
   checkNoticeSource:     (id)        => req(`/notices/notice/${encodeURIComponent(id)}/check`, { method: 'POST' }),
+  noticeSites:           ()          => req('/notices/sites'),
+  setNoticeSite:         (id, body)  => req(`/notices/sites/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  myNoticeSites:         ()          => req('/notices/my-sites'),
+  confirmNoticePosting:  (id, form)  => req(`/notices/sites/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: form }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
