@@ -301,8 +301,8 @@ function PeriodFinder({ label, minWidth, periods, goTo, fill = false }) {
   return (
     <div ref={ref} style={{ position: 'relative', ...(fill ? { flex: 1, minWidth: 0 } : {}) }}>
       <button type="button" aria-label="Pick a pay period" aria-expanded={open} onClick={() => setOpen(o => !o)}
-        style={{ fontSize: fill ? 11.5 : 12.5, fontWeight: 700, minWidth: fill ? 0 : minWidth, width: fill ? '100%' : undefined, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 3, padding: '4px 6px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', color: 'var(--ink)' }}>
-        {label}<ChevronDown size={14} />
+        style={{ fontSize: fill ? 11.5 : 12.5, fontWeight: 700, minWidth: fill ? 0 : minWidth, width: fill ? '100%' : undefined, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: fill ? 2 : 3, padding: fill ? '4px 2px' : '4px 6px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', color: 'var(--ink)' }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span><ChevronDown size={fill ? 12 : 14} style={{ flexShrink: 0 }} />
       </button>
       {open && (
         <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: 'var(--wk-shadow)', zIndex: 50, padding: 10, minWidth: 260 }}>
@@ -802,14 +802,15 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // ‹ period › - at the top of the employee sidebar when there is one (Neil,
   // Oct 22: pick the pay period first, then go down the people), else in the
   // card's toolbar (your own sheet, a phone).
+  const sideArrow = { width: 26, height: 26, minWidth: 26, padding: 0, flexShrink: 0 };
   const periodNav = (inSidebar) => (
     <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2, ...(inSidebar ? { border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '1px 2px' } : {}) }}>
-      <button className="icon-btn" aria-label="Previous pay period" onClick={() => (isFixed ? shiftMonth(-1) : shift(-1))} style={{ padding: inSidebar ? 3 : 6 }}><ChevronLeft size={inSidebar ? 14 : 16} /></button>
+      <button className="icon-btn" aria-label="Previous pay period" onClick={() => (isFixed ? shiftMonth(-1) : shift(-1))} style={inSidebar ? sideArrow : { padding: 6 }}><ChevronLeft size={inSidebar ? 14 : 16} /></button>
       {inSidebar
         ? <PeriodFinder label={periodLabel} periods={finderPeriods()} fill
             goTo={(iso) => setPStart(anchorForStart(iso, isFixed ? 'fixed' : 'hourly'))} />
         : periodFinder}
-      <button className="icon-btn" aria-label="Next pay period" onClick={() => (isFixed ? shiftMonth(1) : shift(1))} style={{ padding: inSidebar ? 3 : 6 }}><ChevronRight size={inSidebar ? 14 : 16} /></button>
+      <button className="icon-btn" aria-label="Next pay period" onClick={() => (isFixed ? shiftMonth(1) : shift(1))} style={inSidebar ? sideArrow : { padding: 6 }}><ChevronRight size={inSidebar ? 14 : 16} /></button>
     </div>
   );
   const T = data?.totals;
@@ -1368,7 +1369,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // card still switches people.
   const employeeSidebar = (!self && !phone) ? (
     <div data-tour="pr-sidebar" style={{ width: 240, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
-        <div style={{ padding: '8px 10px 6px', display: 'grid', gap: 5, borderBottom: '1px solid var(--line)' }}>
+        <div style={{ padding: '8px 10px 6px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 5, borderBottom: '1px solid var(--line)' }}>
           {periodNav(true)}
           {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
           {filterSel(dept, setDept, 'Department', depts)}
