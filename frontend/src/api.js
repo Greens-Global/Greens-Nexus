@@ -511,6 +511,8 @@ export const api = {
   proposeTaskDue: (id, dueOn, note = "") => req(`/tasks/${id}/due/propose`, { method: "POST", body: JSON.stringify({ due_on: dueOn, note }) }),
   respondTaskDue: (id, accept, note = "", counterOn = "") => req(`/tasks/${id}/due/respond`, { method: "POST", body: JSON.stringify({ accept, note, counter_on: counterOn }) }),
   withdrawTaskDue: (id) => req(`/tasks/${id}/due/withdraw`, { method: "POST" }),
+  // Undo the caller's own just-made due-date move (Oct 22 2026): `at` names its history entry.
+  undoTaskDue: (id, at) => req(`/tasks/${id}/due/undo`, { method: "POST", body: JSON.stringify({ at }) }),
   // Sections & custom statuses (board columns)
   getTaskSections: () => req("/tasks/meta/sections"),
   createTaskSection: (data) => req("/tasks/meta/sections", { method: "POST", body: JSON.stringify(data) }),

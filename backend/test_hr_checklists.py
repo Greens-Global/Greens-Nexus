@@ -633,11 +633,22 @@ class ChecklistTests(unittest.TestCase):
         row = next(i for i in cl["items"] if i["ownerEmail"] == MANAGER)
         sub_id = self._step(row["id"]).task_id
         self._grant_tasks(MANAGER)
-        _as(MANAGER)                           # moved in Tasks -> the step moves, pinned
+        _as(MANAGER)
+        # More than a month past the first date waits for HR's approval
+        # (task_due.needs_approval): the task keeps its date, so the step
+        # does not move either (Oct 22 2026 - it used to move anyway).
         r = self.client.patch(f"/tasks/{sub_id}", json={"due_on": "2027-01-15"})
         self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["dueAgreement"], "extension_requested")
+        held = self._step(row["id"])
+        self.assertEqual(held.due_date, self._task(sub_id).due_on)
+        self.assertFalse(held.due_manual)
+        # Moved in Tasks -> the step moves, pinned.
+        self.assertEqual(self.client.post(f"/tasks/{sub_id}/due/withdraw").status_code, 200)
+        r = self.client.patch(f"/tasks/{sub_id}", json={"due_on": "2026-12-01"})
+        self.assertEqual(r.status_code, 200, r.text)
         step = self._step(row["id"])
-        self.assertEqual((step.due_date, step.due_manual), ("2027-01-15", True))
+        self.assertEqual((step.due_date, step.due_manual), ("2026-12-01", True))
         _as(HR)                                # moved on the step -> the subtask moves
         self.assertEqual(self.client.patch(f"/hr/checklists/items/{row['id']}", json={"due_date": "2027-02-01"}).status_code, 200)
         self.assertEqual(self._task(sub_id).due_on, "2027-02-01")

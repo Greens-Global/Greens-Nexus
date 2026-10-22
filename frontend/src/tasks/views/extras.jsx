@@ -3,13 +3,13 @@
 // custom charts). Ported 1:1 from the export's NexusCalendarView / NexusDashboard.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Diamond, Sliders, Check, CalendarDays, Video, Rocket, PartyPopper, Plus, CheckCircle2, Clock, AlertTriangle, ListTodo } from 'lucide-react';
-import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER } from '../theme';
+import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
 import { taskStats } from '../lib';
 import { Card, LightBar, Donut, TrendArea, CustomChartsPanel } from './charts';
 import AnchoredMenu from '../../components/AnchoredMenu';
 import { DateField } from '../components';
 import { useRole } from '../../contexts/RoleContext';
-import { calendarMovePatch, canMoveOnCalendar, movedLabel, previousDates, wasSentForApproval } from '../calendarMove';
+import { calendarMovePatch, canMoveOnCalendar, movedLabel, previousDates, undoEntryAt, wasSentForApproval } from '../calendarMove';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -77,12 +77,19 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null }) {
     if (!patch) return;
     const back = previousDates(t, patch);
     let saved;
-    // A refused move is put back and explained by updateTask itself.
+    // A refused move (say a repeating task dropped on or before its previous
+    // occurrence) is put back and explained by updateTask itself.
     try { saved = await store.updateTask(id, patch); } catch { return; }
     // Held for approval: the store has already said "Due date change sent
     // for approval" (with Withdraw as its Undo) and the chip is back.
     if (wasSentForApproval(saved, patch)) return;
-    store.offerUndo?.(movedLabel(patch), () => store.updateTask(id, back).catch(() => {}));
+    // Undo takes the move out on the server (POST /tasks/{id}/due/undo): no
+    // extension counted for the trip back, no second bell. Without the
+    // history entry to name, it falls back to putting the dates back.
+    const at = undoEntryAt(saved, patch);
+    store.offerUndo?.(movedLabel(patch), () => (at && store.undoDueChange
+      ? store.undoDueChange(id, at)
+      : store.updateTask(id, back)).catch(() => {}));
   };
   const openMove = (e, id) => setMoveAt({ id, el: e.currentTarget });
   const endDrag = () => { setDragId(null); setOverIso(null); };

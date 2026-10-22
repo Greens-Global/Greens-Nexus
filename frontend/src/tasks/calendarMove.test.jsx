@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import {
-  bulkDatesSummary, calendarMovePatch, canMoveOnCalendar, daysBetween, movedLabel, previousDates, wasSentForApproval,
+  bulkDatesSummary, calendarMovePatch, canMoveOnCalendar, daysBetween, movedLabel, previousDates, undoEntryAt, wasSentForApproval,
 } from './calendarMove';
 import { CalendarView } from './views/extras';
 import BulkActionBar from './BulkActionBar';
@@ -60,6 +60,13 @@ describe('calendarMovePatch', () => {
     expect(movedLabel({ dueOn: '2026-10-24' })).toBe('Moved to 10/24/2026');
   });
 
+  it('finds the history entry an Undo names', () => {
+    const saved = { dueHistory: [{ at: 'T0', to: '2026-10-20' }, { at: 'T1', to: '2026-11-02', undo: {} }] };
+    expect(undoEntryAt(saved, { dueOn: '2026-11-02' })).toBe('T1');
+    expect(undoEntryAt(saved, { dueOn: '2026-11-03' })).toBe('');
+    expect(undoEntryAt({ dueHistory: [{ at: 'T0', to: '2026-11-02' }] }, { dueOn: '2026-11-02' })).toBe('');
+  });
+
   it('knows a move the server held for approval', () => {
     const patch = { dueOn: '2026-11-02' };
     expect(wasSentForApproval({ dueOn: '2026-10-30', dueAgreement: 'extension_requested', dueProposal: { dueOn: '2026-11-02' } }, patch)).toBe(true);
@@ -85,6 +92,7 @@ describe('bulkDatesSummary', () => {
     expect(bulkDatesSummary('shift', { changed: 1 }, 1)).toBe('Moved 1 task 1 day later');
     expect(bulkDatesSummary('clear_due', { changed: 4 })).toBe('Cleared the due date on 4 tasks');
     expect(bulkDatesSummary('set_due', { changed: 2 })).toBe('Set the due date on 2 tasks');
+    expect(bulkDatesSummary('shift', { changed: 1, blocked: 2 }, 3)).toBe('Moved 1 task 3 days later - 2 not moved');
   });
 });
 
@@ -123,6 +131,23 @@ describe('CalendarView drag', () => {
     expect(store.offerUndo.mock.calls[0][0]).toBe('Moved to 10/24/2026');
     store.offerUndo.mock.calls[0][1]();
     expect(store.updateTask).toHaveBeenLastCalledWith('a', { dueOn: '2026-10-14', startOn: '2026-10-12' });
+  });
+
+  it('Undo takes the move out on the server when the move left a history entry', async () => {
+    const store = setup((id, patch) => ({ ...tasks[0], ...patch, dueHistory: [{ at: 'T1', from: '2026-10-14', to: '2026-10-24', undo: {} }] }));
+    store.undoDueChange = vi.fn(() => Promise.resolve({}));
+    await drop('Pour Footings', '2026-10-24');
+    store.offerUndo.mock.calls[0][1]();
+    expect(store.undoDueChange).toHaveBeenCalledWith('a', 'T1');
+    expect(store.updateTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refused move (a repeating task before its previous occurrence) offers no Undo', async () => {
+    const store = setup();
+    store.updateTask.mockImplementationOnce(() => Promise.reject(Object.assign(new Error("A repeating task can't move on or before its previous occurrence (10/12/2026)."), { status: 422 })));
+    await drop('Pour Footings', '2026-10-10');
+    expect(store.updateTask).toHaveBeenCalled();
+    expect(store.offerUndo).not.toHaveBeenCalled();
   });
 
   it('highlights the day being dragged over', () => {
@@ -200,6 +225,18 @@ describe('BulkActionBar - Dates', () => {
     fireEvent.click(screen.getByText('Clear Due Date'));
     await act(async () => { fireEvent.click(screen.getByText('Apply')); });
     expect(store.bulkDates).toHaveBeenCalledWith(['a', 'b'], { op: 'clear_due' });
+  });
+
+  it('says which tasks were left alone and why', async () => {
+    const { store } = renderBar();
+    store.bulkDates.mockResolvedValueOnce({ tasks: [], changed: 1, skipped: 0, blocked: 1,
+      blockedTasks: [{ id: 'a', title: 'A', code: 'series', reason: "A repeating task can't move on or before its previous occurrence (10/12/2026)." }] });
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    fireEvent.click(screen.getByText('Dates…'));
+    await act(async () => { fireEvent.click(screen.getByText('Apply')); });
+    expect(store.notify).toHaveBeenCalledWith('Moved 1 task 1 day later - 1 not moved');
+    expect(alert.mock.calls[0][0]).toContain('"A": A repeating task can\'t move on or before its previous occurrence (10/12/2026).');
+    alert.mockRestore();
   });
 
   it('Set Due Date waits for a date', () => {

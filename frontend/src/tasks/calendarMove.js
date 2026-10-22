@@ -49,6 +49,14 @@ export function wasSentForApproval(saved, patch) {
     && day(saved.dueProposal?.dueOn) === day(patch?.dueOn) && day(saved.dueOn) !== day(patch?.dueOn);
 }
 
+/** The due-history entry the move just made (its "at"), for the server-side
+ *  Undo - only when it is the latest one and landed on the date asked for. */
+export function undoEntryAt(saved, patch) {
+  const hist = Array.isArray(saved?.dueHistory) ? saved.dueHistory : [];
+  const last = hist[hist.length - 1];
+  return last && last.undo && day(last.to) === day(patch?.dueOn) ? last.at || '' : '';
+}
+
 /** Whether this person may drag `task` on the calendar: an editor on it (the
  *  server's rule, taskRoleFor - unknown keeps the control, the server stays
  *  the authority), and not a completed task. */
@@ -61,7 +69,7 @@ export function canMoveOnCalendar(task, { projects, teams, taskById, email, isMa
 export const movedLabel = (patch) => `Moved to ${fmtDate(day(patch.dueOn))}`;
 
 /** One line for what the batch bar's Dates action did, from the server's counts. */
-export function bulkDatesSummary(op, { changed = 0, skipped = 0, sentForApproval = 0 } = {}, days = 0) {
+export function bulkDatesSummary(op, { changed = 0, skipped = 0, sentForApproval = 0, blocked = 0 } = {}, days = 0) {
   const n = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
   let head;
   if (op === 'shift') {
@@ -73,5 +81,6 @@ export function bulkDatesSummary(op, { changed = 0, skipped = 0, sentForApproval
   const parts = [head];
   if (skipped) parts.push(`${skipped} without a due date skipped`);
   if (sentForApproval) parts.push(`${sentForApproval} sent for approval`);
+  if (blocked) parts.push(`${blocked} not moved`);
   return parts.join(' - ');
 }

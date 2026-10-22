@@ -11,6 +11,7 @@ import { fmtDate, taskAssignees, localISO } from '../lib';
 import { toDownloadUrl } from '../../lib/storageView';
 import { useTasks } from '../TasksContext';
 import { daysFromPixels, dragModeAt, dragDates, describeMove, HANDLE_W } from '../timelineDrag';
+import { wasSentForApproval } from '../calendarMove';
 
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -39,7 +40,7 @@ const LONG_PRESS_MS = 350;
 const PRESS_SLOP = 8;   // px a finger may wander before the press is a scroll
 const MAX_TIMELINE_ROWS = 300;
 export function TimelineView({ tasks, onOpen, nameOf }) {
-  const { applyServerTask } = useTasks();
+  const { applyServerTask, offerUndo } = useTasks();
   // Drag (Oct 2026): a bar moves, or its start / end edge stretches. The bar
   // follows the pointer by whole days; on release the server moves the task
   // AND pushes whatever waits on it (POST /tasks/{id}/reschedule), and the
@@ -155,6 +156,15 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
       const res = await api.rescheduleTask(t.id, { start_on: dates.startOn, due_on: dates.dueOn });
       if (res?.task) applyServerTask(res.task);
       for (const m of res?.moved || []) applyServerTask(m);
+      if (wasSentForApproval(res?.task, dates)) {
+        // Held for approval (task_due.needs_approval): the bar stays where it
+        // was. Said the way the store's announceHeld says it, Withdraw as Undo.
+        say(`Due date change sent for approval - "${t.title}" stays due ${fmtDate(res.task.dueOn)} until it is approved.`);
+        offerUndo?.('Due date change sent for approval', () => {
+          api.withdrawTaskDue(t.id).then((x) => x && applyServerTask(x)).catch(() => {});
+        });
+        return;
+      }
       const text = describeMove(t.title, dates, (res?.moved || []).length, (res?.skipped || []).length, fmtDate);
       say(res?.cascadeError ? `${text}. The tasks waiting on it did not move: ${res.cascadeError}` : text);
     } catch (err) {

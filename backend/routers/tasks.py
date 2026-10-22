@@ -1571,6 +1571,44 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
     return spawned
 
 
+def _series_previous_due(db: Session, t: models.Task, cache: Optional[dict] = None) -> str:
+    """The latest due date among `t`'s EARLIER occurrences, grouped exactly as
+    the daily scan groups a series (spawn_scheduled_occurrences), or "".
+    `cache` lets a batch load the recurring rows once."""
+    rec = t.recurrence if isinstance(t.recurrence, dict) else {}
+    mine = (t.due_on or "")[:10]
+    if rec.get("freq") not in _SCHEDULED_FREQS or not mine:
+        return ""
+    cache = {} if cache is None else cache
+    if "member_of" not in cache:
+        rows = (db.query(models.Task)
+                .filter(models.Task.recurrence.isnot(None),
+                        (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None)))
+                .all())
+        by_id = {r.id: r for r in rows}
+        scheduled = [r for r in rows
+                     if isinstance(r.recurrence, dict) and r.recurrence.get("freq") in _SCHEDULED_FREQS and r.due_on]
+        cache["member_of"] = {m.id: g for g in _series_groups(scheduled, by_id) for m in g}
+    earlier = [(m.due_on or "")[:10] for m in cache["member_of"].get(t.id, [])
+               if m.id != t.id and (m.due_on or "")[:10] <= mine]
+    return max(earlier, default="")
+
+
+def _series_order_problem(db: Session, t: models.Task, new_due: str, cache: Optional[dict] = None) -> str:
+    """Why an OPEN occurrence may not move to `new_due`, or "" (Oct 22 2026).
+    The daily scan carries a series forward from its LATEST-due occurrence:
+    moved on or before the one before it, the older one becomes the head -
+    which has already rolled forward - and this one is closed as Missed, so
+    the series silently stops. Refused here rather than changing the scan."""
+    new_due = (new_due or "")[:10]
+    if not new_due or t.completed:
+        return ""
+    prev = _series_previous_due(db, t, cache)
+    if prev and new_due <= prev:
+        return f"A repeating task can't move on or before its previous occurrence ({task_due.us_date(prev)})."
+    return ""
+
+
 # Server-side keys on a rule that are not part of WHAT the rule says: the
 # roll-forward and Missed markers, `count` (it counts down along the series)
 # and the series id itself.
@@ -2422,9 +2460,16 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     prev_followers = set((t.follower_emails or []))
     prev_due = (t.due_on or "")[:10]
     prev_start = t.start_on or ""
+    # Where the negotiation stood, for an Undo of this move (due_undo).
+    prev_agreement = t.due_agreement or ""
+    prev_proposal = dict(t.due_proposal) if isinstance(t.due_proposal, dict) else None
     prev_parent = t.parent_task_id or ""
     prev_subtasks = [i for i in (t.subtask_ids or []) if i]
     _check_hierarchy_patch(db, user, t, data)
+    if "due_on" in data and (data.get("due_on") or "")[:10] != prev_due:
+        problem = _series_order_problem(db, t, data.get("due_on") or "")
+        if problem:
+            raise HTTPException(422, problem)
     auto_before = task_automation.snapshot(t)
     modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
@@ -2508,10 +2553,6 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # Keeps `completed`, its timestamp and `status` in step regardless of which
     # one the caller actually sent.
     _land_completion(db, t, new_completed, prev_completed, user["email"])
-    if (t.due_on or "")[:10] != (auto_before.get("due_on") or ""):
-        # ...and a checklist subtask's new due date moves its step (Oct 20).
-        import hr_checklists
-        hr_checklists.task_due_changed(db, t, user["email"])
 
     _sync_reciprocal_dependencies(db, t, data)
 
@@ -2565,16 +2606,24 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         # it waits with it: moving the start alone would stretch or squash
         # the task while the due date is still being asked about.
         held = {"Due date changed"}
+        wanted_start = ""
         if "start_on" in data:
+            if (t.start_on or "") != prev_start:
+                wanted_start = t.start_on or ""
             t.start_on = prev_start
             held.add("Start date changed")
-        task_due.request_extension(db, t, user["email"], wanted_due, ask)
+        task_due.request_extension(db, t, user["email"], wanted_due, ask, start_on=wanted_start)
         modified_kinds = [k for k in modified_kinds if k not in held]
     elif "due_on" in data and (t.due_on or "")[:10] != prev_due:
         due_entry = task_due.record_due_change(
             db, t, prev_due, t.due_on or "",
             actor=task_automation.AUTOMATION_ACTOR if auto_moved_due else user["email"],
             source="automation" if auto_moved_due else "app")
+        if due_entry is not None and not auto_moved_due:
+            # What an Undo of this move puts back (POST /tasks/{id}/due/undo).
+            due_entry["undo"] = {"agreement": prev_agreement, "proposal": prev_proposal}
+            if (t.start_on or "") != prev_start:
+                due_entry["undo"].update(startFrom=prev_start, startTo=t.start_on or "")
         # The generic "Due date changed" becomes the actual story.
         modified_kinds = [k for k in modified_kinds if k != "Due date changed"]
         modified_kinds.insert(0, _due_change_label(t, due_entry))
@@ -2589,6 +2638,12 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     elif wanted is not None and set(task_assignees(t)) != prev_assignees and t.due_on:
         # A new holder did not agree to the old holder's date.
         task_due.settle_agreement(t, user["email"])
+
+    # A checklist subtask's new due date moves its step (Oct 20) - after the
+    # approval decision above, so a held date moves nothing (Oct 22 2026).
+    if (t.due_on or "")[:10] != (auto_before.get("due_on") or ""):
+        import hr_checklists
+        hr_checklists.task_due_changed(db, t, user["email"])
 
     # Completing a recurring task rolls the series forward to the next occurrence.
     spawned = _after_completed(db, t, user, prev_completed)
@@ -2774,6 +2829,71 @@ def respond_due(body: DueAnswer, task_id: str, user: dict = Depends(get_current_
         if counter in ((t.due_on or "")[:10], ((t.due_proposal or {}).get("dueOn") or "")[:10]):
             raise HTTPException(422, "Suggest a date different from both the current and the proposed one.")
     task_due.respond(db, t, me, body.accept, (body.note or "").strip(), counter_on=counter)
+    return _due_done(db, t)
+
+
+class DueUndo(BaseModel):
+    at: str     # the due_history entry being undone (its "at")
+
+
+UNDO_WINDOW_MIN = 10
+
+
+@router.post("/{task_id}/due/undo")
+def undo_due(task_id: str, body: DueUndo, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Undo the caller's own due-date move (Oct 22 2026 - the Calendar drag's
+    Undo). A second PATCH back would count the return trip as a move of its
+    own (an extension, when the first one moved the date earlier) and bell
+    the requester again; this takes the move OUT instead: the dates and the
+    negotiation go back to how they were, its history entry and any extension
+    it counted are removed, and the bells it raised and its still-queued
+    email are withdrawn. Nothing new is sent. Only the latest move, made by
+    the caller in the app within UNDO_WINDOW_MIN minutes, with the date
+    unchanged since - otherwise 409. A move held for approval is a request;
+    Withdraw (/due/withdraw) takes that back."""
+    t = _get_task(db, task_id)
+    assert_task_wall(db, user, t)
+    require_task_role(db, user, t, "editor")
+    me = (user.get("email") or "").strip().lower()
+    hist = list(t.due_history) if isinstance(t.due_history, list) else []
+    last = hist[-1] if hist and isinstance(hist[-1], dict) else {}
+    undo = last.get("undo") if isinstance(last.get("undo"), dict) else None
+    try:
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(last.get("at") or "")
+    except ValueError:
+        age = None
+    if (not undo or last.get("at") != body.at or (last.get("by") or "").lower() != me
+            or age is None or age > timedelta(minutes=UNDO_WINDOW_MIN)
+            or (t.due_on or "")[:10] != (last.get("to") or "")[:10]
+            or (t.due_agreement or "") == task_due.REQUESTED):
+        raise HTTPException(409, "That change can no longer be undone - set the date again instead.")
+    at = last["at"]
+    t.due_on = (last.get("from") or "")[:10]
+    if "startTo" in undo and (t.start_on or "") == undo.get("startTo"):
+        t.start_on = undo.get("startFrom") or ""
+    t.due_agreement = undo.get("agreement") or ""
+    t.due_proposal = undo.get("proposal")
+    t.due_history = hist[:-1]
+    if last.get("extension"):
+        t.due_extension_count = max(0, int(t.due_extension_count or 0) - 1)
+    task_due._log(db, t, "due_changed", me, f"undid the due date change (back to {task_due.us_date(t.due_on)})"
+                  if t.due_on else "undid the due date change (no due date again)")
+    # Withdraw what the move told people: the requester's bell, a manager's
+    # extension alert, and the "updated" email still waiting in the batch.
+    kinds = ("task_due_changed", "task_due_extended")
+    db.query(models.TaskNotification).filter(
+        models.TaskNotification.task_id == t.id, models.TaskNotification.kind.in_(kinds),
+        models.TaskNotification.created_at >= at).delete(synchronize_session=False)
+    db.query(models.NexusNotification).filter(
+        models.NexusNotification.ref_id == t.id, models.NexusNotification.type.in_([f"task_{k}" for k in kinds]),
+        models.NexusNotification.created_at >= at).delete(synchronize_session=False)
+    for q in (db.query(models.TaskEmailQueue)
+              .filter(models.TaskEmailQueue.task_id == t.id, models.TaskEmailQueue.event_type == "modified",
+                      models.TaskEmailQueue.actor_email == me, models.TaskEmailQueue.status == "pending",
+                      models.TaskEmailQueue.created_at >= at).all()):
+        q.status, q.drop_reason, q.updated_at = "dropped", "undone", now_iso()
+    import hr_checklists
+    hr_checklists.task_due_changed(db, t, me)
     return _due_done(db, t)
 
 
@@ -3109,33 +3229,52 @@ def _check_bulk_dates(dates: BulkDates) -> None:
         _check_iso_date(dates.on, "on")
 
 
-def _bulk_date_changes(dates: BulkDates, rows: list) -> tuple[dict, int]:
-    """{task id: {field: new value}} for the rows the change moves, and how
-    many a shift skipped for having no due date."""
-    out, skipped = {}, 0
+def _bulk_date_changes(db: Session, dates: BulkDates, rows: list) -> tuple[dict, int, list]:
+    """{task id: {field: new value}} for the rows the change moves, how many a
+    shift skipped for having no due date, and the rows left alone for a
+    reason ([{id, title, code, reason}]): a repeating task that would land on
+    or before its previous occurrence (_series_order_problem), or a stored due
+    date that cannot be read. A start date that cannot be read is treated as
+    no start - the due date still moves."""
+    out, skipped, blocked = {}, 0, []
+    series: dict = {}   # the recurring rows, loaded once for the batch
+
+    def _shift(iso: str) -> str:
+        try:
+            return _shift_day(iso, dates.days, dates.skip_weekends)
+        except OverflowError:
+            raise HTTPException(422, f"{t.title}: that shift goes past the end of the calendar.")
+
     for t in rows:
         due, start = (t.due_on or "")[:10], (t.start_on or "")[:10]
         if dates.op == "shift":
-            try:
-                ch = {"due_on": _shift_day(due, dates.days, dates.skip_weekends)} if due else {}
-                if ch and start:
-                    ch["start_on"] = _shift_day(start, dates.days, dates.skip_weekends)
-            except ValueError:
-                ch = {}         # a malformed stored date: left alone, counted as skipped
-            except OverflowError:
-                raise HTTPException(422, f"{t.title}: that shift goes past the end of the calendar.")
-            if not ch:
+            if not due:
                 skipped += 1
                 continue
+            try:
+                ch = {"due_on": _shift(due)}
+            except ValueError:
+                blocked.append({"id": t.id, "title": t.title or "", "code": "unreadable",
+                                "reason": "Its due date could not be read."})
+                continue
+            if start:
+                try:
+                    ch["start_on"] = _shift(start)
+                except ValueError:
+                    pass        # an unreadable start: treated as no start
         elif dates.op == "set_due":
             ch = {"due_on": dates.on[:10]} if due != dates.on[:10] else {}
         elif dates.op == "set_start":
             ch = {"start_on": dates.on[:10]} if start != dates.on[:10] else {}
         else:   # clear_due
             ch = {"due_on": ""} if due else {}
+        problem = _series_order_problem(db, t, ch.get("due_on") or "", series) if ch.get("due_on") else ""
+        if problem:
+            blocked.append({"id": t.id, "title": t.title or "", "code": "series", "reason": problem})
+            continue
         if ch:
             out[t.id] = ch
-    return out, skipped
+    return out, skipped, blocked
 
 
 _BULK_ALLOWED = {"status", "priority", "assignee_email", "assignee_emails", "team_id", "project_id",
@@ -3207,11 +3346,6 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         if patch:
             raise HTTPException(422, "Change dates on their own, not together with other fields.")
         _check_bulk_dates(dates)
-        # Each task moves from ITS OWN date, so the rows are locked (in id
-        # order, the module's lock order - _lock_task_rows) BEFORE they are
-        # read: two shifts at once queue up instead of both starting from the
-        # same old date. Nothing in a date change takes the code counter.
-        locked.update(_lock_task_rows(db, body.ids))
     rows = db.query(models.Task).filter(models.Task.id.in_(body.ids)).all()
     # The company wall, all-or-nothing like the editor check below (Oct 21
     # 2026). A manager clears every role check, so without this one batch
@@ -3251,6 +3385,14 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                                               project_after, values_after)
             if missing:
                 raise HTTPException(422, f"{t.title}: {_required_message(db, missing, project_after)}")
+    if dates is not None:
+        # Each task moves from ITS OWN date, so once the walls and roles have
+        # passed the rows are locked (id order, the module's lock order -
+        # _lock_task_rows; nothing is locked or written before it) and read
+        # again under the lock: two shifts at once queue up instead of both
+        # starting from the same old date. A date change takes no code counter.
+        locked.update(_lock_task_rows(db, body.ids))
+        rows = db.query(models.Task).filter(models.Task.id.in_(body.ids)).populate_existing().all()
     if "status" in patch or "completed" in patch:
         # Same-batch dependencies (Oct 21 2026): when A blocks B and both are
         # completed in this one call, A counts as done for B's gate once A has
@@ -3293,7 +3435,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     before_start = {t.id: t.start_on or "" for t in rows}
     # The Dates action's per-task values (only the moved rows have an entry).
     # A recurring occurrence moves alone: its rule is never touched.
-    row_dates, skipped = _bulk_date_changes(dates, rows) if dates is not None else ({}, 0)
+    row_dates, skipped, blocked = _bulk_date_changes(db, dates, rows) if dates is not None else ({}, 0, [])
     held_count = 0
     auto_before = {t.id: task_automation.snapshot(t) for t in rows}
     auto_results: list = []
@@ -3355,9 +3497,6 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         # The shared completion path (flag + HR checklist), as update_task.
         _land_completion(db, t, new_completed, prev_completed, user["email"])
         t.modified_at = now_iso()
-        if (t.due_on or "")[:10] != (auto_before[t.id].get("due_on") or ""):
-            import hr_checklists
-            hr_checklists.task_due_changed(db, t, user["email"])
 
     # The FINAL state, after the automation rules (Oct 21 2026). A rule may
     # have reopened a task the gate above counted as done for its dependent,
@@ -3422,12 +3561,15 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         elif ask:
             # Held for approval like a single edit; the approvers get one bell
             # for the whole batch, below. A start date moved with it waits
-            # too (see update_task).
+            # too, and moves on approval (see update_task).
             wanted_due = (t.due_on or "")[:10]
             t.due_on = before_due[t.id]
+            wanted_start = ""
             if "start_on" in sent:
+                if (t.start_on or "") != before_start[t.id]:
+                    wanted_start = t.start_on or ""
                 t.start_on = before_start[t.id]
-            task_due.request_extension(db, t, actor, wanted_due, ask, notify=False)
+            task_due.request_extension(db, t, actor, wanted_due, ask, notify=False, start_on=wanted_start)
             held_count += 1
             for who in ask:
                 ext_asks.setdefault(who, []).append(t)
@@ -3436,7 +3578,12 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                                                source="bulk")
             req = task_due.requester_of(t)
             if entry is not None and req and req != actor:
-                due_moved_for.setdefault(req, []).append(t)
+                due_moved_for.setdefault(req, []).append((t, entry))
+        # A checklist subtask's step follows its due date - after the approval
+        # decision, so a held date moves nothing (Oct 22 2026).
+        if (t.due_on or "")[:10] != (auto_before[t.id].get("due_on") or ""):
+            import hr_checklists
+            hr_checklists.task_due_changed(db, t, user["email"])
         elif now_assignees != set(prev_assignees) and t.due_on:
             task_due.settle_agreement(t, actor)
 
@@ -3513,16 +3660,18 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # The requester hears about a moved due date as on a single edit - once
     # per person for the whole batch (Oct 22 2026).
     for email, moved in due_moved_for.items():
-        one = moved[0] if len(moved) == 1 else None
-        if one:
-            body = (f"{one.title} - now due {task_due.us_date(one.due_on)}" if one.due_on
-                    else f"{one.title} - due date removed")
+        extended = all(e.get("extension") for _, e in moved)
+        if len(moved) == 1:
+            one, entry = moved[0]
+            title = "Due Date Extended" if entry.get("extension") else "Due Date Changed"
+            text = f"{one.title} - {_due_change_label(one, entry)}"
         else:
-            body = (", ".join(t.title or "Untitled task" for t in moved[:5])
+            one = None
+            title = f"{len(moved)} Due Dates {'Extended' if extended else 'Changed'}"
+            text = (", ".join(t.title or "Untitled task" for t, _ in moved[:5])
                     + (f" and {len(moved) - 5} more" if len(moved) > 5 else ""))
-        task_notify(db, kind="task_due_changed", for_email=email,
-                    title="Due Date Changed" if one else f"{len(moved)} Due Dates Changed",
-                    body=body, task_id=one.id if one else "",
+        task_notify(db, kind="task_due_changed", for_email=email, title=title, body=text,
+                    task_id=one.id if one else "",
                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task" if one else "View tasks"})
 
     db.commit()
@@ -3541,7 +3690,8 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         return out
     changed = sum(1 for t in rows if (t.due_on or "")[:10] != before_due[t.id]
                   or (t.start_on or "") != before_start[t.id])
-    return {"tasks": out, "changed": changed, "skipped": skipped, "sentForApproval": held_count}
+    return {"tasks": out, "changed": changed, "skipped": skipped, "sentForApproval": held_count,
+            "blocked": len(blocked), "blockedTasks": blocked}
 
 
 # ── Comments ─────────────────────────────────────────────────────────────────

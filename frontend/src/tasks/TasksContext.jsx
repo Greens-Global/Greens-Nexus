@@ -581,6 +581,20 @@ export function TasksProvider({ children }) {
     }
   }, [announceHeld]);
 
+  // Undo of a due-date move (the Calendar drag, Oct 22 2026): the server
+  // takes the move out - no extension for the trip back, no second bell.
+  const undoDueChange = useCallback(async (id, at) => {
+    try {
+      const saved = await api.undoTaskDue(id, at);
+      if (saved?.id) patchLocalTask(saved.id, saved);
+      return saved;
+    } catch (e) {
+      refetchTasks().catch(() => {});
+      if (e?.status && e.status !== 401) alert(e.message || 'Could not undo that change.');
+      throw e;
+    }
+  }, [patchLocalTask, refetchTasks]);
+
   // The batch bar's Dates action (Oct 22 2026): the server moves each task
   // from its own date, so there is nothing to apply optimistically - the
   // rows it answers with land in the store. Answers the server's counts.
@@ -851,7 +865,7 @@ export function TasksProvider({ children }) {
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, deleteTasks, restoreTasks, bulkUpdate, toggleComplete, setStatus,
-    bulkDates,
+    bulkDates, undoDueChange,
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },

@@ -15,6 +15,7 @@ Throwaway SQLite, no network.  python -m pytest test_task_bulk_dates.py
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
@@ -45,7 +46,7 @@ MANAGER = {"email": "neil@greensglobal.com", "level": 3}
 COA, COB = "co-a", "co-b"
 AMGR = {"email": "amgr@greensglobal.com", "level": 3}
 
-_CLEAR = (models.Task, models.TaskProject, models.TaskActivity, models.TaskNotification,
+_CLEAR = (models.Task, models.TaskProject, models.TaskActivity, models.TaskNotification, models.TaskEmailQueue,
           models.NexusNotification, models.NexusEmployee, models.NexusSetting, models.TaskChecklistItem)
 
 
@@ -273,6 +274,197 @@ class AccessTests(Base):
         self.assertEqual((self.fresh(a).due_on, self.fresh(b).due_on), ("2026-10-30", "2026-10-30"))
         out = self.dates([a.id], user=AMGR, op="shift", days=1)
         self.assertEqual(out["changed"], 1)
+
+
+class HeldStartTests(Base):
+    """Review fix 1: the start held with an extension request moves on approval."""
+    def _held_single(self):
+        t = self.task(start_on="2026-10-26", due_on="2026-10-30", due_extension_count=2)
+        T.update_task(t.id, T.TaskUpdate(start_on="2026-10-29", due_on="2026-11-02"), BackgroundTasks(),
+                      user=SAGAR, db=self.db)
+        return self.fresh(t)
+
+    def test_approval_moves_the_held_start_too(self):
+        t = self._held_single()
+        self.assertEqual(t.due_proposal["startOn"], "2026-10-29")
+        T.respond_due(T.DueAnswer(accept=True), t.id, user=MANAGER, db=self.db)
+        t = self.fresh(t)
+        self.assertEqual((t.start_on, t.due_on), ("2026-10-29", "2026-11-02"))
+
+    def test_decline_and_withdraw_drop_it(self):
+        t = self._held_single()
+        T.respond_due(T.DueAnswer(accept=False), t.id, user=MANAGER, db=self.db)
+        t = self.fresh(t)
+        self.assertEqual((t.start_on, t.due_on, t.due_proposal), ("2026-10-26", "2026-10-30", None))
+        u = self._held_single()
+        T.withdraw_due(u.id, user=SAGAR, db=self.db)
+        u = self.fresh(u)
+        self.assertEqual((u.start_on, u.due_proposal), ("2026-10-26", None))
+
+    def test_bulk_held_shift_carries_the_start_through_approval(self):
+        t = self.task(start_on="2026-10-26", due_on="2026-10-30", due_extension_count=2)
+        self.dates([t.id], op="shift", days=3)
+        self.assertEqual(self.fresh(t).due_proposal["startOn"], "2026-10-29")
+        T.respond_due(T.DueAnswer(accept=True), t.id, user=MANAGER, db=self.db)
+        t = self.fresh(t)
+        self.assertEqual((t.start_on, t.due_on), ("2026-10-29", "2026-11-02"))
+
+
+class UndoTests(Base):
+    """Review fix 2: Undo of a drag takes the move out instead of making another."""
+    def move(self, t, user=SAGAR, **fields):
+        T.update_task(t.id, T.TaskUpdate(**fields), BackgroundTasks(), user=user, db=self.db)
+        return self.fresh(t)
+
+    def undo(self, t, user=SAGAR, at=None):
+        t = self.fresh(t)
+        return T.undo_due(t.id, T.DueUndo(at=at or t.due_history[-1]["at"]), user=user, db=self.db)
+
+    def bells(self):
+        self.db.expire_all()
+        return self.db.query(models.TaskNotification).filter(
+            models.TaskNotification.kind.in_(["task_due_changed", "task_due_extended"])).count()
+
+    def test_undo_of_an_earlier_move_counts_nothing_and_withdraws_the_bell(self):
+        t = self.task(start_on="2026-10-26", due_on="2026-10-30", created_by=BOSS["email"])
+        hist_before = len(t.due_history or [])
+        t = self.move(t, start_on="2026-10-22", due_on="2026-10-26")
+        self.assertEqual(self.bells(), 1)                      # the requester heard about the move
+        self.db.add(models.TaskEmailQueue(id=gen_id(), recipient=BOSS["email"], task_id=t.id,
+                                          event_type="modified", actor_email=SAGAR["email"],
+                                          status="pending", created_at=now_iso()))
+        self.db.commit()
+        out = self.undo(t)
+        t = self.fresh(t)
+        self.assertEqual((out["dueOn"], t.start_on, t.due_on), ("2026-10-30", "2026-10-26", "2026-10-30"))
+        self.assertEqual(t.due_extension_count or 0, 0)
+        self.assertEqual(len(t.due_history or []), hist_before)
+        self.assertEqual(t.due_agreement, "accepted")
+        self.assertEqual(self.bells(), 0)
+        q = self.db.query(models.TaskEmailQueue).one()
+        self.assertEqual((q.status, q.drop_reason), ("dropped", "undone"))
+
+    def test_undo_of_an_extension_takes_the_count_back(self):
+        t = self.task(due_on="2026-10-30")
+        t = self.move(t, due_on="2026-11-02")
+        self.assertEqual(t.due_extension_count, 1)
+        self.undo(t)
+        t = self.fresh(t)
+        self.assertEqual((t.due_on, t.due_extension_count), ("2026-10-30", 0))
+
+    def test_undo_restores_a_pending_negotiation(self):
+        t = self.task(due_on="2026-10-30", created_by=BOSS["email"], due_agreement="pending")
+        t = self.move(t, user=BOSS, due_on="2026-10-28")
+        self.undo(t, user=BOSS)
+        self.assertEqual(self.fresh(t).due_agreement, "pending")
+
+    def test_undo_is_refused_when_it_is_not_the_callers_latest_move(self):
+        t = self.task(due_on="2026-10-30")
+        t = self.move(t, due_on="2026-10-28")
+        at = t.due_history[-1]["at"]
+        # Somebody else's undo, or a stale entry, is refused.
+        self.assertEqual(self.code(lambda: self.undo(t, user=MANAGER)), 409)
+        self.assertEqual(self.code(lambda: self.undo(t, at="2026-01-01T00:00:00+00:00")), 409)
+        # The date moved again since: the first move can no longer be undone.
+        t = self.move(t, due_on="2026-10-27")
+        self.assertEqual(self.code(lambda: self.undo(t, at=at)), 409)
+        # Too late.
+        hist = list(t.due_history)
+        hist[-1] = {**hist[-1], "at": "2026-01-01T00:00:00+00:00"}
+        t.due_history = hist
+        self.db.commit()
+        self.assertEqual(self.code(lambda: self.undo(t)), 409)
+
+    def test_a_held_move_has_nothing_to_undo(self):
+        t = self.task(due_on="2026-10-30", due_extension_count=2)
+        t = self.move(t, due_on="2026-11-02")
+        self.assertEqual(t.due_agreement, "extension_requested")
+        self.assertEqual(self.code(lambda: self.undo(t, at=t.due_proposal["at"])), 409)
+
+
+class SeriesOrderTests(Base):
+    """Review fix 3: an open occurrence may not land on or before the one before it."""
+    def series(self):
+        rule = {"freq": "weekly", "daysOfWeek": [1], "seriesId": "s-9"}
+        nxt_id = gen_id()
+        prev = self.task(due_on="2026-10-12", completed=True, status="completed",
+                         recurrence={**rule, "nextOccurrenceId": nxt_id})
+        cur = models.Task(id=nxt_id, code="T-cur", title="T", status="recurring", created_by=SAGAR["email"],
+                          assignee_email=SAGAR["email"], assignee_emails=[SAGAR["email"]], due_on="2026-10-19",
+                          due_agreement="accepted", recurrence=dict(rule),
+                          created_at=now_iso(), modified_at=now_iso())
+        self.db.add(cur)
+        self.db.commit()
+        return prev, cur
+
+    def test_single_edit_is_refused_with_the_previous_date(self):
+        _, cur = self.series()
+        with self.assertRaises(HTTPException) as e:
+            T.update_task(cur.id, T.TaskUpdate(due_on="2026-10-12"), BackgroundTasks(), user=SAGAR, db=self.db)
+        self.db.rollback()
+        self.assertEqual(e.exception.status_code, 422)
+        self.assertIn("(10/12/2026)", e.exception.detail)
+        T.update_task(cur.id, T.TaskUpdate(due_on="2026-10-13"), BackgroundTasks(), user=SAGAR, db=self.db)
+        self.assertEqual(self.fresh(cur).due_on, "2026-10-13")
+
+    def test_bulk_leaves_it_and_says_why(self):
+        _, cur = self.series()
+        other = self.task(due_on="2026-10-20")
+        out = self.dates([cur.id, other.id], op="shift", days=-7)
+        self.assertEqual((out["changed"], out["blocked"]), (1, 1))
+        self.assertEqual(out["blockedTasks"][0]["id"], cur.id)
+        self.assertEqual(out["blockedTasks"][0]["code"], "series")
+        self.assertEqual(self.fresh(cur).due_on, "2026-10-19")
+        out = self.dates([cur.id], op="set_due", on="2026-10-10")
+        self.assertEqual(out["blocked"], 1)
+
+    def test_a_completed_occurrence_and_a_later_move_are_fine(self):
+        prev, cur = self.series()
+        T.update_task(prev.id, T.TaskUpdate(due_on="2026-10-11"), BackgroundTasks(), user=SAGAR, db=self.db)
+        self.assertEqual(self.dates([cur.id], op="shift", days=2)["changed"], 1)
+
+
+class ReviewLowTests(Base):
+    def test_checklist_sync_runs_only_for_a_date_that_really_moved(self):
+        held = self.task(due_on="2026-10-30", due_extension_count=2)
+        moved = self.task(due_on="2026-10-30")
+        with mock.patch("hr_checklists.task_due_changed") as hook:
+            T.update_task(held.id, T.TaskUpdate(due_on="2026-11-02"), BackgroundTasks(), user=SAGAR, db=self.db)
+            self.assertEqual(hook.call_count, 0)
+            self.dates([held.id], op="shift", days=3)
+            self.assertEqual(hook.call_count, 0)
+            T.update_task(moved.id, T.TaskUpdate(due_on="2026-10-28"), BackgroundTasks(), user=SAGAR, db=self.db)
+            self.assertEqual(hook.call_count, 1)
+            self.dates([moved.id], op="shift", days=-1)
+            self.assertEqual(hook.call_count, 2)
+
+    def test_an_unreadable_start_is_no_start_and_an_unreadable_due_is_reported(self):
+        a = self.task(start_on="soon", due_on="2026-10-30")
+        b = self.task(due_on="2026-13-45")
+        out = self.dates([a.id, b.id], op="shift", days=1)
+        self.assertEqual((out["changed"], out["skipped"], out["blocked"]), (1, 0, 1))
+        a = self.fresh(a)
+        self.assertEqual((a.start_on, a.due_on), ("soon", "2026-10-31"))
+        self.assertEqual(out["blockedTasks"][0]["code"], "unreadable")
+
+    def test_bulk_requester_bell_says_extended(self):
+        t = self.task(due_on="2026-10-30", created_by=BOSS["email"])
+        self.dates([t.id], op="shift", days=2)
+        n = self.db.query(models.TaskNotification).filter(models.TaskNotification.kind == "task_due_changed").one()
+        self.assertEqual(n.title, "Due Date Extended")
+
+    def test_walls_and_roles_are_checked_before_any_lock(self):
+        p = models.TaskProject(id=gen_id(), name="Locked", access_level="restricted", created_at=now_iso(),
+                               member_roles={VIEWER["email"]: "viewer"}, member_emails=[VIEWER["email"]])
+        self.db.add(p)
+        self.db.commit()
+        t = self.task(due_on="2026-10-30", project_id=p.id, created_by=BOSS["email"],
+                      assignee_email="", assignee_emails=[])
+        with mock.patch.object(T, "_lock_task_rows", wraps=T._lock_task_rows) as lock:
+            self.assertEqual(self.code(lambda: self.dates([t.id], user=VIEWER, op="shift", days=1)), 403)
+            lock.assert_not_called()
+            self.dates([t.id], user=MANAGER, op="shift", days=1)
+            lock.assert_called_once()
 
 
 if __name__ == "__main__":
