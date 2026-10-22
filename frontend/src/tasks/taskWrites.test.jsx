@@ -11,13 +11,12 @@ import { useEffect } from 'react';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 
 const api = vi.hoisted(() => ({
-  updateTask: vi.fn(), deleteTask: vi.fn(), restoreTask: vi.fn(), createTask: vi.fn(),
+  updateTask: vi.fn(), deleteTask: vi.fn(), restoreTask: vi.fn(), createTask: vi.fn(), getTasksDelta: vi.fn(),
 }));
 vi.mock('../api', () => ({
   api: new Proxy({}, {
     get: (_, k) => {
       if (api[k]) return api[k];
-      if (k === 'getTasksDelta') return () => Promise.resolve({ tasks: [], deletedIds: [], serverTime: 't' });
       return () => Promise.resolve([]);
     },
   }),
@@ -60,6 +59,7 @@ async function mount() {
 
 beforeEach(() => {
   Object.values(api).forEach((f) => f.mockReset());
+  api.getTasksDelta.mockImplementation(() => Promise.resolve({ tasks: [], deletedIds: [], serverTime: 't' }));
   vi.spyOn(window, 'alert').mockImplementation(() => {});
 });
 
@@ -99,6 +99,33 @@ describe('delete', () => {
     expect(api.restoreTask).toHaveBeenCalledWith('b');
     expect(api.createTask).not.toHaveBeenCalled();
     expect(rows()).toBe('a:low,b:low,c:low');
+  });
+});
+
+describe('the delta after a restore', () => {
+  // The server keeps a deleted task's tombstone after a restore, so the delta
+  // can name the same id as changed AND deleted. Changed wins: the restored
+  // row must not vanish again.
+  it('keeps a row the delta returns both as changed and as deleted', async () => {
+    api.deleteTask.mockResolvedValue(null);
+    api.restoreTask.mockImplementation((id) => Promise.resolve({ ...SEED.find((t) => t.id === id) }));
+    await mount();
+    await act(async () => { await live.store.deleteTasks(['a', 'b']); });
+    expect(rows()).toBe('c:low');
+    api.getTasksDelta.mockImplementation(() => Promise.resolve({
+      tasks: [{ ...SEED[0] }, { ...SEED[1] }], deletedIds: ['a', 'b'], serverTime: 'u',
+    }));
+    await act(async () => { fireEvent.click(screen.getByText('Undo')); await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    expect(api.getTasksDelta).toHaveBeenCalled();
+    expect(rows()).toBe('a:low,b:low,c:low');
+  });
+
+  it('still drops a row that is only in deletedIds', async () => {
+    api.updateTask.mockRejectedValue(new Error('x'));
+    await mount();
+    api.getTasksDelta.mockImplementation(() => Promise.resolve({ tasks: [], deletedIds: ['c'], serverTime: 'v' }));
+    await act(async () => { await live.store.updateTask('a', { priority: 'high' }).catch(() => {}); await Promise.resolve(); });
+    expect(rows()).toBe('a:low,b:low');
   });
 });
 

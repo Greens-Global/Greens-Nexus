@@ -492,19 +492,22 @@ export const roleAtLeast = (role, min) => (ROLE_RANK[role] || 0) >= (ROLE_RANK[m
  * stop offering controls that can only come back 403. The server stays the
  * authority; this only hides what it would refuse.
  *   - A manager (or Tasks Owner) is 'owner' - they bypass the check.
- *   - Anyone the task is assigned to counts as at least 'editor' on it.
+ *   - Anyone the task is assigned to counts as at least 'editor' on it -
+ *     unless `countAssignee` is false: the checks that are about the PROJECT
+ *     (require_project_role - adding a subtask, removing someone else's file)
+ *     give an assignee nothing.
  *   - A task with no project anywhere up its parent chain is 'editor'.
  *   - Otherwise the best of projectRoleOf and any APPROVED team on that
  *     project the caller is in (team accessRole, default editor).
  * null = cannot be told from what this browser has (the project or a parent
  * is not loaded, or no grant is visible): callers keep today's controls.
  */
-export function taskRoleFor(task, { projects = [], teams = [], taskById = null, email = '', isManager = false } = {}) {
+export function taskRoleFor(task, { projects = [], teams = [], taskById = null, email = '', isManager = false, countAssignee = true } = {}) {
   if (!task) return null;
   if (isManager) return 'owner';
   const me = (email || '').toLowerCase();
   if (!me) return null;
-  const assigned = taskAssignees(task).some((e) => (e || '').toLowerCase() === me);
+  const assigned = countAssignee && taskAssignees(task).some((e) => (e || '').toLowerCase() === me);
   const atLeast = (a, b) => ((ROLE_RANK[a] || 0) >= (ROLE_RANK[b] || 0) ? a : b);
   // The project is the primary one of the top of the parent chain - the
   // same walk as project_for_task.

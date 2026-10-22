@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { taskRoleFor } from './lib';
 
 // The task drawer offers only what the caller's role on the task's project
@@ -8,7 +8,8 @@ import { taskRoleFor } from './lib';
 // everything; managers and assignees always edit. Unknown keeps every control.
 
 vi.mock('../components/PersonHoverCard', () => ({ default: ({ children }) => children }));
-vi.mock('../api', () => ({ api: new Proxy({}, { get: () => () => Promise.resolve([]) }) }));
+const apiOverride = vi.hoisted(() => ({}));
+vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => apiOverride[k] || (() => Promise.resolve([])) }) }));
 let manager = false;
 vi.mock('../contexts/RoleContext', () => ({
   useRole: () => ({ can: () => false, myGrantedModules: new Set(), canAccessModule: () => manager }),
@@ -147,5 +148,66 @@ describe('the "Changes saved" toast', () => {
     expect(state.offerUndo).not.toHaveBeenCalled();
     await act(async () => { resolve({}); await Promise.resolve(); });
     expect(state.offerUndo).toHaveBeenCalledWith('Changes saved', expect.any(Function));
+  });
+});
+
+describe('read-only gaps (review, Oct 21 2026)', () => {
+  it('a viewer who is an approver still gets Approve on an extension request', () => {
+    state = makeStore({ role: 'viewer', t: { ...task, dueOn: '2026-11-01', dueAgreement: 'extension_requested',
+      dueProposal: { dueOn: '2026-11-20', approvers: [ME], by: 'other@x.com', number: 3, baseline: '2026-11-01' } } });
+    render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
+    const approve = screen.getByRole('button', { name: /^Approve/ });
+    expect(approve.disabled).toBe(false);
+    expect(approve.closest('fieldset[disabled]')).toBeNull();
+  });
+
+  it("a viewer cannot remove a collaborator through the chip's x", () => {
+    state = makeStore({ role: 'viewer', t: { ...task, followerIds: ['pal@x.com'] } });
+    render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
+    fireEvent.click(screen.getByTitle('Remove pal@x.com'));
+    expect(state.updateTask).not.toHaveBeenCalled();
+  });
+
+  it('a viewer cannot add or change subtasks, but can still open one', () => {
+    const sub = { ...task, id: 's1', title: 'Order the seal', parentTaskId: 't1', projectId: '', assigneeIds: [] };
+    state = makeStore({ role: 'viewer' });
+    state.tasks = [task, sub]; state.taskById = { t1: task, s1: sub };
+    render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
+    expect(screen.queryByTestId('subtask-add')).toBeNull();
+    const row = document.querySelector('[data-subtask-row="s1"]');
+    expect(row.querySelector('button').disabled).toBe(true);     // its complete toggle
+    fireEvent.click(row);
+    expect(screen.getByLabelText('Task name').value).toBe('Order the seal');
+  });
+
+  it('comments: a viewer gets no Reply, a commenter gets Reply but not Pin', async () => {
+    const c = { id: 'c1', body: 'Seal is in', authorId: 'boss@x.com', createdAt: '2026-10-20T10:00:00Z' };
+    state = makeStore({ role: 'viewer', t: { ...task, commentIds: ['c1'] } });
+    state.getComments = vi.fn(() => Promise.resolve([c]));
+    const { unmount } = render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Comments/ })[0]);
+    await screen.findAllByText('Seal is in');
+    expect(screen.queryByLabelText('Reply')).toBeNull();
+    unmount();
+    state = makeStore({ role: 'commenter', t: { ...task, commentIds: ['c1'] } });
+    state.getComments = vi.fn(() => Promise.resolve([c]));
+    render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Comments/ })[0]);
+    await waitFor(() => expect(screen.getAllByLabelText('Reply').length).toBeGreaterThan(0));
+    expect(screen.queryByLabelText('Pin')).toBeNull();
+  });
+
+  it("an assignee edits the task but cannot remove someone else's file (a project rule)", async () => {
+    const files = [
+      { id: 'a1', name: 'theirs.pdf', url: 'https://x/theirs.pdf', size: '1 KB', kind: 'other', addedBy: 'boss@x.com' },
+      { id: 'a2', name: 'mine.pdf', url: 'https://x/mine.pdf', size: '1 KB', kind: 'other', addedBy: ME },
+    ];
+    apiOverride.getTaskAttachments = () => Promise.resolve(files);
+    state = makeStore({ role: 'viewer', t: { ...task, assigneeIds: [ME] } });
+    render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
+    expect(screen.queryByTestId('fields-read-only')).toBeNull();          // assignee: editor on the task
+    expect(await screen.findByLabelText('Remove mine.pdf')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Remove theirs.pdf')).toBeNull();
+    delete apiOverride.getTaskAttachments;
   });
 });

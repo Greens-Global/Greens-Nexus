@@ -55,8 +55,18 @@ const VIEW_ONLY_TITLE = 'You can view this task but not change it';
  *  separately (OverviewTab). */
 function FieldsLock({ readOnly, children, style }) {
   if (!readOnly) return children;
+  // The chips' remove "x" is a <span role="button"> inside the trigger
+  // button, not a form control, so `disabled` does not reach it (and React
+  // still delivers its click). Stopped here, in the capture phase, before
+  // the span's own handler runs.
+  const block = (e) => {
+    if (!e.target.closest?.('[role="button"]')) return;
+    if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault(); e.stopPropagation();
+  };
   return (
-    <fieldset disabled data-testid="fields-read-only" style={{ border: 0, padding: 0, margin: 0, minWidth: 0, ...style }}>
+    <fieldset disabled data-testid="fields-read-only" onClickCapture={block} onKeyDownCapture={block}
+      style={{ border: 0, padding: 0, margin: 0, minWidth: 0, ...style }}>
       {children}
     </fieldset>
   );
@@ -210,6 +220,12 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const myRole = taskRoleFor(task, { projects, teams, taskById, email: myEmail, isManager: taskManager });
   const canEdit = myRole == null || roleAtLeast(myRole, 'editor');
   const canComment = myRole == null || roleAtLeast(myRole, 'commenter');
+  // The project-only rule (require_project_role): adding a subtask, removing
+  // a file someone else attached. Being assigned the task does not count.
+  const projectRole = taskRoleFor(task, { projects, teams, taskById, email: myEmail, isManager: taskManager, countAssignee: false });
+  const canEditProject = projectRole == null || roleAtLeast(projectRole, 'editor');
+  // A subtask row: its own role (its assignees edit it).
+  const canEditTask = (t) => { const r = taskRoleFor(t, { projects, teams, taskById, email: myEmail, isManager: taskManager }); return r == null || roleAtLeast(r, 'editor'); };
   // Where leaving this task goes: the task stepped in from, else (a subtask
   // opened straight from a list) its parent, else nowhere - the drawer closes.
   const backTarget = (fromId = activeId) => {
@@ -388,7 +404,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     switch (key) {
       case 'overview': return (
         <OverviewTab
-          task={task} patch={patch} readOnly={!canEdit} canComment={canComment} people={people} projectName={projectName} teamName={teamName} teams={teams} projects={projects}
+          task={task} patch={patch} readOnly={!canEdit} canComment={canComment} canEditProject={canEditProject} canEditTask={canEditTask} people={people} projectName={projectName} teamName={teamName} teams={teams} projects={projects}
           blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
           setDependencyType={setDependencyType}
           subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={openSub}
@@ -397,10 +413,11 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           onOpenTicket={() => (onBackToTicket ? onBackToTicket() : openSourceTicket(task.sourceTicketId, onClose, ticketView))}
         />
       );
-      case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment} />;
+      case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment} canPin={canEditProject} />;
       case 'activity':     return <ActivityTab taskId={activeId} nameOf={nameOf} />;
-      case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} canAttach={canComment} canRemoveAny={canEdit} />;
-      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub} />;
+      case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} canAttach={canComment} canRemoveAny={canEditProject} />;
+      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub}
+        canAdd={canEditProject} canEditParent={canEdit} canEditTask={canEditTask} />;
       case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} readOnly={!canEdit} />;
       case 'properties':   return <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} teamName={teamName} customFields={customFields} patch={patch} readOnly={!canEdit} />;
       default:             return null;
@@ -549,7 +566,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
               ))}
               <DiscussionPane
                 task={task} taskId={activeId} nameOf={nameOf} myEmail={myEmail}
-                getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment}
+                getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment} canPin={canEditProject}
               />
             </>
           ) : paneFor(tab)}
@@ -1066,7 +1083,7 @@ function ProjectsField({ task, projects, teams, myEmail, projectName, patch }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, readOnly = false, canComment = true, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
+function OverviewTab({ task, patch, readOnly = false, canComment = true, canEditProject = true, canEditTask = null, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
   const isMobile = useIsMobile();
   // Whether the folding sections below have anything in them.
   const hasApproval = !!task.approvalStatus && task.approvalStatus !== 'none';
@@ -1207,7 +1224,11 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, people,
         <RecurrencePicker key={task.id} value={task.recurrence} seedDate={task.dueOn} onChange={setRecurrence} {...repeatCtx} />
       </Row>
 
-      <div style={{ gridColumn: '1 / -1' }}><DueNegotiation task={task} /></div>
+      {/* Read-only, the due-date panel sits OUTSIDE the field lock (below):
+          answering an extension or a proposed date takes no project role -
+          the requester and the approvers (task_due.approvers_of) may be
+          viewers - and the server checks who may answer. */}
+      {!readOnly && <div style={{ gridColumn: '1 / -1' }}><DueNegotiation task={task} /></div>}
 
       {/* Empty is normal - it fills itself when the task leaves Not Started. */}
       <Row label="Start Date">
@@ -1281,6 +1302,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, people,
         </div>
       </Row>
       </FieldsLock>
+      {readOnly && <DueNegotiation task={task} />}
 
       {/* Description */}
       <Section title="Description">
@@ -1312,7 +1334,8 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, people,
           were easy to miss. */}
       <Section key={`subtasks:${task.id}:${subtasks?.length > 0}`} defaultOpen={subtasks?.length > 0}
         title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
-        <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} hideHeading />
+        <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} hideHeading
+          canAdd={canEditProject} canEditParent={!readOnly} canEditTask={canEditTask} />
       </Section>
 
       {/* Time tracking - only where the task's project tracks time, or the
@@ -1335,13 +1358,13 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, people,
       {!isMobile && (canComment || hasComments) && (
         <Section key={`comments:${task.id}:${hasComments}`} defaultOpen={hasComments} title="Comments">
           <QuickComment task={task} addComment={addComment} getComments={getComments}
-            nameOf={nameOf} myEmail={myEmail} onViewAll={onViewAllComments} canComment={canComment} />
+            nameOf={nameOf} myEmail={myEmail} onViewAll={onViewAllComments} canComment={canComment} canPin={canEditProject} />
         </Section>
       )}
 
       {/* Attachments */}
       <Section title="Attachments">
-        <AttachmentsTab task={task} refresh={refresh} canAttach={canComment} canRemoveAny={!readOnly} />
+        <AttachmentsTab task={task} refresh={refresh} canAttach={canComment} canRemoveAny={canEditProject} />
       </Section>
     </div>
   );
@@ -1460,7 +1483,7 @@ export function onPasteStage(e, setFiles) {
   if (files.length) { e.preventDefault(); setFiles((p) => [...p, ...files]); }
 }
 
-function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAll, canComment = true }) {
+function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAll, canComment = true, canPin = true }) {
   const [body, setBody] = useState('');
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -1494,7 +1517,7 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
   // Same pin/edit/delete shape as the full Comments tab (CommentsTab) - this is
   // a preview of the identical data, not a separate simplified view, so it
   // needs the same actions rather than a read-only cut-down.
-  const handlers = useCommentHandlers(task, addComment, load);
+  const handlers = useCommentHandlers(task, addComment, load, { canComment, canPin });
 
   // Newest last, like a chat log - the composer sits directly under the most
   // recent line so the thread reads top to bottom into the box you type in.
@@ -1606,7 +1629,7 @@ function Approval({ task, patch }) {
 // ── Comments + Activity, as one block (mobile) ───────────────────────────────
 // Mirrors the reference layout: a "Comments | All activity" switcher instead of
 // two separate stacked sections, since they're two views of the same thread.
-function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment, focusComment = null, canComment = true }) {
+function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment, focusComment = null, canComment = true, canPin = true }) {
   const [view, setView] = useState('comments');
   const tab = (key, label) => {
     const on = view === key;
@@ -1625,14 +1648,14 @@ function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment
         {tab('activity', 'All activity')}
       </div>
       {view === 'comments'
-        ? <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusComment} canComment={canComment} />
+        ? <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusComment} canComment={canComment} canPin={canPin} />
         : <ActivityTab taskId={taskId} nameOf={nameOf} />}
     </section>
   );
 }
 
 // ── Comments ────────────────────────────────────────────────────────────────
-function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComment = null, canComment = true }) {
+function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComment = null, canComment = true, canPin = true }) {
   const [comments, setComments] = useState(null);
   const listRef = useRef(null);
   const focused = useRef(null);
@@ -1672,7 +1695,7 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
     }
     reload();
   };
-  const handlers = useCommentHandlers(task, addComment, reload);
+  const handlers = useCommentHandlers(task, addComment, reload, { canComment, canPin });
 
   // Pinned threads first, then oldest first; a resolved thread renders folded
   // (CommentThread) so finished action items stop taking the room.
@@ -1708,9 +1731,12 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
 // delete, reply in the thread, react, resolve, assign. Each one re-reads the
 // list afterwards; the server is the source of truth for who may do what,
 // and a refused action simply leaves the thread as it was.
-function useCommentHandlers(task, addComment, reload) {
+// `canComment` / `canPin`: a reply is a new comment (commenter and up) and
+// pinning takes a project editor (edit_comment) - without them the thread
+// simply does not offer Reply / Pin (CommentThread hides an absent handler).
+function useCommentHandlers(task, addComment, reload, { canComment = true, canPin = true } = {}) {
   const quiet = (p) => p.catch((e) => { if (e?.message) window.alert(e.message); });
-  return {
+  const all = {
     onPin: async (c) => { await quiet(api.editTaskComment(c.id, { pinned: !c.pinned })); reload(); },
     onEdit: async (c, text) => { await quiet(api.editTaskComment(c.id, { body: text })); reload(); },
     onDelete: async (c) => { if (!window.confirm('Delete this comment?')) return; await quiet(api.deleteTaskComment(c.id)); reload(); },
@@ -1719,6 +1745,9 @@ function useCommentHandlers(task, addComment, reload) {
     onResolve: async (c, v) => { await quiet(api.editTaskComment(c.id, { resolved: v })); reload(); },
     onAssign: async (c, email) => { await quiet(api.editTaskComment(c.id, { assignee_email: email })); reload(); },
   };
+  if (!canComment) delete all.onReply;
+  if (!canPin) delete all.onPin;
+  return all;
 }
 
 // "Assign to" beside the Send button: pick a person and the comment posts as
@@ -1903,14 +1932,14 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
 const SUB_PEOPLE_W = 64;
 const SUB_DATE_W = 84;
 
-function SubtaskAssignee({ subtask, people, updateTask }) {
-  return <FacePicker value={taskAssignees(subtask)} people={people} label={`Assignees of ${subtask.title}`}
+function SubtaskAssignee({ subtask, people, updateTask, disabled = false }) {
+  return <FacePicker value={taskAssignees(subtask)} people={people} label={`Assignees of ${subtask.title}`} disabled={disabled}
     onChange={(list) => updateTask(subtask.id, { assigneeIds: list })} />;
 }
 
 /** Faces, not names: who a subtask is for, in the width of a few avatars
  *  (Neil, Oct 14 2026 - the add row used a full-name picker). */
-function FacePicker({ value, people, onChange, label }) {
+function FacePicker({ value, people, onChange, label, disabled = false }) {
   const [q, setQ] = useState('');
   const on = value || [];
   const filtered = matchPeople(people, q);
@@ -1919,9 +1948,9 @@ function FacePicker({ value, people, onChange, label }) {
   return (
     <div onClick={(e) => e.stopPropagation()}>
       <Pop width={240} trigger={(t) => (
-        <button type="button" onClick={() => { setQ(''); t(); }} aria-label={label}
+        <button type="button" onClick={() => { setQ(''); t(); }} aria-label={label} disabled={disabled}
           title={on.length ? `Assigned to ${on.length === 1 ? '1 person' : `${on.length} people`} - change` : 'Assign'}
-          style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
+          style={{ border: 'none', background: 'transparent', cursor: disabled ? 'default' : 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
           {on.length
             ? on.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} card={false} /></span>)
             : <span style={{ width: 18, height: 18, borderRadius: '50%', border: `1px dashed ${NX.border}`, display: 'inline-block' }} />}
@@ -1948,7 +1977,14 @@ function FacePicker({ value, people, onChange, label }) {
   );
 }
 
-function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub, hideHeading }) {
+// canAdd: may create subtasks here (a project editor - the server's create
+// rule). canEditParent: may change the main task (its subtask order).
+// canEditTask(s): may change that subtask (its own role; its assignees count).
+// Opening a subtask is always allowed. Unknown roles keep every control.
+function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub, hideHeading, canAdd = true, canEditParent = true, canEditTask = null }) {
+  const rowEditable = (s) => (canEditTask ? canEditTask(s) : true);
+  // Reordering writes every sibling's position and the main task's order.
+  const canReorder = canEditParent && canAdd;
   const [title, setTitle] = useState('');
   const [dueOn, setDueOn] = useState('');
   // Who it is for: the main task's assignees until changed here.
@@ -2013,7 +2049,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
   return (
     <div style={{ marginTop: hideHeading ? 0 : 14 }}>
       {!hideHeading && <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 10 }}>{subtasks.length ? `Subtasks ${done}/${subtasks.length}` : 'Subtasks'}</div>}
-      {task.subtaskOrder === 'manual' && subtasks.length > 1 && (
+      {task.subtaskOrder === 'manual' && subtasks.length > 1 && canEditParent && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
           <button type="button" onClick={() => updateTask(task.id, { subtaskOrder: '' })}
             title="Order the subtasks by due date, then priority, again"
@@ -2024,7 +2060,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
         onDragOver={(e) => { if (dragId) e.preventDefault(); }}>
         {subtasks.map((s, i) => (
           <div key={s.id} data-subtask-row={s.id} onClick={() => onOpenSub(s.id)} className="nx-row-hover"
-            draggable={subtasks.length > 1}
+            draggable={subtasks.length > 1 && canReorder}
             onDragStart={(e) => {
               // Only from the handle - the rest of the row is for clicking.
               if (armed.current !== s.id) { e.preventDefault(); return; }
@@ -2039,7 +2075,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
               opacity: dragId === s.id ? 0.45 : 1,
               boxShadow: dropAt === i ? `inset 0 2px 0 ${NX.blue}` : dropAt === i + 1 && i === subtasks.length - 1 ? `inset 0 -2px 0 ${NX.blue}` : 'none',
             }}>
-            {subtasks.length > 1 && (
+            {subtasks.length > 1 && canReorder && (
               <button type="button" aria-label={`Move ${s.title} (drag, or Up / Down)`} title="Drag to reorder"
                 onMouseDown={() => { armed.current = s.id; }} onMouseUp={() => { armed.current = null; }}
                 onClick={(e) => e.stopPropagation()}
@@ -2052,7 +2088,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
                 <GripVertical size={14} />
               </button>
             )}
-            <button onClick={(e) => { e.stopPropagation(); updateTask(s.id, { completed: !s.completed }); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 0 }}>
+            <button onClick={(e) => { e.stopPropagation(); updateTask(s.id, { completed: !s.completed }); }} disabled={!rowEditable(s)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 0 }}>
               {s.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
             </button>
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: s.completed ? NX.faint : NX.ink, textDecoration: s.completed ? 'line-through' : 'none' }}>{s.title}</span>
@@ -2060,10 +2096,10 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
                 row lines up (Neil, Oct 14 2026: "people on the left, the
                 date on the right"). */}
             <span style={{ width: SUB_PEOPLE_W, display: 'flex', justifyContent: 'flex-start', flexShrink: 0 }}>
-              <SubtaskAssignee subtask={s} people={people} updateTask={updateTask} />
+              <SubtaskAssignee subtask={s} people={people} updateTask={updateTask} disabled={!rowEditable(s)} />
             </span>
             <span onClick={(e) => e.stopPropagation()} style={{ width: SUB_DATE_W, display: 'flex', justifyContent: 'flex-end', fontSize: 11.5, color: NX.faint, flexShrink: 0 }}>
-              <DateField value={s.dueOn || ''} onChange={(v) => updateTask(s.id, { dueOn: v || '' })} compact
+              <DateField value={s.dueOn || ''} onChange={(v) => updateTask(s.id, { dueOn: v || '' })} compact disabled={!rowEditable(s)}
                 title={s.dueOn ? 'Change due date' : 'Set due date'}
                 repeat={subRepeat(s.recurrence, (r) => setSubRecurrence(s, r), s.dueOn)} />
             </span>
@@ -2071,7 +2107,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
           </div>
         ))}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
+      {canAdd && <div data-testid="subtask-add" style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
         <Plus size={14} style={{ color: NX.faint, flexShrink: 0 }} />
         <input className="nx-inline-edit" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add subtask"
           style={{ flex: 1, minWidth: 0, border: 'none', fontFamily: FONT, fontSize: 13 }} />
@@ -2101,7 +2137,8 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
             repeat={subRepeat(rec, (r) => setRec(r || {}), dueOn)} />
         </span>
         <button onClick={add} style={{ ...btn('primary'), padding: '6px 10px', fontSize: 12 }}>Add</button>
-      </div>
+      </div>}
+      {!canAdd && subtasks.length === 0 && <div style={{ fontSize: 12.5, color: NX.faint }}>No subtasks.</div>}
     </div>
   );
 }

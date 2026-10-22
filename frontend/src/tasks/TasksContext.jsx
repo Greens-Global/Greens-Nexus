@@ -245,7 +245,12 @@ export function TasksProvider({ children }) {
     setTasks((prev) => {
       const byId = new Map(prev.map((x) => [x.id, x]));
       for (const t of changed || []) byId.set(t.id, t);
-      for (const id of deletedIds || []) byId.delete(id);
+      // A row the server returns as changed is live, whatever tombstone came
+      // with it: a task deleted and then restored (Undo, the Recycle Bin)
+      // still has its delete-log entry, and dropping it here would make the
+      // restored task vanish until a reload (Oct 21 2026).
+      const live = new Set((changed || []).map((t) => t.id));
+      for (const id of deletedIds || []) if (!live.has(id)) byId.delete(id);
       return [...byId.values()];
     });
     sinceRef.current = serverTime;
