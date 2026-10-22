@@ -17,6 +17,27 @@ const pnl = {
 };
 const api = { getAccountingPnl: async () => pnl };
 
+describe('Report Builder comparisons in Excel (CR-05)', () => {
+  it('keeps the prior figure out of the Total and points each variance at its own comparison', () => {
+    const result = {
+      config: resolveConfig(defaultConfig(NOW), NOW), def: { label: 'Custom' }, org: '', mode: 'single',
+      columns: [
+        { key: 'm1', label: 'Sep', type: 'amount' }, { key: 'm2', label: 'Oct', type: 'amount' }, { key: 'total', label: 'Total', type: 'amount', emphasis: true },
+        { key: 'cmp-py', label: 'PY', type: 'amount', compare: true }, { key: 'var-py', label: 'Variance $', type: 'variance' }, { key: 'pct-py', label: 'Variance %', type: 'pct' },
+        { key: 'cmp-pp', label: 'PP', type: 'amount', compare: true }, { key: 'var-pp', label: 'Variance $', type: 'variance' },
+      ],
+      rows: [{ kind: 'account', code: '61000', title: 'Advertising', values: [100, 200, 300, 400, -100, '(25.0%)', 150, 150] }],
+    };
+    const { rows } = statementCells({ title: 'Custom', result });
+    const line = rows.find((r) => r[0]?.text === '61000');
+    // A = code, B = title; C..D months, E Total, F PY, G var, H pct, I PP, J var.
+    expect(line[4].f).toBe('SUM(C5,D5)');
+    expect(line[6].f).toBe('E5-F5');
+    expect(line[7].f).toBe('IF(F5=0,"",(E5-F5)/ABS(F5))');
+    expect(line[9].f).toBe('E5-I5');
+  });
+});
+
 describe('statement workbook', () => {
   it('lays the statement out with SUM formulas on the section totals and formulas on the subtotals', async () => {
     const r = await runReport(api, resolveConfig(defaultConfig(NOW), NOW));

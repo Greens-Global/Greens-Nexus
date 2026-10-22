@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  BUILDER_KIND, BUILDER_VERSION, defaultBuilder, exportConfig, includedAccounts, isBuilderConfig, layoutBuilder, resolveBuilder, runBuilder, storableBuilder,
+  BUILDER_KIND, BUILDER_VERSION, defaultBuilder, exportConfig, includedAccounts, isBuilderConfig, isPublished, layoutBuilder, resolveBuilder, runBuilder, storableBuilder,
 } from './builderModel';
 import { csvRows, resolveConfig } from './reportModel';
 
@@ -110,6 +110,50 @@ describe('builder configs', () => {
     expect(csv[0][0]).toBe('My Report (Accrual Book)');
     expect(csv.some((line) => line[0] === 'Total Line A' && line.at(-1) === 450)).toBe(true);
     expect(exportConfig(r.builder).accounts).toEqual(['61000']);
+  });
+});
+
+// CR-05 (Neil, 23 Oct): "Yes it needs comparison columns."
+describe('comparison columns', () => {
+  it('adds the prior figure, Variance $ and Variance % per comparison, against the Total', () => {
+    const config = resolveBuilder({ cols: 'month', compare: ['prior_year', 'prior_period', 'nonsense'] }, NOW);
+    expect(config.compare).toEqual(['prior_period', 'prior_year']);
+    const cols = [{ key: 'm1', label: 'Sep 2026' }, { key: 'm2', label: 'Oct 2026' }];
+    // values: 2 months, then prior period, then prior year
+    const { columns, rows } = layoutBuilder(config, cols, [acct('61000', 'Advertising', [100, 200, 150, 400]), acct('61010', 'Online Ads', [0, 0, 50, 0])], {},
+      [{ key: 'prior_period', label: 'Jul - Aug', short: 'Prior Period' }, { key: 'prior_year', label: 'Sep - Oct 2025', short: 'Prior Year' }]);
+    expect(columns.map((c) => c.label)).toEqual(['Sep 2026', 'Oct 2026', 'Total', 'Jul - Aug', 'Variance $ vs Prior Period', 'Variance % vs Prior Period',
+      'Sep - Oct 2025', 'Variance $ vs Prior Year', 'Variance % vs Prior Year']);
+    expect(columns.filter((c) => c.compare).map((c) => c.key)).toEqual(['cmp-prior_period', 'cmp-prior_year']);
+    expect(rows.find((r) => r.code === '61000').values).toEqual([100, 200, 300, 150, 150, '100.0%', 400, -100, '(25.0%)']);
+    // An account with only a prior figure still shows; the prior total adds it in.
+    expect(rows.find((r) => r.code === '61010').values).toEqual([0, 0, 0, 50, -50, '(100.0%)', 0, 0, '']);
+    expect(rows.at(-1).values).toEqual([100, 200, 300, 200, 100, '50.0%', 400, -100, '(25.0%)']);
+  });
+
+  it('keeps a report saved before comparisons existed exactly as it was', () => {
+    const old = { kind: 'builder', version: 1, preset: 'ytd', accounts: ['61000'] };
+    const c = resolveBuilder(old, NOW);
+    expect(c.compare).toEqual([]);
+    expect(storableBuilder(c)).not.toHaveProperty('compare');
+    expect(layoutBuilder(c, cols1, ACCOUNTS).columns.map((x) => x.label)).toEqual(['01/01/2026 - 10/23/2026']);
+    expect(storableBuilder(resolveBuilder({ compare: ['prior_year'] }, NOW)).compare).toEqual(['prior_year']);
+  });
+
+  it('reads the prior period and the prior year, and as of a date the prior month-end and the date a year back', async () => {
+    const api = { getAccountingBuckets: vi.fn(async () => ({ rows: [{ account_no: '61000', title: 'Advertising', section: 'expense', bucket: 'total', debit: 100, credit: 0 }] })) };
+    const r = await runBuilder(api, resolveBuilder({ preset: 'custom', from: '2026-07-01', to: '2026-09-30', compare: ['prior_period', 'prior_year'] }, NOW));
+    expect(api.getAccountingBuckets.mock.calls.map((c) => `${c[0].from}..${c[0].to}`).sort()).toEqual(['2025-07-01..2025-09-30', '2026-04-01..2026-06-30', '2026-07-01..2026-09-30']);
+    expect(r.rows.find((x) => x.code === '61000').values).toEqual([100, 100, 0, '0.0%', 100, 0, '0.0%']);
+    api.getAccountingBuckets.mockClear();
+    await runBuilder(api, resolveBuilder({ period: 'asof', asof: '2026-06-30', asofToday: false, compare: ['prior_period', 'prior_year'] }, NOW));
+    expect([...new Set(api.getAccountingBuckets.mock.calls.map((c) => c[0].to))].sort()).toEqual(['2024-12-31', '2025-06-30', '2025-12-31', '2026-05-31', '2026-06-30']);
+  });
+
+  it('marks a report published once Publish was used, or shared before Publish existed', () => {
+    expect(isPublished({ config: { kind: 'builder', published: true }, shared: false })).toBe(true);
+    expect(isPublished({ config: { kind: 'builder' }, shared: true })).toBe(true);
+    expect(isPublished({ config: { kind: 'builder' }, shared: false })).toBe(false);
   });
 });
 

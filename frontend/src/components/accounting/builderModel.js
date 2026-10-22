@@ -1,7 +1,9 @@
 import { formatDate } from '../../lib/datetime';
 import {
-  BOOKS, DIM_KINDS, EMPTY_DIMS, bucketLabel, fetchBuckets, isUserBook, iso, presetLabel, resolveConfig, sortKeys, trialBalanceLines,
+  BOOKS, DIM_KINDS, EMPTY_DIMS, bucketLabel, fetchBuckets, isUserBook, iso, pct, presetLabel, priorMonthEnd, priorPeriod, resolveConfig, sortKeys,
+  trialBalanceLines, yearBack,
 } from './reportModel';
+import { BUILDER_COMPARE_OPTIONS, BUILDER_DEFAULT_COMPARE, BUILDER_VARIANCE_COLUMNS } from './assumptions';
 
 // Accounting -> Reports -> Report Builder (Neil, 10/22 call, item 05: "I want
 // to select these GLs. I want to bring it all in. And then you get your
@@ -23,10 +25,22 @@ import {
 // /accounting/reports/buckets: debits and credits per account, with the
 // entity and dimension filters), so a person limited to certain entities
 // reads only those here too - the backend narrows every read.
+//
+// Oct 23, team answer (Neil, CR-05): "Yes it needs comparison columns."
+// `compare: ['prior_period' | 'prior_year']` (BUILDER_COMPARE_OPTIONS in
+// ./assumptions.js) adds, per comparison, the prior figure, Variance $ and
+// Variance % against the report's total for the period. A config without
+// `compare` (every one saved before) runs exactly as it did. Publishing is
+// `published: true` in the saved config, separate from the memorized
+// report's `shared` flag (Share With Everyone); a report shared before
+// publishing existed counts as published.
 
 export const BUILDER_KIND = 'builder';
 export const BUILDER_VERSION = 1;
 export const isBuilderConfig = (c) => !!c && typeof c === 'object' && c.kind === BUILDER_KIND;
+/** A saved builder report is published once Publish was used - or it was shared before Publish existed. */
+export const isPublished = (saved) => !!saved && (!!saved.config?.published || !!saved.shared);
+const COMPARE_KEYS = BUILDER_COMPARE_OPTIONS.map((o) => o.key);
 
 /** The column layouts offered. Each is one read of the buckets; as of a date is a single column. */
 export const BUILDER_COLUMNS = [
@@ -73,6 +87,8 @@ export function resolveBuilder(config, now = new Date()) {
     cols: period === 'range' && BUILDER_COLUMNS.some((m) => m.key === c.cols) ? c.cols : 'total',
     entities: base.entities, dims: base.dims,
     accounts: codes(c.accounts), groups, showZero: !!c.showZero,
+    compare: (Array.isArray(c.compare) ? c.compare : BUILDER_DEFAULT_COMPARE).filter((k, i, all) => COMPARE_KEYS.includes(k) && all.indexOf(k) === i)
+      .sort((x, y) => COMPARE_KEYS.indexOf(x) - COMPARE_KEYS.indexOf(y)),
   };
 }
 
@@ -85,7 +101,21 @@ export function storableBuilder(c) {
     ...(r.period === 'asof' && r.asofToday === false ? { asof: r.asof, asofToday: false } : {}),
     book: r.book, cols: r.cols, entities: r.entities, dims: r.dims, accounts: r.accounts,
     groups: r.groups.map((g) => ({ name: g.name, accounts: g.accounts })), ...(r.showZero ? { showZero: true } : {}),
+    ...(r.compare.length ? { compare: r.compare } : {}),
   };
+}
+
+/** The dates each comparison reads: { key, label, short, from?, to?, asof? }. */
+export function compareRanges(c) {
+  return c.compare.map((key) => {
+    const o = BUILDER_COMPARE_OPTIONS.find((x) => x.key === key);
+    if (c.period === 'asof') {
+      const asof = key === 'prior_year' ? yearBack(c.asof) : priorMonthEnd(c.asof);
+      return { key, short: o.short, asof, label: `As of ${formatDate(asof)}` };
+    }
+    const [from, to] = key === 'prior_year' ? [yearBack(c.from), yearBack(c.to)] : priorPeriod(c.from, c.to);
+    return { key, short: o.short, from, to, label: `${formatDate(from)} - ${formatDate(to)}` };
+  });
 }
 
 /** Every account the report lists: the picked ones and every group's. Empty = all of them. */
@@ -111,13 +141,37 @@ export function exportConfig(c) {
  * accounts in no group follow (under "Accounts Not in a Group" when there are
  * groups); then the Grand Total. With two or more data columns a Total column follows.
  */
-export function layoutBuilder(config, cols, accounts, titles = {}) {
+export function layoutBuilder(config, cols, accounts, titles = {}, compares = []) {
   const n = cols.length;
+  const k = compares.length;
+  const showAmt = BUILDER_VARIANCE_COLUMNS.includes('amount');
+  const showPct = BUILDER_VARIANCE_COLUMNS.includes('percent');
   const columns = cols.map((c) => ({ key: c.key, label: c.label, type: 'amount' }));
   if (n > 1) columns.push({ key: 'total', label: 'Total', type: 'amount', emphasis: true });
-  const across = (v) => (n > 1 ? [...v, round2(v.reduce((s, x) => s + x, 0))] : v);
-  const zeros = () => new Array(n).fill(0);
-  const byCode = new Map(accounts.map((a) => [a.code, a]));
+  // Each comparison: the prior figure (an amount column marked `compare`, so
+  // a Total never adds it in), then its variances against the period's total.
+  compares.forEach((cp) => {
+    const of = k > 1 ? ` vs ${cp.short}` : '';
+    columns.push({ key: `cmp-${cp.key}`, label: cp.label, type: 'amount', compare: true, hint: cp.short });
+    if (showAmt) columns.push({ key: `var-${cp.key}`, label: `Variance $${of}`, type: 'variance' });
+    if (showPct) columns.push({ key: `pct-${cp.key}`, label: `Variance %${of}`, type: 'pct' });
+  });
+  // `v` holds the n period figures, then the k prior figures.
+  const across = (v) => {
+    const cur = v.slice(0, n);
+    const out = n > 1 ? [...cur, round2(cur.reduce((s, x) => s + x, 0))] : cur;
+    const base = out[out.length - 1];
+    v.slice(n).forEach((p) => {
+      out.push(p);
+      if (showAmt) out.push(round2(base - p));
+      if (showPct) out.push(pct(base, p));
+    });
+    return out;
+  };
+  const zeros = () => new Array(n + k).fill(0);
+  const full = (a) => (a.values.length === n + k ? a : { ...a, values: [...a.values, ...new Array(n + k - a.values.length).fill(0)] });
+  const byCode = new Map(accounts.map((a) => [a.code, full(a)]));
+  accounts = [...byCode.values()];
   const lineOf = (code) => byCode.get(code) || { code, title: titles[code] || '', section: '', values: zeros() };
   const shows = (a) => config.showZero || a.values.some((v) => Math.abs(v) >= 0.005);
   const byNumber = (x, y) => x.code.localeCompare(y.code, 'en-US', { numeric: true });
@@ -143,8 +197,7 @@ export function layoutBuilder(config, cols, accounts, titles = {}) {
   const rest = (picked.length ? picked.filter((c) => !grouped.has(c)).map(lineOf) : accounts.filter((a) => !grouped.has(a.code))).sort(byNumber);
   rest.forEach((a) => addTo(grand, a.values));
   const restShown = rest.filter(shows);
-  if (restShown.length && rows.length) rows.push({ kind: 'group', group: 'ungrouped', label: 'Accounts Not in a Group', values: new Array(columns.length).fill('') });
-  restShown.forEach((a) => rows.push({ kind: 'account', code: a.code, title: a.title, values: across(a.values) }));
+  if (restShown.length && rows.length) rows.push({ kind: 'group', group: 'ungrouped', label: 'Accounts Not in a Group', values: new Array(columns.length).fill('') });  restShown.forEach((a) => rows.push({ kind: 'account', code: a.code, title: a.title, values: across(a.values) }));
   rows.push({ kind: 'grand', label: 'Grand Total', values: across(grand) });
   return { columns, rows };
 }
@@ -176,21 +229,41 @@ export async function runBuilder(api, config, { name = '', entities = [], chart 
   let accounts;
   let org;
   let generatedAt;
-  if (c.period === 'asof') {
-    // Balance sheet accounts through the date; income and expense accounts for
-    // the year to that date - the trial balance's rule (trialBalanceLines).
-    const before = `${Number(c.asof.slice(0, 4)) - 1}-12-31`;
+  // Balance sheet accounts through the date; income and expense accounts for
+  // the year to that date - the trial balance's rule (trialBalanceLines).
+  const asOf = async (date) => {
+    const before = `${Number(date.slice(0, 4)) - 1}-12-31`;
     const [through, prior] = await Promise.all([
-      fetchBuckets(api, statementOf(c), { from: undefined, to: c.asof }, 'total', book),
+      fetchBuckets(api, statementOf(c), { from: undefined, to: date }, 'total', book),
       fetchBuckets(api, statementOf(c), { from: undefined, to: before }, 'total', book),
     ]);
     const sectionOf = new Map((through?.rows || []).map((r) => [r.account_no, r.section]));
-    cols = [{ key: 'cur', label: `As of ${formatDate(c.asof)}` }];
-    accounts = trialBalanceLines(through?.rows || [], prior?.rows || [], c.asof)
+    const lines = trialBalanceLines(through?.rows || [], prior?.rows || [], date)
       .filter((l) => l.code)
-      .map((l) => ({ code: l.code, title: l.title, section: sectionOf.get(l.code) || '', values: [round2(CREDIT_SIDE.has(sectionOf.get(l.code)) ? -l.balance : l.balance)] }));
-    org = through?.org || '';
-    generatedAt = through?.generated_at || '';
+      .map((l) => ({ code: l.code, title: l.title, section: sectionOf.get(l.code) || '', value: round2(CREDIT_SIDE.has(sectionOf.get(l.code)) ? -l.balance : l.balance) }));
+    return { lines, org: through?.org || '', generatedAt: through?.generated_at || '' };
+  };
+  // One figure per account over a range (a comparison's read).
+  const total = async (from, to) => {
+    const d = await fetchBuckets(api, statementOf(c), { from, to }, 'total', book, entities);
+    const by = new Map();
+    (d?.rows || []).forEach((r) => {
+      if (!r.account_no) return;
+      const cur = by.get(r.account_no) || { code: r.account_no, title: r.title || '', section: r.section || '', value: 0 };
+      cur.value = round2(cur.value + normal(r.section, r.debit, r.credit));
+      by.set(r.account_no, cur);
+    });
+    return [...by.values()];
+  };
+  const ranges = compareRanges(c);
+  const priors = Promise.all(ranges.map((r) => (r.asof ? asOf(r.asof).then((x) => x.lines) : total(r.from, r.to))));
+  priors.catch(() => {});   // awaited below; this only keeps an early failure from going unhandled
+  if (c.period === 'asof') {
+    const cur = await asOf(c.asof);
+    cols = [{ key: 'cur', label: `As of ${formatDate(c.asof)}` }];
+    accounts = cur.lines.map((l) => ({ code: l.code, title: l.title, section: l.section, values: [l.value] }));
+    org = cur.org;
+    generatedAt = cur.generatedAt;
   } else {
     const d = await fetchBuckets(api, statementOf(c), { from: c.from, to: c.to }, c.cols, book, entities);
     const rows = d?.rows || [];
@@ -214,8 +287,18 @@ export async function runBuilder(api, config, { name = '', entities = [], chart 
     org = d?.org || '';
     generatedAt = d?.generated_at || '';
   }
+  // Each comparison's figure rides after the period's; an account with only a
+  // prior figure joins at zero for the period.
+  const n = cols.length;
+  const byCode = new Map(accounts.map((a) => [a.code, { ...a, values: [...a.values, ...new Array(ranges.length).fill(0)] }]));
+  (await priors).forEach((lines, j) => lines.forEach((l) => {
+    const a = byCode.get(l.code) || { code: l.code, title: l.title, section: l.section, values: new Array(n + ranges.length).fill(0) };
+    a.values[n + j] = round2(a.values[n + j] + l.value);
+    byCode.set(l.code, a);
+  }));
+  accounts = [...byCode.values()];
   accounts.forEach((a) => { if (!a.title && titles[a.code]) a.title = titles[a.code]; });
-  const { columns, rows } = layoutBuilder(c, cols, accounts, titles);
+  const { columns, rows } = layoutBuilder(c, cols, accounts, titles, ranges);
   return {
     config: exportConfig(c), def: { key: 'builder', label: name || 'Custom Report', period: c.period },
     org, generatedAt: generatedAt || new Date().toISOString(), mode: 'single', otherLabel: '', columns, rows, summary: [], pickable: [], builder: c,
@@ -238,5 +321,6 @@ export function builderSummary(config, entities = []) {
     c.groups.length ? `${c.groups.length} row ${c.groups.length === 1 ? 'group' : 'groups'}` : '',
     filters ? `${filters} ${filters === 1 ? 'filter' : 'filters'}` : '',
     c.cols !== 'total' ? BUILDER_COLUMNS.find((m) => m.key === c.cols)?.label : '',
+    ...c.compare.map((k) => BUILDER_COMPARE_OPTIONS.find((o) => o.key === k)?.label),
   ].filter(Boolean).join(' · ');
 }

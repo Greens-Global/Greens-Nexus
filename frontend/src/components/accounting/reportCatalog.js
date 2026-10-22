@@ -1,6 +1,6 @@
 import { formatDate } from '../../lib/datetime';
 import { REPORTS, entityText, periodOf, presetLabel, reportDef, resolveConfig } from './reportModel';
-import { builderSummary, isBuilderConfig } from './builderModel';
+import { builderSummary, isBuilderConfig, isPublished } from './builderModel';
 
 // What the Report Center lists (Oct 23, Neil, item 05), free of React for the
 // tests: every standard report and screen the person's Reports menu holds,
@@ -52,7 +52,7 @@ export function catalogue(groups, saved, { entities = [], limited = false } = {}
   const opens = (r) => !limited || !(r.config?.entities || []).some((code) => !mine.has(code));
   const kept = (saved || []).filter((r) => r && r.config && opens(r)).map((r) => {
     if (isBuilderConfig(r.config)) {
-      return { id: r.id, key: 'report-builder', label: r.name, type: r.shared ? 'published' : 'saved', group: center?.label || 'Report Center', groupKey: center?.key || 'grp-center', about: builderSummary(r.config, entities), saved: r };
+      return { id: r.id, key: 'report-builder', label: r.name, type: isPublished(r) ? 'published' : 'saved', group: center?.label || 'Report Center', groupKey: center?.key || 'grp-center', about: builderSummary(r.config, entities), saved: r };
     }
     const report = resolveConfig(r.config).report;
     const home = groupOfReport(report);

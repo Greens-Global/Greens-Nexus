@@ -42,7 +42,7 @@ import { CreditCard } from 'lucide-react';
 import ReportCenter from '../components/accounting/ReportCenter';
 import ReportBuilder from '../components/accounting/ReportBuilder';
 import { STATEMENTS_SUB } from '../components/accounting/drill';
-import { REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
+import { BUILDER_PUBLISH_MIN_LEVEL, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -236,6 +236,8 @@ export default function Accounting({ activeSub, onSubChange }) {
   // Ticking close tasks, marking reconciliations, writing commentary and
   // editing reference figures need the editor level on the Accounting grant.
   const canEdit = canAccessModule('accounting', 'administrator', 'editor');
+  // CR-05 (Neil, 23 Oct): anyone with Accounting saves and publishes Report Builder reports.
+  const canPublish = canAccessModule('accounting', 'administrator', BUILDER_PUBLISH_MIN_LEVEL);
   // Deciding who reads which entities takes the Full level.
   const canManage = canAccessModule('accounting', 'administrator', 'full');
   // Vendor / customer change requests are decided by a manager who holds
@@ -405,7 +407,7 @@ export default function Accounting({ activeSub, onSubChange }) {
         <div style={{ marginTop: 8 }}>
           {reportCenter}
           {reportsTab}
-          {sub === 'report-builder' && <ReportBuilder canEdit={canEdit} />}
+          {sub === 'report-builder' && <ReportBuilder canPublish={canPublish} />}
           {sub === 'packages' && <PackagesTab />}
           {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'loans' && <LoansTab canEdit={canEdit} />}
@@ -429,7 +431,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'close' && <CloseTab canEdit={canEdit} meName={meName} />}
               {reportCenter}
               {reportsTab}
-              {sub === 'report-builder' && <ReportBuilder canEdit={canEdit} />}
+              {sub === 'report-builder' && <ReportBuilder canPublish={canPublish} />}
               {sub === 'packages' && <PackagesTab />}
               {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'loans' && <LoansTab canEdit={canEdit} />}

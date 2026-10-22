@@ -18,8 +18,10 @@ import { parkSavedReport } from './drill';
 // already narrowed to what the person may open), the statements the menu does
 // not name (the plain Income Statement, Actual vs Budget), every memorized
 // report they can see (theirs and the team's) marked Memorized under its
-// statement's group, and every Report Builder report marked Saved (only its
-// author) or Published (the accounting team). One click opens any of them.
+// statement's group, and every Report Builder report marked Saved (a draft)
+// or Published. Sharing says who sees it: only the owner, or everyone with
+// Accounting (Share With Everyone - CR-05, Neil, 23 Oct: published reports
+// "are not shared by default"). One click opens any of them.
 //
 // A person limited to certain entities sees a memorized report only when
 // every entity it names is one of theirs - anything else would open empty.
@@ -120,7 +122,7 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
                     <td style={{ color: 'var(--text-secondary)', whiteSpace: 'normal' }}>{r.about || ''}</td>
                     <td style={{ color: 'var(--text-secondary)' }}>{r.saved ? (r.saved.mine ? 'You' : nameOf(r.saved.owner) || r.saved.owner) : ''}</td>
                     <td style={{ color: 'var(--text-secondary)' }}>
-                      {r.saved ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Users size={12} /> {r.saved.shared ? 'Accounting team' : 'Only the owner'}</span> : ''}
+                      {r.saved ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Users size={12} /> {r.saved.shared ? 'Everyone' : 'Only the owner'}</span> : ''}
                     </td>
                     <td style={{ color: 'var(--text-secondary)' }}>{r.saved?.updatedAt ? formatDate(r.saved.updatedAt) : ''}</td>
                     <td style={{ textAlign: 'right' }}>

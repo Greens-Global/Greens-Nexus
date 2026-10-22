@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, FilePlus2, Loader2, Play, Plus, Trash2, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, FilePlus2, Loader2, Play, Plus, Send, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
@@ -7,8 +7,9 @@ import Amount from './Amount';
 import { AccountsPicker, EntitiesPicker, ExportMenu, FiltersButton, PeriodStepper, control } from './reportControls';
 import { POPOVER_DIMS, bookOptions, csvFileName, csvRows, downloadBlob, downloadCsv, entityText, periodText, setUserBooks } from './reportModel';
 import {
-  BUILDER_COLUMNS, BUILDER_PERIODS, defaultBuilder, includedAccounts, readChart, resolveBuilder, runBuilder, storableBuilder,
+  BUILDER_COLUMNS, BUILDER_PERIODS, defaultBuilder, includedAccounts, isPublished, readChart, resolveBuilder, runBuilder, storableBuilder,
 } from './builderModel';
+import { BUILDER_COMPARE_OPTIONS, BUILDER_PUBLISH_SHARES } from './assumptions';
 import { useAccountingPrefs } from './prefs';
 import { clearParkedReport, peekParkedReport } from './drill';
 
@@ -25,20 +26,22 @@ import { clearParkedReport, peekParkedReport } from './drill';
 // read fresh on every Run through the statements' own bucket read, so a
 // person limited to certain entities builds over their entities only.
 //
-// Save keeps a report private to its author; Publish shares it with the
-// accounting team (the memorized report's `shared` flag). OPEN QUESTION
-// (Neil / Charmi, to confirm with Visesh): who may publish and whether a
-// published report is seen by the whole accounting team or fewer people. For
-// now, publishing takes the editor level on Accounting (canEdit) - the level
-// that edits shared accounting data - and anyone may save a private one, as
-// anyone may memorize a statement.
+// Oct 23, team answer (Neil, CR-05): "Yes it needs comparison columns.
+// Anyone can publish if they have access to accounting, and published reports
+// can be shared with everyone, but are not shared by default." Compare adds
+// vs Prior Period / vs Prior Year (BUILDER_COMPARE_OPTIONS) with Variance $
+// and %. Save keeps a draft; Publish marks it published (`published` in the
+// config), still seen by its author only (BUILDER_PUBLISH_SHARES); Share With
+// Everyone is the memorized report's `shared` flag, the sharing every
+// memorized report already uses. Anyone with Accounting may do all three
+// (canPublish, BUILDER_PUBLISH_MIN_LEVEL).
 
-export default function ReportBuilder({ canEdit = false }) {
+export default function ReportBuilder({ canPublish = true }) {
   const [parked] = useState(() => peekParkedReport(true));
   useEffect(() => { if (parked) clearParkedReport(parked); }, [parked]);
   const [config, setConfig] = useState(() => (parked ? resolveBuilder(parked.config) : defaultBuilder()));
   const [name, setName] = useState(() => parked?.name || '');
-  const [opened, setOpened] = useState(() => (parked ? { id: parked.id, name: parked.name, mine: !!parked.mine, shared: !!parked.shared } : null));
+  const [opened, setOpened] = useState(() => (parked ? { id: parked.id, name: parked.name, mine: !!parked.mine, shared: !!parked.shared, published: isPublished(parked) } : null));
   const patch = (p) => setConfig((c) => resolveBuilder({ ...c, ...p }));
   const [prefs] = useAccountingPrefs();
 
@@ -95,21 +98,33 @@ export default function ReportBuilder({ canEdit = false }) {
   const removeGroup = (i) => setGroups(groups.filter((_g, j) => j !== i));
   const [groupsOpen, setGroupsOpen] = useState(() => groups.length > 0);
 
-  // Save / Publish (the memorized report's `shared` flag).
+  // Save (a draft, or Save Changes keeping its state), Publish, Share With
+  // Everyone / Stop Sharing, Unpublish. `published` rides in the config,
+  // `shared` is the memorized report's flag.
   const [saving, setSaving] = useState('');
   const [saveNote, setSaveNote] = useState('');
-  const save = (shared) => {
+  const NOTES = {
+    save: 'Saved as a draft. Only you see it in the Report Center.',
+    publish: BUILDER_PUBLISH_SHARES ? 'Published and shared with everyone. It is in the Report Center.' : 'Published. Only you see it until you share it with everyone.',
+    share: 'Shared with everyone who has Accounting. It is in their Report Center.',
+    unshare: 'No longer shared. Only you see it.',
+    unpublish: 'Back to a draft. Only you see it.',
+  };
+  const save = (action = 'save') => {
     const n = name.trim();
     if (!n || saving) return;
-    setSaving(shared ? 'publish' : 'save');
+    const keep = opened?.mine ? opened : { published: false, shared: false };
+    const published = action === 'publish' || action === 'share' ? true : action === 'unpublish' ? false : !!keep.published;
+    const shared = action === 'share' ? true : action === 'publish' ? (keep.shared || BUILDER_PUBLISH_SHARES) : action === 'save' ? !!keep.shared : false;
+    setSaving(action);
     setSaveNote('');
     setError('');
-    const body = { name: n, config: storableBuilder(config), shared };
+    const body = { name: n, config: { ...storableBuilder(config), ...(published ? { published: true } : {}) }, shared };
     const call = opened?.mine ? api.updateAccountingSavedReport(opened.id, body) : api.saveAccountingReport(body);
     Promise.resolve(call)
       .then((r) => {
-        setOpened({ id: r?.id || opened?.id, name: r?.name || n, mine: true, shared: r ? !!r.shared : shared });
-        setSaveNote(shared ? 'Published to the accounting team. It is in the Report Center.' : 'Saved. Only you see it in the Report Center.');
+        setOpened({ id: r?.id || opened?.id, name: r?.name || n, mine: true, shared: r ? !!r.shared : shared, published: r ? isPublished(r) : published });
+        setSaveNote(action === 'save' && published ? 'Saved.' : NOTES[action]);
       })
       .catch((e) => setError(e?.message || 'Could not save the report.'))
       .finally(() => setSaving(''));
@@ -179,6 +194,15 @@ export default function ReportBuilder({ canEdit = false }) {
             </select>
           </label>
         )}
+        <span role="group" aria-label="Compare" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+          Compare
+          {BUILDER_COMPARE_OPTIONS.map((o) => (
+            <label key={o.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+              <input type="checkbox" checked={config.compare.includes(o.key)}
+                onChange={(e) => patch({ compare: e.target.checked ? [...config.compare, o.key] : config.compare.filter((k) => k !== o.key) })} /> {o.label}
+            </label>
+          ))}
+        </span>
         <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={select(config.book !== 'accrual')}>
           {books.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
         </select>
@@ -236,16 +260,24 @@ export default function ReportBuilder({ canEdit = false }) {
       <div style={{ ...card, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <input type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} aria-label="Report name" placeholder="Name this report"
           style={{ ...control, flex: '1 1 260px', maxWidth: 420 }} />
-        <button type="button" className="secondary-btn" onClick={() => save(opened?.mine ? opened.shared : false)} disabled={!name.trim() || !!saving} style={small}>
+        <button type="button" className="secondary-btn" onClick={() => save('save')} disabled={!name.trim() || !!saving} style={small}>
           {saving === 'save' ? 'Saving...' : opened?.mine ? 'Save Changes' : 'Save'}
         </button>
-        {canEdit && !(opened?.mine && opened.shared) && (
-          <button type="button" className="primary-btn" onClick={() => save(true)} disabled={!name.trim() || !!saving} style={small}>
-            <Users size={14} /> {saving === 'publish' ? 'Publishing...' : 'Publish'}
+        {canPublish && !(opened?.mine && opened.published) && (
+          <button type="button" className="primary-btn" onClick={() => save('publish')} disabled={!name.trim() || !!saving} style={small}>
+            <Send size={14} /> {saving === 'publish' ? 'Publishing...' : 'Publish'}
           </button>
         )}
-        {canEdit && opened?.mine && opened.shared && (
-          <button type="button" className="secondary-btn" onClick={() => save(false)} disabled={!name.trim() || !!saving} style={small}>Make Private</button>
+        {canPublish && opened?.mine && opened.published && !opened.shared && (
+          <button type="button" className="primary-btn" onClick={() => save('share')} disabled={!name.trim() || !!saving} style={small}>
+            <Users size={14} /> {saving === 'share' ? 'Sharing...' : 'Share With Everyone'}
+          </button>
+        )}
+        {canPublish && opened?.mine && opened.published && opened.shared && (
+          <button type="button" className="secondary-btn" onClick={() => save('unshare')} disabled={!name.trim() || !!saving} style={small}>Stop Sharing</button>
+        )}
+        {canPublish && opened?.mine && opened.published && (
+          <button type="button" className="secondary-btn" onClick={() => save('unpublish')} disabled={!name.trim() || !!saving} style={small}>Unpublish</button>
         )}
         <button type="button" className="secondary-btn" onClick={startNew} style={small}><FilePlus2 size={14} /> New</button>
         {opened?.mine && (confirmDelete ? (
@@ -258,7 +290,9 @@ export default function ReportBuilder({ canEdit = false }) {
           <button type="button" style={iconBtn} onClick={() => setConfirmDelete(true)} aria-label={`Delete ${opened.name}`} title="Delete this saved report"><Trash2 size={14} /></button>
         ))}
         <span role="status" style={{ fontSize: '0.76rem', color: saveNote ? 'var(--ok-fg, #15803d)' : 'var(--text-muted)' }}>
-          {saveNote || (opened ? `${opened.mine ? '' : 'Shared by a teammate - Save keeps your own copy. '}${opened.shared ? 'Published to the accounting team.' : 'Private to you.'}` : 'Saved reports appear in the Report Center.')}
+          {saveNote || (opened
+            ? `${opened.mine ? '' : 'Shared by a teammate - Save keeps your own copy. '}${opened.shared ? 'Published and shared with everyone.' : opened.published ? 'Published - only you see it.' : 'Draft - only you see it.'}`
+            : 'Saved reports appear in the Report Center.')}
         </span>
         {saveNote && <button type="button" style={iconBtn} onClick={() => setSaveNote('')} aria-label="Dismiss"><X size={13} /></button>}
       </div>
@@ -286,14 +320,14 @@ export default function ReportBuilder({ canEdit = false }) {
               <thead>
                 <tr>
                   <th className="acct-label acct-head" style={{ position: 'sticky' }}>Account</th>
-                  {shown.columns.map((c) => <th key={c.key} className="acct-num" style={c.emphasis ? EMPHASIS : undefined}>{c.label}</th>)}
+                  {shown.columns.map((c) => <th key={c.key} className="acct-num" title={c.hint} style={c.emphasis || c.compare ? EMPHASIS : undefined}>{c.label}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {visible.map((r, i) => {
                   const cells = shown.columns.map((c, k) => (
-                    <td key={c.key} className="acct-num" style={c.emphasis ? EMPHASIS : undefined}>
-                      {typeof r.values[k] === 'number' ? <Amount value={r.values[k]} zero="dash" /> : null}
+                    <td key={c.key} className="acct-num" style={c.emphasis || c.compare ? EMPHASIS : undefined}>
+                      {typeof r.values[k] === 'number' ? <Amount value={r.values[k]} zero="dash" /> : r.values[k] || null}
                     </td>
                   ));
                   if (r.kind === 'section') {
@@ -327,6 +361,7 @@ export default function ReportBuilder({ canEdit = false }) {
           <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
             Generated {formatDate(shown.generatedAt)} from the Nexus Accounting ledger. Each account is in its normal balance - income, liabilities and equity as credits less debits, everything else as debits less credits - and a group or grand total adds those up as shown.
             {config.period === 'asof' ? ' As of a date, balance sheet accounts are their balance on that date and income and expense accounts their year to date.' : ''}
+            {shown.builder.compare.length ? ` Variances are the ${shown.builder.cols === 'total' ? 'period' : 'Total column'} less the comparison; Variance % is that over the comparison.` : ''}
           </div>
         </div>
       )}

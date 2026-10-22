@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import accounting_assumptions as assume
 import models
 from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, company_of, get_current_user, level_for, require_module_grant
 from database import get_db
@@ -256,8 +257,23 @@ def _builder_config(config: dict) -> dict:
             isinstance(g, dict) and isinstance(g.get("name", ""), str) and isinstance(g.get("accounts", []), list)
             and all(isinstance(a, str) for a in g.get("accounts", [])) for g in groups):
         raise HTTPException(status_code=400, detail="Each row group needs a name and a list of GL account numbers.")
+    # CR-05 (Neil, 23 Oct): comparison columns and a Publish flag of its own.
+    compare = config.get("compare", [])
+    if not isinstance(compare, list) or any(k not in assume.BUILDER_COMPARE_KEYS for k in compare):
+        raise HTTPException(status_code=400, detail="A comparison is vs prior period or vs prior year.")
+    if not isinstance(config.get("published", False), bool):
+        raise HTTPException(status_code=400, detail="Published is yes or no.")
     if len(json.dumps(config)) > _BUILDER_MAX:
         raise HTTPException(status_code=400, detail="That report has too many accounts and groups to save.")
+    return config
+
+
+def _shared_builder(config: dict, shared: bool) -> dict:
+    """A builder report shared with everyone is a published one: sharing
+    comes after publishing (CR-05), so a share publishes it too. Publishing
+    alone never shares (BUILDER_PUBLISH_SHARES)."""
+    if config.get("kind") == "builder" and shared and not config.get("published"):
+        return {**config, "published": True}
     return config
 
 
@@ -283,7 +299,7 @@ def save_report(body: SavedReportBody, user: dict = Depends(get_current_user), d
     replaces that report, so "Save" on a changed view is one step."""
     me = user["email"].lower()
     name = _name(body.name)
-    config = _config(body.config)
+    config = _shared_builder(_config(body.config), bool(body.shared))
     row = (db.query(models.AccountingSavedReport)
            .filter(models.AccountingSavedReport.owner_email == me, models.AccountingSavedReport.name == name).first())
     now = _now()
@@ -325,6 +341,8 @@ def update_saved_report(report_id: str, body: SavedReportPatch, user: dict = Dep
         row.shared = bool(body.shared)
     if body.config is not None:
         row.config = _config(body.config)
+    if isinstance(row.config, dict):
+        row.config = _shared_builder(row.config, bool(row.shared))
     row.updated_at = _now()
     db.commit()
     db.refresh(row)

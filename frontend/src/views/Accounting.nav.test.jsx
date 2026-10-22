@@ -35,7 +35,7 @@ vi.mock('../components/accounting/ReportCenter', () => ({ default: ({ groups, on
     <button type="button" onClick={() => onOpen('rpt-balance-sheet')}>Open Memorized</button>
   </div>
 ) }));
-vi.mock('../components/accounting/ReportBuilder', () => ({ default: ({ canEdit }) => <div data-testid="tab-report-builder" data-edit={canEdit ? 'yes' : 'no'} /> }));
+vi.mock('../components/accounting/ReportBuilder', () => ({ default: ({ canPublish }) => <div data-testid="tab-report-builder" data-edit={canPublish ? 'yes' : 'no'} /> }));
 vi.mock('../components/accounting/PackagesTab', () => stub('packages'));
 vi.mock('../components/accounting/AccessTab', () => stub('access'));
 vi.mock('../components/accounting/PfsTab', () => stub('pfs'));

@@ -154,6 +154,22 @@ def _emails(name: str) -> list[str]:
     return [e.strip().lower() for e in (os.getenv(name) or "").split(",") if e.strip()]
 
 
+# ── CR-05: Report Builder ────────────────────────────────────────────────────
+# Team answer, Teams 23 Oct 2026 (Neil): "Yes it needs comparison columns.
+# Anyone can publish if they have access to accounting, and published reports
+# can be shared with everyone, but are not shared by default."
+
+# CR-05 (confirmed by team, 23 Oct): the comparisons a saved builder report
+# may carry - the same keys as BUILDER_COMPARE_OPTIONS in
+# frontend/src/components/accounting/assumptions.js (prior period and prior
+# year: assumption, Charmi to confirm). Anything else is refused on save.
+BUILDER_COMPARE_KEYS = ("prior_period", "prior_year")
+
+# CR-05 (confirmed by team, 23 Oct): who may save and publish a builder
+# report - anyone the Accounting grant lets in (the router's own viewer
+# level; no editor check). Publishing never shares: `shared` (everyone) is
+# set only by Share With Everyone, and sharing publishes.
+
 # ── CR-13: AMA (Ask My Accountant) reclass flow ─────────────────────────────
 # Team answers, Teams 23 Oct 2026 ~02:22 IST (Neil): "Show all offsetting
 # accounts. Bookkeepers are currently Charmi, Neil, Urmi Priyanka and Vinod,

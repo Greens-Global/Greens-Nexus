@@ -209,6 +209,67 @@ class SavedReportKeysTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             accounting_saved._config({"kind": "other", "version": 1})
 
+    # CR-05 (Neil, 23 Oct): comparison columns; publishing is not sharing.
+    def test_builder_comparisons_and_published_flag(self):
+        from fastapi import HTTPException
+        good = {"kind": "builder", "version": 1, "compare": ["prior_period", "prior_year"], "published": True}
+        self.assertEqual(accounting_saved._config(good), good)
+        for bad in ({**good, "compare": ["next_year"]}, {**good, "compare": "prior_year"}, {**good, "published": "yes"}):
+            with self.assertRaises(HTTPException):
+                accounting_saved._config(bad)
+        draft = {"kind": "builder", "version": 1}
+        self.assertEqual(accounting_saved._shared_builder(draft, False), draft)
+        self.assertTrue(accounting_saved._shared_builder(draft, True)["published"])
+        statement = {"report": "pnl"}
+        self.assertEqual(accounting_saved._shared_builder(statement, True), statement)
+
+
+OTHER = "other.reports.test@greensglobal.com"
+
+
+class BuilderPublishTests(ReportsProxyTests):
+    """A viewer saves and publishes; a published report stays the author's
+    until Share With Everyone (the memorized report's `shared` flag)."""
+
+    def setUp(self):
+        super().setUp()
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroupMember(group_id=GROUP, email=OTHER))
+            db.commit()
+        finally:
+            db.close()
+        cache.module_grants.invalidate()
+
+    def _cleanup(self):
+        super()._cleanup()
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.email == OTHER).delete(synchronize_session=False)
+            db.query(models.AccountingSavedReport).filter(models.AccountingSavedReport.owner_email.in_((VIEWER, OTHER))).delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+
+    def test_viewer_publishes_and_shares_separately(self):
+        os.environ["NEXUS_DEV_EMAIL"] = VIEWER
+        cfg = {"kind": "builder", "version": 1, "accounts": ["61000"], "compare": ["prior_year"], "published": True}
+        r = self.client.post("/accounting/saved-reports", json={"name": "Schedule C draft", "config": cfg, "shared": False})
+        self.assertEqual(r.status_code, 201, r.text)
+        rid = r.json()["id"]
+        self.assertEqual((r.json()["shared"], r.json()["config"]["published"]), (False, True))
+        os.environ["NEXUS_DEV_EMAIL"] = OTHER
+        self.assertEqual([x for x in self.client.get("/accounting/saved-reports").json() if x["id"] == rid], [])
+        os.environ["NEXUS_DEV_EMAIL"] = VIEWER
+        self.assertEqual(self.client.patch(f"/accounting/saved-reports/{rid}", json={"shared": True}).status_code, 200)
+        os.environ["NEXUS_DEV_EMAIL"] = OTHER
+        seen = [x for x in self.client.get("/accounting/saved-reports").json() if x["id"] == rid]
+        self.assertEqual((len(seen), seen[0]["shared"], seen[0]["mine"]), (1, True, False))
+        # A draft shared straight away is published by the share.
+        os.environ["NEXUS_DEV_EMAIL"] = VIEWER
+        r = self.client.post("/accounting/saved-reports", json={"name": "Shared draft", "config": {"kind": "builder", "version": 1}, "shared": True})
+        self.assertTrue(r.json()["config"]["published"])
+
 
 if __name__ == "__main__":
     unittest.main()

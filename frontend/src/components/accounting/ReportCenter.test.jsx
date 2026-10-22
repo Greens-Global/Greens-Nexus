@@ -32,7 +32,7 @@ describe('ReportCenter', () => {
     const fin = screen.getByRole('region', { name: 'Financial' });
     const rowOf = (name) => within(fin).getByRole('button', { name }).closest('tr');
     expect(rowOf('Balance Sheet').textContent).toContain('Standard');
-    expect(rowOf('GG Inc Balance Sheet').textContent).toMatch(/Memorized.*Urmi Shah.*Accounting team.*10\/20\/2026/);
+    expect(rowOf('GG Inc Balance Sheet').textContent).toMatch(/Memorized.*Urmi Shah.*Everyone.*10\/20\/2026/);
     const center = screen.getByRole('region', { name: 'Report Center' });
     expect(within(center).getByRole('button', { name: 'Custom Lines' }).closest('tr').textContent).toMatch(/Saved.*You.*Only the owner/);
     expect(within(center).getByRole('button', { name: 'Report Builder' })).toBeTruthy();

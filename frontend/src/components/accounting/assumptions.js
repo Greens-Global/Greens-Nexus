@@ -74,6 +74,38 @@ export const REPORT_MENU_PLACEMENT = {
   'mgmt-fees': { group: 'grp-audit', after: 'profitability' },
 };
 
+// ── CR-05 Report Builder ────────────────────────────────────────────────────
+// Team answer, 23 Oct (Neil): "Yes it needs comparison columns. Anyone can
+// publish if they have access to accounting, and published reports can be
+// shared with everyone, but are not shared by default. You already have a
+// workflow on it."
+
+// CR-05 (confirmed by team, 23 Oct): the comparisons a builder report can
+// add. Chosen (assumption, Charmi to confirm): prior period (the same length
+// just before) and prior year (the same dates a year back) - the two the
+// statements already offer. As of a date: the prior month-end and the same
+// date last year.
+export const BUILDER_COMPARE_OPTIONS = [
+  { key: 'prior_period', label: 'vs Prior Period', short: 'Prior Period' },
+  { key: 'prior_year', label: 'vs Prior Year', short: 'Prior Year' },
+];
+// CR-05 (assumption, Charmi to confirm): a new report starts with no
+// comparison, so a plain report stays one column; a report saved before has
+// none either.
+export const BUILDER_DEFAULT_COMPARE = [];
+// CR-05 (assumption, Charmi to confirm): each comparison adds the prior
+// figure, then Variance $ and Variance % (current less prior, and that over
+// the prior) - what the Flux Analysis and the statements show. Drop
+// 'percent' or 'amount' to show one only.
+export const BUILDER_VARIANCE_COLUMNS = ['amount', 'percent'];
+// CR-05 (confirmed by team, 23 Oct): "Anyone can publish if they have access
+// to accounting" - the Accounting grant's lowest level saves and publishes.
+export const BUILDER_PUBLISH_MIN_LEVEL = 'viewer';
+// CR-05 (confirmed by team, 23 Oct): "not shared by default" - Publish leaves
+// a report seen by its author only; Share With Everyone is its own step (the
+// memorized report's `shared` flag, the existing sharing workflow).
+export const BUILDER_PUBLISH_SHARES = false;
+
 // ── CR-13: AMA (Ask My Accountant) ─────────────────────────────────────────
 
 // CR-13 (confirmed by team, 23 Oct - Neil: "Show all offsetting accounts"):

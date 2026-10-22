@@ -43,7 +43,7 @@ async function pick(label, codes) {
 
 describe('ReportBuilder', () => {
   it('groups accounts under a named line, runs, and totals each line with a grand total', async () => {
-    render(<ReportBuilder canEdit />);
+    render(<ReportBuilder />);
     await waitFor(() => expect(api.getAccountingBuckets).toHaveBeenCalled());   // the chart of accounts
     fireEvent.click(screen.getByRole('button', { name: /Add Row Group/ }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Row group 1 name' }), { target: { value: 'Line A' } });
@@ -66,8 +66,8 @@ describe('ReportBuilder', () => {
     expect(screen.queryByText('Advertising')).toBeNull();
   });
 
-  it('saves privately, publishes to the team, and keeps a versioned builder config', async () => {
-    render(<ReportBuilder canEdit />);
+  it('saves a draft, publishes it unshared, then shares it with everyone (CR-05)', async () => {
+    render(<ReportBuilder />);
     await waitFor(() => expect(api.getAccountingBuckets).toHaveBeenCalled());
     fireEvent.change(screen.getByRole('textbox', { name: 'Report name' }), { target: { value: 'My Lines' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -75,23 +75,54 @@ describe('ReportBuilder', () => {
     const body = api.saveAccountingReport.mock.calls[0][0];
     expect(body).toMatchObject({ name: 'My Lines', shared: false, config: { kind: 'builder', version: 1 } });
     expect(await screen.findByText(/Only you see it in the Report Center/)).toBeTruthy();
-    // Now it is mine: Publish shares the same report.
+    // Publish marks the same report published - NOT shared (Neil: "not shared by default").
     fireEvent.click(screen.getByRole('button', { name: /Publish/ }));
-    await waitFor(() => expect(api.updateAccountingSavedReport).toHaveBeenCalledWith('new1', expect.objectContaining({ shared: true, name: 'My Lines' })));
-    expect(await screen.findByRole('button', { name: 'Make Private' })).toBeTruthy();
+    await waitFor(() => expect(api.updateAccountingSavedReport).toHaveBeenCalledWith('new1', expect.objectContaining({
+      shared: false, name: 'My Lines', config: expect.objectContaining({ kind: 'builder', published: true }),
+    })));
+    expect(await screen.findByText(/Only you see it until you share it with everyone/)).toBeTruthy();
+    // Sharing is its own step.
+    fireEvent.click(await screen.findByRole('button', { name: /Share With Everyone/ }));
+    await waitFor(() => expect(api.updateAccountingSavedReport).toHaveBeenLastCalledWith('new1', expect.objectContaining({ shared: true, config: expect.objectContaining({ published: true }) })));
+    expect(await screen.findByRole('button', { name: 'Stop Sharing' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Unpublish' }));
+    await waitFor(() => expect(api.updateAccountingSavedReport).toHaveBeenLastCalledWith('new1', expect.objectContaining({ shared: false })));
+    expect(api.updateAccountingSavedReport.mock.calls.at(-1)[1].config.published).toBeUndefined();
   });
 
-  it('offers Publish only to an editor', async () => {
-    render(<ReportBuilder canEdit={false} />);
+  it('lets anyone with Accounting publish, and hides it only when told to', async () => {
+    const { unmount } = render(<ReportBuilder />);
     await waitFor(() => expect(api.getAccountingBuckets).toHaveBeenCalled());
+    expect(screen.getByRole('button', { name: /Publish/ })).toBeTruthy();
+    unmount();
+    render(<ReportBuilder canPublish={false} />);
     expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Publish/ })).toBeNull();
+  });
+
+  it('adds vs Prior Year columns with Variance $ and % (CR-05)', async () => {
+    render(<ReportBuilder />);
+    await waitFor(() => expect(api.getAccountingBuckets).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('checkbox', { name: /vs Prior Year/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Run/ }));
+    const table = await screen.findByRole('table');
+    const heads = [...table.querySelectorAll('thead th')].map((th) => th.textContent);
+    expect(heads.slice(-2)).toEqual(['Variance $', 'Variance %']);
+    // The mock answers the same figures for the prior year: no variance.
+    const advertising = [...table.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes('Advertising'));
+    expect(advertising.textContent).toMatch(/1,200\.00.*1,200\.00/);
+    expect(advertising.textContent).toContain('0.0%');
+    // Two reads for the period: the report and its prior year (plus the chart of accounts).
+    const years = api.getAccountingBuckets.mock.calls.slice(1).map((c) => c[0].from.slice(0, 4));
+    expect(new Set(years).size).toBe(2);
   });
 
   it('reopens a saved report from the Report Center with its definition and runs it', async () => {
     parkSavedReport({ id: 'b1', name: 'Custom Lines', mine: true, shared: true,
       config: { kind: 'builder', version: 1, groups: [{ name: 'Line A', accounts: ['61000'] }] } }, true);
-    render(<ReportBuilder canEdit />);
+    render(<ReportBuilder />);
+    // Shared before Publish existed: it reads as published and shared.
+    expect(screen.getByText('Published and shared with everyone.')).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'Report name' }).value).toBe('Custom Lines');
     expect(screen.getByRole('textbox', { name: 'Row group 1 name' }).value).toBe('Line A');
     const table = await screen.findByRole('table');
