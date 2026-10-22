@@ -533,6 +533,51 @@ class ReviewRoundThreeTests(Base):
         return t.id
 
 
+class ReviewFinalTests(Base):
+    RULE = {"freq": "weekly", "daysOfWeek": [1]}
+
+    def legacy_pair(self):
+        prev = self.task(title="Take out Trash", due_on="2026-10-12", recurrence=dict(self.RULE),
+                         completed=True, status="completed")
+        cur = self.task(title="take out trash ", due_on="2026-10-19", recurrence=dict(self.RULE))
+        prev.recurrence = {**self.RULE, "nextOccurrenceId": cur.id}
+        self.db.commit()
+        return prev, cur
+
+    def test_legacy_siblings_are_found_whatever_the_title_case(self):
+        prev, cur = self.legacy_pair()
+        self.assertEqual({m.id for m in T._series_members(self.db, cur)}, {prev.id, cur.id})
+        self.assertEqual(self.code(lambda: T.update_task(cur.id, T.TaskUpdate(due_on="2026-10-11"), BackgroundTasks(),
+                                                         user=SAGAR, db=self.db)), 422)
+
+    def test_clearing_the_live_occurrences_date_is_refused(self):
+        _, cur = self.legacy_pair()
+        with self.assertRaises(HTTPException) as e:
+            T.update_task(cur.id, T.TaskUpdate(due_on=""), BackgroundTasks(), user=SAGAR, db=self.db)
+        self.db.rollback()
+        self.assertEqual((e.exception.status_code, e.exception.detail), (422, T.SERIES_NEEDS_DUE))
+        out = self.dates([cur.id], op="clear_due")
+        self.assertEqual((out["changed"], out["blocked"]), (0, 1))
+        self.assertEqual(out["blockedTasks"][0]["reason"], T.SERIES_NEEDS_DUE)
+        self.assertEqual(self.fresh(cur).due_on, "2026-10-19")
+
+    def test_stopping_the_repeat_in_the_same_edit_clears_it(self):
+        _, cur = self.legacy_pair()
+        T.update_task(cur.id, T.TaskUpdate(due_on="", recurrence=None), BackgroundTasks(), user=SAGAR, db=self.db)
+        cur = self.fresh(cur)
+        self.assertEqual(cur.due_on or "", "")
+
+    def test_a_rolled_forward_or_missed_copy_may_be_cleared(self):
+        prev, cur = self.legacy_pair()
+        prev.completed, prev.status = False, "not_started"     # older open copy, already rolled forward
+        self.db.commit()
+        out = self.dates([prev.id], op="clear_due")
+        self.assertEqual((out["changed"], out["blocked"]), (1, 0))
+        plain = self.task(due_on="2026-10-19")                  # not repeating at all
+        T.update_task(plain.id, T.TaskUpdate(due_on=""), BackgroundTasks(), user=SAGAR, db=self.db)
+        self.assertEqual(self.fresh(plain).due_on or "", "")
+
+
 class ReviewLowTests(Base):
     def test_checklist_sync_runs_only_for_a_date_that_really_moved(self):
         held = self.task(due_on="2026-10-30", due_extension_count=2)

@@ -1582,10 +1582,12 @@ def _series_members(db: Session, t: models.Task, cache: Optional[dict] = None) -
         return []
     sid = str(rec.get("seriesId") or "")
     company = getattr(t, "company_id", "") or ""
-    key = ("series", sid) if sid else ("print", t.title or "", t.project_id or "", company)
+    # The title as _legacy_series_key compares it: trimmed, any case.
+    title = (t.title or "").strip().lower()
+    key = ("series", sid) if sid else ("print", title, t.project_id or "", company)
     cache = {} if cache is None else cache
     if key not in cache:
-        same = [and_(models.Task.title == (t.title or ""),
+        same = [and_(func.lower(func.trim(func.coalesce(models.Task.title, ""))) == title,
                      func.coalesce(models.Task.project_id, "") == (t.project_id or ""),
                      func.coalesce(models.Task.company_id, "") == company)]
         if sid:
@@ -1599,6 +1601,19 @@ def _series_members(db: Session, t: models.Task, cache: Optional[dict] = None) -
                      if isinstance(r.recurrence, dict) and r.recurrence.get("freq") in _SCHEDULED_FREQS and r.due_on]
         cache[key] = {m.id: g for g in _series_groups(scheduled, by_id) for m in g}
     return cache[key].get(t.id, [])
+
+
+SERIES_NEEDS_DUE = "A repeating task needs a due date - stop the repeat first or complete it."
+
+
+def _clearing_stops_series(t: models.Task) -> bool:
+    """Whether clearing `t`'s due date would stop its series (Oct 22 2026):
+    the daily scan only carries forward occurrences that HAVE a due date, so
+    the live occurrence of a calendar series - open, not yet rolled forward,
+    not a reopened Missed copy - must keep one."""
+    rec = t.recurrence if isinstance(t.recurrence, dict) else {}
+    return (rec.get("freq") in _SCHEDULED_FREQS and bool((t.due_on or "")[:10]) and not t.completed
+            and not rec.get("nextOccurrenceId") and not rec.get("closedAsMissed"))
 
 
 def _series_order_problem(db: Session, t: models.Task, new_due: str, cache: Optional[dict] = None,
@@ -2501,6 +2516,13 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         problem = _series_order_problem(db, t, data.get("due_on") or "")
         if problem:
             raise HTTPException(422, problem)
+        # Clearing the live occurrence's date stops the series - unless this
+        # same edit stops the repeat or completes the task.
+        stops_repeat = ("recurrence" in data
+                        and (data["recurrence"] or {}).get("freq") not in _SCHEDULED_FREQS)
+        if (not (data.get("due_on") or "")[:10] and _clearing_stops_series(t) and not stops_repeat
+                and not _resolve_completed(data, prev_completed)):
+            raise HTTPException(422, SERIES_NEEDS_DUE)
     auto_before = task_automation.snapshot(t)
     modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
@@ -3331,6 +3353,9 @@ def _bulk_date_changes(db: Session, dates: BulkDates, rows: list) -> tuple[dict,
         elif dates.op == "set_start":
             ch = {"start_on": dates.on[:10]} if start != dates.on[:10] else {}
         else:   # clear_due
+            if due and _clearing_stops_series(t):
+                blocked.append({"id": t.id, "title": t.title or "", "code": "series", "reason": SERIES_NEEDS_DUE})
+                continue
             ch = {"due_on": ""} if due else {}
         if ch:
             out[t.id] = ch
