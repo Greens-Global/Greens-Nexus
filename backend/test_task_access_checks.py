@@ -217,11 +217,78 @@ class AttachmentUrlTests(Base):
 
 
 class PeopleTests(Base):
-    def test_an_outside_address_cannot_be_assigned_or_follow(self):
-        self.assertEqual(self.code(lambda: T.create_task(T.TaskCreate(title="x", assignee_emails=["x@gmail.com"]),
-                                                         BackgroundTasks(), user=OWNER, db=self.db)), 422)
-        self.assertEqual(self.code(lambda: T.create_task(T.TaskCreate(title="x", follower_emails=["x@gmail.com"]),
-                                                         BackgroundTasks(), user=OWNER, db=self.db)), 422)
+    def arm(self, on=True):
+        self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+        if on:
+            self.db.add(models.NexusSetting(key="company_walls", value="on"))
+        self.db.commit()
+        cache.settings_config.invalidate()
+
+    def test_create_leaves_off_people_who_cannot_be_added_and_says_so(self):
+        # Add Subtask / Duplicate / Use Template carry people over from a source
+        # task: one departed collaborator must not fail the create.
+        parent = self.task(access_level="org", created_by=OWNER["email"])
+        out = T.create_task(T.TaskCreate(title="sub", parent_task_id=parent.id,
+                                         assignee_emails=[ASSIGNEE["email"], "x@gmail.com"],
+                                         follower_emails=["leaver@greensglobal.com", FOLLOWER["email"]]),
+                            BackgroundTasks(), user=OWNER, db=self.db)
+        self.assertEqual(out["assigneeIds"], [ASSIGNEE["email"]])
+        self.assertIn(FOLLOWER["email"], out["followerIds"])
+        self.assertNotIn("leaver@greensglobal.com", out["followerIds"])
+        self.assertEqual({(d["email"], d["reason"]) for d in out["droppedPeople"]},
+                         {("x@gmail.com", "is not in the Nexus directory"),
+                          ("leaver@greensglobal.com", "has left")})
+        note = self.db.query(models.TaskActivity).filter(models.TaskActivity.type == "people_not_added").one()
+        self.assertEqual(note.entity_id, out["id"])
+        self.assertIn("leaver@greensglobal.com (has left)", note.detail)
+
+    def test_a_clean_create_has_no_dropped_list(self):
+        out = T.create_task(T.TaskCreate(title="x", assignee_emails=[ASSIGNEE["email"]]),
+                            BackgroundTasks(), user=OWNER, db=self.db)
+        self.assertNotIn("droppedPeople", out)
+
+    def test_the_caller_adding_themselves_on_create_always_passes(self):
+        stranger = {"email": "admin-service@greensglobal.com", "level": 1}
+        out = T.create_task(T.TaskCreate(title="x", assignee_emails=[stranger["email"]]),
+                            BackgroundTasks(), user=stranger, db=self.db)
+        self.assertEqual(out["assigneeIds"], [stranger["email"]])
+
+    def test_another_company_is_assignable_with_walls_off_and_not_behind_them(self):
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email.in_(
+            [OWNER["email"], ASSIGNEE["email"]])).update({"company": "co-us"}, synchronize_session=False)
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email="india@greensglobal.com", first_name="I",
+                                         status="active", company="co-in"))
+        self.db.commit()
+        t = self.task(access_level="org", company_id="co-us", created_by=OWNER["email"])
+        self.assertIn("india@greensglobal.com", self.patch(t, OWNER, assignee_emails=["india@greensglobal.com"])["assigneeIds"])
+        t2 = self.task(access_level="org", company_id="co-us", created_by=OWNER["email"])
+        self.arm()
+        try:
+            with self.assertRaises(HTTPException) as e:
+                self.patch(t2, OWNER, assignee_emails=["india@greensglobal.com"])
+            self.db.rollback()
+            self.assertEqual(e.exception.status_code, 422)
+            self.assertIn("another company", e.exception.detail)
+        finally:
+            self.arm(False)
+
+    def test_an_inactive_person_is_assignable_as_in_the_people_picker(self):
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email="onleave@greensglobal.com", first_name="L",
+                                         status="inactive"))
+        self.db.commit()
+        t = self.task(access_level="org")
+        self.assertEqual(self.patch(t, OWNER, assignee_emails=["onleave@greensglobal.com"])["assigneeIds"],
+                         ["onleave@greensglobal.com"])
+
+    def test_re_adding_a_departed_assignee_says_why(self):
+        t = self.task(access_level="org")
+        with self.assertRaises(HTTPException) as e:
+            self.patch(t, OWNER, assignee_emails=["leaver@greensglobal.com"])
+        self.db.rollback()
+        self.assertEqual(e.exception.status_code, 422)
+        self.assertEqual(e.exception.detail, "leaver@greensglobal.com has left and can't be re-added.")
+
+    def test_an_outside_address_cannot_be_assigned_or_follow_on_an_edit(self):
         t = self.task(access_level="org")
         self.assertEqual(self.code(lambda: self.patch(t, OWNER, assignee_emails=["x@gmail.com"])), 422)
         self.assertEqual(self.code(lambda: self.patch(t, OWNER, follower_emails=["leaver@greensglobal.com"])), 422)
@@ -299,16 +366,54 @@ class RequiredFieldTests(Base):
         self.db.expire_all()
         self.assertEqual(self.db.get(models.Task, t.id).custom_field_values, {"prop": "Escondido"})
 
-    def test_moving_into_a_project_where_it_is_empty_is_refused(self):
+    def test_moving_into_a_project_where_it_is_empty_is_allowed(self):
+        # The drawer can only show the project's fields once the task is in it.
         t = self.task(access_level="org")
-        self.assertEqual(self.code(lambda: self.patch(t, OWNER, project_id=self.p.id)), 422)
-        self.assertEqual(self.code(lambda: T.bulk_update(T.BulkUpdate(ids=[t.id], patch={"project_id": self.p.id}),
-                                                         user=OWNER, db=self.db)), 422)
-        self.assertEqual(self.patch(t, OWNER, project_id=self.p.id,
-                                    custom_field_values={"prop": "Escondido"})["projectId"], self.p.id)
+        self.assertEqual(self.patch(t, OWNER, project_id=self.p.id)["projectId"], self.p.id)
+        t2 = self.task(access_level="org")
+        T.bulk_update(T.BulkUpdate(ids=[t2.id], patch={"project_id": self.q.id}), user=OWNER, db=self.db)
+        # ...but moving AND clearing the value in one go is still a clear.
+        t3 = self.task(project_id=self.p.id, access_level="org", custom_field_values={"prop": "Escondido"})
+        self.assertEqual(self.code(lambda: self.patch(t3, OWNER, project_id=self.q.id, custom_field_values={})), 422)
+
+
+class BatchCostTests(Base):
+    def test_an_externals_bulk_edit_works_out_their_projects_once(self):
+        guest = {"email": "guest@partner.com", "level": 1, "external": True}
+        p = self.project(access_level="org", name="Shared", member_emails=[guest["email"]])
+        ids = [self.task(project_id=p.id, access_level="org").id for _ in range(5)]
+        import routers.task_util as U
+        real = U.visible_project_ids
+        with mock.patch.object(U, "visible_project_ids", side_effect=real) as spy:
+            T.bulk_update(T.BulkUpdate(ids=ids, patch={"priority": "high"}), user=guest, db=self.db)
+        self.assertEqual(spy.call_count, 1)
 
 
 class DueClearTests(Base):
+    def test_a_clear_logged_before_this_change_is_not_a_baseline(self):
+        # Legacy history: the clear has no "agreement" on it. Setting a later
+        # date afterwards behaves exactly as on dev - a first date, no count.
+        t = self.task(access_level="org", created_by=OWNER["email"], assignee_emails=[ASSIGNEE["email"]],
+                      due_on="", due_agreement="", due_extension_count=0,
+                      due_history=[{"at": now_iso(), "from": "", "to": "2026-10-01", "by": ASSIGNEE["email"],
+                                    "source": "app", "extension": False},
+                                   {"at": now_iso(), "from": "2026-10-01", "to": "", "by": ASSIGNEE["email"],
+                                    "source": "app", "extension": False}])
+        self.patch(t, ASSIGNEE, due_on="2026-12-20")
+        self.db.refresh(t)
+        self.assertEqual(t.due_extension_count, 0)
+        self.assertEqual(t.due_on, "2026-12-20")
+        self.assertFalse(t.due_history[-1]["extension"])
+
+    def test_a_clear_recorded_now_is_counted(self):
+        t = T.create_task(T.TaskCreate(title="x", assignee_emails=[ASSIGNEE["email"]], due_on="2026-10-10"),
+                          BackgroundTasks(), user=ASSIGNEE, db=self.db)
+        row = self.db.get(models.Task, t["id"])
+        self.patch(row, ASSIGNEE, due_on="")
+        self.patch(row, ASSIGNEE, due_on="2026-10-12")
+        self.db.refresh(row)
+        self.assertEqual(row.due_extension_count, 1)
+
     def test_clearing_then_pushing_past_the_approval_line_is_held_for_approval(self):
         # Two extensions already: the next one needs approval. Clearing the date
         # first used to make the new date "a first date" and skip the ask.

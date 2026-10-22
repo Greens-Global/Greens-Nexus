@@ -82,23 +82,23 @@ def _log(db: Session, t: models.Task, type_: str, actor: str, detail: str) -> No
 
 def last_cleared(t: models.Task) -> tuple[str, str]:
     """The date a task held before its due date was cleared, and the agreement
-    it stood at then - ("", "") when it never had one.
+    it stood at then - ("", "") when there is none to go by.
 
     Clearing a date and setting a later one used to count as "setting the
     first date": no extension, no approval, a clean count (Oct 21 2026). The
-    date being replaced is the last one the history shows. record_due_change
-    keeps the agreement on the clearing entry; a clear logged before that
-    has none, and is read as agreed - the conservative reading, so the gap
-    stays closed for tasks cleared before this shipped."""
-    agreement = None
+    date being replaced is the one the latest clear removed. Only a clear
+    recorded by record_due_change since then counts - it carries the
+    agreement it stood at. A clear logged before (no "agreement" on the
+    entry) is not a baseline: a date set after it behaves exactly as it
+    always did (a first date)."""
     for h in reversed(t.due_history if isinstance(t.due_history, list) else []):
         if not isinstance(h, dict):
             continue
-        to = (h.get("to") or "")[:10]
-        if to:
-            return to, (agreement or "")
-        if agreement is None:
-            agreement = h.get("agreement") or ""
+        if (h.get("to") or "")[:10]:
+            return "", ""          # the latest entry set a date: no clear to go by
+        if "agreement" not in h:
+            return "", ""          # a clear from before this was recorded: as on dev
+        return (h.get("from") or "")[:10], (h.get("agreement") or "")
     return "", ""
 
 

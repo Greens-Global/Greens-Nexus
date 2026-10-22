@@ -778,7 +778,8 @@ def assert_person_on_task(db: Session, task, email: str) -> str:
     return who
 
 
-def require_task_role(db: Session, user: dict, task, min_role: str, scope=_UNSET) -> None:
+def require_task_role(db: Session, user: dict, task, min_role: str, scope=_UNSET,
+                      visible_cache: dict | None = None) -> None:
     """require_project_role for a check about ONE task, where anyone the task
     is assigned to always counts.
 
@@ -831,9 +832,16 @@ def require_task_role(db: Session, user: dict, task, min_role: str, scope=_UNSET
     # project already means they can see that project (visible_project_ids
     # counts the same owner / member / team / org grants), so the common case
     # pays for no extra scan.
-    if (task is not None and (project is None or user.get("external"))
-            and not task_visible_to(db, user, task)):
-        raise HTTPException(404, "Task not found")
+    if task is not None and (project is None or user.get("external")):
+        visible = None
+        if visible_cache is not None and user.get("external"):
+            # A batch (bulk edit) checks many tasks for one external: their
+            # visible projects are worked out once, not per row.
+            if "v" not in visible_cache:
+                visible_cache["v"] = visible_project_ids(db, user)
+            visible = visible_cache["v"]
+        if not task_visible_to(db, user, task, visible):
+            raise HTTPException(404, "Task not found")
 
 
 def task_visible_to(db: Session, user: dict, task, visible: set | None = None) -> bool:

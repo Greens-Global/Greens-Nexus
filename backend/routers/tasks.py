@@ -36,6 +36,7 @@ from routers.task_util import (
     assert_task_wall, require_project_access, wall_rows, wall_teams,
     config_admits, config_company_for_new, assert_config_editable,
     task_visible_to, assert_person_assignable, project_role_for, PROJECT_ROLE_RANK, row_company,
+    split_people, note_dropped_people, _emp_company_map,
 )
 from task_notify import notify_task_event
 import task_due
@@ -550,19 +551,23 @@ def _require_dependency_targets(db: Session, user: dict, t, data: dict, task_id:
             require_task_role(db, user, other, "editor")
 
 
-def _require_people(db: Session, t, emails, actor: str = "") -> None:
-    """Every NEWLY added assignee / collaborator must be a current person in
-    the Nexus directory on the task's side of the company wall (Oct 21 2026):
-    assert_person_assignable, 422 otherwise. People already on the task are
-    never re-checked, so a task still holding somebody who has since left
-    stays editable. The caller themselves is not checked - they are signed
-    in, and following or taking a task you can already edit must keep
-    working for an account the People list does not carry."""
+def _require_people(db: Session, t, emails, actor: str = "", user=None, emp_map: dict | None = None) -> None:
+    """For an EDIT (PATCH, bulk): every NEWLY added assignee / collaborator
+    must be in the Nexus directory and not offboarded - and, behind the
+    company wall only, on the task's side of it (task_util.person_problem);
+    422 naming them otherwise. People already on the task are never
+    re-checked, so a task still holding somebody who has since left stays
+    editable. The caller themselves is not checked - they are signed in, and
+    following or taking a task you can already edit must keep working for an
+    account the People list does not carry. Create paths drop instead of
+    refusing (split_people)."""
     me = (actor or "").strip().lower()
-    for who in emails or []:
-        w = str(who or "").strip().lower()
-        if w and w != me:
-            assert_person_assignable(db, t, w)
+    names = [w for w in (str(x or "").strip().lower() for x in (emails or [])) if w and w != me]
+    if not names:
+        return
+    emp_map = emp_map if emp_map is not None else _emp_company_map(db)
+    for w in names:
+        assert_person_assignable(db, t, w, user=user, emp_map=emp_map)
 
 
 def _may_open_up(db: Session, user: dict, t) -> bool:
@@ -601,8 +606,7 @@ def _newly_missing_required(db: Session, t, project_before: str, values_before, 
                             values_after) -> list:
     """The required custom fields an edit would leave empty (Oct 21 2026).
 
-    Only what the EDIT causes: a value cleared that a required field held, or
-    the task moved into a project where a required field is empty. A task
+    Only what the EDIT causes: a value cleared that a required field held. A task
     that was already missing a required value (created before the field was
     required, or by an import) is not refused for an unrelated edit - that
     would make every older task uneditable until somebody filled it in.
@@ -612,9 +616,11 @@ def _newly_missing_required(db: Session, t, project_before: str, values_before, 
         return []
     company = row_company(db, t)
     after = missing_required_fields(db, project_after, values_after, task_company=company)
-    if project_after != (project_before or ""):
-        return after
-    was = {f.id for f in missing_required_fields(db, project_before, values_before, task_company=company)}
+    # Judged in the project the task ends up in: a field the task HAD a value
+    # for and no longer does. Moving into a project where a required field is
+    # empty is not refused - the drawer can only show that project's fields
+    # once the task is in it, so refusing the move left no way to fill them.
+    was = {f.id for f in missing_required_fields(db, project_after, values_before, task_company=company)}
     return [f for f in after if f.id not in was]
 
 
@@ -649,7 +655,7 @@ def _check_update_access(db: Session, user: dict, t, data: dict) -> None:
     if data.get("follower_emails") is not None:
         had = set(email_list(t.follower_emails))
         added += [f for f in data["follower_emails"] if (f or "").strip().lower() not in had]
-    _require_people(db, t, added, actor=user.get("email") or "")
+    _require_people(db, t, added, actor=user.get("email") or "", user=user)
     if "custom_field_values" in data or "project_id" in data:
         project_after = (data["project_id"] if "project_id" in data else t.project_id) or ""
         values_after = data["custom_field_values"] if "custom_field_values" in data else (t.custom_field_values or {})
@@ -1952,8 +1958,19 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
         created_at=now, modified_at=now, created_by=user["email"],
     )
     set_task_assignees(t, _assignees_from(body.__dict__, []) or [])
+    dropped_people: list = []
     if check_people:
-        _require_people(db, t, [*task_assignees(t), *(t.follower_emails or [])], actor=user["email"])
+        # People who may not be put on it (not in the directory, offboarded,
+        # or - behind the wall - another company) are LEFT OFF, not refused:
+        # Add Subtask, Duplicate and Use Template carry people over from a
+        # source task, and one departed collaborator must not fail the whole
+        # create. The task's history says who was not added and why, and the
+        # response lists them (droppedPeople). Oct 21 2026.
+        kept_a, gone_a = split_people(db, t, task_assignees(t), user, user["email"])
+        kept_f, gone_f = split_people(db, t, t.follower_emails or [], user, user["email"])
+        set_task_assignees(t, kept_a)
+        t.follower_emails = kept_f
+        dropped_people = gone_a + gone_f
     # Whoever raised the task follows it - see _follow_as_actor.
     _follow_as_actor(t, user["email"])
     # A date set for somebody else is a target they still have to confirm.
@@ -1968,6 +1985,7 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     aid = log_activity(db, type="created", actor_email=user["email"], entity_id=tid,
                        entity_code=t.code, entity_title=t.title, detail="created this task")
     t.activity_ids = [aid]
+    note_dropped_people(db, t, dropped_people, user["email"])
     # Automation rules that fire on creation (task_automation.py) write onto
     # this same row before anyone is told about it, so a rule that assigns or
     # re-dates the task notifies exactly as a person doing it would.
@@ -1995,7 +2013,10 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     fire_task_event(tid, "created")
     background_tasks.add_task(notify_task_event, tid, "created", user["email"])
     task_automation.run_after_commit(db, auto, background_tasks.add_task)
-    return task_to_dict(t)
+    out = task_to_dict(t)
+    if dropped_people:
+        out["droppedPeople"] = [{**d, "taskId": t.id} for d in dropped_people]
+    return out
 
 
 _MODIFIED_FIELD_LABELS = {"title": "Title changed", "description": "Description changed",
@@ -2624,8 +2645,9 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # reassign or close it by routing through here instead of PATCH.
     # All-or-nothing on purpose - a partial apply would leave the caller with no
     # way to tell which ids were silently skipped.
+    seen: dict = {}   # an external's visible projects, worked out once for the batch
     for t in rows:
-        require_task_role(db, user, t, "editor", scope=scope)
+        require_task_role(db, user, t, "editor", scope=scope, visible_cache=seen)
     # The rest of what a single PATCH checks (Oct 21 2026), all before any row
     # is written so the batch stays all-or-nothing: editor on the project the
     # tasks are moved into, newly added assignees are directory people on each
@@ -2634,10 +2656,12 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     dest = (patch.get("project_id") or "") if "project_id" in patch else ""
     if dest and any((t.project_id or "") != dest for t in rows):
         _require_destination_projects(db, user, [dest])
+    emp_map = _emp_company_map(db) if ("assignee_email" in patch or "assignee_emails" in patch) else None
     for t in rows:
         current = task_assignees(t)
         wanted = _assignees_from(patch, list(current))
-        _require_people(db, t, [w for w in (wanted or []) if w not in current], actor=user["email"])
+        _require_people(db, t, [w for w in (wanted or []) if w not in current], actor=user["email"],
+                        user=user, emp_map=emp_map)
         if "custom_field_values" in patch or "project_id" in patch:
             project_after = (patch["project_id"] if "project_id" in patch else t.project_id) or ""
             values_after = (_merge_custom_field_values(db, t.custom_field_values, patch["custom_field_values"])
