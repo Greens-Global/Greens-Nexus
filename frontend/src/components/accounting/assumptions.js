@@ -26,6 +26,19 @@ export const COMP_REQUEST_TIMEOUT_MS = 180_000;
 // Pre-fills for a new "Percent or Flat" agreement; each agreement keeps its
 // own values. The server's matching defaults are backend MGMT_FEE_DEFAULT_*.
 
+// Team answer, 23 Oct (Neil): "Usually it's 3% of gross revenue or
+// $3,000/month, whichever is higher. but these thresholds get built in
+// property by property." -> the Greater Of basis, per agreement.
+
+// CR-03 (confirmed by team, 23 Oct): new agreements start on Greater Of.
+export const MGMT_FEE_DEFAULT_BASIS = 'greater_of';
+// CR-03 (confirmed by team, 23 Oct): "$3,000/month" - a new Greater Of
+// agreement's monthly minimum (each agreement keeps its own). Backend
+// MGMT_FEE_DEFAULT_MONTHLY_MINIMUM.
+export const MGMT_FEE_DEFAULT_MONTHLY_MINIMUM = 3000;
+
+// The defaults below serve the older "Percent or Flat (Threshold)" basis,
+// kept for agreements saved with it.
 // CR-03 (Charmi to confirm): chosen $100,000 because it is the first figure
 // Charmi gave ("$100,000 or $30,000 or $50,000") and 3% of it is exactly the
 // $3,000 flat fee, so the two fees meet at the threshold.

@@ -84,6 +84,7 @@ describe('ManagementFeesTab', () => {
     expect(api.createAmaAgreement).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Managed Entity' }));
     fireEvent.click(await screen.findByText(/Greens Escondido, LLC\./, { selector: '[role="option"] *, [role="option"]' }));
+    fireEvent.change(within(dialog).getByLabelText('Fee Basis'), { target: { value: 'percent_revenue' } });
     fireEvent.change(within(dialog).getByLabelText('Fee Rate %'), { target: { value: '3.5' } });
     fireEvent.change(within(dialog).getByLabelText('Start Date'), { target: { value: '2026-01-01' } });
     fireEvent.change(within(dialog).getByLabelText('Agreement Link'), { target: { value: 'https://example.com/a.pdf' } });
@@ -192,6 +193,41 @@ describe('ManagementFeesTab', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Use "40999"' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.updateAmaAgreement).toHaveBeenCalledWith('A1', expect.objectContaining({ feeGlAccount: '40999', thresholdAmount: null })));
+  });
+
+  // ── CR-03 team answer (23 Oct): 3% of gross or $3,000/month, whichever is higher
+  it('starts a new agreement on Greater Of with 3% and $3,000 a month, and saves it', async () => {
+    render(<ManagementFeesTab canEdit />);
+    await screen.findByText('15000 Greens Escondido, LLC.');
+    fireEvent.click(screen.getByRole('button', { name: /Add Agreement/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add Agreement' });
+    expect(within(dialog).getByLabelText('Fee Basis').value).toBe('greater_of');
+    expect(within(dialog).getByLabelText('Fee Rate %').value).toBe('3');
+    expect(within(dialog).getByText('Monthly Minimum')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Managed Entity' }));
+    fireEvent.click(await screen.findByText(/Greens Escondido, LLC\./, { selector: '[role="option"] *, [role="option"]' }));
+    fireEvent.change(within(dialog).getByLabelText('Start Date'), { target: { value: '2026-01-01' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add Agreement' }));
+    await waitFor(() => expect(api.createAmaAgreement).toHaveBeenCalledWith(expect.objectContaining({
+      entityCode: '15000', feeBasis: 'greater_of', feeRate: 3, flatAmount: 3000, thresholdAmount: null,
+    })));
+  });
+
+  it('shows which rule applied on a Greater Of agreement', async () => {
+    api.getAmaSummary.mockImplementation(async () => ({
+      ...summary,
+      rows: [row({ feeBasis: 'greater_of', feeRate: 3, flatAmount: 3000, grossRevenue: 350000, calculatedFee: 12000, feeTier: 'mixed',
+        minimumUsed: 3000, minimumMonths: 1, percentMonths: 2, compareBy: 'month' })],
+    }));
+    render(<ManagementFeesTab canEdit />);
+    const tr = (await screen.findByText('15000 Greens Escondido, LLC.')).closest('tr');
+    expect(within(tr).getByText('3.00% of gross or $3,000.00/month, whichever is higher')).toBeTruthy();
+    const fee = within(tr).getByText('12,000.00').closest('td');
+    expect(within(fee).getByText('Mixed')).toBeTruthy();
+    expect(fee.getAttribute('title')).toBe('Compared month by month: 3.00% of gross in 2 months, the $3,000.00 monthly minimum in 1 month');
+    expect(calcTitle({ feeBasis: 'greater_of', feeRate: 3, calculatedFee: 3000, feeTier: 'minimum', minimumUsed: 3000, minimumMonths: 1 }))
+      .toBe('the $3,000.00 monthly minimum was higher (1 month, compared month by month)');
+    expect(validateAgreement({ entityCode: '1', feeBasis: 'greater_of', feeRate: 3, flatAmount: null, startDate: '2026-01-01' })).toEqual({ flatAmount: 'Type the monthly minimum.' });
   });
 
   it('lists only the periods that have started', () => {

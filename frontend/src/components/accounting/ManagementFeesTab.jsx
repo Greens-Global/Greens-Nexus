@@ -5,7 +5,7 @@ import Amount, { AmountInput, formatAmount } from './Amount';
 import { formatDate } from '../../lib/datetime';
 import { ColumnResizer, CustomizeButton, DENSITIES, EntityPicker, GlAccountPicker, Pager, control } from './reportControls';
 import {
-  MGMT_FEE_DEFAULT_FLAT, MGMT_FEE_DEFAULT_PERIOD, MGMT_FEE_DEFAULT_RATE, MGMT_FEE_DEFAULT_THRESHOLD, MGMT_FEE_DEFAULT_THRESHOLD_BASIS, MGMT_FEE_TIER_FLAT_IS_ANNUAL,
+  MGMT_FEE_DEFAULT_BASIS, MGMT_FEE_DEFAULT_FLAT, MGMT_FEE_DEFAULT_MONTHLY_MINIMUM, MGMT_FEE_DEFAULT_PERIOD, MGMT_FEE_DEFAULT_RATE, MGMT_FEE_DEFAULT_THRESHOLD, MGMT_FEE_DEFAULT_THRESHOLD_BASIS, MGMT_FEE_TIER_FLAT_IS_ANNUAL,
 } from './assumptions';
 import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
 import { cellStyle, headStyle } from './columnStyles';
@@ -40,6 +40,12 @@ import { notAvailable } from './LoansTab';
 // Gross Revenue (read from the ledger) and Calculated Fee; Billed / Expected
 // YTD run through the period's end. Fee GL Account is a searchable picker.
 // Every default an open question left to us is in ./assumptions.js.
+//
+// Oct 23, team answer (Neil): "Usually it's 3% of gross revenue or
+// $3,000/month, whichever is higher ... built in property by property" - the
+// Greater Of basis, each agreement with its own rate and monthly minimum, the
+// default for a new agreement. The Calculated Fee cell says which rule
+// applied (Percent / Minimum / Mixed, the months on each side in its tooltip).
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
@@ -59,7 +65,9 @@ const COLUMNS = [
   ['entity', 'Entity'], ['manager', 'Manager Entity'], ['status', 'Status'], ['fee', 'Fee'], ['gross', 'Gross Revenue', true], ['calculated', 'Calculated Fee', true],
   ['billed', 'Billed YTD', true], ['expected', 'Expected YTD', true], ['difference', 'Difference', true], ['next', 'Next Billing'], ['agreement', 'Agreement'],
 ];
-export const BASES = [['percent_revenue', 'Percent of Revenue'], ['flat', 'Flat Amount'], ['percent_or_flat', 'Percent or Flat (Threshold)']];
+export const BASES = [['greater_of', 'Greater of Percent or Monthly Minimum'], ['percent_revenue', 'Percent of Revenue'], ['flat', 'Flat Amount'], ['percent_or_flat', 'Percent or Flat (Threshold)']];
+const TIER = { percent: ['ok', 'Percent'], flat: ['muted', 'Flat'], minimum: ['muted', 'Minimum'], mixed: ['wait', 'Mixed'] };
+const months = (n) => `${n} ${n === 1 ? 'month' : 'months'}`;
 export const THRESHOLD_BASES = [['annual', 'Annual Gross'], ['period', 'Period Gross']];
 const basisName = (k) => THRESHOLD_BASES.find(([x]) => x === k)?.[1] || k;
 const FLAT_PER = MGMT_FEE_TIER_FLAT_IS_ANNUAL ? 'a year' : 'per billing period';
@@ -68,6 +76,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 /** "3.50% of revenue" / "$2,500.00 Monthly" / "3.00% of gross over $100,000.00, else $3,000.00 a year". */
 export function feeText(a) {
   if (a.feeBasis === 'flat') return `$${formatAmount(a.flatAmount)} ${a.billingFrequency || 'Monthly'}`;
+  if (a.feeBasis === 'greater_of') return `${Number(a.feeRate || 0).toFixed(2)}% of gross or $${formatAmount(a.flatAmount ?? MGMT_FEE_DEFAULT_MONTHLY_MINIMUM)}/month, whichever is higher`;
   if (a.feeBasis === 'percent_or_flat') {
     return `${Number(a.feeRate || 0).toFixed(2)}% of gross over $${formatAmount(a.thresholdAmount ?? MGMT_FEE_DEFAULT_THRESHOLD)}, else $${formatAmount(a.flatAmount)} ${FLAT_PER}`;
   }
@@ -90,6 +99,14 @@ export function calcTitle(r) {
   if (r.error) return r.error;
   if (r.calculatedFee == null) return undefined;
   if (!r.feeTier) return 'Not in force in this period';
+  if (r.feeBasis === 'greater_of') {
+    const pct = `${Number(r.feeRate || 0).toFixed(2)}% of gross`;
+    const min = `the $${formatAmount(r.minimumUsed ?? r.flatAmount)} monthly minimum`;
+    const by = r.compareBy === 'window' ? 'over the period' : 'month by month';
+    if (r.feeTier === 'percent') return `${pct} was higher (${months(r.percentMonths || 0)}, compared ${by})`;
+    if (r.feeTier === 'minimum') return `${min} was higher (${months(r.minimumMonths || 0)}, compared ${by})`;
+    return `Compared ${by}: ${pct} in ${months(r.percentMonths || 0)}, ${min} in ${months(r.minimumMonths || 0)}`;
+  }
   if (r.feeBasis === 'percent_or_flat') {
     const test = `${basisName(r.thresholdBasisUsed)} ${formatAmount(r.testGross)} is ${r.feeTier === 'percent' ? 'above' : 'not above'} the threshold ${formatAmount(r.thresholdUsed)}`;
     return r.feeTier === 'percent'
@@ -148,7 +165,9 @@ function RowActions({ row, name, onEdit, onRemove }) {
 }
 
 const blank = () => ({
-  entityCode: '', managerEntityCode: '', status: 'Active', feeBasis: 'percent_revenue', feeRate: '', flatAmount: null, billingFrequency: 'Monthly',
+  entityCode: '', managerEntityCode: '', status: 'Active', feeBasis: MGMT_FEE_DEFAULT_BASIS,
+  feeRate: MGMT_FEE_DEFAULT_BASIS === 'greater_of' ? MGMT_FEE_DEFAULT_RATE : '',
+  flatAmount: MGMT_FEE_DEFAULT_BASIS === 'greater_of' ? MGMT_FEE_DEFAULT_MONTHLY_MINIMUM : null, billingFrequency: 'Monthly',
   startDate: '', endDate: '', feeGlAccount: '', agreementUrl: '', notes: '', thresholdAmount: null, thresholdBasis: '',
 });
 
@@ -161,7 +180,9 @@ export function validateAgreement(d) {
     const r = Number(d.feeRate);
     if (d.feeRate === '' || d.feeRate == null || !(r > 0 && r <= 100)) e.feeRate = 'Type a percent above 0 and up to 100.';
   }
-  if (d.feeBasis !== 'percent_revenue' && !(Number(d.flatAmount) > 0)) {
+  if (d.feeBasis === 'greater_of') {
+    if (d.flatAmount == null || d.flatAmount === '' || !(Number(d.flatAmount) >= 0)) e.flatAmount = 'Type the monthly minimum.';
+  } else if (d.feeBasis !== 'percent_revenue' && !(Number(d.flatAmount) > 0)) {
     e.flatAmount = d.feeBasis === 'flat' ? 'Type the fee per billing period.' : 'Type the flat fee charged at or under the threshold.';
   }
   if (d.feeBasis === 'percent_or_flat' && (d.thresholdAmount == null || d.thresholdAmount === '' || !(Number(d.thresholdAmount) >= 0))) {
@@ -182,12 +203,13 @@ export function AgreementDialog({ agreement = null, entities, showHistorical = f
     thresholdAmount: agreement.thresholdAmount ?? null, thresholdBasis: agreement.thresholdBasis || '',
   } : blank()));
   // Picking Percent or Flat fills the operating agreement's figures (./assumptions.js) into whatever is still empty.
-  const pickBasis = (feeBasis) => setD((x) => (feeBasis !== 'percent_or_flat' ? { ...x, feeBasis } : {
-    ...x, feeBasis,
-    feeRate: x.feeRate === '' || x.feeRate == null ? MGMT_FEE_DEFAULT_RATE : x.feeRate,
-    flatAmount: x.flatAmount ?? MGMT_FEE_DEFAULT_FLAT,
-    thresholdAmount: x.thresholdAmount ?? MGMT_FEE_DEFAULT_THRESHOLD,
-  }));
+  // Greater Of fills the team's percent and monthly minimum the same way.
+  const pickBasis = (feeBasis) => setD((x) => {
+    const rate = x.feeRate === '' || x.feeRate == null ? MGMT_FEE_DEFAULT_RATE : x.feeRate;
+    if (feeBasis === 'greater_of') return { ...x, feeBasis, feeRate: rate, flatAmount: x.flatAmount ?? MGMT_FEE_DEFAULT_MONTHLY_MINIMUM };
+    if (feeBasis !== 'percent_or_flat') return { ...x, feeBasis };
+    return { ...x, feeBasis, feeRate: rate, flatAmount: x.flatAmount ?? MGMT_FEE_DEFAULT_FLAT, thresholdAmount: x.thresholdAmount ?? MGMT_FEE_DEFAULT_THRESHOLD };
+  });
   const loadAccounts = useCallback(() => api.getAmaAccounts(), []);
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -242,6 +264,7 @@ export function AgreementDialog({ agreement = null, entities, showHistorical = f
             {BASES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
           {d.feeBasis === 'percent_or_flat' && <div style={hint}>The percent when gross is above the threshold, else the flat fee.</div>}
+          {d.feeBasis === 'greater_of' && <div style={hint}>Each month, the higher of the percent of that month&apos;s gross and the minimum.</div>}
         </div>
         {d.feeBasis !== 'flat' && (
           <div>
@@ -269,9 +292,9 @@ export function AgreementDialog({ agreement = null, entities, showHistorical = f
         )}
         {d.feeBasis !== 'percent_revenue' && (
           <div>
-            <label style={label} htmlFor="ama-flat">{d.feeBasis === 'flat' ? 'Flat Amount' : 'Flat Fee (At or Under Threshold)'}</label>
+            <label style={label} htmlFor="ama-flat">{d.feeBasis === 'flat' ? 'Flat Amount' : d.feeBasis === 'greater_of' ? 'Monthly Minimum' : 'Flat Fee (At or Under Threshold)'}</label>
             <AmountInput id="ama-flat" value={d.flatAmount} onChange={(v) => set({ flatAmount: v })} style={full} />
-            {err('flatAmount') || <div style={hint}>{d.feeBasis === 'flat' || !MGMT_FEE_TIER_FLAT_IS_ANNUAL ? 'Per billing period.' : 'A year, spread over its billing dates.'}</div>}
+            {err('flatAmount') || <div style={hint}>{d.feeBasis === 'greater_of' ? 'Per month, whatever the billing frequency.' : d.feeBasis === 'flat' || !MGMT_FEE_TIER_FLAT_IS_ANNUAL ? 'Per billing period.' : 'A year, spread over its billing dates.'}</div>}
           </div>
         )}
         <div>
@@ -454,7 +477,7 @@ export default function ManagementFeesTab({ canEdit = false }) {
                       </td>
                       <td style={cellStyle(cw.width('calculated'), { ...num, fontWeight: 600 })} title={calcTitle(r)}>
                         {r.calculatedFee == null ? dash : <Amount value={r.calculatedFee} />}
-                        {r.feeBasis === 'percent_or_flat' && r.feeTier && <> <Chip tone={r.feeTier === 'percent' ? 'ok' : 'muted'}>{r.feeTier === 'percent' ? 'Percent' : 'Flat'}</Chip></>}
+                        {(r.feeBasis === 'percent_or_flat' || r.feeBasis === 'greater_of') && TIER[r.feeTier] && <> <Chip tone={TIER[r.feeTier][0]}>{TIER[r.feeTier][1]}</Chip></>}
                       </td>
                       <td style={cellStyle(cw.width('billed'), num)} title={failed ? r.error : r.feeGlAccount ? `Net credits on GL ${r.feeGlAccount} in ${r.billingEntityCode} - click for the ledger lines` : 'Set a fee GL account to read what was billed'}>
                         {r.billedYtd == null ? dash : (
@@ -462,7 +485,7 @@ export default function ManagementFeesTab({ canEdit = false }) {
                         )}
                       </td>
                       <td style={cellStyle(cw.width('expected'), num)}
-                        title={failed ? r.error : r.feeBasis === 'flat' ? `${r.periodsElapsed || 0} billing ${r.periodsElapsed === 1 ? 'date' : 'dates'} so far this year` : r.revenueYtd != null ? `${Number(r.feeRate || 0).toFixed(2)}% of revenue ${formatAmount(r.revenueYtd)}` : undefined}>
+                        title={failed ? r.error : r.feeBasis === 'greater_of' && r.expectedTier ? `Through ${formatDate(r.asOf)}: ${months(r.ytdPercentMonths || 0)} at the percent, ${months(r.ytdMinimumMonths || 0)} at the minimum` : r.feeBasis === 'flat' ? `${r.periodsElapsed || 0} billing ${r.periodsElapsed === 1 ? 'date' : 'dates'} so far this year` : r.revenueYtd != null ? `${Number(r.feeRate || 0).toFixed(2)}% of revenue ${formatAmount(r.revenueYtd)}` : undefined}>
                         {r.expectedYtd == null ? dash : <Amount value={r.expectedYtd} />}
                       </td>
                       <td style={cellStyle(cw.width('difference'), { ...num, color: r.difference != null && r.difference < -0.005 ? 'var(--bad-fg, #dc2626)' : undefined })}

@@ -128,7 +128,8 @@ class EndpointTests(unittest.TestCase):
         self.fail = set()
         self.income = {"15000": 100000.0, "56000-1": 20000.0}
         self.income_fn = None
-        self.fees = {"90000": [("40500", 3000.0, 0.0)], "15000": [("40500", 1200.0, 200.0)], "56000-1": [("40500", 500.0, 0.0)]}
+        self.monthly = {}
+        self.fees ={"90000": [("40500", 3000.0, 0.0)], "15000": [("40500", 1200.0, 200.0)], "56000-1": [("40500", 500.0, 0.0)]}
 
         async def fake_get(path, params):
             clean = {k: v for k, v in params.items() if v is not None}
@@ -141,6 +142,9 @@ class EndpointTests(unittest.TestCase):
             if path.endswith("/reports/pnl"):
                 amount = self.income_fn(loc, clean["from"], clean["to"]) if self.income_fn else self.income.get(loc, 0)
                 return {"ok": True, "sections": [{"key": "revenue", "accounts": [{"account_no": "41000", "amount": amount}]}]}
+            if path.endswith("/reports/buckets") and clean.get("by") == "month":
+                return {"ok": True, "rows": [{"month": k, "account_no": "41000", "section": "revenue", "credit": v, "debit": 0.0}
+                                             for k, v in self.monthly.get(loc, {}).items()]}
             if path.endswith("/reports/buckets"):
                 return {"ok": True, "rows": [{"bucket": "total", "account_no": gl, "credit": c, "debit": d} for gl, c, d in self.fees.get(loc, [])]}
             return {"ok": True}
@@ -363,6 +367,59 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual((r["testGross"], r["feeTier"], r["calculatedFee"]), (30000.0, "percent", 900.0))
         r = self.client.get(f"/accounting/ama/summary?year={y}&period=m01").json()["rows"][0]
         self.assertEqual((r["testGross"], r["feeTier"], r["calculatedFee"]), (10000.0, "flat", 250.0))
+
+    # ── CR-03 (team, 23 Oct): 3% of gross or $3,000/month, whichever is higher
+    def test_greater_of_crud_and_validation(self):
+        _as(EDITOR)
+        r = self._add(feeBasis="greater_of", feeRate=3, flatAmount=3000)
+        self.assertEqual(r.status_code, 201, r.text)
+        a = r.json()
+        self.assertEqual((a["feeBasis"], a["feeRate"], a["flatAmount"], a["thresholdAmount"]), ("greater_of", 3.0, 3000.0, None))
+        for kw, words in ((dict(flatAmount=None), "monthly minimum"), (dict(flatAmount=-5), "monthly minimum"), (dict(feeRate=None), "fee rate")):
+            r = self._add(**{"feeBasis": "greater_of", "feeRate": 3, "flatAmount": 3000, **kw})
+            self.assertEqual(r.status_code, 400, (kw, r.text))
+            self.assertIn(words, r.json()["detail"])
+
+    def test_greater_of_summary_month_by_month(self):
+        _as(EDITOR)
+        y = YEAR - 1
+        # Jan 50,000 (3% = 1,500 < 3,000), Feb 200,000 (6,000), Mar 100,000 (exactly 3,000: the percent).
+        self.monthly = {"15000": {f"{y}-01": 50000.0, f"{y}-02": 200000.0, f"{y}-03": 100000.0}}
+        self._add(feeBasis="greater_of", feeRate=3, flatAmount=3000, feeGlAccount="40500", startDate=f"{y}-01-01")
+        r = self.client.get(f"/accounting/ama/summary?year={y}&period=q1")
+        self.assertEqual(r.status_code, 200, r.text)
+        q1 = r.json()["rows"][0]
+        self.assertEqual((q1["grossRevenue"], q1["calculatedFee"], q1["feeTier"], q1["minimumMonths"], q1["percentMonths"], q1["minimumUsed"]),
+                         (350000.0, 12000.0, "mixed", 1, 2, 3000.0))
+        m01 = self.client.get(f"/accounting/ama/summary?year={y}&period=m01").json()["rows"][0]
+        self.assertEqual((m01["calculatedFee"], m01["feeTier"], m01["expectedYtd"]), (3000.0, "minimum", 3000.0))
+        full = self.client.get(f"/accounting/ama/summary?year={y}").json()["rows"][0]
+        # Apr - Dec had no gross: nine more months at the minimum.
+        self.assertEqual((full["expectedYtd"], full["expectedTier"], full["ytdMinimumMonths"], full["ytdPercentMonths"], full["billedYtd"]),
+                         (12000.0 + 9 * 3000.0, "mixed", 10, 2, 1000.0))
+        self.assertEqual(full["difference"], round(1000.0 - 39000.0, 2))
+        # One by=month read per summary, never a P&L read for this basis.
+        self.assertFalse([c for c in self.calls if c[0].endswith("/reports/pnl")])
+
+    def test_greater_of_compare_over_the_window(self):
+        old, ama.assume.MGMT_FEE_GREATER_OF_COMPARE = ama.assume.MGMT_FEE_GREATER_OF_COMPARE, "window"
+        try:
+            a = agreement(feeBasis="greater_of", feeRate=3, flatAmount=3000)
+            w = (date(2026, 1, 1), date(2026, 3, 31))
+            got = ama.greater_of_fee(a, {"2026-01": 50000.0, "2026-02": 200000.0, "2026-03": 100000.0}, w)
+            self.assertEqual((got["fee"], got["tier"]), (10500.0, "percent"))       # 3% of 350,000 beats 9,000
+        finally:
+            ama.assume.MGMT_FEE_GREATER_OF_COMPARE = old
+
+    def test_greater_of_prorates_only_when_configured(self):
+        a = agreement(feeBasis="greater_of", feeRate=3, flatAmount=3000)
+        w = (date(2026, 4, 16), date(2026, 4, 30))
+        self.assertEqual(ama.greater_of_fee(a, {}, w)["fee"], 3000.0)
+        old, ama.assume.MGMT_FEE_PRORATE_PARTIAL_MONTH = ama.assume.MGMT_FEE_PRORATE_PARTIAL_MONTH, True
+        try:
+            self.assertEqual(ama.greater_of_fee(a, {}, w)["fee"], 1500.0)
+        finally:
+            ama.assume.MGMT_FEE_PRORATE_PARTIAL_MONTH = old
 
     def test_gl_accounts_for_the_picker(self):
         self.fees[None] = [("40500", 1.0, 0.0), ("41000", 2.0, 0.0), ("40500", 0.0, 1.0)]

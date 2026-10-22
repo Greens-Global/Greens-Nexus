@@ -21,6 +21,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 # ── CR-02 Compensation report ────────────────────────────────────────────────
 
 # CR-02 (Charmi to confirm): chosen 100 seconds because the screen waits 180s
@@ -66,8 +73,39 @@ def _env_float(name: str, default: float) -> float:
 
 # ── CR-03 Management Fees ────────────────────────────────────────────────────
 # Every value below is only a DEFAULT: an agreement keeps its own percent,
-# threshold, flat amount and threshold basis (accounting_ama_agreements).
+# monthly minimum, threshold, flat amount and threshold basis
+# (accounting_ama_agreements). The threshold values further down only serve
+# the older Percent or Flat basis.
 
+# Team answer, Teams 23 Oct 2026 (Neil): "Management Fees are by contract,
+# so they could be anything. Usually it's 3% of gross revenue or $3,000/month,
+# whichever is higher. but these thresholds get built in property by
+# property." -> the GREATER OF basis ('greater_of'): each agreement keeps its
+# own rate and monthly minimum; new agreements start from the values below.
+# The older "Percent or Flat (Threshold)" basis stays for agreements saved
+# with it (nothing saved changes meaning).
+
+# CR-03 (confirmed by team, 23 Oct): new agreements start on Greater Of.
+MGMT_FEE_DEFAULT_BASIS = "greater_of"
+
+# CR-03 (confirmed by team, 23 Oct): "$3,000/month" - the monthly minimum a
+# new Greater Of agreement is filled with (each agreement keeps its own).
+MGMT_FEE_DEFAULT_MONTHLY_MINIMUM = _env_float("NEXUS_MGMT_FEE_MONTHLY_MINIMUM", 3000.0)
+
+# CR-03 (assumption, Charmi to confirm): "whichever is higher" is decided
+# MONTH BY MONTH - each calendar month in force takes the higher of rate x
+# that month's gross and the monthly minimum, and a period adds its months -
+# because the minimum is stated per month. 'window' compares once over the
+# whole period (rate x period gross vs. minimum x months) instead.
+MGMT_FEE_GREATER_OF_COMPARES = ("month", "window")
+MGMT_FEE_GREATER_OF_COMPARE = (os.environ.get("NEXUS_MGMT_FEE_GREATER_OF_COMPARE", "") or "month").strip().lower()
+
+# CR-03 (assumption, Charmi to confirm): a month the agreement covers only
+# part of (it starts or ends mid-month, or the month is still running) takes
+# the WHOLE minimum - no proration - because contracts bill whole months and
+# the month's gross is read whole too. True = the minimum times the share of
+# the month's days inside the window.
+MGMT_FEE_PRORATE_PARTIAL_MONTH = _flag("NEXUS_MGMT_FEE_PRORATE", False)
 # CR-03 (Charmi to confirm): chosen $100,000 because it is the first figure
 # Charmi gave ("$100,000 or $30,000 or $50,000") and 3% of $100,000 is exactly
 # the $3,000 flat fee - the usual "3% of gross, at least $3,000" shape, where
@@ -110,13 +148,6 @@ MGMT_FEE_GROSS_SECTIONS = ("revenue", "other_income")
 # and has no fixed number ranges across entities. To count only some, list
 # codes and inclusive ranges, e.g. NEXUS_MGMT_FEE_GROSS_ACCOUNTS="40000-49999,70100".
 MGMT_FEE_GROSS_ACCOUNTS = os.environ.get("NEXUS_MGMT_FEE_GROSS_ACCOUNTS", "")
-
-
-def _flag(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None or not raw.strip():
-        return default
-    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 def _emails(name: str) -> list[str]:

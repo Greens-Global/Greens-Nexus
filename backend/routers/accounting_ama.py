@@ -31,6 +31,14 @@ and the fee it works out to (`calculatedFee`); Billed / Expected YTD run Jan 1
 through the period's end. What "gross" is and every default an agreement
 leaves blank live in accounting_assumptions.py (MGMT_FEE_*). An agreement
 saved before this has no threshold and reads exactly as it did.
+
+Oct 23, team answer (Neil): "Usually it's 3% of gross revenue or
+$3,000/month, whichever is higher ... built in property by property". A
+fourth basis, GREATER OF: per agreement a rate and a MONTHLY MINIMUM (kept in
+flat_amount - no new column); each month takes the higher of the two
+(MGMT_FEE_GREATER_OF_COMPARE), read from ONE by=month buckets read, and the
+row says which rule applied (feeTier 'percent' / 'minimum' / 'mixed', with
+the months on each side). New agreements start on it (MGMT_FEE_DEFAULT_*).
 """
 import asyncio
 import calendar
@@ -57,8 +65,8 @@ _edit = require_module_grant("accounting", "editor")
 
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 STATUSES = ("Active", "Pending Review", "Ended")
-BASES = ("percent_revenue", "flat", "percent_or_flat")
-_PERCENT_BASES = ("percent_revenue", "percent_or_flat")
+BASES = ("percent_revenue", "flat", "percent_or_flat", "greater_of")
+_PERCENT_BASES = ("percent_revenue", "percent_or_flat", "greater_of")
 FREQUENCIES = {"Monthly": 1, "Quarterly": 3, "Annually": 12}
 _INCOME = assume.MGMT_FEE_GROSS_SECTIONS
 _PERIOD = re.compile(r"^(ytd|q[1-4]|m(0[1-9]|1[0-2]))$")
@@ -183,6 +191,66 @@ def tier_flat(a: dict, billings: int) -> float:
     return _r2(flat * billings)
 
 
+def months_in(w: Optional[tuple[date, date]]) -> list[str]:
+    """'YYYY-MM' of every calendar month a window touches."""
+    if not w:
+        return []
+    out, y, m = [], w[0].year, w[0].month
+    while (y, m) <= (w[1].year, w[1].month):
+        out.append(f"{y:04d}-{m:02d}")
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+def _month_share(ym: str, w: tuple[date, date]) -> float:
+    """The share of month `ym`'s days inside window `w` (0..1)."""
+    y, m = int(ym[:4]), int(ym[5:7])
+    last = calendar.monthrange(y, m)[1]
+    lo, hi = max(w[0], date(y, m, 1)), min(w[1], date(y, m, last))
+    return max(0, (hi - lo).days + 1) / last
+
+
+def minimum_of(a: dict) -> float:
+    """The monthly minimum of a Greater Of agreement (flat_amount holds it)."""
+    f = a.get("flatAmount")
+    return float(assume.MGMT_FEE_DEFAULT_MONTHLY_MINIMUM if f is None else f)
+
+
+def greater_of_fee(a: dict, monthly: dict, w: Optional[tuple[date, date]]) -> dict:
+    """CR-03 (Neil, 23 Oct): "3% of gross revenue or $3,000/month, whichever
+    is higher", per agreement. `monthly` is {'YYYY-MM': gross}. Compared
+    month by month (MGMT_FEE_GREATER_OF_COMPARE 'month') or once over the
+    whole window ('window': rate x window gross vs. minimum x months).
+    Answers {fee, tier, months, minimumMonths, percentMonths, gross} - tier
+    'percent', 'minimum' or 'mixed' (some months each), None out of force."""
+    months = months_in(w)
+    rate = float(a.get("feeRate") or 0) / 100.0
+    minimum = minimum_of(a)
+    gross = _r2(sum(_r2(monthly.get(k)) for k in months))
+    out = {"fee": 0.0, "tier": None, "months": len(months), "minimumMonths": 0, "percentMonths": 0, "gross": gross}
+    if not months:
+        return out
+    if assume.MGMT_FEE_GREATER_OF_COMPARE == "window":
+        pct, floor = _r2(rate * gross), _r2(minimum * len(months))
+        at_min = floor > pct
+        out.update(fee=max(pct, floor), tier="minimum" if at_min else "percent",
+                   minimumMonths=len(months) if at_min else 0, percentMonths=0 if at_min else len(months))
+        return out
+    fee = 0.0
+    for k in months:
+        pct = _r2(rate * _r2(monthly.get(k)))
+        floor = _r2(minimum * _month_share(k, w)) if assume.MGMT_FEE_PRORATE_PARTIAL_MONTH else minimum
+        if floor > pct:
+            fee += floor
+            out["minimumMonths"] += 1
+        else:
+            fee += pct
+            out["percentMonths"] += 1
+    out["fee"] = _r2(fee)
+    out["tier"] = "minimum" if not out["percentMonths"] else "percent" if not out["minimumMonths"] else "mixed"
+    return out
+
+
 def fee_for(a: dict, gross: float, test_gross: float, billings: int) -> tuple[float, str]:
     """(fee, tier) for one window: `gross` the managed entity's gross in it,
     `test_gross` what the threshold is compared with, `billings` the billing
@@ -265,6 +333,19 @@ def income_of(pnl: dict) -> float:
     return _r2(total)
 
 
+def gross_by_month(buckets: dict) -> dict:
+    """{'YYYY-MM': gross} from a by=month buckets answer: credits less debits
+    on the MGMT_FEE_GROSS_SECTIONS accounts (narrowed like income_of)."""
+    spec = _account_spec(assume.MGMT_FEE_GROSS_ACCOUNTS)
+    out: dict = {}
+    for r in buckets.get("rows") or []:
+        if r.get("section") not in _INCOME or not counts_as_gross(r.get("account_no"), spec):
+            continue
+        k = str(r.get("month") or r.get("bucket") or "")[:7]
+        out[k] = _r2(out.get(k, 0.0) + _r2(r.get("credit")) - _r2(r.get("debit")))
+    return out
+
+
 def billed_of(buckets: dict, gl: str) -> float:
     """Net credits (credit - debit) on one GL account in a buckets answer."""
     return _r2(sum(_r2(r.get("credit")) - _r2(r.get("debit")) for r in buckets.get("rows") or [] if str(r.get("account_no") or "") == gl))
@@ -311,7 +392,7 @@ def _clean(body: AgreementBody) -> dict:
     if body.status not in STATUSES:
         raise HTTPException(status_code=400, detail="Status is Active, Pending Review or Ended.")
     if body.feeBasis not in BASES:
-        raise HTTPException(status_code=400, detail="The fee is a percent of revenue, a flat amount, or a percent or flat by a threshold.")
+        raise HTTPException(status_code=400, detail="The fee is a percent of revenue, a flat amount, a percent or flat by a threshold, or the higher of a percent and a monthly minimum.")
     if body.billingFrequency not in FREQUENCIES:
         raise HTTPException(status_code=400, detail="Billing is Monthly, Quarterly or Annually.")
     rate = flat = threshold = None
@@ -323,6 +404,11 @@ def _clean(body: AgreementBody) -> dict:
     if body.feeBasis in ("flat", "percent_or_flat"):
         if body.flatAmount is None or body.flatAmount <= 0:
             raise HTTPException(status_code=400, detail="The flat fee must be more than zero.")
+        flat = float(body.flatAmount)
+    if body.feeBasis == "greater_of":
+        # CR-03 (Neil, 23 Oct): here flat_amount is the MONTHLY minimum.
+        if body.flatAmount is None or body.flatAmount < 0:
+            raise HTTPException(status_code=400, detail="The monthly minimum must be zero or more.")
         flat = float(body.flatAmount)
     if body.feeBasis == "percent_or_flat":
         if body.thresholdAmount is None or body.thresholdAmount < 0:
@@ -420,6 +506,13 @@ async def _billed(scope: dict, entity: str, gl: str, from_: str, to: str) -> flo
     return billed_of(data, gl)
 
 
+async def _monthly_income(scope: dict, entity: str, from_: str, to: str) -> dict:
+    location, _ = await _limit(scope, entity, None)
+    async with _sem():
+        data = await accounting._acct_get("/api/internal/reports/buckets", {"from": from_, "to": to, "by": "month", "location": location})
+    return gross_by_month(data)
+
+
 async def _income(scope: dict, entity: str, from_: str, to: str) -> float:
     location, _ = await _limit(scope, entity, None)
     async with _sem():
@@ -462,6 +555,8 @@ async def summarize(scope: dict, a: dict, year: int, today: date, period: str = 
             seen[k] = await _income(scope, a["entityCode"], *k)
         return seen[k]
 
+    if a["feeBasis"] == "greater_of":
+        return await _summarize_greater_of(scope, a, out, jan1, as_of, (p_from, p_to), ytd, win)
     try:
         if a["feeGlAccount"]:
             out["billedYtd"] = await _billed(scope, billing_entity, a["feeGlAccount"], jan1.isoformat(), as_of.isoformat())
@@ -489,6 +584,32 @@ async def summarize(scope: dict, a: dict, year: int, today: date, period: str = 
             out["calculatedFee"] = 0.0
     except Exception as e:  # noqa: BLE001 - one agreement's failed read never takes the list down
         for k in ("billedYtd", "expectedYtd", "revenueYtd", "grossRevenue", "calculatedFee", "feeTier", "testGross", "expectedTier"):
+            out[k] = None
+        out["error"] = _why(e)
+    if out["billedYtd"] is not None and out["expectedYtd"] is not None:
+        out["difference"] = _r2(out["billedYtd"] - out["expectedYtd"])
+    return out
+
+
+async def _summarize_greater_of(scope: dict, a: dict, out: dict, jan1: date, as_of: date, period: tuple, ytd, win) -> dict:
+    """Greater Of: ONE by=month read of the managed entity, Jan 1 through the
+    period's end, gives every figure - the period's gross, the fee month by
+    month and Expected YTD - plus which rule applied (`feeTier`, and how many
+    months took the minimum / the percent)."""
+    out.update(minimumUsed=minimum_of(a), compareBy=assume.MGMT_FEE_GREATER_OF_COMPARE,
+               minimumMonths=None, percentMonths=None, ytdMinimumMonths=None, ytdPercentMonths=None)
+    try:
+        if a["feeGlAccount"]:
+            out["billedYtd"] = await _billed(scope, out["billingEntityCode"], a["feeGlAccount"], jan1.isoformat(), as_of.isoformat())
+        monthly = await _monthly_income(scope, a["entityCode"], jan1.isoformat(), as_of.isoformat())
+        out["grossRevenue"] = greater_of_fee(a, monthly, period)["gross"]
+        y = greater_of_fee(a, monthly, ytd)
+        out.update(revenueYtd=y["gross"], expectedYtd=y["fee"], expectedTier=y["tier"],
+                   ytdMinimumMonths=y["minimumMonths"], ytdPercentMonths=y["percentMonths"])
+        p = greater_of_fee(a, monthly, win)
+        out.update(calculatedFee=p["fee"], feeTier=p["tier"], minimumMonths=p["minimumMonths"], percentMonths=p["percentMonths"])
+    except Exception as e:  # noqa: BLE001 - one agreement's failed read never takes the list down
+        for k in ("billedYtd", "expectedYtd", "revenueYtd", "grossRevenue", "calculatedFee", "feeTier", "expectedTier"):
             out[k] = None
         out["error"] = _why(e)
     if out["billedYtd"] is not None and out["expectedYtd"] is not None:
