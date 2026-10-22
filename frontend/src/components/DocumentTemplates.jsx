@@ -219,7 +219,9 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
   const [sub, setSub] = useState('library');
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('active');   // active|draft|archived
+  // 'current' = Active and Draft: a template just made is a Draft, and it
+  // vanished from an Active-only list the moment it was created.
+  const [statusFilter, setStatusFilter] = useState('current');   // current|active|draft|archived
   const [templates, setTemplates] = useState(null);
   const [letterheads, setLetterheads] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
@@ -237,8 +239,9 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
   const isAdmin = can('administrator');
 
   const load = () => {
-    api.getDocTemplates({ status: statusFilter, ...(category ? { category } : {}), ...(search.trim() ? { q: search.trim() } : {}) })
-      .then(setTemplates).catch(() => setTemplates([]));
+    api.getDocTemplates({ status: statusFilter === 'current' ? '' : statusFilter, ...(category ? { category } : {}), ...(search.trim() ? { q: search.trim() } : {}) })
+      .then(rows => setTemplates(statusFilter === 'current' ? (rows || []).filter(t => t.status !== 'archived') : rows))
+      .catch(() => setTemplates([]));
   };
 
   useEffect(() => { load(); }, [category, search, statusFilter]);
@@ -293,7 +296,7 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
               <FileText size={13} /> From Word File
             </button>
-            {isAdmin && templates?.length > 0 && statusFilter === 'active' && (
+            {isAdmin && templates?.length > 0 && (statusFilter === 'active' || statusFilter === 'current') && (
               <button className="secondary-btn" disabled={seeding} onClick={seedStarters} title="Add any starter template the library does not have yet"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
                 <Star size={13} /> {seeding ? 'Adding…' : 'Add Starter Templates'}
@@ -308,6 +311,7 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
                 reachable here or it is created and then invisible. */}
             <select className="form-input" style={{ fontSize: 12.5, width: 130 }}
               value={statusFilter} onChange={e => setStatusFilter(e.target.value)} title="Template status">
+              <option value="current">Active And Draft</option>
               <option value="active">Active</option>
               <option value="draft">Draft</option>
               <option value="archived">Archived</option>
@@ -322,7 +326,7 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
               <p style={{ fontSize: 13.5, margin: '0 0 16px' }}>{statusFilter === 'archived' ? 'No archived templates.'
                 : statusFilter === 'draft' ? 'No drafts - templates you are still writing appear here.'
                 : 'No templates here yet.'}</p>
-              {statusFilter === 'active' && (
+              {(statusFilter === 'active' || statusFilter === 'current') && (
                 <button className="primary-btn" disabled={seeding} onClick={seedStarters} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   {seeding ? 'Adding…' : 'Add starter templates'}
                 </button>

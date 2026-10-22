@@ -399,6 +399,29 @@ class VariableLibraryTests(_ApiTests):
             self.assertIn(v["source"], ("builtin", "template"))
             self.assertIsInstance(v["usedBy"], list)
 
+    def test_built_ins_say_when_they_are_filled(self):
+        by = {v["token"]: v for v in self.client.get("/documents/variables").json()}
+        self.assertEqual(by["first_name"]["when"], "person")
+        self.assertEqual(by["company_legal"]["when"], "company")
+        self.assertEqual(by["offer_expires"]["when"], "offer")
+        self.assertEqual(by["new_title"]["when"], "promotion")
+        self.assertEqual(by["last_day"]["when"], "separation")
+        self.assertEqual(by["emergency_phone"]["when"], "person")
+        self.assertEqual(by["signer.company"]["when"], "signers")
+
+    def test_a_custom_field_carries_each_templates_definition(self):
+        # A draft counts: the next template using {{pan_number}} starts from it.
+        token = f"pan_{uuid.uuid4().hex[:6]}"
+        r = self.client.post("/documents/templates", json={
+            "name": f"Offer {token}", "status": "draft",
+            "fieldDefs": [{"token": token, "label": "PAN", "type": "text", "source": "person",
+                           "required": True, "sensitive": True}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        by = {v["token"]: v for v in self.client.get("/documents/variables").json()}
+        self.assertEqual(by[token]["defs"], [{
+            "templateId": r.json()["id"], "templateName": f"Offer {token}", "type": "text",
+            "source": "person", "required": True, "sensitive": True}])
+
     def test_built_ins_come_first(self):
         sources = [v["source"] for v in self.client.get("/documents/variables").json()]
         if "template" in sources:

@@ -35,7 +35,7 @@ from database import get_db
 from auth import get_current_user, require_module_grant
 from models import (DocFolder, Document, DocumentVersion, DocTemplate, DocTemplateVersion,
                     DocLetterhead, HrSignRequest, HrSignParty, NexusEmployee)
-from services.merge_fields import (BUILTIN_VARIABLES, group_label, is_auto_token,
+from services.merge_fields import (BUILTIN_VARIABLES, builtin_when, group_label, is_auto_token,
                                    is_valid_token, resolve_merge_data, token_group)
 from services.doc_export import tiptap_to_blocks, render_pdf, render_docx
 from routers.hr import require_hr_read, _hr_notify
@@ -681,9 +681,11 @@ def list_variables(user: dict = Depends(get_current_user), db: Session = Depends
     """
     seen = {}
     for token, label, group in BUILTIN_VARIABLES:
-        seen[token] = {"token": token, "label": label, "group": group,
+        seen[token] = {"token": token, "label": label, "group": group, "when": builtin_when(token, group),
                        "description": "", "source": "builtin", "usedBy": []}
-    for t in db.query(DocTemplate).filter(DocTemplate.status == "active").all():
+    # Drafts count too: two templates written side by side should agree on a
+    # shared field before either is activated.
+    for t in db.query(DocTemplate).filter(DocTemplate.status != "archived").all():
         # A template declares its variables two ways: typed fields the wizard
         # asks for, and plain default values set on the template itself.
         tokens = {str(fd.get("token") or ""): (str(fd.get("label") or ""), str(fd.get("description") or ""))
@@ -708,6 +710,15 @@ def list_variables(user: dict = Depends(get_current_user), db: Session = Depends
                     entry["description"] = description
             if t.name not in entry["usedBy"]:
                 entry["usedBy"].append(t.name)
+        # How each template defines its own fields, so another template using
+        # the same {{token}} can start from - and stay in step with - it.
+        for fd in (t.field_defs or []):
+            entry = seen.get(str((fd or {}).get("token") or "")) if isinstance(fd, dict) else None
+            if entry is not None and entry["source"] == "template":
+                entry.setdefault("defs", []).append({
+                    "templateId": t.id, "templateName": t.name, "type": fd.get("type") or "text",
+                    "source": fd.get("source") or "", "required": bool(fd.get("required")),
+                    "sensitive": bool(fd.get("sensitive"))})
     # Built-ins first, then the company's own groups alphabetically - a browser
     # opens on the variables that always resolve.
     order = {"Person": 0, "Company": 1, "Document": 2}

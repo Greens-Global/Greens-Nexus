@@ -37,6 +37,7 @@ vi.mock('../api', () => ({
     exportDocumentPdf: (...a) => { calls.push('export'); return exportDocumentPdf(...a); },
     exportDocumentDocx: () => Promise.resolve({ blob: new Blob(['x']), filename: 'x.docx' }),
     getDocLetterheads: () => Promise.resolve([]),
+    getDocVariables: () => Promise.resolve([]),
     getEmployees: () => Promise.resolve([]),
   },
 }));

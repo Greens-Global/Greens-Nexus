@@ -140,6 +140,26 @@ BUILTIN_VARIABLES = [
 ]
 
 
+# WHEN each built-in gets its value, which is what a template author needs to
+# know ("does HR have to type the hire's first name?" - no). Keyed by the
+# BUILTIN_VARIABLES group, with the HR Packet group split by the moment that
+# fills it. Tokens are unchanged; this is display only.
+_WHEN_BY_GROUP = {"Person": "person", "Company": "company", "Document": "document",
+                  "Template": "document", "Signers": "signers", "HR Packet": "offer"}
+_WHEN_BY_TOKEN = {
+    "emergency_name": "person", "emergency_relationship": "person", "emergency_phone": "person",
+    "effective_date": "promotion", "old_title": "promotion", "new_title": "promotion",
+    "old_role": "promotion", "new_role": "promotion", "change_type": "promotion",
+    "responsibilities": "promotion",
+    "last_day": "separation", "separation_type": "separation",
+}
+
+
+def builtin_when(token: str, group: str) -> str:
+    """person | company | offer | promotion | separation | signers | document."""
+    return _WHEN_BY_TOKEN.get(token) or _WHEN_BY_GROUP.get(group, "document")
+
+
 def resolve_merge_data(db: Session, employee_id: str = "", candidate_id: str = "",
                         entity_id: str = "", overrides: dict = None, template=None) -> dict:
     """Merge dict for {{token}} resolution. Subject person + company + the
