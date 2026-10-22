@@ -9269,8 +9269,11 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                            "holidayName": (hol or {}).get("name", "")})
 
     weekend_bonus = round(weekend_bonus, 2)
-    deduction = round(deduction, 2)
     base_pay = round(base_pay, 2)
+    # Absences never take more than the month's pay (Oct 23: Aarav, absent all
+    # 22 working days of June at 1/261 of a year's fee each, was "owed" -344.83
+    # before his bonus). A month with no work pays 0, not less.
+    deduction = round(min(deduction, base_pay), 2)
     total_pay = round(base_pay - deduction + weekend_bonus, 2)
     _bt = {"totalPay": total_pay}
     _add_bonuses(card, _bt, _bonus_rows(db, em, m_start, m_end), db)
@@ -10384,7 +10387,7 @@ def payroll_timecard(email: str, start: str, end: str,
         # The Notes column is on the monthly card too (Sep 29).
         card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
         card["zoneKey"] = _employee_zone_key(db, em)   # India staff open in India time (Oct 20)
-        card.update(_invoice_keys(db, em, card["periodStart"], card["periodEnd"]))
+        card.update(_invoice_keys(db, em, card["periodStart"], card["periodEnd"], user))
         return _no_pay(db, user, card)
     card = _compute_timecard(db, em, start, end)
     if em == (user.get("email") or "").lower():
@@ -10398,15 +10401,16 @@ def payroll_timecard(email: str, start: str, end: str,
     # India-based staff read in India time, US staff in California time,
     # unless the viewer picked the other one (lib/displayTz.js).
     card["zoneKey"] = _employee_zone_key(db, em)
-    card.update(_invoice_keys(db, em, start, end))
+    card.update(_invoice_keys(db, em, start, end, user))
     return _no_pay(db, user, card)
 
 
-def _invoice_keys(db: Session, em: str, start: str, end: str) -> dict:
-    """`contractor` and `invoice` on a card (contractor_invoices.py, Oct 21)."""
+def _invoice_keys(db: Session, em: str, start: str, end: str, viewer: dict | None = None) -> dict:
+    """`contractor` and `invoice` on a card (contractor_invoices.py, Oct 21);
+    `viewer` (HR's view of someone's card) adds Approve & Send when allowed."""
     try:
         from routers import contractor_invoices
-        return contractor_invoices.card_keys(db, em, start, end)
+        return contractor_invoices.card_keys(db, em, start, end, viewer)
     except Exception as e:  # noqa: BLE001 - the card must still load
         print(f"[contractor-invoices] card keys failed for {em}: {type(e).__name__}: {e}")
         return {"contractor": False, "invoice": None}

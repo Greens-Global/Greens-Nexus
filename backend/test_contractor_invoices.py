@@ -186,12 +186,49 @@ class ContractorInvoices(unittest.TestCase):
         # An employee gets none.
         self._finalize(EMP)
         self.assertEqual(self._invoices(EMP), [])
-        # Unfinalize voids the draft; finalizing again drafts number 8.
+        # Unfinalize voids the draft, which was never sent, so its number comes
+        # back: finalizing again drafts number 7 again (Oct 23).
         tc.unfinalize_timecard(tc.FinalizeIn(email=CON, start=PS, end=PE, reason="Wrong lunch on Monday"), user=HR_USER, db=self.db)
         self.db.expire_all()
         self.assertEqual(self.db.get(models.ContractorInvoice, inv.id).status, "void")
         self._finalize(CON)
-        self.assertEqual(sorted((i.number, i.status) for i in self._invoices()), [(7, "void"), (8, "draft")])
+        self.assertEqual(sorted((i.number, i.status) for i in self._invoices()), [(7, "draft"), (7, "void")])
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.NexusEmployee, "id-ci-con").contractor["invoice_next_number"], 8)
+
+    def test_a_sent_invoice_keeps_its_number(self):
+        ent = self.db.get(models.HrEntity, CO)
+        ent.invoice_recipients = ["ap@ggcon.in"]
+        self.db.commit()
+        self._finalize(CON)
+        inv = self._invoices()[0]
+        self.assertEqual(self.client.post(f"/contractor-invoices/{inv.id}/send").status_code, 200)
+        self.db.expire_all()   # the send ran in the API's own session
+        tc.unfinalize_timecard(tc.FinalizeIn(email=CON, start=PS, end=PE, reason="Wrong lunch on Monday"), user=HR_USER, db=self.db)
+        self._finalize(CON)
+        self.assertEqual(sorted((i.number, i.status) for i in self._invoices()), [(7, "sent"), (8, "draft")])
+
+    def test_hr_sends_from_the_time_sheet_card(self):
+        # Oct 23: after the signature the card had only Preview - HR now gets
+        # Approve & Send there, by the Invoices tab's rule; nobody else does.
+        ent = self.db.get(models.HrEntity, CO)
+        ent.invoice_recipients = ["ap@ggcon.in"]
+        self.db.commit()
+        self._finalize(CON)
+        inv = ci.card_keys(self.db, CON, PS, PE, HR_USER)["invoice"]
+        self.assertEqual((inv["canSend"], inv["recipients"], inv["employeeName"]), (True, ["ap@ggcon.in"], "Dev One"))
+        for viewer in ({"email": CON, "level": 1}, {"email": EMP, "level": 3}, None):
+            self.assertNotIn("canSend", ci.card_keys(self.db, CON, PS, PE, viewer)["invoice"])
+
+    def test_a_month_of_absences_never_takes_more_than_the_fee(self):
+        # Aarav, June 2026 (Oct 23): 22 working days absent at 1/261 of a
+        # year's 30,000 fee each came to 30,344.83 - more than the fee.
+        rate = self.db.query(models.PayrollRate).filter_by(employee_email=CON).one()
+        rate.pay_type, rate.monthly_salary, rate.currency = "fixed", 30000.0, "INR"
+        self.db.commit()
+        t = tc._fixed_card(self.db, CON, "2026-06-15")["totals"]
+        self.assertEqual(t["missedFullDays"], 22)
+        self.assertEqual((t["deduction"], t["totalPay"]), (t["salaryForPeriod"], 0.0))
 
     def test_a_bonus_on_the_period_is_billed_on_its_own_line(self):
         # Oct 22: a bonus added before finalizing is in the invoice total and itemized.

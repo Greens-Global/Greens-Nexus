@@ -1540,7 +1540,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {self && T && (
         <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={label}
           nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
-          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastErr={toastErr} /> : null} />
+          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />
       )}
       {self && data && selfTop?.(perStart, perEnd)}
       {self && (
@@ -1913,7 +1913,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {T && !self && (
         <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={label}
           nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
-          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastErr={toastErr} /> : null} />
+          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />
       )}
 
       {noteModal && (
@@ -2084,7 +2084,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       {self && (
         <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}
           nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
-          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastErr={toastErr} /> : null} />
+          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />
       )}
       {self && selfTop?.(data.periodStart, data.periodEnd)}
 
@@ -2383,7 +2383,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       {/* Review + Nexus Sign (same as hourly) - at the top on the employee's own sheet */}
       {!self && <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}
         nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
-          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastErr={toastErr} /> : null} />}
+          below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />}
 
       {editDay && (
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
