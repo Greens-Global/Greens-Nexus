@@ -69,7 +69,7 @@ function DocPreview({ eventId, doc, onClose, toastErr }) {
   );
 }
 
-export default function PacketReview({ eventId, onClose, onChanged, onSignNow, toastOk, toastErr }) {
+export default function PacketReview({ eventId, onClose, onChanged, toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState('');
   const [preview, setPreview] = useState(null);
@@ -133,8 +133,9 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
       const out = await api.verifyAndSendPacket(eventId, { excluded_ack: ack, seen: data.seen });
       onChanged?.();
       onClose();
-      if (out.senderPartyId) onSignNow?.(out.senderPartyId);
-      else toastOk?.(out.status === 'sent' ? `Sent - ${ev.subjectName} has been emailed the documents to sign.` : 'Sent for signature.');
+      // Verify is a check, never a signature: the person signs first and the
+      // company countersigns after them (Neil, Oct 22 2026).
+      toastOk?.(out.status === 'sent' ? `Sent - ${ev.subjectName} has been emailed the documents to sign.` : 'Sent for signature.');
     } catch (e) {
       toastErr?.(e?.message || 'Could not send the packet.');
       load();

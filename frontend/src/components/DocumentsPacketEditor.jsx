@@ -350,7 +350,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const docsStep = (
     <>
       <h2 style={h2}>Which documents go out?</h2>
-      <p style={lead}>Each one is a template from Documents &gt; Templates, in this order. {event === 'offer' ? 'An offer is one document, signed by both sides.' : `The Job Description is added per ${who} when the offer is made.`}</p>
+      <p style={lead}>Each one is a template from Documents &gt; Templates, in this order. {event === 'offer' ? 'An offer is one document, signed by the candidate only - the company never signs an offer.' : `The Job Description is added per ${who} when the offer is made.`}</p>
       <div style={{ marginTop: 16 }}>
         {docs.length === 0 && (
           <div style={{ fontSize: 13, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12, padding: '18px 16px', textAlign: 'center' }}>
@@ -482,7 +482,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const signsStep = (
     <>
       <h2 style={h2}>Who signs, and who checks?</h2>
-      <p style={lead}>Set by role, never by name - change who holds a role in People and every packet follows. {event !== 'promotion' && `The ${who} signs last.`}</p>
+      <p style={lead}>Set by role, never by name - change who holds a role in People and every packet follows. {event === 'offer' ? `Only the ${who} signs an offer - HR checks it before it goes, but nobody signs it for the company.` : `The ${who} signs first; the company countersigns after them, never before.`}</p>
       <div style={{ marginTop: 16 }}>
         {p.flow.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)' }}>Add a document first - each signature spot in it becomes a step here.</div>}
         {p.flow.map((s, i) => (
@@ -498,8 +498,8 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
             <select className="form-input" style={{ width: 130 }} value={s.action} onChange={e => setFlowStep(i, { action: e.target.value })} aria-label="Action">
               {actionOpts.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
             </select>
-            {s.action === 'sign' && ONCE_ROLES(s.role) && (
-              <label title="The company signs this packet once - that signature then goes on every packet by itself"
+            {s.action === 'sign' && event !== 'offer' && ONCE_ROLES(s.role) && (
+              <label title="The company signs this packet once - that signature then goes on every packet by itself, after the person has signed"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 <input type="checkbox" checked={!!s.once} onChange={e => setFlowStep(i, { once: e.target.checked || undefined })} style={{ accentColor: 'var(--pine)' }} />
                 Signs Once
@@ -515,7 +515,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
         <button type="button" className="secondary-btn" onClick={addFlowStep} style={smallBtn}><Plus size={12} /> Add Someone Who Approves Or Gets A Copy</button>
       </div>
 
-      {p.flow.some(s => s.once) && (
+      {event !== 'offer' && p.flow.some(s => s.once) && (
         <div style={{ marginTop: 18 }}>
           <label style={lbl}>Company Signature (Signs Once)</label>
           {!p.id || !companyId ? (

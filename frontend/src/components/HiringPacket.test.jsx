@@ -85,7 +85,7 @@ describe('SendHiringPacketModal', () => {
     await waitFor(() => expect(screen.getByText('Hiring Packet - Jane Doe')).toBeTruthy());
     expect(screen.getByText(/11\/02\/2026/)).toBeTruthy();                       // US date, no timezone shift
     expect(screen.getByText(/Human Resources > Employees > Jane Doe > Hiring Documents/)).toBeTruthy();
-    const send = screen.getByText('Review And Sign').closest('button');
+    const send = screen.getByText('Send Packet').closest('button');
     expect(send).toBeDisabled();                                                  // missing field + no confirmation
     fireEvent.change(screen.getByText('signing bonus').parentElement.querySelector('input'), { target: { value: '$2,000' } });
     fireEvent.click(screen.getByRole('checkbox'));
