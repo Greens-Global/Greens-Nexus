@@ -42,6 +42,7 @@ import { CreditCard } from 'lucide-react';
 import ReportCenter from '../components/accounting/ReportCenter';
 import ReportBuilder from '../components/accounting/ReportBuilder';
 import { STATEMENTS_SUB } from '../components/accounting/drill';
+import { REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -91,7 +92,7 @@ import { STATEMENTS_SUB } from '../components/accounting/drill';
 // carry its account after a colon (activitySub). Older keys (rpt-pnl,
 // rpt-budget) still land.
 const rpt = (key, label, Icon) => ({ key: `rpt-${key}`, label, Icon });
-const TABS = [
+const BASE_TABS = [
   { key: 'dashboard', label: 'Dashboard', Icon: LayoutGrid, landing: 'overview', items: [
     { key: 'overview', label: 'Overview', Icon: LayoutGrid },
     { key: 'cash', label: 'Cash', Icon: Wallet },
@@ -103,12 +104,6 @@ const TABS = [
       { key: 'reports', label: 'Report Center', Icon: FileText },
       { key: 'report-builder', label: 'Report Builder', Icon: Hammer },
       { key: 'packages', label: 'Packages', Icon: FileStack },
-      // Not placed in the 10/22 spec (open question for Neil): kept here so
-      // nothing goes missing.
-      { key: 'pfs', label: 'PFS', Icon: Landmark },
-      // Oct 7 (Priyanka): Asset Management Agreements, billed read from the
-      // ledger - first built as "AMA", renamed Management Fees on Oct 15.
-      { key: 'mgmt-fees', label: 'Management Fees', Icon: Handshake },
     ] },
     { key: 'grp-financial', label: 'Financial', Icon: Scale, items: [
       rpt('balance-sheet', 'Balance Sheet', Scale),
@@ -181,6 +176,29 @@ const TABS = [
     { key: 'imports', label: 'Import Hub', Icon: Upload },
   ] },
 ];
+// Oct 23 (Neil, CR-04): PFS and Management Fees each go in the Reports group
+// REPORT_MENU_PLACEMENT (assumptions.js) names - PFS in Financial, Management
+// Fees in Audit & Insights - out of the Report Center.
+const PLACED = {
+  pfs: { key: 'pfs', label: 'PFS', Icon: Landmark },
+  // Oct 7 (Priyanka): Asset Management Agreements, billed read from the
+  // ledger - first built as "AMA", renamed Management Fees on Oct 15.
+  'mgmt-fees': { key: 'mgmt-fees', label: 'Management Fees', Icon: Handshake },
+};
+/** `items` with each PLACED item put in its group, after its `after` item (else last). */
+function placeItems(items, placement = REPORT_MENU_PLACEMENT) {
+  return items.map((t) => {
+    if (!t.items) return t;
+    let inner = placeItems(t.items, placement);
+    Object.entries(placement).forEach(([key, at]) => {
+      if (at.group !== t.key || !PLACED[key]) return;
+      const i = inner.findIndex((x) => x.key === at.after);
+      inner = i < 0 ? [...inner, PLACED[key]] : [...inner.slice(0, i + 1), PLACED[key], ...inner.slice(i + 1)];
+    });
+    return { ...t, items: inner };
+  });
+}
+const TABS = placeItems(BASE_TABS);
 // Every `rpt-` key (a statement or a quick view) is Reports, open to a limited person too.
 const LIMITED_TABS = ['reports', 'report-builder', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'customers', 'imports', 'ama', 'mgmt-fees', 'profitability'];
 // Links made before a rename still land; a group's own key opens its first item.

@@ -59,6 +59,21 @@ export const MGMT_FEE_TIER_FLAT_IS_ANNUAL = true;
 // on because Billed YTD and Expected YTD were already yearly figures.
 export const MGMT_FEE_DEFAULT_PERIOD = 'ytd';
 
+// ── CR-04 Reports menu placement ────────────────────────────────────────────
+
+// CR-04 (confirmed by team, 23 Oct - Neil: "PFS should go under Financial
+// Reports. Management Fees Report should go under Audit and Insights"): the
+// group each report sits in. `after` is the item it follows inside the group
+// (CR-04, assumption, Charmi to confirm): PFS last in Financial, after Cash
+// Position, because the spec's Financial list is the statements and PFS is
+// not one; Management Fees after Profitability, the end of Neil's six Audit
+// & Insights items, so his order (Flux, MRE, MRI, AMA, Manual Journal
+// Entries, Profitability) stays as written. An `after` not found = the end.
+export const REPORT_MENU_PLACEMENT = {
+  pfs: { group: 'grp-financial', after: 'rpt-cash-position' },
+  'mgmt-fees': { group: 'grp-audit', after: 'profitability' },
+};
+
 // ── CR-13: AMA (Ask My Accountant) ─────────────────────────────────────────
 
 // CR-13 (confirmed by team, 23 Oct - Neil: "Show all offsetting accounts"):

@@ -142,10 +142,10 @@ describe('Accounting navigation', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Reports/ }));
     expect(menuLabels('Reports')).toEqual(['Report Center', 'Financial', 'Banking & Credit Cards', 'Budget', 'Payroll & People', 'Audit & Insights']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Report Center' }));
-    expect(menuLabels('Report Center')).toEqual(['Report Center', 'Report Builder', 'Packages', 'PFS', 'Management Fees']);
+    expect(menuLabels('Report Center')).toEqual(['Report Center', 'Report Builder', 'Packages']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Financial' }));
     expect(screen.queryByRole('menu', { name: 'Report Center' })).toBeNull();
-    expect(menuLabels('Financial')).toEqual(['Balance Sheet', 'Trial Balance', 'Income Statement', 'General Ledger', 'Statement of Cash Flows', 'Cash Position']);
+    expect(menuLabels('Financial')).toEqual(['Balance Sheet', 'Trial Balance', 'Income Statement', 'General Ledger', 'Statement of Cash Flows', 'Cash Position', 'PFS']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Income Statement' }));
     expect(menuLabels('Income Statement')).toEqual(['T12', 'YTD vs. Prior Year', 'This Month vs. Last Month']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Banking & Credit Cards' }));
@@ -155,7 +155,7 @@ describe('Accounting navigation', () => {
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Payroll & People' }));
     expect(menuLabels('Payroll & People')).toEqual(['Compensation']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
-    expect(menuLabels('Audit & Insights')).toEqual(['Flux Analysis', 'MRE', 'MRI', 'AMA', 'Profitability']);
+    expect(menuLabels('Audit & Insights')).toEqual(['Flux Analysis', 'MRE', 'MRI', 'AMA', 'Profitability', 'Management Fees']);
     fireEvent.click(screen.getByRole('menuitem', { name: 'MRE' }));
     expect(await screen.findByTestId('tab-mre')).toBeTruthy();
   });
@@ -233,7 +233,7 @@ describe('Accounting navigation', () => {
     expect(screen.queryByRole('button', { name: /^Dashboard/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
     expect(screen.queryByRole('menuitem', { name: 'Payroll & People' })).toBeNull();
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Report Center' }));
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Financial' }));
     expect(screen.queryByRole('menuitem', { name: 'PFS' })).toBeNull();
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
     expect(screen.getByRole('menuitem', { name: 'MRE' })).toBeTruthy();
@@ -288,15 +288,17 @@ describe('Accounting navigation', () => {
     await waitFor(() => expect(screen.getByTestId('tab-data').getAttribute('data-exclude')).toBe('loans,intercompany,holdings'));
   });
 
-  it('has AMA under Audit & Insights and Management Fees in the Report Center', async () => {
+  it('has AMA and Management Fees under Audit & Insights, PFS under Financial (CR-04)', async () => {
     render(<Harness start="overview" />);
     await choose(/^Reports/, 'Audit & Insights', 'AMA');
     expect(screen.getByTestId('sub').textContent).toBe('ama');
     expect((await screen.findByTestId('tab-ama')).getAttribute('data-limited')).toBe('no');
     expect(screen.getByText(/Ask My Accountant - lines parked/)).toBeTruthy();
-    await choose(/^Reports/, 'Report Center', 'Management Fees');
+    await choose(/^Reports/, 'Audit & Insights', 'Management Fees');
     expect(await screen.findByTestId('tab-mgmt-fees')).toBeTruthy();
     expect(screen.queryByTestId('tab-ama')).toBeNull();
+    await choose(/^Reports/, 'Financial', 'PFS');
+    expect(await screen.findByTestId('tab-pfs')).toBeTruthy();
   });
 
   it('gives a limited person AMA and Management Fees too', async () => {
@@ -304,7 +306,7 @@ describe('Accounting navigation', () => {
     render(<Harness start="ama" />);
     expect((await screen.findByTestId('tab-ama')).getAttribute('data-limited')).toBe('yes');
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Report Center' }));
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
     expect(screen.getByRole('menuitem', { name: 'Management Fees' })).toBeTruthy();
   });
 
@@ -362,6 +364,6 @@ describe('Accounting navigation', () => {
     expect(await screen.findByTestId('tab-report-builder')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Report Center' }));
-    expect(menuLabels('Report Center')).toEqual(['Report Center', 'Report Builder', 'Packages', 'PFS', 'Management Fees']);
+    expect(menuLabels('Report Center')).toEqual(['Report Center', 'Report Builder', 'Packages']);
   });
 });
