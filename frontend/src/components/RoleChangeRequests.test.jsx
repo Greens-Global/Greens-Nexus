@@ -2,8 +2,9 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// Role change approvals (Pranshu, Oct 13): the manager or HR sees the reason
-// and approves or declines - on the Access tab or straight from the bell.
+// Role change requests (Pranshu, Oct 13): none are made since Neil's Oct 22
+// call, but one still pending from before is approved or declined by HR, an
+// IT Admin or a Global Admin - on the Access tab or straight from the bell.
 
 const base = {
   id: 'rq1', employeeId: 'e1', employeeName: 'Erin Lee', fromTitle: 'Tester', toRoleName: 'Accounting Associate',
@@ -28,6 +29,8 @@ vi.mock('../api', () => ({
       { id: 'h2', kind: 'request', status: 'approved', statusLabel: 'Approved', at: '2026-10-13T17:00:00Z', from: 'Tester', to: 'Associate',
         reason: 'Covers month-end close', raisedBy: 'ada@x.com', raisedByName: 'Ada', raisedAt: '2026-10-12T17:00:00Z',
         decidedBy: 'max@x.com', decidedByName: 'Max', signers: [] },
+      { id: 'h3', kind: 'direct', status: 'changed', statusLabel: 'Changed Directly', at: '2026-10-22T17:00:00Z', from: 'Associate', to: 'Team Manager',
+        reason: 'Runs the platform team now', raisedBy: 'hana@x.com', raisedByName: 'Hana', raisedAt: '2026-10-22T17:00:00Z', signers: [] },
     ]),
   },
 }));
@@ -60,12 +63,12 @@ describe('RoleChangeDeepLinkFallback', () => {
 describe('RoleChangeRequestCard', () => {
   beforeEach(() => { approve.mockClear(); decline.mockClear(); });
 
-  it('shows the reason and who it waits on; an approver approves', async () => {
+  it('shows the reason and who decides; HR approves', async () => {
     row = { ...base, canDecide: true, canCancel: false };
     const onDecided = vi.fn();
     render(<RoleChangeRequestCard employeeId="e1" onDecided={onDecided} toastOk={() => {}} toastErr={() => {}} />);
     await waitFor(() => expect(screen.getByText('Covers month-end close')).toBeTruthy());
-    expect(screen.getByText(/Max \(Manager\) or Hana \(HR\)/)).toBeTruthy();
+    expect(screen.getByText(/HR, an IT Admin or a Global Admin approves or declines it/)).toBeTruthy();
     expect(screen.queryByText('Cancel Request')).toBeNull();
     fireEvent.click(screen.getByText('Approve'));
     await waitFor(() => expect(onDecided).toHaveBeenCalled());
@@ -102,5 +105,7 @@ describe('RoleHistory', () => {
     expect(screen.getByText(/Raised by Ada/)).toBeTruthy();
     expect(screen.getByText(/Approved by Max/)).toBeTruthy();
     expect(screen.getByText('Covers month-end close')).toBeTruthy();
+    expect(screen.getByText('Runs the platform team now')).toBeTruthy();       // a direct change keeps its reason
+    expect(screen.getByText(/Changed directly - no approval needed/)).toBeTruthy();
   });
 });

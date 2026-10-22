@@ -803,8 +803,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   const [dept, setDept] = useState('');   // department (name) filter
   const [eff, setEff] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [promoteOpen, setPromoteOpen] = useState(false);
-  // Change Role here asks the manager / HR (Pranshu, Oct 13) - RoleChangeModal.
+  // Change Role here changes it directly, with a reason (Neil, Oct 22) - RoleChangeModal.
   const [roleReqOpen, setRoleReqOpen] = useState(false);
   const [roleReqKey, setRoleReqKey] = useState(0);
   // External (B2B guest) support: the selected person's external record (if
@@ -817,7 +816,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   // Which tiers this admin may hand out (mirrors the backend guard: owners give
   // any, others only strictly below their own level).
   const canAssignTier = t => can('owner') || (ROLES[t]?.level ?? 1) < myLevel;
-  useEffect(() => { setPromoteOpen(false); setRoleReqOpen(false); }, [person]);
+  useEffect(() => { setRoleReqOpen(false); }, [person]);
 
   // Same courtesy as the role panel: picking a person deep in the list brings
   // their panel (role picker, groups) into view instead of leaving it above.
@@ -987,12 +986,12 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
                 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 13px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontSize: 12.5, fontWeight: 700 }}><Shield size={13} /> {eff.job_role.name}{eff.job_role.company_id ? ` · ${companyName(eff.job_role.company_id)}` : ''}</span>
                 : <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>No job role yet</span>}
               {/* Neil, Oct 8: a promotion is a letter made in People. A role
-                  change without one (Pranshu, Oct 13) is asked for here or in
-                  People and approved by their manager or HR before it applies.
+                  change without one changes here or in People directly, with
+                  a required reason kept in their role history (Neil, Oct 22).
                   Settings keeps the first assignment and external users direct. */}
               {eff.job_role && !extRec ? (
                 <button className="secondary-btn" onClick={() => setRoleReqOpen(true)}
-                  title="Ask to change their role - their manager or HR approves it"
+                  title="Change their role now - the reason is kept in their role history"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5 }}>
                   <TrendingUp size={13} /> Change Role
                 </button>
@@ -1002,11 +1001,6 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
               )}
             </div>
             {eff.job_role && !extRec && (
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                A role change here goes to their manager and HR - it takes effect when one of them approves.
-              </div>
-            )}
-            {eff.job_role && !extRec && (
               <div style={{ marginTop: 12 }}>
                 <RoleChangeRequestCard email={person} refreshKey={roleReqKey} toastOk={toastOk} toastErr={toastErr}
                   onDecided={() => { setRoleReqKey(n => n + 1); refresh(); }} />
@@ -1015,18 +1009,12 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
             )}
             {roleReqOpen && (
               <RoleChangeModal employee={{ workEmail: person, firstName: nameOf(person), jobTitle: eff.job_role?.name || '' }}
-                roles={roleChoices.filter(r => r.id !== eff.job_role?.id)} approval
+                roles={roleChoices.filter(r => r.id !== eff.job_role?.id)}
                 onClose={() => setRoleReqOpen(false)} toastErr={toastErr}
                 onChanged={res => {
                   setRoleReqOpen(false); setRoleReqKey(n => n + 1);
-                  toastOk(`Sent to ${res.approvers.map(a => a.name).join(' and ')} - the role changes when one of them approves.${res.warning ? ` ${res.warning}` : ''}`);
+                  toastOk(`${nameOf(person)} is now ${res.roleName}.${res.warning ? ` ${res.warning}` : ''}`); refresh();
                 }} />
-            )}
-            {promoteOpen && (
-              <PromoteModal person={person} eff={eff} nameOf={nameOf} companyName={companyName}
-                jobRoles={roleChoices.filter(r => r.id !== eff.job_role?.id)}
-                onClose={() => setPromoteOpen(false)} onErr={toastErr}
-                onDone={r => { setPromoteOpen(false); toastOk(`${nameOf(person)} is now “${r.name}”.`); refresh(); }} />
             )}
 
             {/* Seniority tier is meaningless for externals: the server hard-caps
@@ -1436,91 +1424,6 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
         One click grants a screen at that level; the x on the selected level removes it. {checkedCount} of {visibleIds.length} screens granted.
       </div>
     </div>
-  );
-}
-
-// ── promotion flow ───────────────────────────────────────────────────────────
-// Mechanically a promotion IS a role switch - this modal adds what the dropdown
-// can't: tier before/after and every screen gained, raised or lost, so whoever
-// promotes can see exactly what changes before committing. Title, tier and the
-// default approver all follow the new role via the existing assign endpoint.
-function PromoteModal({ person, eff, jobRoles, nameOf, companyName, onClose, onDone, onErr }) {
-  const [toId, setToId] = useState('');
-  const [busy, setBusy] = useState(false);
-  const cur = eff?.job_role || null;
-  const target = (jobRoles || []).find(r => r.id === toId) || null;
-  const diff = useMemo(() => {
-    if (!target) return null;
-    const a = Object.fromEntries((cur?.allowed_modules || []).map(g => [g.id, g.level]));
-    const b = Object.fromEntries((target.allowed_modules || []).map(g => [g.id, g.level]));
-    const rank = l => MODULE_LEVELS[l]?.rank || 0;
-    const gained = [], raised = [], lowered = [], lost = [];
-    Object.keys(b).forEach(id => {
-      if (!a[id]) gained.push({ id, to: b[id] });
-      else if (rank(b[id]) > rank(a[id])) raised.push({ id, from: a[id], to: b[id] });
-      else if (rank(b[id]) < rank(a[id])) lowered.push({ id, from: a[id], to: b[id] });
-    });
-    Object.keys(a).forEach(id => { if (!b[id]) lost.push({ id, from: a[id] }); });
-    return { gained, raised, lowered, lost };
-  }, [cur, target]);
-
-  async function promote() {
-    if (!target || busy) return;
-    setBusy(true);
-    try { await api.assignJobRole(target.id, person); onDone(target); }
-    catch (e) { onErr(e?.message || 'Could not change the role.'); setBusy(false); }
-  }
-
-  const chipRow = (label, items, render) => items.length > 0 && (
-    <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>{label}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{items.map(render)}</div>
-    </div>
-  );
-  const pill = (key, text, kind) => (
-    <span key={key} style={{ padding: '4px 11px', borderRadius: 999, fontSize: 12, fontWeight: 600,
-      background: kind === 'plus' ? 'var(--ink)' : 'var(--paper)',
-      color: kind === 'plus' ? 'var(--card)' : kind === 'minus' ? 'var(--muted)' : 'var(--ink)',
-      border: '1px solid var(--line)', textDecoration: kind === 'minus' ? 'line-through' : 'none' }}>{text}</span>
-  );
-
-  return (
-    <Modal onClose={onClose} title={`Promote ${nameOf(person)}`} isDirty={!!toId} onSave={target ? promote : undefined}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{cur ? cur.name : 'No role yet'}</span>
-          {cur && <TierBadge tier={cur.tier} />}
-          <ChevronRight size={15} style={{ color: 'var(--muted)' }} />
-          <select value={toId} onChange={e => setToId(e.target.value)} autoFocus
-            style={{ ...input, width: 'auto', minWidth: 200, padding: '7px 10px', fontSize: 13 }}>
-            <option value="">Promote to…</option>
-            <RoleOptions roles={jobRoles} companyName={companyName} />
-          </select>
-          {target && <TierBadge tier={target.tier} />}
-        </div>
-        {target && diff && (
-          <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '4px 14px 14px', maxHeight: 300, overflow: 'auto' }}>
-            {chipRow('Gains', diff.gained, x => pill(x.id, `${moduleLabel(x.id)} · ${MODULE_LEVELS[x.to]?.label}`, 'plus'))}
-            {chipRow('Level goes up', diff.raised, x => pill(x.id, `${moduleLabel(x.id)} · ${MODULE_LEVELS[x.from]?.label} → ${MODULE_LEVELS[x.to]?.label}`, 'plus'))}
-            {chipRow('Level goes down', diff.lowered, x => pill(x.id, `${moduleLabel(x.id)} · ${MODULE_LEVELS[x.from]?.label} → ${MODULE_LEVELS[x.to]?.label}`))}
-            {chipRow('Loses', diff.lost, x => pill(x.id, moduleLabel(x.id), 'minus'))}
-            {!diff.gained.length && !diff.raised.length && !diff.lowered.length && !diff.lost.length && (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 10 }}>Same screens and levels - only the title{cur && target.tier !== cur.tier ? ' and tier' : ''} change.</div>
-            )}
-          </div>
-        )}
-        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Their job title, seniority tier and baseline access follow the new role. Extra groups stay. If the new role has a default approver and they have no manager, they inherit it.
-        </div>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
-        <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={!target || busy} onClick={promote}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: (!target || busy) ? 0.6 : 1 }}>
-          {busy ? <Spinner size={14} /> : <TrendingUp size={14} />} Promote
-        </button>
-      </div>
-    </Modal>
   );
 }
 

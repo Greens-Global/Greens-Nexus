@@ -195,8 +195,9 @@ class CompanyJobRoleTests(unittest.TestCase):
         self.assertIn("Beta Co", r.json()["detail"])
         self.assertNotIn(BEMP, self._members(ROLE_A))
 
+    # AEMP / NOCO already hold SHARED: a swap needs a reason now (Neil, Oct 22).
     def test_same_company_assignment(self):
-        r = self.client.post(f"/jobroles/{ROLE_A}/assign", json={"email": AEMP})
+        r = self.client.post(f"/jobroles/{ROLE_A}/assign", json={"email": AEMP, "reason": "Team move"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["company_id"], COA)
         self.assertEqual(r.json()["warning"], "")
@@ -204,7 +205,7 @@ class CompanyJobRoleTests(unittest.TestCase):
         self.assertNotIn(AEMP, self._members(SHARED))   # still one primary role
 
     def test_no_company_person_assigned_with_warning(self):
-        r = self.client.post(f"/jobroles/{ROLE_A}/assign", json={"email": NOCO})
+        r = self.client.post(f"/jobroles/{ROLE_A}/assign", json={"email": NOCO, "reason": "Team move"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertIn("Alpha Co", r.json()["warning"])
         self.assertIn(NOCO, self._members(ROLE_A))
@@ -212,7 +213,7 @@ class CompanyJobRoleTests(unittest.TestCase):
     def test_shared_role_unchanged(self):
         # A shared role still goes to anyone, from any company, with no warning.
         for email in (BEMP, AEMP, NOCO):
-            r = self.client.post(f"/jobroles/{SHARED_MIXED}/assign", json={"email": email})
+            r = self.client.post(f"/jobroles/{SHARED_MIXED}/assign", json={"email": email, "reason": "Team move"})
             self.assertEqual(r.status_code, 200, r.text)
             self.assertEqual(r.json()["company_id"], "")
             self.assertEqual(r.json()["warning"], "")

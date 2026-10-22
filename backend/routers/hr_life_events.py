@@ -1016,10 +1016,8 @@ def start_promotion_letter(eid: str, body: StartLetterIn, user: dict = Depends(r
 
 
 class RoleChangeIn(BaseModel):
-    role_id:     str
-    reason:      Optional[str] = ""
-    employee_id: Optional[str] = ""
-    email:       Optional[str] = ""     # Settings > Access knows the person by email
+    role_id: str
+    reason:  Optional[str] = ""   # required - change_now says so
 
 
 class RoleDecisionIn(BaseModel):
@@ -1029,14 +1027,6 @@ class RoleDecisionIn(BaseModel):
 def _rc_raise(db: Session, e: rc.RoleChangeError):
     db.rollback()
     raise HTTPException(e.status, str(e))
-
-
-def _hr_editor(user: dict, db: Session) -> bool:
-    try:
-        require_hr_write(user=user, db=db)
-        return True
-    except HTTPException:
-        return False
 
 
 def _hr_reader(user: dict, db: Session, company: str = None) -> bool:
@@ -1065,10 +1055,13 @@ def _rc_employee(db: Session, user: dict, employee_id: str = "", email: str = ""
 @router.post("/employees/{eid}/role")
 def change_role_now(eid: str, body: RoleChangeIn, user: dict = Depends(require_hr_write),
                     db: Session = Depends(get_db)):
-    """People > Change Role > Role Change Without Promotion (Pranshu, Oct 14):
-    HR changes the role directly - no approval. The reason is optional and
-    kept in the audit row. A promotion goes through /promotion."""
-    emp = _rc_employee(db, user, eid)
+    """Change Role > Role Change Without Promotion, from People or Settings >
+    Access (Neil, Oct 22): HR editors (not team-limited), IT Admins and Global
+    Admins change the role directly - no approval - with a REQUIRED reason,
+    kept in the audit row role history reads. Settings > Access knows the
+    person by work email, so `eid` may be that. A promotion goes through
+    /promotion."""
+    emp = _rc_employee(db, user, email=eid) if "@" in eid else _rc_employee(db, user, eid)
     try:
         jr, warning = rc.change_now(db, user, emp, body.role_id, body.reason or "")
     except rc.RoleChangeError as e:
@@ -1078,19 +1071,11 @@ def change_role_now(eid: str, body: RoleChangeIn, user: dict = Depends(require_h
 
 
 @router.post("/role-change-requests")
-def request_role_change(body: RoleChangeIn, background: BackgroundTasks,
-                        user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Settings > Access > Change Role (Pranshu, Oct 13): asks the employee's
-    manager and HR - the role changes only when one of them approves
-    (role_change.py). From People, HR changes it directly (/employees/{eid}/role)."""
-    emp = _rc_employee(db, user, body.employee_id or "", body.email or "")
-    try:
-        req, warning, emails = rc.request_change(db, user, emp, body.role_id, body.reason or "")
-    except rc.RoleChangeError as e:
-        _rc_raise(db, e)
-    db.commit()
-    background.add_task(rc.send_emails, emails)
-    return {**rc.ser(db, req, user["email"], True), "warning": warning}
+def request_role_change(user: dict = Depends(get_current_user)):
+    """Gone (Neil, Oct 22): a role change no longer asks anyone - whoever may
+    change it does, with a reason (/employees/{eid}/role). Requests already
+    pending can still be approved, declined or canceled below."""
+    raise HTTPException(410, "Role changes no longer need approval - HR changes the role directly with a reason.")
 
 
 @router.get("/role-change-requests")
@@ -1105,7 +1090,7 @@ def list_role_change_requests(employee_id: str = "", email: str = "", user: dict
         q = q.filter(HrRoleChangeRequest.employee_id == employee_id)
     elif email:
         q = q.filter(HrRoleChangeRequest.employee_email == email.strip().lower())
-    editor = _hr_editor(user, db)
+    editor = rc.can_change_roles(db, user)
     # A team-limited manager (Oct 6 rule) is not an HR-wide reader here: they
     # get the requests they may decide or asked for, which is their own team.
     team_only = hr_team_limited(user)
@@ -1133,7 +1118,7 @@ def get_role_change_request(rid: str, user: dict = Depends(get_current_user), db
     req = db.query(HrRoleChangeRequest).filter(HrRoleChangeRequest.id == rid).first()
     if not req or not rc.can_see(db, req, user["email"], _hr_reader(user, db, req.company)):
         raise HTTPException(404, "Role change request not found")
-    return rc.ser(db, req, user["email"], _hr_editor(user, db))
+    return rc.ser(db, req, user["email"], rc.can_change_roles(db, user))
 
 
 def _decide(rid: str, approve: bool, note: str, background: BackgroundTasks, user: dict, db: Session):
@@ -1143,13 +1128,13 @@ def _decide(rid: str, approve: bool, note: str, background: BackgroundTasks, use
         _rc_raise(db, e)
     db.commit()
     background.add_task(rc.send_emails, emails)
-    return rc.ser(db, req, user["email"], _hr_editor(user, db))
+    return rc.ser(db, req, user["email"], rc.can_change_roles(db, user))
 
 
 @router.post("/role-change-requests/{rid}/approve")
 def approve_role_change(rid: str, background: BackgroundTasks, user: dict = Depends(get_current_user),
                         db: Session = Depends(get_db)):
-    """The employee's manager or HR contact - the role changes now."""
+    """A request from before Oct 22: HR, an IT Admin or a Global Admin - the role changes now."""
     return _decide(rid, True, "", background, user, db)
 
 
@@ -1162,7 +1147,7 @@ def decline_role_change(rid: str, body: RoleDecisionIn, background: BackgroundTa
 @router.post("/role-change-requests/{rid}/cancel")
 def cancel_role_change(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        req = rc.cancel(db, user, rid, _hr_editor(user, db))
+        req = rc.cancel(db, user, rid, rc.can_change_roles(db, user))
     except rc.RoleChangeError as e:
         _rc_raise(db, e)
     db.commit()

@@ -1736,6 +1736,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const { canAccessModule: canAccessHr, myEmail: viewerEmail } = useRole();
   const canEditChecklist = canAccessHr('hr', 'administrator', 'editor');
   const canEditProfile = canAccessHr('hr', 'manager', 'editor');
+  // Promote / Change Role: HR editors outside a team view, IT Admins and
+  // Global Admins only (Neil, Oct 22 - "Manager calls HR"); the server's
+  // role_change.can_change_roles is the same rule.
+  const canChangeRole = !teamView && canAccessHr('hr', 'administrator', 'editor');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
   const [restoreBusy, setRestoreBusy] = useState(false);
   // Nexus-only removal - separate from offboarding (which deprovisions M365).
@@ -1867,6 +1871,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         </button>
         {canEditProfile && !teamView && ['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' && (
           <>
+            {canChangeRole && (<>
             <button className="secondary-btn" onClick={() => setRoleAction('promotion')}
               title="Promotion letter through Nexus Sign - new role, pay and date; the employee and their manager sign"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
@@ -1877,6 +1882,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               <Shield size={13} /> Change Role
             </button>
+            </>)}
             <button className="secondary-btn" onClick={() => setOffboardOpen(true)}
               title="Last day, the separation package through Nexus Sign, and everything that happens when they leave"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}>
@@ -2103,8 +2109,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
-        {/* Role change awaiting approval (Pranshu, Oct 13): the manager or HR
-            approves here, or from the bell / email. */}
+        {/* A role change request from before Oct 22 still waiting: HR decides
+            or cancels it here, or from the bell / email. */}
         {tab === 'access' && <RoleChangeRequestCard employeeId={e.id} refreshKey={requestsKey}
           toastOk={toastOk} toastErr={toastErr} onDecided={() => { setRequestsKey(n => n + 1); onReload?.(); }} />}
         {tab === 'access' && teamView && <TeamAccessView employee={e} />}

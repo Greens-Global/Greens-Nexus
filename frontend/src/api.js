@@ -1429,7 +1429,6 @@ export const api = {
   previewPromotion:    (eid, data) => req(`/hr/employees/${eid}/promotion/preview`, { method: 'POST', body: JSON.stringify(data) }),
   sendPromotion:       (eid, data) => req(`/hr/employees/${eid}/promotion`, { method: 'POST', body: JSON.stringify(data) }),
   // Role change without a promotion: asks the manager / HR, who approve (Pranshu, Oct 13).
-  requestRoleChange:   (data)      => req('/hr/role-change-requests', { method: 'POST', body: JSON.stringify(data) }),
   getRoleChangeRequests: ({ employeeId = '', email = '' } = {}) =>
     req(`/hr/role-change-requests?employee_id=${encodeURIComponent(employeeId)}&email=${encodeURIComponent(email)}`),
   getRoleChangeRequest: (id)       => req(`/hr/role-change-requests/${id}`),
