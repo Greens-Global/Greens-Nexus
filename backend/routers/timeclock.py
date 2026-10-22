@@ -1398,6 +1398,20 @@ def my_timesheet(start: str = "", end: str = "",
 
 # ── Manager / HR endpoints ────────────────────────────────────────────────────
 
+def _left_before(emp, start: str) -> bool:
+    """An inactive / offboarded person whose leaving took effect before `start`
+    - off the payroll roster for that period (Neil, Oct 22). One who left
+    during or after it stays for their last pay, and anyone with punches in
+    the period shows regardless (_team_rows adds punchers)."""
+    if (emp.status or "active") not in ("inactive", "offboarded"):
+        return False
+    for e in emp.status_log or []:   # newest first
+        if isinstance(e, dict) and e.get("to") == emp.status:
+            left = (e.get("effectiveDate") or e.get("at") or "")[:10]
+            return bool(left) and left < (start or "")
+    return True   # no dated record of leaving: left long ago
+
+
 def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixed: bool = False) -> list:
     rmin = _round_min(db)   # round like the pay engine so review == paid
     q = db.query(TimePunch).filter(TimePunch.voided == 0)
@@ -1452,7 +1466,7 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
         return (getattr(r, "pay_type", None) or "hourly") != "fixed"
 
     roster = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all()
-              if e.work_email and _in_roster((e.work_email or "").lower())}
+              if e.work_email and _in_roster((e.work_email or "").lower()) and not _left_before(e, start)}
     if only_emails is not None:
         roster &= set(only_emails)
 

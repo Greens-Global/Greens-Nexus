@@ -69,6 +69,17 @@ describe('pay period finder', () => {
     expect(label.textContent).toContain(radios[2].textContent.slice(0, 10));
   }, 20000);
 
+  it('keeps the picked period when switching employees (Neil, Oct 22)', async () => {
+    await open();
+    const label = screen.getByRole('button', { name: 'Pick a pay period' });
+    fireEvent.click(label);
+    fireEvent.click(screen.getAllByRole('radio')[3]);   // two periods back
+    const picked = label.textContent;
+    fireEvent.click(await screen.findByText('Gary Gap'));
+    await screen.findByText('Deducted Time');
+    expect(screen.getByRole('button', { name: 'Pick a pay period' }).textContent).toBe(picked);
+  }, 20000);
+
   it('narrows the sidebar to people with missing punches', async () => {
     await open();
     const box = await screen.findByLabelText('Only People With Missing Punches');

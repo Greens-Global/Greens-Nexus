@@ -608,7 +608,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const cacheKey = _tcKey(self, email, start, end);
   const dates = useMemo(() => Array.from({ length: 14 }, (_, i) => isoDate(pStart.getTime() + i * DAY)), [pStart]);
 
-  // employee list (scoped) for the picker
+  // employee list (scoped) for the picker - per period, so someone who left
+  // before it is not on it (Neil, Oct 22)
   useEffect(() => {
     if (self) return;   // employee self-view has no picker / team list
     api.timeTeam(start, end).then(r => {
@@ -620,7 +621,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       setEmail(e => (e && (initialEmail === e || list.some(p => p.email === e))) ? e : list[0]?.email || '');
     }).catch(() => setPeopleLoaded(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [self, start, end]);
   useEffect(() => {
     if (self || !email) return;
     try { sessionStorage.setItem(_LAST_KEY, JSON.stringify({ email, start: isoDate(pStart), payType: data?.payType || '' })); }
@@ -687,27 +688,34 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
   // Fixed employees are paid by MONTH, but the default period anchor is the
   // bi-weekly Sunday (which can fall in the previous month). On the first fixed
-  // load, snap to the CURRENT month so they don't open on last month by default.
+  // load, snap to the month of the day in view (today when nobody moved it).
   const fixedSnapped = useRef(seeded.current);
+  const focusRef = useRef(null);   // the day the previous employee's card was on
   useEffect(() => {
     if (!data || data.payType !== 'fixed' || fixedSnapped.current) return;
     fixedSnapped.current = true;
-    const todayM = new Date().toISOString().slice(0, 7);
+    const f = focusRef.current || new Date();
+    const wantM = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`;
     const cardM = (data.periodStart || '').slice(0, 7);
-    if (cardM && cardM !== todayM) {
-      const [y, m] = todayM.split('-').map(Number);
-      setPStart(new Date(y, m - 1, 15));   // mid-month: safe from UTC month-boundary drift
+    if (cardM && cardM !== wantM) {
+      setPStart(new Date(f.getFullYear(), f.getMonth(), 15));   // mid-month: safe from UTC month-boundary drift
     }
   }, [data]);
 
-  // HR switching employees: re-anchor to the current period and re-arm the fixed snap,
-  // so a fixed employee's month anchor (the 15th) can't leave the NEXT (hourly)
-  // employee's grid off its Sunday anchor and break SwipeClock parity for the session.
+  // HR switching employees KEEPS the period in view (Neil, Oct 22 - picking
+  // the period again for every person was the slow part): the next card opens
+  // on the hourly period / month holding the middle of the one just shown
+  // (today, if that is still ahead). Re-anchoring through periodStartFor and
+  // re-arming the fixed snap keeps an hourly grid on its Sunday series after
+  // a fixed employee's month anchor (the 15th) - SwipeClock parity.
   useEffect(() => {
     if (self) return;
     if (seeded.current) { seeded.current = false; return; }   // keep the period we were opened on
+    const s = new Date(`${data?.periodStart || start}T00:00`), e = new Date(`${data?.periodEnd || end}T00:00`);
+    const mid = new Date((s.getTime() + e.getTime()) / 2), now = new Date();
+    focusRef.current = mid > now ? now : mid;
     fixedSnapped.current = false;
-    setPStart(periodStartFor(new Date()));
+    setPStart(periodStartFor(focusRef.current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email]);
 
