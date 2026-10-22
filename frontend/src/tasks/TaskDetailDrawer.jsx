@@ -9,11 +9,13 @@ import {
   ArrowLeft, ArrowRightToLine, CornerDownRight, GripVertical, Copy, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate,
+  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, MoveRight,
+  History, Upload, HardDrive,
 } from 'lucide-react';
+import MoveTaskModal from './MoveTaskModal';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, uploadTaskAttachmentVersion, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
@@ -34,6 +36,8 @@ import { toDownloadUrl } from '../lib/storageView';
 import { openNotificationTarget } from '../lib/openTarget';
 import { useRole } from '../contexts/RoleContext';
 import { dialog } from '../ui/dialog';
+import { VersionChip, VersionsModal, EgnyteLinkRow, EgnyteLinkPicker } from './attachmentParts';
+import { currentVersionsOf, isEgnyteLink, canVersion } from './egnyteLinks';
 import { ticketNo } from '../tickets/ticketMeta';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
@@ -223,6 +227,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const [converting, setConverting] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  // Move To... (Oct 22 2026): the id of the task being moved - this one or one of its subtasks.
+  const [moving, setMoving] = useState(null);
 
   const task = taskById[activeId];
   const parent = task?.parentTaskId ? taskById[task.parentTaskId] : null;
@@ -423,7 +429,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           task={task} patch={patch} readOnly={!canEdit} canComment={canComment} canEditProject={canEditProject} canEditTask={canEditTask} people={people} projectName={projectName} teamName={teamName} teams={teams} projects={projects}
           blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
           setDependencyType={setDependencyType}
-          subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={openSub}
+          subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={openSub} onMoveSub={setMoving}
           nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
           onViewAllComments={() => setTab('comments')}
           onOpenTicket={() => (onBackToTicket ? onBackToTicket() : openSourceTicket(task.sourceTicketId, onClose, ticketView))}
@@ -432,7 +438,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
       case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment} canPin={canEditProject} />;
       case 'activity':     return <ActivityTab taskId={activeId} nameOf={nameOf} />;
       case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} canAttach={canComment} canRemoveAny={canEditProject} />;
-      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub}
+      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub} onMoveSub={setMoving}
         canAdd={canEditProject} canEditParent={canEdit} canEditTask={canEditTask} />;
       case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} readOnly={!canEdit} />;
       case 'properties':   return <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} teamName={teamName} customFields={customFields} patch={patch} readOnly={!canEdit} />;
@@ -487,6 +493,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   {/* Filed as a task when it is really a request for a team
                       (Neil, 10/05: "employees ... may still do it as a task"). */}
                   {canEdit && <MenuItem icon={<Copy size={14} />} onClick={() => { close(); setDuplicating(true); }}>Duplicate Task</MenuItem>}
+                  {canEdit && !task.hrChecklist && <MenuItem icon={<MoveRight size={14} />} onClick={() => { close(); setMoving(activeId); }}>Move To...</MenuItem>}
                   <MenuItem icon={<Ticket size={14} />} onClick={() => { setConverting(true); close(); }}>Convert to Ticket</MenuItem>
                   {canEdit && <MenuItem icon={<LayoutTemplate size={14} />} onClick={() => { close(); setSavingTemplate(true); }}>Save as Template</MenuItem>}
                   {canEdit && <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
@@ -542,7 +549,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: NX.blue, textAlign: 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {parent.title}
                 </button>
-              ) : <span style={{ fontWeight: 600 }}>a task you cannot open</span>}
+              ) : <span style={{ fontWeight: 600 }}>Private Task</span>}
             </div>
           )}
           {/* Tabs are desktop-only. A phone has no room for seven of them, so
@@ -592,6 +599,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           ) : paneFor(tab)}
         </div>
         </FieldHistoryContext.Provider>
+        {moving && <MoveTaskModal taskId={moving} onClose={() => setMoving(null)} />}
         {savingTemplate && <SaveTemplateModal task={task} subtasks={subtasks} onClose={() => setSavingTemplate(false)} />}
         {duplicating && <DuplicateTaskModal task={task} subtasks={subtasks} onClose={() => setDuplicating(false)} onDuplicate={duplicate} />}
         {shareOpen && <ShareModal task={task} people={people} nameOf={nameOf} patch={patch} onClose={() => setShareOpen(false)} />}
@@ -1109,7 +1117,7 @@ function ProjectsField({ task, projects, teams, myEmail, projectName, patch }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, readOnly = false, canComment = true, canEditProject = true, canEditTask = null, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
+function OverviewTab({ task, patch, readOnly = false, canComment = true, canEditProject = true, canEditTask = null, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, onMoveSub = null, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
   const isMobile = useIsMobile();
   // Whether the folding sections below have anything in them.
   const hasApproval = !!task.approvalStatus && task.approvalStatus !== 'none';
@@ -1360,7 +1368,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
           were easy to miss. */}
       <Section key={`subtasks:${task.id}:${subtasks?.length > 0}`} defaultOpen={subtasks?.length > 0}
         title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
-        <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} hideHeading
+        <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} onMoveSub={onMoveSub} hideHeading
           canAdd={canEditProject} canEditParent={!readOnly} canEditTask={canEditTask} />
       </Section>
 
@@ -1853,9 +1861,20 @@ export function ActivityTab({ taskId, nameOf }) {
 // canAttach: may add files (commenter and up). canRemoveAny: may remove
 // files someone else added (editor and up) - your own you can always remove,
 // as the server allows (delete_attachment).
+// File versions + Egnyte links (Oct 22 2026): each file shows its CURRENT
+// version (a soft "V3" when it has more), with Upload New Version (or drop a
+// file onto it) and a Versions panel; Add From Egnyte links a file or folder
+// in Egnyte instead of uploading a copy. See attachmentParts.jsx.
 function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }) {
-  const { myEmail } = useTasks();
+  const { myEmail, nameOf } = useTasks();
   const [rows, setRows] = useState(null);
+  const [versionsOf, setVersionsOf] = useState(null);     // the file whose Versions panel is open
+  const [egnyteOpen, setEgnyteOpen] = useState(false);
+  // New versions in flight, by the attachment they replace: {pct, error}.
+  const [verUploads, setVerUploads] = useState({});
+  const [dropRow, setDropRow] = useState('');
+  const versionFor = useRef(null);
+  const versionRef = useRef(null);
   // In-flight files: {key, name, pct, file, error}. A failed one STAYS, with
   // what went wrong and a Retry - it used to vanish without a word.
   const [uploads, setUploads] = useState([]);
@@ -1864,8 +1883,38 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
   const [dragOver, setDragOver] = useState(false);
   const dragDepth = useRef(0);   // dragenter/dragleave fire on every child crossed, not just the panel edge
   const fileRef = useRef(null);
-  const reload = () => api.getTaskAttachments(task.id).then(setRows).catch(() => setRows([]));
+  const reload = () => api.getTaskAttachments(task.id).then((r) => setRows(currentVersionsOf(r))).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
+
+  // Upload New Version: the file becomes the current version of `a`'s file.
+  // It replaces the file everyone sees, so it takes the right to remove it
+  // (the server's rule): whoever uploaded the FIRST version, or an editor.
+  const mayReplace = (a) => canAttach && canVersion(a) && (canRemoveAny
+    || (!!myEmail && (a.groupAddedBy || a.addedBy || '').toLowerCase() === myEmail.toLowerCase()));
+  const sendVersion = (a, f) => {
+    if (!f || !mayReplace(a)) return;
+    setVerUploads((m) => ({ ...m, [a.id]: { pct: 0, error: '' } }));
+    uploadTaskAttachmentVersion(a.id, f, (pct) => setVerUploads((m) => ({ ...m, [a.id]: { pct, error: '' } })))
+      .then(() => { setVerUploads((m) => { const n = { ...m }; delete n[a.id]; return n; }); reload(); refresh?.(); })
+      .catch((e) => setVerUploads((m) => ({ ...m, [a.id]: { pct: 0, error: `The new version of "${a.name}" did not upload: ${e?.message || 'upload failed'}.` } })));
+  };
+  const pickVersion = (a) => { versionFor.current = a; versionRef.current?.click(); };
+  const onVersionFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f && versionFor.current) sendVersion(versionFor.current, f); };
+  // Dropping a file ON a file row is a new version of that file; anywhere
+  // else in the panel it is still a new attachment.
+  const rowDrop = (a) => (mayReplace(a) ? {
+    onDragOver: (e) => { if (!e.dataTransfer?.types?.includes('Files')) return; e.preventDefault(); e.stopPropagation(); if (dropRow !== a.id) setDropRow(a.id); },
+    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropRow(''); },
+    onDrop: (e) => {
+      e.preventDefault(); e.stopPropagation();
+      dragDepth.current = 0; setDragOver(false); setDropRow('');
+      // The first file is the new version; any others are added as new
+      // attachments, as a drop beside the row would add them - never dropped.
+      const [first, ...rest] = Array.from(e.dataTransfer?.files || []);
+      sendVersion(a, first);
+      rest.forEach(sendFile);
+    },
+  } : {});
 
   const uploadSeq = useRef(0);
   const sendFile = (f) => {
@@ -1885,7 +1934,13 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
   // Asks first (a removed file is gone from the task for everyone) and says
   // so when the server refuses, instead of quietly re-reading the list.
   const del = async (a) => {
-    const ok = await dialog.confirm(`Remove "${a.name}" from this task?`, { title: 'Remove Attachment', confirmText: 'Remove', danger: true });
+    const versioned = (a.versionCount || 1) > 1;
+    const ok = await dialog.confirm(
+      versioned
+        ? `Remove version ${a.version} of "${a.name}"? The version before it becomes the current one. To remove the whole file, use Versions > Delete All Versions.`
+        : `Remove "${a.name}" from this task?`,
+      { title: versioned ? 'Remove Version' : 'Remove Attachment', confirmText: 'Remove', danger: true },
+    );
     if (!ok) return;
     setDelError('');
     try {
@@ -1901,15 +1956,17 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
   // file button - matching Ctrl+V paste already working over the whole panel.
   const onDragEnter = (e) => { e.preventDefault(); dragDepth.current += 1; if (e.dataTransfer.types.includes('Files')) setDragOver(true); };
   const onDragOver = (e) => { e.preventDefault(); };
-  const onDragLeave = (e) => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setDragOver(false); };
+  const onDragLeave = (e) => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) { setDragOver(false); setDropRow(''); } };
   const onDrop = (e) => {
     e.preventDefault();
     dragDepth.current = 0;
     setDragOver(false);
+    setDropRow('');
     if (canAttach) Array.from(e.dataTransfer.files || []).forEach(sendFile);
   };
 
   return (
+    <>
     <div onPaste={onPaste} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
       tabIndex={0} style={{
         marginTop: 14, borderRadius: 10, transition: 'background-color .12s ease',
@@ -1919,7 +1976,9 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
         <>
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
           <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach File</button>
-          <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot</span>
+          <button type="button" onClick={() => setEgnyteOpen(true)} style={{ ...btn('outline'), fontSize: 12, marginBottom: 12, marginLeft: 8 }}><HardDrive size={13} /> Add From Egnyte</button>
+          <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot. Drop a file onto a file to upload a new version.</span>
+          <input ref={versionRef} type="file" data-testid="version-input" style={{ display: 'none' }} onChange={onVersionFile} />
         </>
       )}
       {delError && <div role="alert" style={{ fontSize: 12, color: NX.red, marginBottom: 10 }}>{delError}</div>}
@@ -1928,7 +1987,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '18px 12px', margin: '10px 0',
           border: `1.5px dashed ${NX.primary}`, borderRadius: 10, color: NX.primary, fontSize: 12.5, fontWeight: 600,
           pointerEvents: 'none',
-        }}><Paperclip size={14} /> Drop to attach</div>
+        }}><Paperclip size={14} /> {dropRow ? 'Drop to upload a new version of that file' : 'Drop to attach'}</div>
       )}
       {(rows?.length || 0) === 0 && uploads.length === 0 ? (
         rows === null ? <LoadingState />
@@ -1955,12 +2014,22 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
                 </div>
               )))}
               {(rows || []).map((a) => {
+                if (isEgnyteLink(a)) {
+                  return <EgnyteLinkRow key={a.id} a={a} onRemove={mayRemove(a) ? () => del(a) : null} />;
+                }
                 const href = a.dataUrl || a.url;
                 const thumb = a.kind === 'image' && href
                   ? <img src={href} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
                   : <Paperclip size={13} style={{ color: NX.dim }} />;
+                const nVersions = a.versionCount || 1;
+                const up = verUploads[a.id];
                 return (
-                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
+                  <div key={a.id} data-testid="attachment-row" {...rowDrop(a)}
+                    title={dropRow === a.id ? 'Drop to upload a new version' : undefined}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', maxWidth: '100%', border: `1px solid ${dropRow === a.id ? NX.primary : NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12,
+                      ...(dropRow === a.id ? { boxShadow: `0 0 0 2px ${NX.primary} inset` } : null),
+                    }}>
                     {href ? (
                       // Opens the IN-APP viewer (images/videos/PDFs render
                       // inline; other types get a download card) - never a new tab.
@@ -1976,9 +2045,25 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
                         <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through' }}>{a.name}</span>
                       </span>
                     )}
+                    {(nVersions > 1 || (a.version || 1) > 1) && <VersionChip version={a.version} title={`Version ${a.version} of ${nVersions}`} />}
                     <span style={{ color: NX.faint }}>{a.size}</span>
                     {href && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
+                    {nVersions > 1 && (
+                      <button type="button" onClick={() => setVersionsOf(a)} title="Versions" aria-label={`Versions of ${a.name}`}
+                        style={{ ...btn('ghost'), padding: '3px 6px', fontSize: 11.5, color: NX.dim }}><History size={13} /> Versions</button>
+                    )}
+                    {mayReplace(a) && (
+                      <button type="button" onClick={() => pickVersion(a)} disabled={!!up && !up.error} title="Upload New Version" aria-label={`Upload new version of ${a.name}`}
+                        style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Upload size={13} /></button>
+                    )}
                     {mayRemove(a) && <button onClick={() => del(a)} title="Remove" aria-label={`Remove ${a.name}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>}
+                    {up && !up.error && <span style={{ color: NX.faint, fontVariantNumeric: 'tabular-nums' }}>Uploading new version {Math.round(up.pct * 100)}%</span>}
+                    {up?.error && (
+                      <span role="alert" style={{ flexBasis: '100%', color: NX.red, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {up.error}
+                        <button type="button" onClick={() => setVerUploads((m) => { const n = { ...m }; delete n[a.id]; return n; })} title="Dismiss" aria-label="Dismiss" style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={12} /></button>
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -1986,6 +2071,13 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
           )}
       {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
     </div>
+    {/* Outside the panel: its paste / drop handlers must not see the dialogs' events. */}
+      {versionsOf && (
+        <VersionsModal att={versionsOf} onClose={() => setVersionsOf(null)} onChanged={() => { reload(); refresh?.(); }}
+          canRemoveAny={canRemoveAny} myEmail={myEmail} nameOf={nameOf || ((e) => e)} />
+      )}
+      {egnyteOpen && <EgnyteLinkPicker taskId={task.id} onClose={() => setEgnyteOpen(false)} onAdded={() => { reload(); refresh?.(); }} />}
+    </>
   );
 }
 
@@ -2046,7 +2138,7 @@ function FacePicker({ value, people, onChange, label, disabled = false }) {
 // rule). canEditParent: may change the main task (its subtask order).
 // canEditTask(s): may change that subtask (its own role; its assignees count).
 // Opening a subtask is always allowed. Unknown roles keep every control.
-function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub, hideHeading, canAdd = true, canEditParent = true, canEditTask = null }) {
+function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub, onMoveSub = null, hideHeading, canAdd = true, canEditParent = true, canEditTask = null }) {
   const rowEditable = (s) => (canEditTask ? canEditTask(s) : true);
   // Reordering writes every sibling's position and the main task's order.
   const canReorder = canEditParent && canAdd;
@@ -2168,6 +2260,14 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
                 title={s.dueOn ? 'Change due date' : 'Set due date'}
                 repeat={subRepeat(s.recurrence, (r) => setSubRecurrence(s, r), s.dueOn)} />
             </span>
+            {/* Move To... (Oct 22 2026): under another task, or up to the top. */}
+            {onMoveSub && rowEditable(s) && !s.hrChecklist && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); onMoveSub(s.id); }}
+                title="Move To..." aria-label={`Move ${s.title} to another task`}
+                style={{ border: 'none', background: 'transparent', padding: 0, display: 'flex', color: NX.faint, cursor: 'pointer', flexShrink: 0 }}>
+                <MoveRight size={14} />
+              </button>
+            )}
             <ChevronRight size={14} style={{ color: NX.faint, flexShrink: 0 }} />
           </div>
         ))}

@@ -3,10 +3,11 @@
 // (TasksWorkspace) and My Tasks so the two lists batch-edit the same way.
 // Renders nothing when the selection is empty; the parent owns `selected`.
 import { useRef, useState } from 'react';
-import { Copy, Trash2, X } from 'lucide-react';
+import { CalendarDays, Copy, Trash2, X } from 'lucide-react';
 import { bulkFieldsFor, duplicateTaskData, deleteSelectedTasks } from './lib';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import { SearchSelect } from './components';
+import BulkDatesPanel from './BulkDatesPanel';
 import { CustomFieldInput } from './TaskDetailDrawer';
 import AnchoredMenu from '../components/AnchoredMenu';
 
@@ -20,6 +21,8 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
   const [fieldId, setFieldId] = useState('');
   const [draft, setDraft] = useState('');
   const fieldRef = useRef(null);
+  const [datesOpen, setDatesOpen] = useState(false);
+  const datesRef = useRef(null);
   if (!selected.size) return null;
   const { tasks, bulkUpdate } = store;
   const fields = bulkFieldsFor(store.customFields, tasks, selected);
@@ -123,6 +126,22 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
                 style={{ ...btn('primary'), fontSize: 12.5, opacity: isBlank(draft) ? 0.6 : 1 }}>Apply</button>
             </div>
           </div>
+        )}
+      </AnchoredMenu>
+      {/* Dates (Oct 22 2026): shift, set or clear dates on the selection. */}
+      {store.bulkDates && (
+        <span ref={datesRef} style={keep}>
+          <button type="button" onClick={() => setDatesOpen((o) => !o)} aria-expanded={datesOpen}
+            style={{ ...selStyle, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: FONT }}>
+            <CalendarDays size={14} />Dates…
+          </button>
+        </span>
+      )}
+      <AnchoredMenu anchorRef={datesRef} open={datesOpen} onClose={() => setDatesOpen(false)} role="dialog" aria-label="Change Dates"
+        style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,0.2)', padding: 14, minWidth: 300, maxWidth: 380, fontFamily: FONT, color: NX.ink }}>
+        {datesOpen && (
+          <BulkDatesPanel ids={[...selected]} tasks={tasks} store={store}
+            onDone={() => { setDatesOpen(false); clearSel(); }} />
         )}
       </AnchoredMenu>
       {/* Custom grouping's sections (Oct 13 2026): file the selection under

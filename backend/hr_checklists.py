@@ -674,7 +674,7 @@ def _new_task(db, cl: HrChecklist, owners: list, title: str, desc: str, due: str
         parent_task_id=parent_id, subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={},
         tags=[], custom_field_values={}, start_on="", due_on=due, approval_status="none",
         completed=False, completed_at="", comment_ids=[], attachment_ids=[], activity_ids=[],
-        created_at=now, modified_at=now, created_by=(by or "nexus").lower())
+        created_at=now, modified_at=now, created_by=(by or "nexus").lower(), hr_checklist=True)
     set_task_assignees(t, list(owners))
     db.add(t)
     return t
@@ -720,7 +720,10 @@ def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus"
     ids = {i.task_id for i in items if i.task_id}
     subs = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(ids)))} if ids else {}
     pids = {t.parent_task_id for t in subs.values() if t.parent_task_id}
-    parents = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(pids)))} if pids else {}
+    # Oldest first, so which task stands for an owner is the same every time
+    # (Oct 22 2026) - the dict below keeps the first one per owner.
+    parents = ({t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(pids)))
+                .order_by(models.Task.created_at, models.Task.id)} if pids else {})
     # Field history (Oct 22 2026): what this sync changes on tasks that
     # already existed is recorded under `by`, due dates included (they are
     # written here directly, not through task_due).
@@ -735,6 +738,9 @@ def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus"
     for p in parents.values():
         if not getattr(p, "deleted_at", ""):
             by_owner.setdefault(key(task_assignees(p)), p)
+    for t in [*subs.values(), *parents.values()]:
+        if not getattr(t, "hr_checklist", False):
+            t.hr_checklist = True             # marks the checklist's tasks (Move To leaves them alone)
     live = cl.status == "open"
     created, now = [], _now()
     rows = sorted(items, key=lambda x: (x.sort_order or 0))
