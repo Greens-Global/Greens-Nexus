@@ -4093,6 +4093,7 @@ class CompensationIn(BaseModel):
     compensation: Optional[dict] = None   # {base, payBasis, frequency, currency, effectiveDate, history[]}
     bank:         Optional[list] = None   # [{holder, number, routingOrIfsc, type, bankName}]
     gstin:        Optional[str] = None    # contractor's GSTIN, kept in compensation JSON beside the bank list (Oct 21)
+    pan:          Optional[str] = None    # PAN (India): the SAME compliance.pan, edited here beside the GSTIN too (Oct 23)
 
 
 @router.get("/employees/{eid}/compensation")
@@ -4108,11 +4109,11 @@ def get_compensation(eid: str, user: dict = Depends(require_comp_read_or_manager
         _direct_report_or_404(user, row, db)
         # The GSTIN is bank-grade (Oct 21): a manager never sees it.
         return {"compensation": {k: v for k, v in (row.compensation or {}).items() if k != "gstin"},
-                "bank": [], "gstin": "", "readOnly": True,
+                "bank": [], "gstin": "", "pan": "", "readOnly": True,
                 "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
     from own_pay import own_pay_locked
     return {"compensation": row.compensation or {}, "bank": row.bank or [],
-            "gstin": (row.compensation or {}).get("gstin", ""),
+            "gstin": (row.compensation or {}).get("gstin", ""), "pan": (row.compliance or {}).get("pan", ""),
             "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row),
             # Your own record: pay is read-only (another admin or HR sets it), bank stays yours.
             "ownPayLocked": own_pay_locked(db, user, row.work_email, min_level=5, module_id="hr_comp")}
@@ -4394,6 +4395,11 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
         else:
             comp.pop("gstin", None)
         row.compensation = comp
+    if body.pan is not None:
+        # One PAN per person: Compliance and Pay & Benefits edit the same field.
+        compliance = _norm_compliance({**(row.compliance or {}), "pan": body.pan})   # 400 before any commit
+        if compliance != (row.compliance or {}):
+            row.compliance = compliance
     if body.bank is not None:
         row.bank = body.bank
     row.updated_at = datetime.now(timezone.utc).isoformat()
@@ -4406,7 +4412,7 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
         append_rate_history(db, row, effective, by=user["email"])
     db.commit()
     return {"compensation": row.compensation or {}, "bank": row.bank or [],
-            "gstin": (row.compensation or {}).get("gstin", ""),
+            "gstin": (row.compensation or {}).get("gstin", ""), "pan": (row.compliance or {}).get("pan", ""),
             "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
 

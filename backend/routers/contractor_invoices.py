@@ -109,6 +109,34 @@ def _period_text(start: str, end: str) -> str:
     return f"{us_date(start)} - {us_date(end)}"
 
 
+def _email_span(start: str, end: str) -> str:
+    """What the invoice email says it covers (Pranshu, Oct 23): a whole
+    calendar month (a fee contractor) is "for October 2026"; anything else (a
+    bi-weekly hourly period) is "from 10/04/2026 to 10/17/2026"."""
+    import calendar
+    try:
+        s, e = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
+    except ValueError:
+        return f"for {_period_text(start, end)}"
+    if s.day == 1 and (e.year, e.month) == (s.year, s.month) and e.day == calendar.monthrange(s.year, s.month)[1]:
+        return f"for {s.strftime('%B %Y')}"
+    return f"from {us_date(start)} to {us_date(end)}"
+
+
+def invoice_email(inv: ContractorInvoice, who: str, approver_name: str, approver_email: str) -> tuple[str, str]:
+    """(subject, html) of the Approve & Send email (Pranshu, Oct 23). The
+    subject reads like a filing name: "<invoice date> - <contractor> (<total>)",
+    the total with any bonuses; the body says which month or which dates."""
+    from html import escape as esc
+    total = f"{inv.currency} {inv.amount:,.2f}"
+    subject = f"{us_date(inv.invoice_date)} - {who} ({total})"
+    by = f"{approver_name} ({approver_email})" if approver_name and approver_name != approver_email else approver_email
+    html = (f"<p>Please find attached invoice {inv.number} from {esc(who)} "
+            f"{_email_span(inv.period_start, inv.period_end)}: {total}.</p>"
+            f"<p>Approved in Nexus by {esc(by)}.</p>")
+    return subject, html
+
+
 def _snapshot(emp: NexusEmployee, ent: Optional[HrEntity], inv: ContractorInvoice) -> dict:
     """The party blocks and lines as the PDF prints them - frozen with the row."""
     bank = (emp.bank or [{}])[0] if emp.bank else {}
@@ -464,15 +492,14 @@ def send_invoice(inv_id: str, user: dict = Depends(get_current_user), db: Sessio
     snap = inv.snapshot or {}
     blob = render_pdf(snap)
     name = _filename(inv)
-    period = (snap.get("period") or {}).get("text") or _period_text(inv.period_start, inv.period_end)
     who = (snap.get("billedBy") or {}).get("name") or inv.employee_email
     emailed = False
     if graph_mail.graph_configured():
-        html = (f"<p>Please find attached invoice {inv.number} from {who} for {period}: "
-                f"{inv.currency} {inv.amount:,.2f}.</p><p>Approved in Nexus by {user.get('email', '')}.</p>")
+        me = (user.get("email") or "").lower()
+        subject, html = invoice_email(inv, who, _name(_employee(db, me), me), me)
         try:
             graph_mail.send_mail(from_email=graph_mail.DEFAULT_FROM_EMAIL, to=recipients, cc=[inv.employee_email],
-                                 subject=f"Invoice {inv.number} - {who} - {period}", html=html,
+                                 subject=subject, html=html,
                                  attachments=[(name, "application/pdf", blob)])
             emailed = True
         except graph_mail.GraphMailError as e:

@@ -1158,7 +1158,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
   useEffect(() => {
     let live = true;
     api.getCompensation(employee.id)
-      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [], gstin: r.gstin || '' }); } })
+      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [], gstin: r.gstin || '', pan: r.pan || '' }); } })
       .catch(e => {
         // Compensation/bank require a fresh step-up MFA - show the Verify gate.
         if (isStepUpRequired(e)) { if (live) setStepLocked(true); return; }
@@ -1260,6 +1260,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
           {!readOnly && (data.bank.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
             : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · '))))}
+          {!readOnly && data.pan && row2('pan', 'PAN', maskId(data.pan))}
           {!readOnly && data.gstin && row2('gstin', 'GSTIN', maskId(data.gstin))}
 
           {sectionLabel('Paystubs')}
@@ -5472,6 +5473,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const [comp, setComp] = useState(COMP_DEFAULTS);
   const [bank, setBank] = useState([]);
   const [gstin, setGstin] = useState('');   // India GST number, printed on a contractor's invoices (Oct 21)
+  const [pan, setPan] = useState('');       // PAN (India) - the same one as on Compliance; printed on invoices (Oct 23)
   const [payroll, setPayroll] = useState({});   // what the timecard currently uses (read-only context)
   const [ownPayLocked, setOwnPayLocked] = useState(false);   // your own record: another admin or HR sets your pay (Oct 20)
   const [loading, setLoading] = useState(true);
@@ -5493,8 +5495,8 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
         if (nextComp.overtimeRule === undefined || nextComp.overtimeRule === null) nextComp.overtimeRule = '';
         if (!(r.compensation || {}).fullDayHours && pr.fullDayHours) nextComp.fullDayHours = String(pr.fullDayHours);
         const nextBank = r.bank || [];
-        setComp(nextComp); setBank(nextBank); setGstin(r.gstin || ''); setPayroll(pr); setOwnPayLocked(!!r.ownPayLocked);
-        baselineRef.current = { comp: nextComp, bank: nextBank, gstin: r.gstin || '' };
+        setComp(nextComp); setBank(nextBank); setGstin(r.gstin || ''); setPan(r.pan || ''); setPayroll(pr); setOwnPayLocked(!!r.ownPayLocked);
+        baselineRef.current = { comp: nextComp, bank: nextBank, gstin: r.gstin || '', pan: r.pan || '' };
       })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
       .finally(() => live && setLoading(false));
@@ -5517,13 +5519,14 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
     try {
       const clean = { ...comp }; delete clean.history;   // server owns history
       // GSTIN rides on the same PUT (the server keeps it beside the bank list).
-      await api.saveCompensation(employee.id, { compensation: clean, bank, gstin });
+      await api.saveCompensation(employee.id, { compensation: clean, bank, gstin, pan });
       toastOk('Compensation saved.'); onClose();
     } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
   }
   const money = (v, cur) => v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-';
   const gstinBad = !!gstin && !GSTIN_RE.test(gstin);
-  const dirty = JSON.stringify({ comp, bank, gstin }) !== JSON.stringify(baselineRef.current);
+  const panBad = !!pan && !PAN_RE.test(pan);
+  const dirty = JSON.stringify({ comp, bank, gstin, pan }) !== JSON.stringify(baselineRef.current);
   const guard = useUnsavedGuard(dirty, onClose, save);
 
   return (
@@ -5631,7 +5634,16 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
               </div>
             ))}
             <button className="secondary-btn" onClick={addBank} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add Bank Account</button>
-            <div style={{ marginTop: 14, maxWidth: 360 }}>
+            <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, maxWidth: 560 }}>
+            <div>
+              <label style={FL} htmlFor="comp-pan">PAN</label>
+              <input id="comp-pan" className="form-input" style={{ width: '100%', textTransform: 'uppercase', borderColor: panBad ? 'hsl(var(--color-red))' : undefined }} value={pan} maxLength={10}
+                onChange={e => setPan(e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="e.g. ABCDE1234F" aria-invalid={panBad} />
+              <div style={{ fontSize: 10.5, color: panBad ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
+                {panBad ? 'Not a valid PAN - 5 letters, 4 digits and a letter, like ABCDE1234F.' : "The same PAN as on Compliance. Printed on the person's invoices."}
+              </div>
+            </div>
+            <div>
               <label style={FL} htmlFor="comp-gstin">GSTIN</label>
               <input id="comp-gstin" className="form-input" style={{ width: '100%', textTransform: 'uppercase', borderColor: gstinBad ? 'hsl(var(--color-red))' : undefined }} value={gstin} maxLength={15}
                 onChange={e => setGstin(e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="e.g. 27ABCDE1234F1Z5" aria-invalid={gstinBad} />
@@ -5639,12 +5651,13 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                 {gstinBad ? 'Not a valid GSTIN - 15 characters, like 27ABCDE1234F1Z5.' : "Printed on the person's invoices when set."}
               </div>
             </div>
+            </div>
           </div>
         )}
 
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy || loading || gstinBad} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading || gstinBad) ? 0.6 : 1 }}>
+          <button className="primary-btn" onClick={save} disabled={busy || loading || gstinBad || panBad} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading || gstinBad || panBad) ? 0.6 : 1 }}>
             {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
           </button>
         </div>
