@@ -230,10 +230,24 @@ def _settle_bell(db: Session, inv: ContractorInvoice, title: str, line: str) -> 
 
 
 def void_for_final(db: Session, final_id: str) -> None:
-    """unfinalize: the draft goes; a sent invoice is history and stays."""
+    """unfinalize: the draft goes; a sent invoice is history and stays. A
+    draft nobody sent gives its number back when it is the person's latest,
+    so a corrected period goes out under the same number (Oct 23: June's
+    invoice 1, voided to fix the fee, came back as invoice 2)."""
     inv = _for_final(db, final_id)
     if inv is not None and inv.status == "draft":
         inv.status = "void"
+        from routers import timeclock as tc
+        tc._lock_person(db, inv.employee_email)
+        emp = _employee(db, inv.employee_email)
+        contractor = dict((emp.contractor if emp else None) or {})
+        try:
+            nxt = int(contractor.get("invoice_next_number") or 0)
+        except (TypeError, ValueError):
+            nxt = 0
+        if emp is not None and nxt == (inv.number or 0) + 1:
+            contractor["invoice_next_number"] = inv.number
+            emp.contractor = contractor
         _settle_bell(db, inv, f"Contractor Invoice Voided - Invoice {inv.number}",
                      "The period was reopened; a new invoice is drafted when it is finalized again.")
 
@@ -250,10 +264,26 @@ def invoice_for_period(db: Session, email: str, start: str, end: str) -> Optiona
             "currency": inv.currency, "sentAt": inv.sent_at or ""}
 
 
-def card_keys(db: Session, email: str, start: str, end: str) -> dict:
+def card_keys(db: Session, email: str, start: str, end: str, viewer: Optional[dict] = None) -> dict:
+    """`viewer` = the person looking at someone else's card: when they may
+    Approve & Send this draft (the same rule as the Invoices tab), the card
+    offers it right there (Oct 23 - after the signature the card only had
+    Preview, and the send looked missing)."""
     emp = _employee(db, email)
     contractor = bool(emp and (emp.employment_type or "") == "contractor")
-    return {"contractor": contractor, "invoice": invoice_for_period(db, email, start, end) if contractor else None}
+    inv = invoice_for_period(db, email, start, end) if contractor else None
+    if inv and inv["status"] == "draft" and viewer and (viewer.get("email") or "").lower() != (email or "").lower():
+        row = db.get(ContractorInvoice, inv["id"])
+        try:
+            allowed = _hr_companies(viewer, db)
+        except HTTPException:
+            allowed = set()
+        if row is not None and (allowed is None or row.company_id in allowed):
+            ent = db.query(HrEntity).filter(HrEntity.id == row.company_id).first()
+            inv.update(canSend=True, recipients=list((ent.invoice_recipients if ent else None) or []),
+                       companyName=(ent.name if ent else ""),
+                       employeeName=(row.snapshot or {}).get("billedBy", {}).get("name") or row.employee_email)
+    return {"contractor": contractor, "invoice": inv}
 
 
 # ── PDF ──────────────────────────────────────────────────────────────────────

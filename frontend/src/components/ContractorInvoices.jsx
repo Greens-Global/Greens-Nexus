@@ -50,9 +50,27 @@ export function InvoicePdfModal({ id, title, onClose, toastErr }) {
 }
 
 // The small card under Time Sheet Review & Signature on a contractor's card.
-export function InvoiceCard({ invoice, toastErr }) {
+// HR (canSend from the server - the Invoices tab's rule) sends a draft right
+// here too: after the signature this card had only Preview, so the send
+// looked missing (Oct 23).
+export function InvoiceCard({ invoice, toastOk, toastErr, onSent }) {
   const [open, setOpen] = useState(false);
+  const [sending, setSending] = useState(false);
   const inv = invoice || null;
+  const canSend = inv?.status === 'draft' && !!inv.canSend;
+  const noRecipients = canSend && !(inv.recipients || []).length;
+  async function send() {
+    const to = inv.recipients.join(', ');
+    const ok = await dialog.confirm(`Email invoice ${inv.number} (${money(inv.amount, inv.currency)}) to ${to}, with ${inv.employeeName || 'the contractor'} in cc?`, { title: 'Approve & Send', confirmText: 'Approve & Send' });
+    if (!ok) return;
+    setSending(true);
+    try {
+      const r = await api.contractorInvoiceSend(inv.id);
+      toastOk?.(r.emailed ? `Invoice ${inv.number} sent to ${to}` : `Invoice ${inv.number} recorded - email is not configured here`);
+      onSent?.();
+    } catch (e) { toastErr?.(e?.message || 'Could not send the invoice.'); }
+    finally { setSending(false); }
+  }
   const text = !inv ? 'Drafted when this period is finalized.'
     : inv.status === 'draft' ? `Invoice ${inv.number} - ${money(inv.amount, inv.currency)} - Awaiting HR approval`
     : inv.status === 'sent' ? `Invoice ${inv.number} - ${money(inv.amount, inv.currency)} - Sent ${formatDateTime(inv.sentAt)}`
@@ -65,6 +83,13 @@ export function InvoiceCard({ invoice, toastErr }) {
         <span style={{ color: inv ? 'var(--ink)' : 'var(--muted)' }}>{text}</span>
       </div>
       {btn && <button type="button" className="secondary-btn" onClick={() => setOpen(true)} style={{ fontSize: 12.5 }}>{btn}</button>}
+      {canSend && (
+        <button type="button" className="primary-btn" onClick={send} disabled={sending || noRecipients}
+          title={noRecipients ? `No recipients set for ${inv.companyName || 'this company'} - add Contractor Invoice Recipients in Company Settings.` : undefined}
+          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: noRecipients ? 0.55 : 1 }}>
+          {sending ? <Spinner size={13} /> : <Send size={13} />} Approve &amp; Send
+        </button>
+      )}
       {open && <InvoicePdfModal id={inv.id} title={`Invoice ${inv.number}`} onClose={() => setOpen(false)} toastErr={toastErr} />}
     </div>
   );
