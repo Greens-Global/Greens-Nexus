@@ -1570,7 +1570,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th title="Hours on this row - its In to its Out; a shift's rows add up to its paid time" style={gh}>Total Hours</th>
                 <th title="The day's total, on its last row - the rows above point down to it" style={gh}>Hrs/Day</th>
                 <th title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×" style={gh}>OT</th>
-                <th style={gh}>Loc</th>
+                <th style={gh}>Location</th>
                 {showPay && <th title="The rate in effect that day" style={gh}>{data.contractor ? 'Rate' : 'Pay Rate'}</th>}
                 {showPay && <th style={gh}>{data.contractor ? 'Amount' : 'Wage'}</th>}
                 <th title="What was planned, done, and left pending that day" style={gh}>Log</th>
@@ -1692,8 +1692,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                               ? <LocCell seg={r.base} onOpen={(seg) => { setGeoFocus({ seg, date: r.ds }); setGeoMap(data?.email || email || myEmail || ''); }} />
                               : '-'}
                           </td>
-                          {showPay && <td rowSpan={rs} style={{ ...gc, textAlign: 'right' }}>{fmtM(byDate[r.ds]?.rate ?? rate)}/hr</td>}
-                          {showPay && <td rowSpan={rs} style={{ ...gc, textAlign: 'right', fontWeight: 700 }}>{fmtM(r.base.amount)}</td>}
+                          {showPay && <td rowSpan={rs} style={gc}>{fmtM(byDate[r.ds]?.rate ?? rate)}/hr</td>}
+                          {showPay && <td rowSpan={rs} style={{ ...gc, fontWeight: 700 }}>{fmtM(r.base.amount)}</td>}
                         </>
                       )}
                     </>
@@ -1716,7 +1716,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={gc}>{(T.otMin || T.dtMin) ? [T.otMin ? hhmm(T.otMin) : '', T.dtMin ? `${hhmm(T.dtMin)} 2×` : ''].filter(Boolean).join(' · ') : '-'}</td>
                   <td style={gc}></td>
                   {showPay && <td style={gc}></td>}
-                  {showPay && <td style={{ ...gc, textAlign: 'right' }}>{fmtM((T.regPay || 0) + (T.otPay || 0) + (T.dtPay || 0))}</td>}
+                  {showPay && <td style={gc}>{fmtM((T.regPay || 0) + (T.otPay || 0) + (T.dtPay || 0))}</td>}
                   <td style={gc}></td>
                 </tr>
                 {[['Sick', T.sickMin, T.sickPay], ['Vacation', T.vacationMin, T.vacationPay], ['Personal', T.personalMin, T.personalPay]]
@@ -1730,7 +1730,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     <td style={gc}></td>
                     <td style={gc}></td>
                     {showPay && <td style={gc}></td>}
-                    {showPay && <td style={{ ...gc, textAlign: 'right' }}>{fmtM(pay)}</td>}
+                    {showPay && <td style={gc}>{fmtM(pay)}</td>}
                     <td style={gc}></td>
                   </tr>
                 ))}
@@ -1909,7 +1909,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         { target: 'pr-period', title: 'The pay period',
           body: 'Bi-weekly, Sunday to Saturday - the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period; click the dates to pick one. Pick it first - every employee you open stays on it.' },
         { target: 'pr-table', title: 'The time sheet - same columns as SwipeClock',
-          body: 'Date, Edit, In, Out, Deducted Time, Category, Total Hours, OT (1.5× and, past 12 hours in California, 2×), Loc, Pay Rate and Wage. A shift with a break reads as punch pairs, like SwipeClock - one row from the clock-in to the break, the next from the break end to the clock-out, each with its own hours - and a thin line between them gives the length and times of the break. Hrs/Day shows the total for the day on its last row. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Add Note in the toolbar leaves a note on a day; it reads on the line under that day. Weekly total rows appear after each week.' },
+          body: 'Date, Edit, In, Out, Deducted Time, Category, Total Hours, OT (1.5× and, past 12 hours in California, 2×), Location, Pay Rate and Wage. A shift with a break reads as punch pairs, like SwipeClock - one row from the clock-in to the break, the next from the break end to the clock-out, each with its own hours - and a thin line between them gives the length and times of the break. Hrs/Day shows the total for the day on its last row. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Add Note in the toolbar leaves a note on a day; it reads on the line under that day. Weekly total rows appear after each week.' },
         { target: 'pr-rounding', title: 'Options: rounded vs raw times',
           body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times, switch the timezone, or change a pay rule. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
         { target: 'pr-edit', title: 'Fix punches here',
@@ -2158,7 +2158,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               );
               const tailCells = (
                 <>
-                  <td rowSpan={dayRows || 1} style={{ ...gc, textAlign: 'right' }}>{showPay ? effect(fd) : ''}</td>
+                  <td rowSpan={dayRows || 1} style={gc}>{showPay ? effect(fd) : ''}</td>
                   <td rowSpan={dayRows || 1} style={gc}><WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} /></td>
                 </>
               );
