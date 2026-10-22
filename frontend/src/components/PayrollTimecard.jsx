@@ -283,6 +283,17 @@ function periodStartFor(date) {
   return snapPeriodUTC(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
+// HR unlocked a finalized period to correct it (Neil, Oct 22 2026): who, when, why.
+function CorrectionChip({ review, nameFor }) {
+  const c = review.correction || {};
+  return (
+    <span data-correction title={c.reason ? `Why: ${c.reason}` : undefined}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>
+      <Lock size={12} /> Unlocked by {nameFor(c.by) || 'HR'}{c.at ? ` on ${formatDate(c.at)}` : ''} - HR Only Until Signed Again
+    </span>
+  );
+}
+
 // Pay period finder (Neil, Oct 21 2026) - SwipeClock's "Select Other Periods".
 // The period label is the button; `periods` is newest first ({ key, label,
 // current, open, pick }) and `goTo(iso)` jumps to the period holding a date.
@@ -794,7 +805,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
   const ownCard = !self && !!myEmail && (data?.email || email || '').toLowerCase() === myEmail.toLowerCase();
-  const noEdit = !!fin || ownCard;     // nothing on the card is editable here (finalized, or your own)
+  // HR is correcting it (Oct 22): only HR changes it until it is signed again.
+  const corrLock = !!data?.review?.inCorrection && !data?.review?.isHr;
+  const noEdit = !!fin || ownCard || corrLock;     // nothing on the card is editable here (finalized, your own, HR correcting)
   // Full-width rows across the hourly table: Date, Edit, In, Out, Deducted
   // Time, Category, Total Hours, OT, Loc, [Pay Rate], [Wage] - SwipeClock's
   // order (Neil, Oct 16): the actions up front, the outputs at the end.
@@ -810,9 +823,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       'Finalize', 'Time sheet finalized - the period is locked.');
   }
   async function unfinalize() {
-    if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized time sheet for ${periodLabel}? Edits become possible again, and ${nameFor(email)} signs the corrected card again.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
+    // HR / Global Admin only (Neil, Oct 22): only HR changes it until the employee signs it again.
+    const reason = await dialog.prompt(`Why is ${nameFor(email)}'s time sheet for ${periodLabel} being unlocked? Only HR can change it while it is unlocked, and ${nameFor(email)} signs the corrected time sheet again. The reason is printed on it.`,
+      { title: 'Unlock Time Sheet', confirmText: 'Unlock', required: true, multiline: true });
+    if (!reason?.trim()) return;
     setBusy(true);
-    try { await api.timeUnfinalize({ email, start: perStart, end: perEnd }); toastOk?.('Period unlocked.'); load(); }
+    try { await api.timeUnfinalize({ email, start: perStart, end: perEnd, reason: reason.trim() }); toastOk?.('Unlocked - only HR can change it until it is signed again.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not unlock.'); }
     setBusy(false);
   }
@@ -1454,7 +1470,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           <PlayCircle size={14} /> Simulate
         </button>
         )}
-        {!self && email && !ownCard && (
+        {!self && email && !noEdit && (
         <button data-tour="pr-add-time" onClick={() => setAddTime(true)} title="Add a shift, or several days of them, for someone who did not clock in right"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
           <Plus size={14} /> Add Time
@@ -1509,6 +1525,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             <CheckCircle size={12} /> Manager approved · {nameFor(mgrAp.by)}</span>}
           {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}>
             <CheckCircle size={12} /> Finalized · {nameFor(fin.by)} - period locked</span>}
+          {data.review?.inCorrection && <CorrectionChip review={data.review} nameFor={nameFor} />}
         </div>
       )}
       {!stepLocked && showPay && !data?.rateSet && (
@@ -1824,8 +1841,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   hidden for launch (Neil, 10/16: review + Nexus Sign is the
                   only sign-off) - LEGACY_FINALIZE brings it back. Unlock stays
                   as HR's correction path for a signed period. */}
-              {isAdmin && fin && (
-                <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period for corrections"
+              {fin && data.review?.canUnlock && (
+                <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period to correct it - the employee signs it again"
                   style={{ fontSize: 12.5 }}>Unlock</button>)}
               {isAdmin && !fin && !ownCard && LEGACY_FINALIZE && (
                 <button className="secondary-btn" onClick={finalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
@@ -1927,7 +1944,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   const T = data.totals || {};
   const fin = data.finalized;
-  const noEdit = !!fin || ownCard;   // finalized, or your own card (Oct 20)
+  const corrLock = !!data.review?.inCorrection && !data.review?.isHr;   // HR is correcting it (Oct 22)
+  const noEdit = !!fin || ownCard || corrLock;   // finalized, your own card (Oct 20), or HR correcting
   const mgrAp = data.approval;
   const [breakFix, setBreakFix] = useState(null);       // { date, breaks } - fixing a break punch
   const [noteModal, setNoteModal] = useState(false);    // Add Note in the toolbar
@@ -2047,6 +2065,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         </span>}
         {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={12} /> Manager approved · {nameFor(mgrAp.by)}</span>}
         {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}><CheckCircle size={12} /> Finalized · period locked</span>}
+        {data.review?.inCorrection && <CorrectionChip review={data.review} nameFor={nameFor} />}
       </div>
 
       {self && (
@@ -2301,9 +2320,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               <span>Pending edits</span><span>{T.pendingEdits}</span>
             </div>
           )}
-          {!self && isAdmin && (fin || LEGACY_FINALIZE) && (
+          {!self && ((fin && data.review?.canUnlock) || (isAdmin && LEGACY_FINALIZE)) && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              {isAdmin && fin && (
+              {fin && data.review?.canUnlock && (
                 <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>)}
               {isAdmin && !fin && !ownCard && LEGACY_FINALIZE && (
                 <button className="secondary-btn" onClick={onFinalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"

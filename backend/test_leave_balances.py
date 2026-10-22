@@ -175,7 +175,7 @@ class LeaveBalanceTests(unittest.TestCase):
         b = lb.balances(self.db, A, today=TODAY)
         self.assertAlmostEqual(b["vacation"]["available"], 20 + 40 * 40 / 2080 - 8, places=2)
         # Unfinalize takes the period's rows back out.
-        tc.unfinalize_timecard(tc.FinalizeIn(email=A, start=PS, end=PE), user=HR, db=self.db)
+        tc.unfinalize_timecard(tc.FinalizeIn(email=A, start=PS, end=PE, reason="Wrong lunch on Monday"), user=HR, db=self.db)
         self.assertEqual(self.db.query(models.LeaveLedgerEntry)
                          .filter(models.LeaveLedgerEntry.kind != "opening").count(), 0)
 
