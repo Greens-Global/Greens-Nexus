@@ -161,9 +161,10 @@ class PacketDocsTests(unittest.TestCase):
                                     country="US").status_code, 200)
         self.assertEqual(self._save(name="Acct - India", role_ids=["jr-acct"], worker_type="employee",
                                     country="IN").status_code, 200)
-        r = self._save(name="Acct - Employee (Copy)", role_ids=["jr-acct"], worker_type="employee", country="")
+        # A hiring packet always names its place now (Neil, Oct 22) - the clash is the same role, place and hire.
+        r = self._save(name="Acct - Employee (Copy)", role_ids=["jr-acct"], worker_type="employee", country="US")
         self.assertEqual(r.status_code, 400)
-        self.assertRegex(r.json()["detail"], r"^Accounting Associate already has a packet \(Acct - (Employee|India)\) for the same hires")
+        self.assertRegex(r.json()["detail"], r"^Accounting Associate already has a packet \(Acct - Employee\) for the same hires")
 
     # ── configuration problems ─────────────────────────────────────────────
     def test_a_good_packet_has_no_problems(self):
