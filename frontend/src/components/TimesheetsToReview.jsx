@@ -205,7 +205,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
                     <CheckCircle size={13} /> Approve
                   </button>
                 </div>
-                {backFor === r.id && (
+                {!r.notSubmitted && backFor === r.id && (
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <input className="form-input" value={note} onChange={e => setNote(e.target.value)} maxLength={1000} autoFocus
                       placeholder="What needs changing?" aria-label={`What needs changing for ${r.name}`} style={{ flex: 1, fontSize: 12.5 }} />
