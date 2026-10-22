@@ -320,7 +320,7 @@ export default function DataQualityTab({ store }) {
 
       <div ref={scrollRef} onScroll={onScroll} className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {rows.length === 0 ? (
-          <EmptyState icon={CheckCircle2} title="Nothing missing" hint="Every open task has a due date, project, priority, team, and assignee." />
+          <EmptyState icon={CheckCircle2} title="Nothing Missing" hint="Every open task has a due date, project, priority, team, and assignee." />
         ) : (
           <div ref={wrapRef} style={{ margin: '0 16px 16px', border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, width: 'fit-content', minWidth: 'calc(100% - 32px)', '--nx-grid': template }}>
             {/* Sticky, like the list's: the titles stay put while you scroll.
@@ -380,7 +380,7 @@ export default function DataQualityTab({ store }) {
               emptyText="No projects yet." options={projectOptions(store.projects)}
               onPick={(id) => apply({ projectId: id || '' })} />
             <button onClick={remove} style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Trash2 size={15} />Delete</button>
-            <button onClick={clearSel} style={{ ...btn('ghost'), color: '#fff', padding: 5, flexShrink: 0 }}><X size={16} /></button>
+            <button onClick={clearSel} aria-label="Clear Selection" title="Clear Selection" style={{ ...btn('ghost'), color: '#fff', padding: 5, flexShrink: 0 }}><X size={16} /></button>
           </div>
         );
       })()}

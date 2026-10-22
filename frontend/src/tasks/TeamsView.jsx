@@ -276,7 +276,7 @@ export function TeamStatusChip({ team }) {
   const st = team?.approvalStatus || 'approved';
   if (st === 'approved') return null;
   const meta = st === 'pending'
-    ? { label: 'Awaiting approval', color: NX.amber || '#d97706' }
+    ? { label: 'Awaiting Approval', color: NX.amber || '#d97706' }
     : { label: 'Personal', color: NX.dim };
   return (
     <span title={st === 'pending'
@@ -836,7 +836,7 @@ function TeamMembersTab({ team }) {
               <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(email)}</div>
               <div style={{ fontSize: 12, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>
             </div>
-            <button onClick={() => remove(email)} title="Remove from team" style={{ ...btn('ghost'), padding: '5px 8px', color: NX.dim, fontSize: 12 }}><X size={13} />Remove</button>
+            <button onClick={() => remove(email)} title="Remove From Team" style={{ ...btn('ghost'), padding: '5px 8px', color: NX.dim, fontSize: 12 }}><X size={13} />Remove</button>
           </div>
         ))}
         {members.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: NX.faint }}>No members yet. Add teammates to give them access to this team.</div>}

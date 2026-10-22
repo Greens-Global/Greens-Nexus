@@ -174,9 +174,17 @@ describe('Manage', () => {
     fireEvent.change(screen.getByPlaceholderText('e.g. HR, Dashboard, Tasks'), { target: { value: 'Tickets' } });
     fireEvent.click(screen.getByRole('button', { name: /Minor v2\.1\.0/ }));      // after v2.0.0
     fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'Scheduled' } });
+    // A date box and a 12-hour time box (never a native datetime-local):
+    // tomorrow from the calendar, then 9:00 AM. The calendar always shows
+    // the first days of next month, and past days cannot be picked, so the
+    // first enabled cell with tomorrow's number is tomorrow.
     const when = new Date(Date.now() + 86_400_000);
-    const pad = (n) => String(n).padStart(2, '0');
-    fireEvent.change(screen.getByLabelText('Scheduled for'), { target: { value: `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T09:00` } });
+    fireEvent.click(screen.getByTitle('Scheduled for'));
+    const cal = document.querySelector('[data-nx-calendar]');
+    const day = [...cal.querySelectorAll('button')].find((b) => b.textContent === String(when.getDate()) && !b.disabled);
+    fireEvent.click(day);
+    fireEvent.change(screen.getByLabelText('Scheduled time'), { target: { value: '09:00' } });
+    expect(screen.getByLabelText('Scheduled time').selectedOptions[0].textContent).toBe('9:00 AM');
     fireEvent.click(screen.getByRole('button', { name: 'Tickets', pressed: false }));
     fireEvent.click(screen.getByRole('button', { name: 'Publish Update' }));
     await waitFor(() => expect(api.createTaskChangelog).toHaveBeenCalled());

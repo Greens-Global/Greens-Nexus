@@ -6,7 +6,7 @@ import { LoadingState } from '../../components/AsyncState';
 import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download } from 'lucide-react';
 import { api } from '../../api';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
-import { Avatar, EmptyState, AttachmentViewer } from '../components';
+import { Avatar, EmptyState, AttachmentViewer, useIsMobile } from '../components';
 import { fmtDate, taskAssignees, localISO } from '../lib';
 import { toDownloadUrl } from '../../lib/storageView';
 import { useTasks } from '../TasksContext';
@@ -31,6 +31,12 @@ const initialsOf = (label = '') => {
 
 // ── Timeline (gantt) ─────────────────────────────────────────────────────────
 const DAY_W = 26, ROW_H = 44, LABEL_W = 230;
+// Phones (Oct 21 2026): a narrower title column that stays put while the
+// dates scroll under it, and bars that let a swipe scroll - a touch drag
+// starts only after a long press.
+const LABEL_W_PHONE = 128;
+const LONG_PRESS_MS = 350;
+const PRESS_SLOP = 8;   // px a finger may wander before the press is a scroll
 const MAX_TIMELINE_ROWS = 300;
 export function TimelineView({ tasks, onOpen, nameOf }) {
   const { applyServerTask } = useTasks();
@@ -45,6 +51,22 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
   const justDragged = useRef(false);
   const noticeTimer = useRef(null);
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
+  const isMobile = useIsMobile();
+  const labelW = isMobile ? LABEL_W_PHONE : LABEL_W;
+  // A touch press waiting to become a drag: { id, startX, startY, timer }.
+  const press = useRef(null);
+  const cancelPress = () => { if (press.current) { clearTimeout(press.current.timer); press.current = null; } };
+  useEffect(() => () => clearTimeout(press.current?.timer), []);
+  // Once a long press has picked a bar up, the finger drags the bar, not the
+  // page: the bars allow panning (touch-action pan-x pan-y) so a plain swipe
+  // scrolls, and this holds the page still for the drag itself.
+  const touchDragging = !!drag?.touch;
+  useEffect(() => {
+    if (!touchDragging) return undefined;
+    const hold = (e) => { if (e.cancelable) e.preventDefault(); };
+    document.addEventListener('touchmove', hold, { passive: false });
+    return () => document.removeEventListener('touchmove', hold);
+  }, [touchDragging]);
   const say = (text) => {
     clearTimeout(noticeTimer.current);
     setNotice(text);
@@ -85,15 +107,36 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
     if (e.button !== 0 || busyId) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const mode = t.isMilestone ? 'move' : dragModeAt(e.clientX - rect.left, rect.width || barGeom(t).width);
+    if (e.pointerType === 'touch') {
+      // A finger: wait for a long press, so a swipe across the bars scrolls.
+      cancelPress();
+      const el = e.currentTarget, pointerId = e.pointerId, startX = e.clientX, startY = e.clientY;
+      press.current = {
+        id: t.id, startX, startY,
+        timer: setTimeout(() => {
+          press.current = null;
+          try { el.setPointerCapture?.(pointerId); } catch { /* the pointer already left */ }
+          navigator.vibrate?.(10);
+          setDrag({ id: t.id, mode, startX, days: 0, touch: true });
+        }, LONG_PRESS_MS),
+      };
+      return;
+    }
     e.currentTarget.setPointerCapture?.(e.pointerId);
     setDrag({ id: t.id, mode, startX: e.clientX, days: 0 });
   };
   const onBarPointerMove = (t, e) => {
+    if (press.current?.id === t.id) {
+      // Moved before the long press landed: it is a scroll, not a drag.
+      if (Math.hypot(e.clientX - press.current.startX, e.clientY - press.current.startY) > PRESS_SLOP) cancelPress();
+      return;
+    }
     if (!drag || drag.id !== t.id) return;
     const days = daysFromPixels(e.clientX - drag.startX);
     if (days !== drag.days) setDrag({ ...drag, days });
   };
   const onBarPointerUp = async (t, e) => {
+    if (press.current?.id === t.id) { cancelPress(); return; }   // a tap: the click opens it
     if (!drag || drag.id !== t.id) return;
     const days = daysFromPixels(e.clientX - drag.startX);
     const dates = dragDates(t, drag.mode, days);
@@ -140,9 +183,9 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
       {notice || 'Drag a bar to move it, or its edge to change the start or due date. Tasks waiting on it move with it.'}
     </div>
     <div className="nx-scroll" style={{ margin: 16, overflow: 'auto', border: `1px solid ${NX.border}`, borderRadius: 14, background: NX.surface, fontFamily: FONT }}>
-      <div style={{ width: LABEL_W + gridW }}>
+      <div style={{ width: labelW + gridW }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10, display: 'flex', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
-          <div style={{ width: LABEL_W, flexShrink: 0, borderRight: `1px solid ${NX.border}` }} />
+          <div style={{ width: labelW, flexShrink: 0, borderRight: `1px solid ${NX.border}`, ...(isMobile ? { position: 'sticky', left: 0, zIndex: 1, background: NX.surface } : null) }} />
           <div style={{ position: 'relative', width: gridW, height: 40 }}>
             {weeks.map((w, i) => (
               <div key={i} style={{ position: 'absolute', top: 0, height: '100%', borderLeft: `1px solid ${NX.border2}`, paddingLeft: 4, fontSize: 11, color: NX.faint, left: w.x }}>
@@ -153,9 +196,9 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
           </div>
         </div>
         <div style={{ display: 'flex' }}>
-          <div style={{ width: LABEL_W, flexShrink: 0, borderRight: `1px solid ${NX.border}` }}>
+          <div data-testid="timeline-titles" style={{ width: labelW, flexShrink: 0, borderRight: `1px solid ${NX.border}`, ...(isMobile ? { position: 'sticky', left: 0, zIndex: 4, background: NX.surface } : null) }}>
             {rows.map((t) => (
-              <button key={t.id} onClick={() => onOpen(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, height: ROW_H, width: '100%', border: 'none', borderBottom: `1px solid ${NX.border2}`, padding: '0 12px', textAlign: 'left', background: 'transparent', cursor: 'pointer', fontSize: 12, fontFamily: FONT }}>
+              <button key={t.id} onClick={() => onOpen(t.id)} title={isMobile ? t.title : undefined} style={{ display: 'flex', alignItems: 'center', gap: 8, height: ROW_H, width: '100%', border: 'none', borderBottom: `1px solid ${NX.border2}`, padding: isMobile ? '0 8px' : '0 12px', textAlign: 'left', background: 'transparent', cursor: 'pointer', fontSize: 12, fontFamily: FONT }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.ink }}>{t.title}</span>
               </button>
             ))}
@@ -188,17 +231,19 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
                 onPointerDown: (e) => onBarPointerDown(t, e),
                 onPointerMove: (e) => onBarPointerMove(t, e),
                 onPointerUp: (e) => onBarPointerUp(t, e),
-                onPointerCancel: () => setDrag(null),
+                onPointerCancel: () => { cancelPress(); setDrag(null); },
+                // No long-press callout or text pick-up on a phone.
+                onContextMenu: (e) => { if (press.current || drag?.touch) e.preventDefault(); },
               };
               if (t.isMilestone) {
-                return <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={t.title} aria-label={t.title} data-bar={t.id} style={{ position: 'absolute', left: g.left, top: i * ROW_H + 10, height: 24, border: 'none', background: 'transparent', cursor: cursorFor(t), touchAction: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1 }}><Diamond size={18} fill={meta.color} style={{ color: meta.color }} /></button>;
+                return <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={t.title} aria-label={t.title} data-bar={t.id} style={{ position: 'absolute', left: g.left, top: i * ROW_H + 10, height: 24, border: 'none', background: 'transparent', cursor: cursorFor(t), touchAction: 'pan-x pan-y', WebkitTouchCallout: 'none', userSelect: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1 }}><Diamond size={18} fill={meta.color} style={{ color: meta.color }} /></button>;
               }
               const [primary = ''] = taskAssignees(t);
               const ini = primary ? initialsOf(nameOf ? nameOf(primary) : primary) : '';
               const edge = { position: 'absolute', top: 0, bottom: 0, width: HANDLE_W, cursor: 'ew-resize' };
               return (
                 <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={`${t.title} (${meta.label})`} aria-label={t.title} data-bar={t.id}
-                  style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: cursorFor(t), background: meta.color, overflow: 'hidden', touchAction: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1, boxShadow: dragging ? '0 6px 18px rgba(0,0,0,0.25)' : 'none', transition: dragging ? 'none' : 'left 0.12s, width 0.12s' }}>
+                  style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: cursorFor(t), background: meta.color, overflow: 'hidden', touchAction: 'pan-x pan-y', WebkitTouchCallout: 'none', userSelect: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1, boxShadow: dragging ? '0 6px 18px rgba(0,0,0,0.25)' : 'none', transition: dragging ? 'none' : 'left 0.12s, width 0.12s' }}>
                   <span style={{ ...edge, left: 0 }} />
                   {ini && <span style={{ flexShrink: 0, fontWeight: 700, opacity: 0.9 }}>{ini}</span>}
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.95 }}>{t.title}</span>

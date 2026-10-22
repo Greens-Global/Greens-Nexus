@@ -94,7 +94,8 @@
     "type=\"date\"": 1
   },
   "components/PayrollTimecard.jsx": {
-    "toLocaleDateString(": 6
+    "toLocaleDateString(": 6,
+    "type=\"datetime-local\"": 5
   },
   "components/Reimbursements.jsx": {
     "type=\"date\"": 1
@@ -117,7 +118,8 @@
   },
   "components/TimeAdmin.jsx": {
     "type=\"date\"": 4,
-    "toLocaleDateString(": 4
+    "toLocaleDateString(": 4,
+    "type=\"datetime-local\"": 2
   },
   "components/TimeInsights.jsx": {
     "toLocaleTimeString(": 1
@@ -210,20 +212,7 @@
     "type=\"date\"": 1,
     "toLocaleDateString(": 3
   },
-  "tasks/ManageView.jsx": {
-    "type=\"date\"": 2
-  },
-  "tasks/ProjectsView.jsx": {
-    "type=\"date\"": 1
-  },
-  "tasks/TemplatesView.jsx": {
-    "type=\"date\"": 1
-  },
-  "tasks/TimeTracking.jsx": {
-    "type=\"date\"": 1
-  },
   "tasks/views/richlist.jsx": {
-    "type=\"date\"": 2,
     "toLocaleDateString(": 1
   },
   "tickets/TicketReports.jsx": {
@@ -255,5 +244,14 @@
   },
   "views/TimeClock.jsx": {
     "type=\"date\"": 2
+  },
+  "components/Interviews.jsx": {
+    "type=\"datetime-local\"": 1
+  },
+  "dashboard/QuickActionModals.jsx": {
+    "type=\"datetime-local\"": 2
+  },
+  "tickets/TicketAtoms.jsx": {
+    "type=\"datetime-local\"": 1
   }
 }

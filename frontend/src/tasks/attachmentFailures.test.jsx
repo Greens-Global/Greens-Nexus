@@ -36,8 +36,8 @@ beforeEach(() => {
 });
 
 const pick = (file) => {
-  // The Attachments section's own input sits just before its Attach file button.
-  const input = screen.getByText('Attach file').closest('button').previousElementSibling;
+  // The Attachments section's own input sits just before its Attach File button.
+  const input = screen.getByText('Attach File').closest('button').previousElementSibling;
   fireEvent.change(input, { target: { files: [file] } });
 };
 

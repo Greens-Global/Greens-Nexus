@@ -464,7 +464,7 @@ describe('Hide-columns menu', () => {
   const openMenu = (props) => {
     render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
       createCustomField={() => {}} {...props} />);
-    fireEvent.click(screen.getByTitle('Hide columns'));
+    fireEvent.click(screen.getByTitle('Hide Columns'));
   };
 
   it('drops the Team toggle where the column cannot vary', () => {

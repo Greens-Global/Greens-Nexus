@@ -82,7 +82,7 @@ describe('the drawer by role', () => {
     expect(screen.getByTestId('description-read-only').textContent).toBe('Replace the seal');
     expect(screen.queryByTitle('Share')).toBeNull();
     expect(screen.getByTitle('You can view this task but not change it').disabled).toBe(true);
-    expect(screen.queryByText('Attach file')).toBeNull();
+    expect(screen.queryByText('Attach File')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Comment' })).toBeNull();
     openTime();
     expect(screen.queryByRole('button', { name: /Start Timer/ })).toBeNull();
@@ -98,7 +98,7 @@ describe('the drawer by role', () => {
     render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
     expect(screen.getByTestId('view-only-note').textContent).toMatch(/comment on this task, attach files and log time/);
     expect(screen.getByTestId('fields-read-only').disabled).toBe(true);
-    expect(screen.getByText('Attach file')).toBeInTheDocument();
+    expect(screen.getByText('Attach File')).toBeInTheDocument();
     openTime();
     expect(screen.getByRole('button', { name: /Start Timer/ })).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole('button', { name: 'Comments' })[0]);
@@ -131,7 +131,7 @@ describe('the drawer by role', () => {
     render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
     expect(screen.queryByTestId('view-only-note')).toBeNull();
     expect(screen.getByTitle('Share')).toBeInTheDocument();
-    expect(screen.getByText('Attach file')).toBeInTheDocument();
+    expect(screen.getByText('Attach File')).toBeInTheDocument();
   });
 });
 
@@ -209,5 +209,14 @@ describe('read-only gaps (review, Oct 21 2026)', () => {
     expect(await screen.findByLabelText('Remove mine.pdf')).toBeInTheDocument();
     expect(screen.queryByLabelText('Remove theirs.pdf')).toBeNull();
     delete apiOverride.getTaskAttachments;
+  });
+});
+
+describe('approval chip', () => {
+  it('reads in Title Case ("Changes Requested", not "changes requested")', () => {
+    state = makeStore({ role: 'editor', t: { ...task, approvalStatus: 'changes_requested' } });
+    render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
+    expect(screen.getByText('Changes Requested')).toBeInTheDocument();
+    expect(screen.queryByText('changes requested')).toBeNull();
   });
 });

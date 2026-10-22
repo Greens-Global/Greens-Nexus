@@ -42,7 +42,7 @@ describe('CommentReactions', () => {
     expect(screen.getByLabelText('🎉 1')).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(thumbs);
     expect(onToggle).toHaveBeenCalledWith('👍');
-    fireEvent.click(screen.getByLabelText('Add reaction'));
+    fireEvent.click(screen.getByLabelText('Add Reaction'));
     fireEvent.click(screen.getByLabelText('React 🔥'));
     expect(onToggle).toHaveBeenCalledWith('🔥');
   });

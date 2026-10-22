@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import BoardView from './board';
 import { wipStorageKey } from '../lib';
@@ -51,7 +51,7 @@ describe('BoardView render-smoke', () => {
 describe('board card comment (Oct 21 2026)', () => {
   const openComment = () => {
     const card = screen.getByText('Board task A').closest('[data-task-row]');
-    fireEvent.click(card.querySelector('button[aria-label^="Comments"]') || card.querySelectorAll('button')[2]);
+    fireEvent.click(card.querySelector('button[aria-label="Add Comment"]'));
   };
 
   it('keeps the draft and says why when the comment does not post', async () => {
@@ -95,5 +95,32 @@ describe('board WIP limits are per board (Oct 21 2026)', () => {
     rerender(<BoardView visible={mockTasks} ctx={ctx} store={store} onOpen={() => {}} lockedProjectId="p2" defaultAssigneeId="" />);
     expect(screen.queryByText('1 / 5')).toBeNull();
     expect(screen.queryByText('1 / 1')).toBeNull();
+  });
+});
+
+describe('board keyboard path (Oct 21 2026)', () => {
+  it('a card is focusable and Enter opens it; keys in its own controls do not', () => {
+    const onOpen = vi.fn();
+    render(<BoardView visible={mockTasks} ctx={ctx} store={store} onOpen={onOpen} lockedProjectId="" defaultAssigneeId="" />);
+    const card = screen.getByText('Board task A').closest('[data-task-row]');
+    expect(card.tabIndex).toBe(0);
+    fireEvent.keyDown(card, { key: 'Enter' });
+    expect(onOpen).toHaveBeenCalledWith('t1');
+    onOpen.mockClear();
+    fireEvent.keyDown(card.querySelector('button'), { key: 'Enter' });
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it('Move To changes the status without a drag, and does not open the card', async () => {
+    const onOpen = vi.fn();
+    const setStatus = vi.fn(() => Promise.resolve());
+    render(<BoardView visible={mockTasks} ctx={ctx} store={{ ...store, setStatus }} onOpen={onOpen} lockedProjectId="" defaultAssigneeId="" />);
+    fireEvent.click(screen.getByLabelText('Move Board task A to another status'));
+    const menu = await screen.findByRole('menu', { name: 'Move To' });
+    const items = [...menu.querySelectorAll('[role="menuitem"]')];
+    expect(items.find((b) => b.textContent.includes('Not Started')).disabled).toBe(true);   // where it is now
+    fireEvent.click(items.find((b) => b.textContent.includes('In Progress')));
+    expect(setStatus).toHaveBeenCalledWith('t1', 'in_progress');
+    expect(onOpen).not.toHaveBeenCalled();
   });
 });

@@ -17,7 +17,7 @@ export default function RunningTimerChip() {
       <Timer size={14} style={{ color: NX.green, flexShrink: 0 }} />
       <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: NX.green }}>{elapsed}</span>
       <button type="button" onClick={open} title={title} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, color: NX.ink, padding: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{title}</button>
-      <button type="button" onClick={() => stopTimer().catch(() => {})} aria-label="Stop timer" title="Stop timer" style={{ ...btn('ghost'), padding: 4, color: NX.red }}><Square size={12} /></button>
+      <button type="button" onClick={() => stopTimer().catch(() => {})} aria-label="Stop timer" title="Stop Timer" style={{ ...btn('ghost'), padding: 4, color: NX.red }}><Square size={12} /></button>
     </div>
   );
 }

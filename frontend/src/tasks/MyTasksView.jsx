@@ -107,7 +107,7 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
   const nav = useListNav(filtered, { open, query: q, onPick: (u) => toggle(u.email) });
   return (
     <div>
-      <button ref={ref} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add collaborators" style={{ ...btn('ghost'), padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
+      <button ref={ref} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add Collaborators" style={{ ...btn('ghost'), padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
         {value.length ? (
           <>
             <div style={{ display: 'flex' }}>{value.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} /></span>)}</div>

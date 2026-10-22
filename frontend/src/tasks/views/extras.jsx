@@ -108,9 +108,9 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
     <div style={{ margin: 16, borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, fontFamily: FONT }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderBottom: `1px solid ${NX.border}`, padding: '12px 16px' }}>
-        <button onClick={() => step(-1)} style={{ ...btn('ghost'), padding: 4 }}><ChevronLeft size={18} /></button>
+        <button onClick={() => step(-1)} aria-label="Previous" title="Previous" style={{ ...btn('ghost'), padding: 4 }}><ChevronLeft size={18} /></button>
         <span style={{ minWidth: 150, fontSize: 15, fontWeight: 700, color: NX.ink }}>{rangeLabel}</span>
-        <button onClick={() => step(1)} style={{ ...btn('ghost'), padding: 4 }}><ChevronRight size={18} /></button>
+        <button onClick={() => step(1)} aria-label="Next" title="Next" style={{ ...btn('ghost'), padding: 4 }}><ChevronRight size={18} /></button>
         <button onClick={() => setCursor(new Date())} style={{ ...btn('outline'), fontSize: 12 }}>Today</button>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           <div>
@@ -240,10 +240,10 @@ export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace'
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 16 }}>
         <Card title="Completions - last 14 days"><TrendArea buckets={trend} color={NX.green} ariaLabel="Tasks completed per day, last 14 days" /></Card>
-        <Card title="Tasks by status"><LightBar data={byStatus} onSelect={onFilter && ((d) => onFilter({ statuses: [d.key] }))} /></Card>
+        <Card title="Tasks by Status"><LightBar data={byStatus} onSelect={onFilter && ((d) => onFilter({ statuses: [d.key] }))} /></Card>
         <Card title="Completion"><Donut total={stats.total} segments={[{ label: 'Completed', value: stats.completed, color: NX.green }, { label: 'Remaining', value: stats.total - stats.completed, color: '#d5d9e2' }]} /></Card>
-        <Card title="Tasks by team"><LightBar data={byTeam} onSelect={onFilter && ((d) => onFilter({ teamIds: [d.key] }))} /></Card>
-        <Card title="Tasks by assignee"><LightBar data={byAssignee} onSelect={onFilter && ((d) => onFilter({ assigneeIds: [d.key] }))} /></Card>
+        <Card title="Tasks by Team"><LightBar data={byTeam} onSelect={onFilter && ((d) => onFilter({ teamIds: [d.key] }))} /></Card>
+        <Card title="Tasks by Assignee"><LightBar data={byAssignee} onSelect={onFilter && ((d) => onFilter({ assigneeIds: [d.key] }))} /></Card>
       </div>
 
       <Card title="Time tracking - estimate vs actual">

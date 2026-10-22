@@ -896,13 +896,27 @@ function TimelineCell({ t, color, onChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const panelRef = useRef(null);
-  useClickOutside([ref, panelRef], () => setOpen(false), open);
+  // Not useClickOutside: the date boxes below open their calendar in a
+  // portal (data-nx-calendar), and a click there is not "outside" - closing
+  // here would unmount the calendar before its day registered.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (e.target.closest?.('[data-nx-calendar]')) return;
+      if (ref.current?.contains(e.target) || panelRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape' && !document.querySelector('[data-nx-calendar]')) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
   const fmtShort = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const label = t.startOn && t.dueOn ? `${fmtShort(t.startOn)} – ${fmtShort(t.dueOn)}`
     : t.dueOn ? fmtShort(t.dueOn) : t.startOn ? `${fmtShort(t.startOn)} →` : '';
   return (
     <div ref={ref} style={{ position: 'relative', width: '100%', display: 'flex', justifyContent: 'center' }}>
-      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Set timeline" style={{
+      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Set Timeline" style={{
         border: 'none', cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap', maxWidth: '100%',
         ...(label
           ? { padding: '3px 12px', borderRadius: 12, background: color, color: '#fff', fontSize: 11, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }
@@ -911,14 +925,14 @@ function TimelineCell({ t, color, onChange }) {
       {open && (
         <PortalDropdown anchorRef={ref} panelRef={panelRef} width={218}>
           <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>START
-              <input type="date" value={t.startOn || ''} onChange={(e) => onChange({ startOn: e.target.value })}
-                style={{ ...inputStyle, marginTop: 3, fontSize: 12.5, padding: '5px 8px' }} />
-            </label>
-            <label style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>DUE
-              <input type="date" value={t.dueOn || ''} min={localTodayISO()} onChange={(e) => { const v = e.target.value; if (!v || v >= localTodayISO()) onChange({ dueOn: v }); }}
-                style={{ ...inputStyle, marginTop: 3, fontSize: 12.5, padding: '5px 8px' }} />
-            </label>
+            <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>START
+              <DateField value={t.startOn || ''} onChange={(v) => onChange({ startOn: v || '' })} title="Start Date"
+                style={{ ...inputStyle, display: 'flex', marginTop: 3, fontSize: 12.5, padding: '5px 8px', fontWeight: 400 }} />
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>DUE
+              <DateField value={t.dueOn || ''} noPast onChange={(v) => { if (!v || v >= localTodayISO()) onChange({ dueOn: v || '' }); }} title="Due Date"
+                style={{ ...inputStyle, display: 'flex', marginTop: 3, fontSize: 12.5, padding: '5px 8px', fontWeight: 400 }} />
+            </div>
           </div>
         </PortalDropdown>
       )}
@@ -984,7 +998,7 @@ function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId, teams,
   ];
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button title="Hide columns" onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+      <button title="Hide Columns" onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
         style={{ ...btn('ghost'), padding: '4px 8px', gap: 5, color: hidden.size ? NX.blue : NX.dim, fontSize: 12, fontWeight: 600 }}>
         <EyeOff size={13} />{hidden.size ? `${hidden.size} hidden` : 'Hide'}
       </button>
