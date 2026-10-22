@@ -3920,10 +3920,6 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             setattr(t, k, v)
         for k, v in row_dates.get(t.id, {}).items():
             setattr(t, k, v)
-        # Same rule as the single PATCH: dragging 20 cards out of Not Started on
-        # the board is 20 tasks starting today, and they must not need a second
-        # pass through the Timeline cell to say so.
-        _autostamp_start(t, prev_status, t.status or "")
         bulk_assignees = _assignees_from(patch, list(before[t.id][2]))
         if bulk_assignees is not None:
             set_task_assignees(t, bulk_assignees)
@@ -3961,6 +3957,12 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                     t.start_on = before_start[t.id]
                 held_due[t.id] = ((t.due_on or "")[:10], ask, wanted_start)
                 t.due_on = before_due[t.id]
+        # Same rule as the single PATCH: dragging 20 cards out of Not Started on
+        # the board is 20 tasks starting today, and they must not need a second
+        # pass through the Timeline cell to say so. After the approval hold,
+        # as there: a start held with the due date is put back first, so a
+        # task with no start of its own is stamped today (Oct 22 2026).
+        _autostamp_start(t, prev_status, t.status or "")
         # Same engine pass update_task makes, per row - a rule on "status
         # changes to X" fires whether twenty cards were dragged or one.
         auto = task_automation.run_for_change(

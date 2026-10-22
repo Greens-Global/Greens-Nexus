@@ -258,19 +258,22 @@ def event_recipients(db: Session, t, event_type: str, actor_email: str, extra: d
     return out
 
 
-def import_recipients(db: Session, p, t, actor_email: str, cache: dict | None = None) -> dict:
+def import_recipients(db: Session, p, t, actor_email: str, cache: dict | None = None,
+                      skip=()) -> dict:
     """{email: project} - the followers of `p` to tell about a task import
     into it (one grouped notice for the whole import, Oct 22 2026). `t` is
     one of the imported top-level tasks (they share the project and its
     access level): the same checks as any follower event - current, not
-    muted, can see the project and the task - and never the importer."""
+    muted, can see the project and the task - and never the importer, nor
+    anyone in `skip` (already told by the import's assignment notice)."""
     if p is None or t is None or p.archived or (p.deleted_at or ""):
         return {}
     cache = {} if cache is None else cache
     actor = (actor_email or "").strip().lower()
+    skip = {(e or "").strip().lower() for e in (skip or ())}
     out: dict = {}
     for who in followers(p):
-        if who == actor or who in out:
+        if who == actor or who in out or who in skip:
             continue
         person = _person(db, who, cache)
         if person.active() and not person.muted(t, p) and can_receive(db, who, t, p, person):

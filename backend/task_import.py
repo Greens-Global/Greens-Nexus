@@ -712,8 +712,11 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
                if r.parent is None]
         if top:
             import task_notify as _mail   # the module (task_notify here is the bell helper)
+            # Whoever already got the import's assignment notice is not told
+            # twice (the regular follower events skip assignees the same way).
             (defer or (lambda fn, *a, **k: fn(*a, **k)))(
-                _mail.notify_project_import, ctx.project.id, top[0], ctx.actor, len(good))
+                _mail.notify_project_import, ctx.project.id, top[0], ctx.actor, len(good),
+                skip=sorted(assigned))
     fire_task_event("", "bulk")
     return {
         "dryRun": False, "created": len(good), "skipped": len(bad), "errors": report["errors"],

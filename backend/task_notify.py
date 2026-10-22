@@ -493,16 +493,19 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
         db.close()
 
 
-def notify_project_import(project_id: str, task_id: str, actor_email: str, count: int) -> None:
+def notify_project_import(project_id: str, task_id: str, actor_email: str, count: int, skip=()) -> None:
     """A task import into a followed project (Oct 22 2026): ONE notice per
     follower for the whole import - "<Actor> imported N tasks into
     <Project>" - never one per task. The bell grows the follower's day notice
     (task_project_follow.ring_bells); the email is a project-follower row in
     their batch like any other follower FYI (re-checked at send time by
     _drop_reason; sent at once only when the company batches nothing), about
-    `task_id`, one of the imported top-level tasks. Same people as any
-    follower event (import_recipients). Only called when the import was set
-    to notify. Never raises."""
+    `task_id`, one of the imported top-level tasks - at send time another of
+    the import's tasks stands in when that one was completed, deleted or
+    muted meanwhile (_import_anchor). Same people as any follower event
+    (import_recipients), less `skip` - the people the import's assignment
+    notice already told. Only called when the import was set to notify.
+    Never raises."""
     db = SessionLocal()
     try:
         cfg = get_settings(db)
@@ -511,7 +514,7 @@ def notify_project_import(project_id: str, task_id: str, actor_email: str, count
         if p is None or t is None:
             return
         people: dict = {}
-        recipients = project_follow.import_recipients(db, p, t, actor_email, cache=people)
+        recipients = project_follow.import_recipients(db, p, t, actor_email, cache=people, skip=skip)
         if not recipients:
             return
         line = project_follow.import_line(_name_of(db, actor_email), count, p.name)
@@ -530,7 +533,8 @@ def notify_project_import(project_id: str, task_id: str, actor_email: str, count
             if not pr.get("followedProjects", True) or not prefs_mod.wants_event(pr, "created", t):
                 continue
             _enqueue(db, recipient=who, role="project_follower", task_id=t.id, event_type="created",
-                     actor_email=actor_email, payload={"import_summary": line})
+                     actor_email=actor_email, payload={"import_summary": line, "import_project": p.id,
+                                                       "import_at": t.created_at or ""})
             queued.append(who)
         if queued and not batch_window_minutes(cfg):
             now = datetime.now(timezone.utc)
@@ -931,7 +935,9 @@ def _sends_now(t, event_type: str, cfg: dict) -> bool:
 # of that move (tasks.undo_due) drops exactly its email (Oct 22 2026).
 _PAYLOAD_KEYS = ("update_kind", "comment_body", "new_follower", "due_entry_at",
                  "auto_subject", "auto_body",   # auto_*: an automation rule's email (event "automation")
-                 "import_summary")   # a task import's one follower line (notify_project_import)
+                 # a task import's one follower line, and how to find the
+                 # import's tasks again at send time (notify_project_import)
+                 "import_summary", "import_project", "import_at")
 
 
 def _enqueue(db: Session, *, recipient: str, role: str, task_id: str, event_type: str,
@@ -1022,6 +1028,36 @@ def _drop_reason(db: Session, q, t, p: dict, follow: dict | None = None) -> str:
         if not task_automation.recipient_can_see(db, who, t):
             return "cannot see the task"
     return ""
+
+
+_IMPORT_ANCHOR_SCAN = 200   # imported top-level tasks looked at for a stand-in (_import_anchor)
+
+
+def _import_anchor(db: Session, q, t, p: dict, follow: dict):
+    """A task import's follower row is about the import, not the one task it
+    was queued on: when that task was completed, deleted, or muted (or turned
+    invisible to the follower) meanwhile, another top-level task of the same
+    import stands in - open, still in a project they follow and can see, not
+    muted. The row is moved onto it (q.task_id). None leaves the row as it
+    was, for _drop_reason to judge as any other."""
+    pl = q.payload if isinstance(q.payload, dict) else {}
+    pid, at = pl.get("import_project") or "", pl.get("import_at") or ""
+    if not pid or not at:
+        return None
+    if t is not None and not t.completed and project_follow.receiving_project(
+            db, q.recipient, t, cache=follow["people"], prefs=p) is not None:
+        return None
+    T = models.Task
+    rows = (db.query(T).filter(T.project_id == pid, T.created_at == at,
+                               T.created_by == (q.actor_email or ""),
+                               (T.parent_task_id == "") | (T.parent_task_id.is_(None)),
+                               T.completed.isnot(True), T.id != q.task_id)
+            .order_by(T.position).limit(_IMPORT_ANCHOR_SCAN).all())
+    for cand in rows:
+        if project_follow.receiving_project(db, q.recipient, cand, cache=follow["people"], prefs=p) is not None:
+            q.task_id = cand.id
+            return cand
+    return None
 
 
 def _event_line(q, actor_name: str) -> str:
@@ -1125,6 +1161,10 @@ def _flush_recipient(db: Session, recipient: str, cfg: dict, now: datetime) -> i
     for q in rows:
         if q.task_id not in tasks:
             tasks[q.task_id] = db.query(models.Task).filter(models.Task.id == q.task_id).first()
+        if q.role == "project_follower":
+            stand_in = _import_anchor(db, q, tasks[q.task_id], p, follow)
+            if stand_in is not None:
+                tasks[stand_in.id] = stand_in
         reason = _drop_reason(db, q, tasks[q.task_id], p, follow)
         if reason:
             q.status, q.drop_reason, q.updated_at = "dropped", reason, stamp

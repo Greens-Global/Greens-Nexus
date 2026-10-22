@@ -791,7 +791,8 @@ class ImportAutomationGapTests(Base):
         q = self.db.query(models.TaskEmailQueue).filter_by(recipient=ANA).all()
         self.assertEqual(len(q), 1)
         self.assertEqual((q[0].role, q[0].event_type), ("project_follower", "created"))
-        self.assertEqual(q[0].payload, {"import_summary": "Ed Editor imported 3 tasks into Open"})
+        self.assertEqual(q[0].payload["import_summary"], "Ed Editor imported 3 tasks into Open")
+        self.assertEqual(q[0].payload["import_project"], p.id)
         # The batched email says it - about the import, not its first task.
         sent = []
         with mock.patch.object(task_notify, "_send_one", side_effect=lambda db, **kw: sent.append(kw)):
@@ -799,6 +800,67 @@ class ImportAutomationGapTests(Base):
                                          task_notify.datetime.now(task_notify.timezone.utc))
         self.assertEqual(len(sent), 1)
         self.assertIn("Ed Editor imported 3 tasks into Open", sent[0]["html"])
+
+    def _flush(self, who):
+        import task_notify
+        sent = []
+        with mock.patch.object(task_notify, "_send_one", side_effect=lambda db, **kw: sent.append(kw)):
+            task_notify._flush_recipient(self.db, who, task_notify.get_settings(self.db),
+                                         task_notify.datetime.now(task_notify.timezone.utc))
+        return sent
+
+    def _import_followed(self, n=3):
+        p = self._followed()
+        bg = BackgroundTasks()
+        res = self.run_import([{"title": f"T{i}"} for i in range(n)], bg=bg, notify_assignees=True, project=p)
+        self._drain(bg)
+        self.db.expire_all()
+        q = self.db.query(models.TaskEmailQueue).filter_by(recipient=ANA).one()
+        return res, q
+
+    def test_the_follower_email_survives_its_task_being_completed_or_deleted(self):
+        res, q = self._import_followed()
+        first = self.db.get(models.Task, q.task_id)
+        first.completed, first.status = True, "completed"
+        second = self.db.get(models.Task, [i for i in res["topLevelIds"] if i != first.id][0])
+        second.deleted_at = now_iso()
+        self.db.commit()
+        sent = self._flush(ANA)
+        self.assertEqual(len(sent), 1)
+        self.assertIn("Ed Editor imported 3 tasks into Open", sent[0]["html"])
+        self.db.expire_all()
+        row = self.db.get(models.TaskEmailQueue, q.id)
+        self.assertEqual(row.status, "sent")
+        self.assertNotIn(row.task_id, (first.id, second.id))   # moved onto a live one
+
+    def test_the_follower_email_survives_its_task_being_muted(self):
+        import task_notify_prefs
+        res, q = self._import_followed()
+        task_notify_prefs.save(self.db, ANA, {"mutedTaskIds": [q.task_id]})
+        sent = self._flush(ANA)
+        self.assertEqual(len(sent), 1)
+
+    def test_the_follower_email_is_dropped_when_nothing_is_left(self):
+        res, q = self._import_followed(n=2)
+        for tid in res["topLevelIds"]:
+            row = self.db.get(models.Task, tid)
+            row.completed, row.status = True, "completed"
+        self.db.commit()
+        self.assertEqual(self._flush(ANA), [])
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.TaskEmailQueue, q.id).status, "dropped")
+
+    def test_a_follower_assigned_in_the_import_is_told_once(self):
+        p = self._followed()
+        bg = BackgroundTasks()
+        self.run_import([{"title": "Mine", "assignees": ANA}, {"title": "Other"}], bg=bg,
+                        notify_assignees=True, project=p)
+        self._drain(bg)
+        self.db.expire_all()
+        bells = self.db.query(models.TaskNotification).filter_by(for_email=ANA).all()
+        self.assertEqual([b.kind for b in bells], ["task_assigned"])
+        q = self.db.query(models.TaskEmailQueue).filter_by(recipient=ANA).all()
+        self.assertEqual({x.role for x in q}, {"assignee"})
 
     def test_a_silent_import_tells_project_followers_nothing(self):
         p = self._followed()

@@ -678,6 +678,20 @@ class FieldHistoryAcrossFeaturesTests(Base):
             self._held_single()
         self.assertEqual(seen, ["2026-10-26"])
 
+    def test_a_held_bulk_start_with_a_status_change_is_stamped_like_a_single_edit(self):
+        # Status + start + due in one edit, the due held for approval: the
+        # start waits with it, and leaving Not Started stamps today - the
+        # same in bulk as in a single edit (never left blank).
+        change = dict(status="in_progress", start_on="2026-10-29", due_on="2026-11-02")
+        one = self.task(start_on="", due_on="2026-10-30", due_extension_count=2)
+        T.update_task(one.id, T.TaskUpdate(**change), BackgroundTasks(), user=SAGAR, db=self.db)
+        many = self.task(start_on="", due_on="2026-10-30", due_extension_count=2)
+        T.bulk_update(T.BulkUpdate(ids=[many.id], patch=change), user=SAGAR, db=self.db)
+        one, many = self.fresh(one), self.fresh(many)
+        self.assertTrue(one.start_on)
+        self.assertEqual(many.start_on, one.start_on)
+        self.assertEqual((many.due_on, many.due_proposal["startOn"]), ("2026-10-30", "2026-10-29"))
+
     def test_undo_of_a_drag_is_in_the_history(self):
         t = self.task(start_on="2026-10-26", due_on="2026-10-30")
         T.update_task(t.id, T.TaskUpdate(start_on="2026-10-29", due_on="2026-11-02"), BackgroundTasks(),
