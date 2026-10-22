@@ -814,6 +814,7 @@ export const DOCS = [
           'Add each signer\'s name and email, and a message.',
           'Drag Signature, Initials, Date Signed and other fields onto the page for each signer.',
           'Click Send. Signers get an email link and no login is needed.',
+          'Signing: a bar pinned to the top of the screen always shows how many required fields are done (click it for the list of what is left) and Finish, which turns on once every required field is filled. The yellow START / NEXT tab walks through the fields, and Finish is also under the document.',
         ],
       },
       {

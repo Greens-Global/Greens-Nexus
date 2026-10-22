@@ -1334,6 +1334,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   // 2026). It still tracks the current field's row vertically.
   const [tabLeft, setTabLeft] = useState(0);
   const docRef = useRef(null);
+  const finishBarRef = useRef(null);      // the pinned Finish bar - the tab stays below it
   // The opening bar stands down as soon as the signer engages with the
   // document - by scrolling past its first screen, or by pressing START.
   const [barHidden, setBarHidden] = useState(false);
@@ -1353,7 +1354,8 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
       // Just outside the page when there is room for it, otherwise overlapping
       // its edge - never off-screen, and never adrift in the margin.
       if (doc) setTabLeft(Math.max(0, Math.min(window.innerWidth - 70, doc.left - 46)));
-      const min = 12;
+      const bar = finishBarRef.current?.getBoundingClientRect();
+      const min = Math.max(12, bar ? bar.bottom + 6 : 0);
       const max = Math.max(min, window.innerHeight - 110);
       // Until START is pressed the tab waits at the TOP of the document, where
       // the signer's eye already is - not beside a field further down that
@@ -1707,6 +1709,76 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
 
   return (
     <div>
+      {/* The Finish bar (Neil, Oct 22: "I absolutely hate that Finish is all
+          the way at the bottom ... a bar at the top that lets you click
+          Finish so you don't miss it"). Pinned to the top of whatever
+          scrolls - the window on the public page, the panel in Nexus - and
+          always there on your turn: progress (the way in to what is left)
+          and Finish, under the same rules as the bar under the document.
+          The counter is the way IN to the list of what is left: a bare
+          "3/8" tells a signer they are not finished but not what is missing
+          (review section 7). */}
+      {payload.myTurn && (
+        <div ref={finishBarRef} className="nx-finish-bar" data-testid="finish-bar"
+          style={{ position: 'sticky', top: 0, zIndex: 26, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10,
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            padding: narrow ? 'calc(8px + env(safe-area-inset-top, 0px)) 12px 8px' : '8px 14px' }}>
+          {actsNotSigns || !required.length ? (
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {actsNotSigns ? 'Nothing to fill in' : 'Ready to sign'}
+            </span>
+          ) : (
+          <div>
+            <button ref={listBtnRef} type="button" onClick={() => setListOpen(o => !o)}
+              aria-expanded={listOpen}
+              title={allDone ? 'All required fields complete' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
+              style={{ background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                fontSize: 11.5, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)',
+                display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: narrow ? 56 : 90, height: 5, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
+                <span style={{ display: 'block', height: '100%', width: `${required.length ? (doneCount / required.length) * 100 : 100}%`, background: allDone ? 'hsl(var(--color-green))' : '#fbbf24', transition: 'width .3s' }} />
+              </span>
+              {allDone ? 'All fields complete' : `${doneCount} of ${required.length} fields`}
+              {allDone ? <CheckCircle size={12} /> : <ChevronDown size={12} style={{ transform: listOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
+            </button>
+            {/* Portaled so the page's scroll areas can't clip it (phones). */}
+            <AnchoredMenu anchorRef={listBtnRef} open={listOpen} onClose={() => setListOpen(false)} align="start" minWidth={250}
+              style={{ background: 'var(--card)', border: '1px solid var(--line)',
+                borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 8px 28px rgba(0,0,0,0.18))' }}>
+              <div style={{ maxWidth: 320, maxHeight: 280, overflowY: 'auto', padding: '8px 0' }}>
+                <div style={{ padding: '4px 14px 8px', fontSize: 11, fontWeight: 700, letterSpacing: '.05em',
+                  textTransform: 'uppercase', color: 'var(--muted)', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
+                  {allDone ? 'Nothing left to fill' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
+                </div>
+                {allDone ? (
+                  <div style={{ padding: '10px 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                    Every required field is complete. Select Finish to submit your signature.
+                  </div>
+                ) : outstanding.map(t => (
+                  <button key={t.id} type="button"
+                    onClick={() => { setListOpen(false); jumpTo(t); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
+                      background: 'none', border: 'none', padding: '8px 14px', cursor: 'pointer',
+                      fontFamily: 'Inter,sans-serif', fontSize: 12.5, color: 'var(--ink)' }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskName(t)}</span>
+                    {Number.isInteger(t.page) && (
+                      <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>p. {t.page + 1}</span>
+                    )}
+                    <ArrowRight size={12} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                  </button>
+                ))}
+              </div>
+            </AnchoredMenu>
+          </div>
+          )}
+          <span style={{ flex: 1 }} />
+          <button className="primary-btn" disabled={!canAct || busy} onClick={primaryAction}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canAct && !busy ? 1 : 0.5, fontSize: 13, flexShrink: 0 }}>
+            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} {primaryLabel}
+          </button>
+        </div>
+      )}
       {/* The opening bar: what has been done so far and what is left. It is an
           INTRODUCTION, not furniture - once the signer starts, or scrolls into
           the document, it gets out of the way and the tab plus the bar under
@@ -1721,53 +1793,6 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
           </span>
           <ConsentDisclosures payload={payload} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* The counter is the way IN to the list of what is left. A bare
-                "3/8" tells a signer they are not finished but not what is
-                missing - on a six-page packet that is the difference between
-                finishing and giving up (review section 7). */}
-            <div>
-              <button ref={listBtnRef} type="button" onClick={() => setListOpen(o => !o)}
-                aria-expanded={listOpen}
-                title={allDone ? 'All required fields complete' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
-                style={{ background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                  fontSize: 11.5, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)',
-                  display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ width: 90, height: 5, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
-                  <span style={{ display: 'block', height: '100%', width: `${required.length ? (doneCount / required.length) * 100 : 100}%`, background: allDone ? 'hsl(var(--color-green))' : '#fbbf24', transition: 'width .3s' }} />
-                </span>
-                {doneCount}/{required.length}
-                {allDone ? <CheckCircle size={12} /> : <ChevronDown size={12} style={{ transform: listOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
-              </button>
-              {/* Portaled so the page's scroll areas can't clip it (phones). */}
-              <AnchoredMenu anchorRef={listBtnRef} open={listOpen} onClose={() => setListOpen(false)} align="end" minWidth={250}
-                style={{ background: 'var(--card)', border: '1px solid var(--line)',
-                  borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 8px 28px rgba(0,0,0,0.18))' }}>
-                <div style={{ maxWidth: 320, maxHeight: 280, overflowY: 'auto', padding: '8px 0' }}>
-                  <div style={{ padding: '4px 14px 8px', fontSize: 11, fontWeight: 700, letterSpacing: '.05em',
-                    textTransform: 'uppercase', color: 'var(--muted)', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
-                    {allDone ? 'Nothing left to fill' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
-                  </div>
-                  {allDone ? (
-                    <div style={{ padding: '10px 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                      Every required field is complete. Select Finish to submit your signature.
-                    </div>
-                  ) : outstanding.map(t => (
-                    <button key={t.id} type="button"
-                      onClick={() => { setListOpen(false); jumpTo(t); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
-                        background: 'none', border: 'none', padding: '8px 14px', cursor: 'pointer',
-                        fontFamily: 'Inter,sans-serif', fontSize: 12.5, color: 'var(--ink)' }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
-                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskName(t)}</span>
-                      {Number.isInteger(t.page) && (
-                        <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>p. {t.page + 1}</span>
-                      )}
-                      <ArrowRight size={12} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                    </button>
-                  ))}
-                </div>
-              </AnchoredMenu>
-            </div>
             {/* UETA section 8: the signer must be able to keep a copy of what
                 they are being asked to sign, while they are deciding - not
                 only after everyone has signed. Never gated on consent. */}
@@ -1792,11 +1817,6 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
               </button>
             )}
             <button onClick={() => setDeclineOpen(true)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Decline</button>
-            <button className="primary-btn" disabled={!canAct || busy}
-              onClick={primaryAction}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canAct && !busy ? 1 : 0.5, fontSize: 13 }}>
-              {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} {primaryLabel}
-            </button>
           </div>
         </div>
       )}

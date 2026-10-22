@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
 // Render-smoke + ordering for the EXTERNAL Nexus Sign experience. This page
 // renders outside the MSAL gate for people with no Nexus account, so a
@@ -273,8 +273,26 @@ describe('Nexus Sign external signing page', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Start signing/i }));
     await waitFor(() =>
       expect(screen.queryByText(/Consent recorded and identity verified/i)).toBeNull());
-    // The bar under the document is what carries Finish from here on.
-    expect(screen.getAllByRole('button', { name: /Finish/i }).length).toBe(1);
+    // The Finish bar pinned to the top stays (Neil, Oct 22), with the one
+    // under the document.
+    expect(screen.getAllByRole('button', { name: /Finish/i }).length).toBe(2);
+  });
+
+  it('keeps Finish and the progress pinned to the top, after scrolling too (Neil, Oct 22)', async () => {
+    queue.push(openPayload);
+    render(<PublicSign token="tok" />);
+    const bar = await screen.findByTestId('finish-bar');
+    expect(bar.style.position).toBe('sticky');
+    expect(bar.style.top).toBe('0px');
+    expect(bar.textContent).toMatch(/0 of 2 fields/);
+    const finish = within(bar).getByRole('button', { name: /Finish/i });
+    expect(finish.disabled).toBe(true);
+    window.scrollY = 900;
+    fireEvent.scroll(window);
+    expect(screen.getByTestId('finish-bar')).toBe(bar);            // never hides
+    fireEvent.click(screen.getByRole('checkbox', { name: /Insurance confirmed/i }));
+    await waitFor(() => expect(bar.textContent).toMatch(/1 of 2 fields/));
+    window.scrollY = 0;
   });
 
   it('an approver gets Approve, not Finish, and it posts to /act', async () => {

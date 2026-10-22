@@ -6672,3 +6672,9 @@ tr.nx-needs-you > td:first-child::before, tr.nx-needs-you--row > td:first-child:
 [data-theme="dark"] .nx-cr-warn { color: #fcd34d; }
 .nx-cr-error { color: #b91c1c; background: rgba(220, 38, 38, 0.08); }
 [data-theme="dark"] .nx-cr-error { color: #fca5a5; background: rgba(248, 113, 113, 0.12); }
+
+/* Nexus Sign's Finish bar is position: sticky (ESign.jsx SigningDoc, Neil, Oct 22).
+   body's overflow-x: hidden makes body a scroll container that never scrolls, so
+   the bar would never pin on the public signing page - clip instead (same
+   clipping, no container), only while the bar shows. */
+body:has(.nx-finish-bar) { overflow-x: clip; }
