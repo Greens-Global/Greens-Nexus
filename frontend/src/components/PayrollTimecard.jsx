@@ -17,6 +17,7 @@ import TimesheetReviewPanel from './TimesheetReviewPanel';
 import ChoicePills from './ChoicePills';
 import { InvoiceCard } from './ContractorInvoices';
 import BreakPremiums from './BreakPremiums';
+import TimecardBonuses from './TimecardBonuses';
 import GeofencePunchModal from './GeofencePunchModal';
 import AddTimeModal from './AddTimeModal';
 import AnchoredMenu from './AnchoredMenu';
@@ -1746,6 +1747,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 // CA meal / rest premiums: 1 hour of pay each, not hours worked.
                 ...(T.mealPremiumMin ? [[`Meal Premium (${T.mealPremiumMin / 60} x 1 hour of pay)`, '-', fmtM(T.mealPremiumPay)]] : []),
                 ...(T.restPremiumMin ? [[`Rest Premium (${T.restPremiumMin / 60} x 1 hour of pay)`, '-', fmtM(T.restPremiumPay)]] : []),
+                // Bonuses (Neil, Oct 22): one line each, with why; in totalPay.
+                ...(data.bonuses || []).map(b => [`Bonus: ${b.description}`, '-', showPay ? `+${fmtM(b.amount)}` : '']),
                 ['Totals', hd(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0))), fmtM(T.totalPay)],
               ];
               const last = rows.length - 1;
@@ -1842,6 +1845,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             : 'None - no US overtime premium applied'}. Set on the person's Pay & Benefits tab, with the pay rate. Each day is paid at the rate in effect that day. Corrections keep the original punch on record.
         </p>
       )}
+
+      {T && <TimecardBonuses card={data} periodStart={perStart} self={self} locked={noEdit} fmtM={fmtM} showPay={showPay}
+        onChanged={load} toastOk={toastOk} toastErr={toastErr} />}
 
       {/* Review + Nexus Sign (Sep 2026): the employee submits, the manager sends
           back or agrees, then employee -> manager -> HR sign in Nexus Sign. */}
@@ -2281,6 +2287,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 )}
               </span>, T.deduction ? `−${fmtM(T.deduction)}` : fmtM(0)],
               [`Weekend pay (${T.weekendDaysWorked} day${T.weekendDaysWorked === 1 ? '' : 's'}, ${data.weekendMultiplier || 1.35} × daily by hours)`, T.weekendBonus ? `+${fmtM(T.weekendBonus)}` : fmtM(0)],
+              ...(data.bonuses || []).map(b => [`Bonus: ${b.description}`, `+${fmtM(b.amount)}`]),
               [data.contractor ? 'Invoice amount this month' : 'Net pay this month', fmtM(T.totalPay)],
             ];
             const last = rows.length - 1;
@@ -2312,6 +2319,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           )}
         </div>
       </div>
+
+      <TimecardBonuses card={data} periodStart={data.periodStart} self={self} locked={noEdit} fmtM={fmtM} showPay={showPay}
+        onChanged={load} toastOk={toastOk} toastErr={toastErr} />
 
       {/* Review + Nexus Sign (same as hourly) - at the top on the employee's own sheet */}
       {!self && <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}

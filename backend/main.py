@@ -2874,6 +2874,9 @@ def _run_migrations():
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_intake_forms ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
+        # the _enable_rls_everywhere sweep. models.TimecardBonus.
+        "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

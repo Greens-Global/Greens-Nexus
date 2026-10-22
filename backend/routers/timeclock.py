@@ -52,7 +52,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole, ScheduleDayNote,
-                    ShiftAvailability, TimecardNote, PayrollRateHistory, ShiftAvailabilityDate,
+                    ShiftAvailability, TimecardNote, TimecardBonus, PayrollRateHistory, ShiftAvailabilityDate,
                     ShiftAvailabilityPref)
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from client_ip import client_ip as _trusted_ip
@@ -304,7 +304,8 @@ PAY_KEYS = frozenset({"pay", "rate", "rateSet", "rateSplits", "amount", "regPay"
                       "deduct", "deduction", "bonus", "weekendBonus",
                       "diffPay", "callBackPay",
                       # CA meal / rest premiums (ca_breaks.py) - pay, like the rest.
-                      "mealPremiumPay", "restPremiumPay"})
+                      "mealPremiumPay", "restPremiumPay",
+                      "bonusPay"})
 
 
 def strip_pay(o):
@@ -9254,6 +9255,9 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     deduction = round(deduction, 2)
     base_pay = round(base_pay, 2)
     total_pay = round(base_pay - deduction + weekend_bonus, 2)
+    _bt = {"totalPay": total_pay}
+    _add_bonuses(card, _bt, _bonus_rows(db, em, m_start, m_end))
+    total_pay = _bt["totalPay"]   # the finalize snapshot below already holds it
     # A finalized month is PINNED to its finalize-time result (day statuses key off
     # "today", so without this a mid-month finalize would drift as days elapse).
     if _frozen:
@@ -9292,7 +9296,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                       "sickDays": leave_days["sick"], "vacationDays": leave_days["vacation"],
                       "personalDays": leave_days["personal"],
                       "deduction": deduction, "weekendBonus": weekend_bonus,
-                      "totalPay": total_pay}
+                      **({"bonusPay": _bt["bonusPay"]} if "bonusPay" in _bt else {}), "totalPay": total_pay}
     card["periodStart"], card["periodEnd"] = m_start, m_end
     card["periodDays"] = days_in_month
     return card
@@ -10307,6 +10311,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                        "pendingEdits": pending_edits}}
     if _prem is not None:
         pay_premiums.add_totals(card["totals"], _prem)
+    _add_bonuses(card, card["totals"], _bonus_rows(db, em, start, end))
     return card
 
 
@@ -10460,6 +10465,80 @@ def set_timecard_note(body: TimecardNoteIn, user: dict = Depends(require_team_wr
         row.note, row.updated_by, row.updated_at = text, user["email"], now
         db.commit()
     return {"date": day, "note": text, "by": user["email"], "at": now}
+
+
+def _bonus_rows(db: Session, em: str, start: str, end: str) -> list:
+    """The live bonuses on a person's period (models.TimecardBonus), oldest first."""
+    return (db.query(TimecardBonus)
+            .filter(TimecardBonus.employee_email == em, TimecardBonus.removed_at == "",
+                    TimecardBonus.date >= (start or "0"), TimecardBonus.date <= (end or "9"))
+            .order_by(TimecardBonus.created_at).all())
+
+
+def _add_bonuses(card: dict, totals: dict, rows: list) -> None:
+    """Bonuses (Neil, Oct 22): their own lines on the card, added to totalPay -
+    keys only on a card that has any, so every other card stays as it was."""
+    if not rows:
+        return
+    card["bonuses"] = [{"id": b.id, "date": b.date, "description": b.description or "",
+                        "amount": round(float(b.amount or 0), 2), "by": b.created_by or "", "at": b.created_at or ""}
+                       for b in rows]
+    totals["bonusPay"] = round(sum(x["amount"] for x in card["bonuses"]), 2)
+    totals["totalPay"] = round(float(totals.get("totalPay") or 0) + totals["bonusPay"], 2)
+
+
+class TimecardBonusIn(BaseModel):
+    email: str
+    date: str               # YYYY-MM-DD, a day of the period it pays in
+    description: str
+    amount: float
+
+
+def _bonus_guard(db: Session, user: dict, em: str, day: str) -> None:
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    if em == (user.get("email") or "").lower():
+        raise HTTPException(403, "A bonus on your own Time Sheet is added by someone else")
+    _guard_not_finalized(db, em, day)
+    _guard_review(db, em, day, user["email"])
+
+
+@router.post("/bonuses")
+def add_timecard_bonus(body: TimecardBonusIn, user: dict = Depends(require_team_write),
+                       _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    """A manager or HR adds a bonus to one person's pay period, with why
+    (Neil, Oct 22). It changes pay, so it is locked like hours: not on a
+    finalized period, and through the review's one-side-at-a-time rule."""
+    em = (body.email or "").strip().lower()
+    day = (body.date or "").strip()[:10]
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    desc = (body.description or "").strip()[:500]
+    if not em or not desc:
+        raise HTTPException(400, "Say what the bonus is for")
+    if not math.isfinite(body.amount) or body.amount <= 0 or body.amount > 10_000_000:
+        raise HTTPException(400, "Enter a bonus amount above zero")
+    _bonus_guard(db, user, em, day)
+    row = TimecardBonus(id=str(uuid.uuid4()), employee_email=em, date=day, description=desc,
+                        amount=round(body.amount, 2), created_by=user["email"], created_at=_now_iso())
+    db.add(row)
+    db.commit()
+    return {"id": row.id}
+
+
+@router.delete("/bonuses/{bonus_id}")
+def remove_timecard_bonus(bonus_id: str, user: dict = Depends(require_team_write),
+                          _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    row = db.query(TimecardBonus).filter(TimecardBonus.id == bonus_id, TimecardBonus.removed_at == "").first()
+    if row is None:
+        raise HTTPException(404, "Bonus not found")
+    _bonus_guard(db, user, row.employee_email, row.date)
+    row.removed_by, row.removed_at = user["email"], _now_iso()
+    db.commit()
+    return {"ok": True}
 
 
 class MyTimecardNoteIn(BaseModel):
