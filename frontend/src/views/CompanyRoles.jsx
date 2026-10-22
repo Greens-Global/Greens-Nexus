@@ -9,6 +9,7 @@ import { RoleEditor, AssignModal, ApproverPicker, TierBadge, ModuleLevelPill, Av
 import { setPendingOpen } from '../lib/pendingOpen';
 import { Modal } from '../tasks/components';
 import { RoleStepsEditor } from '../components/HrChecklists';
+import RoleHiringDocs from '../components/RoleHiringDocs';
 
 // ── Company Settings > [company] > Roles ─────────────────────────────────────
 // Job roles are given company by company (Neil, Sep 2026); who can reach what
@@ -26,7 +27,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
   const [editing, setEditing] = useState(undefined);   // undefined = closed, object = edit / new seed
   const [editingShared, setEditingShared] = useState(null);   // a shared role open in the editor
   const [assignFor, setAssignFor] = useState(null);
-  const [tab, setTab] = useState('access');   // the selected role's panel: 'access' | 'checklists'
+  const [tab, setTab] = useState('access');   // the selected role's panel: 'access' | 'hiring' | 'checklists'
   const [stepsFor, setStepsFor] = useState(null);   // a shared role open in the checklist modal
   const [stepCounts, setStepCounts] = useState({});   // roleId -> {kind: steps}
   const { data: dir } = usePeopleDirectory();
@@ -170,7 +171,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
 
               <div role="tablist" aria-label="Role details" className="scroll-tabs"
                 style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', margin: '12px 0 0' }}>
-                {[['access', 'Access & People'], ['checklists', 'Checklists']].map(([key, label]) => {
+                {[['access', 'Access & People'], ['hiring', 'Hiring Documents'], ['checklists', 'Checklists']].map(([key, label]) => {
                   const on = tab === key;
                   const n = key === 'checklists' ? stepTotal(selected.id) : 0;
                   return (
@@ -182,7 +183,12 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
                 })}
               </div>
 
-              {tab === 'checklists' ? (
+              {tab === 'hiring' ? (
+                <div role="tabpanel" style={{ marginTop: 6 }}>
+                  <RoleHiringDocs key={selected.id} role={selected} toastOk={toastOk} toastErr={toastErr}
+                    onSaved={saved => setRoles(list => (list || []).map(r => (r.id === saved.id ? { ...r, ...saved } : r)))} />
+                </div>
+              ) : tab === 'checklists' ? (
                 <div role="tabpanel" style={{ marginTop: 16 }}>
                   <RoleStepsEditor key={selected.id} roleId={selected.id} roleName={selected.name}
                     toastOk={toastOk} toastErr={toastErr} onCounts={setCountsFor(selected.id)} />

@@ -1272,6 +1272,9 @@ def _run_migrations():
             "ALTER TABLE task_custom_fields ADD COLUMN formula_format JSON DEFAULT '{}'",
             # Tasks conditional row colors (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
+            # A role's own hiring paperwork (Neil, Oct 22) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN job_description TEXT DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN hiring_docs JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2924,6 +2927,10 @@ def _run_migrations():
         # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
         # the _enable_rls_everywhere sweep. models.TimecardBonus.
         "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
+        # A role's own hiring paperwork (Neil, Oct 22): its duties text and its
+        # documents. models.NexusGroup.job_description / hiring_docs. Additive.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS job_description TEXT DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS hiring_docs JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

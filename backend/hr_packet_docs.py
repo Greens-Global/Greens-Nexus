@@ -625,6 +625,7 @@ def event_values(db: Session, kind: str, d: dict) -> dict:
     out = {}
     if kind in CANDIDATE_KINDS:
         out.update({"job_title": d.get("job_title", ""), "department": d.get("department", ""),
+                    "role_description": d.get("role_description", ""),
                     "start_date": d.get("start_date", ""), "offer_expires": d.get("offer_expires", ""),
                     "employment_type": (d.get("employment_type") or "full_time").replace("_", "-").title(),
                     # What HR answered on the offer (Oct 14).
@@ -1323,6 +1324,27 @@ def all_block_ids(setting: Optional[HrPacketSetting]) -> list:
     return out
 
 
+def with_role_docs(ids: list, role_docs) -> list:
+    """The packet's documents with the role's own filled in (Neil, Oct 22: "the
+    role gets filled into the hiring packet"): a role document that replaces
+    one of the packet's - the standard confidentiality agreement - takes its
+    place in the order; any other is added after the packet's own. So one
+    California packet serves every role, and the construction associate still
+    signs the construction confidentiality agreement."""
+    out = list(ids)
+    for r in role_docs or []:
+        if not isinstance(r, dict):
+            continue
+        tid, rep = str(r.get("templateId") or ""), str(r.get("replaces") or "")
+        if not tid or tid in out:
+            continue
+        if rep and rep in out:
+            out[out.index(rep)] = tid
+        else:
+            out.append(tid)
+    return out
+
+
 def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str) -> list:
     """Every template a packet prints for one person: its own documents, the
     ones for their team and role, then (not on an offer) their job
@@ -1330,6 +1352,8 @@ def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str
     d = inputs or {}
     ids = list((setting.doc_template_ids or []) if setting is not None else [])
     ids += [t for t in block_ids(setting, d.get("department", ""), d.get("role_id", "")) if t not in ids]
+    if kind != "offer":
+        ids = with_role_docs(ids, d.get("role_docs"))
     jd = d.get("jd_template_id") or "" if kind != "offer" else ""
     if jd and jd not in ids:
         ids.append(jd)

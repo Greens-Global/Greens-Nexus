@@ -717,6 +717,15 @@ class NexusGroup(Base):
     created_from    = Column(String, default="")
     bod_team_id     = Column(String, default="")
     bod_team_name   = Column(String, default="")
+    # The role fills itself into the hiring paperwork (Neil, Oct 22: "the role
+    # gets filled into the hiring packet... the only thing that changes is a
+    # different confidentiality agreement and a different job description
+    # based on roles"). job_description is the duties text a white-label Job
+    # Description document prints as {{role_description}}; hiring_docs are the
+    # role's own documents, each added to - or replacing one of - whatever
+    # packet the hire gets: [{templateId, replaces}] ('' = added).
+    job_description = Column(Text, default="")
+    hiring_docs     = Column(JSON, default=list)
 
 
 class NexusGroupMember(Base):
