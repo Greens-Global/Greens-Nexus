@@ -96,7 +96,8 @@ export function filterOptions(options, query) {
 // 10/06); `plain` rows (a picker's extra top options) have no code shown.
 // `onPick(code)` turns it into a single-select list: a click or Enter picks.
 // Arrow keys move through the rows, Enter ticks / picks the highlighted one.
-function OptionList({ options, value, onChange, onPick, placeholder, empty, loading, error, allLabel, codeFirst = false, maxHeight = LIST_HEIGHT }) {
+// `onFree(text)` (Oct 23) offers a typed code that is not on the list.
+function OptionList({ options, value, onChange, onPick, onFree, placeholder, empty, loading, error, allLabel, codeFirst = false, maxHeight = LIST_HEIGHT }) {
   const [q, setQ] = useState('');
   const [active, setActive] = useState(-1);
   const listRef = useRef(null);
@@ -116,6 +117,8 @@ function OptionList({ options, value, onChange, onPick, placeholder, empty, load
     if (active < 0) return;
     listRef.current?.querySelector(`[data-opt-index="${active}"]`)?.scrollIntoView?.({ block: 'nearest' });
   }, [active]);
+  const typed = q.trim();
+  const free = onFree && typed && !options.some((o) => o.code.toLowerCase() === typed.toLowerCase()) ? typed : '';
   const onKeyDown = (e) => {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
@@ -126,6 +129,7 @@ function OptionList({ options, value, onChange, onPick, placeholder, empty, load
     e.preventDefault();
     const target = active >= 0 ? shown[active] : q.trim() ? shown[step(-1, 1)] : null;
     if (target && !target.dim) toggle(target.code);
+    else if (!target && free) onFree(free);
   };
   return (
     <>
@@ -141,6 +145,12 @@ function OptionList({ options, value, onChange, onPick, placeholder, empty, load
           <button type="button" style={row(!value.length)} onClick={() => onChange([])}>
             <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{!value.length ? <Check size={14} /> : null}</span>
             <span style={{ flex: 1, fontWeight: 600 }}>{allLabel}</span>
+          </button>
+        )}
+        {free && (
+          <button type="button" style={row(false)} onClick={() => onFree(free)}>
+            <span style={{ width: 14 }} />
+            <span style={{ flex: 1 }}>Use &quot;{free}&quot;</span>
           </button>
         )}
         {shown.map((o, i) => {
@@ -295,6 +305,46 @@ export function EntityPicker({ entities, value = '', onChange, extra = [], group
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} style={panel(500)}>
         <OptionList options={options} value={[value]} onPick={(code) => { setOpen(false); if (code !== value) onChange(code); }} codeFirst
           placeholder="Search entity by name or code" empty="No entities on the ledger yet." />
+      </PopoverPanel>
+    </div>
+  );
+}
+
+// ONE GL account, searchable by number or title (Charmi, 10/22 call on the
+// Management Fees dialog: "I should be able to search it. It's not
+// searchable."). The list loads on first open through `load()` (a promise of
+// { accounts: [{ code, title }] }); a code with no activity yet can still be
+// typed and used, and a saved code always stays listed.
+export function GlAccountPicker({ value = '', onChange, load, noneLabel = 'None', placeholder = 'Pick a GL Account', ariaLabel = 'GL Account', align = 'left', style = null }) {
+  const [open, setOpen, ref] = usePopover();
+  const [list, setList] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!open || list) return undefined;
+    let alive = true;
+    Promise.resolve().then(load)
+      .then((d) => { if (alive) setList(d?.accounts || []); })
+      .catch((e) => { if (alive) { setList([]); setError(e?.message || 'Could not read the GL accounts.'); } });
+    return () => { alive = false; };
+  }, [open, list, load]);
+  const options = useMemo(() => {
+    const body = (list || []).map((a) => ({ code: a.code, name: a.title || '' }));
+    if (value && !body.some((o) => o.code === value)) body.unshift({ code: value, name: '' });
+    return [...(noneLabel ? [{ code: '', name: noneLabel, plain: true }] : []), ...body];
+  }, [list, value, noneLabel]);
+  const title = (list || []).find((a) => a.code === value)?.title;
+  const label = value ? (title ? `${value} ${title}` : value) : placeholder;
+  const pick = (code) => { setOpen(false); if (code !== value) onChange(code); };
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
+      <button type="button" style={{ ...button(!!value), ...(style || {}) }} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} title={label}>
+        <ListFilter size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, textAlign: 'left' }}>{label}</span>
+        <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+      </button>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label={ariaLabel} style={panel(460)}>
+        <OptionList options={options} value={[value]} onPick={pick} onFree={pick} codeFirst loading={list === null} error={error}
+          placeholder="Search account by name or GL code" empty="No GL accounts with activity on the ledger yet." />
       </PopoverPanel>
     </div>
   );

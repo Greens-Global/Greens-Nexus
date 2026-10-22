@@ -2363,10 +2363,12 @@ export const api = {
   },
   // Accounting > Reporting > AMA, Asset Management Agreements (Oct 7,
   // routers/accounting_ama.py): Billed YTD read from the ledger.
-  getAmaSummary:       (year)     => req(`/accounting/ama/summary${year ? `?year=${year}` : ''}`),
+  // Oct 23 (CR-03): `period` = ytd | q1-q4 | m01-m12; getAmaAccounts lists the GL accounts for the Fee GL Account picker.
+  getAmaSummary:       (year, period = '') => req(`/accounting/ama/summary?${new URLSearchParams({ ...(year ? { year } : {}), ...(period ? { period } : {}) })}`),
   createAmaAgreement:  (body)     => req('/accounting/ama/agreements', { method: 'POST', body: JSON.stringify(body) }),
   updateAmaAgreement:  (id, body) => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteAmaAgreement:  (id)       => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getAmaAccounts:      ()         => req('/accounting/ama/accounts'),
   // Accounting > Reporting > AMA, Ask My Accountant (Neil, 10/15,
   // routers/accounting_ask.py): questions on ledger lines + the lines on the
   // Ask My Accountant (suspense) accounts. The agreements above are now

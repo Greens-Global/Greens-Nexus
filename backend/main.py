@@ -1272,6 +1272,9 @@ def _run_migrations():
             "ALTER TABLE task_custom_fields ADD COLUMN formula_format JSON DEFAULT '{}'",
             # Tasks conditional row colors (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
+            # Management Fees threshold rule (CR-03) - see the Postgres list.
+            "ALTER TABLE accounting_ama_agreements ADD COLUMN threshold_amount FLOAT",
+            "ALTER TABLE accounting_ama_agreements ADD COLUMN threshold_basis VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2924,6 +2927,11 @@ def _run_migrations():
         # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
         # the _enable_rls_everywhere sweep. models.TimecardBonus.
         "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
+        # Management Fees threshold rule (Charmi, Oct 22 call, CR-03): "X% of
+        # gross if gross > threshold, else a flat amount". NULL / '' on every
+        # older agreement = the defaults in accounting_assumptions.py.
+        "ALTER TABLE accounting_ama_agreements ADD COLUMN IF NOT EXISTS threshold_amount DOUBLE PRECISION",
+        "ALTER TABLE accounting_ama_agreements ADD COLUMN IF NOT EXISTS threshold_basis VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

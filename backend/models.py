@@ -6015,9 +6015,9 @@ class AccountingAmaAgreement(Base):
     entity_code         = Column(String, nullable=False, index=True)  # the managed ledger entity
     manager_entity_code = Column(String, default="")                  # the entity that earns / bills the fee
     status              = Column(String, default="Active")            # Active | Pending Review | Ended
-    fee_basis           = Column(String, default="percent_revenue")   # percent_revenue | flat
-    fee_rate            = Column(Float, nullable=True)                # percent, for percent_revenue
-    flat_amount         = Column(Float, nullable=True)                # per billing period, for flat
+    fee_basis           = Column(String, default="percent_revenue")   # percent_revenue | flat | percent_or_flat
+    fee_rate            = Column(Float, nullable=True)                # percent, for percent_revenue / percent_or_flat
+    flat_amount         = Column(Float, nullable=True)                # per billing period (flat); the "else" fee (percent_or_flat)
     billing_frequency   = Column(String, default="Monthly")           # Monthly | Quarterly | Annually
     start_date          = Column(String, default="")                  # YYYY-MM-DD
     end_date            = Column(String, default="")                  # '' = open-ended
@@ -6028,6 +6028,12 @@ class AccountingAmaAgreement(Base):
     created_at          = Column(String, default="")
     updated_by          = Column(String, default="")
     updated_at          = Column(String, default="")
+    # Oct 23 (Charmi, CR-03): percent_or_flat charges fee_rate % of gross when
+    # the gross is above threshold_amount, else flat_amount. threshold_basis
+    # annual | period ('' = accounting_assumptions default). Additive, NULL on
+    # every older agreement.
+    threshold_amount    = Column(Float, nullable=True)
+    threshold_basis     = Column(String, default="")
 
 
 class Announcement(Base):

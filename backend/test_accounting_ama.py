@@ -127,6 +127,7 @@ class EndpointTests(unittest.TestCase):
         self.calls = []
         self.fail = set()
         self.income = {"15000": 100000.0, "56000-1": 20000.0}
+        self.income_fn = None
         self.fees = {"90000": [("40500", 3000.0, 0.0)], "15000": [("40500", 1200.0, 200.0)], "56000-1": [("40500", 500.0, 0.0)]}
 
         async def fake_get(path, params):
@@ -138,7 +139,8 @@ class EndpointTests(unittest.TestCase):
             if loc in self.fail:
                 raise HTTPException(status_code=424, detail="The accounting app did not answer.")
             if path.endswith("/reports/pnl"):
-                return {"ok": True, "sections": [{"key": "revenue", "accounts": [{"account_no": "41000", "amount": self.income.get(loc, 0)}]}]}
+                amount = self.income_fn(loc, clean["from"], clean["to"]) if self.income_fn else self.income.get(loc, 0)
+                return {"ok": True, "sections": [{"key": "revenue", "accounts": [{"account_no": "41000", "amount": amount}]}]}
             if path.endswith("/reports/buckets"):
                 return {"ok": True, "rows": [{"bucket": "total", "account_no": gl, "credit": c, "debit": d} for gl, c, d in self.fees.get(loc, [])]}
             return {"ok": True}
@@ -256,8 +258,12 @@ class EndpointTests(unittest.TestCase):
         # The fee is read in the manager entity, the income in the managed one, from Jan 1 through today.
         buckets = sorted(c[1]["location"] for c in self.calls if c[0].endswith("/reports/buckets"))
         self.assertEqual(buckets, ["15000", "90000"])
-        pnl = [c[1] for c in self.calls if c[0].endswith("/reports/pnl")]
-        self.assertEqual([(c["location"], c["from"], c["to"]) for c in pnl], [("15000", start, today.isoformat())])
+        # One P&L read per agreement (CR-03: every row shows the managed entity's gross).
+        pnl = sorted((c[1]["location"], c[1]["from"], c[1]["to"]) for c in self.calls if c[0].endswith("/reports/pnl"))
+        self.assertEqual(pnl, [("15000", start, today.isoformat())] * 2 + [("56000-1", start, today.isoformat())])
+        self.assertEqual((p["grossRevenue"], p["calculatedFee"], p["feeTier"]), (100000.0, 3500.0, "percent"))
+        self.assertEqual((f["grossRevenue"], f["calculatedFee"], f["feeTier"]), (100000.0, 250.0 * periods, "flat"))
+        self.assertEqual((b["grossRevenue"], b["period"], b["periodFrom"], b["periodTo"]), (20000.0, "ytd", start, today.isoformat()))
 
     def test_a_failed_read_is_answered_per_agreement(self):
         _as(EDITOR)
@@ -270,6 +276,9 @@ class EndpointTests(unittest.TestCase):
         rows = {x["id"]: x for x in r.json()["rows"]}
         self.assertIsNone(rows[ok["id"]]["error"])
         self.assertEqual(rows[ok["id"]]["billedYtd"], 3000.0)
+        # A flat fee does not need the gross: its failed read only blanks the gross.
+        self.assertEqual((rows[ok["id"]]["grossRevenue"], rows[ok["id"]]["expectedYtd"] is not None), (None, True))
+        self.assertIn("did not answer", rows[ok["id"]]["grossError"])
         d = rows[down["id"]]
         self.assertEqual((d["billedYtd"], d["expectedYtd"], d["difference"]), (None, None, None))
         self.assertIn("did not answer", d["error"])
@@ -279,6 +288,142 @@ class EndpointTests(unittest.TestCase):
         _as(EDITOR)
         self.assertEqual(self.client.get(f"/accounting/ama/summary?year={YEAR + 1}").status_code, 400)
         self.assertEqual(self.client.get("/accounting/ama/summary?year=1999").status_code, 400)
+        self.assertEqual(self.client.get(f"/accounting/ama/summary?year={YEAR}&period=week1").status_code, 400)
+        self.assertEqual(self.client.get(f"/accounting/ama/summary?year={YEAR - 1}&period=q4").status_code, 200)
+
+    # ── CR-03: percent of gross above a threshold, else a flat fee ──────────
+    def _tiered(self, **kw):
+        base = dict(feeBasis="percent_or_flat", feeRate=3, flatAmount=3000, thresholdAmount=100000, thresholdBasis="")
+        base.update(kw)
+        return self._add(**base)
+
+    def test_tiered_crud_and_validation(self):
+        _as(EDITOR)
+        r = self._tiered(thresholdBasis="period")
+        self.assertEqual(r.status_code, 201, r.text)
+        a = r.json()
+        self.assertEqual((a["feeBasis"], a["feeRate"], a["flatAmount"], a["thresholdAmount"], a["thresholdBasis"]),
+                         ("percent_or_flat", 3.0, 3000.0, 100000.0, "period"))
+        # Back to a plain flat fee: the threshold is dropped, nothing else moves.
+        b = self.client.put(f"{URL}/{a['id']}", json=agreement(flatAmount=500)).json()
+        self.assertEqual((b["feeBasis"], b["flatAmount"], b["thresholdAmount"], b["thresholdBasis"]), ("flat", 500.0, None, ""))
+        cases = [
+            (dict(thresholdAmount=None), "threshold"),
+            (dict(thresholdAmount=-1), "threshold"),
+            (dict(thresholdBasis="weekly"), "annual or the period"),
+            (dict(flatAmount=None), "flat fee"),
+            (dict(feeRate=None), "fee rate"),
+        ]
+        for kw, words in cases:
+            r = self._tiered(**kw)
+            self.assertEqual(r.status_code, 400, (kw, r.text))
+            self.assertIn(words, r.json()["detail"])
+
+    def test_an_agreement_saved_before_cr03_reads_as_before(self):
+        _as(EDITOR)
+        a = self._add(feeBasis="percent_revenue", feeRate=3.5, flatAmount=None).json()
+        db = database.SessionLocal()
+        try:      # a row from before the columns existed
+            row = db.query(models.AccountingAmaAgreement).filter(models.AccountingAmaAgreement.id == a["id"]).first()
+            row.threshold_amount, row.threshold_basis = None, None
+            db.commit()
+        finally:
+            db.close()
+        got = self.client.get(URL).json()["agreements"][0]
+        self.assertEqual((got["feeBasis"], got["feeRate"], got["thresholdAmount"], got["thresholdBasis"]), ("percent_revenue", 3.5, None, ""))
+        self.assertEqual(self.client.get("/accounting/ama/summary").status_code, 200)
+
+    def _ten_k_a_month(self, loc, from_, to):
+        f, t = date.fromisoformat(from_), date.fromisoformat(to)
+        return 10000.0 * ((t.year * 12 + t.month) - (f.year * 12 + f.month) + 1)
+
+    def test_tiered_summary_annual_threshold(self):
+        _as(EDITOR)
+        y = YEAR - 1
+        self.income_fn = self._ten_k_a_month
+        a = self._tiered(startDate=f"{y}-01-01").json()
+        get = lambda p: self.client.get(f"/accounting/ama/summary?year={y}&period={p}").json()["rows"][0]    # noqa: E731
+        q1 = get("q1")       # Jan-Mar gross 30,000: the year so far is under 100,000 -> flat, 3 of 12 months of 3,000
+        self.assertEqual((q1["periodFrom"], q1["periodTo"], q1["grossRevenue"], q1["testGross"], q1["feeTier"], q1["calculatedFee"]),
+                         (f"{y}-01-01", f"{y}-03-31", 30000.0, 30000.0, "flat", 750.0))
+        self.assertEqual((q1["thresholdUsed"], q1["thresholdBasisUsed"]), (100000.0, "annual"))
+        q4 = get("q4")       # Jan-Dec gross 120,000 is over 100,000 -> 3% of the quarter's 30,000
+        self.assertEqual((q4["grossRevenue"], q4["testGross"], q4["feeTier"], q4["calculatedFee"]), (30000.0, 120000.0, "percent", 900.0))
+        self.assertEqual((q4["revenueYtd"], q4["expectedYtd"], q4["expectedTier"], q4["asOf"]), (120000.0, 3600.0, "percent", f"{y}-12-31"))
+        m02 = get("m02")
+        self.assertEqual((m02["periodFrom"], m02["periodTo"], m02["calculatedFee"], m02["expectedYtd"]), (f"{y}-02-01", f"{y}-02-28" if y % 4 else f"{y}-02-29", 250.0, 500.0))
+        self.assertEqual(a["thresholdBasis"], "")
+
+    def test_tiered_summary_period_threshold(self):
+        _as(EDITOR)
+        y = YEAR - 1
+        self.income_fn = self._ten_k_a_month
+        self._tiered(startDate=f"{y}-01-01", thresholdAmount=25000, thresholdBasis="period")
+        r = self.client.get(f"/accounting/ama/summary?year={y}&period=q1").json()["rows"][0]
+        self.assertEqual((r["testGross"], r["feeTier"], r["calculatedFee"]), (30000.0, "percent", 900.0))
+        r = self.client.get(f"/accounting/ama/summary?year={y}&period=m01").json()["rows"][0]
+        self.assertEqual((r["testGross"], r["feeTier"], r["calculatedFee"]), (10000.0, "flat", 250.0))
+
+    def test_gl_accounts_for_the_picker(self):
+        self.fees[None] = [("40500", 1.0, 0.0), ("41000", 2.0, 0.0), ("40500", 0.0, 1.0)]
+        _as(EDITOR)
+        r = self.client.get("/accounting/ama/accounts")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([a["code"] for a in r.json()["accounts"]], ["40500", "41000"])
+        _as(LIMITED)      # read through the caller's entities
+        self.client.get("/accounting/ama/accounts")
+        self.assertEqual(self.calls[-1][1].get("location"), "56000")
+        _as(VIEWER)
+        self.assertEqual(self.client.get("/accounting/ama/accounts").status_code, 403)
+
+
+class ThresholdArithmeticTests(unittest.TestCase):
+    def tiered(self, **kw):
+        return agreement(**{"feeBasis": "percent_or_flat", "feeRate": 3, "flatAmount": 3000, "thresholdAmount": 100000, **kw})
+
+    def test_fee_for(self):
+        a = self.tiered()
+        self.assertEqual(ama.fee_for(a, 50000, 150000, 3), (1500.0, "percent"))
+        self.assertEqual(ama.fee_for(a, 50000, 90000, 3), (750.0, "flat"))         # 3 of 12 months of a yearly 3,000
+        self.assertEqual(ama.fee_for(a, 50000, 100000, 3), (750.0, "flat"))        # exactly at the threshold is not above it
+        self.assertEqual(ama.fee_for(self.tiered(billingFrequency="Quarterly"), 0, 0, 1), (750.0, "flat"))
+        self.assertEqual(ama.fee_for(self.tiered(billingFrequency="Annually"), 0, 0, 1), (3000.0, "flat"))
+        # The older bases ignore any threshold.
+        self.assertEqual(ama.fee_for(agreement(flatAmount=250, thresholdAmount=1), 9e9, 9e9, 4), (1000.0, "flat"))
+        self.assertEqual(ama.fee_for(agreement(feeBasis="percent_revenue", feeRate=2, thresholdAmount=1e9), 1000, 0, 4), (20.0, "percent"))
+
+    def test_defaults_fill_what_an_agreement_leaves_blank(self):
+        from accounting_assumptions import MGMT_FEE_DEFAULT_THRESHOLD, MGMT_FEE_DEFAULT_THRESHOLD_BASIS
+        self.assertEqual(ama.threshold_of(self.tiered(thresholdAmount=None)), MGMT_FEE_DEFAULT_THRESHOLD)
+        self.assertEqual(ama.threshold_basis(self.tiered()), MGMT_FEE_DEFAULT_THRESHOLD_BASIS)
+        self.assertEqual(ama.threshold_basis(self.tiered(thresholdBasis="period")), "period")
+
+    def test_period_window(self):
+        pw = ama.period_window
+        today = date(2026, 10, 23)
+        self.assertEqual(pw(2026, "ytd", today), (date(2026, 1, 1), today))
+        self.assertEqual(pw(2026, "q2", today), (date(2026, 4, 1), date(2026, 6, 30)))
+        self.assertEqual(pw(2026, "q4", today), (date(2026, 10, 1), today))          # cut at today
+        self.assertEqual(pw(2024, "m02", date(2024, 12, 31)), (date(2024, 2, 1), date(2024, 2, 29)))
+        for bad in ("m11", "q5", "m13", "", "year"):
+            with self.assertRaises(HTTPException):
+                pw(2026, bad, today)
+
+    def test_gross_accounts(self):
+        spec = ama._account_spec("40000-49999, 70100")
+        self.assertEqual(spec, [("40000", "49999"), ("70100", "70100")])
+        self.assertTrue(ama.counts_as_gross("40500", spec))
+        self.assertTrue(ama.counts_as_gross("70100", spec))
+        self.assertFalse(ama.counts_as_gross("70200", spec))
+        self.assertFalse(ama.counts_as_gross("5000", spec))
+        self.assertTrue(ama.counts_as_gross("anything", []))
+        pnl = {"sections": [{"key": "revenue", "accounts": [{"account_no": "40500", "amount": 100}, {"account_no": "70200", "amount": 7}]}]}
+        old, ama.assume.MGMT_FEE_GROSS_ACCOUNTS = ama.assume.MGMT_FEE_GROSS_ACCOUNTS, "40000-49999"
+        try:
+            self.assertEqual(ama.income_of(pnl), 100.0)
+        finally:
+            ama.assume.MGMT_FEE_GROSS_ACCOUNTS = old
+        self.assertEqual(ama.income_of(pnl), 107.0)
 
 
 if __name__ == "__main__":
