@@ -1468,6 +1468,7 @@ export const DOCS = [
           'Click Create And Publish. The template is published (v1) with every variable and signature spot in place. Preview With Sample Person shows it filled in; Open In Editor if you want to change any wording.',
           'Add it to a packet in Settings > Hiring > Hiring Documents. The packet\'s Ready To Send checklist offers to put every Ask The Person field on its Details Form in one click, and warns if anything is still missing.',
           'Splitting a big Word file: if parts of it are shared by many roles (an agreement, an NDA) and one part is per role (a scope of work), save them as separate Word files first and make a template from each - each role\'s packet then reuses the shared ones.',
+          'Text written with Markdown bold - **Term** - prints in bold, never with the asterisks: in a .txt or .md import, when a document opens in the editor, and in every PDF and Word file Nexus makes (hiring packets included). A single or spaced-out asterisk (5 * 3) stays as written.',
         ],
       },
       {

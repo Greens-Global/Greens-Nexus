@@ -83,6 +83,29 @@ def _fill_text_tokens(text: str, merge: dict) -> str:
     return _TEXT_TOKEN_RE.sub(lambda m: str(merge.get(m.group(1), m.group(0))), text)
 
 
+# Markdown bold typed as ORDINARY TEXT ("a **b** c"): a template pasted or
+# imported from an AI draft or a .txt kept the asterisks, and packets printed
+# them (Neil, Oct 22). Only a pair on the same text node, hugging non-space
+# text, is bold; a lone or spaced-out asterisk stays as written. Same rule as
+# the browser's lib/markdownBold.js.
+_MD_BOLD_RE = re.compile(r"\*\*(?=[^\s*])(.+?)(?<=[^\s*])\*\*")
+
+
+def split_md_bold(text: str) -> list:
+    """[(segment, bold)] for `text` with its **pairs** taken out."""
+    if not text or "**" not in text:
+        return [(text, False)]
+    out, last = [], 0
+    for m in _MD_BOLD_RE.finditer(text):
+        if m.start() > last:
+            out.append((text[last:m.start()], False))
+        out.append((m.group(1), True))
+        last = m.end()
+    if last < len(text):
+        out.append((text[last:], False))
+    return out or [(text, False)]
+
+
 def _text_runs(nodes, merge: dict) -> list:
     runs = []
     for n in nodes or []:
@@ -93,12 +116,15 @@ def _text_runs(nodes, merge: dict) -> list:
             style_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "textStyle"), {})
             link_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "link"), {})
             highlight_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "highlight"), {})
-            runs.append({"text": _fill_text_tokens(n.get("text") or "", merge), "bold": "bold" in mark_types,
-                         "italic": "italic" in mark_types, "underline": "underline" in mark_types,
-                         "strike": "strike" in mark_types, "subscript": "subscript" in mark_types,
-                         "superscript": "superscript" in mark_types, "highlight": highlight_attrs.get("color"),
-                         "color": style_attrs.get("color"), "fontFamily": style_attrs.get("fontFamily"),
-                         "fontSize": style_attrs.get("fontSize"), "link": link_attrs.get("href")})
+            run = {"bold": "bold" in mark_types,
+                   "italic": "italic" in mark_types, "underline": "underline" in mark_types,
+                   "strike": "strike" in mark_types, "subscript": "subscript" in mark_types,
+                   "superscript": "superscript" in mark_types, "highlight": highlight_attrs.get("color"),
+                   "color": style_attrs.get("color"), "fontFamily": style_attrs.get("fontFamily"),
+                   "fontSize": style_attrs.get("fontSize"), "link": link_attrs.get("href")}
+            # Filled first, so "**{{full_name}}**" prints the name in bold.
+            for seg, bold in split_md_bold(_fill_text_tokens(n.get("text") or "", merge)):
+                runs.append({**run, "text": seg, "bold": run["bold"] or bold})
         elif t == "mergeField":
             token = (n.get("attrs") or {}).get("token") or ""
             value = merge.get(token, "{{%s}}" % token)
