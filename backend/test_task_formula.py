@@ -18,6 +18,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
@@ -83,8 +84,11 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(F.field_name_problem("Budget"), "")
         self.assertIn("{ or }", F.field_name_problem("Spent}x"))
         self.assertIn("{ or }", F.field_name_problem("{Spent"))
-        self.assertIn("built-in", F.field_name_problem("  progress "))
-        self.assertIn("built-in", F.field_name_problem("Due Date"))
+        # A built-in name is fine on an ordinary field, refused on a formula one.
+        self.assertEqual(F.field_name_problem("  progress "), "")
+        self.assertIn("built-in", F.formula_name_problem("  progress "))
+        self.assertIn("built-in", F.formula_name_problem("Due\u00a0Date"))
+        self.assertIn("{ or }", F.formula_name_problem("A}"))
 
     def test_loop_through_a_same_named_formula_is_caught(self):
         pairs = [("X", "{Budget}"), ("X", "{Y} + 1")]   # two "X" columns, two projects
@@ -334,13 +338,51 @@ class RenameAndDeleteTests(RouteBase):
         self.assertIn('the formula in "Left"', msg)
         self.assertEqual(self.row("f-spent").name, "Spent")
 
-    def test_braces_and_built_in_names_are_refused(self):
+    def test_braces_are_refused_everywhere(self):
         left = self.create(BOSS, name="Left", type="formula", formula="{Spent} + 1")
-        for bad in ("Spent}x", "{Spent", "Progress", " due  date "):
+        for bad in ("Spent}x", "{Spent"):
             with self.subTest(bad=bad):
                 self.assertEqual(self.refused(self.update, BOSS, "f-spent", name=bad)[0], 422)
                 self.assertEqual(self.refused(self.create, BOSS, name=bad, type="number")[0], 422)
+                self.assertEqual(self.refused(self.create, BOSS, name=bad, type="formula", formula="1")[0], 422)
         self.assertEqual(self.row(left["id"]).formula, "{Spent} + 1")
+
+    def test_built_in_names_are_fine_on_ordinary_fields(self):
+        out = self.create(BOSS, name="Progress", type="number")
+        self.assertEqual(out["name"], "Progress")
+        # A case-only rename is allowed (and rewrites nothing).
+        self.assertEqual(self.update(BOSS, out["id"], name="progress")["name"], "progress")
+        # Nothing names "Spent" here, so it may become a built-in name too.
+        self.assertEqual(self.update(BOSS, "f-budget", name="Due Date")["name"], "Due Date")
+
+    def test_a_formula_column_may_not_take_a_built_in_name(self):
+        for bad in ("Progress", " due  date ", "ESTIMATE HOURS"):
+            with self.subTest(bad=bad):
+                code, msg = self.refused(self.create, BOSS, name=bad, type="formula", formula="1")
+                self.assertEqual(code, 422)
+                self.assertIn("built-in", msg)
+        left = self.create(BOSS, name="Left", type="formula", formula="1")
+        self.assertEqual(self.refused(self.update, BOSS, left["id"], name="Created")[0], 422)
+        # Turning an ordinary field named like a built-in into a formula: refused too.
+        plain = self.create(BOSS, name="Completed", type="number")
+        self.assertEqual(self.refused(self.update, BOSS, plain["id"], type="formula", formula="1")[0], 422)
+
+    def test_renaming_a_named_field_to_a_built_in_would_repoint_formulas(self):
+        self.create(BOSS, name="Left", type="formula", formula="{Spent} + 1")
+        code, msg = self.refused(self.update, BOSS, "f-spent", name="Progress")
+        self.assertEqual(code, 422)
+        self.assertIn('the formula in "Left"', msg)
+        self.assertIn("built-in", msg)
+        self.assertEqual(self.row("f-spent").name, "Spent")
+
+    def test_a_field_named_like_a_built_in_is_not_what_formulas_read(self):
+        prog = self.create(BOSS, name="Progress", type="number")
+        twice = self.create(BOSS, name="Twice", type="formula", formula="{Progress} * 2")
+        out = self.update(BOSS, prog["id"], name="Pct")
+        self.assertNotIn("rewrittenFormulas", out)          # {Progress} meant the built-in
+        self.assertEqual(self.row(twice["id"]).formula, "{Progress} * 2")
+        C.delete_custom_field(prog["id"], user=BOSS, db=self.db)   # nothing uses it: no 409
+        self.assertIsNone(self.row(prog["id"]))
 
     def test_delete_names_the_formulas_that_use_it_unless_forced(self):
         left = self.create(BOSS, name="Left", type="formula", formula="{Budget} - {Spent}")
@@ -414,6 +456,29 @@ class FormulaWallTests(RouteBase):
         self.assertIn("Unknown field {Margin}", msg)
         out = self.create(ga, name="Shared", type="formula", formula="{Budget} * 2")
         self.assertEqual(self.row(out["id"]).company_id, "")
+
+    def test_the_delete_question_counts_only_formulas_behind_the_callers_wall(self):
+        # A shared field used by a shared formula and by company B's formula:
+        # a Global Admin is told about both; company B's count never reaches A.
+        self.db.add(models.TaskCustomField(id="f-shared-num", name="Rate", type="number", company_id="",
+                                           applies_to='["task"]'))
+        self.db.add(models.TaskCustomField(id="f-s-use", name="Shared Use", type="formula", company_id="",
+                                           formula="{Rate} * 2", applies_to='["task"]'))
+        self.db.add(models.TaskCustomField(id="f-b-use", name="B Use", type="formula", company_id=COB,
+                                           formula="{Rate} + 1", applies_to='["task"]'))
+        self.db.commit()
+        ga = {"email": "ga@greensglobal.com", "level": 4}
+        with self.assertRaises(HTTPException) as e:
+            C.delete_custom_field("f-shared-num", user=ga, db=self.db)
+        self.db.rollback()
+        self.assertEqual((e.exception.detail["count"], e.exception.detail["formulas"]), (2, ["B Use", "Shared Use"]))
+        # The count is built from the same wall-filtered list it reports.
+        with mock.patch.object(C, "config_admits", side_effect=lambda c, s: not c):
+            with self.assertRaises(HTTPException) as e2:
+                C.delete_custom_field("f-shared-num", user=ga, db=self.db)
+        self.db.rollback()
+        self.assertEqual((e2.exception.detail["count"], e2.exception.detail["formulas"]), (1, ["Shared Use"]))
+        self.assertIn("1 formula column uses", e2.exception.detail["message"])
 
     def test_another_companys_formula_is_404_to_edit(self):
         self.assertEqual(self.refused(self.update, AMGR, "f-b-formula", formula="1")[0], 404)

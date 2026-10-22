@@ -108,14 +108,26 @@ const BUILTIN_KEYS = new Set(BUILTIN_FIELDS.map((b) => fieldKey(b.name)));
 export const isBuiltinField = (name) => BUILTIN_KEYS.has(fieldKey(name));
 
 /** Why `name` cannot be a custom field's name, or '' - the server's
- *  field_name_problem: braces would end a {reference} early, and a built-in
- *  field's name could never be reached from a formula. */
+ *  field_name_problem: braces would end a {reference} early. A built-in
+ *  field's name is fine on an ordinary field (formulas read the built-in). */
 export function fieldNameProblem(name) {
   const n = String(name ?? '');
   if (n.includes('{') || n.includes('}')) return 'A field name cannot contain { or }.';
-  if (isBuiltinField(n)) return `"${n.split(/\s+/).filter(Boolean).join(' ')}" is a built-in field name - pick another.`;
   return '';
 }
+
+/** The same for a FORMULA column (the server's formula_name_problem): not a
+ *  built-in field's name either, or other formulas could never read it. */
+export function formulaNameProblem(name) {
+  const problem = fieldNameProblem(name);
+  if (problem) return problem;
+  if (isBuiltinField(name)) return `"${String(name).split(/\s+/).filter(Boolean).join(' ')}" is a built-in field name - pick another for a formula column.`;
+  return '';
+}
+
+/** A hint (never a refusal) for an ordinary field named like a built-in. */
+export const builtinNameHint = (name) => (isBuiltinField(name)
+  ? `Formulas read {${String(name).split(/\s+/).filter(Boolean).join(' ')}} as the built-in field, not this one.` : '');
 
 // ── Tokenizer ────────────────────────────────────────────────────────────────
 const isDigit = (c) => c >= '0' && c <= '9';
@@ -784,7 +796,7 @@ export function applyFieldUpdate(list, id, res) {
  *  the company check the browser cannot make). For the delete question. */
 export function formulasUsing(customFields, field) {
   const key = fieldKey(field?.name);
-  if (!key) return [];
+  if (!key || isBuiltinField(key)) return [];   // {Progress} reads the built-in
   if ((customFields || []).some((o) => o.id !== field.id && fieldKey(o.name) === key)) return [];
   return (customFields || []).filter((g) => {
     if (g.type !== 'formula' || g.id === field.id || !g.formula) return false;

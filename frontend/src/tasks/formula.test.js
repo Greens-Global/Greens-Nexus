@@ -3,7 +3,7 @@ import cases from './formula.cases.json';
 import {
   parseFormula, runFormula, checkFormula, createFormulaEngine, formulaEngineFor, formatFormulaValue,
   formatNumberAs, formulaSortValue, formulaExportValue, formulaMatches, normalizeFormat, dateValue,
-  FormulaError, FDate, formulaFieldRefs, fieldKey, fieldNameProblem, formulasUsing, applyFieldUpdate,
+  FormulaError, FDate, formulaFieldRefs, fieldKey, fieldNameProblem, formulaNameProblem, builtinNameHint, formulasUsing, applyFieldUpdate,
   excelFormat, formulaContext, MAX_TEXT,
 } from './formula';
 import { pdfColumns, PDF_MAX_COLS } from './exporting';
@@ -331,7 +331,20 @@ describe('review fixes (Oct 22 2026)', () => {
   it('names a custom field may not have', () => {
     expect(fieldNameProblem('Budget')).toBe('');
     expect(fieldNameProblem('Spent}x')).toMatch(/\{ or \}/);
-    expect(fieldNameProblem(' due   DATE ')).toMatch(/built-in/);
+    // A built-in name is fine on an ordinary field (a hint only) ...
+    expect(fieldNameProblem(' due   DATE ')).toBe('');
+    expect(builtinNameHint('progress')).toBe('Formulas read {progress} as the built-in field, not this one.');
+    expect(builtinNameHint('Budget')).toBe('');
+    // ... and refused on a formula column.
+    expect(formulaNameProblem(' due   DATE ')).toMatch(/built-in field name - pick another for a formula column/);
+    expect(formulaNameProblem('A{')).toMatch(/\{ or \}/);
+    expect(formulaNameProblem('Remaining')).toBe('');
+  });
+
+  it('a field named like a built-in is never what a formula uses', () => {
+    const prog = { id: 'p', name: 'Progress', type: 'number' };
+    const twice = { id: 't', name: 'Twice', type: 'formula', formula: '{Progress} * 2' };
+    expect(formulasUsing([prog, twice], prog)).toEqual([]);
   });
 
   it('lists the formulas a delete would break, unless the name lives on in another field', () => {

@@ -94,13 +94,23 @@ def is_builtin(name) -> bool:
 
 def field_name_problem(name) -> str:
     """Why `name` cannot be a custom field's name, or '' if it can. Braces
-    would end the {reference} early, and a built-in field's name would be
-    unreachable from a formula (the built-in always wins)."""
+    would end a {reference} early. A built-in field's name is fine on an
+    ordinary field (formulas read the built-in) - see formula_name_problem."""
     n = str(name or "")
     if "{" in n or "}" in n:
         return "A field name cannot contain { or }."
-    if is_builtin(n):
-        return f"\"{_squash(n)}\" is a built-in field name - pick another."
+    return ""
+
+
+def formula_name_problem(name) -> str:
+    """Why `name` cannot be a FORMULA field's name: the field_name_problem
+    rules, and not a built-in field's name - {Progress} in another formula
+    would always read the built-in, never this column."""
+    problem = field_name_problem(name)
+    if problem:
+        return problem
+    if is_builtin(name):
+        return f"\"{_squash(name)}\" is a built-in field name - pick another for a formula column."
     return ""
 
 

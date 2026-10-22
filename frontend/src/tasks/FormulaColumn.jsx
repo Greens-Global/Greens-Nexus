@@ -10,7 +10,7 @@ import { Modal } from './components';
 import { fieldsForProject } from './lib';
 import {
   BUILTIN_FIELDS, FORMULA_FUNCTIONS, FORMULA_OPERATORS, RESULT_FORMATS, MAX_LENGTH,
-  checkFormula, formatFormulaValue, normalizeFormat, fieldKey, formulaContext, previewRows, fieldNameProblem,
+  checkFormula, formatFormulaValue, normalizeFormat, fieldKey, formulaContext, previewRows, formulaNameProblem, formulaFieldRefs, isBuiltinField,
 } from './formula';
 
 const label = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -64,6 +64,12 @@ export function FormulaEditor({ formula, onFormula, format, onFormat, fieldNames
   const [focused, setFocused] = useState(false);
   const fmt = normalizeFormat(format);
   const problem = formula.trim() ? checkFormula(formula, { selfName, fieldNames, formulaFields }) : '';
+  // A custom field that shares a built-in's name is not what {Name} reads.
+  const shadowed = useMemo(() => {
+    if (!formula.trim() || problem) return [];
+    const custom = new Set(fieldNames.map(fieldKey));
+    try { return formulaFieldRefs(formula).filter((r) => isBuiltinField(r) && custom.has(fieldKey(r))); } catch { return []; }
+  }, [formula, problem, fieldNames]);
   const names = useMemo(() => {
     const seen = new Set();
     const out = [];
@@ -124,6 +130,11 @@ export function FormulaEditor({ formula, onFormula, format, onFormat, fieldNames
             : problem ? <><AlertCircle size={13} />{problem}</>
             : <><CheckCircle2 size={13} />Looks good.</>}
         </div>
+        {shadowed.length > 0 && (
+          <div style={{ fontSize: 12, color: NX.faint }}>
+            {shadowed.map((n) => `{${n}}`).join(', ')} {shadowed.length === 1 ? 'reads' : 'read'} the built-in field, not the custom field with the same name.
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -218,7 +229,7 @@ export function FormulaFieldModal({ field = null, store, lockedProjectId = '', p
     ? previewRows({ draft, store, tasks: previewTasks, projectIds: draft.projectIds }) : null;
   const dirty = name !== (field?.name || 'Formula') || description !== (field?.description || '')
     || formula !== (field?.formula || '') || JSON.stringify(format) !== JSON.stringify(normalizeFormat(field?.formulaFormat));
-  const nameProblem = fieldNameProblem(name);
+  const nameProblem = formulaNameProblem(name);
   const canSave = !readOnly && !!name.trim() && !nameProblem && !problem && !busy;
   const save = async () => {
     if (!canSave) return;

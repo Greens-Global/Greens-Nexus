@@ -653,8 +653,7 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
   };
   const pickType = (t) => {
     if (t.storage === 'formula') { reset(); close(); setFormulaOpen(true); return; }
-    // "Progress" is a built-in formula field, so that type starts as "Progress Value".
-    setPicked(t); setName(fieldNameProblem(t.label) ? `${t.label} Value` : t.label); setStep('config');
+    setPicked(t); setName(t.label); setStep('config');
   };
   // Waits for the save and throws on a refusal, so the popup can say why
   // (the server re-checks the formula).

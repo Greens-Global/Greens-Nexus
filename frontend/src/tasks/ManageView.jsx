@@ -25,7 +25,7 @@ import {
 import { taskStats, topLevel, fmtDateTime, teamProjectIds, todayISO } from './lib';
 import TasksWorkspace from './TasksWorkspace';
 import { FormulaEditor } from './FormulaColumn';
-import { checkFormula, normalizeFormat, formulaContext, previewRows, fieldNameProblem, formulasUsing } from './formula';
+import { checkFormula, normalizeFormat, formulaContext, previewRows, fieldNameProblem, formulaNameProblem, builtinNameHint, formulasUsing } from './formula';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
 
@@ -709,8 +709,14 @@ export function FieldModal({ projects = [], field = null, onClose, onSave, store
   const isFormula = type === 'formula';
   const fctx = useMemo(() => formulaContext(store?.customFields || [], field?.id || '__draft'), [store?.customFields, field?.id]);
   const formulaProblem = isFormula ? checkFormula(formula, { selfName: name.trim(), ...fctx }) : '';
-  // Only a NEW name is held to it - an older field keeps whatever it is called.
-  const nameProblem = name !== (field?.name || '') ? fieldNameProblem(name) : '';
+  // Only a NEW name is held to it - an older field keeps whatever it is
+  // called - except that a formula column never takes a built-in's name
+  // (checked again when a field becomes one). An ordinary field may; it
+  // only gets a hint.
+  const nameChanged = name !== (field?.name || '');
+  const nameProblem = isFormula && (nameChanged || type !== (field?.type || 'text'))
+    ? formulaNameProblem(name) : nameChanged ? fieldNameProblem(name) : '';
+  const nameHint = !isFormula && !nameProblem ? builtinNameHint(name) : '';
   const blocked = formulaProblem || nameProblem;
   // A field can apply to tasks, projects, or both at once.
   const [appliesTo, setAppliesTo] = useState(field?.appliesTo?.length ? field.appliesTo : ['task']);
@@ -802,6 +808,7 @@ export function FieldModal({ projects = [], field = null, onClose, onSave, store
       <Field label="Name">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points, Location" style={inputStyle} aria-invalid={!!nameProblem || undefined} />
         {nameProblem && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 4 }}>{nameProblem}</div>}
+        {nameHint && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{nameHint}</div>}
       </Field>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" style={inputStyle} /></Field>
       {!isFormula && <Field label="Applies To">

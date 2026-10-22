@@ -827,8 +827,8 @@ def _check_formula(db: Session, user, company: str, field_id: str, name: str, ex
     return expr
 
 
-def _check_field_name(name: str) -> None:
-    problem = task_formula.field_name_problem(name)
+def _check_field_name(name: str, formula: bool = False) -> None:
+    problem = (task_formula.formula_name_problem if formula else task_formula.field_name_problem)(name)
     if problem:
         raise HTTPException(422, problem)
 
@@ -838,6 +838,8 @@ def _formulas_naming(field: models.TaskCustomField, name: str, fields: list) -> 
     no OTHER field they can see carries the same name (then {name} keeps
     meaning that one - two projects' "Budget" columns are two fields)."""
     key = task_formula.field_key(name)
+    if task_formula.is_builtin(name):
+        return []   # {Progress} reads the built-in, never a field that shares the name
     fc = _co(field)
     out = []
     for g in fields:
@@ -877,6 +879,11 @@ def _rename_formula_refs(db: Session, field: models.TaskCustomField, old: str, n
         updated = task_formula.rename_refs(g.formula, old, new)
         if updated != g.formula:
             plan[g.id] = updated
+    if plan and task_formula.is_builtin(new):
+        # {New} would silently start reading the built-in field instead.
+        g = next(x for x in fields if x.id in plan)
+        raise HTTPException(422, f"Renaming this field would break the formula in \"{g.name}\": "
+                                 f"\"{new}\" is a built-in field name, so the formula would read that instead.")
     renamed = {field.id: new}
     for g in fields:
         if g.id not in plan:
@@ -933,7 +940,7 @@ def create_custom_field(body: CustomFieldBody, user: dict = Depends(get_current_
                         db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Field name is required")
-    _check_field_name(body.name)
+    _check_field_name(body.name, formula=(body.type or "text") == "formula")
     project_ids = [p for p in (body.project_ids or []) if p]
     required_project_ids = [p for p in (body.required_project_ids or []) if p]
     if not is_manager(user):
@@ -1020,6 +1027,8 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
         raise HTTPException(422, "Field name is required")
     if "name" in data:
         _check_field_name(data["name"])
+    if data.get("type", f.type) == "formula" and ({"name", "type"} & set(data)):
+        _check_field_name(data.get("name", f.name or ""), formula=True)
     if "options" in data:
         data["options"] = normalize_field_options(data["options"] or [])
     if "project_ids" in data:
@@ -1086,13 +1095,17 @@ def delete_custom_field(field_id: str, force: bool = False, user: dict = Depends
     # 2026): 409 with their names unless the caller has seen them (force).
     if not force:
         users = _formulas_naming(f, f.name or "", db.query(models.TaskCustomField).all())
-        if users:
-            scope = _scope(user, db)
-            names = sorted(g.name for g in users if config_admits(_co(g), scope))
+        # Counted after the wall: another company's formulas are none of this
+        # caller's business, not even as a number. (A walled caller can only
+        # delete a field their own company's formulas could name anyway.)
+        scope = _scope(user, db) if users else None
+        names = sorted(g.name for g in users if config_admits(_co(g), scope))
+        if names:
+            n = len(names)
             raise HTTPException(409, {
-                "message": f"{len(users)} formula column{'s' if len(users) != 1 else ''} use{'' if len(users) != 1 else 's'} "
+                "message": f"{n} formula column{'s' if n != 1 else ''} use{'' if n != 1 else 's'} "
                            f"this field and will show #Error once it is deleted.",
-                "count": len(users), "formulas": names})
+                "count": n, "formulas": names})
     db.delete(f)
     db.commit()
 

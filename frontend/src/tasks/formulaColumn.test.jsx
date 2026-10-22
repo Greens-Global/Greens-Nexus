@@ -111,6 +111,14 @@ describe('Excel number formats on formula columns', () => {
 });
 
 describe('the formula editor popup', () => {
+  it('says when a {name} reads the built-in rather than a same-named field', () => {
+    const s2 = { ...store, customFields: [...fields, { id: 'f-prog', name: 'Progress', type: 'number', appliesTo: ['task'], projectIds: [] }] };
+    render(<FormulaFieldModal store={s2} previewTasks={tasks} onClose={() => {}} onSave={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Formula'), { target: { value: '{Progress} * 100' } });
+    expect(screen.getByText('{Progress} reads the built-in field, not the custom field with the same name.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Add Column/ })).not.toBeDisabled();
+  });
+
   it('refuses a column name with braces or a built-in name', () => {
     render(<FormulaFieldModal store={store} previewTasks={tasks} onClose={() => {}} onSave={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('Formula'), { target: { value: '{Budget}' } });
