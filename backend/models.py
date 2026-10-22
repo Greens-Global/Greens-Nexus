@@ -5438,6 +5438,10 @@ class HrChecklist(Base):
     # Its ONE task (Neil, Oct 22: "Onboarding - <name>" in the HR project,
     # assigned to the head of HR); each step's subtask hangs under it.
     task_id     = Column(String, default="")
+    # An Onboarding Audit of someone already working here (Neil, Oct 22: "if
+    # the person is an existing employee, we can have an option to do an
+    # audit"): dated from the audit, never moved by their old start date.
+    audit       = Column(Boolean, default=False)
 
 
 class HrChecklistItem(Base):

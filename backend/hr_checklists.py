@@ -608,13 +608,20 @@ def reconcile_open(db, kind: str, *, entity_id: str = None, role_id: str = None,
 
 
 def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type: str = "",
-          by: str = "", role_id: str = None) -> HrChecklist:
+          by: str = "", role_id: str = None, audit: bool = False, notify: bool = True) -> HrChecklist:
     """Create `emp`'s checklist of `kind`: the company's steps, then the job
     role's (`role_id`, else the role they hold or were hired into). Caller
     commits. Raises ValueError if one of that kind is already open (one at a
-    time per person)."""
+    time per person). `audit`: an Onboarding Audit of someone already here -
+    dated from today, and what is already on file ticks itself before any
+    task is made. `notify=False`: the caller sends the task emails (a bulk
+    audit sends one per person for the lot)."""
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {', '.join(KINDS)}")
+    if audit:
+        if kind != "onboarding":
+            raise ValueError("Only onboarding is audited")
+        anchor_date = _today().isoformat()      # due dates count from the audit, not the old start date
     if open_checklist(db, emp.id, kind):
         raise ValueError(f"{full_name(emp)} already has an open {KIND_LABELS[kind].lower()} checklist")
     if kind == "offboarding":
@@ -633,7 +640,7 @@ def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type
     tpl, rows = template_rows(db, kind, emp.company or "", role_id)
     cl = HrChecklist(id=str(uuid.uuid4()), employee_id=emp.id, kind=kind, template_id=tpl.id,
                      company=emp.company or "", anchor_date=anchor_date[:10], exit_type=exit_type,
-                     status="open", created_by=by, created_at=_now(), role_id=role_id or "")
+                     status="open", created_by=by, created_at=_now(), role_id=role_id or "", audit=bool(audit))
     db.add(cl)
     ctx = _StepContext(db, cl, emp)
     n = 0
@@ -646,8 +653,12 @@ def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type
     # The owners' tasks, and their "task assigned" email once this commits -
     # a hire or a signed promotion starts here from inside a signing request,
     # with no response to send it after (Pranshu, Oct 20).
+    if audit:                                   # the proof already on file closes its steps first
+        sync(db, cl, emp)
+        db.flush()
     cl.new_task_ids = sync_tasks(db, cl, emp, by=by or "nexus", first=True)
-    email_tasks_after_commit(db, cl.new_task_ids, by or "nexus")
+    if notify:
+        email_tasks_after_commit(db, cl.new_task_ids, by or "nexus")
     return cl
 
 
@@ -917,7 +928,7 @@ def sync(db, cl: HrChecklist, emp: NexusEmployee = None) -> bool:
     items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
 
     # 1. The start date moved (onboarding only): move every open, un-pinned date.
-    if cl.kind == "onboarding":
+    if cl.kind == "onboarding" and not cl.audit:     # an audit counts from the audit
         sd = (emp.start_date or "")[:10]
         if sd and sd != cl.anchor_date and _parse(sd):
             cl.anchor_date = sd
@@ -1364,7 +1375,7 @@ def ser_checklist(cl: HrChecklist, items: list, names: dict = None, comments: di
     return {
         "id": cl.id, "employeeId": cl.employee_id, "kind": cl.kind,
         "kindLabel": KIND_LABELS.get(cl.kind, cl.kind), "company": cl.company,
-        "anchorDate": cl.anchor_date, "exitType": cl.exit_type, "status": cl.status,
+        "anchorDate": cl.anchor_date, "exitType": cl.exit_type, "status": cl.status, "audit": bool(cl.audit),
         "createdBy": cl.created_by, "createdAt": cl.created_at, "closedAt": cl.closed_at,
         "total": len(items), "done": done,
         "overdue": sum(1 for i in items if i.status == "open" and i.due_date and i.due_date < today),

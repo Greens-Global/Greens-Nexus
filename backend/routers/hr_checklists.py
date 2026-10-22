@@ -22,7 +22,7 @@ import uuid
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -428,6 +428,135 @@ def board(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     # Most urgent first: anything late, then the nearest date.
     out.sort(key=lambda r: (-r["overdue"], r["anchorDate"] or "9999-12-31", r["name"]))
     return {"rows": out}
+
+
+# --- Onboarding Audit (Neil, Oct 22) ----------------------------------------
+# "Many people are non-compliant on their onboarding... if the person is an
+# existing employee, we can have an option to do an audit... you can just
+# click it all off and then now you have proof that on this date you had it
+# all." An audit is an onboarding checklist flagged `audit`, dated from the
+# day it starts; whatever is already on file ticks itself at once (the
+# evidence conditions), the rest becomes tasks, and each step's done row -
+# who or what closed it, and when - is the proof (Download Audit Record).
+
+AUDIT_CAP = 50            # people per request; the screen sends a larger pick in batches
+
+
+@router.get("/audit/candidates")
+def audit_candidates(entity_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Active people at a company with no onboarding checklist, ever."""
+    if not entity_id:
+        raise HTTPException(400, "Pick a company")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    had = {r.employee_id for r in db.query(HrChecklist.employee_id).filter(HrChecklist.kind == "onboarding")}
+    people = (db.query(NexusEmployee).filter(NexusEmployee.company == entity_id, NexusEmployee.status == "active")
+              .all())
+    out = [{"id": e.id, "name": hc.full_name(e), "jobTitle": e.job_title or "", "department": e.department or "",
+            "startDate": (e.start_date or "")[:10]} for e in people if e.id not in had]
+    out.sort(key=lambda x: x["name"].lower())
+    return {"people": out}
+
+
+class AuditIn(BaseModel):
+    employee_ids: list
+
+
+def _audit_emails(task_ids: list, by: str) -> None:
+    """ONE email per person for the whole audit (task_notify's bulk path),
+    never one per checklist or step. Runs after the response, in a thread."""
+    import models
+    import task_notify
+    from database import SessionLocal
+    from routers.task_util import task_assignees
+    db = SessionLocal()
+    try:
+        assigned = {}
+        for t in db.query(models.Task).filter(models.Task.id.in_(list(task_ids))).all():
+            for who in task_assignees(t):
+                assigned.setdefault(who, []).append(t)
+        task_notify.queue_bulk_assignments(db, by, assigned, send_now_if_instant=True)
+    except Exception as e:   # noqa: BLE001 - a missed email never undoes the audit
+        print(f"[checklists] audit emails failed: {e}")
+    finally:
+        db.close()
+
+
+@router.post("/audit", status_code=201)
+def start_audits(body: AuditIn, background: BackgroundTasks = None,
+                 user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Start an Onboarding Audit for each person (one, from the profile, or a
+    pick from Company Settings). Idempotent: someone with an open onboarding
+    checklist is skipped, so a second click starts nothing twice."""
+    ids = list(dict.fromkeys(str(x).strip() for x in (body.employee_ids or []) if str(x or "").strip()))
+    if not ids:
+        raise HTTPException(400, "Pick at least one person")
+    if len(ids) > AUDIT_CAP:
+        raise HTTPException(400, f"At most {AUDIT_CAP} people at a time")
+    me = user["email"].lower()
+    started, skipped, tasks = [], [], []
+    for eid in ids:
+        try:
+            emp = _employee_in_scope(db, eid, user)
+        except HTTPException:
+            skipped.append({"id": eid, "name": "", "reason": "Not found"})
+            continue
+        if emp.status not in ("active", "onboarding"):
+            skipped.append({"id": eid, "name": hc.full_name(emp), "reason": "Not active"})
+            continue
+        if hc.open_checklist(db, emp.id, "onboarding"):
+            skipped.append({"id": eid, "name": hc.full_name(emp), "reason": "Already has an open onboarding checklist"})
+            continue
+        try:
+            cl = hc.start(db, emp, "onboarding", by=me, audit=True, notify=False)
+        except ValueError as e:
+            skipped.append({"id": eid, "name": hc.full_name(emp), "reason": str(e)})
+            continue
+        tasks += cl.new_task_ids
+        items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
+        started.append({"id": eid, "name": hc.full_name(emp), "checklistId": cl.id, "total": len(items),
+                        "onFile": sum(1 for i in items if i.status == "done")})
+    db.commit()
+    if background is not None and tasks:
+        background.add_task(_audit_emails, tasks, me)
+    return {"started": started, "skipped": skipped}
+
+
+def _csv(rows: list) -> str:
+    import csv
+    import io
+    buf = io.StringIO()
+    csv.writer(buf).writerows(rows)
+    return buf.getvalue()
+
+
+@router.get("/{cid}/record.csv")
+def checklist_record(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The checklist as a record (the audit's proof): every step, where it
+    stands, who or what closed it and when - US dates."""
+    cl = _checklist_in_scope(db, cid, user)
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == cl.employee_id).first()
+    items = sorted(db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all(),
+                   key=lambda x: x.sort_order or 0)
+    names = hc.name_map(db, [i.done_by for i in items] + [e for i in items for e in hc.owners_of(i)])
+    ent = db.query(HrEntity).filter(HrEntity.id == cl.company).first() if cl.company else None
+    label = hc.KIND_LABELS.get(cl.kind, cl.kind) + (" Audit" if cl.audit else " Checklist")
+    who = lambda em: f"{names.get(em, '') or em} ({em})" if names.get(em) else em  # noqa: E731
+    status = {"open": "Open", "done": "Done", "na": "N/A"}
+    rows = [["Person", hc.full_name(emp)], ["Company", ent.name if ent else ""], ["Record", label],
+            ["Started", hc.us_date(cl.created_at)], ["Status", {"open": "In Progress", "done": "Complete"}.get(cl.status, "Cancelled")],
+            ["Downloaded", hc.us_date(hc._now())], [],
+            ["Phase", "Step", "Owner", "Status", "Due", "Closed By", "Closed On", "How"]]
+    for i in items:
+        closed = i.status in ("done", "na")
+        by = ("Nexus" if i.done_by == "Nexus" else who(i.done_by)) if closed and i.done_by else ""
+        how = (i.done_reason or "Ticked by hand") if i.status == "done" else (i.note or "") if i.status == "na" else ""
+        rows.append([i.phase, i.title, ", ".join(who(e) for e in hc.owners_of(i)) or hc.ROLE_LABELS.get(i.owner_role, i.owner_role),
+                     status.get(i.status, i.status), hc.us_date(i.due_date), by, hc.us_date(i.done_at) if closed else "", how])
+    name = f"{label} - {hc.full_name(emp)}".replace('"', "")
+    return Response(content=_csv(rows), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.csv"'})
 
 
 # --- Templates -------------------------------------------------------------

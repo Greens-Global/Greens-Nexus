@@ -1278,6 +1278,8 @@ def _run_migrations():
             "ALTER TABLE hr_checklists ADD COLUMN role_id VARCHAR",
             # One task per checklist (Oct 23 2026) - see the Postgres list.
             "ALTER TABLE hr_checklists ADD COLUMN task_id VARCHAR DEFAULT ''",
+            # Onboarding audits (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklists ADD COLUMN audit BOOLEAN DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2940,6 +2942,9 @@ def _run_migrations():
         # One task per checklist in the company's HR project (Neil, Oct 22),
         # the steps' subtasks under it. models.HrChecklist.task_id.
         "ALTER TABLE hr_checklists ADD COLUMN IF NOT EXISTS task_id VARCHAR DEFAULT ''",
+        # An onboarding checklist run as an audit of someone already here (Neil,
+        # Oct 22). models.HrChecklist.audit.
+        "ALTER TABLE hr_checklists ADD COLUMN IF NOT EXISTS audit BOOLEAN DEFAULT false",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

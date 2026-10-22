@@ -1172,6 +1172,83 @@ class ChecklistTests(unittest.TestCase):
         finally:
             db.close()
 
+    # --- Onboarding Audit (Neil, Oct 22: "if the person is an existing
+    # employee, we can have an option to do an audit... now you have proof
+    # that on this date you had it all").
+
+    def test_an_onboarding_audit_ticks_what_is_on_file_and_tasks_the_rest(self):
+        import task_notify
+        calls = []
+        real = task_notify.queue_bulk_assignments
+        task_notify.queue_bulk_assignments = lambda db, by, assigned, send_now_if_instant=False: calls.append(
+            {k: [t.id for t in v] for k, v in assigned.items()})
+        try:
+            done_before = self._person("emp-had", work_email=NEWBIE)
+            self._start(done_before)                          # has a record already
+            db = database.SessionLocal()
+            try:
+                for e in db.query(models.NexusEmployee).filter(models.NexusEmployee.id.in_(["staff-2", "staff-3"])):
+                    e.start_date, e.employment_type = "2024-03-01", "full_time"
+                db.query(models.NexusEmployee).filter_by(id="staff-2").update(
+                    {"compliance": {"workAuth": "citizen", "status": "verified"}})
+                db.add(models.HrDocument(id="doc-colin", employee_id="staff-2", kind="id", file_name="dl.pdf", storage_path="x"))
+                db.commit()
+            finally:
+                db.close()
+            people = {p["id"] for p in self.client.get(f"/hr/checklists/audit/candidates?entity_id={CO_A}").json()["people"]}
+            self.assertIn("staff-2", people)
+            self.assertNotIn("emp-had", people)               # onboarding status, and a checklist already
+            r = self.client.post("/hr/checklists/audit", json={"employee_ids": ["staff-2", "staff-3", done_before]})
+            self.assertEqual(r.status_code, 201, r.text)
+            self.assertEqual(sorted(x["id"] for x in r.json()["started"]), ["staff-2", "staff-3"])
+            self.assertEqual([x["id"] for x in r.json()["skipped"]], [done_before])
+            colin = next(x for x in r.json()["started"] if x["id"] == "staff-2")
+            self.assertGreaterEqual(colin["onFile"], 2)        # the ID and the verified work authorization
+            cl = next(c for c in self.client.get("/hr/checklists/employee/staff-2").json()["checklists"])
+            self.assertTrue(cl["audit"])
+            self.assertEqual(cl["anchorDate"], hc._today().isoformat())   # counts from the audit
+            ids = {i["key"]: i for i in cl["items"]}
+            self.assertEqual((ids["ON-23"]["status"], ids["ON-23"]["doneBy"]), ("done", "Nexus"))
+            self.assertIn("ID document", ids["ON-23"]["doneReason"])
+            self.assertFalse(self._step(ids["ON-23"]["id"]).task_id)      # on file: never a task
+            self.assertTrue(self._step(ids["ON-09"]["id"]).task_id)       # missing: a task for its owner
+            # one email per person for the lot, not one per checklist
+            self.assertEqual(len(calls), 1)
+            self.assertIn(MANAGER, calls[0])
+            # a second click starts nothing twice
+            again = self.client.post("/hr/checklists/audit", json={"employee_ids": ["staff-2", "staff-3"]}).json()
+            self.assertEqual((again["started"], len(again["skipped"])), ([], 2))
+            # the old start date never moves an audit's dates
+            db = database.SessionLocal()
+            try:
+                db.query(models.NexusEmployee).filter_by(id="staff-2").update({"start_date": "2024-05-01"})
+                db.commit()
+            finally:
+                db.close()
+            cl = self.client.get("/hr/checklists/employee/staff-2").json()["checklists"][0]
+            self.assertEqual(cl["anchorDate"], hc._today().isoformat())
+            # the record: each step, who or what closed it and when, in US dates
+            r = self.client.get(f"/hr/checklists/{cl['id']}/record.csv")
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("Onboarding Audit", r.headers["content-disposition"])
+            text = r.text
+            self.assertIn("Phase,Step,Owner,Status,Due,Closed By,Closed On,How", text)
+            line = next(x for x in text.splitlines() if "Form I-9 Section 2" in x)
+            self.assertIn(",Done,", line)
+            self.assertIn("Nexus", line)
+            self.assertIn(hc.us_date(hc._today().isoformat()), line)
+            self.assertIn("An ID document is on file", line)
+        finally:
+            task_notify.queue_bulk_assignments = real
+
+    def test_an_audit_is_capped_and_needs_someone(self):
+        self.assertEqual(self.client.post("/hr/checklists/audit", json={"employee_ids": []}).status_code, 400)
+        r = self.client.post("/hr/checklists/audit", json={"employee_ids": [f"x{i}" for i in range(51)]})
+        self.assertEqual(r.status_code, 400)
+        _as(SCOPED)                               # company B only: company A's people are not found
+        r = self.client.post("/hr/checklists/audit", json={"employee_ids": ["staff-2"]})
+        self.assertEqual(r.json()["skipped"][0]["reason"], "Not found")
+
 
 if __name__ == "__main__":
     unittest.main()

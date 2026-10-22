@@ -20,7 +20,7 @@ import {
   ListChecks, CheckCircle2, Circle, MinusCircle, AlertTriangle, CalendarDays,
   Pencil, X, ChevronDown, ChevronRight, Sparkles, Play, RotateCcw, Plus,
   Trash2, ArrowUp, ArrowDown, Save, Ban, UserPlus, UserMinus, PauseCircle,
-  Check, UserCog, Users, Laptop, Banknote, TrendingUp, Copy,
+  Check, UserCog, Users, Laptop, Banknote, TrendingUp, Copy, Download, ShieldCheck,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, toDateInputValue } from '../lib/datetime';
@@ -391,6 +391,20 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
     try { onReplace(await api.reopenChecklist(cl.id)); toastOk('Checklist reopened.'); }
     catch (e) { toastErr(e?.message || 'Could not reopen the checklist.'); }
   }
+  // The proof (Neil, Oct 22): every step, who or what closed it and when.
+  async function downloadRecord() {
+    try {
+      const { blob, filename } = await api.downloadChecklistRecord(cl.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'checklist-record.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { toastErr(e?.message || 'Could not download the record.'); }
+  }
 
   const filters = [['all', 'All Steps'], ['open', 'Needs Action'], ['overdue', `Overdue${cl.overdue ? ` (${cl.overdue})` : ''}`], ...(me ? [['mine', `Mine${mine ? ` (${mine})` : ''}`]] : [])];
   return (
@@ -403,14 +417,16 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)', fontFamily: FONT }}>{cl.kindLabel}</h3>
               {pill(lm)}
+              {cl.audit && pill({ label: 'Audit', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' })}
             </div>
             <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', marginTop: 2 }}>
               {cl.anchorDate
-                ? <>{look.anchor} {formatDate(cl.anchorDate)}{cl.status === 'open' && anchorDays !== null ? ` · ${anchorDays === 0 ? 'today' : anchorDays > 0 ? `in ${anchorDays} days` : `${-anchorDays} days ago`}` : ''}</>
+                ? <>{cl.audit ? 'Audit from' : look.anchor} {formatDate(cl.anchorDate)}{cl.status === 'open' && anchorDays !== null ? ` · ${anchorDays === 0 ? 'today' : anchorDays > 0 ? `in ${anchorDays} days` : `${-anchorDays} days ago`}` : ''}</>
                 : <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>{ANCHOR_LABEL[cl.kind]} not set yet</span>}
               {cl.exitType ? ` · ${EXIT_LABEL[cl.exitType] || cl.exitType}` : ''}
             </div>
           </div>
+          {canEdit && <button onClick={downloadRecord} style={ghostBtn} title="Every step, its status, who or what closed it and when (CSV)"><Download size={13} /> Download Audit Record</button>}
           {canEdit && cl.status === 'open' && <button onClick={cancel} style={ghostBtn}><X size={13} /> Cancel</button>}
           {canEdit && cl.status === 'cancelled' && <button onClick={reopen} style={ghostBtn}><RotateCcw size={13} /> Reopen</button>}
           <button onClick={() => setOpen(o => !o)} aria-expanded={open} aria-label={open ? 'Collapse checklist' : 'Expand checklist'}
@@ -571,6 +587,19 @@ export function ChecklistSection({ employee, canEdit = false, myEmail = '', toas
   useEffect(() => { api.getChecklistMeta().then(setMeta).catch(() => setMeta(null)); }, []);
 
   const replace = (next) => setLists(prev => (prev || []).map(c => c.id === next.id ? next : c));
+  // Neil, Oct 22: someone already working here gets an Onboarding Audit - what
+  // is on file ticks itself with today's date, the rest becomes tasks.
+  async function runAudit() {
+    if (!await dialog.confirm(`Run an onboarding audit for ${employee.firstName || 'this person'}? Every onboarding step is checked against their record now: what is already on file (an ID, a verified work authorization, signed documents) is ticked with today's date, and the rest goes to its owners as tasks, due from today.`,
+      { title: 'Run Onboarding Audit', confirmText: 'Run Audit' })) return;
+    try {
+      const r = await api.startOnboardingAudits([employee.id]);
+      if (!r.started?.length) { toastErr(r.skipped?.[0]?.reason || 'The audit did not start.'); return; }
+      const s = r.started[0];
+      toastOk(`Onboarding audit started - ${s.onFile} of ${s.total} steps already on file.`);
+      load();
+    } catch (e) { toastErr(e?.message || 'Could not start the audit.'); }
+  }
 
   if (lists === null) return <SkeletonBlocks count={2} height={110} />;
   if (lists === false) {
@@ -587,7 +616,8 @@ export function ChecklistSection({ employee, canEdit = false, myEmail = '', toas
   return (
     <div style={{ fontFamily: FONT }}>
       {(openLists.length > 0 || pastLists.length > 0) && canEdit && !starting && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {!openLists.some(c => c.kind === 'onboarding') && <button onClick={runAudit} style={ghostBtn}><ShieldCheck size={13} /> Run Onboarding Audit</button>}
           <button onClick={() => setStarting(true)} style={ghostBtn}><Plus size={13} /> Start Checklist</button>
         </div>
       )}
@@ -600,12 +630,17 @@ export function ChecklistSection({ employee, canEdit = false, myEmail = '', toas
           <span className="dk-chip dk-chip--brand" style={{ width: 40, height: 40 }}><ListChecks /></span>
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)', marginTop: 4 }}>No checklist for {employee.firstName || 'this person'} yet</div>
           <div style={{ fontSize: 13, color: 'var(--wk-dim)', maxWidth: 420, lineHeight: 1.5 }}>
-            Marking a candidate Hired starts onboarding automatically. Start one by hand for an existing employee, a leaver or a leave of absence.
+            Marking a candidate Hired starts onboarding automatically. For someone already working here, Run Onboarding Audit checks every onboarding step against their record. Start one by hand for a leaver or a leave of absence.
           </div>
           {canEdit && (
-            <button className="primary-btn" onClick={() => setStarting(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-              <Plus size={14} /> Start Checklist
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 6 }}>
+              <button className="primary-btn" onClick={runAudit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <ShieldCheck size={14} /> Run Onboarding Audit
+              </button>
+              <button onClick={() => setStarting(true)} style={{ ...ghostBtn, padding: '8px 12px' }}>
+                <Plus size={14} /> Start Checklist
+              </button>
+            </div>
           )}
         </section>
       )}
@@ -1512,6 +1547,82 @@ function TaskPlaceCard({ entityId, kinds, toastOk, toastErr }) {
   );
 }
 
+// Company Settings > Checklists: people already working here with no
+// onboarding record (Neil, Oct 22: the Colin case - "many people are
+// non-compliant on their onboarding"). Start an Onboarding Audit for any of
+// them: what is on file ticks itself with today's date, the rest is tasked.
+const AUDIT_BATCH = 50;   // routers/hr_checklists.AUDIT_CAP
+function AuditCandidatesCard({ entityId, companyName, toastOk, toastErr }) {
+  const [people, setPeople] = useState(null);
+  const [picked, setPicked] = useState(() => new Set());
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    api.getChecklistAuditCandidates(entityId).then(r => setPeople(r.people || [])).catch(() => setPeople(false));
+  }, [entityId]);
+  useEffect(() => { load(); }, [load]);
+  if (people === null) return <SkeletonBlocks count={1} height={90} />;
+  if (people === false) return <div style={{ ...card, padding: 18, marginBottom: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load who has no onboarding record.</div>;
+  const all = picked.size === people.length && people.length > 0;
+  const flip = id => setPicked(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  async function go() {
+    const ids = [...picked];
+    if (!ids.length || busy) return;
+    if (!await dialog.confirm(`Start an onboarding audit for ${ids.length} ${ids.length === 1 ? 'person' : 'people'}? Each one's onboarding steps are checked against their record now: what is already on file is ticked with today's date, and the rest goes to its owners as tasks - one email per owner for the lot.`,
+      { title: 'Start Onboarding Audit', confirmText: `Start Audit For ${ids.length}` })) return;
+    setBusy(true);
+    let started = 0, onFile = 0;
+    const skipped = [];
+    try {
+      for (let i = 0; i < ids.length; i += AUDIT_BATCH) {
+        const r = await api.startOnboardingAudits(ids.slice(i, i + AUDIT_BATCH));
+        started += r.started?.length || 0;
+        onFile += (r.started || []).reduce((n, s) => n + (s.onFile || 0), 0);
+        skipped.push(...(r.skipped || []));
+      }
+      toastOk(`Onboarding audit started for ${started} ${started === 1 ? 'person' : 'people'} - ${onFile} steps already on file.${skipped.length ? ` ${skipped.length} skipped.` : ''}`);
+    } catch (e) { toastErr(e?.message || 'Could not start the audit.'); }
+    setPicked(new Set());
+    setBusy(false);
+    load();
+  }
+  return (
+    <section style={{ ...card, padding: 18, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ flex: '1 1 300px', minWidth: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>People With No Onboarding Record</h3>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
+            {people.length
+              ? `${people.length} active ${people.length === 1 ? 'person' : 'people'} at ${companyName} never had an onboarding checklist. An onboarding audit checks each step against their record and keeps the proof: who or what closed each step, and when.`
+              : `Everyone active at ${companyName} has an onboarding record.`}
+          </p>
+        </div>
+        {people.length > 0 && (
+          <button className="primary-btn" onClick={go} disabled={busy || !picked.size} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy ? <Spinner size={13} /> : <ShieldCheck size={13} />} Start Audit For {picked.size} {picked.size === 1 ? 'Person' : 'People'}
+          </button>
+        )}
+      </div>
+      {people.length > 0 && (
+        <div style={{ border: '1px solid var(--wk-line2)', borderRadius: 'var(--wk-r)', maxHeight: 320, overflowY: 'auto' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--wk-line2)', fontSize: 12.5, fontWeight: 600, color: 'var(--wk-dim)', cursor: 'pointer', position: 'sticky', top: 0, background: 'var(--wk-card)' }}>
+            <input type="checkbox" checked={all} onChange={() => setPicked(all ? new Set() : new Set(people.map(p => p.id)))} /> Select All ({people.length})
+          </label>
+          {people.map(p => (
+            <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--wk-line2)', fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={picked.has(p.id)} onChange={() => flip(p.id)} aria-label={`Audit ${p.name}`} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <b style={{ fontWeight: 600, color: 'var(--wk-ink)' }}>{p.name}</b>
+                <span style={{ color: 'var(--wk-dim)' }}>{[p.jobTitle, p.department].filter(Boolean).map(x => ` · ${x}`).join('')}</span>
+              </span>
+              {p.startDate && <span style={{ fontSize: 12, color: 'var(--wk-faint)', whiteSpace: 'nowrap' }}>Started {formatDate(p.startDate)}</span>}
+            </label>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // Company Settings > Checklists: the steps every hire at this company gets
 // first, whatever the role - the Checklist Library's, or the company's own
 // copy (made by editing here or by Copy From…). Roles build on top of them.
@@ -1604,6 +1715,8 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
         : <LibraryOwnersNote />}
 
       {entityId && <TaskPlaceCard key={`place:${entityId}`} entityId={entityId} kinds={kinds} toastOk={toastOk} toastErr={toastErr} />}
+
+      {entityId && <AuditCandidatesCard key={`audit:${entityId}`} entityId={entityId} companyName={companyName} toastOk={toastOk} toastErr={toastErr} />}
 
       {entityId && (
         <BaselineCard companyName={companyName} entityId={entityId} templates={templates} kinds={kinds} meta={meta}

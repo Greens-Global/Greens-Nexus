@@ -49,6 +49,9 @@ vi.mock('../api', () => ({
       checklistStatus: 'open',
     })),
     getMyChecklistSteps: vi.fn(() => Promise.resolve({ steps: [] })),
+    getChecklistAuditCandidates: vi.fn(() => Promise.resolve({ people: [] })),
+    startOnboardingAudits: vi.fn((ids) => Promise.resolve({ started: ids.map(id => ({ id, name: id, checklistId: `cl-${id}`, total: 30, onFile: 4 })), skipped: [] })),
+    downloadChecklistRecord: vi.fn(() => Promise.resolve({ blob: new Blob(['x']), filename: 'r.csv' })),
     getChecklistTaskPlace: vi.fn(() => Promise.resolve({ place: {}, auto: { projectId: 'p-hr', projectName: '#General - Human Resources' },
       effective: {}, openTasks: [{ kind: 'onboarding', projectId: 'p-hr', sectionId: '' }, { kind: 'offboarding', projectId: 'p-hr', sectionId: '' }],
       projects: [{ id: 'p-hr', name: '#General - Human Resources', sections: [] }, { id: 'p-new', name: 'People Ops', sections: [{ id: 's-1', name: 'New Hires' }] }] })),
@@ -76,6 +79,7 @@ vi.mock('../api', () => ({
     ] })),
   },
 }));
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: vi.fn(() => Promise.resolve(true)), prompt: vi.fn(() => Promise.resolve('')) } }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [{ email: 'it@greensglobal.com', name: 'Ivy Tech' }] }), useEntities: () => ({ data: [] }) }));
 
 const { ChecklistSection, MyChecklistSteps, ChecklistSettings, ChecklistBoard, ChecklistChip, RoleChecklists } = await import('./HrChecklists');
@@ -374,5 +378,35 @@ describe('Where checklist tasks go', () => {
     expect(await screen.findByText('Onboarding - Jane Doe')).toBeInTheDocument();
     expect(screen.getByText(/in #General - Human Resources/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open Task' })).toBeInTheDocument();
+  });
+});
+
+// Neil, Oct 22: "if the person is an existing employee, we can have an option to do an audit".
+describe('Onboarding Audit', () => {
+  it('lists the people with no onboarding record and starts an audit for the ones picked', async () => {
+    api.getChecklistAuditCandidates.mockResolvedValueOnce({ people: [
+      { id: 'e-1', name: 'Colin Park', jobTitle: 'Estimator', department: 'Construction', startDate: '2024-03-01' },
+      { id: 'e-2', name: 'Dana Wu', jobTitle: '', department: '', startDate: '' }] });
+    const ok = vi.fn();
+    render(<ChecklistSettings entityId="co-a" entities={[{ id: 'co-a', name: 'Greens' }]} toastOk={ok} toastErr={() => {}} />);
+    expect(await screen.findByText('People With No Onboarding Record')).toBeInTheDocument();
+    expect(screen.getByText('Started 03/01/2024')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select All (2)' }));
+    fireEvent.click(screen.getByRole('button', { name: /Start Audit For 2 People/ }));
+    await waitFor(() => expect(api.startOnboardingAudits).toHaveBeenCalledWith(['e-1', 'e-2']));
+    await waitFor(() => expect(ok).toHaveBeenCalledWith('Onboarding audit started for 2 people - 8 steps already on file.'));
+  });
+
+  it('a profile with no checklist offers the audit, and an audit says so with its record', async () => {
+    api.getEmployeeChecklists.mockResolvedValueOnce({ checklists: [] });
+    render(<ChecklistSection employee={{ id: 'emp-1', firstName: 'Colin' }} canEdit toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByRole('button', { name: /Run Onboarding Audit/ })).toBeInTheDocument();
+    cleanup();
+    api.getEmployeeChecklists.mockResolvedValueOnce({ checklists: [{ ...CHECKLIST, audit: true, anchorDate: '2026-10-23' }] });
+    render(<ChecklistSection employee={{ id: 'emp-1', firstName: 'Colin' }} canEdit toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Audit')).toBeInTheDocument();
+    expect(screen.getByText(/Audit from 10\/23\/2026/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Download Audit Record/ }));
+    await waitFor(() => expect(api.downloadChecklistRecord).toHaveBeenCalledWith('cl-1'));
   });
 });

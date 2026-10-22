@@ -2189,6 +2189,10 @@ export const api = {
   // Where a company's checklist tasks go (Neil, Oct 22): { place: { default | kind: { projectId, sectionId } }, move }.
   getChecklistTaskPlace:  (entityId) => req(`/hr/checklists/task-place?entity_id=${encodeURIComponent(entityId || '')}`),
   saveChecklistTaskPlace: (entityId, d) => req(`/hr/checklists/task-place?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify(d) }),
+  // Onboarding Audit of people already here (Neil, Oct 22): who has no record, start (at most 50 per call), the CSV record.
+  getChecklistAuditCandidates: (entityId) => req(`/hr/checklists/audit/candidates?entity_id=${encodeURIComponent(entityId || '')}`),
+  startOnboardingAudits:  (employeeIds) => req('/hr/checklists/audit', { method: 'POST', body: JSON.stringify({ employee_ids: employeeIds }) }),
+  downloadChecklistRecord: (id)      => reqBlob(`/hr/checklists/${id}/record.csv`),
   // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
   // loan (built or the bank's file) and saved rate stress scenarios
   // (routers/accounting_loan_plans.py).
