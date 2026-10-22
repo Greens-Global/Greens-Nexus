@@ -169,8 +169,8 @@ class DetailsFormTests(FormCase):
         eid = self._start_with()["id"]
         self.assertEqual(self._verify(eid).status_code, 200)
         req = self._ev(eid).sign_request_id
+        self._sign(self._party(req, CAND))          # the person first (Neil, Oct 22 2026)
         self._sign(self._party(req, HR))
-        self._sign(self._party(req, CAND))
         ev = self._ev(eid)
         self.assertEqual(ev.status, "completed", ev.apply_note)
         cand = self.db.query(models.HrCandidate).filter_by(id="cand-1").first()
@@ -233,13 +233,20 @@ class SignsOnceTests(FormCase):
         ev = self._ev(eid)
         self.assertEqual(ev.status, "sent")                          # nobody signs ahead of the person
         self.assertEqual(self.invited, [CAND])                       # HR is never asked again
+        # Neil, Oct 22 2026: the company never signs before the person - the
+        # saved signature rides on the party but is NOT applied at send.
         company = self._party(ev.sign_request_id, HR)
-        self.assertEqual((company.status, company.auth_method, company.signature_data),
-                         ("signed", "saved_signature", "Signed Once"))
-        self.assertTrue(sign_otp.summary_for_certificate(self.db, company).get("verified_at"))
+        self.assertEqual((company.status, company.auth_method, company.signed_at or ""),
+                         ("waiting", "saved_signature", ""))
         self.assertEqual(self.client.get("/esign/mine").json(), [])  # nothing waiting for HR
 
         self._sign(self._party(ev.sign_request_id, CAND))
+        # ...and goes on by itself the moment the person has signed.
+        cand, company = self._party(ev.sign_request_id, CAND), self._party(ev.sign_request_id, HR)
+        self.assertEqual((company.status, company.signature_data), ("signed", "Signed Once"))
+        self.assertGreater(company.signed_at, cand.signed_at)
+        self.assertTrue(sign_otp.summary_for_certificate(self.db, company).get("verified_at"))
+        self.assertEqual(self.invited, [CAND])                       # HR is never asked
         self.assertEqual(self._ev(eid).status, "completed", self._ev(eid).apply_note)
 
         # the next hire needs no signature from HR at all

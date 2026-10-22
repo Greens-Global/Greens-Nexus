@@ -133,11 +133,11 @@ describe('Make Offer and the offer progress', () => {
     expect(onMakeOffer).not.toHaveBeenCalled();
   });
 
-  it('Offer stage: shows who has signed, and Send Hiring Packet waits for both signatures', async () => {
+  it('Offer stage: an offer sent before Oct 22 still shows HR, and Send Hiring Packet waits for the candidate', async () => {
     reset({ choices: [{ id: 'o1', name: 'Offer Letter' }], events: [{
       id: 'e1', kind: 'offer', status: 'sent', createdAt: '2026-10-15T10:00:00Z', verifiedAt: '2026-10-15T10:05:00Z', flags: [],
-      parties: [{ id: 'p1', name: 'Charmi Desai', isSubject: false, signedAt: '2026-10-15T10:10:00Z' },
-        { id: 'p2', name: 'Jane Doe', isSubject: true, signedAt: '' }] }] });
+      parties: [{ id: 'p1', name: 'Charmi Desai', isSubject: false, signedAt: '2026-10-15T10:10:00Z', order: 1 },
+        { id: 'p2', name: 'Jane Doe', isSubject: true, signedAt: '', order: 2 }] }] });
     render(<CandidateDetailModal {...props} onMakeOffer={vi.fn()} candidate={{ ...base, stage: 'offer' }} />);
     const list = await screen.findByRole('list', { name: 'Offer progress' });
     expect(list.querySelector('[data-step="verified"]').hasAttribute('data-done')).toBe(true);
@@ -146,7 +146,7 @@ describe('Make Offer and the offer progress', () => {
     expect(list.querySelector('[data-step="packet"]').hasAttribute('data-done')).toBe(false);
     const send = screen.getByText('Send Hiring Packet').closest('button');
     expect(send.disabled).toBe(true);
-    expect(send.getAttribute('title')).toMatch(/once Jane and HR have both signed/);
+    expect(send.getAttribute('title')).toMatch(/once Jane has signed/);
   });
 
   it('Offer stage with no offer letter: says so, links to set one up, and the packet stays closed', async () => {
@@ -160,6 +160,14 @@ describe('Make Offer and the offer progress', () => {
 });
 
 describe('offerSteps', () => {
+  it('a new offer is signed by the candidate only - no company step (Neil, Oct 22 2026)', async () => {
+    const { offerSteps } = await import('./HiringCandidateDetail');
+    const st = offerSteps([{ kind: 'offer', status: 'sent', createdAt: 'x', verifiedAt: 'y', flags: [],
+      parties: [{ isSubject: true, signedAt: '', name: 'Jane', order: 1, partyRole: 'signer' },
+        { isSubject: false, signedAt: '', name: 'Max', order: 2, partyRole: 'cc' }] }], 'Jane');
+    expect(st.steps.map(s => s.key)).toEqual(['prepared', 'verified', 'candidate', 'packet']);
+  });
+
   it('everything done once both signed and the packet went out', async () => {
     const { offerSteps } = await import('./HiringCandidateDetail');
     const st = offerSteps([

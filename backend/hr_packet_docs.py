@@ -32,10 +32,19 @@ Two packet features from Oct 14 (Pranshu):
     like pay (Pay & Benefits only, never written on a document row); a field
     marked Last 4 Only is kept - and printed - as its last four characters.
   - Signs Once (a flow step with `once`): the company signs a packet ONCE and
-    that adopted signature is applied to every packet sent after it. It
+    that adopted signature is applied to every packet sent after it - when
+    its turn comes, after the person has signed, never at send. It
     belongs to whoever holds the step's role for the company: when the HR
     contact (or the signatory) changes, the old one stops counting and the
     new holder signs once before the next packet can go.
+
+The signing order (Neil, Oct 22 2026): "The company never signs prior to the
+employee, ever." The person signs FIRST and the company countersigns after
+them; an offer letter ("Offer is just saying, do you accept?") is signed by
+the person ONLY - no company signer, and a company signature block in an
+offer template prints nothing. signing_flow applies this to every packet,
+including configs saved with the company first - they are reordered when
+read, never refused.
 """
 import hashlib
 import json
@@ -89,6 +98,58 @@ def default_role(key: str, prints_signatory: bool = False) -> str:
     if hc.norm_role(k) in hc.ROLES:
         return hc.norm_role(k)
     return "hr"
+
+
+def signing_flow(setting: HrPacketSetting) -> list:
+    """The order a packet is actually signed in (Neil, Oct 22 2026): The
+    Person first, everyone else after in the order HR set; on an offer
+    letter nobody but The Person signs (approve / copy steps stay, after
+    them). A config saved with the company first is reordered here."""
+    flow = clean_flow(setting.flow)
+    rest = [s for s in flow if s["role"] != SUBJECT_ROLE]
+    if setting.event == "offer":
+        rest = [s for s in rest if s["action"] != "sign"]
+    return [s for s in flow if s["role"] == SUBJECT_ROLE] + rest
+
+
+def _without_blocks(node, keep: set):
+    """Content minus every signature block whose signer is not in `keep`."""
+    if isinstance(node, dict):
+        return {k: _without_blocks(v, keep) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_without_blocks(v, keep) for v in node
+                if not (isinstance(v, dict) and v.get("type") == "signatureBlock"
+                        and str((v.get("attrs") or {}).get("role") or "").strip().lower() not in keep)]
+    return node
+
+
+def signed_snaps(setting: HrPacketSetting, snaps: list) -> list:
+    """An offer's documents with only The Person's signature blocks: a
+    company block in an offer template prints nothing - no box, no line,
+    no signature - and never holds the offer back."""
+    if setting.event != "offer":
+        return snaps
+    keep = {s["key"] for s in signing_flow(setting) if s["action"] == "sign"}
+    return [x if x.signature_roles <= keep else Snap(x.tpl, _without_blocks(x.content, keep), x.meta, x.version)
+            for x in snaps]
+
+
+def unsigned_names(db: Session, setting: HrPacketSetting, ctx: dict) -> dict:
+    """{{signer.<key>}} for the company steps an offer no longer signs, so a
+    letter closing "Sincerely, {{signer.company}}" still prints the name -
+    as text, never a signature."""
+    if setting.event != "offer":
+        return {}
+    out = {}
+    for step in clean_flow(setting.flow):
+        if step["role"] == SUBJECT_ROLE or step["action"] != "sign":
+            continue
+        email = resolve_role(db, step["role"], ctx)
+        p = person(db, email) if email else None
+        if p is not None:
+            out[f"signer.{step['key']}"] = (p.display_name or f"{p.first_name} {p.last_name}").strip()
+            out[f"signer.{step['key']}.title"] = p.job_title or ""
+    return out
 
 
 def clean_flow(flow) -> list:
@@ -324,11 +385,11 @@ def build_parties(db: Session, setting: HrPacketSetting, ctx: dict) -> tuple:
 
     Two CONSECUTIVE sign steps that land on the same person collapse into one
     party (their second key's fields are re-pointed with `remap`), so one
-    signature covers both blocks. Order is otherwise kept exactly."""
+    signature covers both blocks. Order is signing_flow's: the person first."""
     problems, rows = [], []
     subject = (ctx.get("subject_email") or "").strip().lower()
     subject_alts = {subject} | {(e or "").strip().lower() for e in ctx.get("subject_emails") or []}
-    for step in clean_flow(setting.flow):
+    for step in signing_flow(setting):
         role, action, key = step["role"], step["action"], step["key"]
         label = role_label(role)
         email = resolve_role(db, role, ctx)
@@ -424,6 +485,7 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
     and enforced at save and at send."""
     if snaps is None:
         snaps, snap_problems = load_snaps(db, setting.doc_template_ids or [])
+    snaps = signed_snaps(setting, snaps)
     out = []
     if not (setting.name or "").strip():
         out.append("Give the packet a name.")
@@ -431,7 +493,6 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
         out.append("Add at least one document from Documents > Templates.")
     out += list(snap_problems or [])
     flow = clean_flow(setting.flow)
-    by_key = {s["key"]: s for s in flow}
     for step in flow:
         if step["role"] not in FLOW_ROLES:
             out.append(f'"{step["key"]}" has no valid role - pick who signs as it.')
@@ -442,11 +503,10 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
         out.append("Exactly one step must be The Person (the one the packet is about).")
     elif subjects[0]["action"] != "sign":
         out.append("The Person must sign the packet.")
-    elif setting.event in ("offer", "hire", "separation"):
-        signs = [s for s in flow if s["action"] == "sign"]
-        if signs and signs[-1]["role"] != SUBJECT_ROLE:
-            out.append("The Person signs last on an offer letter, a hiring packet or a separation package - "
-                       "move their step to the end of the signing order.")
+    # Never "move the person": signing_flow puts them first (Neil, Oct 22 2026),
+    # so an order saved with the company first still loads and sends.
+    flow = signing_flow(setting)
+    by_key = {s["key"]: s for s in flow}
     for step in flow:
         if not step.get("once"):
             continue
@@ -471,7 +531,7 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
         # The name printed over a signature is the person who signs it: a
         # letter closing "Sincerely, {{signatory}}" must be signed by the
         # authorized signatory, not by HR (s4.3 of the plan).
-        if "signatory" in snap.tokens:
+        if "signatory" in snap.tokens and setting.event != "offer":
             if not any((by_key.get(k) or {}).get("role") == "signatory" for k in snap.signature_roles):
                 out.append(f'"{snap.name}" prints the authorized signatory ({{{{signatory}}}}) but nobody signs it as '
                            f'Authorized Signatory - set the company step to Authorized Signatory, or write '
@@ -598,7 +658,7 @@ def values_hash(values: dict) -> str:
 def ser_flow(db: Session, setting: HrPacketSetting) -> list:
     return [{**s, "roleLabel": role_label(s["role"]),
              "actionLabel": "Signs Once (Saved)" if s.get("once") else ACTION_LABELS.get(s["action"], s["action"])}
-            for s in clean_flow(setting.flow)]
+            for s in signing_flow(setting)]
 
 
 def ser_documents(db: Session, setting: HrPacketSetting) -> list:
@@ -678,6 +738,7 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
     ids = list(setting.doc_template_ids or [])
     ids += [t for t in (extra_template_ids or []) if t and t not in ids]
     snaps, snap_problems = load_snaps(db, ids)
+    snaps = signed_snaps(setting, snaps)
     problems = config_problems(db, setting, snaps, snap_problems)
     parties, remap, party_problems = build_parties(db, setting, ctx)
     problems += party_problems
@@ -691,7 +752,7 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
         problems.append(f"{name_of(db, vemail)} verifies this packet ({role_label(vrole)}) but cannot see pay - "
                         f"give them Pay & Benefits access or change Verified By.")
     problems += pay_exposure(db, parties, prints)
-    values = {**(overrides or {}), **signer_values(parties, remap)}
+    values = {**(overrides or {}), **unsigned_names(db, setting, ctx), **signer_values(parties, remap)}
     pay_values = pay_merge(pay, ctx.get("pay_values")) if can_see_pay else {}
     docs = []
     for snap in snaps:
@@ -873,7 +934,7 @@ def sync_documents(db: Session, ev, setting: HrPacketSetting, p: dict, by: str) 
                                    edited_by=by, edited_at=now, note=f"Generated (template v{snap.version})"))
             changed = True
         elif (row.template_version != snap.version or (e or {}).get("valuesHash") != h
-              or (row.letterhead_id or "") != lh or row.status == "archived"):
+              or (row.letterhead_id or "") != lh or row.status == "archived" or row.content != snap.content):
             row.content, row.template_version, row.merge_overrides = snap.content, snap.version, values
             row.letterhead_id, row.title, row.status = lh, title, "final"
             row.current_version = (row.current_version or 1) + 1
@@ -917,7 +978,9 @@ def render_row(db: Session, row: Document, pay: dict, anchors: Optional[list] = 
 
 def status_at_send(parties: list, subject_email: str) -> str:
     """awaiting_sender while anyone acts before the person; sent only when the
-    person is invited at once. Never derived from who clicked Send."""
+    person is invited at once. Never derived from who clicked Send. Since
+    Oct 22 2026 the person is always first (signing_flow), so a new packet is
+    'sent'; awaiting_sender is left only on envelopes sent before that."""
     want = (subject_email or "").strip().lower()
     subj = next((p for p in parties if (p["email"] or "").lower() == want), None)
     if subj is None:
@@ -1086,6 +1149,10 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
     from pypdf import PdfReader
     from routers import esign
     from routers.documents import signing_fields
+    first = next((x for x in p["parties"] if x["partyRole"] != "cc"), None)
+    if first is None or first["role"] != SUBJECT_ROLE:
+        # Fail closed (Neil, Oct 22 2026): nobody acts before the person.
+        raise hle.PacketError("The person must sign first - nobody signs for the company before them.", 409)
     pay = event_pay(db, ev, setting)
     remap = p["remap"]
     docs = []
@@ -1108,7 +1175,8 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
                              ordinal=x["ordinal"], party_role=x["partyRole"], title=x.get("title", ""))
                for x in p["parties"]]
     me = (user["email"] or "").lower()
-    # Signs Once: the adopted signature goes on when that step's turn comes.
+    # Signs Once: the adopted signature goes on when that step's turn comes -
+    # after the person, who signs first (Neil, Oct 22 2026); never at send.
     saved = {x["key"]: x["saved"] for x in p["parties"] if x.get("saved")}
     first = next((x for x in p["parties"] if not x.get("saved")), None)
     sender_first = bool(first and first["kind"] == "internal" and first["email"] == me
@@ -1552,7 +1620,7 @@ def company_once_status(db: Session, setting: HrPacketSetting, entity: Optional[
     company today, and whether that person has signed it."""
     ctx = {"entity": entity, "owners": hc.role_owners(db, entity.id if entity else "")}
     out = []
-    for step in clean_flow(setting.flow):
+    for step in signing_flow(setting):
         if not step.get("once"):
             continue
         email = resolve_role(db, step["role"], ctx)
@@ -1575,7 +1643,7 @@ def adopt_signature(db: Session, setting: HrPacketSetting, *, step_key: str, ent
     the person who holds the step's role there today may. The caller has
     checked the signature and the one-time code; the caller commits."""
     from datetime import datetime, timezone
-    step = next((s for s in clean_flow(setting.flow) if s["key"] == step_key and s.get("once")), None)
+    step = next((s for s in signing_flow(setting) if s["key"] == step_key and s.get("once")), None)
     if step is None:
         raise PacketProblem("That step does not Sign Once - save the packet with Signs Once ticked first.")
     entity_id = entity.id if entity else ""
@@ -1662,7 +1730,7 @@ def readiness(db: Session, setting: HrPacketSetting) -> list:
     verify = setting.verify_role or "hr"
     if entity is not None:
         ctx = {"entity": entity, "owners": hc.role_owners(db, entity.id)}
-        roles = list(dict.fromkeys([s["role"] for s in clean_flow(setting.flow)
+        roles = list(dict.fromkeys([s["role"] for s in signing_flow(setting)
                                     if s["role"] not in (SUBJECT_ROLE, "manager", "sender")] + [verify]))
         for role in roles:
             email = resolve_role(db, role, ctx)

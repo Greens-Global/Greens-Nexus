@@ -6083,7 +6083,8 @@ class HrPacketSetting(Base):
     is the default every company falls back to, worker_type 'any' covers both
     employees and contractors. The template carries the merged PDFs and the
     signer roles; `subject_role` is the role the person signs as - every other
-    role is signed by the HR sender, who signs at send so the person signs last.
+    role is signed by the HR sender, who countersigns after the person (the
+    person signs first - Neil, Oct 22 2026).
     New table - RLS per CLAUDE.md (main.py list + the startup sweep)."""
     __tablename__ = "hr_packet_settings"
     id               = Column(String, primary_key=True)           # uuid

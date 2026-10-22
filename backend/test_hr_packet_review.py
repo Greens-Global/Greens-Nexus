@@ -206,7 +206,8 @@ class JourneyTests(ReviewCase):
         review = self._review(eid)
         self.assertTrue(review["canVerify"], review["problems"])
         self.assertEqual(review["problems"], [])
-        self.assertEqual([r["name"] for r in review["recipients"]], ["Charmi Shah", "Jane Doe"])
+        # The person signs first, the company countersigns (Neil, Oct 22 2026).
+        self.assertEqual([r["name"] for r in review["recipients"]], ["Jane Doe", "Charmi Shah"])
         self.assertEqual(review["payText"], "$85,000.00 per year")
         pdf = self.client.get(f"/hr/life-events/{eid}/documents/{review['documents'][0]['documentId']}/pdf")
         self.assertEqual(pdf.status_code, 200)
@@ -214,20 +215,21 @@ class JourneyTests(ReviewCase):
         r = self._verify(eid, review)
         self.assertEqual(r.status_code, 200, r.text)
         ev = self._ev(eid)
-        self.assertEqual(ev.status, "awaiting_sender")       # HR signs for the company first
+        self.assertEqual(ev.status, "sent")                  # nobody signs for the company at send
         self.assertEqual(ev.verified_by, HR)
         req = self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).first()
         self.assertEqual((req.link_kind, req.link_id, req.prints_pay, req.document_class), ("life_event", eid, 1, "employment"))
         fields = list(req.fields or []) + [f for d in (req.documents or []) for f in (d.get("fields") or [])]
         self.assertEqual({f["role"] for f in fields}, {"company", "employee"})
         self.assertEqual(len({f["id"] for f in fields}), len(fields))          # ids unique across documents
-        self.assertEqual(self.invited, [])                                    # the sender signs inline
-        self.assertEqual(r.json()["senderPartyId"], self._party(req.id, HR).id)
+        self.assertEqual(self.invited, [CAND])                                # the person is invited first
+        self.assertEqual(r.json()["senderPartyId"], "")                       # HR has nothing to sign yet
+        self.assertEqual(self._party(req.id, HR).status, "waiting")
 
-        self._sign(self._party(req.id, HR))
-        self.assertEqual(self._ev(eid).status, "sent")
-        self.assertEqual(self.invited, [CAND])
         self._sign(self._party(req.id, CAND))
+        self.assertEqual(self._ev(eid).status, "sent")
+        self.assertEqual(self.invited, [CAND, HR])                            # then the company countersigns
+        self._sign(self._party(req.id, HR))
         ev = self._ev(eid)
         self.assertEqual(ev.status, "completed", ev.apply_note)
         cand = self.db.query(models.HrCandidate).filter_by(id="cand-1").first()
@@ -340,8 +342,8 @@ class PayTests(ReviewCase):
             self.assertNotIn("commission", str(r.merge_overrides))
         self.assertEqual(self._verify(eid, review).status_code, 200)
         req_id = self._ev(eid).sign_request_id
+        self._sign(self._party(req_id, CAND))          # the person first (Neil, Oct 22 2026)
         self._sign(self._party(req_id, HR))
-        self._sign(self._party(req_id, CAND))
         ev = self._ev(eid)
         self.assertEqual(ev.status, "completed")
         self.assertTrue(any(f["code"] == "pay_not_recorded" for f in ev.flags))

@@ -256,7 +256,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 8 }}>
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
-                  {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.who === 'employee' ? `${r.name} (${r.email})` : r.who === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - sign now`}</div>)}
+                  {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.who === 'employee' ? `${r.name} (${r.email})` : r.who === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - countersign after them`}</div>)}
                 </div>
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>The Change</div>
@@ -465,7 +465,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
                   </div>
                   <div>
                     <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
-                    {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.isSubject ? name : r.role === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - sign now`}</div>)}
+                    {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.isSubject ? name : r.role === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - countersign after ${name}`}</div>)}
                   </div>
                   <div>
                     <div style={{ ...lbl, marginTop: 0 }}>Filed In Egnyte</div>

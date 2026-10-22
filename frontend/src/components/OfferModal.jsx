@@ -414,8 +414,8 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
       <div style={{ ...card, marginTop: 26, background: 'var(--mist)', fontSize: 13, lineHeight: 1.65 }}>
         <b>What happens next</b>
         <div style={{ marginTop: 4 }}>1. You check the filled-in letter, then Verify And Send.</div>
-        <div>2. The company signs, then {first} gets an email and signs - no login needed.</div>
-        <div>3. Both signed: {first} is hired{packet ? `, and ${packet.name} goes out to them by itself` : ''}.</div>
+        <div>2. {first} gets an email and signs - no login needed. Nobody signs an offer for the company.</div>
+        <div>3. Signed: {first} is hired{packet ? `, and ${packet.name} goes out to them by itself` : ''}.</div>
       </div>
     </>
   );

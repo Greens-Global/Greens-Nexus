@@ -488,7 +488,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
     <Overlay onClose={onClose} wide>
       <Head title={docsMode ? `Start Hiring Packet - ${name}` : `Send Hiring Packet - ${name}`}
         sub={docsMode ? `Pick the four options and enter ${c.firstName || 'their'} details - the documents are generated at once, and HR checks them before anything goes to ${c.email || 'them'}.`
-          : `Goes to ${c.email || 'their personal email'}. You sign first, then ${c.firstName || 'they'} signs.`} onClose={onClose} />
+          : `Goes to ${c.email || 'their personal email'}. ${c.firstName || 'They'} signs first, then you countersign for the company.`} onClose={onClose} />
       <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 14px' }}>
           <div><label style={lbl}>Job Title *</label>
@@ -682,7 +682,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             {preview.salaryText && preview.payInLetter === false && <Problem>This packet's letter does not show pay - {preview.salaryText} will be set as their pay when they sign, but they will not read it in the documents. Add {'{{salary}}'} to the template under Documents &gt; Nexus Sign &gt; Templates, or leave pay blank.</Problem>}
             {preview.newRole && <Problem>New role "{preview.newRole}" will be added to {preview.company}'s roles with no access - set its access in Settings &gt; Access after sending.</Problem>}
             <div style={{ fontSize: 12.5, marginTop: 10, padding: '8px 11px', borderRadius: 10, background: 'var(--mist)' }}>
-              <b>Nothing goes to {name} yet.</b> Review And Sign opens the finished packet - your PDFs with this offer's pay and dates printed in - for you to read and sign for the company. The welcome email goes out only after you sign; if something is wrong, decline on that screen and send a corrected packet.
+              <b>Nothing goes to {name} until you click Send Packet.</b> {name} signs the finished packet first - your PDFs with this offer's pay and dates printed in - and you countersign for the company after them, never before. If something is wrong, void it and send a corrected packet.
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
               <span style={{ fontSize: 12.5 }}>{name} then gets the welcome email with a link to sign.</span>
@@ -728,7 +728,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
           <button className="primary-btn" onClick={send} disabled={!!busy || !ack || missing.length > 0}
             title={missing.length ? 'Fill in the missing details first' : !ack ? 'Confirm the document type first' : ''}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy === 'send' ? <Spinner size={14} /> : <Send size={14} />} Review And Sign
+            {busy === 'send' ? <Spinner size={14} /> : <Send size={14} />} Send Packet
           </button>
         )}
       </div>

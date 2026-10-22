@@ -1797,16 +1797,19 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
     # in the order is who the envelope is waiting on.
     actors = [r for r in rows if _role_of(r) in _ACTING_ROLES]
     to_notify = actors if routing == "parallel" else actors[:1]
-    if routing != "parallel" and actors and _is_saved_pending(actors[0]):
+    if (routing != "parallel" and actors and _is_saved_pending(actors[0])
+            and (link_kind or "") != "life_event"):
         # The first signer signed once already: apply it, then invite whoever
-        # is next (or seal, if nobody is).
+        # is next (or seal, if nobody is). Never on an HR packet: the company
+        # never signs before the person (Neil, Oct 22 2026) - there a saved
+        # signature goes on only in _advance_or_finalize, after the person.
         db.flush()
         _apply_saved(db, req, actors[0])
         _advance_or_finalize(db, req)
         to_notify = []
     for r in to_notify:
-        # The sender signing their own envelope right after sending it (an HR
-        # packet: the company signs, then the person) needs no invite email -
+        # The sender signing their own envelope right after sending it (an
+        # envelope that is not an HR packet) needs no invite email -
         # the send screen takes them straight to the signing view.
         if sender_signs_first and r.kind == "internal" and r.email == (user["email"] or "").lower():
             _log(db, req.id, "sent", f"{r.name} signs at send (sender)", party_id=r.id)
