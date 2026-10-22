@@ -677,6 +677,26 @@ def require_project_role(db: Session, user: dict, project, min_role: str) -> Non
         raise HTTPException(403, f"You need at least {min_role} access to {name}.")
 
 
+def people_wall(db: Session, user=None) -> tuple:
+    """(walled, emp_map) for the people checks below, worked out ONCE per
+    request (Oct 21 2026): `walled` is whether the company comparison applies
+    (`user`'s scope; with no user, whether the walls are armed) and `emp_map`
+    the employee -> company map, built only when it does - with the walls off
+    nothing loads the whole directory. Kept on the request's session
+    (`db.info`), keyed by the caller and the walls switch, so a create that
+    checks people on a task and each of its subtasks pays for it once."""
+    import auth
+    on = auth._company_walls_on(db)
+    who = (user.get("email") or "").lower() if isinstance(user, dict) else ""
+    key = ("people_wall", who, isinstance(user, dict), on)
+    hit = db.info.get(key)
+    if hit is None:
+        walled = (auth.company_scope(user, db) is not None) if isinstance(user, dict) else on
+        hit = (walled, _emp_company_map(db) if walled else None)
+        db.info[key] = hit
+    return hit
+
+
 def person_problem(db: Session, task, email: str, user=None, emp_map: dict | None = None) -> str:
     """Why `email` may not be put ON `task` as an assignee or collaborator, or
     "" when they may (Oct 21 2026). Being put there is itself what lets them
@@ -686,8 +706,8 @@ def person_problem(db: Session, task, email: str, user=None, emp_map: dict | Non
     comparison only applies behind the company wall (`user`'s scope; with no
     user, whether the walls are armed) - with them off, a US manager assigns
     a Greens India colleague exactly as before. `emp_map` is the employee ->
-    company map when the caller already has it (one per request)."""
-    import auth
+    company map when the caller already has it (else people_wall's, built
+    once per request and only behind the wall)."""
     from sqlalchemy import func
     from models import NexusEmployee
     who = (email or "").strip().lower()
@@ -698,9 +718,9 @@ def person_problem(db: Session, task, email: str, user=None, emp_map: dict | Non
         return "is not in the Nexus directory"
     if (emp.status or "") == "offboarded":
         return "has left"
-    walled = (auth.company_scope(user, db) is not None) if isinstance(user, dict) else auth._company_walls_on(db)
+    walled, wall_map = people_wall(db, user)
     if walled:
-        task_co = task_company(task, emp_map if emp_map is not None else _emp_company_map(db))
+        task_co = task_company(task, emp_map if emp_map is not None else wall_map)
         if task_co and (emp.company or "") and emp.company != task_co:
             return "is in another company"
     return ""
@@ -727,14 +747,13 @@ def split_people(db: Session, task, emails, user=None, actor: str = "") -> tuple
     not fail the whole action; they are left off and the task says so
     (note_dropped_people). The caller adding themselves always passes."""
     me = (actor or "").strip().lower()
-    emp_map = _emp_company_map(db)
     kept, dropped, seen = [], [], set()
     for raw in emails or []:
         who = str(raw or "").strip().lower()
         if not who or who in seen:
             continue
         seen.add(who)
-        problem = "" if who == me else person_problem(db, task, who, user, emp_map)
+        problem = "" if who == me else person_problem(db, task, who, user)
         if problem:
             dropped.append({"email": who, "reason": problem})
         else:
@@ -1053,10 +1072,42 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
 # ── Trash (Aug 27) ────────────────────────────────────────────────────────────
 # Moved here from routers/tasks.py's old hard-delete cascade so
 # purge_task_permanently (below) and any future caller share one copy.
+def _binned_subtree_ids(db: Session, task_id: str) -> list:
+    """`task_id` plus every BINNED task under it, however deep (Oct 21 2026 -
+    only the direct subtasks went before, and deeper ones were left behind),
+    plus anything stamped deleted_with = it. Cycle-safe.
+
+    A LIVE task found under it is not purged: it is made top-level instead,
+    so it stays visible rather than vanishing with a parent it no longer
+    belonged to (only older data has one - a delete bins the whole subtree
+    and a subtask cannot be restored under a binned parent)."""
+    q = db.query(Task).execution_options(include_deleted=True)
+    ids, seen, frontier = [task_id], {task_id}, [task_id]
+    while frontier:
+        kids = q.filter(Task.parent_task_id.in_(frontier)).all()
+        frontier = []
+        for k in kids:
+            if k.id in seen:
+                continue
+            seen.add(k.id)
+            if k.deleted_at:
+                ids.append(k.id)
+                frontier.append(k.id)
+            else:
+                k.parent_task_id = ""
+                k.modified_at = now_iso()
+    for k in q.filter(Task.deleted_with == task_id).all():
+        if k.id not in seen and k.deleted_at:
+            seen.add(k.id)
+            ids.append(k.id)
+    return ids
+
+
 def purge_task_permanently(db: Session, task_id: str, actor_email: str = "") -> bool:
     """Permanently remove an already-TRASHED task and everything under it - the
     full cascade delete_task ran immediately before soft delete existed:
-    subtasks, comments, attachments. Returns False if the id doesn't exist or
+    subtasks at every depth (_binned_subtree_ids), comments, attachments.
+    Returns False if the id doesn't exist or
     was never trashed (live tasks are never purged from here).
 
     Its Asana link rows (AsanaTaskLink) are deliberately LEFT: every asana_*
@@ -1076,9 +1127,7 @@ def purge_task_permanently(db: Session, task_id: str, actor_email: str = "") -> 
            .filter(Task.id == task_id).first())
     if not t or not t.deleted_at:
         return False
-    subs = (db.query(Task).execution_options(include_deleted=True)
-              .filter(Task.parent_task_id == task_id).all())
-    gone_ids = [task_id] + [s.id for s in subs]
+    gone_ids = _binned_subtree_ids(db, task_id)
     log_activity(db, type="purged", actor_email=actor_email or t.deleted_by or "",
                 entity_id=task_id, entity_code=t.code, entity_title=t.title,
                 detail="permanently deleted this task")

@@ -113,7 +113,9 @@ class TaskTemplateTests(unittest.TestCase):
         new = self._use(tpl["id"], title="Tax Return - Greens Austin", due_on="2027-04-15",
                         custom_field_values={"ent": "aus"})
         self.assertEqual((new.title, new.due_on, new.status, new.priority), ("Tax Return - Greens Austin", "2027-04-15", "recurring", "high"))
-        self.assertEqual(new.recurrence, {"freq": "yearly", "monthOfYear": 4, "dayOfMonth": 15})
+        # A series of its own (Oct 21 2026): the new task's id, never the id of
+        # the task the template was saved from.
+        self.assertEqual(new.recurrence, {"freq": "yearly", "monthOfYear": 4, "dayOfMonth": 15, "seriesId": new.id})
         self.assertEqual(new.custom_field_values, {"ent": "aus"})
         subs = (self.db.query(models.Task).filter(models.Task.parent_task_id == new.id)
                 .order_by(models.Task.position).all())

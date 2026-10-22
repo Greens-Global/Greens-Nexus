@@ -374,6 +374,26 @@ class ConfigWallTests(WallsBase):
         self.assertEqual(self.code(lambda: C.update_custom_field("loc", C.CustomFieldBody(name="Renamed"),
                                                                  user=AMGR, db=self.db)), 403)
 
+    def test_the_whole_edit_form_with_only_projects_changed_is_not_a_definition_edit(self):
+        # Manage > Fields sends every field back (ManageView FieldModal), so
+        # what is UNCHANGED is not an edit - only a real change is refused.
+        pa, pb = self.project(COA), self.project(COB)
+        self.db.add(models.TaskCustomField(id="loc", name="Location", type="select", company_id="",
+                                           options=["North", "South"], project_ids=[pb.id],
+                                           applies_to='["task"]'))
+        self.db.commit()
+        self.arm()
+        form = dict(name="Location", description="", type="select",
+                    options=[{"id": "North", "label": "North"}, {"id": "South", "label": "South"}],
+                    required=False, required_project_ids=[], applies_to=["task"])
+        out = C.update_custom_field("loc", C.CustomFieldBody(**form, project_ids=[pb.id, pa.id]),
+                                    user=AMGR, db=self.db)
+        self.assertEqual(out["projectIds"], [pb.id, pa.id])
+        self.assertEqual(out["name"], "Location")
+        renamed = {**form, "name": "Site"}
+        self.assertEqual(self.code(lambda: C.update_custom_field(
+            "loc", C.CustomFieldBody(**renamed, project_ids=[pb.id, pa.id]), user=AMGR, db=self.db)), 403)
+
     def test_walls_off_shared_rules_fire_everywhere_and_fields_bind_everyone(self):
         # Every row made before (and while the walls are off) is shared: a rule
         # fires on every task and a required field binds every task - unchanged.
