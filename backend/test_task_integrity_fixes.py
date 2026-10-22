@@ -414,6 +414,184 @@ class HierarchyTests(_Case):
         self.assertEqual({self._row(a.id).parent_task_id, self._row(b.id).parent_task_id}, {p.id})
 
 
+# ── Review fixes (Oct 21 2026) ───────────────────────────────────────────────
+class LegacyGroupingUnchangedTests(_Case):
+    """Rows from before series ids group exactly as on origin/dev: by their
+    fingerprint only. A link between two id-less rows is not followed, so an
+    edited chain is not merged and closed as Missed by surprise."""
+
+    def _chain(self, older_kw, newer_kw):
+        newer = self._add(due_on="2026-09-21", recurrence=dict(WEEKLY_MON), **newer_kw)
+        older = self._add(due_on="2026-09-14", recurrence={**WEEKLY_MON, "nextOccurrenceId": newer.id},
+                          **older_kw)
+        return older, newer
+
+    def test_a_chain_whose_title_changed_leaves_the_older_one_open(self):
+        older, newer = self._chain({"title": "Rent roll - Sep"}, {"title": "Rent roll - Oct"})
+        sub = self._add("Collect statements", parent_task_id=older.id)
+        spawn_scheduled_occurrences(self.db, TODAY)
+        o = self._row(older.id)
+        self.assertEqual((o.completed, o.status), (False, "not_started"))
+        self.assertFalse(self._row(sub.id).completed, "its open subtask is untouched too")
+        self.assertEqual(self._row(newer.id).status, "missed", "the newer one rolls as before")
+
+    def test_a_chain_whose_assignee_changed_leaves_the_older_one_open(self):
+        older, newer = self._chain({"title": "Payroll", "assignee_emails": [SAM], "assignee_email": SAM},
+                                   {"title": "Payroll", "assignee_emails": [DEAN["email"]],
+                                    "assignee_email": DEAN["email"]})
+        spawn_scheduled_occurrences(self.db, TODAY)
+        o = self._row(older.id)
+        self.assertEqual((o.completed, o.status), (False, "not_started"))
+
+    def test_a_legacy_head_and_its_first_copy_with_an_id_are_one_series(self):
+        head = self._add("Payroll", due_on="2026-09-21", recurrence=dict(WEEKLY_MON))
+        [nxt] = spawn_scheduled_occurrences(self.db, TODAY)
+        self.assertEqual(nxt.recurrence["seriesId"], head.id)
+        self.assertNotIn("seriesId", self._row(head.id).recurrence)
+        from routers.tasks import _series_groups
+        self.db.expire_all()
+        rows = self.db.query(models.Task).all()
+        self.assertEqual(len(_series_groups(rows, {r.id: r for r in rows})), 1)
+
+
+class ScheduleLockTests(_Case):
+    def test_the_schedule_skips_a_head_somebody_has_locked(self):
+        # On Postgres a row held by another transaction comes back empty under
+        # SKIP LOCKED. SQLite has no row locks, so stand that in: the head is
+        # invisible to the re-read, and the dialect reads as Postgres.
+        t = self._add("Payroll", due_on="2026-09-21", recurrence=dict(WEEKLY_MON),
+                      deleted_at="2026-09-22T00:00:00+00:00")
+        dialect = self.db.bind.dialect
+        real = dialect.name
+        dialect.name = "postgresql"
+        try:
+            self.assertIsNone(_spawn_next_occurrence(self.db, t, BOSS, skip_locked=True))
+        finally:
+            dialect.name = real
+        self.assertEqual(self.db.query(models.Task).execution_options(include_deleted=True).count(), 1)
+
+    def test_each_new_occurrence_is_its_own_commit(self):
+        for who in (SAM, DEAN["email"]):
+            self._create(due_on="2026-09-21", recurrence=dict(WEEKLY_MON), assignee_emails=[who])
+        commits = []
+        real_commit = self.db.commit
+        self.db.commit = lambda: (commits.append(1), real_commit())[1]
+        try:
+            self.assertEqual(len(spawn_scheduled_occurrences(self.db, TODAY)), 2)
+        finally:
+            self.db.commit = real_commit
+        self.assertGreaterEqual(len(commits), 2)
+
+
+class HierarchyAccessTests(_Case):
+    def setUp(self):
+        super().setUp()
+        self.mine = self._add("Mine", assignee_emails=[DEAN["email"]], assignee_email=DEAN["email"])
+
+    def test_cannot_pull_a_task_they_cannot_see_under_their_own(self):
+        p = models.TaskProject(id=gen_id(), name="HR", access_level="private", owner_email=BOSS["email"],
+                               member_emails=[], created_at=now_iso(), modified_at=now_iso())
+        self.db.add(p)
+        self.db.commit()
+        hidden = self._add("Salary review", project_id=p.id, access_level="private")
+        with self.assertRaises(HTTPException) as e:
+            self._patch(self.mine.id, user=DEAN, subtask_ids=[hidden.id])
+        self.assertEqual(e.exception.status_code, 404)
+        self.assertEqual(self._row(hidden.id).parent_task_id, "")
+
+    def test_cannot_pull_a_task_they_can_only_view(self):
+        p = models.TaskProject(id=gen_id(), name="HR", access_level="private", owner_email=BOSS["email"],
+                               member_emails=[DEAN["email"]], member_roles={DEAN["email"]: "viewer"},
+                               created_at=now_iso(), modified_at=now_iso())
+        self.db.add(p)
+        self.db.commit()
+        viewed = self._add("Policy", project_id=p.id, access_level="private")
+        with self.assertRaises(HTTPException) as e:
+            self._patch(self.mine.id, user=DEAN, subtask_ids=[viewed.id])
+        self.assertEqual(e.exception.status_code, 403)
+        with self.assertRaises(HTTPException):
+            self._patch(self.mine.id, user=DEAN, parent_task_id=viewed.id)
+        self.assertEqual(self._row(self.mine.id).parent_task_id, "")
+
+    def test_cannot_pull_another_companys_task(self):
+        import cache
+        self.db.add(models.NexusSetting(key="company_walls", value="on"))
+        self.db.add(models.NexusEmployee(id=gen_id(), first_name="Dean", last_name="D", work_email=DEAN["email"],
+                                         status="active", deleted_at="", company="co-a"))
+        self.mine.company_id = "co-a"
+        self.db.commit()
+        cache.settings_config.invalidate()
+        try:
+            theirs = self._add("Beta work", company_id="co-b")
+            with self.assertRaises(HTTPException) as e:
+                self._patch(self.mine.id, user=DEAN, subtask_ids=[theirs.id])
+            self.assertEqual(e.exception.status_code, 404)
+            self.assertEqual(self._row(theirs.id).parent_task_id, "")
+        finally:
+            self.db.rollback()
+            self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+            self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == DEAN["email"]).delete()
+            self.db.commit()
+            cache.settings_config.invalidate()
+
+    def test_their_own_tasks_still_move(self):
+        kid = self._add("Kid", assignee_emails=[DEAN["email"]], assignee_email=DEAN["email"])
+        self._patch(self.mine.id, user=DEAN, subtask_ids=[kid.id])
+        self.assertEqual(self._row(kid.id).parent_task_id, self.mine.id)
+
+
+class PurgeAndRestoreTests(_Case):
+    def test_purging_a_task_takes_its_whole_binned_subtree(self):
+        from routers.tasks import delete_task_permanent
+        top = self._add("Top")
+        mid = self._add("Mid", parent_task_id=top.id)
+        leaf = self._add("Leaf", parent_task_id=mid.id)
+        for t, kids in ((top, [mid.id]), (mid, [leaf.id])):
+            t.subtask_ids = kids
+        self.db.commit()
+        delete_task(top.id, BackgroundTasks(), user=BOSS, db=self.db)
+        delete_task_permanent(top.id, user=BOSS, db=self.db)
+        self.assertEqual(self.db.query(models.Task).execution_options(include_deleted=True).count(), 0)
+
+    def test_purging_a_project_takes_its_subtasks_at_every_depth(self):
+        from routers.task_projects import purge_from_recycle_bin
+        p = self._project()
+        top = self._add("Top", project_id=p.id)
+        mid = self._add("Mid", parent_task_id=top.id)
+        self._add("Leaf", parent_task_id=mid.id)
+        delete_project(p.id, user=BOSS, db=self.db)
+        purge_from_recycle_bin("project", p.id, user=BOSS, db=self.db)
+        self.assertEqual(self.db.query(models.Task).execution_options(include_deleted=True).count(), 0)
+
+    def test_a_live_task_under_a_purged_one_is_kept_as_top_level(self):
+        from routers.tasks import delete_task_permanent
+        top = self._add("Old parent", deleted_at=now_iso(), deleted_by=BOSS["email"])
+        live = self._add("Restored long ago", parent_task_id=top.id)
+        delete_task_permanent(top.id, user=BOSS, db=self.db)
+        row = self._row(live.id)
+        self.assertIsNotNone(row)
+        self.assertEqual(row.parent_task_id, "")
+
+    def test_a_subtask_cannot_come_back_under_a_binned_parent(self):
+        top = self._add("Top")
+        sub = self._add("Sub", parent_task_id=top.id)
+        top.subtask_ids = [sub.id]
+        self.db.commit()
+        delete_task(sub.id, BackgroundTasks(), user=BOSS, db=self.db)
+        delete_task(top.id, BackgroundTasks(), user=BOSS, db=self.db)
+        with self.assertRaises(HTTPException) as e:
+            restore_task(sub.id, user=BOSS, db=self.db)
+        self.assertEqual(e.exception.status_code, 409)
+        self.assertEqual(e.exception.detail, "Restore its parent task first - it is in the Recycle Bin.")
+        with self.assertRaises(HTTPException):
+            restore_from_recycle_bin("task", sub.id, user=BOSS, db=self.db)
+        self.assertTrue(self._row(sub.id).deleted_at)
+        restore_task(top.id, user=BOSS, db=self.db)
+        restore_task(sub.id, user=BOSS, db=self.db)          # parent back: now it may
+        self.assertEqual(self._row(sub.id).deleted_at, "")
+        self.assertIn(sub.id, self._row(top.id).subtask_ids)
+
+
 # ── 6. Delta drops what the caller can no longer see ─────────────────────────
 class DeltaTests(_Case):
     def test_a_task_made_invisible_comes_back_as_deleted(self):

@@ -2597,8 +2597,11 @@ def purge_from_recycle_bin(kind: str, item_id: str, user: dict = Depends(get_cur
         # then the membership pointers. Its archived Asana map row, if any, is
         # left alone (asana_legacy.py).
         from routers.task_util import purge_task_permanently
+        # deleted_with too: the project's subtasks (blank project_id) went to
+        # the bin with it (Oct 21 2026). purge_task_permanently takes each
+        # task's binned subtree; one already purged with its parent is a no-op.
         for t in (db.query(models.Task).execution_options(include_deleted=True)
-                  .filter(models.Task.project_id == item_id).all()):
+                  .filter((models.Task.project_id == item_id) | (models.Task.deleted_with == item_id)).all()):
             purge_task_permanently(db, t.id, actor_email=user["email"])
         for team in db.query(models.TaskTeam).execution_options(include_deleted=True).all():
             ids = team_project_ids(team)
