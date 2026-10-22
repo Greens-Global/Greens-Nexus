@@ -151,8 +151,15 @@ const TABS = [
     { key: 'investments', label: 'Investments', Icon: PieChart },
   ] },
   // Oct 2 (Charmi and Neil, 10/01 call): vendor and customer records with
-  // changes sent for approval. Oct 22 (Neil): "Vendors & Customers" is Records.
-  { key: 'partners', label: 'Records', Icon: Users },
+  // changes sent for approval. Oct 22 (Neil): "Vendors & Customers" is
+  // Records, a menu - Vendors and Customers open that screen on their list
+  // (`partners` stays the Vendors key, so older links land). General Ledger
+  // Accounts, Entities and Journals (item 12) wait on open questions: no
+  // screen lists the chart of accounts or the entities yet.
+  { key: 'records', label: 'Records', Icon: Users, items: [
+    { key: 'partners', label: 'Vendors', Icon: Users },
+    { key: 'customers', label: 'Customers', Icon: Users },
+  ] },
   // Oct 6 (Neil: "create a Tools section in accounting"): the utility screens.
   { key: 'tools', label: 'Tools', Icon: Wrench, items: [
     { key: 'data', label: 'Data', Icon: Database },
@@ -162,7 +169,7 @@ const TABS = [
   ] },
 ];
 // Every `rpt-` key (a statement or a quick view) is Reports, open to a limited person too.
-const LIMITED_TABS = ['reports', 'report-builder', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'imports', 'ama', 'mgmt-fees', 'profitability'];
+const LIMITED_TABS = ['reports', 'report-builder', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'customers', 'imports', 'ama', 'mgmt-fees', 'profitability'];
 // Links made before a rename still land; a group's own key opens its first item.
 const ALIAS = { leasing: 'mri', financing: 'loans' };
 const leafKeys = (items) => items.flatMap((t) => (t.items ? leafKeys(t.items) : [t.key]));
@@ -301,7 +308,10 @@ export default function Accounting({ activeSub, onSubChange }) {
     'mgmt-fees': 'Asset management agreements - the fee per managed entity, billed against expected',
     profitability: 'Revenue, NOI, net income and cash flow after debt service per entity, against the prior year',
     compensation: 'Hours and gross wages per employee from Time Clock, with payroll expense on the ledger',
-  }[isReports(sub) ? 'reports' : sub];
+  }[isReports(sub) ? 'reports' : sub === 'customers' ? 'partners' : sub];
+  const partnersTab = (sub === 'partners' || sub === 'customers') && (
+    <PartnersTab canApprove={canApprovePartners} initialKind={sub === 'customers' ? 'customer' : 'vendor'} />
+  );
   // Every tab has the same one-line header (10/02): the statement still
   // starts high on the page (Neil, Sep 25; Charmi, 10/02) and nothing moves
   // when switching tabs.
@@ -356,7 +366,7 @@ export default function Accounting({ activeSub, onSubChange }) {
           {sub === 'loans' && <LoansTab canEdit={canEdit} />}
           {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
           {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
-          {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
+          {partnersTab}
           {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'imports' && <ImportHub />}
           {sub === 'ama' && <AskAccountantTab canEdit={canEdit} limited />}
@@ -382,7 +392,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'investments' && canEdit && <DataTab key="investments" only={['holdings']} />}
               {sub === 'access' && canManage && <AccessTab />}
               {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
-              {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
+              {partnersTab}
               {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
               {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'imports' && <ImportHub />}

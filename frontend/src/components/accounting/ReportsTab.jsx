@@ -21,7 +21,7 @@ import {
 import {
   EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
   reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
-  viewConfig,
+  viewConfig, periodOf,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -82,6 +82,8 @@ import {
 const storable = (c) => ({
   report: c.report, preset: c.preset, ...(c.preset === 'custom' ? { from: c.from, to: c.to } : {}),
   ...(c.asofToday === false ? { asof: c.asof, asofToday: false } : {}),
+  // A trial balance says which it is: one saved without it is a range (before 10/22).
+  ...(c.report === 'trial-balance' ? { tbPeriod: c.tbPeriod } : {}),
   book: c.book, cols: c.cols, entities: c.entities, dims: c.dims,
   ...(c.accounts?.length ? { accounts: c.accounts } : {}), ...(c.showZero ? { showZero: true } : {}),
   ...(c.report === 'flux' ? { fluxPct: c.fluxPct, fluxAmount: c.fluxAmount, ...(c.fluxStatus && c.fluxStatus !== 'all' ? { fluxStatus: c.fluxStatus } : {}), ...(fluxAmountOn(c.fluxFilter) ? { fluxFilter: c.fluxFilter } : {}) } : {}),
@@ -549,7 +551,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         )}
 
         {showControls && (<div id="acct-report-controls" style={{ display: 'contents' }}>
-        <PeriodStepper config={config} period={def.period} onChange={patch} />
+        <PeriodStepper config={config} period={periodOf(config)} onChange={patch} />
 
         {showColumns && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
@@ -595,7 +597,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <SavedReportsMenu reports={saved} loading={savedState.loading} error={savedState.error} activeId={activeSaved?.id}
             onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} onManage={() => setManaging(true)} nameOf={nameOf} />
-          <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${def.period === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
+          <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${periodOf(config) === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
           <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} showZero={config.showZero} onShowZero={(v) => patch({ showZero: v })}
             showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })}
             showHistoricalAccounts={!!prefs.showHistoricalAccounts} onShowHistoricalAccounts={(v) => setPrefs({ showHistoricalAccounts: v })}

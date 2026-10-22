@@ -37,7 +37,7 @@ vi.mock('../components/accounting/MriTab', () => stub('mri'));
 vi.mock('../components/accounting/MreTab', () => stub('mre'));
 vi.mock('../components/accounting/LoansTab', () => stub('loans'));
 vi.mock('../components/accounting/BudgetTab', () => stub('budget'));
-vi.mock('../components/accounting/PartnersTab', () => stub('partners'));
+vi.mock('../components/accounting/PartnersTab', () => ({ default: ({ initialKind }) => <div data-testid="tab-partners" data-kind={initialKind || ''} /> }));
 vi.mock('../components/accounting/AllocationsTab', () => stub('allocations'));
 vi.mock('../components/accounting/AskAccountantTab', () => ({ default: ({ limited }) => <div data-testid="tab-ama" data-limited={limited ? 'yes' : 'no'} /> }));
 vi.mock('../components/accounting/ManagementFeesTab', () => stub('mgmt-fees'));
@@ -77,9 +77,38 @@ describe('Accounting navigation', () => {
     await screen.findByTestId('tab-overview');
     const bar = [...document.querySelectorAll('.module-tabs-inline > button')].map((b) => b.textContent.trim());
     expect(bar).toEqual(['Dashboard', 'Reports', 'Financing', 'Records', 'Tools']);
-    for (const name of [/^Dashboard/, /^Reports/, /^Financing/, /^Tools/]) expect(screen.getByRole('button', { name }).getAttribute('aria-haspopup')).toBe('menu');
-    expect(screen.getByRole('button', { name: 'Records' }).getAttribute('aria-haspopup')).toBeNull();
+    for (const name of [/^Dashboard/, /^Reports/, /^Financing/, /^Records/, /^Tools/]) expect(screen.getByRole('button', { name }).getAttribute('aria-haspopup')).toBe('menu');
     expect(screen.queryByRole('button', { name: /^Budget/ })).toBeNull();
+  });
+
+  it('makes Records a menu of Vendors and Customers, each opening its list (Oct 22, item 12)', async () => {
+    render(<Harness start="overview" />);
+    fireEvent.click(await screen.findByRole('button', { name: /^Records/ }));
+    expect(menuLabels('Records')).toEqual(['Vendors', 'Customers']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Customers' }));
+    expect(screen.getByTestId('sub').textContent).toBe('customers');
+    expect((await screen.findByTestId('tab-partners')).getAttribute('data-kind')).toBe('customer');
+    expect(screen.getByText(/Vendor and customer records/)).toBeTruthy();
+    await choose(/^Records/, 'Vendors');
+    expect(screen.getByTestId('sub').textContent).toBe('partners');
+    await waitFor(() => expect(screen.getByTestId('tab-partners').getAttribute('data-kind')).toBe('vendor'));
+  });
+
+  it('lands the old partners link and the Records group key on Vendors', async () => {
+    const { unmount } = render(<Harness start="partners" />);
+    expect((await screen.findByTestId('tab-partners')).getAttribute('data-kind')).toBe('vendor');
+    expect(screen.getByTestId('sub').textContent).toBe('partners');
+    unmount();
+    render(<Harness start="records" />);
+    await waitFor(() => expect(screen.getByTestId('sub').textContent).toBe('partners'));
+  });
+
+  it('gives a limited person Vendors and Customers, as before', async () => {
+    role.limited = true;
+    render(<Harness start="customers" />);
+    expect((await screen.findByTestId('tab-partners')).getAttribute('data-kind')).toBe('customer');
+    fireEvent.click(screen.getByRole('button', { name: /^Records/ }));
+    expect(menuLabels('Records')).toEqual(['Vendors', 'Customers']);
   });
 
   it('never names the picked page in the bar', async () => {

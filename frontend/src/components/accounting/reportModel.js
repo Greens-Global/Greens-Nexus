@@ -17,7 +17,10 @@ import { formatDate } from '../../lib/datetime';
 export const REPORTS = [
   { key: 'pnl', label: 'Income Statement', period: 'range' },
   { key: 'balance-sheet', label: 'Balance Sheet', period: 'asof' },
-  { key: 'trial-balance', label: 'Trial Balance', period: 'range' },
+  // Oct 22 (Neil's spec, item 06): a trial balance is as of a date. One
+  // memorized before then kept a from / to range and still opens on it
+  // (`tbPeriod: 'range'`, see periodOf).
+  { key: 'trial-balance', label: 'Trial Balance', period: 'asof' },
   { key: 'general-ledger', label: 'General Ledger', period: 'range' },
   { key: 'cash-position', label: 'Cash Position', period: 'asof' },
   // Flux Analysis (Neil, 10/02 - the first cut of MRE, pending the talk with
@@ -43,6 +46,8 @@ export const FLUX_DEFAULTS = { fluxPct: 10, fluxAmount: 5000 };
 export const GL_MAX_ACCOUNTS = 25;
 const GL_MAX_LINES = 1000;
 export const reportDef = (key) => REPORTS.find((r) => r.key === key) || REPORTS[0];
+/** 'asof' or 'range': how this config's period is set. A trial balance can be either (tbPeriod). */
+export const periodOf = (config) => (config?.report === 'trial-balance' && config.tbPeriod === 'range' ? 'range' : reportDef(config?.report).period);
 
 // The named periods, as the accounting app lists them. "This Month" is the
 // whole month; "Month-to-Date" stops today.
@@ -306,7 +311,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 export function defaultConfig(now = new Date()) {
   const [f, t] = presetRange('ytd', now).map(iso);
-  return { report: 'pnl', preset: 'ytd', from: f, to: t, asof: iso(now), asofToday: true, book: 'accrual', cols: 'total', entities: [], dims: { ...EMPTY_DIMS }, accounts: [], showZero: false, ...FLUX_DEFAULTS, fluxStatus: 'all' };
+  return { report: 'pnl', preset: 'ytd', from: f, to: t, asof: iso(now), asofToday: true, tbPeriod: 'asof', book: 'accrual', cols: 'total', entities: [], dims: { ...EMPTY_DIMS }, accounts: [], showZero: false, ...FLUX_DEFAULTS, fluxStatus: 'all' };
 }
 
 // A config as it should run TODAY: a named period ("Year-to-Date") moves with
@@ -324,6 +329,11 @@ export function resolveConfig(config, now = new Date()) {
   }
   if (c.from > c.to) c.to = c.from;
   if (c.asofToday !== false || !ISO.test(c.asof || '')) { c.asof = iso(now); c.asofToday = c.asofToday !== false; }
+  // A trial balance memorized before 10/22 has no tbPeriod: it was a range
+  // and opens as one. Every config made since carries it (defaultConfig), and
+  // any other report resets it, so picking Trial Balance again is as of a date.
+  const legacyTb = c.report === 'trial-balance' && !(config && 'tbPeriod' in config);
+  c.tbPeriod = c.report === 'trial-balance' && (legacyTb || c.tbPeriod === 'range') ? 'range' : 'asof';
   c.book = BOOKS.some((b) => b.key === c.book) || userBooks.some((b) => b.key === c.book) ? c.book : 'accrual';
   // Two books side by side are one read per book; a report that cannot lay
   // them out reads Accrual rather than say "Accrual and Cash" over one book
@@ -376,8 +386,7 @@ export const canUseDims = (config) => config.report !== 'cash-position' && confi
 export const canPickAccounts = (config) => ['pnl', 'balance-sheet', 'general-ledger', 'flux', 'budget'].includes(config.report);
 
 export const periodText = (config) => {
-  const def = reportDef(config.report);
-  if (def.period === 'asof') return `As of ${formatDate(config.asof)}`;
+  if (periodOf(config) === 'asof') return `As of ${formatDate(config.asof)}`;
   return `${presetLabel(config.preset)} · ${formatDate(config.from)} - ${formatDate(config.to)}`;
 };
 
@@ -870,7 +879,7 @@ function layout(config, read) {
  *   statement could show, for the Accounts picker.
  */
 export async function runReport(api, config, entities = []) {
-  const def = reportDef(config.report);
+  const def = { ...reportDef(config.report), period: periodOf(config) };
   const both = canBothBooks(config) && config.book === 'both';
   const book = both || config.book === 'both' ? 'accrual' : config.book;
   const base = { config, def, org: '', generatedAt: '', mode: 'single', otherLabel: '', summary: [], pickable: [] };
@@ -883,6 +892,9 @@ export async function runReport(api, config, entities = []) {
     return { ...base, org: a.org || '', generatedAt: a.generated_at || '', columns: [{ key: 'balance', label: 'Balance', type: 'amount', drill: drillCur }, { key: 'last', label: 'Last Activity', type: 'date' }], rows, ...(a.note ? { notes: [a.note] } : {}) };
   }
 
+  if (config.report === 'trial-balance' && def.period === 'asof') return { ...base, ...(await trialBalanceAsOf(api, config, book, both, drillCur)) };
+  // A trial balance memorized as a range (before 10/22): opening, the
+  // period's debits and credits, closing - as it always showed.
   if (config.report === 'trial-balance') {
     const range = { from: config.from, to: config.to };
     const [a, b] = await Promise.all([fetchStatement(api, config, range, book), both ? fetchStatement(api, config, range, 'cash') : Promise.resolve(null)]);
@@ -918,6 +930,83 @@ export async function runReport(api, config, entities = []) {
 
   const read = await readColumns(api, config, entities);
   return { ...base, org: read.cols[0]?.org || '', generatedAt: read.cols[0]?.generatedAt || '', mode: read.mode, otherLabel: read.otherLabel || '', ...layout(config, read), ...(read.budgetNote ? { notes: [read.budgetNote] } : {}) };
+}
+
+// ── The Trial Balance as of a date ───────────────────────────────────────────
+// Oct 22 (Neil's spec, item 06: "accounts x debit/credit/balance as of a
+// date, using the same entity/book filters as Balance Sheet"). Read the way
+// the balance sheet is: per-account sums through the date, and through the
+// day before the year began (the year is the calendar year, as on the balance
+// sheet). A balance sheet account is everything through the date; an income
+// or expense account is this year only, and the years before sit on Retained
+// Earnings (a line of their own when the chart has no such account) - so the
+// balances add up to zero and the Debit and Credit totals agree. Each balance
+// is shown on its side (Debit or Credit) and as one figure, debits positive.
+/**
+ * [{ code, title, pl, balance, inactive? }] as of a date from two bucket reads
+ * (`through` = through the date, `before` = through the day before its year began).
+ */
+export function trialBalanceLines(through, before, asof) {
+  const lines = new Map();
+  const add = (r, sign) => {
+    const code = r.account_no || '';
+    const cur = lines.get(code || `~${r.title}`) || { code, title: r.title, pl: PL_KEYS.includes(r.section), balance: 0 };
+    cur.balance += sign * ((Number(r.debit) || 0) - (Number(r.credit) || 0));
+    if (r.active === false) cur.inactive = true;
+    lines.set(code || `~${r.title}`, cur);
+  };
+  (through || []).forEach((r) => add(r, 1));
+  let prior = 0;
+  (before || []).forEach((r) => {
+    if (!PL_KEYS.includes(r.section)) return;
+    prior += (Number(r.debit) || 0) - (Number(r.credit) || 0);
+    add(r, -1);
+  });
+  const list = [...lines.values()].map((l) => ({ ...l, balance: round2(l.balance) }))
+    .sort((x, y) => x.code.localeCompare(y.code, 'en-US', { numeric: true }));
+  const was = round2(prior);
+  const retained = (through || []).find((r) => r.section === 'equity' && /retained\s+earnings/i.test(r.title));
+  const at = retained ? list.find((l) => l.code === (retained.account_no || '')) : null;
+  if (at) at.balance = round2(at.balance + was);
+  else if (was) list.push({ code: '', title: 'Retained earnings (prior years)', pl: false, balance: was });
+  return list;
+}
+
+async function trialBalanceAsOf(api, config, book, both, drillCur) {
+  const { asof } = config;
+  const fyStart = `${asof.slice(0, 4)}-01-01`;
+  const read = (b) => Promise.all([
+    fetchBuckets(api, config, { from: undefined, to: asof }, 'total', b),
+    fetchBuckets(api, config, { from: undefined, to: dayBefore(fyStart) }, 'total', b),
+  ]);
+  const [[a, aBefore], cash] = await Promise.all([read(book), both ? read('cash') : Promise.resolve(null)]);
+  const main = trialBalanceLines(a.rows, aBefore.rows, asof);
+  const cashLines = cash ? trialBalanceLines(cash[0].rows, cash[1].rows, asof) : [];
+  const keyOfLine = (l) => l.code || `~${l.title}`;
+  const cashBy = new Map(cashLines.map((l) => [keyOfLine(l), l]));
+  const mainBy = new Map(main.map((l) => [keyOfLine(l), l]));
+  const order = [...main, ...cashLines.filter((l) => !mainBy.has(keyOfLine(l)))];
+  const closing = { ...drillCur, from: '', to: asof };
+  const columns = [
+    { key: 'debit', label: 'Debit', type: 'amount', drill: closing },
+    { key: 'credit', label: 'Credit', type: 'amount', drill: closing },
+    { key: 'balance', label: both ? 'Balance (Accrual)' : 'Balance', type: 'amount', drill: closing },
+    ...(both ? [{ key: 'cash-balance', label: 'Balance (Cash)', type: 'amount', drill: { ...closing, book: 'cash' } }] : []),
+  ];
+  let rows = order.map((l) => {
+    const m = mainBy.get(keyOfLine(l));
+    const bal = m?.balance || 0;
+    const values = [bal > 0 ? bal : 0, bal < 0 ? round2(-bal) : 0, bal, ...(both ? [cashBy.get(keyOfLine(l))?.balance || 0] : [])];
+    // An income or expense account opens this year's lines; a line made up
+    // here (the earnings of the years before) opens nothing.
+    const extra = !l.code ? { noDrill: true } : l.pl ? { drills: columns.map((c) => ({ ...c.drill, from: fyStart })) } : {};
+    return { kind: 'account', code: l.code, title: l.title, values, ...extra, ...(l.inactive || cashBy.get(keyOfLine(l))?.inactive ? { inactive: true } : {}) };
+  });
+  if (!config.showZero) rows = rows.filter((r) => r.values.some((v) => Math.abs(v) >= 0.005));
+  const total = (i) => round2(rows.reduce((s, r) => s + (r.values[i] || 0), 0));
+  rows.push({ kind: 'grand', label: 'Total', values: columns.map((_c, i) => total(i)) });
+  const activeKnown = [...(a.rows || []), ...(cash?.[0]?.rows || [])].some((r) => 'active' in r);
+  return { org: a.org || '', generatedAt: a.generated_at || '', mode: both ? 'books' : 'single', columns, rows, activeKnown };
 }
 
 // ── The General Ledger ───────────────────────────────────────────────────────
@@ -1692,7 +1781,7 @@ export function csvRows(result, entities = []) {
 
 export function csvFileName(result) {
   const { config, def } = result;
-  const stamp = def.period === 'asof' ? config.asof : `${config.from}_${config.to}`;
+  const stamp = periodOf(config) === 'asof' ? config.asof : `${config.from}_${config.to}`;
   const who = config.entities.length === 1 ? config.entities[0] : config.entities.length ? 'entities' : 'all-entities';
   const cols = activeColumns(config) === 'total' ? '' : `_${activeColumns(config)}`;
   return `${def.label.replace(/[^A-Za-z]+/g, '-')}_${who}_${config.book}${cols}_${stamp}.csv`;
@@ -1707,7 +1796,7 @@ export function csvFileName(result) {
 export function reportFileName(result, entities = [], format = 'pdf') {
   const { config, def } = result;
   const d = (s) => formatDate(s).replace(/\//g, '-');
-  const when = def.period === 'asof' ? `as of ${d(config.asof)}` : `${d(config.from)} to ${d(config.to)}`;
+  const when = periodOf(config) === 'asof' ? `as of ${d(config.asof)}` : `${d(config.from)} to ${d(config.to)}`;
   const safe = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
   const ext = format === 'excel' ? 'xlsx' : format === 'csv' ? 'csv' : 'pdf';
   // A book other than Accrual is in the name, so two books never overwrite each other (10/15).
