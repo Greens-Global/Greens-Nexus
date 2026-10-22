@@ -14,7 +14,7 @@
 // folder My HR > My Documents already shows them.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock, AlertTriangle, Plus, Trash2 } from 'lucide-react';
+import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock, AlertTriangle, Plus, Trash2, Copy } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
@@ -25,7 +25,7 @@ import PersonSearchSelect from './PersonSearchSelect';
 import { SignModal } from './ESign';
 import DetailsFormFields from './DetailsFormFields';
 import { PacketEditor, describeRoles } from './PacketTemplates';
-import { DocumentsPacketEditor } from './DocumentsPacketEditor';
+import { DocumentsPacketEditor, packetCopy } from './DocumentsPacketEditor';
 import { readinessSummary } from '../lib/packetFlow';
 import PacketReview from './PacketReview';
 
@@ -147,7 +147,7 @@ const IconBtn = ({ title, onClick, disabled, danger, children }) => (
   </button>
 );
 
-function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
+function PacketRow({ row, onEdit, onDuplicate, onRemoved, toastErr, companyName }) {
   const [busy, setBusy] = useState(false);
   const [mail, setMail] = useState(null);
   const docs = [...(row.documents || []), ...(row.hasLetter ? ['Typed letter'] : [])];
@@ -188,6 +188,7 @@ function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
           <span style={{ display: 'inline-flex', gap: 6 }}>
             <IconBtn title="Preview Email" onClick={() => setMail({ event: row.event, entityId: row.entityId, templateId: row.templateId, note: row.emailMessage })}><Send size={13} /></IconBtn>
             <IconBtn title="Edit" onClick={onEdit}><FileSignature size={13} /></IconBtn>
+            {row.engine === 'documents' && <IconBtn title="Duplicate" onClick={onDuplicate}><Copy size={13} /></IconBtn>}
             <IconBtn title="Remove" onClick={remove} disabled={busy} danger><Trash2 size={13} /></IconBtn>
           </span>
         </td>
@@ -308,6 +309,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
                 <tbody>
                   {rows.map(r => (
                     <PacketRow key={r.id} row={r} toastErr={toastErr} onEdit={() => setEditing({ event: ev, row: r })}
+                      onDuplicate={() => setEditing({ event: ev, row: null, seed: packetCopy(r), companyId: r.entityId || '' })}
                       companyName={all ? entityName(r.entityId) : undefined}
                       onRemoved={() => { load(); toastOk('Packet removed.'); }} />
                   ))}
@@ -325,7 +327,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
       </div>
       {editing && (editing.row ? editing.row.engine === 'documents' : true) && (
         <DocumentsPacketEditor packet={editing.row || editing.seed || null} event={editing.event.key} eventLabel={editing.event.label}
-          catalog={data}
+          catalog={data} companies={entities}
           companyId={editing.row ? (editing.row.entityId || '') : (editing.companyId ?? companyId)}
           companyName={editing.row ? (entityName(editing.row.entityId) || 'Every company') : (editing.companyId ? (entityName(editing.companyId) || 'This company') : company)}
           defaultSubfolder={editing.event.defaultSubfolder} toastErr={toastErr}
