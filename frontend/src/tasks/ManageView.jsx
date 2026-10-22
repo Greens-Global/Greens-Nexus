@@ -24,6 +24,7 @@ import {
 } from './automationRules';
 import { taskStats, topLevel, fmtDateTime, teamProjectIds, todayISO } from './lib';
 import TasksWorkspace from './TasksWorkspace';
+import { groupFieldChanges } from './fieldHistory';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
 
@@ -1380,7 +1381,7 @@ const ACTIVITY_ICON = {
   created: Plus, updated: Pencil, completed: CheckCircle2, deleted: Trash2,
   restored: RotateCcw, purged: Trash2,
   status_changed: ArrowRightLeft, priority_changed: Flag, assignee_changed: User,
-  due: Calendar, commented: MessageSquare, automation: Zap,
+  due: Calendar, commented: MessageSquare, automation: Zap, field_changed: Pencil,
 };
 
 function ActivityTab({ store }) {
@@ -1394,7 +1395,8 @@ function ActivityTab({ store }) {
     return () => { alive = false; };
   }, []);
 
-  const sorted = useMemo(() => [...(rows || [])].sort((a, b) => String(b.at).localeCompare(String(a.at))), [rows]);
+  // A save's per-field history rows (Oct 22 2026) read as one line here.
+  const sorted = useMemo(() => groupFieldChanges([...(rows || [])].sort((a, b) => String(b.at).localeCompare(String(a.at))), store.customFields || []), [rows, store.customFields]);
 
   return (
     <div>

@@ -29,6 +29,7 @@ from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible
                                teams_editable, tenant_company_for_new)
 from routers.hr import _ensure_departments
 from routers.task_config import coerce_custom_field_values
+import task_history
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets")),
@@ -754,6 +755,9 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
     tasks = [t for t in db.query(models.Task).all() if email in task_assignees(t)]
     if not include_completed:
         tasks = [t for t in tasks if not t.completed]
+    # Field history (Oct 22 2026): each task records its new assignee and
+    # project under whoever ran the offboarding.
+    hist_before = {t.id: task_history.snapshot(t) for t in tasks}
 
     # Homeless top-level tasks are the only ones that need a new home. A subtask
     # (parent_task_id set) is never homeless - its parent holds its project.
@@ -843,6 +847,8 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
         p.modified_at = now
         out["projectsTransferred"] += 1
 
+    for t in tasks:
+        task_history.record(db, t, hist_before[t.id], actor or "system")
     return out
 
 

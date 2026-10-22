@@ -44,6 +44,9 @@ import { RecurrenceMenu, RecurrenceEnds, repeatOption, repeatSummary } from './R
 // importable from here.
 export { CommitNumberInput } from './RecurrenceMenu';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
+import { FieldHistoryButton, HistoryChange } from './FieldHistoryPopover';
+import { FieldHistoryContext, useHistoryCtx } from './fieldHistoryContext';
+import { groupFieldChanges, historyFieldName } from './fieldHistory';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const VIEW_ONLY_TITLE = 'You can view this task but not change it';
@@ -64,6 +67,8 @@ function FieldsLock({ readOnly, children, style }) {
   // still delivers its click). Stopped here, in the capture phase, before
   // the span's own handler runs.
   const block = (e) => {
+    // Field history is reading, not editing - viewers open it too.
+    if (e.target.closest?.('[data-history-trigger]')) return;
     if (!e.target.closest?.('[role="button"]')) return;
     if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
     e.preventDefault(); e.stopPropagation();
@@ -98,10 +103,15 @@ function Section({ title, children, defaultOpen = true }) {
     </div>
   );
 }
-function Row({ label, children }) {
+// `history`: the field key(s) whose changes the clock beside the label lists
+// (FieldHistoryPopover.jsx); `historyLabel` names it there when `label` is not text.
+function Row({ label, children, history, historyLabel }) {
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minHeight: 32 }}>
-      <span style={{ width: 96, flexShrink: 0, color: NX.faint, fontSize: 13, paddingTop: 5 }}>{label}</span>
+    <div className={history ? 'nx-hist-row' : undefined} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minHeight: 32 }}>
+      <span style={{ width: 96, flexShrink: 0, color: NX.faint, fontSize: 13, paddingTop: 5, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+        <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{label}</span>
+        {history && <span style={{ marginTop: -1 }}><FieldHistoryButton field={history} label={historyLabel || label} /></span>}
+      </span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>{children}</div>
     </div>
   );
@@ -216,6 +226,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
 
   const task = taskById[activeId];
   const parent = task?.parentTaskId ? taskById[task.parentTaskId] : null;
+  // Field history (Oct 22 2026): which task the field rows' clocks read.
+  const historyScope = useMemo(() => ({ taskId: activeId, nameOf }), [activeId, nameOf]);
   // What this person may do on THIS task (Oct 21 2026), the server's rule:
   // viewer = read only; commenter = comment, attach, log time; editor and
   // up = everything. Unknown (project not loaded) keeps every control, as
@@ -499,13 +511,17 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           </div>
         </div>
 
+        <FieldHistoryContext.Provider value={historyScope}>
         {/* title + tabs */}
         <div style={{ padding: '14px 18px 0', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+          <div className="nx-hist-row" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
             {parent && (
               <button onClick={() => goBack()} title={`Back to ${parent.title}`} aria-label="Back to main task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><ArrowLeft size={18} /></button>
             )}
             <TitleInput key={activeId} value={task.title} completed={task.completed} readOnly={!canEdit} onCommit={(v) => v.trim() && v !== task.title && patch({ title: v.trim() })} />
+            <span style={{ display: 'inline-flex', flexShrink: 0 }}>
+              <FieldHistoryButton field="title" label="Title" />
+            </span>
           </div>
           {!canEdit && (
             <div data-testid="view-only-note" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '-4px 0 12px', fontSize: 12.5, color: NX.dim }}>
@@ -575,6 +591,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
             </>
           ) : paneFor(tab)}
         </div>
+        </FieldHistoryContext.Provider>
         {savingTemplate && <SaveTemplateModal task={task} subtasks={subtasks} onClose={() => setSavingTemplate(false)} />}
         {duplicating && <DuplicateTaskModal task={task} subtasks={subtasks} onClose={() => setDuplicating(false)} onDuplicate={duplicate} />}
         {shareOpen && <ShareModal task={task} people={people} nameOf={nameOf} patch={patch} onClose={() => setShareOpen(false)} />}
@@ -1166,7 +1183,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       )}
       {/* Same column and gap as the tab body, so locking moves nothing. */}
       <FieldsLock readOnly={readOnly} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <Row label="Assignee">
+      <Row label="Assignee" history="assigneeIds" historyLabel="Assignees">
         <div style={{ minWidth: FIELD_W }}>
           {/* Several people can hold one task; any of them completing it
               completes it for all (one row, one flag). */}
@@ -1211,7 +1228,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {/* Project and Also In are one field now (Neil, Oct 14 2026), moved up
           under the people. A subtask lives in its main task's project. */}
       {!task.parentTaskId && (
-        <Row label="Projects">
+        <Row label="Projects" history="projectId,projectIds">
           <ProjectsField task={task} projects={projects} teams={teams} myEmail={myEmail} projectName={projectName} patch={patch} />
         </Row>
       )}
@@ -1220,7 +1237,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
           Due Date | Recurrence, Start Date | Status, Priority | Team, then
           Section and the custom fields in pairs. One column on a phone. */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))', columnGap: 20, rowGap: 8, alignItems: 'start' }}>
-      <Row label="Due Date">
+      <Row label="Due Date" history="dueOn">
         <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} compact noPast
           repeat={repeatOption({ value: task.recurrence, seedDate: task.dueOn, onChange: setRecurrence, ...repeatCtx })}
           style={task.dueOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
@@ -1240,20 +1257,20 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {!readOnly && <div style={{ gridColumn: '1 / -1' }}><DueNegotiation task={task} /></div>}
 
       {/* Empty is normal - it fills itself when the task leaves Not Started. */}
-      <Row label="Start Date">
+      <Row label="Start Date" history="startOn">
         <DateField value={task.startOn || ''} onChange={(v) => patch({ startOn: v || '' })} compact
           style={task.startOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
       </Row>
 
       {/* Status and Priority are dropdowns, not chips (Neil, Oct 14 2026: a
           chip did not say it could be changed). */}
-      <Row label="Status">
+      <Row label="Status" history="status">
         <MenuSelect ariaLabel="Status" label={sm.label || task.status} color={sm.color} current={task.status}
           options={taskStatusOrder.map((x) => ({ key: x, label: statusMeta[x]?.label || x, color: statusMeta[x]?.color }))}
           onPick={(x) => patch({ status: x })} />
       </Row>
 
-      <Row label="Priority">
+      <Row label="Priority" history="priority">
         <MenuSelect ariaLabel="Priority" label={pm.label || task.priority} color={pm.color} current={task.priority}
           options={PRIORITY_ORDER.map((x) => ({ key: x, label: PRIORITY_META[x].label, color: PRIORITY_META[x].color }))}
           onPick={(x) => patch({ priority: x })} />
@@ -1772,23 +1789,62 @@ function AssignToggle({ value, onChange, people, nameOf }) {
   );
 }
 // ── Activity ────────────────────────────────────────────────────────────────
-function ActivityTab({ taskId, nameOf }) {
+// All Activity: one line per event, a save's field edits folded into one
+// ("changed Priority and Start Date") so editing a task does not flood it.
+// Field Changes: every recorded change on its own, with From -> To
+// (Oct 22 2026, task_history.py).
+const ACTIVITY_FILTERS = [['all', 'All Activity'], ['fields', 'Field Changes']];
+export function ActivityTab({ taskId, nameOf }) {
   const [rows, setRows] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const { customFields = [] } = useTasks();
+  const ctx = useHistoryCtx(nameOf);
   useEffect(() => { api.getTaskActivity(taskId).then(setRows).catch(() => setRows([])); }, [taskId]);
+  const shown = useMemo(() => {
+    const list = rows || [];
+    return (filter === 'fields' ? list.filter((a) => a.change) : groupFieldChanges(list, customFields)).slice().reverse();
+  }, [rows, filter, customFields]);
   if (rows === null) return <LoadingState />;
   if (!rows.length) return <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No activity yet.</div>;
   return (
-    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {rows.slice().reverse().map((a) => (
-        <div key={a.id} style={{ display: 'flex', gap: 10, fontSize: 12 }}>
-          <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
-          <div>
-            <span style={{ fontWeight: 600, color: NX.ink }}>{(nameOf(a.actorId) || '').split(' ')[0]}</span>{' '}
-            <span style={{ color: NX.dim }}>{a.detail}</span>
-            <div style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(a.at)}</div>
-          </div>
-        </div>
-      ))}
+    <div style={{ marginTop: 14 }}>
+      <div role="tablist" aria-label="Activity Filter" className="scroll-tabs" style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        {ACTIVITY_FILTERS.map(([key, label]) => {
+          const on = filter === key;
+          return (
+            <button key={key} type="button" role="tab" aria-selected={on} onClick={() => setFilter(key)}
+              style={{ ...btn(on ? 'outline' : 'ghost'), padding: '5px 10px', fontSize: 12, color: on ? NX.ink : NX.dim, whiteSpace: 'nowrap' }}>
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {shown.length === 0 && (
+        <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No field changes recorded yet.</div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {shown.map((a) => {
+          // The one change a line stands for, shown From -> To under it: every
+          // line under Field Changes; under All Activity a status move or a
+          // save that touched a single field (a fold of several stays one line).
+          const one = filter === 'fields' ? a.change
+            : a.type === 'field_changed' ? (a.changes?.length === 1 ? a.changes[0] : null)
+              : a.type === 'status_changed' ? a.change : null;
+          const text = filter === 'fields' ? `changed ${historyFieldName(a.change, customFields)}`
+            : a.type === 'status_changed' && a.change ? 'changed the status' : a.detail;
+          return (
+            <div key={a.id} style={{ display: 'flex', gap: 10, fontSize: 12 }}>
+              <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
+              <div style={{ minWidth: 0 }}>
+                <span style={{ fontWeight: 600, color: NX.ink }}>{(nameOf(a.actorId) || '').split(' ')[0]}</span>{' '}
+                <span style={{ color: NX.dim }}>{text}</span>
+                {one && <div style={{ marginTop: 3 }}><HistoryChange entry={one} ctx={ctx} /></div>}
+                <div style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(a.at)}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -2187,7 +2243,7 @@ function TaskSectionRow({ task, patch }) {
   if (!task.projectId || !sec.sections.length) return null;
   const current = sec.sections.some((x) => x.id === task.sectionId) ? task.sectionId : '';
   return (
-    <Row label="Section">
+    <Row label="Section" history="sectionId">
       <select value={current} aria-label="Section" onChange={(e) => patch({ sectionId: e.target.value })}
         style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '5px 8px', fontSize: 13, cursor: 'pointer' }}>
         <option value="">No Section</option>
@@ -2211,7 +2267,8 @@ export function TaskCustomFieldRows({ task, customFields, projectName, patch }) 
     const missing = by.length > 0 && isBlankValue(values[f.id]);
     const where = by.filter(Boolean).map((pid) => projectName(pid)).filter(Boolean).join(', ');
     return (
-      <Row key={f.id} label={<>{f.name}{by.length > 0 && <span style={{ color: NX.red }}> *</span>}</>}>
+      <Row key={f.id} label={<>{f.name}{by.length > 0 && <span style={{ color: NX.red }}> *</span>}</>}
+        history={f.readOnly ? undefined : f.id} historyLabel={f.name}>
         <CustomFieldInput field={f} value={values[f.id]}
           onChange={(v) => patch({ customFieldValues: { ...values, [f.id]: v } })} />
         {missing && (
@@ -2223,6 +2280,13 @@ export function TaskCustomFieldRows({ task, customFields, projectName, patch }) 
     );
   });
 }
+
+// Properties rows whose changes are recorded (task_history.py) -> the field key(s).
+const PROPERTY_HISTORY = {
+  Status: 'status', Priority: 'priority', Assignee: 'assigneeIds', Projects: 'projectId,projectIds',
+  'Start Date': 'startOn', 'Due Date': 'dueOn', Estimate: 'estimateHours', Milestone: 'isMilestone',
+  Approval: 'approvalStatus',
+};
 
 function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patch, readOnly = false }) {
   // The same fields the Overview shows (fieldsForTask) - not every field
@@ -2262,13 +2326,18 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
     <div style={{ marginTop: 14 }}>
       <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden' }}>
         {rows.map(([label, value], i) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', fontSize: 13, borderTop: i ? `1px solid ${NX.border}` : 'none' }}>
-            <span style={{ width: 112, flexShrink: 0, color: NX.faint }}>{label}</span>
+          <div key={label} className={PROPERTY_HISTORY[label] ? 'nx-hist-row' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', fontSize: 13, borderTop: i ? `1px solid ${NX.border}` : 'none' }}>
+            <span style={{ width: 112, flexShrink: 0, color: NX.faint, display: 'flex', alignItems: 'center', gap: 2 }}>
+              {label}
+              {PROPERTY_HISTORY[label] && <FieldHistoryButton field={PROPERTY_HISTORY[label]} label={label} />}
+            </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: NX.ink }}>{value}</span>
           </div>
         ))}
-        <div style={{ display: 'flex', gap: 12, padding: '9px 12px', fontSize: 13, borderTop: `1px solid ${NX.border}` }}>
-          <span style={{ width: 112, flexShrink: 0, color: NX.faint, paddingTop: 2 }}>Labels</span>
+        <div className="nx-hist-row" style={{ display: 'flex', gap: 12, padding: '9px 12px', fontSize: 13, borderTop: `1px solid ${NX.border}` }}>
+          <span style={{ width: 112, flexShrink: 0, color: NX.faint, paddingTop: 2, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+            Labels <FieldHistoryButton field="tags" label="Labels" />
+          </span>
           <FieldsLock readOnly={readOnly}><LabelsEditor tags={task.tags || []} onChange={(tags) => patch({ tags })} /></FieldsLock>
         </div>
       </div>

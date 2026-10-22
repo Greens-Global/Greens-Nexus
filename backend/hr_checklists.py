@@ -718,6 +718,11 @@ def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus"
     subs = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(ids)))} if ids else {}
     pids = {t.parent_task_id for t in subs.values() if t.parent_task_id}
     parents = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(list(pids)))} if pids else {}
+    # Field history (Oct 22 2026): what this sync changes on tasks that
+    # already existed is recorded under `by`, due dates included (they are
+    # written here directly, not through task_due).
+    import task_history
+    hist_before = {t.id: (t, task_history.snapshot(t)) for t in [*subs.values(), *parents.values()]}
     def key(emails):                  # one task per owner, or per set of owners
         return ",".join(sorted(email_list(emails)))
 
@@ -771,6 +776,8 @@ def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus"
     for owner, p in by_owner.items():
         if owner not in owners:
             _set_done(p, True)
+    for t, before in hist_before.values():
+        task_history.record(db, t, before, by, with_due=True)
     return created
 
 

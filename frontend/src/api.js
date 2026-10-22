@@ -493,6 +493,10 @@ export const api = {
   deleteTaskAttachment: (aid) => req(`/tasks/attachments/${aid}`, { method: "DELETE" }),
   ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
+  // Field history (Oct 22 2026): {items, more}, newest first. `field` = a core
+  // key ("status", "dueOn"...), a custom field id, or several comma-joined.
+  getTaskHistory: (id, { field = "", limit = 20, offset = 0 } = {}) =>
+    req(`/tasks/${id}/history?field=${encodeURIComponent(field)}&limit=${limit}&offset=${offset}`),
   // Checklist inside a task (Oct 2026). Writes answer with the task's fresh
   // checklistTotal / checklistDone so the caller can hand it to the store.
   getTaskChecklist: (taskId) => req(`/tasks/${taskId}/checklist`),

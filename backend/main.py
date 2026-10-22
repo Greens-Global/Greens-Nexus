@@ -1252,6 +1252,8 @@ def _run_migrations():
             "ALTER TABLE task_templates ADD COLUMN company_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_intake_forms ADD COLUMN company_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_custom_fields ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Field history (Neil, Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_activity ADD COLUMN field_change JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2874,6 +2876,10 @@ def _run_migrations():
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_intake_forms ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # Field history (Neil, Oct 22 2026): {field, fieldId, label, from, to,
+        # labels} on the activity row that recorded a change (task_history.py).
+        # NULL on every other row. Additive only.
+        "ALTER TABLE task_activity ADD COLUMN IF NOT EXISTS field_change JSONB",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -3295,6 +3295,11 @@ class TaskActivity(Base):
     actor_email  = Column(String, default="")
     at           = Column(String, default="", index=True)
     detail       = Column(String, default="")
+    # Field history (Neil, Oct 22 2026): the structured change this row
+    # records - {field, fieldId, label, from, to, labels} with raw values (ids,
+    # emails, ISO dates). Set only on rows written by task_history.py and on
+    # the status / assignee / due rows it extends; NULL everywhere else.
+    field_change = Column(JSON, nullable=True)
 
 
 class TaskDeleteLog(Base):

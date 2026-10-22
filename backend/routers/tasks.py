@@ -42,6 +42,7 @@ from task_notify import notify_task_event
 import task_due
 import task_automation
 import task_schedule
+import task_history
 import code_sequence
 from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
@@ -161,6 +162,8 @@ def activity_to_dict(a: models.TaskActivity) -> dict:
         "at": a.at or "", "detail": a.detail or "",
         "entityKind": a.entity_kind or "task", "entityId": _nz(a.entity_id),
         "entityCode": _nz(a.entity_code), "entityTitle": _nz(a.entity_title),
+        # Field history (Oct 22 2026) - see task_history.py. None on most rows.
+        "change": dict(a.field_change) if isinstance(a.field_change, dict) else None,
     }
 
 
@@ -1445,11 +1448,14 @@ def _close_as_missed(db: Session, t: models.Task, why: str) -> None:
     stays EMPTY, so no "completed since ..." count, briefing or dashboard ever
     reports it as done work. Stamped on the rule (closedAsMissed) so a person
     who reopens it to finish it late is not closed again by the next scan."""
+    before = task_history.snapshot(t)
     t.completed, t.completed_at, t.status = True, "", MISSED
     t.recurrence = {**(t.recurrence or {}), "closedAsMissed": now_iso()}
     t.modified_at = now_iso()
     log_activity(db, type="closed_missed", actor_email="system", entity_id=t.id, entity_code=t.code,
                  entity_title=t.title, detail=f"Closed as Missed - {why}")
+    # The status move lands on the closed_missed row just written.
+    task_history.record(db, t, before, "system", only={"status"})
     # Its open subtasks go with it - the next occurrence brought fresh copies
     # (_carry_subtasks), and the old ones would otherwise sit open beside them.
     for s in (db.query(models.Task)
@@ -1457,7 +1463,9 @@ def _close_as_missed(db: Session, t: models.Task, why: str) -> None:
                       (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None))).all()):
         if isinstance(s.recurrence, dict) and s.recurrence.get("freq"):
             continue  # on a schedule of its own - it closes by its own dates
+        sub_before = task_history.snapshot(s)
         s.completed, s.completed_at, s.status, s.modified_at = True, "", MISSED, now_iso()
+        task_history.record(db, s, sub_before, "system", only={"status"})
 
 
 def _us(iso: str) -> str:
@@ -2425,6 +2433,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     prev_subtasks = [i for i in (t.subtask_ids or []) if i]
     _check_hierarchy_patch(db, user, t, data)
     auto_before = task_automation.snapshot(t)
+    hist_before = task_history.snapshot(t)   # field history - recorded with the activity below
     modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
     new_status = data.get("status", prev_status)
@@ -2516,17 +2525,12 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
 
     t.modified_at = now_iso()
 
-    # activity + notifications for meaningful changes
+    # activity + notifications for meaningful changes. The status and assignee
+    # rows are written by task_history.record_edit below, with what each moved
+    # from and to - and a rule's own change under the rule's name.
     acts = list(t.activity_ids or [])
-    if "status" in data and data["status"] != prev_status:
-        acts.append(log_activity(db, type="status_changed", actor_email=user["email"],
-                                 entity_id=t.id, entity_code=t.code, entity_title=t.title,
-                                 detail=f"changed status to {data['status']}"))
     now_assignees = set(task_assignees(t))
     if wanted is not None and now_assignees != prev_assignees:
-        acts.append(log_activity(db, type="assignee_changed", actor_email=user["email"],
-                                 entity_id=t.id, entity_code=t.code, entity_title=t.title,
-                                 detail="reassigned this task"))
         # Assigning somebody LATER follows the task for you too, same as
         # creating it did. Only when people were actually added - taking an
         # assignee off is no reason to subscribe anyone. Skipped when this same
@@ -2545,6 +2549,9 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     if t.completed and not prev_completed:
         acts.append(_log_completed(db, t, user["email"]))
+    # Field history (Oct 22 2026): one row per field that really moved. After
+    # the "completed" row, which a completion's status move is recorded on.
+    acts += task_history.record_edit(db, t, hist_before, user["email"], auto)
     t.activity_ids = acts
 
     # After activity_ids is rebuilt above - task_due appends its own entries.
@@ -3195,6 +3202,8 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     before = {t.id: (t.status, bool(t.completed), tuple(task_assignees(t))) for t in rows}
     before_due = {t.id: (t.due_on or "")[:10] for t in rows}
     auto_before = {t.id: task_automation.snapshot(t) for t in rows}
+    hist_before = {t.id: task_history.snapshot(t) for t in rows}   # field history
+    auto_by_id: dict = {}
     auto_results: list = []
     auto_changed: dict[str, dict] = {}   # task id -> fields the rules wrote on that row
     for t in rows:
@@ -3244,6 +3253,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         auto = task_automation.run_for_change(
             db, t, event="bulk", before=auto_before[t.id], completed=new_completed,
             gate=lambda ps, pc, ns, nc, _t=t: _check_dependency_gate(db, _t, ps, pc, ns, nc))
+        auto_by_id[t.id] = auto
         if auto.changed:
             auto_changed[t.id] = auto.changed
             new_completed = _resolve_completed({**patch, **auto.changed}, prev_completed)
@@ -3285,15 +3295,10 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     for t in rows:
         prev_status, prev_completed, prev_assignees = before[t.id]
         acts = list(t.activity_ids or [])
-        if ("status" in patch or "status" in auto_changed.get(t.id, {})) and t.status != prev_status:
-            acts.append(log_activity(db, type="status_changed", actor_email=user["email"],
-                                     entity_id=t.id, entity_code=t.code, entity_title=t.title,
-                                     detail=f"changed status to {t.status}"))
+        # The status and assignee rows come from task_history.record_edit
+        # below, as in update_task.
         now_assignees = set(task_assignees(t))
         if now_assignees != set(prev_assignees):
-            acts.append(log_activity(db, type="assignee_changed", actor_email=user["email"],
-                                     entity_id=t.id, entity_code=t.code, entity_title=t.title,
-                                     detail="reassigned this task"))
             # Only the people newly added, and still aggregated per person, so a
             # fifty-task reassignment is one ping each rather than fifty.
             for who in (now_assignees - set(prev_assignees)):
@@ -3305,6 +3310,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                 _follow_as_actor(t, actor)
         if t.completed and not prev_completed:
             acts.append(_log_completed(db, t, user["email"]))
+        acts += task_history.record_edit(db, t, hist_before[t.id], user["email"], auto_by_id.get(t.id))
         t.activity_ids = acts
         # After activity_ids is rebuilt - task_due appends its own entries.
         # Logged and counted like a single edit, but no per-row email (see above).
@@ -4239,7 +4245,54 @@ def task_activity(task_id: str, user: dict = Depends(get_current_user), db: Sess
             .filter(models.TaskActivity.entity_id == task_id,
                     models.TaskActivity.type != "synced_from_asana")
             .order_by(models.TaskActivity.at.desc()).all())
-    return [activity_to_dict(a) for a in rows]
+    out = [activity_to_dict(a) for a in rows]
+    _hide_private_project_names(db, user, [d["change"] for d in out if d["change"]])
+    return out
+
+
+# Rows read per history page at most - a task's history is its own rows, but
+# a long-lived recurring task can collect thousands.
+_HISTORY_SCAN = 5000
+
+
+@router.get("/{task_id}/history")
+def task_field_history(task_id: str, field: str = "", limit: int = 50, offset: int = 0,
+                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Field history (Neil, Oct 22 2026): who changed which field, when, from
+    what to what - newest first. `field` narrows it: a core key ("status",
+    "priority", "dueOn", "assigneeIds"...), "customField" for every custom
+    field, or a custom field's id - several comma-separated. Same gate as the
+    task's own activity (_wall_task): another company's task, or one the
+    caller cannot see, is a 404 - its history is as private as the task.
+    Values are raw (ids, emails, ISO dates); `labels` holds the names the ids
+    had when the change was made. Answers {items, more}."""
+    _wall_task(db, user, task_id)
+    limit = max(1, min(int(limit or 50), 200))
+    offset = max(0, int(offset or 0))
+    rows = (db.query(models.TaskActivity)
+            .filter(models.TaskActivity.entity_id == task_id,
+                    or_(models.TaskActivity.entity_kind.is_(None), models.TaskActivity.entity_kind == "task"),
+                    models.TaskActivity.type.in_(task_history.HISTORY_TYPES))
+            .order_by(models.TaskActivity.at.desc(), models.TaskActivity.id.desc())
+            .limit(_HISTORY_SCAN).all())
+    items = [e for e in (task_history.to_dict(a) for a in rows) if e and task_history.matches(e, field)]
+    page = items[offset:offset + limit]
+    _hide_private_project_names(db, user, page)
+    return {"items": page, "more": len(items) > offset + limit}
+
+
+def _hide_private_project_names(db: Session, user: dict, changes: list) -> None:
+    """A project's name is only for those who may see the project: a task can
+    also sit in a restricted project the caller is not on. Such a project's
+    name is taken off a history entry (the client shows a private project),
+    as the task row itself only ever carries its id."""
+    hits = [c for c in changes if isinstance(c, dict) and c.get("field") in ("projectId", "projectIds")
+            and c.get("labels")]
+    if not hits or is_manager(user):
+        return
+    visible = visible_project_ids(db, user)
+    for c in hits:
+        c["labels"] = {k: v for k, v in c["labels"].items() if k in visible}
 
 
 # ── The Updates card (Tasks Home) ────────────────────────────────────────────
@@ -4788,8 +4841,10 @@ def delete_section(section_id: str, user: dict = Depends(get_current_user),
     # the UI. modified_at is bumped so GET /tasks/delta carries the change.
     orphaned = db.query(models.Task).filter(models.Task.section_id == section_id).all()
     for t in orphaned:
+        before = task_history.snapshot(t)   # the section's name is kept on the change
         t.section_id = ""
         t.modified_at = now_iso()
+        task_history.record(db, t, before, user["email"], only={"sectionId"})
     db.delete(s)
     db.commit()
     for t in orphaned:
@@ -4905,13 +4960,19 @@ def delete_custom_status(status_id: str, user: dict = Depends(get_current_user),
              .filter(models.Task.status == status_id).with_for_update().all())
     # One history line per moved task, Trash included - a restored task should
     # still say why its status changed.
+    # The labels travel with the change (task_history): the status is gone
+    # after this, and its history should still say what it was called.
+    gone_label = {status_id: {"label": s.label or status_id, "color": s.color or ""},
+                  "not_started": {"label": "Not Started"}}
     for t in moved:
         t.status = "not_started"
         t.modified_at = now
         t.activity_ids = list(t.activity_ids or []) + [
             log_activity(db, type="status_changed", actor_email=user["email"], entity_id=t.id,
                          entity_code=t.code, entity_title=t.title,
-                         detail=f'changed status to not_started ("{s.label}" was deleted)')]
+                         detail=f'changed status to not_started ("{s.label}" was deleted)',
+                         change={"field": "status", "fieldId": "", "label": "Status",
+                                 "from": status_id, "to": "not_started", "labels": gone_label})]
     db.delete(s)
     db.commit()
     if moved:

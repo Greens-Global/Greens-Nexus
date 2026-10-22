@@ -53,6 +53,7 @@ from routers.task_util import (
     create_comment, fire_task_event, task_notify, row_company,
 )
 import task_due
+import task_history
 
 # The "person" automated changes are attributed to - activity rows and the
 # author of an `add_comment`. Not a mailbox: the frontend's name resolver
@@ -221,6 +222,11 @@ class Result:
     applied: list = field(default_factory=list)     # human lines, one per action
     after_commit: list = field(default_factory=list)  # callables(db, defer) to run once the caller has committed
     rule_ids: list = field(default_factory=list)
+    # Field history (Oct 22 2026): the task as the rules found it, and the
+    # fields they moved - task_history.record_edit credits the person with
+    # the rest. None / empty when no rule changed a recorded field.
+    history_mid: Optional[dict] = None
+    history_keys: set = field(default_factory=set)
 
 
 def _label_status(db: Session, status_id: str) -> str:
@@ -419,6 +425,9 @@ def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
         elif after["status"] in ("completed", "missed"):
             after["status"] = "not_started"
     completing = bool(after["completed"]) and not before["completed"]
+    # Field history: what the rules change is theirs, recorded below as
+    # AUTOMATION_ACTOR. A brand-new task has no history - "created" says it.
+    hist_before = task_history.snapshot(t) if event != "created" else None
     company_cache: dict = {}
     for rule in rules:
         trigger = rule.trigger if isinstance(rule.trigger, dict) else {}
@@ -449,6 +458,12 @@ def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
                 trigger_type=trigger.get("type", ""), event=event, actions=[],
                 status="error", detail=str(e)[:500], at=now_iso(),
             ))
+    if hist_before is not None and res.applied:
+        changes = task_history.diff(db, hist_before, task_history.snapshot(t))
+        if changes:
+            task_history.write(db, t, changes, AUTOMATION_ACTOR, since=hist_before["_at"])
+            res.history_mid = hist_before
+            res.history_keys = {task_history.key_of(c) for c in changes}
     return res
 
 
@@ -506,6 +521,7 @@ def run_scheduled(db: Session, today_iso: str) -> int:
             before = snapshot(t)
             if not conditions_ok(rule.conditions if isinstance(rule.conditions, list) else [], before):
                 continue
+            hist_before = task_history.snapshot(t)
             res = Result()
             lines = []
             try:
@@ -546,6 +562,9 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                                     title="Due Date Extended" if entry.get("extension") else "Due Date Changed",
                                     body=f"{t.title} - due {_us(t.due_on or '')}", task_id=t.id,
                                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+                # Field history, as the rule (the completion lands on the
+                # "completed" row above rather than a second line).
+                task_history.record(db, t, hist_before, AUTOMATION_ACTOR)
                 added = [w for w in task_assignees(t) if w not in set(before["assignees"])]
                 for who in added:
                     task_notify(db, kind="task_assigned", for_email=who, title="You Were Assigned a Task",
