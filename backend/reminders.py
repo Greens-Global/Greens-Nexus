@@ -703,6 +703,13 @@ async def reminders_loop():
             await asyncio.to_thread(kb_daily.run_daily)
         except Exception as e:
             print(f"[reminders] knowledge base loop error: {e}")
+        # Workplace Notices (Neil, Oct 21 2026): new versions announced,
+        # acknowledgment reminders, the Monday manager note (notices_daily.py).
+        try:
+            import notices_daily
+            await asyncio.to_thread(notices_daily.run_daily)
+        except Exception as e:
+            print(f"[reminders] workplace notices loop error: {e}")
         now = datetime.now(timezone.utc)
         nxt = now.replace(hour=_SCAN_HOUR_UTC, minute=0, second=0, microsecond=0)
         if nxt <= now:

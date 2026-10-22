@@ -199,6 +199,12 @@ def _my_tickets(db: Session, me: str) -> int:
             .scalar())
 
 
+def _workplace_notices(db: Session, me: str) -> int:
+    """Manual, addenda and policies I still have to acknowledge (notices.py)."""
+    from routers.notices import owed_count
+    return owed_count(db, me)
+
+
 def _announcements(db: Session, user: dict) -> int:
     from routers.announcements import list_announcements
     return sum(1 for a in list_announcements(user=user, db=db) if a["requires_ack"] and not a["acknowledged_at"])
@@ -216,6 +222,7 @@ def action_counts(user: dict = Depends(get_current_user), db: Session = Depends(
             "overview": s(lambda: _schedule_confirm(db, me)) + s(lambda: _weather(db, user))
                         + s(lambda: _checklist_steps(db, me)) + s(lambda: _documents_to_sign(db, user)),
             "timeoff": s(lambda: _swaps_for_me(db, me)),
+            "notices": s(lambda: _workplace_notices(db, me)),
         },
         "shifts": {
             "requests": s(lambda: _shift_requests_to_decide(db, user)) + time_off,

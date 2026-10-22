@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -415,3 +415,88 @@ def active_people(db: Session) -> list:
 
 def person_name(e) -> str:
     return work_state._name(e)
+
+
+# ── Acknowledgments ──────────────────────────────────────────────────────────
+# A manual, addendum, policy or contractor code with requires_ack needs one
+# acknowledgment of its current MAJOR version from each person it applies to.
+# With yearlyAck on (Neil, Oct 22 2026: "everyone re-acknowledges the manual
+# every January") that acknowledgment must also be from this calendar year.
+
+def _d(iso: str):
+    try:
+        return date.fromisoformat(str(iso)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def my_acks(db: Session, email: str) -> dict:
+    """{notice_id: [delivery rows with acknowledged_at]} for one person."""
+    out: dict = {}
+    for r in (db.query(models.WorkplaceNoticeDelivery)
+              .filter(models.WorkplaceNoticeDelivery.email == norm(email),
+                      models.WorkplaceNoticeDelivery.acknowledged_at != "").all()):
+        out.setdefault(r.notice_id, []).append(r)
+    return out
+
+
+def ack_state(db: Session, notice, pc: dict, cfg: dict, rows: list, acks: list, numbers: dict,
+              on: date | None = None) -> dict:
+    """{required, done, ackedAt, ackedVersion, due, overdue, reason} for one
+    person and one acknowledgment notice. `numbers` = {version_id: number}."""
+    d = on or today()
+    out = {"required": False, "done": False, "ackedAt": "", "ackedVersion": "", "due": "", "overdue": False,
+           "reason": ""}
+    if not notice.requires_ack or notice.kind not in ACK_KINDS:
+        return out
+    base = ack_baseline(db, notice.id, rows=rows)
+    if base is None:
+        return out
+    out["required"] = True
+    year_start = date(d.year, 1, 1)
+    valid = [a for a in acks if numbers.get(a.version_id, 0) >= base.number]
+    if cfg.get("yearlyAck"):
+        this_year = [a for a in valid if (_d(a.acknowledged_at) or date.min) >= year_start]
+    else:
+        this_year = valid
+    if this_year:
+        best = max(this_year, key=lambda a: a.acknowledged_at)
+        out.update(done=True, ackedAt=best.acknowledged_at, ackedVersion=best.version_id)
+        return out
+    days = int(cfg.get("ackDueDays") or 14)
+    eff = _d(base.effective_date) or d
+    candidates = [eff + timedelta(days=days)]
+    start = _d(pc.get("startDate"))
+    if start:
+        candidates.append(start + timedelta(days=days))
+    if valid and cfg.get("yearlyAck"):
+        # acknowledged this version before - only the January round is owed
+        candidates.append(year_start + timedelta(days=int(cfg.get("yearlyAckDueDays") or 31)))
+        out["reason"] = "yearly"
+    else:
+        out["reason"] = "new_version" if acks else "first"
+    due = max(candidates)
+    out.update(due=due.isoformat(), overdue=due < d)
+    return out
+
+
+def version_numbers(db: Session) -> dict:
+    return {i: n for i, n in db.query(models.WorkplaceNoticeVersion.id, models.WorkplaceNoticeVersion.number).all()}
+
+
+def owed(db: Session, emp, ctx: dict | None = None, cfg: dict | None = None, rows_by: dict | None = None,
+         notice_rows: list | None = None, numbers: dict | None = None) -> list:
+    """[(notice, ack_state)] this person still has to acknowledge."""
+    cfg = cfg or settings(db)
+    pc, ns = notices_for(db, emp, ctx, cfg, notice_rows)
+    acks = my_acks(db, pc["email"])
+    numbers = numbers if numbers is not None else version_numbers(db)
+    out = []
+    for n in ns:
+        if not n.requires_ack or n.kind not in ACK_KINDS:
+            continue
+        rows = rows_by.get(n.id, []) if rows_by is not None else versions_of(db, n.id)
+        st = ack_state(db, n, pc, cfg, rows, acks.get(n.id, []), numbers)
+        if st["required"] and not st["done"]:
+            out.append((n, st))
+    return out

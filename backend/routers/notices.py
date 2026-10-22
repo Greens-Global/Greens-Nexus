@@ -27,7 +27,7 @@ import uuid
 from datetime import date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -641,3 +641,165 @@ def events(limit: int = 200, user: dict = Depends(get_current_user), db: Session
     titles = {r[0]: r[1] for r in db.query(models.WorkplaceNotice.id, models.WorkplaceNotice.title).all()}
     return [{"at": e.at, "actor": _name_of(db, e.actor, cache) or e.actor, "action": e.action,
              "noticeId": e.notice_id, "notice": titles.get(e.notice_id, ""), "detail": e.detail or {}} for e in rows]
+
+
+# ── Workday > Workplace Notices (everyone) ───────────────────────────────────
+
+def _me(db: Session, user: dict):
+    me = core.norm(user.get("email"))
+    emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == me).first()
+    return me, emp
+
+
+def _ver_brief(v) -> dict | None:
+    if v is None:
+        return None
+    return {"id": v.id, "label": v.label or f"Version {v.number}", "effectiveDate": v.effective_date or "",
+            "summary": v.summary or "", "langs": [f.get("lang", "en") for f in (v.files or [])], "major": bool(v.major)}
+
+
+@router.get("/my")
+def my_notices(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """What this person sees: their manual and policies (with what they owe),
+    the notices posted for where they work, and what was given to them."""
+    if core.ensure_catalog(db):
+        db.commit()
+    me, emp = _me(db, user)
+    if emp is None:
+        return {"placed": False, "documents": [], "posted": [], "received": [], "context": None}
+    cfg = core.settings(db)
+    pc, ns = core.notices_for(db, emp, cfg=cfg)
+    by = _versions_by_notice(db)
+    acks = core.my_acks(db, me)
+    numbers = core.version_numbers(db)
+    sites = core.site_info(db)
+    docs, posted = [], []
+    for n in ns:
+        rows = by.get(n.id, [])
+        live = core.live_version(db, n.id, rows=rows)
+        if n.kind in core.DOC_KINDS:
+            st = core.ack_state(db, n, pc, cfg, rows, acks.get(n.id, []), numbers)
+            docs.append({"id": n.id, "title": n.title, "kind": n.kind, "area": n.area, "notes": n.notes or "",
+                         "requiresAck": bool(n.requires_ack), "live": _ver_brief(live), "ack": st})
+        elif core.shown_now(n, cfg) and n.mode in ("post", "both"):
+            posted.append({"id": n.id, "title": n.title, "formCode": n.form_code or "", "agency": n.agency or "",
+                           "area": n.area, "live": _ver_brief(live)})
+    titles = {n.id: n.title for n in db.query(models.WorkplaceNotice).all()}
+    vlabels = {v.id: (v.label or f"Version {v.number}") for vs in by.values() for v in vs}
+    received = [{"id": r.id, "noticeId": r.notice_id, "title": titles.get(r.notice_id, ""), "versionId": r.version_id,
+                 "versionLabel": vlabels.get(r.version_id, ""), "reason": r.reason, "channel": r.channel,
+                 "sentAt": r.sent_at or r.created_at, "viewedAt": r.viewed_at or "", "acknowledgedAt": r.acknowledged_at or ""}
+                for r in db.query(models.WorkplaceNoticeDelivery)
+                .filter(models.WorkplaceNoticeDelivery.email == me,
+                        models.WorkplaceNoticeDelivery.reason.notin_(("portal",)))
+                .order_by(models.WorkplaceNoticeDelivery.created_at.desc()).limit(200).all()]
+    return {"placed": bool(pc["state"]) or pc["country"] != "US", "documents": docs, "posted": posted,
+            "received": received,
+            "context": {"country": pc["country"], "state": pc["state"], "stateLabel": pc["stateLabel"],
+                        "cities": pc["cities"], "workerType": pc["workerType"],
+                        "sites": [{"id": s, "name": sites[s]["name"]} for s in pc["siteIds"] if s in sites]},
+            "name": core.person_name(emp)}
+
+
+def _names_match(typed: str, real: str) -> bool:
+    """As the Knowledge Base's sign-off (routers/kb.py)."""
+    n = lambda s: re.sub(r"[^a-z]", "", (s or "").lower())  # noqa: E731
+    t, r = n(typed), n(real)
+    if not r or "@" in (real or ""):
+        return len(t) >= 3
+    return t == r or (len(t) >= 3 and (t in r or r in t))
+
+
+class AckIn(BaseModel):
+    version_id: str
+    typed_name: str
+    lang: str = "en"
+
+
+def _client(request) -> tuple[str, str]:
+    if request is None:
+        return "", ""
+    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    ip = fwd or (request.client.host if request.client else "")
+    return ip[:64], (request.headers.get("user-agent") or "")[:300]
+
+
+@router.post("/my/{nid}/acknowledge")
+def acknowledge(nid: str, body: AckIn, request: Request = None, user: dict = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    """I received and read it. Stores who, when, from where, and the
+    fingerprint of the exact file - and only for the live version."""
+    me, emp = _me(db, user)
+    if emp is None:
+        raise HTTPException(403, "Only people in Nexus People acknowledge notices")
+    n = db.get(models.WorkplaceNotice, nid)
+    if n is None or not n.requires_ack:
+        raise HTTPException(404, "Nothing to acknowledge")
+    cfg = core.settings(db)
+    if not core.applies(n, core.person_context(db, emp), cfg):
+        raise HTTPException(404, "This document is not one of yours")
+    live = core.live_version(db, nid)
+    if live is None or live.id != body.version_id:
+        raise HTTPException(409, "A newer version is out - reload and read that one")
+    real = core.person_name(emp)
+    typed = (body.typed_name or "").strip()
+    if not _names_match(typed, real):
+        raise HTTPException(422, f"Type your full name as it appears in Nexus: {real}")
+    f = next((x for x in (live.files or []) if x.get("lang") == body.lang), None) or next(iter(live.files or []), {})
+    ip, ua = _client(request)
+    stamp = core.now_iso()
+    db.add(models.WorkplaceNoticeDelivery(
+        id=str(uuid.uuid4()), notice_id=nid, version_id=live.id, email=me, reason="acknowledge", channel="portal",
+        lang=f.get("lang", "en"), sent_at=stamp, viewed_at=stamp, acknowledged_at=stamp, typed_name=typed[:120],
+        ip=ip, user_agent=ua, content_hash=f.get("sha256", ""), created_by=me, created_at=stamp))
+    core.log_event(db, me, "acknowledged", nid, live.id, sha256=f.get("sha256", ""))
+    db.commit()
+    return {"ok": True, "acknowledgedAt": stamp}
+
+
+@router.post("/my/view/{vid}")
+def record_view(vid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The person opened this version: one row per person and version (the
+    first open is kept), and any copy delivered to them counts as opened."""
+    me, emp = _me(db, user)
+    v = _get_version(db, vid)
+    if emp is None or v.status != "approved":
+        return {"ok": False}
+    stamp = core.now_iso()
+    have = (db.query(models.WorkplaceNoticeDelivery)
+            .filter(models.WorkplaceNoticeDelivery.email == me, models.WorkplaceNoticeDelivery.version_id == vid,
+                    models.WorkplaceNoticeDelivery.reason == "portal").first())
+    if have is None:
+        db.add(models.WorkplaceNoticeDelivery(id=str(uuid.uuid4()), notice_id=v.notice_id, version_id=vid, email=me,
+                                              reason="portal", channel="portal", sent_at=stamp, viewed_at=stamp,
+                                              created_by=me, created_at=stamp))
+    for d in (db.query(models.WorkplaceNoticeDelivery)
+              .filter(models.WorkplaceNoticeDelivery.email == me, models.WorkplaceNoticeDelivery.version_id == vid,
+                      models.WorkplaceNoticeDelivery.viewed_at == "").all()):
+        d.viewed_at = stamp
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/my/closures")
+def my_closures(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The Office Closure Calendar: the company Holiday Calendar from today
+    through the next 12 months - days no work is requested, never leave."""
+    me, emp = _me(db, user)
+    if emp is None or not emp.company:
+        return {"days": []}
+    t = core.today()
+    lo, hi = t.isoformat(), date(t.year + 1, t.month, min(t.day, 28)).isoformat()
+    rows = (db.query(models.HrCompanyHoliday)
+            .filter(models.HrCompanyHoliday.company_id == emp.company, models.HrCompanyHoliday.date >= lo,
+                    models.HrCompanyHoliday.date <= hi)
+            .order_by(models.HrCompanyHoliday.date).all())
+    return {"days": [{"date": r.date, "name": r.name} for r in rows]}
+
+
+def owed_count(db: Session, me: str) -> int:
+    """Workday red dot: documents this person still has to acknowledge."""
+    emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == core.norm(me)).first()
+    if emp is None:
+        return 0
+    return len(core.owed(db, emp))

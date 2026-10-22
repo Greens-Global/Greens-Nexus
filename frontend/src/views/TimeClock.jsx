@@ -34,6 +34,7 @@ import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import DocumentsToSign from '../components/DocumentsToSign';
 import DelegateApprovalsCard from '../components/DelegateApprovals';
 import PurchaseRequests from '../components/PurchaseRequests';
+import WorkplaceNotices from '../notices/WorkplaceNotices';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -70,6 +71,8 @@ const TAB_META = {
   timeoff:   { title: 'Time Off',   label: 'Time Off' },
   // Moved here from Item Management (Neil, Oct 22 2026) - next to HR and reimbursements.
   purchase:  { title: 'Purchase Requests', label: 'Purchase Requests' },
+  // Workplace Notices + Employee Manual (Neil, Oct 21 2026): my manual, my labor law notices.
+  notices:   { title: 'Workplace Notices', label: 'Workplace Notices' },
 };
 // The Clock tab folded into Overview (Oct 2), and so did your own shifts
 // (Neil, Oct 13 2026: "the personal shift data should move into your
@@ -1350,8 +1353,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
              a reviewing manager) - never for the badge count alone, which
              once surfaced a stale "sent back" row of an exempt person's own
              old time sheet as a "1" over an empty tab (Neil, Oct 21 2026). */
-          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'purchase']
-          : ['overview', 'timesheet', 'timeoff', 'purchase']
+          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'purchase', 'notices']
+          : ['overview', 'timesheet', 'timeoff', 'purchase', 'notices']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
 
@@ -1458,6 +1461,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 
 
       {/* Purchase Requests (moved from Item Management, Neil Oct 22 2026) */}
+      {tab === 'notices' && <WorkplaceNotices toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'purchase' && (
         <PurchaseRequests openNewKey={purchaseNewKey} toast={(text, kind) => toast(kind !== 'error', text)} />
       )}

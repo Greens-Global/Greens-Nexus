@@ -2836,6 +2836,11 @@ export const api = {
   saveNoticeSettings:    (body)      => req('/notices/settings', { method: 'PUT', body: JSON.stringify(body) }),
   placeNoticePerson:     (email, body) => req(`/notices/person/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify(body) }),
   noticeEvents:          ()          => req('/notices/events'),
+  // Workday > Workplace Notices (everyone).
+  myNotices:             ()          => req('/notices/my'),
+  acknowledgeNotice:     (id, body)  => req(`/notices/my/${encodeURIComponent(id)}/acknowledge`, { method: 'POST', body: JSON.stringify(body) }),
+  recordNoticeView:      (vid)       => req(`/notices/my/view/${vid}`, { method: 'POST' }),
+  myClosures:            ()          => req('/notices/my/closures'),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
