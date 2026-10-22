@@ -2844,6 +2844,11 @@ export const api = {
   sendNotice:            (id, body)  => req(`/notices/notice/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify(body) }),
   myEmergencyContact:    ()          => req('/notices/my/emergency'),
   setMyEmergencyContact: (body)      => req('/notices/my/emergency', { method: 'PUT', body: JSON.stringify(body) }),
+  noticeCalendar:        (year = 0)  => req(`/notices/calendar?year=${year}`),
+  noticeReview:          (year)      => req(`/notices/review/${year}`),
+  openNoticeReview:      (year)      => req(`/notices/review/${year}/open`, { method: 'POST' }),
+  signNoticeReview:      (year, body) => req(`/notices/review/${year}/sign`, { method: 'POST', body: JSON.stringify(body) }),
+  checkNoticeSource:     (id)        => req(`/notices/notice/${encodeURIComponent(id)}/check`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

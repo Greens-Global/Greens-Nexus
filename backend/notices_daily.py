@@ -394,3 +394,5 @@ def run_daily() -> None:
             print(f"[notices] {step.__name__} failed: {e}")
         finally:
             db.close()
+    import notices_watcher       # the calendar, the December review and the source watcher
+    notices_watcher.run_daily()

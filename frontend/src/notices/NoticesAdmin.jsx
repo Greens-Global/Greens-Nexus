@@ -23,6 +23,8 @@ const SECTIONS = [
   { key: 'library', label: 'Library' },
   { key: 'queue', label: 'Review Queue' },
   { key: 'unplaced', label: 'Location Unknown' },
+  { key: 'calendar', label: 'Calendar' },
+  { key: 'review', label: 'Annual Review' },
   { key: 'settings', label: 'Settings' },
   { key: 'activity', label: 'Activity' },
 ];
@@ -61,6 +63,8 @@ export default function NoticesAdmin({ toastOk, toastErr }) {
       {section === 'unplaced' && <Unplaced data={data} onSaved={load} toastOk={toastOk} toastErr={toastErr} />}
       {section === 'settings' && <Settings data={data} onSaved={load} toastOk={toastOk} toastErr={toastErr} />}
       {section === 'activity' && <Activity />}
+      {section === 'calendar' && <CalendarView onOpen={setOpenId} />}
+      {section === 'review' && <AnnualReview onOpen={setOpenId} toastOk={toastOk} toastErr={toastErr} />}
       {openId && <NoticeDetail id={openId} canApprove={data.canApprove} onClose={() => { setOpenId(''); load(); }}
         toastOk={toastOk} toastErr={toastErr} />}
     </div>
@@ -92,7 +96,7 @@ function Library({ data, onOpen, onCreated, toastErr }) {
           <input className="form-input" aria-label="Search notices" placeholder="Search notices" value={q} onChange={e => setQ(e.target.value)}
             style={{ paddingLeft: 30, width: '100%' }} />
         </div>
-        {['all', 'needs_file', 'awaiting_approval', 'scheduled', 'review_due', 'current', 'retired'].map(k => (
+        {['all', 'needs_file', 'source_changed', 'awaiting_approval', 'scheduled', 'review_due', 'current', 'retired'].map(k => (
           <button key={k} onClick={() => setFilter(k)} className={filter === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 12 }}>
             {k === 'all' ? 'All' : STATE_CHIP[k].label}{k !== 'all' && counts[k] ? ` ${counts[k]}` : ''}
           </button>
@@ -269,6 +273,7 @@ function NoticeDetail({ id, canApprove, onClose, toastOk, toastErr }) {
             <a href={n.sourceUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>Official Source <ExternalLink size={12} /></a>
             {n.source?.lastCheckedAt && <span style={{ color: 'var(--muted)' }}> - checked {formatDateTime(n.source.lastCheckedAt)}</span>}
             {n.source?.lastError && <span style={{ color: '#b91c1c' }}> - last check failed: {n.source.lastError}</span>}
+            {n.source && <button className="secondary-btn" disabled={busy} onClick={() => run(api.checkNoticeSource(n.id).then(r => toastOk?.(CHECK_RESULT[r.result] || 'Checked.')))} style={{ fontSize: 11.5, marginLeft: 8 }}>Check Now</button>}
           </div>
         )}
 
@@ -358,11 +363,20 @@ function SendModal({ notice, onClose, onSent, toastErr }) {
   );
 }
 
+const CHECK_RESULT = {
+  same: 'No change since the last check.', baseline: 'Fingerprint saved - future changes will show here.',
+  drafted: 'The official file is waiting for approval below.', changed: 'The official page changed - check it.',
+  moved: "Next year's file was found and is waiting for approval.", failed: 'The link did not answer - see the error.',
+};
+
 const EVENT_LABEL = {
   notice_created: 'Added the notice', notice_changed: 'Changed the details', notice_retired: 'Retired the notice', notice_restored: 'Restored the notice',
   version_created: 'Prepared a version', version_edited: 'Edited a draft', file_added: 'Added a file', file_removed: 'Removed a file',
   version_submitted: 'Sent for approval', version_approved: 'Approved', version_sent_back: 'Sent back', version_withdrawn: 'Withdrew a version',
   watcher_changed: 'The official source changed', watcher_draft: 'Drafted the new official file', settings_saved: 'Changed settings', person_placed: 'Placed a person',
+  watcher_moved: "Found next year's official file", version_date_set: 'Set the effective date while approving', checked_now: 'Checked the source',
+  version_announced: 'Announced to everyone it applies to', acknowledged: 'Acknowledged', delivered: 'Delivered to people',
+  review_opened: 'Opened the Annual Notice Review', review_signed: 'Signed the Annual Notice Review', emergency_contact_set: 'Answered the emergency contact question',
 };
 
 function VersionFields({ form, setForm, ackKind }) {
@@ -391,6 +405,7 @@ function VersionFields({ form, setForm, ackKind }) {
 function VersionCard({ v, notice, canApprove, ackKind, busy, run, onView }) {
   const [edit, setEdit] = useState(null);
   const [lang, setLang] = useState('en');
+  const [approveDate, setApproveDate] = useState(v.effectiveDate || '');
   const [egnyte, setEgnyte] = useState(false);
   const editable = v.status === 'draft' || v.status === 'rejected';
   const upload = (file, source = '') => {
@@ -470,7 +485,9 @@ function VersionCard({ v, notice, canApprove, ackKind, busy, run, onView }) {
         <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {canApprove ? (
             <>
-              <button className="primary-btn" disabled={busy} onClick={() => run(api.reviewNoticeVersion(v.id, { decision: 'approve' }), 'Approved.')} style={{ fontSize: 12 }}><CheckCircle size={12} /> Approve</button>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Takes effect</span>
+              <DateField value={approveDate} onChange={d => setApproveDate(d || '')} placeholder="Pick a date" />
+              <button className="primary-btn" disabled={busy} onClick={() => run(api.reviewNoticeVersion(v.id, approveDate && approveDate !== v.effectiveDate ? { decision: 'approve', effective_date: approveDate } : { decision: 'approve' }), 'Approved.')} style={{ fontSize: 12 }}><CheckCircle size={12} /> Approve</button>
               <button className="secondary-btn" disabled={busy} onClick={sendBack} style={{ fontSize: 12 }}>Send Back</button>
               <span style={{ fontSize: 12, color: 'var(--muted)' }}>Open the file and compare it with the live version first. You cannot approve a version you worked on.</span>
             </>
@@ -593,6 +610,82 @@ function Settings({ data, onSaved, toastOk, toastErr }) {
         <input id="notice-elections" className="form-input" value={elections} onChange={e => setElections(e.target.value)} placeholder="2026-11-03, 2028-03-05" />
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>Dates as YYYY-MM-DD. Time Off to Vote shows from 10 days before each one.</span></label>
       <div><button className="primary-btn" onClick={save} disabled={busy}>Save Settings</button></div>
+    </div>
+  );
+}
+
+// ── Calendar ────────────────────────────────────────────────────────────────
+
+function CalendarView({ onOpen }) {
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [rows, setRows] = useState(null);
+  useEffect(() => { setRows(null); api.noticeCalendar(year).then(r => setRows(r.items || [])).catch(() => setRows([])); }, [year]);
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <div style={CARD}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+        <span style={HD}>Compliance Calendar</span><span style={{ flex: 1 }} />
+        <button className="secondary-btn" onClick={() => setYear(y => y - 1)} style={{ fontSize: 12 }}>{year - 1}</button>
+        <span style={{ fontWeight: 700 }}>{year}</span>
+        <button className="secondary-btn" onClick={() => setYear(y => y + 1)} style={{ fontSize: 12 }}>{year + 1}</button>
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 8 }}>Approvers hear about each date 30 and 7 days ahead.</div>
+      {!rows ? <SkeletonBlocks count={2} height={50} /> : rows.map(it => (
+        <div key={it.key} style={{ display: 'flex', gap: 12, padding: '9px 0', borderTop: '1px solid var(--wk-line2)', opacity: it.date < today ? 0.55 : 1 }}>
+          <span style={{ width: 92, flexShrink: 0, fontWeight: 700, fontSize: 13 }}>{day(it.date)}</span>
+          <span style={{ flex: 1, fontSize: 13 }}><b>{it.title}</b><span style={{ display: 'block', color: 'var(--muted)', fontSize: 12.5 }}>{it.detail}</span></span>
+          {it.noticeId && <button className="secondary-btn" onClick={() => onOpen(it.noticeId)} style={{ fontSize: 12, alignSelf: 'center' }}>Open</button>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Annual Notice Review (December: every notice for the coming year) ───────
+
+function AnnualReview({ onOpen, toastOk, toastErr }) {
+  const now = new Date();
+  const [year, setYear] = useState(String(now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear()));
+  const [r, setR] = useState(null);
+  const [typed, setTyped] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => { setR(null); api.noticeReview(year).then(setR).catch(e => toastErr?.(e?.message || 'Could not load the review.')); }, [year]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [load]);
+  const act = (p, ok) => { setBusy(true); p.then(x => { setR(x); toastOk?.(ok); }).catch(e => toastErr?.(e?.message || 'That did not work.')).finally(() => setBusy(false)); };
+  if (!r) return <SkeletonBlocks count={2} height={80} />;
+  const open = r.items.filter(i => ['needs_file', 'awaiting_approval', 'source_changed'].includes(i.state));
+  return (
+    <div style={CARD}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+        <span style={HD}>Annual Notice Review for {year}</span>
+        <Chip spec={r.status === 'signed' ? STATE_CHIP.current : r.status === 'open' ? STATE_CHIP.awaiting_approval : STATE_CHIP.retired}>
+          {r.status === 'signed' ? 'Signed' : r.status === 'open' ? 'Open' : 'Not Open Yet'}</Chip>
+        <span style={{ flex: 1 }} />
+        <button className="secondary-btn" onClick={() => setYear(String(Number(year) - 1))} style={{ fontSize: 12 }}>{Number(year) - 1}</button>
+        <button className="secondary-btn" onClick={() => setYear(String(Number(year) + 1))} style={{ fontSize: 12 }}>{Number(year) + 1}</button>
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+        Each December an approver checks every notice for the coming year and signs here. The signed review keeps exactly what it covered.
+      </div>
+      {r.status === 'signed' && <div style={{ fontSize: 13, marginBottom: 10 }}>Signed by <b>{r.signedBy}</b> ({r.typedName}) on {formatDateTime(r.signedAt)}.{r.note && ` Note: ${r.note}`}</div>}
+      {r.items.map(i => (
+        <button key={i.id} onClick={() => onOpen(i.id)}
+          style={{ display: 'flex', width: '100%', gap: 10, alignItems: 'center', padding: '7px 4px', border: 'none', borderTop: '1px solid var(--wk-line2)', background: 'none', cursor: 'pointer', textAlign: 'left', color: 'var(--ink)' }}>
+          <span style={{ flex: 1, fontSize: 13 }}>{i.title}<span style={{ color: 'var(--muted)', fontSize: 12 }}> - {areaLabel(i.area)}</span></span>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{i.versionOnJan1 ? `On 01/01: ${i.versionOnJan1}` : 'Nothing approved for 01/01'}</span>
+          <Chip spec={STATE_CHIP[i.state]} />
+        </button>
+      ))}
+      {r.status === 'not_open' && <button className="primary-btn" disabled={busy} onClick={() => act(api.openNoticeReview(year), 'Review opened.')} style={{ marginTop: 12 }}>Open The {year} Review</button>}
+      {r.status === 'open' && (r.canSign ? (
+        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 560 }}>
+          {open.length > 0 && <div style={{ fontSize: 12.5, color: '#b45309' }}>{open.length} notices still need a file or an approval. Sign anyway only with a note saying why.</div>}
+          <textarea id="review-note" className="form-input" rows={2} placeholder="Note (required while notices are open)" value={note} onChange={e => setNote(e.target.value)} />
+          <input id="review-name" className="form-input" placeholder="Type your full name to sign" value={typed} onChange={e => setTyped(e.target.value)} />
+          <div><button className="primary-btn" disabled={busy || typed.trim().length < 3} onClick={() => act(api.signNoticeReview(year, { typed_name: typed, note }), 'Review signed.')}>Sign The {year} Review</button></div>
+        </div>
+      ) : <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 10 }}>A notice approver signs the review.</div>)}
     </div>
   );
 }

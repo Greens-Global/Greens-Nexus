@@ -24,6 +24,7 @@ export const STATE_CHIP = {
   awaiting_approval: { label: 'Awaiting Approval', bg: 'rgba(180,83,9,0.12)', color: '#b45309' },
   needs_file:        { label: 'Needs File', bg: 'rgba(220,38,38,0.08)', color: '#b91c1c' },
   review_due:        { label: 'Review Due', bg: 'rgba(180,83,9,0.12)', color: '#b45309' },
+  source_changed:    { label: 'Source Changed', bg: 'rgba(220,38,38,0.08)', color: '#b91c1c' },
   retired:           { label: 'Retired', bg: 'var(--wk-hover)', color: 'var(--muted)' },
 };
 export const VERSION_CHIP = {

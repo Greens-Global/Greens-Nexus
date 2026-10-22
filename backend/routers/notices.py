@@ -146,6 +146,9 @@ def ser_notice(db: Session, n, rows: list, cache: dict, source=None) -> dict:
         state = "awaiting_approval"
     elif live is None and n.kind != "closures":
         state = "needs_file"
+    elif source is not None and source.last_changed_at and not any(
+            (v.prepared_at or "") >= source.last_changed_at for v in rows):
+        state = "source_changed"
     elif sched is not None:
         state = "scheduled"
     else:
@@ -500,6 +503,7 @@ def _us(iso: str) -> str:
 class ReviewIn(BaseModel):
     decision: str          # approve | send_back
     note: str = ""
+    effective_date: str = ""   # the approver may set when it takes effect (a watcher draft: usually 01/01)
 
 
 @router.post("/versions/{vid}/review")
@@ -521,6 +525,14 @@ def review_version(vid: str, body: ReviewIn, user: dict = Depends(get_current_us
     n = db.get(models.WorkplaceNotice, v.notice_id)
     note = (body.note or "").strip()[:2000]
     if body.decision == "approve":
+        eff = (body.effective_date or "").strip()
+        if eff and eff != v.effective_date:
+            try:
+                date.fromisoformat(eff)
+            except ValueError:
+                raise HTTPException(400, "The effective date must be a date")
+            core.log_event(db, me, "version_date_set", v.notice_id, v.id, before=v.effective_date, after=eff)
+            v.effective_date = eff
         v.status, v.approved_by, v.approved_at, v.review_note = "approved", me, core.now_iso(), note
         core.log_event(db, me, "version_approved", v.notice_id, v.id, effectiveDate=v.effective_date,
                        files=[{"lang": f.get("lang"), "sha256": f.get("sha256")} for f in (v.files or [])])
@@ -911,3 +923,93 @@ def set_my_emergency(body: EmergencyIn, user: dict = Depends(get_current_user), 
     core.log_event(db, me, "emergency_contact_set", "ca-sb294", choice=body.choice)
     db.commit()
     return {"applies": True, **_sb294_out(db, emp, row)}
+
+
+# ── Calendar, the December review, Check Now ─────────────────────────────────
+
+@router.get("/calendar")
+def notice_calendar(year: int = 0, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import notices_watcher
+    _require_manage(db, user)
+    y = year or core.today().year
+    return {"year": y, "items": notices_watcher.calendar(db, y)}
+
+
+def _review_out(db: Session, r, year: str) -> dict:
+    import notices_watcher
+    cache: dict = {}
+    signed = r is not None and r.status == "signed"
+    return {"year": year, "status": r.status if r else "not_open", "openedAt": r.opened_at if r else "",
+            "signedBy": _name_of(db, r.signed_by, cache) if signed else "", "signedAt": r.signed_at if signed else "",
+            "typedName": r.typed_name if signed else "", "note": r.note if signed else "",
+            "items": (r.items if signed else notices_watcher.review_items(db, year)), "canSign": False}
+
+
+@router.get("/review/{year}")
+def get_review(year: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    me = _require_manage(db, user)
+    if not re.fullmatch(r"20\d\d", year):
+        raise HTTPException(400, "A year like 2027")
+    out = _review_out(db, db.get(models.WorkplaceNoticeReview, year), year)
+    out["canSign"] = can_approve(db, me)
+    return out
+
+
+@router.post("/review/{year}/open")
+def open_review(year: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Open a year's review before 12/01 (the first year, or to start early)."""
+    import notices_watcher
+    me = _require_manage(db, user)
+    if not re.fullmatch(r"20\d\d", year):
+        raise HTTPException(400, "A year like 2027")
+    notices_watcher.open_review(db, year)
+    db.commit()
+    return get_review(year, {"email": me}, db)
+
+
+class SignIn(BaseModel):
+    typed_name: str
+    note: str = ""
+
+
+@router.post("/review/{year}/sign")
+def sign_review(year: str, body: SignIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The approver signs that every notice was checked for the year. What it
+    covered is frozen with the signature."""
+    import notices_watcher
+    me = core.norm(user.get("email"))
+    if not can_approve(db, me):
+        raise HTTPException(403, "Only a notice approver signs the review")
+    r = db.query(models.WorkplaceNoticeReview).filter(models.WorkplaceNoticeReview.id == year).with_for_update().first()
+    if r is None:
+        raise HTTPException(404, "Open the review first")
+    if r.status == "signed":
+        raise HTTPException(409, "Already signed")
+    _me_, emp = _me(db, user)
+    real = core.person_name(emp) if emp else me
+    if not _names_match(body.typed_name, real):
+        raise HTTPException(422, f"Type your full name as it appears in Nexus: {real}")
+    items = notices_watcher.review_items(db, year)
+    open_items = [i for i in items if i["state"] in ("needs_file", "awaiting_approval", "source_changed")]
+    if open_items and not (body.note or "").strip():
+        raise HTTPException(400, f"{len(open_items)} notices still need a file or an approval - say why you are signing anyway")
+    r.status, r.items, r.signed_by, r.typed_name = "signed", items, me, body.typed_name.strip()[:120]
+    r.signed_at, r.note = core.now_iso(), (body.note or "").strip()[:2000]
+    core.log_event(db, me, "review_signed", year=year, items=len(items), open=len(open_items))
+    db.commit()
+    return get_review(year, user, db)
+
+
+@router.post("/notice/{nid}/check")
+def check_now(nid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Check this notice's official source now (one request)."""
+    import notices_watcher
+    me = _require_manage(db, user)
+    n = db.get(models.WorkplaceNotice, nid)
+    src = db.get(models.WorkplaceNoticeSource, nid)
+    if n is None or src is None or not src.url:
+        raise HTTPException(404, "This notice has no official source to check")
+    result = notices_watcher.check_source(db, src, n)
+    core.log_event(db, me, "checked_now", nid, result=result)
+    db.commit()
+    return {"result": result, "lastError": src.last_error or ""}
