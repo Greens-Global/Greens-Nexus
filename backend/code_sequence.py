@@ -159,7 +159,10 @@ def next_task_codes(db: Session, count: int) -> list[str]:
     """`count` task codes in one go (the task import, Oct 22 2026): the same
     counter row, bumped by `count` at once instead of once per task, so a
     2,000-row import is two UPDATEs and a few lookups rather than 4,000 round
-    trips while it holds the counter's row lock. Same guarantees as
+    trips. The row lock the first UPDATE takes is held until the caller's
+    transaction ends, and every other task create waits on it - so call this
+    as the LAST thing before the commit (task_import builds its rows with
+    placeholder codes and swaps these in at the end). Same guarantees as
     next_task_code: the bump is part of the caller's transaction (a rollback
     hands the whole block back), and a number already on a row is skipped,
     never reused - those are topped up one at a time."""

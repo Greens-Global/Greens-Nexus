@@ -153,6 +153,68 @@ describe('ImportTasksModal', () => {
     expect(real.notify_assignees).toBe(true);
   });
 
+  it('excluding a parent leaves its subtasks out too, and counts each skipped row once', async () => {
+    const row = (n, title, parentRow = null) => ({ ...dryReport.rows[0], row: n, title, parentRow, warnings: [], depth: parentRow ? 1 : 0 });
+    store.importTasks
+      .mockImplementationOnce(async () => ({ ...dryReport, total: 3, valid: 3, skipped: 0, errors: [],
+        rows: [row(2, 'Phase 1'), row(3, 'Pour', 2), row(4, 'Other')] }))
+      .mockImplementationOnce(async () => ({ ...done, created: 1, skipped: 0, errors: [] }));
+    table.rows = [2, 3, 4].map((n) => ({ n, raw: [`T${n}`, '', '', '', ''], text: [`T${n}`, '', '', '', ''] }));
+    render(<ImportTasksModal projectId="p1" onClose={() => {}} />);
+    await upload();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await screen.findByTestId('preview-row-4');
+    fireEvent.click(screen.getByLabelText('Import row 2'));
+    expect(screen.getByLabelText('Import row 3')).toBeDisabled();
+    expect(screen.getByText('Skipped with its parent row.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Import 1 Task' }));
+    await screen.findByText('Imported 1 Task');
+    const [dry, real] = store.importTasks.mock.calls.map((c) => c[0]);
+    // Neither the excluded row nor the subtask under it is sent.
+    expect(real.rows.map((r) => r.row)).toEqual([4]);
+    // One id for the whole run: a retry of the same import is refused.
+    expect(real.import_id).toBeTruthy();
+    expect(real.import_id).toBe(dry.import_id);
+    expect(screen.getByText(/2 rows were skipped/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Download Error Report/ }));
+    const csv = downloadText.mock.calls[0][0];
+    expect(csv.split('\r\n').filter((l) => /^[23],/.test(l))).toEqual(['2,Phase 1,Excluded before importing.', '3,Pour,Excluded before importing.']);
+  });
+
+  it('cannot be closed while the import is running', async () => {
+    let finish;
+    store.importTasks
+      .mockImplementationOnce(async () => dryReport)
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const onClose = vi.fn();
+    render(<ImportTasksModal projectId="p1" onClose={onClose} />);
+    await upload();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await screen.findByTestId('preview-row-2');
+    fireEvent.click(screen.getByRole('button', { name: 'Import 1 Task' }));
+    await waitFor(() => expect(store.importTasks).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(onClose).not.toHaveBeenCalled();
+    finish(done);
+    await screen.findByText('Imported 1 Task');
+  });
+
+  it('a failed import tells the person to check the project, not that nothing happened', async () => {
+    store.importTasks
+      .mockImplementationOnce(async () => dryReport)
+      .mockImplementationOnce(async () => { throw new Error(''); });
+    render(<ImportTasksModal projectId="p1" onClose={() => {}} />);
+    await upload();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await screen.findByTestId('preview-row-2');
+    fireEvent.click(screen.getByRole('button', { name: 'Import 1 Task' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Check the project before trying again.');
+  });
+
   it('refuses more than 2,000 rows before anything is sent', async () => {
     table = { headers: ['Task Name'], rows: Array.from({ length: 2001 }, (_, i) => ({ n: i + 2, raw: [`T${i}`], text: [`T${i}`] })) };
     render(<ImportTasksModal projectId="p1" onClose={() => {}} />);

@@ -50,7 +50,7 @@ describe('header auto-mapping', () => {
 describe('date cells', () => {
   it('reads MM/DD/YYYY as US - 03/04 is March 4, never April 3', () => {
     expect(parseDateCell('03/04/2026')).toEqual({ iso: '2026-03-04', ok: true });
-    expect(parseDateCell('3/4/26')).toEqual({ iso: '2026-03-04', ok: true });
+    expect(parseDateCell('3/4/26')).toEqual({ iso: '2026-03-04', ok: true, twoDigitYear: true });
     expect(parseDateCell('12-31-2026')).toEqual({ iso: '2026-12-31', ok: true });
     expect(parseDateCell('25/03/2026').ok).toBe(false);   // not swapped round
     expect(parseDateCell('02/30/2026').ok).toBe(false);   // not rolled into March
@@ -66,6 +66,15 @@ describe('date cells', () => {
     expect(parseDateCell(new Date(2026, 9, 22))).toEqual({ iso: '2026-10-22', ok: true });
     expect(excelSerialToISO(25569)).toBe('1970-01-01');
     expect(excelSerialToISO(45658)).toBe('2025-01-01');
+  });
+
+  // The same cases as backend/test_task_import.py DateTests.TWO_DIGIT - the
+  // two parsers must agree on the pivot.
+  it('reads two-digit years with the 70 pivot, and says so', () => {
+    const cases = [['3/4/26', '2026-03-04'], ['1/2/69', '2069-01-02'], ['1/2/70', '1970-01-02'],
+      ['12/31/99', '1999-12-31'], ['1/1/00', '2000-01-01']];
+    for (const [raw, iso] of cases) expect(parseDateCell(raw)).toEqual({ iso, ok: true, twoDigitYear: true });
+    expect(parseDateCell('3/4/2026').twoDigitYear).toBeUndefined();
   });
 
   it('blank is fine, nonsense is not', () => {
@@ -100,6 +109,15 @@ describe('table and rows', () => {
       custom: { 'f-phase': 'Build', 'f-when': '2026-04-08' } });
     expect(rows[1]).toEqual({ row: 5, title: 'Order steel', due: 'bad date', custom: { 'f-when': '2026-10-01' } });
     expect(rows[2]).toEqual({ row: 6, title: 'Frame', due: '2026-04-05' });
+  });
+
+  it('reads serials from a 1904 date-system workbook 1,462 days later', () => {
+    const t = tableFromArrays([['Task Name', 'Due', 'Start'], ['Pour slab', 44653, '03/04/2026']], undefined, 0, { date1904: true });
+    expect(t.date1904).toBe(true);
+    expect(buildImportRows(t, ['title', 'due', 'start'])[0])
+      .toEqual({ row: 2, title: 'Pour slab', due: '2026-04-03', start: '2026-03-04' });
+    const t1900 = tableFromArrays([['Task Name', 'Due'], ['Pour slab', 44653]]);
+    expect(buildImportRows(t1900, ['title', 'due'])[0].due).toBe('2022-04-02');
   });
 
   it('leaves out excluded rows and unmapped columns', () => {
@@ -138,6 +156,23 @@ describe('preview helpers', () => {
     expect(lines[1]).toBe('4,"Steel, ""rebar""","Title is required. Due date ""x"" is not a date - use MM/DD/YYYY."');
     expect(lines).toContain('9,Skip me,Excluded before importing.');
     expect(lines).toContain('6,,gone@x.com has left - left off.');
+  });
+
+  it('the error report never hands a spreadsheet a formula', () => {
+    const csv = errorReportCsv({
+      errors: [{ row: 2, title: '=HYPERLINK("http://x","click")', errors: ['Title is required.'] },
+        { row: 3, title: '+1 cmd', errors: ['x'] }, { row: 4, title: '-2', errors: ['x'] },
+        { row: 5, title: '@SUM(A1)', errors: ['x'] }, { row: 6, title: '\tTab', errors: ['x'] },
+        { row: 7, title: '\rCR', errors: ['x'] }, { row: 8, title: 'Plain = fine', errors: ['x'] }],
+    });
+    const lines = csv.split('\r\n');
+    expect(lines[1]).toBe('2,"\'=HYPERLINK(""http://x"",""click"")",Title is required.');
+    expect(lines[2]).toBe("3,'+1 cmd,x");
+    expect(lines[3]).toBe("4,'-2,x");
+    expect(lines[4]).toBe("5,'@SUM(A1),x");
+    expect(lines[5]).toBe("6,'\tTab,x");
+    expect(csv).toContain(`7,"'\rCR",x`);
+    expect(csv).toContain('8,Plain = fine,x');
   });
 
   it('refuses the wrong kind of file and anything over 5 MB', () => {

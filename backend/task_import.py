@@ -31,9 +31,18 @@ All-or-nothing. A row with an error is skipped and reported; every other row
 is created in ONE transaction, so a failure part-way (the database, a bug)
 leaves nothing behind - no half-imported plan to clean up by hand. 2,000
 rows is a few thousand INSERTs in one commit, well within what Postgres does
-in a second or two; task codes come from the counter as one block
-(code_sequence.next_task_codes) so the counter's row lock is held for one
-UPDATE, not 2,000.
+in a second or two. Task codes are taken LAST: the rows are built with
+placeholder codes, then one block comes from the counter
+(code_sequence.next_task_codes) and is written over every placeholder just
+before the commit - so the counter's row lock, which every other create in
+the company waits on, is held only from that moment to the commit, never
+while 2,000 rows are being built. Nothing is flushed before then
+(autoflush is off), so no placeholder ever reaches the database.
+
+Retries are safe: the browser sends an import id, and the project's
+"imported N tasks" activity row is keyed on it (its id is derived from the
+project and the import id). A second run of the same import is refused with
+409 before anything is built, and two at once cannot both commit.
 
 Each task is built by the same helpers create_task uses (_new_task_row,
 set_task_assignees, task_due.init_due, the 'created' automation pass,
@@ -48,12 +57,15 @@ from __future__ import annotations
 
 import html
 import logging
+import math
 import re
 import time
+import uuid
 from datetime import date, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import auth
@@ -128,7 +140,8 @@ def parse_import_date(raw) -> tuple[str, bool]:
     and reads dates as MM/DD/YYYY everywhere, and a file mixing the two
     orders cannot be told apart row by row. A first number over 12 is
     therefore an error, not a hint to swap. Also YYYY-MM-DD (with or without
-    a time), M/D/YY (20YY), "Oct 22, 2026", and Excel serial numbers (a date
+    a time), M/D/YY (00-69 -> 20YY, 70-99 -> 19YY, the pivot the browser uses
+    too - importing.js), "Oct 22, 2026", and Excel serial numbers (a date
     cell the browser could not read as a date arrives as its serial)."""
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return "", True
@@ -155,7 +168,7 @@ def parse_import_date(raw) -> tuple[str, bool]:
         if hit:
             m, d, y = int(hit.group(1)), int(hit.group(2)), int(hit.group(3))
             if len(hit.group(3)) == 2:
-                y += 2000
+                y += 2000 if y < 70 else 1900
         else:
             for fmt in _NAMED_FORMATS:
                 try:
@@ -170,6 +183,13 @@ def parse_import_date(raw) -> tuple[str, bool]:
         return date(y, m, d).isoformat(), True
     except ValueError:
         return "", False
+
+
+def has_two_digit_year(raw) -> bool:
+    """M/D/YY - read with the pivot above, and said on the row so a 1/2/70
+    that meant 2070 is noticed."""
+    hit = _US_RE.match(_cell(raw)) if isinstance(raw, str) else None
+    return bool(hit and len(hit.group(3)) == 2)
 
 
 def _as_html(text: str) -> str:
@@ -354,7 +374,7 @@ class _Row:
 def _parse_row(ctx: _Context, raw: dict, index: int) -> _Row:
     try:
         n = int(raw.get("row") or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):   # "abc", NaN, Infinity
         n = 0
     r = _Row(n if n > 0 else index + 2, index)
 
@@ -375,6 +395,8 @@ def _parse_row(ctx: _Context, raw: dict, index: int) -> _Row:
         iso, ok = parse_import_date(raw.get(key))
         if not ok:
             r.errors.append(f"{label} \"{_cell(raw.get(key))}\" is not a date - use MM/DD/YYYY.")
+        elif has_two_digit_year(raw.get(key)):
+            r.warnings.append(f"{label} \"{_cell(raw.get(key))}\" has a two-digit year - read as {task_due.us_date(iso)}.")
         setattr(r, attr, iso)
     if r.start and r.due and r.start > r.due:
         r.warnings.append("Start date is after the due date.")
@@ -456,6 +478,10 @@ def _parse_field(ctx: _Context, r: _Row, f, value) -> None:
         try:
             n = float(re.sub(r"[,$\s]", "", text))
         except ValueError:
+            n = math.nan
+        # NaN and Infinity parse as floats but are not numbers anyone meant,
+        # and Postgres's JSON refuses them - the whole import would 500.
+        if not math.isfinite(n):
             r.warnings.append(f"{name} \"{text}\" is not a number - left empty.")
             return
         r.values[f.id] = int(n) if n.is_integer() else n
@@ -464,6 +490,8 @@ def _parse_field(ctx: _Context, r: _Row, f, value) -> None:
         if not ok:
             r.warnings.append(f"{name} \"{text}\" is not a date - left empty.")
             return
+        if has_two_digit_year(value):
+            r.warnings.append(f"{name} \"{text}\" has a two-digit year - read as {task_due.us_date(iso)}.")
         r.values[f.id] = iso
     elif kind == "checkbox":
         low = text.strip().lower()
@@ -629,17 +657,29 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
     }
     if body.dry_run:
         return report
+    import_key = _import_key(ctx.project.id, getattr(body, "import_id", "") or "")
+    if import_key and db.get(models.TaskActivity, import_key) is not None:
+        raise HTTPException(409, "This file was already imported into this project. Check the project "
+                                 "before importing it again.")
     if not good:
         raise HTTPException(422, "Every row has an error, so nothing was imported. Fix the file and try again.")
     try:
-        made = _create(ctx, body, good, used_sections, used_options)
+        made = _create(ctx, body, good, used_sections, used_options, import_key)
     except HTTPException:
         db.rollback()
         raise
+    except IntegrityError:
+        db.rollback()
+        if import_key and db.get(models.TaskActivity, import_key) is not None:
+            # The same import committed first (a double click, a retry).
+            raise HTTPException(409, "This file was already imported into this project. Check the project "
+                                     "before importing it again.")
+        log.exception("task import failed")
+        raise HTTPException(500, "The import failed. Check the project before trying again.")
     except Exception:
         db.rollback()
         log.exception("task import failed")
-        raise HTTPException(500, "The import failed and nothing was created. Try again, or split the file.")
+        raise HTTPException(500, "The import failed. Check the project before trying again.")
     if defer is not None and made["assigned"]:
         defer(_queue_assignment_mail, ctx.actor, made["assigned"])
     # Comments the 'created' rules asked for - silently (see the docstring).
@@ -654,7 +694,45 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
     }
 
 
-def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_options: dict) -> dict:
+_PLACEHOLDER = "[[import-code-{}]]"
+_PLACEHOLDER_RE = re.compile(r"\[\[import-code-(\d+)\]\]")
+
+
+def _import_key(project_id: str, import_id: str) -> str:
+    """The id of the project's "imported N tasks" activity row for one import
+    - derived, so the primary key itself refuses a second commit of it."""
+    iid = (import_id or "").strip()[:100]
+    if not iid:
+        return ""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"nexus-task-import:{project_id}:{iid}"))
+
+
+def _swap_codes(db: Session, codes: list[str]) -> None:
+    """Every pending row's placeholder code -> its real one. Scans every
+    string column (and JSON values) of everything new or changed in the
+    session, so anything that copied a code - activity rows, automation run
+    rows, a rule's activity line - is caught without listing them here."""
+    def fix(v):
+        if isinstance(v, str):
+            return _PLACEHOLDER_RE.sub(lambda m: codes[int(m.group(1))], v) if "[[import-code-" in v else v
+        if isinstance(v, list):
+            return [fix(x) for x in v]
+        if isinstance(v, dict):
+            return {k: fix(x) for k, x in v.items()}
+        return v
+    for obj in list(db.new) + list(db.dirty):
+        table = getattr(obj, "__table__", None)
+        if table is None:
+            continue
+        for col in table.columns:
+            val = getattr(obj, col.key, None)
+            new = fix(val)
+            if new != val:
+                setattr(obj, col.key, new)
+
+
+def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_options: dict,
+            import_key: str = "") -> dict:
     """Everything in one transaction; the caller rolls back on any raise."""
     from routers.tasks import (TaskCreate, _new_task_row, _follow_as_actor, validate_task_payload,
                                _apply_completion, _resolve_completed)
@@ -676,15 +754,23 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
 
     # Options next, so coercion below reads them as real options. A new list:
     # the JSON column only notices a reassignment.
+    # The field row is locked and re-read first: a manager editing the same
+    # field's options meanwhile would otherwise lose their edit or ours.
     for fid, opts in used_options.items():
         if not opts:
             continue
-        f = ctx.defs[fid]
-        f.options = normalize_field_options(list(f.options or []) + [{"label": lbl} for lbl in opts.values()])
+        f = (db.query(models.TaskCustomField).filter(models.TaskCustomField.id == fid)
+             .populate_existing().with_for_update().first())
+        if f is None:
+            continue
+        have = {_norm(o["label"]) for o in normalize_field_options(f.options or [])}
+        add = [{"label": lbl} for key, lbl in opts.items() if key not in have]
+        if add:
+            f.options = normalize_field_options(list(f.options or []) + add)
+        ctx.defs[fid] = f
 
     rules = task_automation._enabled_rules(db)
     order = sorted(good, key=lambda r: (r.depth, r.index))
-    codes = code_sequence.next_task_codes(db, len(order))
     base = time.time()
     assigned: dict = {}
     autos = []
@@ -711,7 +797,7 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
         except HTTPException as e:
             raise HTTPException(422, f"Row {r.n}: {e.detail}")
         data.update({k: checked[k] for k in ("tags", "assignee_emails", "follower_emails")})
-        t = _new_task_row(db, TaskCreate(**data), tid=tid, code=codes[i], company_id=ctx.company_id,
+        t = _new_task_row(db, TaskCreate(**data), tid=tid, code=_PLACEHOLDER.format(i), company_id=ctx.company_id,
                           access_level=ctx.access_level, user=user, now=now, field_defs=ctx.defs)
         set_task_assignees(t, data["assignee_emails"])
         _follow_as_actor(t, actor)
@@ -756,11 +842,16 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View tasks"})
 
     name = (body.file_name or "").strip()[:200] or "a file"
-    aid = log_activity(db, type="imported", entity_kind="project", actor_email=actor, entity_id=project.id,
-                       entity_code=project.name, entity_title=project.name,
-                       detail=f"imported {len(order)} task{'' if len(order) == 1 else 's'} from {name}")
+    aid = import_key or gen_id()
+    db.add(models.TaskActivity(
+        id=aid, entity_kind="project", entity_id=project.id, entity_code=project.name,
+        entity_title=project.name, type="imported", actor_email=actor, at=now_iso(),
+        detail=f"imported {len(order)} task{'' if len(order) == 1 else 's'} from {name}"))
     project.activity_ids = list(project.activity_ids or []) + [aid]
     project.modified_at = now
+    # The codes, last of all: the counter's row lock is held from here to
+    # the commit just below, not while the rows above were built.
+    _swap_codes(db, code_sequence.next_task_codes(db, len(order)))
     # Ids taken before the commit expires the rows (each read after it would
     # re-SELECT its row).
     assigned_ids = {who: [t.id for t in tasks] for who, tasks in assigned.items()}
@@ -769,16 +860,18 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
 
 
 def _queue_assignment_mail(actor: str, assigned: dict) -> None:
-    """After the response: one batched email per newly assigned person for the
-    whole import (task_notify.queue_bulk_assignments), on its own session -
-    the request's is closed by then."""
+    """After the response: one email per newly assigned person for the whole
+    import (task_notify.queue_bulk_assignments) - batched, or sent at once
+    when the company has batching off - on its own session, since the
+    request's is closed by then."""
     import task_notify
     db = SessionLocal()
     try:
         ids = sorted({i for v in assigned.values() for i in v})
         tasks = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(ids)).all()} if ids else {}
-        task_notify.queue_bulk_assignments(db, actor, {who: [tasks[i] for i in v if i in tasks]
-                                                       for who, v in assigned.items()})
+        task_notify.queue_bulk_assignments(
+            db, actor, {who: [tasks[i] for i in v if i in tasks] for who, v in assigned.items()},
+            send_now_if_instant=True)
     except Exception:
         log.exception("queueing import assignment mail failed")
     finally:

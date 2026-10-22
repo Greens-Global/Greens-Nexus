@@ -84,10 +84,11 @@ export function excelSerialToISO(serial) {
 }
 
 /**
- * A date cell -> { iso, ok }. Blank is ok and empty. US order only:
- * 03/04/2026 is March 4 and never April 3 - a first number over 12 is not a
- * date. Also YYYY-MM-DD, M/D/YY, "Oct 22, 2026", Excel serials and Date
- * objects. The server applies the same rules (task_import.parse_import_date).
+ * A date cell -> { iso, ok, twoDigitYear }. Blank is ok and empty. US order
+ * only: 03/04/2026 is March 4 and never April 3 - a first number over 12 is
+ * not a date. Also YYYY-MM-DD, M/D/YY (00-69 -> 20YY, 70-99 -> 19YY),
+ * "Oct 22, 2026", Excel serials and Date objects. The server applies the
+ * same rules and the same pivot (task_import.parse_import_date).
  */
 export function parseDateCell(value) {
   if (value === null || value === undefined) return { iso: '', ok: true };
@@ -105,9 +106,10 @@ export function parseDateCell(value) {
   if (m) { const iso = isoOf(+m[1], +m[2], +m[3]); return { iso, ok: !!iso }; }
   m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})$/);
   if (m) {
-    const y = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+    const two = m[3].length === 2;
+    const y = two ? (+m[3] < 70 ? 2000 : 1900) + +m[3] : +m[3];
     const iso = isoOf(y, +m[1], +m[2]);
-    return { iso, ok: !!iso };
+    return two ? { iso, ok: !!iso, twoDigitYear: true } : { iso, ok: !!iso };
   }
   if (/^\d+(\.\d+)?$/.test(s)) { const iso = excelSerialToISO(+s); return { iso, ok: !!iso }; }
   m = s.replace(/\./g, '').match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
@@ -157,13 +159,15 @@ export async function sheetTable(workbook, sheetName) {
   const top = XLSX.utils.decode_range(ws['!ref']).s.r;
   const raw = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '', blankrows: true });
   const text = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '', blankrows: true });
-  return tableFromArrays(raw, text, top);
+  // A workbook saved in Excel's 1904 date system (old Mac Excel) counts its
+  // serials from 01/01/1904 - 1,462 days later than the 1900 system.
+  return tableFromArrays(raw, text, top, { date1904: !!workbook?.Workbook?.WBProps?.date1904 });
 }
 
 /** The pure half of sheetTable (tested without a workbook). */
-export function tableFromArrays(raw, text = raw, top = 0) {
+export function tableFromArrays(raw, text = raw, top = 0, { date1904 = false } = {}) {
   const headerAt = raw.findIndex((r) => (r || []).some((c) => !blankCell(c)));
-  if (headerAt < 0) return { headers: [], rows: [] };
+  if (headerAt < 0) return { headers: [], rows: [], date1904 };
   const headers = (text[headerAt] || raw[headerAt]).map((h) => String(h ?? '').trim());
   const rows = [];
   for (let i = headerAt + 1; i < raw.length; i++) {
@@ -171,7 +175,7 @@ export function tableFromArrays(raw, text = raw, top = 0) {
     if (!r.some((c) => !blankCell(c))) continue;
     rows.push({ n: top + i + 1, raw: r, text: text[i] || r });
   }
-  return { headers, rows };
+  return { headers, rows, date1904 };
 }
 
 // ── Rows for the server ────────────────────────────────────────────────────
@@ -194,7 +198,8 @@ export function buildImportRows(table, mapping, fieldsById = {}, excluded = new 
       let value;
       const field = target.startsWith(CF) ? fieldsById[target.slice(CF.length)] : null;
       if (DATE_KEYS.has(target) || field?.type === 'date') {
-        const { iso, ok } = parseDateCell(raw);
+        const cell = typeof raw === 'number' && table.date1904 ? raw + EXCEL_1904_OFFSET : raw;
+        const { iso, ok } = parseDateCell(cell);
         value = ok ? iso : String(shown ?? '').trim();
       } else if (field?.type === 'number' && typeof raw === 'number') {
         value = raw;
@@ -209,6 +214,8 @@ export function buildImportRows(table, mapping, fieldsById = {}, excluded = new 
   }
   return out;
 }
+
+export const EXCEL_1904_OFFSET = 1462;
 
 /** Rows hidden behind an excluded row: its subtasks, at any depth. */
 export function skippedWithParent(reportRows, excluded) {
@@ -227,8 +234,12 @@ export function skippedWithParent(reportRows, excluded) {
 }
 
 // ── Files handed back ──────────────────────────────────────────────────────
+// A cell that starts like a formula (= + - @, a tab or a carriage return) is
+// prefixed with ' so a spreadsheet shows it as text instead of running it -
+// task names and messages come from the uploaded file.
 const csvCell = (v) => {
-  const s = String(v ?? '');
+  let s = String(v ?? '');
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 

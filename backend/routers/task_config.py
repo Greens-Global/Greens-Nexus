@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from typing import Optional, Any
 import os
 import json
+import math
 import uuid
 import httpx
 from datetime import datetime, timedelta, timezone
@@ -623,6 +624,10 @@ def coerce_custom_field_values(db: Session, values, defs: dict | None = None) ->
         try:
             if kind == "number":
                 n = float(raw)
+                # float() reads "nan" / "inf" too. Neither is a number anyone
+                # meant, and Postgres's JSON refuses both - the save would 500.
+                if not math.isfinite(n):
+                    continue
                 out[fid] = int(n) if n.is_integer() else n
             elif kind == "checkbox":
                 out[fid] = raw if isinstance(raw, bool) else str(raw).strip().lower() in ("1", "true", "yes", "on")

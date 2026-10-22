@@ -822,16 +822,26 @@ def _enqueue(db: Session, *, recipient: str, role: str, task_id: str, event_type
     db.commit()
 
 
-def queue_bulk_assignments(db: Session, actor_email: str, assigned: dict) -> None:
+def queue_bulk_assignments(db: Session, actor_email: str, assigned: dict, send_now_if_instant: bool = False) -> None:
     """Bulk edits never emailed anyone (fifty separate "you were assigned"
     mails for one action). With batching on they can: each newly assigned
     person gets ONE email for the lot. A time-critical task marks the batch
     urgent so it goes out on the next tick instead of waiting the hour.
-    `assigned` = {email: [Task, ...]}. Never raises."""
+    `assigned` = {email: [Task, ...]}. Never raises.
+
+    `send_now_if_instant` (the task import, Oct 22 2026, where the person
+    ASKED to notify): with batching off (batchWindowMinutes = 0) the rows are
+    queued anyway and each person's one email is sent right away through the
+    batch sender - instant, and still one email per person, not one per task.
+    Bulk edits keep sending nothing in instant mode, as before."""
     try:
         cfg = get_settings(db)
-        if not batch_window_minutes(cfg) or not cfg["enabledEvents"].get("assigned", True):
+        if not cfg["enabledEvents"].get("assigned", True):
             return
+        instant = not batch_window_minutes(cfg)
+        if instant and not send_now_if_instant:
+            return
+        queued = []
         for who, tasks in assigned.items():
             if not _is_sendable(db, who):
                 continue
@@ -840,6 +850,15 @@ def queue_bulk_assignments(db: Session, actor_email: str, assigned: dict) -> Non
                 if prefs_mod.wants_event(p, "assigned", t):
                     _enqueue(db, recipient=who, role="assignee", task_id=t.id, event_type="assigned",
                              actor_email=actor_email, payload={}, urgent=_is_time_critical(t))
+                    if who not in queued:
+                        queued.append(who)
+        if instant:
+            now = datetime.now(timezone.utc)
+            for who in queued:
+                try:
+                    _flush_recipient(db, who, cfg, now)
+                except Exception:
+                    db.rollback()
     except Exception:
         db.rollback()
 

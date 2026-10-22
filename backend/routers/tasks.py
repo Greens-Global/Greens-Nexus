@@ -5052,6 +5052,7 @@ class TaskImportBody(BaseModel):
     notify_assignees: bool = False          # one bell + one batched email per person, or nothing
     create_sections: bool = False           # make the Section values the project lacks
     add_missing_options: bool = False       # managers: add select options the file uses
+    import_id: Optional[str] = ""           # one per wizard run - a repeat of it is refused (409)
     # [{row, title, description, assignees, due, start, priority, status,
     #   tags, section, parent, custom: {fieldId: value}}]
     rows: list = []

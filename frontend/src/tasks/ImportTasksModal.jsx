@@ -26,6 +26,8 @@ const STEPS = [
   { key: 'done', label: 'Done' },
 ];
 const PREVIEW_LIMIT = 300;
+const newImportId = () => (globalThis.crypto?.randomUUID?.()
+  || `imp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 const labelStyle = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
 const th = { textAlign: 'left', fontSize: 11.5, fontWeight: 600, color: NX.dim, padding: '7px 9px', borderBottom: `1px solid ${NX.border}`, whiteSpace: 'nowrap', position: 'sticky', top: 0, background: NX.surface };
 const td = { padding: '7px 9px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5, color: NX.ink, verticalAlign: 'top' };
@@ -75,6 +77,9 @@ export default function ImportTasksModal({ projectId, canManage = false, onClose
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const fileRef = useRef(null);
+  // One id for this run of the wizard: the server refuses a second import
+  // with it (409), so a retry after a timeout cannot import the file twice.
+  const [importId] = useState(newImportId);
 
   // Only projects this person may add work to (the server's bar: editor).
   const destinations = useMemo(() => projects
@@ -138,7 +143,7 @@ export default function ImportTasksModal({ projectId, canManage = false, onClose
   const mapsSelect = mapping.some((m) => m.startsWith(CF) && ['select', 'multiselect'].includes(fieldsById[m.slice(CF.length)]?.type));
 
   const request = (dry, excl = excluded) => ({
-    project_id: destId, section_id: sectionId, file_name: file?.name || '', dry_run: dry,
+    project_id: destId, section_id: sectionId, file_name: file?.name || '', dry_run: dry, import_id: importId,
     notify_assignees: !dry && notify, create_sections: mapsSection && createSections,
     add_missing_options: canManage && mapsSelect && addOptions,
     rows: buildImportRows(table, mapping, fieldsById, excl),
@@ -165,11 +170,13 @@ export default function ImportTasksModal({ projectId, canManage = false, onClose
   const runImport = async () => {
     setErr(''); setBusy('import');
     try {
-      const r = await store.importTasks(request(false));
+      // Excluded rows and the subtasks under them are not sent at all, so
+      // each is counted once - here, not again as a server error.
+      const r = await store.importTasks(request(false, new Set([...excluded, ...hidden])));
       setResult(r);
       setStep('done');
     } catch (e) {
-      setErr(e?.message || 'The import failed. Nothing was created.');
+      setErr(e?.message || 'The import may not have finished. Check the project before trying again.');
     } finally {
       setBusy('');
     }
@@ -181,7 +188,7 @@ export default function ImportTasksModal({ projectId, canManage = false, onClose
     return next;
   });
 
-  const excludedRows = (report?.rows || []).filter((r) => !r.errors.length && (excluded.has(r.row) || hidden.has(r.row)));
+  const excludedRows = (report?.rows || []).filter((r) => excluded.has(r.row) || hidden.has(r.row));
   const skippedTotal = (result?.skipped || 0) + excludedRows.length;
 
   const footer = (() => {
@@ -224,7 +231,9 @@ export default function ImportTasksModal({ projectId, canManage = false, onClose
   })();
 
   return (
-    <Modal title="Import Tasks" onClose={onClose} footer={footer}>
+    // Not closable while the import is on the wire: closing would not stop
+    // it, and the person would not see whether it landed.
+    <Modal title="Import Tasks" onClose={() => { if (busy !== 'import') onClose(); }} footer={footer}>
       <Steps step={step} />
       {err && (
         <div role="alert" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '9px 12px', borderRadius: 8, background: 'rgba(220,38,38,0.08)', color: NX.red, fontSize: 13, marginBottom: 12 }}>
