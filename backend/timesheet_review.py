@@ -308,7 +308,7 @@ def review_covering(db: Session, email: str, local_date: str) -> TimesheetReview
 
 
 def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
-               employee_request: bool = False, dry_run: bool = False) -> None:
+               employee_request: bool = False, dry_run: bool = False, what: str = "") -> None:
     """Called by every route that changes hours, BEFORE the change. One side at
     a time during review.
 
@@ -322,7 +322,9 @@ def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
     changing a timesheet the manager already approved - or one out for the
     employee's signature - reopens it: back with the manager to approve again
     (reopen). `dry_run` only answers whether the change may go ahead (the Add
-    Time screen's lock check), changing nothing."""
+    Time screen's lock check), changing nothing. `what`: the change in words
+    for the notices and the approval log ("added a bonus: ...", Oct 22) -
+    default "changed the hours"."""
     email = (email or "").lower()
     actor = (actor_email or "").lower()
     r = review_covering(db, email, (local_date or "")[:10])
@@ -331,11 +333,11 @@ def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
     is_employee = actor == email
     if not is_employee and is_hr(db, actor, email):
         if not dry_run:
-            _hr_override(db, r, actor)
+            _hr_override(db, r, actor, what)
         return
     if r.status in ("approved", "signing"):
         if not dry_run:
-            reopen(db, r, actor, "asked for a change" if (is_employee or employee_request) else "changed the hours")
+            reopen(db, r, actor, what or ("asked for a change" if (is_employee or employee_request) else "changed the hours"))
         return
     if employee_request:
         return
@@ -1202,6 +1204,8 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
     out = []
     for e in rounds[start:]:
         w = words.get(e.get("action"))
+        if e.get("action") == "hr_edited" and e.get("note"):
+            w = "Changed by {who} (HR) on {when}"     # the note says what - a bonus is not hours (Oct 22)
         if w:
             line = w.format(who=_who(db, e), when=us_datetime(e.get("at", ""), offset))
             if e.get("note"):

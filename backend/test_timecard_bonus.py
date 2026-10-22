@@ -132,13 +132,28 @@ class BonusWorkflowTests(ReviewCase):
         self.db.expire_all()
         return [n.title for n in self.db.query(models.NexusNotification).filter_by(recipient=to).all()]
 
+    def _bell(self, to, title):
+        self.db.expire_all()
+        got = [n.body for n in self.db.query(models.NexusNotification).filter_by(recipient=to, title=title).all()]
+        self.assertEqual(len(got), 1, (title, self._bells(to)))
+        return got[0]
+
     def _sign_now(self):
         r = self._r()
         self._sign(self._parties(r.sign_request_id)["employee"])
         return self._r()
 
     def test_added_before_approval_it_is_on_the_time_sheet_the_employee_signs(self):
-        self._add(MANAGER)
+        out = self._add(MANAGER)
+        self.assertEqual((out["reopened"], out["signAgain"]), (False, False))
+        # The employee hears at once, with the amount - not only when they sign.
+        body = self._bell(EMP, "Bonus Added to Your Time Sheet")
+        self.assertIn("Max Test added a bonus to your time sheet for", body)
+        self.assertIn("Holiday cover - $150.00", body)
+        self.assertIn("on the copy you sign", body)
+        # Their own Time Sheet carries it (Workday > Time Sheet reads /my-payroll).
+        mine = timeclock.my_payroll(start=self.start, user={"email": EMP, "level": 1}, db=self.db)
+        self.assertEqual([(b["description"], b["amount"]) for b in mine["bonuses"]], [("Holiday cover", 150.0)])
         r = tsr.submit(self.db, EMP, ANCHOR, "All in")
         tsr.approve(self.db, r, MGR, "")
         r = self._r()
@@ -155,11 +170,17 @@ class BonusWorkflowTests(ReviewCase):
     def test_a_manager_adding_one_while_it_is_out_to_sign_sends_it_back_to_the_manager(self):
         r = self._to_signing()
         first = r.sign_request_id
-        self._add(MANAGER)
+        out = self._add(MANAGER)
+        self.assertTrue(out["reopened"])
         r = self._r()
         self.assertEqual((r.status, r.sign_request_id), ("with_manager", ""))
         self.assertEqual(self.db.get(models.HrSignRequest, first).status, "voided")
-        self.assertIn("Time Sheet Back for Review", self._bells(EMP))
+        # Says it was a bonus, not "changed the hours".
+        back = self._bell(EMP, "Time Sheet Back for Review")
+        self.assertIn("added a bonus: Holiday cover", back)
+        self.assertNotIn("changed the hours", back)
+        self.assertIn("back to your manager to approve, then to you to sign again",
+                      self._bell(EMP, "Bonus Added to Your Time Sheet"))
         # The manager approves again: a new envelope, with the bonus on it.
         tsr.approve(self.db, r, MGR, "")
         self.assertIn("Bonus: Holiday cover", self._text(self.pdfs[-1]))
@@ -168,15 +189,20 @@ class BonusWorkflowTests(ReviewCase):
     def test_hr_adding_one_while_it_is_out_to_sign_asks_the_employee_to_sign_again(self):
         r = self._to_signing()
         first = r.sign_request_id
-        self._add(HR_USER)
+        self.assertTrue(self._add(HR_USER)["signAgain"])
         r = self._r()
         self.assertEqual(r.status, "approved")      # HR needs no new approval
         self.assertEqual(self.db.get(models.HrSignRequest, first).status, "voided")
         self.assertIn("Time Sheet Updated by HR", self._bells(EMP))
+        self.assertIn("sign it again", self._bell(EMP, "Bonus Added to Your Time Sheet"))
         tsr.employee_approve(self.db, r, EMP)
         r = self._r()
         self.assertEqual(r.status, "signing")
-        self.assertIn("Bonus: Holiday cover", self._text(self.pdfs[-1]))
+        text = self._text(self.pdfs[-1])
+        self.assertIn("Bonus: Holiday cover", text)
+        # The approval history on the copy they sign names the bonus.
+        self.assertTrue(any(x.startswith("Changed by Hana Test (HR)") and "added a bonus: Holiday cover" in x
+                            for x in tsr.approval_log(self.db, r)), tsr.approval_log(self.db, r))
         self.assertEqual(self._sign_now().status, "completed")
 
     def test_removing_one_after_approval_reopens_it_too(self):
@@ -185,6 +211,7 @@ class BonusWorkflowTests(ReviewCase):
         timeclock.remove_timecard_bonus(bid, user=MANAGER, _su={}, db=self.db)
         r = self._r()
         self.assertEqual(r.status, "with_manager")
+        self.assertIn('removed the bonus "Holiday cover" ($150.00)', self._bell(EMP, "Bonus Removed from Your Time Sheet"))
         tsr.approve(self.db, r, MGR, "")
         self.assertNotIn("Bonus:", self._text(self.pdfs[-1]))
 
@@ -204,6 +231,8 @@ class BonusWorkflowTests(ReviewCase):
             with self.assertRaises(HTTPException) as e:
                 self._add(who)
             self.assertEqual(e.exception.status_code, 403)
+            self.assertIn("Add the bonus on the current pay period, or ask HR to unlock", e.exception.detail)
+        self.assertNotIn("Bonus Added to Your Time Sheet", self._bells(EMP))
 
 
 if __name__ == "__main__":
