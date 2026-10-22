@@ -2421,6 +2421,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     prev_completed = bool(t.completed)
     prev_followers = set((t.follower_emails or []))
     prev_due = (t.due_on or "")[:10]
+    prev_start = t.start_on or ""
     prev_parent = t.parent_task_id or ""
     prev_subtasks = [i for i in (t.subtask_ids or []) if i]
     _check_hierarchy_patch(db, user, t, data)
@@ -2559,8 +2560,16 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     if ask:
         wanted_due = (t.due_on or "")[:10]
         t.due_on = prev_due
+        # A start date sent in the same edit moves WITH the due date (a
+        # Calendar or Timeline drag keeps the task's length, Oct 22 2026), so
+        # it waits with it: moving the start alone would stretch or squash
+        # the task while the due date is still being asked about.
+        held = {"Due date changed"}
+        if "start_on" in data:
+            t.start_on = prev_start
+            held.add("Start date changed")
         task_due.request_extension(db, t, user["email"], wanted_due, ask)
-        modified_kinds = [k for k in modified_kinds if k != "Due date changed"]
+        modified_kinds = [k for k in modified_kinds if k not in held]
     elif "due_on" in data and (t.due_on or "")[:10] != prev_due:
         due_entry = task_due.record_due_change(
             db, t, prev_due, t.due_on or "",
@@ -3047,9 +3056,86 @@ def delete_task_permanent(task_id: str, user: dict = Depends(get_current_user), 
     db.commit()
 
 
+class BulkDates(BaseModel):
+    """A date change worked out PER TASK on the server (Oct 22 2026, the
+    batch bar's Dates action): each task moves from its own stored date, read
+    under the row lock, never from what the browser last saw.
+      shift      `days` whole days (+/-) on both start and due; with
+                 `skip_weekends` they are business days and land on a weekday.
+                 A task without a due date is skipped.
+      set_due    due date = `on`        set_start  start date = `on`
+      clear_due  no due date"""
+    op: str
+    days: int = 0
+    skip_weekends: bool = False
+    on: str = ""
+
+
 class BulkUpdate(BaseModel):
     ids: list[str]
-    patch: dict[str, Any]
+    patch: dict[str, Any] = {}
+    # Sent instead of `patch`. The answer is then {tasks, changed, skipped,
+    # sentForApproval} - `tasks` is the list every other bulk call answers with.
+    dates: Optional[BulkDates] = None
+
+
+_BULK_DATE_OPS = ("shift", "set_due", "set_start", "clear_due")
+_MAX_SHIFT_DAYS = 3650
+
+
+def _shift_day(iso: str, days: int, skip_weekends: bool) -> str:
+    """`iso` moved `days` days. With `skip_weekends`, `days` counts weekdays
+    only, so the result is always a Monday-Friday (a Saturday +1 is Monday)."""
+    d = date.fromisoformat(iso[:10])
+    if not skip_weekends:
+        return (d + timedelta(days=days)).isoformat()
+    step = 1 if days > 0 else -1
+    left = abs(days)
+    while left:
+        d += timedelta(days=step)
+        if d.weekday() < 5:
+            left -= 1
+    return d.isoformat()
+
+
+def _check_bulk_dates(dates: BulkDates) -> None:
+    if dates.op not in _BULK_DATE_OPS:
+        raise HTTPException(422, f"Unknown date change {dates.op!r}.")
+    if dates.op == "shift" and not (0 < abs(dates.days) <= _MAX_SHIFT_DAYS):
+        raise HTTPException(422, f"Shift by 1 to {_MAX_SHIFT_DAYS} days, earlier or later.")
+    if dates.op in ("set_due", "set_start"):
+        if not dates.on:
+            raise HTTPException(422, "Pick a date.")
+        _check_iso_date(dates.on, "on")
+
+
+def _bulk_date_changes(dates: BulkDates, rows: list) -> tuple[dict, int]:
+    """{task id: {field: new value}} for the rows the change moves, and how
+    many a shift skipped for having no due date."""
+    out, skipped = {}, 0
+    for t in rows:
+        due, start = (t.due_on or "")[:10], (t.start_on or "")[:10]
+        if dates.op == "shift":
+            try:
+                ch = {"due_on": _shift_day(due, dates.days, dates.skip_weekends)} if due else {}
+                if ch and start:
+                    ch["start_on"] = _shift_day(start, dates.days, dates.skip_weekends)
+            except ValueError:
+                ch = {}         # a malformed stored date: left alone, counted as skipped
+            except OverflowError:
+                raise HTTPException(422, f"{t.title}: that shift goes past the end of the calendar.")
+            if not ch:
+                skipped += 1
+                continue
+        elif dates.op == "set_due":
+            ch = {"due_on": dates.on[:10]} if due != dates.on[:10] else {}
+        elif dates.op == "set_start":
+            ch = {"start_on": dates.on[:10]} if start != dates.on[:10] else {}
+        else:   # clear_due
+            ch = {"due_on": ""} if due else {}
+        if ch:
+            out[t.id] = ch
+    return out, skipped
 
 
 _BULK_ALLOWED = {"status", "priority", "assignee_email", "assignee_emails", "team_id", "project_id",
@@ -3115,6 +3201,17 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # Same validation update_task applies. Without it bulk was a way around it:
     # an arbitrary status set here still created a phantom board column.
     validate_task_payload(db, patch)
+    dates = body.dates
+    locked: set = set()
+    if dates is not None:
+        if patch:
+            raise HTTPException(422, "Change dates on their own, not together with other fields.")
+        _check_bulk_dates(dates)
+        # Each task moves from ITS OWN date, so the rows are locked (in id
+        # order, the module's lock order - _lock_task_rows) BEFORE they are
+        # read: two shifts at once queue up instead of both starting from the
+        # same old date. Nothing in a date change takes the code counter.
+        locked.update(_lock_task_rows(db, body.ids))
     rows = db.query(models.Task).filter(models.Task.id.in_(body.ids)).all()
     # The company wall, all-or-nothing like the editor check below (Oct 21
     # 2026). A manager clears every role check, so without this one batch
@@ -3180,7 +3277,6 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     def _will_roll(r, completing: bool) -> bool:
         rec = r.recurrence if isinstance(r.recurrence, dict) else {}
         return bool(completing and rec.get("freq") and not rec.get("nextOccurrenceId"))
-    locked: set = set()
 
     def _lock_rolling(heads) -> None:
         ids = set()
@@ -3194,6 +3290,11 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # actually changed rather than restating the new value for every row.
     before = {t.id: (t.status, bool(t.completed), tuple(task_assignees(t))) for t in rows}
     before_due = {t.id: (t.due_on or "")[:10] for t in rows}
+    before_start = {t.id: t.start_on or "" for t in rows}
+    # The Dates action's per-task values (only the moved rows have an entry).
+    # A recurring occurrence moves alone: its rule is never touched.
+    row_dates, skipped = _bulk_date_changes(dates, rows) if dates is not None else ({}, 0)
+    held_count = 0
     auto_before = {t.id: task_automation.snapshot(t) for t in rows}
     auto_results: list = []
     auto_changed: dict[str, dict] = {}   # task id -> fields the rules wrote on that row
@@ -3217,6 +3318,8 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                 # registers the change.
                 t.custom_field_values = _merge_custom_field_values(db, t.custom_field_values, v)
                 continue
+            setattr(t, k, v)
+        for k, v in row_dates.get(t.id, {}).items():
             setattr(t, k, v)
         # Same rule as the single PATCH: dragging 20 cards out of Not Started on
         # the board is 20 tasks starting today, and they must not need a second
@@ -3282,6 +3385,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     actor = (user["email"] or "").lower()
     newly_assigned: dict[str, list] = {}
     ext_asks: dict[str, list] = {}
+    due_moved_for: dict[str, list] = {}   # requester -> tasks whose due date moved
     for t in rows:
         prev_status, prev_completed, prev_assignees = before[t.id]
         acts = list(t.activity_ids or [])
@@ -3309,21 +3413,30 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         # After activity_ids is rebuilt - task_due appends its own entries.
         # Logged and counted like a single edit, but no per-row email (see above).
         auto_due = "due_on" in auto_changed.get(t.id, {})
+        sent = {**patch, **row_dates.get(t.id, {})}
         ask = (task_due.needs_approval(db, t, before_due[t.id], t.due_on or "", actor, privileged=is_manager(user))
-               if "due_on" in patch and not auto_due else [])
+               if "due_on" in sent and not auto_due else [])
         if auto_due:
             task_due.record_due_change(db, t, before_due[t.id], t.due_on or "",
                                        actor=task_automation.AUTOMATION_ACTOR, source="automation")
         elif ask:
             # Held for approval like a single edit; the approvers get one bell
-            # for the whole batch, below.
+            # for the whole batch, below. A start date moved with it waits
+            # too (see update_task).
             wanted_due = (t.due_on or "")[:10]
             t.due_on = before_due[t.id]
+            if "start_on" in sent:
+                t.start_on = before_start[t.id]
             task_due.request_extension(db, t, actor, wanted_due, ask, notify=False)
+            held_count += 1
             for who in ask:
                 ext_asks.setdefault(who, []).append(t)
-        elif "due_on" in patch:
-            task_due.record_due_change(db, t, before_due[t.id], t.due_on or "", actor=actor, source="bulk")
+        elif "due_on" in sent:
+            entry = task_due.record_due_change(db, t, before_due[t.id], t.due_on or "", actor=actor,
+                                               source="bulk")
+            req = task_due.requester_of(t)
+            if entry is not None and req and req != actor:
+                due_moved_for.setdefault(req, []).append(t)
         elif now_assignees != set(prev_assignees) and t.due_on:
             task_due.settle_agreement(t, actor)
 
@@ -3397,6 +3510,20 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                               + (f" and {len(asked) - 5} more" if len(asked) > 5 else ""),
                     task_id=one.id if one else "",
                     nexus_action={"view": "tasks", "sub": "mine", "label": "Review"})
+    # The requester hears about a moved due date as on a single edit - once
+    # per person for the whole batch (Oct 22 2026).
+    for email, moved in due_moved_for.items():
+        one = moved[0] if len(moved) == 1 else None
+        if one:
+            body = (f"{one.title} - now due {task_due.us_date(one.due_on)}" if one.due_on
+                    else f"{one.title} - due date removed")
+        else:
+            body = (", ".join(t.title or "Untitled task" for t in moved[:5])
+                    + (f" and {len(moved) - 5} more" if len(moved) > 5 else ""))
+        task_notify(db, kind="task_due_changed", for_email=email,
+                    title="Due Date Changed" if one else f"{len(moved)} Due Dates Changed",
+                    body=body, task_id=one.id if one else "",
+                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task" if one else "View tasks"})
 
     db.commit()
     # With batching on (task_notify.flush_batches), each newly assigned person
@@ -3409,7 +3536,12 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     for auto in auto_results:
         task_automation.run_after_commit(db, auto)
     fire_task_event("", "bulk")
-    return [task_to_dict(t) for t in rows]
+    out = [task_to_dict(t) for t in rows]
+    if dates is None:
+        return out
+    changed = sum(1 for t in rows if (t.due_on or "")[:10] != before_due[t.id]
+                  or (t.start_on or "") != before_start[t.id])
+    return {"tasks": out, "changed": changed, "skipped": skipped, "sentForApproval": held_count}
 
 
 # ── Comments ─────────────────────────────────────────────────────────────────

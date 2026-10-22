@@ -333,7 +333,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         ) : view === 'board' ? (
           <BoardView visible={visible} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate} />
         ) : view === 'calendar' ? (
-          <CalendarView tasks={visible} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
+          <CalendarView tasks={visible} store={store} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
         ) : view === 'timeline' ? (
           <TimelineView tasks={visible} onOpen={setOpenId} nameOf={nameOf} />
         ) : view === 'files' ? (

@@ -430,6 +430,10 @@ export const api = {
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
   bulkUpdateTasks: (ids, patch) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }),
+  // The batch bar's Dates action (Oct 22 2026): { op: shift|set_due|set_start|clear_due,
+  // days, skip_weekends, on } - worked out per task on the server. Answers
+  // { tasks, changed, skipped, sentForApproval }.
+  bulkTaskDates: (ids, dates) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, dates }) }),
   // Trash (Aug 27): deleteTask above now moves to Trash - it's restorable for
   // 90 days (see task_trash.py) via these three, Manage > Deleted Tasks only.
   // scope="mine" is the Recycle Bin OUTSIDE Manage - what you deleted plus what

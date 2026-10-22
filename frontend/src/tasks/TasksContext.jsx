@@ -373,7 +373,7 @@ export function TasksProvider({ children }) {
     const held = rows.filter((r) => r?.dueAgreement === 'extension_requested' && r.dueProposal?.dueOn === patch.dueOn);
     if (!held.length) return;
     offerRef.current?.(
-      held.length === 1 ? 'Extension sent for approval' : `${held.length} extensions sent for approval`,
+      held.length === 1 ? 'Due date change sent for approval' : `${held.length} due date changes sent for approval`,
       () => Promise.all(held.map((r) => api.withdrawTaskDue(r.id).then((t) => patchLocalTask(t.id, t)))).catch(() => {}),
     );
   }, [patchLocalTask]);
@@ -449,6 +449,7 @@ export function TasksProvider({ children }) {
   }, [patchLocalTask, refetchTasks, announceHeld]);
 
   // Undo toast - one at a time; label + a run() that reverses the action.
+  // A null run() is a plain notice (no Undo button) in the same spot.
   const [undo, setUndo] = useState(null);
   const undoTimer = useRef(null);
   const offerUndo = useCallback((label, run) => {
@@ -459,7 +460,7 @@ export function TasksProvider({ children }) {
   useEffect(() => { offerRef.current = offerUndo; }, [offerUndo]);
   const runUndo = useCallback(() => {
     clearTimeout(undoTimer.current);
-    setUndo((u) => { if (u) u.run(); return null; });
+    setUndo((u) => { if (u?.run) u.run(); return null; });
   }, []);
 
   // Completing a task celebrates (unicorn + green sweep) and holds the store
@@ -579,6 +580,21 @@ export function TasksProvider({ children }) {
       throw e;
     }
   }, [announceHeld]);
+
+  // The batch bar's Dates action (Oct 22 2026): the server moves each task
+  // from its own date, so there is nothing to apply optimistically - the
+  // rows it answers with land in the store. Answers the server's counts.
+  const bulkDates = useCallback(async (ids, dates) => {
+    try {
+      const r = await api.bulkTaskDates(ids, dates);
+      const map = Object.fromEntries((r?.tasks || []).map((t) => [t.id, t]));
+      setTasks((prev) => prev.map((t) => map[t.id] || t));
+      return r;
+    } catch (e) {
+      if (e?.status && e.status !== 401) alert(e.message || 'Could not change the dates.');
+      throw e;
+    }
+  }, []);
 
   // Comments (loaded on demand, cached)
   const getComments = useCallback(async (taskId) => {
@@ -835,6 +851,7 @@ export function TasksProvider({ children }) {
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, deleteTasks, restoreTasks, bulkUpdate, toggleComplete, setStatus,
+    bulkDates,
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },
@@ -855,6 +872,8 @@ export function TasksProvider({ children }) {
     },
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,
     offerUndo,
+    // A one-line notice in the undo toast's place, with no Undo (Oct 22 2026).
+    notify: (label) => offerUndo(label, null),
     // Bookmarks live HERE, not in `actions` below. That object is
     // useMemo'd on [loadCore] - i.e. built once - so anything stateful put
     // inside it is frozen at its first value: the star never filled in, and
@@ -893,7 +912,7 @@ export function TasksProvider({ children }) {
           fontFamily: "'Inter', sans-serif", fontSize: 13, maxWidth: 'min(92vw, 520px)',
         }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{undo.label}</span>
-          <button onClick={runUndo} style={{ border: 'none', background: 'none', color: '#6ea8ff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Undo</button>
+          {undo.run && <button onClick={runUndo} style={{ border: 'none', background: 'none', color: '#6ea8ff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Undo</button>}
         </div>
       )}
     </Ctx.Provider>
