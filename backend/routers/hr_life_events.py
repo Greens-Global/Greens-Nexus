@@ -92,7 +92,7 @@ def _place_taken(db: Session, row: HrPacketSetting) -> None:
                 and (other.region or "") == (row.region or "")
                 and (other.worker_type or "any") == (row.worker_type or "any")):
             raise HTTPException(400, f'"{other.name or "Another packet"}" already covers '
-                                     f'{hle.place_label(row.worker_type, row.country, row.region).lower()} - '
+                                     f'{hle.place_label(row.worker_type, row.country, row.region)} - '
                                      f'change that one, or pick another place or kind of hire.')
 
 
