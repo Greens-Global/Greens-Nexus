@@ -28,6 +28,7 @@ import { PacketEditor, describeRoles } from './PacketTemplates';
 import { DocumentsPacketEditor } from './DocumentsPacketEditor';
 import { readinessSummary } from '../lib/packetFlow';
 import PacketReview from './PacketReview';
+import FolderPickModal from '../egnyte/EgnyteFolderPick';
 
 const ENABLED_EVENTS = ['offer', 'hire', 'promotion', 'separation'];
 const OTHER_ROLE = '__other__';
@@ -718,8 +719,9 @@ export const noPaperwork = ev => ev.status === 'completed' && !ev.signRequestId 
 
 // One life event (hiring packet, promotion letter, separation package): who
 // has signed, Sign Now for HR's own turn, Void, and where it was filed.
-export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hideSign = false }) {
+export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hideSign = false, egnyteEmail = '' }) {
   const [busy, setBusy] = useState('');
+  const [picking, setPicking] = useState(null);      // File Manually: the folder the picker opens at
   const [reviewOpen, setReviewOpen] = useState(false);
   const docs = ev.engine === 'documents';
   const bare = noPaperwork(ev);
@@ -738,20 +740,32 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
       if (kind === 'void') { await api.voidLifeEvent(ev.id); toastOk?.(`${what} voided.`); }
       else if (kind === 'cancel') { await api.cancelOffboarding(ev.id); toastOk?.('Offboarding canceled.'); }
       else if (kind === 'apply') { await api.retryLifeEventApply(ev.id); toastOk?.('Applied.'); }
-      else if (kind === 'manual') {
-        // File Manually (Pranshu, Oct 15 2026): automatic filing cannot find
-        // or make the folder - HR names one that exists in Egnyte. Every
-        // signed, unfiled document of this person goes there together.
-        const folder = await dialog.prompt(
-          `Paste the Egnyte folder to file ${ev.subjectName || 'their'} signed documents into - for example /Shared/#Entities/(company)/Human Resources/Employees/(their name). It must already exist in Egnyte. The offer letter and hiring packet are filed there together, and these cards leave the profile.`,
-          { title: 'File Manually In Egnyte', confirmText: 'File Here', required: true, placeholder: '/Shared/...' });
-        if (!folder) { setBusy(''); return; }
-        const out = await api.fileLifeEventManually(ev.id, folder.trim());
-        const filed = (out.events || []).filter(e => e.filingStatus === 'filed').length;
-        const left = (out.events || []).length - filed;
-        toastOk?.(left ? `Filed ${filed} - ${left} could not be filed, see the reason on it.` : `Filed in Egnyte: ${folder.trim()}`);
-      }
       else { const out = await api.retryLifeEventFiling(ev.id); toastOk?.(out.filingStatus === 'filed' ? 'Filed in Egnyte.' : 'Still not filed - see the reason below.'); }
+      onChanged?.();
+    } catch (e) { toastErr?.(e?.message || 'That did not work.'); }
+    setBusy('');
+  }
+  // File Manually (Pranshu, Oct 15 2026): automatic filing cannot find or
+  // make the folder - HR picks one that exists in Egnyte, and every signed,
+  // unfiled document of this person goes there together. Picked with the
+  // Egnyte folder picker (Neil, Oct 22: "you click on Browse and you can add
+  // it. You don't add the URL"), opened at the person's folder when Nexus
+  // knows it; a pasted path or link still works through its Go To Folder.
+  async function openPicker() {
+    setBusy('manual');
+    const known = egnyteEmail ? await api.egnytePersonDocs(egnyteEmail).catch(() => null) : null;
+    setBusy('');
+    setPicking(known?.folder || '');
+  }
+  async function fileInto(folder) {
+    setPicking(null);
+    if (!folder) return;
+    setBusy('manual');
+    try {
+      const out = await api.fileLifeEventManually(ev.id, folder);
+      const filed = (out.events || []).filter(e => e.filingStatus === 'filed').length;
+      const left = (out.events || []).length - filed;
+      toastOk?.(left ? `Filed ${filed} - ${left} could not be filed, see the reason on it.` : `Filed in Egnyte: ${folder}`);
       onChanged?.();
     } catch (e) { toastErr?.(e?.message || 'That did not work.'); }
     setBusy('');
@@ -872,11 +886,16 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
           </button>
         )}
         {ev.status === 'completed' && !bare && ev.filingStatus !== 'filed' && ev.filingError && (
-          <button className="secondary-btn" onClick={() => act('manual')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <button className="secondary-btn" onClick={openPicker} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {busy === 'manual' ? <Spinner size={12} /> : <FolderOpen size={12} />} File Manually
           </button>
         )}
       </div>
+      {picking !== null && (
+        <FolderPickModal startPath={picking} title="File Manually In Egnyte"
+          hint={`Browse to the Egnyte folder to file into (it must already exist), or paste its path or Egnyte link, then press "Use This Folder". The offer letter and hiring packet are filed there together, and these cards leave the profile.`}
+          onPick={fileInto} onClose={() => setPicking(null)} />
+      )}
       {reviewOpen && (
         <PacketReview eventId={ev.id} onClose={() => setReviewOpen(false)} onChanged={onChanged}
           onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} />
@@ -932,7 +951,7 @@ export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChang
 
 // The letters on a person (People > profile): anything still out for
 // signature, plus the latest finished one while it is recent or not filed.
-export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, onChanged, toastOk, toastErr }) {
+export function PersonLifeEvents({ employeeId, workEmail = '', refreshKey, onSignNow, onChanged, toastOk, toastErr }) {
   const [events, setEvents] = useState([]);
   const load = () => api.getLifeEvents({ employeeId }).then(setEvents).catch(() => setEvents([]));
   useEffect(() => { load(); }, [employeeId, refreshKey]);
@@ -958,7 +977,7 @@ export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, onChanged,
   }, [filingPending, events]);   // eslint-disable-line react-hooks/exhaustive-deps
   if (!shown.length) return null;
   // A cancel or void changes the person too (People re-reads - Oct 20 2026).
-  return <div>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} onChanged={() => { load(); onChanged?.(); }} toastOk={toastOk} toastErr={toastErr} />)}</div>;
+  return <div>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} egnyteEmail={workEmail} onSignNow={onSignNow} onChanged={() => { load(); onChanged?.(); }} toastOk={toastOk} toastErr={toastErr} />)}</div>;
 }
 
 // Right to work compliance (Neil, Oct 14): "they can't receive their first

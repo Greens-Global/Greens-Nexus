@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // File Manually (Pranshu, Oct 15 2026): automatic Egnyte filing failed, HR
-// names the folder, and a card filed by hand leaves the person's profile.
+// picks the folder with the Egnyte folder picker (Neil, Oct 22: "you click on
+// Browse ... You don't add the URL"), and a card filed by hand leaves the
+// person's profile.
 
 const now = new Date().toISOString();
 const unfiled = {
@@ -17,21 +19,34 @@ const filedByHand = {
 };
 const filedAuto = { ...filedByHand, id: 'ev-auto', title: 'Promotion Letter', kind: 'promotion', flags: [] };
 const fileLifeEventManually = vi.fn();
+const egnytePersonDocs = vi.fn();
 vi.mock('../api', () => ({
   api: {
     getLifeEvents: () => Promise.resolve([unfiled, filedByHand, filedAuto]),
     fileLifeEventManually: (...a) => fileLifeEventManually(...a),
+    egnytePersonDocs: (...a) => egnytePersonDocs(...a),
     retryLifeEventFiling: vi.fn(),
   },
 }));
 const prompt = vi.fn();
 vi.mock('../ui/dialog', () => ({ dialog: { prompt: (...a) => prompt(...a), confirm: vi.fn(), alert: vi.fn() } }));
 vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null, MERGE_FIELDS: [] }));
+// Visesh's picker, stood in for: shows where it opened, and picks or closes.
+vi.mock('../egnyte/EgnyteFolderPick', () => ({
+  default: ({ startPath, title, onPick, onClose }) => (
+    <div role="dialog" aria-label={title}>
+      <span data-testid="start">{startPath}</span>
+      <button onClick={() => onPick('/Shared/HR Manual/Demo Demo')}>Use This Folder</button>
+      <button onClick={onClose}>Close</button>
+    </div>
+  ),
+}));
 
 const { PersonLifeEvents } = await import('./HiringPacket');
 
 beforeEach(() => {
   fileLifeEventManually.mockReset().mockResolvedValue({ events: [{ ...unfiled, filingStatus: 'filed' }] });
+  egnytePersonDocs.mockReset().mockResolvedValue({ folder: '/Shared/#Entities/GGCon/Human Resources/Employees/Demo Demo', missing: false });
   prompt.mockReset();
 });
 
@@ -43,21 +58,28 @@ describe('File Manually', () => {
     expect(screen.queryByText('Offer Letter')).toBeNull();
   });
 
-  it('asks for the folder and files there', async () => {
+  it('opens the Egnyte picker at their folder and files where HR picks', async () => {
     const toastOk = vi.fn();
-    prompt.mockResolvedValue(' /Shared/HR Manual/Demo Demo ');
-    render(<PersonLifeEvents employeeId="e1" toastOk={toastOk} />);
+    render(<PersonLifeEvents employeeId="e1" workEmail="demo@greensglobal.com" toastOk={toastOk} />);
     fireEvent.click(await screen.findByText('File Manually'));
+    const picker = await screen.findByRole('dialog', { name: 'File Manually In Egnyte' });
+    expect(egnytePersonDocs).toHaveBeenCalledWith('demo@greensglobal.com');
+    expect(screen.getByTestId('start').textContent).toBe('/Shared/#Entities/GGCon/Human Resources/Employees/Demo Demo');
+    expect(prompt).not.toHaveBeenCalled();                       // no typed path any more
+    fireEvent.click(within(picker).getByText('Use This Folder'));
     await waitFor(() => expect(fileLifeEventManually).toHaveBeenCalledWith('ev-packet', '/Shared/HR Manual/Demo Demo'));
-    expect(prompt.mock.calls[0][1]).toMatchObject({ title: 'File Manually In Egnyte', required: true });
     expect(toastOk).toHaveBeenCalledWith('Filed in Egnyte: /Shared/HR Manual/Demo Demo');
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('does nothing when HR cancels the folder prompt', async () => {
-    prompt.mockResolvedValue(null);
+  it('with no known folder the picker opens at the top, and closing it files nothing', async () => {
     render(<PersonLifeEvents employeeId="e1" />);
     fireEvent.click(await screen.findByText('File Manually'));
-    await waitFor(() => expect(prompt).toHaveBeenCalled());
+    await screen.findByRole('dialog');
+    expect(egnytePersonDocs).not.toHaveBeenCalled();
+    expect(screen.getByTestId('start').textContent).toBe('');
+    fireEvent.click(screen.getByText('Close'));
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(fileLifeEventManually).not.toHaveBeenCalled();
   });
 });
