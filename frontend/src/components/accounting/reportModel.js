@@ -375,6 +375,8 @@ export function resolveConfig(config, now = new Date()) {
 
 /** The layout in force: two books side by side leave no room for columns. */
 export const activeColumns = (config) => (config.book === 'both' && canBothBooks(config) ? 'total' : config.cols);
+/** Whether runReport reads the entity list: one entity split By Entity into its sub-entities. */
+export const needsEntityList = (config) => activeColumns(config) === 'entity' && config.entities.length === 1;
 // The Statement of Cash Flows ties to Cash Position, which reads the accrual
 // book for whole entities - so neither a book nor the dimension filters apply.
 // Oct 15 (Charmi, Urmi: "different books in Intacct"): every financial

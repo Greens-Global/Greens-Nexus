@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Render-smoke for Accounting -> Reports.
 //   Sep 25 morning (Neil): code and name on one line, sections fold on click,
@@ -775,10 +775,17 @@ describe('Credit Card Activity and Bank Activity', () => {
       { entry_id: 'e2', entry_no: 'GJ-2', entry_date: '2026-09-20', description: 'Rent', vendor_name: 'Sunbelt Realty', debit: 0, credit: 200 },
       { entry_id: 'e1', entry_no: 'GJ-1', entry_date: '2026-09-02', description: 'Deposit', debit: 400, credit: 0 },
     ] });
+    // The entity list answers after the lines are on screen: that must not
+    // read the ledger again (and blank the table while it does).
+    let listEntities;
+    api.getAccountingLocations.mockImplementationOnce(() => new Promise((r) => { listEntities = r; }));
     const link = { report: 'bank-activity', account: '11310', entity: '32000', from: '2026-09-01', to: '2026-09-30', book: '' };
     render(<ReportsTab report="bank-activity" link={link} />);
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Bank Account' }).value).toBe('11310'));
     expect(await screen.findByText('Sunbelt Realty')).toBeTruthy();
+    await act(async () => { listEntities({ entities: [{ code: '32000', name: 'Greens Capital', parent_code: null }] }); });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(api.searchAccountingLedger).toHaveBeenCalledTimes(1);
     expect(api.searchAccountingLedger).toHaveBeenCalledWith(expect.objectContaining({ account: '11310', location: '32000', from: '2026-09-01', to: '2026-09-30' }));
     const heads = [...document.querySelectorAll('thead tr:first-child th')].map((th) => th.getAttribute('aria-label'));
     expect(heads).toEqual(['Date', 'Description', 'Vendor', 'Amount', 'Running Balance', 'Entity', 'Entry']);

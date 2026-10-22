@@ -21,7 +21,7 @@ import {
 import {
   EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
   reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
-  viewConfig, periodOf, ACTIVITY_REPORTS, activityConfig, isActivity,
+  viewConfig, periodOf, ACTIVITY_REPORTS, activityConfig, isActivity, needsEntityList,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -254,6 +254,10 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const seq = useRef(0);
   const key = JSON.stringify(runnable(config)) + config.from + config.to + config.asof;
   const started = useRef(false);
+  // The entity list arriving re-reads only a report that uses it (one entity
+  // By Entity). Any other report would read the ledger twice on its first
+  // open and blank its lines for the second read.
+  const entityDep = needsEntityList(config) ? entities.length : 0;
   useEffect(() => {
     const mine = ++seq.current;
     setLoading(true);
@@ -268,7 +272,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     if (!started.current) { started.current = true; run(); return undefined; }
     const t = setTimeout(run, 250);
     return () => clearTimeout(t);
-  }, [key, entities.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, entityDep]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Memorized reports.
   const [saved, setSaved] = useState([]);
