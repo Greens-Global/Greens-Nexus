@@ -287,7 +287,7 @@ function periodStartFor(date) {
 // The period label is the button; `periods` is newest first ({ key, label,
 // current, open, pick }) and `goTo(iso)` jumps to the period holding a date.
 // The backend only reads whole periods, so there is no custom range.
-function PeriodFinder({ label, minWidth, periods, goTo }) {
+function PeriodFinder({ label, minWidth, periods, goTo, fill = false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -299,9 +299,9 @@ function PeriodFinder({ label, minWidth, periods, goTo }) {
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
   }, [open]);
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} style={{ position: 'relative', ...(fill ? { flex: 1, minWidth: 0 } : {}) }}>
       <button type="button" aria-label="Pick a pay period" aria-expanded={open} onClick={() => setOpen(o => !o)}
-        style={{ fontSize: 12.5, fontWeight: 700, minWidth, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 3, padding: '4px 6px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', color: 'var(--ink)' }}>
+        style={{ fontSize: fill ? 11.5 : 12.5, fontWeight: 700, minWidth: fill ? 0 : minWidth, width: fill ? '100%' : undefined, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 3, padding: '4px 6px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', color: 'var(--ink)' }}>
         {label}<ChevronDown size={14} />
       </button>
       {open && (
@@ -802,11 +802,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // ‹ period › - at the top of the employee sidebar when there is one (Neil,
   // Oct 22: pick the pay period first, then go down the people), else in the
   // card's toolbar (your own sheet, a phone).
-  const periodNav = (
-    <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-      <button className="icon-btn" aria-label="Previous pay period" onClick={() => (isFixed ? shiftMonth(-1) : shift(-1))} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
-      {periodFinder}
-      <button className="icon-btn" aria-label="Next pay period" onClick={() => (isFixed ? shiftMonth(1) : shift(1))} style={{ padding: 6 }}><ChevronRight size={16} /></button>
+  const periodNav = (inSidebar) => (
+    <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2, ...(inSidebar ? { border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '1px 2px' } : {}) }}>
+      <button className="icon-btn" aria-label="Previous pay period" onClick={() => (isFixed ? shiftMonth(-1) : shift(-1))} style={{ padding: inSidebar ? 3 : 6 }}><ChevronLeft size={inSidebar ? 14 : 16} /></button>
+      {inSidebar
+        ? <PeriodFinder label={periodLabel} periods={finderPeriods()} fill
+            goTo={(iso) => setPStart(anchorForStart(iso, isFixed ? 'fixed' : 'hourly'))} />
+        : periodFinder}
+      <button className="icon-btn" aria-label="Next pay period" onClick={() => (isFixed ? shiftMonth(1) : shift(1))} style={{ padding: inSidebar ? 3 : 6 }}><ChevronRight size={inSidebar ? 14 : 16} /></button>
     </div>
   );
   const T = data?.totals;
@@ -1341,7 +1344,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const depts = [...new Set(people.filter(p => !company || p.company === company).map(p => p.department).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const pickable = people.filter(p => inFilter(p.email));
   const [onlyMissing, setOnlyMissing] = useState(false);   // sidebar: only people with missing punches
-  const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 }))).filter(p => inFilter(p.email) && (!onlyMissing || p.missing > 0));
+  // Everyone on the period's team list (salaried people too - the exception
+  // counts only cover hourly ones), with their counts; most to fix first
+  // (Neil, Oct 22: pick the period, then all its people are listed).
+  const sidebar = people.map(p => ({ ...p, missing: exByEmail[p.email]?.missing || 0, exceptions: exByEmail[p.email]?.exceptions || 0 }))
+    .sort((a, b) => (b.missing + b.exceptions) - (a.missing + a.exceptions) || a.name.localeCompare(b.name))
+    .filter(p => inFilter(p.email) && (!onlyMissing || p.missing > 0));
   const filterSel = (value, onChange, label, options) => options.length > 1 && (
     <select className="form-input" value={value} onChange={e => onChange(e.target.value)} aria-label={label}
       style={{ fontSize: 12, padding: '4px 6px', width: '100%' }}>
@@ -1359,14 +1367,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // On a phone the list gives way to the card; the employee picker above the
   // card still switches people.
   const employeeSidebar = (!self && !phone) ? (
-    <div style={{ width: 250, flexShrink: 0, display: 'grid', gap: 8 }}>
-    <div style={{ border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)', padding: '6px 6px 4px' }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--wk-dim)', padding: '0 6px 2px' }}>Pay Period</div>
-      {periodNav}
-    </div>
-    <div data-tour="pr-sidebar" style={{ border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', maxHeight: 620, overflowY: 'auto', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
-      {(companies.length > 1 || depts.length > 1 || (showPay && companies.length > 0)) && (
+    <div data-tour="pr-sidebar" style={{ width: 240, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
         <div style={{ padding: '8px 10px 6px', display: 'grid', gap: 5, borderBottom: '1px solid var(--line)' }}>
+          {periodNav(true)}
           {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
           {filterSel(dept, setDept, 'Department', depts)}
           {showPay && companies.length > 0 && (
@@ -1376,7 +1379,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
           )}
         </div>
-      )}
+      <div style={{ maxHeight: 560, overflowY: 'auto', borderRadius: '0 0 14px 14px' }}>
       {exceptions.length > 0 && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', fontSize: 11.5, fontWeight: 500, color: 'var(--ink)', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
           <input type="checkbox" checked={onlyMissing} onChange={e => setOnlyMissing(e.target.checked)} /> Only People With Missing Punches
@@ -1410,7 +1413,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       <FixedTimecard data={data} self={self} email={email} people={people} setEmail={setEmail}
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
-        periodNav={employeeSidebar ? null : periodNav}
+        periodNav={employeeSidebar ? null : periodNav(false)}
         onFinalize={finalize} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
         setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard} />
@@ -1467,7 +1470,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Time Sheet</span>
           : <EmployeeCombobox people={pickable} value={email} onChange={setEmail} title="Also selectable from the sidebar"
               labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`} />}
-        {!employeeSidebar && periodNav}
+        {!employeeSidebar && periodNav(false)}
         {!self && (
         <button onClick={() => setTour(true)} title="A guided walkthrough of this screen - nothing is changed while it runs."
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>

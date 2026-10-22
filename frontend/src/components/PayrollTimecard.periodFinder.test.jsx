@@ -25,7 +25,7 @@ vi.mock('../api', () => {
   const api = new Proxy({}, {
     get: (_, key) => () => Promise.resolve(
       key === 'timePayroll' ? card()
-        : key === 'timeTeam' ? { rows: [{ email: 'emp@x.com', name: 'Erin Employee' }, { email: 'gap@x.com', name: 'Gary Gap' }] }
+        : key === 'timeTeam' ? { rows: [{ email: 'emp@x.com', name: 'Erin Employee' }, { email: 'gap@x.com', name: 'Gary Gap' }, { email: 'sal@x.com', name: 'Sam Salary' }] }
         : key === 'timeTeamExceptions' ? [{ email: 'emp@x.com', name: 'Erin Employee', missing: 0, exceptions: 0 }, { email: 'gap@x.com', name: 'Gary Gap', missing: 2, exceptions: 0 }]
         : []),
   });
@@ -87,5 +87,10 @@ describe('pay period finder', () => {
     fireEvent.click(box);
     expect(screen.queryByText('Erin Employee')).toBeNull();
     expect(screen.getByText('Gary Gap')).toBeTruthy();
+  }, 20000);
+
+  it('lists everyone on the period, salaried people without counts too', async () => {
+    await open();
+    expect(await screen.findByText('Sam Salary')).toBeTruthy();   // on the team list, not in the hourly counts
   }, 20000);
 });
