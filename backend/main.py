@@ -1252,6 +1252,9 @@ def _run_migrations():
             "ALTER TABLE task_templates ADD COLUMN company_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_intake_forms ADD COLUMN company_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_custom_fields ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Formula columns (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_custom_fields ADD COLUMN formula TEXT DEFAULT ''",
+            "ALTER TABLE task_custom_fields ADD COLUMN formula_format JSON DEFAULT '{}'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2874,6 +2877,10 @@ def _run_migrations():
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_intake_forms ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # Formula columns (Oct 22 2026): a formula field's expression and how
+        # its result is shown. Computed in the browser, never stored per task.
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS formula TEXT DEFAULT ''",
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS formula_format JSONB DEFAULT '{}'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -23,6 +23,7 @@ from routers.task_util import (now_iso, gen_id, is_manager, require_project_acce
                                config_admits, config_company_for_new, assert_config_editable)
 from changelog_prs import known_developer
 import task_automation
+import task_formula
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets")),
@@ -616,6 +617,8 @@ def coerce_custom_field_values(db: Session, values) -> dict:
         if f is None or raw in ("", None):
             continue
         kind = (f.type or "text").lower()
+        if kind == "formula":
+            continue   # computed in the browser, never stored on a task (Oct 22 2026)
         try:
             if kind == "number":
                 n = float(raw)
@@ -666,7 +669,7 @@ def field_required_in(f: models.TaskCustomField, project_id: str) -> bool:
     required either everywhere (`required`) or in this project specifically
     (`required_project_ids`, Oct 13 2026). A read-only field never is - it
     can't be filled in."""
-    if f.read_only or "task" not in _parse_applies_to(f.applies_to):
+    if f.read_only or (f.type or "") == "formula" or "task" not in _parse_applies_to(f.applies_to):
         return False
     if not field_applies_to(f, project_id):
         return False
@@ -743,16 +746,27 @@ def _field_value_unchanged(f: models.TaskCustomField, key: str, value) -> bool:
         return [p for p in (value or []) if p] == [p for p in (getattr(f, key) or []) if p]
     if key == "applies_to":
         return json.loads(_dump_applies_to(value)) == _parse_applies_to(f.applies_to)
+    if key == "formula":
+        return (value or "").strip() == (getattr(f, "formula", "") or "").strip()
+    if key == "formula_format":
+        return task_formula.normalize_format(value) == task_formula.normalize_format(getattr(f, "formula_format", None))
     return False
 
 
 def custom_field_to_dict(f: models.TaskCustomField) -> dict:
-    return {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
-            "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
-            "projectIds": [p for p in (f.project_ids or []) if p],
-            "required": bool(f.required), "readOnly": bool(f.read_only),
-            "requiredProjectIds": [p for p in (f.required_project_ids or []) if p],
-            "appliesTo": _parse_applies_to(f.applies_to)}
+    is_formula = (f.type or "") == "formula"
+    out = {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
+           "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
+           "projectIds": [p for p in (f.project_ids or []) if p],
+           # A formula is computed, so it is read-only everywhere a value
+           # could be typed - every editor already skips readOnly fields.
+           "required": bool(f.required), "readOnly": bool(f.read_only) or is_formula,
+           "requiredProjectIds": [p for p in (f.required_project_ids or []) if p],
+           "appliesTo": _parse_applies_to(f.applies_to)}
+    if is_formula:
+        out["formula"] = getattr(f, "formula", "") or ""
+        out["formulaFormat"] = task_formula.normalize_format(getattr(f, "formula_format", None))
+    return out
 
 
 class CustomFieldBody(BaseModel):
@@ -766,6 +780,63 @@ class CustomFieldBody(BaseModel):
     required_project_ids: Optional[list] = None
     read_only: Optional[bool] = None
     applies_to: Optional[list] = None
+    # Formula columns (Oct 22 2026) - type "formula" only.
+    formula: Optional[str] = None
+    formula_format: Optional[dict] = None
+
+
+def _formula_scope_fields(db: Session, user, company: str) -> list:
+    """The fields a formula on a `company` field may name: what the caller
+    can see (their companies' and the shared ones), and of those the ones
+    that reach the formula's own company. A walled caller learns nothing
+    about another company's field names from a validation message."""
+    scope = _scope(user, db)
+    out = []
+    for f in db.query(models.TaskCustomField).all():
+        fc = (getattr(f, "company_id", "") or "").strip()
+        if not config_admits(fc, scope):
+            continue
+        if fc and company and fc != company:
+            continue
+        out.append(f)
+    return out
+
+
+def _check_formula(db: Session, user, company: str, field_id: str, name: str, expr: str) -> str:
+    """422 with the reason unless `expr` can be saved on field `field_id`
+    (named `name`). Returns the expression, trimmed."""
+    expr = (expr or "").strip()
+    others = [f for f in _formula_scope_fields(db, user, company) if f.id != field_id]
+    try:
+        task_formula.validate(
+            expr, self_name=name or "",
+            field_names=[f.name for f in others],
+            formula_fields={f.name: (getattr(f, "formula", "") or "") for f in others
+                            if (f.type or "") == "formula"})
+    except task_formula.FormulaError as e:
+        raise HTTPException(422, f"Formula: {e}")
+    return expr
+
+
+def _rename_formula_refs(db: Session, field: models.TaskCustomField, old: str, new: str) -> None:
+    """A field renamed keeps every formula that names it working: {Old}
+    becomes {New} in the formula fields that can see it. A company's own
+    field is renamed only in that company's formulas - never in a shared
+    one, which another company's manager could not have changed (company
+    walls); a shared field, in every formula. Field tokens only - text
+    inside quotes is left alone."""
+    if not old or task_formula.field_key(old) == task_formula.field_key(new):
+        return
+    fc = (getattr(field, "company_id", "") or "").strip()
+    for g in db.query(models.TaskCustomField).filter(models.TaskCustomField.type == "formula").all():
+        if g.id == field.id or not (getattr(g, "formula", "") or ""):
+            continue
+        gc = (getattr(g, "company_id", "") or "").strip()
+        if fc and gc != fc:
+            continue
+        updated = task_formula.rename_refs(g.formula, old, new)
+        if updated != g.formula:
+            g.formula = updated
 
 
 # Who may change a custom field (Oct 13 2026 review). These three routes took
@@ -810,14 +881,26 @@ def create_custom_field(body: CustomFieldBody, user: dict = Depends(get_current_
                 or _parse_applies_to(body.applies_to) != ["task"]):
             raise HTTPException(403, "Only a manager can set that on a custom field.")
         _require_field_projects(db, user, project_ids)
+    company = config_company_for_new(db, user, project_ids)
+    kind = body.type or "text"
+    formula, formula_format = "", {}
+    if kind == "formula":
+        # Computed on every task it applies to, so never required, never on
+        # a project record, and never holding options (Oct 22 2026).
+        new_id = body.id or gen_id()
+        formula = _check_formula(db, user, company, new_id, body.name.strip(), body.formula)
+        formula_format = task_formula.normalize_format(body.formula_format)
+        body.id = new_id
+        body.options, body.required, required_project_ids, body.applies_to = [], False, [], ["task"]
     f = models.TaskCustomField(id=body.id or gen_id(), name=body.name, description=body.description or "",
-                               type=body.type or "text",
+                               type=kind,
                                options=normalize_field_options(body.options or []),
                                project_ids=project_ids,
                                required=bool(body.required), read_only=bool(body.read_only),
                                required_project_ids=required_project_ids,
                                applies_to=_dump_applies_to(body.applies_to),
-                               company_id=config_company_for_new(db, user, project_ids))
+                               company_id=company,
+                               formula=formula, formula_format=formula_format)
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -880,6 +963,8 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
         data["required_project_ids"] = [p for p in (data["required_project_ids"] or []) if p]
     if "applies_to" in data:
         data["applies_to"] = _dump_applies_to(data["applies_to"])
+    if "formula_format" in data:
+        data["formula_format"] = task_formula.normalize_format(data["formula_format"])
     if not is_manager(user):
         if set(data) - {"project_ids"}:
             raise HTTPException(403, "Only a manager can change a custom field. You can add it to "
@@ -892,6 +977,22 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
         if not old or not new:
             raise HTTPException(403, "Only a manager can change a field that is on every project.")
         _require_field_projects(db, user, sorted(old ^ new))
+    kind = data.get("type", f.type or "text")
+    if kind == "formula" and ({"type", "formula", "name"} & set(data)):
+        # Re-checked whenever the expression, the type or the field's own
+        # name changes (a rename can make a formula name itself).
+        data["formula"] = _check_formula(db, user, getattr(f, "company_id", "") or "", f.id,
+                                         (data.get("name") or f.name or "").strip(),
+                                         data.get("formula", getattr(f, "formula", "") or ""))
+    if kind != "formula":
+        data.pop("formula", None)
+        data.pop("formula_format", None)
+    if kind == "formula":
+        data.pop("options", None)
+        data["required"], data["required_project_ids"] = False, []
+        data["applies_to"] = _dump_applies_to(["task"])
+    if "name" in data and (data["name"] or "").strip() != (f.name or ""):
+        _rename_formula_refs(db, f, f.name or "", (data["name"] or "").strip())
     for k, v in data.items():
         setattr(f, k, v)
     db.commit()

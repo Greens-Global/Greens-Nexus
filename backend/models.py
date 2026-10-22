@@ -3445,6 +3445,13 @@ class TaskCustomField(Base):
     # Global Admin still is. A company here confines the row to that company
     # (routers/task_util.config_admits).
     company_id    = Column(String, default="")
+    # Formula columns (Neil, Oct 22 2026). For type "formula" only: the
+    # expression ({Budget} - {Spent}, IF(...), ...) checked by task_formula.py
+    # on save and evaluated in the browser (tasks/formula.js). The value is
+    # never stored on a task. formula_format = {format, decimals}, format one
+    # of number|currency|percent|date|text.
+    formula        = Column(Text, default="")
+    formula_format = Column(JSON, default=dict)
 
 
 class TaskMemberRequest(Base):

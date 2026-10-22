@@ -154,7 +154,11 @@ export function personScoped(tasks, f) {
   return flat ? (tasks || []).filter((t) => !isSection(t)) : topLevel(tasks);
 }
 
-export function matchesFilter(task, f = EMPTY_FILTER, taskById = null) {
+// `formulaMatch(task, fieldId, wanted)` (optional): how a FORMULA column's
+// filter is answered - its value is computed (tasks/formula.js), not stored,
+// so only the caller holding the formula engine can say. It returns
+// undefined for a field that is not a formula.
+export function matchesFilter(task, f = EMPTY_FILTER, taskById = null, formulaMatch = null) {
   // Matches if the task is assigned to ANY of the filtered people - that is
   // what "show me Ana's work" means once a task can have several assignees,
   // and it is what makes My Tasks list work you share rather than only lead.
@@ -178,6 +182,8 @@ export function matchesFilter(task, f = EMPTY_FILTER, taskById = null) {
   // one) - the same shape as the assignee/status/priority filters above.
   for (const [fieldId, wanted] of Object.entries(f.customFields || {})) {
     if (!wanted?.length) continue;
+    const byFormula = formulaMatch ? formulaMatch(task, fieldId, wanted) : undefined;
+    if (byFormula !== undefined) { if (!byFormula) return false; continue; }
     // multiselect/people hold a LIST, so a task matches when it carries ANY of
     // the wanted values. Comparing the array itself never matched anything.
     const have = taskFieldValue(task, fieldId);
@@ -223,7 +229,7 @@ export const teamColumnApplies = (teams, projectId) => (
 // work. The same filter is applied to the children, so an export still says
 // exactly what the filter says rather than smuggling non-matching rows in
 // under a matching parent.
-export function taskExportRows(visible, allTasks, filter, taskById) {
+export function taskExportRows(visible, allTasks, filter, taskById, formulaMatch = null) {
   const kids = new Map();
   for (const t of (allTasks || [])) {
     if (!t.parentTaskId) continue;
@@ -237,7 +243,7 @@ export function taskExportRows(visible, allTasks, filter, taskById) {
     seen.add(t.id);
     out.push({ task: t, depth, parent });
     (kids.get(t.id) || [])
-      .filter((k) => matchesFilter(k, filter, taskById))
+      .filter((k) => matchesFilter(k, filter, taskById, formulaMatch))
       .forEach((k) => walk(k, depth + 1, t));
   };
   (visible || []).forEach((t) => walk(t, 0, null));
@@ -612,9 +618,14 @@ const CTX_SORTERS = {
 // A custom field sorts by its OWN order where it has one - a select by the order
 // its options are defined in (Design before Build), which is what makes a stage or
 // severity field read correctly. Numbers sort numerically, else text. Empty last.
-function customFieldSorter(field) {
+// A formula column sorts by its computed value (ctx.formulaSortValue, from
+// tasks/formula.js): numbers and dates by size, text by letters, blanks and
+// "#Error" rows last. One column can mix kinds row to row, so numbers come
+// before text rather than comparing the two.
+function customFieldSorter(field, ctx = {}) {
   const order = (field?.options || []).map((o) => (o?.id ?? o));
   const rank = (t) => {
+    if (field.type === 'formula') return ctx.formulaSortValue ? ctx.formulaSortValue(t, field) : null;
     const v = taskFieldValue(t, field.id);
     if (v === undefined || v === null || v === '') return null;
     if (field.type === 'select') { const i = order.indexOf(v); return i === -1 ? order.length : i; }
@@ -627,6 +638,7 @@ function customFieldSorter(field) {
     if (x === null && y === null) return 0;
     if (x === null) return 1;
     if (y === null) return -1;
+    if (typeof x !== typeof y) return typeof x === 'number' ? -1 : 1;
     return typeof x === 'string' ? x.localeCompare(y) : x - y;
   };
 }
@@ -634,7 +646,7 @@ function customFieldSorter(field) {
 export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }, customFields = [], ctx = {}) {
   const fieldId = cfFieldId(sort.key);
   const field = fieldId ? (customFields || []).find((f) => f.id === fieldId) : null;
-  const fn = field ? customFieldSorter(field)
+  const fn = field ? customFieldSorter(field, ctx)
     : CTX_SORTERS[sort.key] ? CTX_SORTERS[sort.key](ctx)
     : (SORTERS[sort.key] || SORTERS.manual);
   const out = [...list].sort(fn);

@@ -223,7 +223,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   // Editing, the "also in" projects count too - the same fields the task
   // drawer shows (fieldsForTask).
   const fieldTask = { projectId: lockedProjectId || form.projectId, projectIds: editing?.projectIds || [] };
-  const activeFields = fieldsForTask(customFields, fieldTask);
+  // A formula column (Oct 22 2026) is worked out, never filled in.
+  const activeFields = fieldsForTask(customFields, fieldTask).filter((f) => f.type !== 'formula');
   // Required in THIS project - everywhere, or for this project only (Oct 13
   // 2026) - per isFieldRequiredIn, the same rule the server refuses a create
   // on. A read-only field never is; list values are blank as [].

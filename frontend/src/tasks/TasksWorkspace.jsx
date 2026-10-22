@@ -13,6 +13,7 @@ import QuickCreateTask from './QuickCreateTask';
 import MobileTaskBar from './MobileTaskBar';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { useTableValue } from './tableCols';
+import { formulaHelpers, customFieldExportColumns } from './formula';
 
 // Stable identity: a fresh object each render would re-run consumers' memos.
 // Alphabetical A-Z out of the box (Sagar, Aug 27). Note this means row
@@ -130,17 +131,21 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   // own rows, like Asana; a project/general list stays top-level with subtasks
   // reached through their parent. Project scope resolves through the parent
   // chain so a subtask still counts as being in its parent's project.
+  // Formula columns (Oct 22 2026) sort and filter by their computed value -
+  // one shared engine per data snapshot (tasks/formula.js).
+  const formulas = formulaHelpers(store);
   const visible = useMemo(
-    () => sortTasks(personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById)), sort, activeFields, { nameOf, projectName, teamName }),
-    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields, store.taskById, nameOf, projectName, teamName],
+    () => sortTasks(personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById, formulas.formulaMatch)), sort, activeFields,
+      { nameOf, projectName, teamName, formulaSortValue: formulas.formulaSortValue }),
+    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields, store.taskById, nameOf, projectName, teamName, formulas],
   );
 
   // Export rows: `visible` plus each row's subtasks, nested - see
   // taskExportRows in lib.js for why the file must not inherit the list's
   // top-level-only shape.
   const exportRows = useMemo(
-    () => taskExportRows(visible, tasks, filter, store.taskById),
-    [visible, tasks, filter, store.taskById],
+    () => taskExportRows(visible, tasks, filter, store.taskById, formulas.formulaMatch),
+    [visible, tasks, filter, store.taskById, formulas],
   );
 
   const applyView = (v) => {
@@ -190,7 +195,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     ...groupableFields.map((f) => ({ key: cfKey(f.id), label: f.name })),
   ];
   const sortFieldOptions = activeFields
-    .filter((f) => ['select', 'number', 'date', 'text', 'checkbox'].includes(f.type))
+    .filter((f) => ['select', 'number', 'date', 'text', 'checkbox', 'formula'].includes(f.type))
     .map((f) => ({ key: cfKey(f.id), label: f.name }));
 
   return (
@@ -292,7 +297,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
               allCustomFields={store.customFields} updateCustomField={store.updateCustomField}
               tracksTime={tracksTime} canManageFields={canManage}
-              lockedProjectId={lockedProjectId} teams={store.teams}
+              lockedProjectId={lockedProjectId} teams={store.teams} store={store} previewTasks={visible}
             />
           )}
           {/* `visible` is the list AFTER search, filters, sort and grouping -
@@ -318,6 +323,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               { header: 'Estimate (h)', width: 11, get: (r) => (r.task.estimateHours ?? '') },
               { header: 'Actual (h)', width: 11, get: (r) => (r.task.actualHours ?? '') },
               { header: 'Completed', width: 10, get: (r) => (r.task.completed ? 'Yes' : 'No') },
+              // The list's custom columns too, formulas as their computed
+              // values (Oct 22 2026).
+              ...customFieldExportColumns(activeFields, store),
             ]}
           />
         </div>
@@ -327,7 +335,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       {/* Body */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'list' ? (
-          <RichListView visible={visible} group={group} sort={sort} setSort={setSort} ctx={ctx} store={store} people={people} selected={selected} setSelected={setSelected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} onFullCreate={openCreate} customSections={sec} />
+          <RichListView visible={visible} group={group} sort={sort} setSort={setSort} ctx={ctx} store={store} people={people} selected={selected} setSelected={setSelected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} onFullCreate={openCreate} customSections={sec} canManageFields={canManage} />
         ) : visible.length === 0 ? (
           <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (
@@ -391,7 +399,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
                   customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
                   allCustomFields={store.customFields} updateCustomField={store.updateCustomField}
               tracksTime={tracksTime} canManageFields={canManage}
-                  lockedProjectId={lockedProjectId} teams={store.teams}
+                  lockedProjectId={lockedProjectId} teams={store.teams} store={store} previewTasks={visible}
                 />
               ) : null}
               onClose={onClose}

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 import models
+import task_formula
 from database import get_db
 from auth import get_current_user, require_manager, require_any_module_grant, module_owner_acts_as
 import auth
@@ -1656,6 +1657,11 @@ def _snapshot_project(db: Session, p: models.TaskProject, *, blueprint: bool,
             # is left global on rebuild rather than being narrowed to the new
             # project, which would take it off every board that has it today.
             "scoped": _scoped_to(f, p.id),
+            # Formula columns (Oct 22 2026): the expression travels by field
+            # NAME, so it reads the same against the rebuilt project's fields.
+            **({"formula": getattr(f, "formula", "") or "",
+                "formulaFormat": getattr(f, "formula_format", None) or {}}
+               if (f.type or "") == "formula" else {}),
         } for f in field_rows],
         "customStatuses": [{
             "key": status_key[s.id], "label": s.label, "color": s.color or "",
@@ -1747,6 +1753,11 @@ def _resolve_custom_fields(db: Session, payload: dict, project_id: str, user: di
                 required=bool(spec.get("required")), read_only=bool(spec.get("readOnly")),
                 applies_to=_dump_applies_to(spec.get("appliesTo") or ["task"]),
                 asana_gid="", company_id=new_company(),
+                # A formula comes across as written; one that no longer
+                # parses (an older payload) shows #Error on the list
+                # rather than failing the whole rebuild.
+                formula=str(spec.get("formula") or "")[:task_formula.MAX_LENGTH] if kind == "formula" else "",
+                formula_format=task_formula.normalize_format(spec.get("formulaFormat")) if kind == "formula" else {},
             )
             db.add(f)
             db.flush()   # autoflush=False - the id must be visible to the tasks below

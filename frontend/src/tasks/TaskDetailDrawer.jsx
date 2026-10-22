@@ -9,10 +9,12 @@ import {
   ArrowLeft, ArrowRightToLine, CornerDownRight, GripVertical, Copy, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate,
+  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
+import { formulaEngineFor } from './formula';
+import { FormulaValue } from './FormulaColumn';
 import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
@@ -2202,11 +2204,26 @@ function TaskSectionRow({ task, patch }) {
  *  projects requires is starred, and flagged while it is still empty -
  *  worked out from the projects the task is in NOW, so moving it out of
  *  the project drops the requirement (Oct 13 2026). */
+// A formula column on the task (Oct 22 2026): its computed value, read-only.
+function FormulaFieldRow({ task, field, customFields }) {
+  const store = useTasks();
+  const engine = formulaEngineFor({ customFields, taskById: store?.taskById, nameOf: store?.nameOf });
+  return (
+    <Row label={field.name}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <FormulaValue task={task} field={field} engine={engine} align="left" size={13} />
+        <Sigma size={11} style={{ color: NX.faint }} aria-label="Calculated by a formula" />
+      </span>
+    </Row>
+  );
+}
+
 export function TaskCustomFieldRows({ task, customFields, projectName, patch }) {
   const fields = fieldsForTask(customFields, task);
   if (!fields.length) return null;
   const values = task.customFieldValues || {};
   return fields.map((f) => {
+    if (f.type === 'formula') return <FormulaFieldRow key={f.id} task={task} field={f} customFields={customFields} />;
     const by = requiredByProjectsOf(f, task);
     const missing = by.length > 0 && isBlankValue(values[f.id]);
     const where = by.filter(Boolean).map((pid) => projectName(pid)).filter(Boolean).join(', ');
@@ -2314,9 +2331,9 @@ export function CustomFieldInput({ field, value, onChange }) {
   // edit - show the value it sent and say why it can't be changed here.
   if (field.readOnly) {
     return (
-      <span title="Calculated in Asana - not editable here"
+      <span title={field.type === 'formula' ? 'Calculated by a formula - not editable' : 'Calculated in Asana - not editable here'}
         style={{ fontSize: 13, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        {value || '-'}
+        {field.type === 'formula' ? '-' : (value || '-')}
         <Lock size={11} style={{ color: NX.faint }} />
       </span>
     );

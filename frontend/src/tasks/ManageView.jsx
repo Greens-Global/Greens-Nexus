@@ -24,6 +24,8 @@ import {
 } from './automationRules';
 import { taskStats, topLevel, fmtDateTime, teamProjectIds, todayISO } from './lib';
 import TasksWorkspace from './TasksWorkspace';
+import { FormulaEditor } from './FormulaColumn';
+import { checkFormula, normalizeFormat, formulaContext, previewRows } from './formula';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
 
@@ -596,6 +598,8 @@ const FIELD_TYPES = [
   { value: 'multiselect', label: 'Multi-Select' },
   { value: 'people', label: 'People' },
   { value: 'checkbox', label: 'Checkbox' },
+  // Worked out from other fields, never stored per task (Oct 22 2026).
+  { value: 'formula', label: 'Formula' },
 ];
 // The two kinds whose value is chosen from a fixed option list.
 const OPTION_TYPES = ['select', 'multiselect'];
@@ -621,6 +625,9 @@ function FieldsTab({ store }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{f.name}</div>
             {f.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{f.description}</div>}
+            {f.type === 'formula' && f.formula && (
+              <code style={{ display: 'block', fontSize: 11.5, color: NX.dim, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>= {f.formula}</code>
+            )}
             {OPTION_TYPES.includes(f.type) && !!(f.options || []).length && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
                 {(f.options || []).slice(0, LIST_CAP).map((o) => {
@@ -650,14 +657,14 @@ function FieldsTab({ store }) {
                 Required in {(f.requiredProjectIds || []).length} {(f.requiredProjectIds || []).length === 1 ? 'Project' : 'Projects'}
               </span>
             )}
-          {f.readOnly && <span title="Calculated in Asana - imported but never pushed back" style={chip(NX.dim, NX.border2)}>Read-only</span>}
+          {f.readOnly && f.type !== 'formula' && <span title="Calculated in Asana - imported but never pushed back" style={chip(NX.dim, NX.border2)}>Read-only</span>}
           <span style={chip(NX.dim, NX.border2)}>{FIELD_TYPES.find((t) => t.value === f.type)?.label || f.type}</span>
           <IconButton icon={Pencil} title="Edit Field" onClick={() => setEditing(f)} />
           <IconButton icon={Trash2} title="Delete Field" danger onClick={() => { if (confirm(`Delete field "${f.name}"?`)) deleteCustomField(f.id); }} />
         </RowCard>
       ))}
-      {adding && <FieldModal projects={projects} onClose={() => setAdding(false)} onSave={async (d) => { await createCustomField(d); setAdding(false); }} />}
-      {editing && <FieldModal projects={projects} field={editing} onClose={() => setEditing(null)}
+      {adding && <FieldModal projects={projects} store={store} onClose={() => setAdding(false)} onSave={async (d) => { await createCustomField(d); setAdding(false); }} />}
+      {editing && <FieldModal projects={projects} store={store} field={editing} onClose={() => setEditing(null)}
         onSave={async (d) => { await updateCustomField(editing.id, d); setEditing(null); }} />}
     </div>
   );
@@ -676,10 +683,16 @@ const APPLIES_TO_OPTS = [
   { value: 'project', label: 'Projects' },
 ];
 
-export function FieldModal({ projects = [], field = null, onClose, onSave }) {
+export function FieldModal({ projects = [], field = null, onClose, onSave, store = null }) {
   const [name, setName] = useState(field?.name || '');
   const [description, setDescription] = useState(field?.description || '');
   const [type, setType] = useState(field?.type || 'text');
+  // Formula columns (Oct 22 2026): the expression and how its result reads.
+  const [formula, setFormula] = useState(field?.formula || '');
+  const [formulaFormat, setFormulaFormat] = useState(normalizeFormat(field?.formulaFormat));
+  const isFormula = type === 'formula';
+  const fctx = useMemo(() => formulaContext(store?.customFields || [], field?.id || '__draft'), [store?.customFields, field?.id]);
+  const formulaProblem = isFormula ? checkFormula(formula, { selfName: name.trim(), ...fctx }) : '';
   // A field can apply to tasks, projects, or both at once.
   const [appliesTo, setAppliesTo] = useState(field?.appliesTo?.length ? field.appliesTo : ['task']);
   const [options, setOptions] = useState(() => {
@@ -724,9 +737,11 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
     || JSON.stringify(requiredProjectIds) !== JSON.stringify(initial.requiredProjectIds)
     || JSON.stringify(appliesTo) !== JSON.stringify(initial.appliesTo)
     || JSON.stringify(options) !== JSON.stringify(initial.options)
-    || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds);
+    || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds)
+    || formula !== (field?.formula || '')
+    || JSON.stringify(formulaFormat) !== JSON.stringify(normalizeFormat(field?.formulaFormat));
 
-  const setOpt = (i, patch) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
+  const setOpt =(i, patch) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
   // At least one kind must stay checked - a field that applies to nothing
   // can't show up anywhere to be edited again.
   const toggleAppliesTo = (kind) => setAppliesTo((prev) => (prev.includes(kind)
@@ -734,6 +749,14 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
     : [...prev, kind]));
   const save = () => {
     if (!name.trim()) return;
+    if (isFormula) {
+      if (formulaProblem) return;
+      // Task-side, never required, no options - the server holds it to that too.
+      onSave({ name: name.trim(), description: description.trim(), type, options: [],
+               project_ids: projectIds, required: false, required_project_ids: [], applies_to: ['task'],
+               formula: formula.trim(), formula_format: formulaFormat });
+      return;
+    }
     const opts = OPTION_TYPES.includes(type)
       ? options.filter((o) => o.label.trim()).map((o) => ({ id: o.label.trim(), label: o.label.trim(), color: o.color }))
       : [];
@@ -751,15 +774,15 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
   };
 
   return (
-    <Modal title={field ? 'Edit Custom Field' : 'New Custom Field'} onClose={onClose} isDirty={dirty} onSave={name.trim() ? save : undefined} footer={
+    <Modal title={field ? 'Edit Custom Field' : 'New Custom Field'} onClose={onClose} isDirty={dirty} onSave={name.trim() && !formulaProblem ? save : undefined} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>{field ? 'Save Field' : 'Add Field'}</button>
+        <button style={{ ...btn('primary'), opacity: formulaProblem ? 0.5 : 1 }} disabled={!!formulaProblem} onClick={save}>{field ? 'Save Field' : 'Add Field'}</button>
       </>
     }>
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points, Location" style={inputStyle} /></Field>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" style={inputStyle} /></Field>
-      <Field label="Applies To">
+      {!isFormula && <Field label="Applies To">
         <div style={{ display: 'flex', gap: 16 }}>
           {APPLIES_TO_OPTS.map((o) => (
             <label key={o.value} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
@@ -769,13 +792,22 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
           ))}
         </div>
         {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>Unchecking a kind moves the field off it - any values already saved under that kind stay stored but stop showing anywhere.</div>}
-      </Field>
+      </Field>}
       <Field label="Type">
         <select value={type} onChange={(e) => setType(e.target.value)} style={selectStyle}>
           {FIELD_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Switching this can leave existing values in the old kind's shape (e.g. a Select's saved option won't match a Text field) - check them after saving.</div>}
       </Field>
+      {isFormula && (
+        <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column' }}>
+          <FormulaEditor formula={formula} onFormula={setFormula} format={formulaFormat} onFormat={setFormulaFormat}
+            fieldNames={fctx.fieldNames} formulaFields={fctx.formulaFields} selfName={name.trim()}
+            preview={formula.trim() && !formulaProblem && store
+              ? previewRows({ draft: { id: field?.id || '__draft', name: name.trim(), type: 'formula', formula, formulaFormat, projectIds }, store, tasks: [], projectIds })
+              : null} />
+        </div>
+      )}
       {OPTION_TYPES.includes(type) && (
         <div>
           <label style={fieldLabel}>Options</label>
@@ -802,7 +834,7 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
           </button>
         </div>
       )}
-      {appliesTo.includes('task') && (
+      {(isFormula || appliesTo.includes('task')) && (
         <div style={{ marginTop: 16 }}>
           <label style={fieldLabel}>Projects</label>
           <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 6 }}>
@@ -810,7 +842,8 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
           </div>
           <ChipMultiSelect value={projectIds} onChange={setProjectIds} options={projectPickerOptions(projects)}
             placeholder="Every project" searchPlaceholder="Search projects…" emptyText="No projects yet." />
-          {projectIds.length > 0 ? (
+          {/* A formula is worked out, so it is never required. */}
+          {isFormula ? null : projectIds.length > 0 ? (
             <RequiredPerProject projectIds={projectIds} projects={projects}
               requiredIds={requiredProjectIds} onToggle={toggleRequiredIn}
               onAll={(on) => setRequiredProjectIds(on ? [...projectIds] : [])} />
@@ -832,7 +865,7 @@ export function FieldModal({ projects = [], field = null, onClose, onSave }) {
         </div>
       )}
       {/* A field only on projects keeps its single switch. */}
-      {!appliesTo.includes('task') && (
+      {!isFormula && !appliesTo.includes('task') && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 13, cursor: 'pointer' }}>
           <input type="checkbox" className="nx-check" checked={required} onChange={(e) => setRequired(e.target.checked)} style={{ width: 16, height: 16 }} />
           Required when creating a project

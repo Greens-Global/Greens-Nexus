@@ -21,6 +21,9 @@ const stamp = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 // A cell is whatever the caller's `get` returned; everything lands as a string
 // except numbers, which Excel should treat as numbers so a column can be summed.
 const cellText = (v) => (v === null || v === undefined ? '' : String(v));
+// A column may also say how a cell READS (`display`) - a formula column keeps
+// a plain number for Excel and shows "$1,234.50" / "25%" in the PDF.
+const pdfText = (c, r) => cellText(c.display ? c.display(r) : c.get(r));
 
 function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -137,7 +140,7 @@ export async function exportPdf({ filename, title, subtitle, columns, rows }) {
     }
     let x = MARGIN;
     columns.forEach((c, i) => {
-      page.drawText(fit(cellText(c.get(r)), widths[i] - 8, font, FONT_SIZE), {
+      page.drawText(fit(pdfText(c, r), widths[i] - 8, font, FONT_SIZE), {
         x: x + 4, y: y - ROW_H + 6, size: FONT_SIZE, font, color: rgb(0.12, 0.14, 0.18),
       });
       x += widths[i];
