@@ -374,7 +374,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
               </p>
             : r.inCorrection
             ? <p style={{ fontSize: 13, margin: '0 0 10px' }}>HR corrected this time sheet after it was signed. {self ? 'Sign it, or decline it with what is wrong' : `${emp} signs it, or declines it with what is wrong`} - a decline goes back to HR.{corr.acceptBy ? ` If it is not signed or declined by ${formatDate(corr.acceptBy)}, it is accepted as sent.` : ''}</p>
-            : <p style={{ fontSize: 13, margin: '0 0 10px' }}>Agreed by {name(r.agreedBy)} on {formatDate(r.agreedAt)}. To change the hours, ask for a punch fix or decline in Nexus Sign with a reason - either way it goes back to the manager.</p>}
+            : <p style={{ fontSize: 13, margin: '0 0 10px' }}>{r.agreedBy ? `Agreed by ${name(r.agreedBy)}${r.agreedAt ? ` on ${formatDate(r.agreedAt)}` : ''}. ` : ''}To change the hours, ask for a punch fix or decline in Nexus Sign with a reason - either way it goes back to the manager.</p>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>Approval</div>
