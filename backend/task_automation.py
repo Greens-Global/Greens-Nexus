@@ -473,7 +473,9 @@ def run_scheduled(db: Session, today_iso: str) -> int:
     if not rules:
         return 0
     today = date.fromisoformat(today_iso[:10])
-    from routers.tasks import _check_dependency_gate   # lazy: routers.tasks imports this module
+    # lazy: routers.tasks imports this module
+    from routers.tasks import (_check_dependency_gate, _resolve_completed, _land_completion,
+                               _log_completed, _after_completed)
     fired = 0
     for rule in rules:
         try:
@@ -515,11 +517,18 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                                          prev_status=before["status"], prev_completed=before["completed"])
                     if line:
                         lines.append(line)
-                # Keep status and the completed flag in step, as update_task does.
-                if res.changed.get("status") == "completed" and not t.completed:
-                    t.completed, t.completed_at = True, now_iso()
-                elif "status" in res.changed and t.completed:
-                    t.completed, t.completed_at = False, ""
+                # Keep status and the completed flag in step - through the same
+                # completion path a person's tick goes through (Oct 21 2026):
+                # the HR checklist steps follow here, and the activity and the
+                # series roll-forward below. Before, the flag was flipped by
+                # hand and a recurring task closed by a rule never repeated.
+                prev_completed = bool(before["completed"])
+                if "status" in res.changed:
+                    _land_completion(db, t, _resolve_completed({"status": res.changed["status"]}, prev_completed),
+                                     prev_completed, AUTOMATION_ACTOR)
+                completed_now = bool(t.completed) and not prev_completed
+                if completed_now:
+                    t.activity_ids = list(t.activity_ids or []) + [_log_completed(db, t, AUTOMATION_ACTOR)]
                 if lines:
                     # Only a real change marks the row modified; a no-op pass
                     # must not make every client's delta fetch re-pull the task.
@@ -542,6 +551,17 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                     task_notify(db, kind="task_assigned", for_email=who, title="You Were Assigned a Task",
                                 body=f"{t.title}", task_id=t.id,
                                 nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+                # A recurring task rolls forward and a ticket's task tells its
+                # ticket, as when a person completes it. The next occurrence is
+                # created as its owner (as the daily schedule does): the
+                # creator is who the due-date notices treat as the requester,
+                # and that must be a person, not the rule. Spawning a task runs
+                # no rules - the engine still never chains.
+                spawned = None
+                if completed_now:
+                    owner = t.owner_email or t.created_by or t.assignee_email or "system"
+                    spawned = _after_completed(db, t, {"email": AUTOMATION_ACTOR}, prev_completed,
+                                               spawn_as={"email": owner})
                 # Logged even when nothing changed, so the dedupe holds and the
                 # Runs panel shows the rule looked.
                 _record(db, rule, t, event="scheduled", lines=lines or ["nothing to change"], dedupe_key=key)
@@ -550,6 +570,13 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                 if lines:
                     fire_task_event(t.id, "updated")
                     fired += 1
+                if spawned is not None:
+                    fire_task_event(spawned.id, "created")
+                if completed_now:
+                    # The "completed" email, as update_task sends for a person
+                    # (inline: this already runs on a worker thread).
+                    import task_notify as _mail
+                    _mail.notify_task_event(t.id, "completed", AUTOMATION_ACTOR)
                 if added:
                     # Already on a worker thread (task_notify's scan runs in
                     # asyncio.to_thread), so the email goes inline. Lazy:

@@ -591,9 +591,14 @@ def delete_project(project_id: str, user: dict = Depends(get_current_user),
     # plus its 200 tasks.
     now = now_iso()
     binned = 0
-    for t in (db.query(models.Task).execution_options(include_deleted=True)
-              .filter(models.Task.project_id == project_id,
-                      (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None))).all()):
+    in_project = (db.query(models.Task).execution_options(include_deleted=True)
+                  .filter(models.Task.project_id == project_id,
+                          (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None))).all())
+    # Their subtasks too, however deep (Oct 21 2026): a subtask's own
+    # project_id is blank - it reaches the project through its parent - so the
+    # filter above never found one, and they stayed live under binned parents.
+    from routers.tasks import _live_descendants   # lazy, like this file's other routers.tasks imports
+    for t in in_project + _live_descendants(db, [x.id for x in in_project]):
         t.deleted_at = now
         t.deleted_by = user["email"]
         t.deleted_with = project_id
@@ -2546,6 +2551,13 @@ def restore_from_recycle_bin(kind: str, item_id: str, user: dict = Depends(get_c
     if not _may_untrash_row(user, row, db):
         raise HTTPException(403, "Only a manager, or whoever deleted it, can restore this.")
     now = now_iso()
+    if kind == "task":
+        # A task comes back with the subtasks binned WITH it (they are not
+        # listed on their own) - the same restore as POST /tasks/{id}/restore.
+        from routers.tasks import restore_task_tree
+        restored = 1 + len(restore_task_tree(db, row, now))
+        db.commit()
+        return {"kind": kind, "id": item_id, "restored": restored}
     row.deleted_at = ""
     row.deleted_by = ""
     if hasattr(row, "modified_at"):

@@ -276,7 +276,9 @@ def delete_template(template_id: str, user: dict = Depends(get_current_user),
 # return with its eleven subtasks, saved once, started again for each entity.
 # Saving reads the task server-side (what it is, never its comments, files or
 # history); using builds the task, its subtasks and checklists in ONE commit.
-_RULE_MARKERS = ("nextOccurrenceId", "closedAsMissed", "count")
+# seriesId too (Oct 21 2026): every task started from a template is a series of
+# its own, never a copy of the one the template was saved from.
+_RULE_MARKERS = ("nextOccurrenceId", "closedAsMissed", "count", "seriesId")
 TEMPLATE_PARTS = ("subtasks", "assignees", "followers", "fields", "recurrence", "description", "checklist")
 
 
@@ -458,6 +460,8 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
                 recurrence=srec, is_milestone=False, approval_status="none", completed=False, completed_at="",
                 comment_ids=[], attachment_ids=[], activity_ids=[],
                 created_at=now, modified_at=now, created_by=actor)
+            if (srec or {}).get("freq"):
+                row.recurrence = tasks_router._with_series_id(srec, row.id)   # a series of its own
             kept_a, gone_a = split_people(db, row, s.get("assigneeIds") or [], user, actor)
             kept_f, gone_f = split_people(db, row, s.get("followerIds") or [], user, actor)
             set_task_assignees(row, kept_a)
