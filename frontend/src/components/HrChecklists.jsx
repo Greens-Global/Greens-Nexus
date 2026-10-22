@@ -882,82 +882,100 @@ function SaveBar({ label, busy, onDiscard, onSave, saveText }) {
   );
 }
 
-function OwnersCard({ entityId, people, toastOk, toastErr }) {
+// Neil, Oct 22: "integrate role owners with department heads in departments in
+// settings" - one company setup, applied everywhere. HR / IT / Accounting
+// steps go to the head AND backup of the department playing that part; with
+// nobody active there, to the old owner list, the HR contact, then the Global
+// Admins. This card says who that is right now and what is missing.
+function DepartmentOwnersCard({ entityId, people, onOpenDepartments, toastOk, toastErr }) {
   const [data, setData] = useState(null);
-  const [draft, setDraft] = useState({});
-  const [editing, setEditing] = useState('');
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    api.getChecklistOwners(entityId).then(r => { setData(r); setDraft(r.owners || {}); }).catch(() => setData(false));
-  }, [entityId]);
-  const nameOf = em => people.find(p => p.email === em)?.name || em;
-  // Several people per role (Pranshu, Oct 20) - each role is a list.
-  const listOf = v => (Array.isArray(v) ? v : v ? [v] : []);
-  const norm = o => JSON.stringify(Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k, listOf(v)]).filter(([, v]) => v.length)));
-  const dirty = data && norm(draft) !== norm(data.owners);
-  async function save() {
-    setBusy(true);
-    try { const r = await api.saveChecklistOwners(entityId, draft); setData(d => ({ ...d, ...r })); setDraft(r.owners || {}); toastOk('Checklist owners saved.'); }
-    catch (e) { toastErr(e?.message || 'Could not save the owners.'); }
-    setBusy(false);
+  const [busy, setBusy] = useState('');
+  const load = useCallback(() => api.getChecklistOwners(entityId).then(setData).catch(() => setData(false)), [entityId]);
+  useEffect(() => { load(); }, [load]);
+  const nameOf = em => people.find(p => p.email === (em || '').toLowerCase())?.name || em;
+  async function pick(role, deptId) {
+    setBusy(role);
+    try {
+      const picked = Object.fromEntries(OWNER_ROLES.map(r => [r, data.departments?.[r]?.picked ? data.departments[r].id : '']));
+      setData(await api.saveChecklistOwnerDepartments(entityId, { ...picked, [role]: deptId }));
+      toastOk('Saved - open checklists now go to that department.');
+    } catch (e) { toastErr(e?.message || 'Could not save.'); }
+    setBusy('');
   }
   if (data === null) return <SkeletonBlocks count={1} height={150} />;
-  if (data === false) return <div style={{ ...card, padding: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load the owners.</div>;
+  if (data === false) return <div style={{ ...card, padding: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load who owns the steps.</div>;
+  const admins = (data.globalAdmins || []).map(nameOf).join(', ') || 'nobody yet';
   return (
     <section style={{ ...card, padding: 18, marginBottom: 18 }}>
-      <div style={{ marginBottom: 14 }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: FONT, color: 'var(--wk-ink)' }}>Role Owners</h3>
-        <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
-          Pick one or more people per role. Several owners share one task per checklist - any of them closing it closes the step.
-          Manager and Employee steps go to each person&apos;s reports-to and to the person. HR steps go to the HR owners here, or the company&apos;s HR contact{data.hrContact ? ` (${nameOf(data.hrContact)})` : ''} when none is set.
-          {entityId ? ' A role left blank here uses the default.' : ''}
-        </p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ flex: '1 1 300px', minWidth: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: FONT, color: 'var(--wk-ink)' }}>Who Does Each Step</h3>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
+            HR, IT and Accounting steps go to the head and the backup of that department - both get the task, and either one closing it closes it.
+            Manager steps go to the person&apos;s reports-to (no reports-to: their department head). Anything nobody owns goes to the Global Admins ({admins}).
+          </p>
+        </div>
+        {onOpenDepartments && <button onClick={onOpenDepartments} style={ghostBtn}><Users size={13} /> Edit Heads In Departments</button>}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
         {OWNER_ROLES.map(role => {
           const look = ROLE_LOOK[role];
-          const own = listOf(draft[role]);
-          const inherited = own.length ? [] : listOf(data.effective?.[role]);
-          const isEditing = editing === role;
+          const d = data.departments?.[role];
+          const active = d?.active || [];
+          const effective = [].concat(data.effective?.[role] || []);
+          const fallback = effective.length ? effective : role === 'hr' && data.hrContact ? [data.hrContact] : [];
+          const warn = !d ? `No ${look.label} department` : !d.leadEmail ? 'No department head'
+            : !active.length ? 'Head and backup are not active' : !d.backupEmail ? 'No backup' : '';
           return (
-            <div key={role} style={{ border: `1px solid ${isEditing ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 'var(--wk-r)', padding: 14, display: 'grid', gap: 10, alignContent: 'start', background: 'var(--wk-card)' }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <div key={role} style={{ border: `1px solid ${warn && !active.length ? 'var(--wk-orange)' : 'var(--wk-line2)'}`, borderRadius: 'var(--wk-r)', padding: 14, display: 'grid', gap: 10, alignContent: 'start', background: 'var(--wk-card)' }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <span className={`dk-chip ${look.chip}`}><look.Icon /></span>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--wk-ink)' }}>{look.label}</div>
-                  <div style={{ fontSize: 12, color: 'var(--wk-dim)', lineHeight: 1.45 }}>{look.hint}</div>
-                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--wk-ink)', flex: 1 }}>{look.label}</div>
+                {busy === role && <Spinner size={13} />}
               </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                {own.map(em => (
-                  <div key={em} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 28 }}>
-                    <Avatar name={nameOf(em)} />
-                    <b style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</b>
-                    <button onClick={() => setDraft(d => ({ ...d, [role]: own.filter(x => x !== em) }))} aria-label={`Remove ${nameOf(em)} as ${look.label} owner`} style={{ ...ghostBtn, padding: 5 }}><X size={12} /></button>
-                  </div>
-                ))}
-                {!own.length && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 28 }}>
-                    <Avatar name={nameOf(inherited[0] || '')} empty={!inherited.length} />
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {inherited.length ? <span style={{ color: 'var(--wk-dim)' }}>{inherited.map(nameOf).join(', ')} <span style={{ color: 'var(--wk-faint)' }}>(default)</span></span>
-                        : <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>Not set</span>}
-                    </span>
-                  </div>
-                )}
-                <div>
-                  <button onClick={() => setEditing(isEditing ? '' : role)} style={ghostBtn}>{isEditing ? 'Close' : own.length ? 'Add Another' : 'Add Owner'}</button>
+              <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--wk-dim)' }}>
+                Department
+                <select aria-label={`Department for ${look.label} steps`} value={d?.picked ? d.id : ''} disabled={!!busy}
+                  onChange={e => pick(role, e.target.value)} style={inputStyle}>
+                  <option value="">{d && !d.picked ? `${d.name} (matched by name)` : 'Match by name'}</option>
+                  {(data.departmentChoices || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+              {d && (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {[['Head', d.leadEmail], ['Backup', d.backupEmail]].map(([lbl, em]) => (
+                    <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 26 }}>
+                      <Avatar name={em ? nameOf(em) : ''} empty={!em} />
+                      <span style={{ fontSize: 12, color: 'var(--wk-faint)', width: 46 }}>{lbl}</span>
+                      <b style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: em ? 'var(--wk-ink)' : 'var(--wk-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{em ? nameOf(em) : 'Not set'}</b>
+                    </div>
+                  ))}
                 </div>
-              </div>
-              {isEditing && (
-                <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people: people.filter(p => !own.includes(p.email)) }]}
-                  onPick={em => { setDraft(d => ({ ...d, [role]: [...own, em] })); setEditing(''); }} />
+              )}
+              {warn && (
+                <div role="note" style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 12, lineHeight: 1.45, color: 'var(--wk-orange)' }}>
+                  <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span>
+                    <b>{warn}.</b>{' '}
+                    {active.length ? 'Steps reach the head, but nobody covers when they are out.'
+                      : `Steps go to ${fallback.length ? fallback.map(nameOf).join(', ') : `the Global Admins (${admins})`} until it is set.`}
+                  </span>
+                </div>
               )}
             </div>
           );
         })}
       </div>
-      {dirty && <SaveBar label="Owner changes not saved yet" busy={busy} saveText="Save Owners" onDiscard={() => setDraft(data.owners || {})} onSave={save} />}
+    </section>
+  );
+}
+
+// The library has no departments: each company's own decide who does a step.
+function LibraryOwnersNote() {
+  return (
+    <section style={{ ...card, padding: '14px 18px', marginBottom: 18, fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
+      <b style={{ color: 'var(--wk-ink)' }}>Who does each step</b> is set once per company: the head and the backup of its HR, IT and
+      Accounting departments (Company Settings &gt; a company &gt; Departments). A step nobody owns goes to the Global Admins.
     </section>
   );
 }
@@ -1338,7 +1356,7 @@ function CopyStepsModal({ direction, entityId, entities, kinds, kind, onClose, o
   );
 }
 
-export function ChecklistSettings({ entityId = '', entities = [], toastOk, toastErr }) {
+export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartments, toastOk, toastErr }) {
   const [loaded, setLoaded] = useState({ entityId: null, templates: null });
   const [kind, setKind] = useState('onboarding');
   const [meta, setMeta] = useState(null);
@@ -1375,7 +1393,9 @@ export function ChecklistSettings({ entityId = '', entities = [], toastOk, toast
         )}
       </section>
 
-      <OwnersCard key={entityId || 'default'} entityId={entityId} people={people} toastOk={toastOk} toastErr={toastErr} />
+      {entityId
+        ? <DepartmentOwnersCard key={entityId} entityId={entityId} people={people} onOpenDepartments={onOpenDepartments} toastOk={toastOk} toastErr={toastErr} />
+        : <LibraryOwnersNote />}
 
       {/* A company's own steps are its roles' (Pranshu, Oct 20: "we are
           already adding phase and steps according to role ... just see an

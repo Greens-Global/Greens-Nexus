@@ -118,7 +118,8 @@ describe('MyChecklistSteps', () => {
 describe('ChecklistSettings', () => {
   it('renders the owners and the template editor', async () => {
     render(<ChecklistSettings entities={[{ id: 'co-a', name: 'Greens' }]} toastOk={() => {}} toastErr={() => {}} />);
-    expect(await screen.findByText('Role Owners')).toBeInTheDocument();
+    // The library has no departments - it says where owners come from.
+    expect(await screen.findByText('Who does each step')).toBeInTheDocument();
     expect(await screen.findByText('Profile Complete')).toBeInTheDocument();
     expect(screen.getByText('When the checklist starts')).toBeInTheDocument();
     // Read first, edit on click: the step opens its fields in place.
@@ -165,7 +166,7 @@ describe('Checklists by company and role', () => {
   it('a company shows which roles are built and what is missing, and builds one in place', async () => {
     render(<ChecklistSettings entityId="co-a" entities={[{ id: 'co-a', name: 'Greens' }]} toastOk={() => {}} toastErr={() => {}} />);
     expect(await screen.findByText('Role Checklists')).toBeInTheDocument();
-    expect(screen.getByText('Role Owners')).toBeInTheDocument();
+    expect(await screen.findByText('Who Does Each Step')).toBeInTheDocument();
     expect(screen.getByText('0 of 1')).toBeInTheDocument();
     expect(screen.getByText('Accounting Associate')).toBeInTheDocument();
     expect(screen.getByText('1 step')).toBeInTheDocument();
@@ -216,5 +217,29 @@ describe('ChecklistChip', () => {
     render(<ChecklistChip p={{ checklistId: 'z', kind: 'offboarding', kindLabel: 'Offboarding', status: 'done', done: 26, total: 26, overdue: 0 }} />);
     expect(screen.getByText('Offboarding Complete')).toBeInTheDocument();
     expect(screen.queryByText('26/26')).toBeNull();
+  });
+});
+
+// Neil, Oct 22: HR / IT / Accounting steps belong to a department's head and
+// backup, and the card says plainly who gets them when one is missing.
+describe('Who does each step', () => {
+  it('shows each department head and backup, and warns where nobody covers', async () => {
+    api.getChecklistOwners.mockResolvedValueOnce({
+      owners: {}, effective: { hr: ['head@greensglobal.com'] }, hrContact: '', legacy: {},
+      globalAdmins: ['owner@greensglobal.com'],
+      departmentChoices: [{ id: 'd-hr', name: 'Human Resources' }, { id: 'd-it', name: 'IT' }],
+      departments: {
+        hr: { id: 'd-hr', name: 'Human Resources', leadEmail: 'head@greensglobal.com', backupEmail: '', picked: false, active: ['head@greensglobal.com'] },
+        it: { id: 'd-it', name: 'IT', leadEmail: '', backupEmail: '', picked: true, active: [] },
+      },
+    });
+    render(<ChecklistSettings entityId="co-a" entities={[{ id: 'co-a', name: 'Greens' }]} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Who Does Each Step')).toBeInTheDocument();
+    expect(screen.getByText('No backup.')).toBeInTheDocument();
+    expect(screen.getByText('No department head.')).toBeInTheDocument();
+    expect(screen.getByText('No Accounting department.')).toBeInTheDocument();
+    expect(screen.getAllByText(/until it is set/).length).toBeGreaterThan(0);
+    expect(screen.getByRole('combobox', { name: 'Department for HR steps' })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'Department for IT steps' })).toHaveValue('d-it');
   });
 });

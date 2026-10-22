@@ -39,6 +39,7 @@ from models import (
     HrChecklistItem,
     HrChecklistTemplate,
     HrCompanyHoliday,
+    HrDepartment,
     HrEntity,
     HrProvisionRun,
     HrSignRequest,
@@ -59,6 +60,17 @@ LEGACY_ROLES = {"payroll": "accounting", "finance": "accounting", "equipment": "
 KIND_LABELS = {"onboarding": "Onboarding", "promotion": "Promotion", "offboarding": "Offboarding",
                "inactive": "Leave or Suspension"}
 OWNERS_KEY = "hr_checklist_owners:"   # + entity id ('' = default) -> {"it": email, ...}
+# Neil, Oct 22: "integrate role owners with department heads in departments in
+# settings... when you set up your company for the very first time, you are
+# saying who is the head of each... there needs to be a backup also", and "if
+# the company setup did not happen properly... it should default back to global
+# admin". HR / IT / Accounting steps belong to a department's head AND backup;
+# which department plays each part is picked per company (else matched by name).
+DEPTS_KEY = "hr_checklist_owner_depts:"   # + entity id -> {"hr": department id, ...}
+DEPT_ROLES = ("hr", "it", "accounting")
+DEPT_NAMES = {"hr": ("hr", "human resources", "people", "people operations"),
+              "it": ("it", "information technology", "it support"),
+              "accounting": ("accounting", "finance", "accounts")}
 
 
 def _now() -> str:
@@ -281,20 +293,75 @@ def owners_setting(raw: dict) -> dict:
     return out
 
 
-def role_owners(db, entity_id: str) -> dict:
-    """{role: [emails]} set in Role Owners for this company, falling back to
-    the default ('' entity) for roles the company left blank."""
+def _setting_json(db, key: str) -> dict:
+    row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
+    try:
+        val = json.loads(row.value) if row and row.value else {}
+    except ValueError:
+        val = {}
+    return val if isinstance(val, dict) else {}
+
+
+def active_people(db, emails) -> list:
+    """The emails that belong to someone active (or onboarding) in Nexus People."""
+    want = email_list(emails)
+    if not want:
+        return []
+    live = {(e.work_email or "").lower() for e in db.query(NexusEmployee.work_email)
+            .filter(func.lower(NexusEmployee.work_email).in_(want),
+                    NexusEmployee.status.in_(("active", "onboarding")))}
+    return [e for e in want if e in live]
+
+
+def owner_departments(db, entity_id: str) -> dict:
+    """{role: HrDepartment} - the company's department for HR, IT and
+    Accounting: the one picked on its Checklists tab, else the one whose name
+    says so ("Human Resources", "Finance"...)."""
+    if not entity_id:
+        return {}
+    rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).all()
+    by_id = {d.id: d for d in rows}
+    picked = _setting_json(db, DEPTS_KEY + entity_id)
+    out = {}
+    for role in DEPT_ROLES:
+        d = by_id.get(str(picked.get(role) or ""))
+        if d is None:
+            d = next((r for r in rows if (r.name or "").strip().lower() in DEPT_NAMES[role]), None)
+        if d is not None:
+            out[role] = d
+    return out
+
+
+def legacy_owners(db, entity_id: str) -> dict:
+    """{role: [emails]} from the pre-Oct 22 Role Owners lists (the default,
+    then the company's) - only a fallback now, for a company whose department
+    has nobody active at its head."""
     out = {}
     for key in (OWNERS_KEY, OWNERS_KEY + (entity_id or "")):
-        row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
-        if row and row.value:
-            try:
-                out.update(owners_setting(json.loads(row.value)))
-            except (ValueError, AttributeError):
-                pass
+        raw = _setting_json(db, key)
+        if raw:
+            out.update(owners_setting(raw))
         if not entity_id:
             break
     return out
+
+
+def role_owners(db, entity_id: str) -> dict:
+    """{role: [emails]} for HR / IT / Accounting at this company: the
+    department's head and backup (whoever of them is active), else the old
+    Role Owners list. Empty roles fall back further in resolve_owners."""
+    out = legacy_owners(db, entity_id)
+    for role, d in owner_departments(db, entity_id).items():
+        people = active_people(db, [d.lead_email, d.backup_email])
+        if people:
+            out[role] = people
+    return out
+
+
+def global_admins(db) -> list:
+    """The last stop for a step nobody else owns (Neil, Oct 22)."""
+    from timesheet_alerts import _global_admins
+    return _global_admins(db)
 
 
 def resolve_owner(db, role: str, emp: NexusEmployee, owners: dict, entity: HrEntity) -> str:
@@ -311,16 +378,30 @@ def resolve_owner(db, role: str, emp: NexusEmployee, owners: dict, entity: HrEnt
 
 
 def resolve_owners(db, role: str, emp: NexusEmployee, owners: dict, entity: HrEntity) -> list:
-    """Everyone who owns a checklist step of this role. Role Owners can name
-    several people per role, all on the step's task (Pranshu, Oct 20); HR falls
-    back to the company's HR contact only when no HR owner is set."""
+    """Everyone who owns a checklist step of this role - all of them on the
+    step's task, so whichever closes it closes it for the rest. Nobody is ever
+    left without an owner (Neil, Oct 22): a manager step with no manager goes
+    to the head of the person's department, then HR; HR is the department,
+    then the company's HR contact; anything still unowned goes to the Global
+    Admins. An employee step waits for the person's work email."""
     role = norm_role(role)
-    if role in ("employee", "manager"):
+    if role == "employee":
         return email_list(resolve_owner(db, role, emp, owners, entity))
+    if role == "manager":
+        found = email_list(emp.manager_email)
+        if not found and emp.department and emp.company:
+            dept = next((d for d in db.query(HrDepartment).filter(HrDepartment.company_id == emp.company)
+                         if (d.name or "").strip().lower() == emp.department.strip().lower()), None)
+            found = active_people(db, [dept.lead_email, dept.backup_email]) if dept else []
+            found = [e for e in found if e != (emp.work_email or "").lower()]   # never their own manager step
+        if not found:
+            role = "hr"
+        else:
+            return found
     found = email_list(owners.get(role))
     if not found and role == "hr" and entity is not None:
         found = email_list(entity.hr_contact_email)
-    return found
+    return found or global_admins(db)
 
 
 def owners_of(it) -> list:
@@ -450,6 +531,23 @@ def email_tasks_after_commit(db, task_ids: list, by: str) -> None:
             time.sleep(2)
 
     sa_event.listen(db, "after_commit", lambda _s: threading.Thread(target=send, daemon=True).start(), once=True)
+
+
+def resync_company(db, entity_id: str, by: str) -> list:
+    """Open checklists at a company ('' = every company) take who owns their
+    steps NOW - a department head or backup changed, or which department plays
+    HR / IT / Accounting - and their tasks follow. The new tasks' email goes
+    out after commit. Returns the new task ids."""
+    q = db.query(HrChecklist).filter(HrChecklist.status == "open")
+    if entity_id:
+        q = q.filter(HrChecklist.company == entity_id)
+    created = []
+    for cl in q.all():
+        if sync(db, cl):
+            db.flush()
+            created += sync_tasks(db, cl, by=by)
+    email_tasks_after_commit(db, created, by)
+    return created
 
 
 def start_on_hire(db, emp: NexusEmployee, by: str, role_id: str = None) -> None:

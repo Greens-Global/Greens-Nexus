@@ -3272,10 +3272,27 @@ def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
                 if _dept_key(e.department or "") == old_key:
                     e.department = new_name
             row.name = new_name
-    if body.lead_email is not None:
-        row.lead_email = (body.lead_email or "").strip().lower()
-    if body.backup_email is not None:
-        row.backup_email = (body.backup_email or "").strip().lower()
+    people_before = (row.lead_email or "", row.backup_email or "")
+    for field in ("lead_email", "backup_email"):
+        val = getattr(body, field)
+        if val is None:
+            continue
+        val = (val or "").strip().lower()
+        # Curated People list only (CLAUDE.md) - a typo here would quietly
+        # leave HR / IT / Accounting steps with nobody on them.
+        if val and not db.query(NexusEmployee.id).filter(
+                func.lower(NexusEmployee.work_email) == val,
+                NexusEmployee.status.in_(["active", "onboarding"])).first():
+            raise HTTPException(400, f"{val} is not an active person in Nexus People")
+        setattr(row, field, val)
+    if row.backup_email and row.backup_email == row.lead_email:
+        raise HTTPException(400, "The backup has to be someone other than the department head")
+    if (row.lead_email or "", row.backup_email or "") != people_before:
+        # Checklist steps owned by this department follow the new head / backup
+        # (Neil, Oct 22: one company setup, applied everywhere).
+        db.flush()
+        import hr_checklists
+        hr_checklists.resync_company(db, entity_id, user["email"].lower())
     db.commit()
     rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
     return [_serialize_dept(d) for d in rows]

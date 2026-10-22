@@ -836,3 +836,93 @@ class ChecklistTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DepartmentOwnerTests(unittest.TestCase):
+    """Neil, Oct 22: HR / IT / Accounting steps go to the department's head AND
+    backup; a manager step with no manager goes to the department head; and
+    nothing is ever left without an owner - the Global Admins are last."""
+    setUp = ChecklistTests.setUp
+    tearDown = ChecklistTests.tearDown
+    _person = ChecklistTests._person
+    _start = ChecklistTests._start
+    _row = ChecklistTests._row
+
+    def _dept(self, did, name, lead="", backup="", company=CO_A):
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrDepartment(id=did, company_id=company, name=name, lead_email=lead, backup_email=backup))
+            db.commit()
+        finally:
+            db.close()
+
+    def _owners(self, row):
+        return sorted(e.strip() for e in (row.get("ownerEmails") or row["ownerEmail"]).split(",") if e.strip()) \
+            if isinstance(row.get("ownerEmails"), str) else sorted(row.get("ownerEmails") or [row["ownerEmail"]])
+
+    def test_head_and_backup_own_department_steps(self):
+        self._dept("d-hr", "Human Resources", lead=HR, backup=SCOPED)
+        self._dept("d-it", "IT", lead=MANAGER)
+        cl = self._start(self._person())
+        self.assertEqual(self._owners(self._row(cl, "ON-20")), sorted([HR, SCOPED]))   # beats the HR contact
+        self.assertEqual(self._owners(self._row(cl, "ON-12")), [MANAGER])               # beats the old IT owner list
+
+    def test_nobody_set_goes_to_the_global_admins(self):
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusSetting).delete()
+            db.query(models.NexusRole).delete()
+            db.add(models.NexusRole(email=HRC, role="owner"))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            cl = self._start(self._person(company=CO_B))        # no HR contact, no departments, no owners
+            self.assertEqual(self._row(cl, "ON-12")["ownerEmail"], HRC)
+            self.assertEqual(self._row(cl, "ON-20")["ownerEmail"], HRC)
+            self.assertEqual(self._row(cl, "ON-19")["ownerEmail"], "")   # the person's own step waits for them
+        finally:
+            db = database.SessionLocal()
+            db.query(models.NexusRole).delete()
+            db.commit()
+            db.close()
+
+    def test_no_manager_goes_to_the_department_head_never_to_themselves(self):
+        self._dept("d-con", "Construction", lead=MANAGER, backup=IT)
+        eid = self._person()
+        db = database.SessionLocal()
+        try:
+            e = db.query(models.NexusEmployee).filter(models.NexusEmployee.id == eid).first()
+            e.manager_email, e.department, e.work_email, e.status = "", "Construction", MANAGER + ".x", "onboarding"
+            db.commit()
+            emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.id == eid).first()
+            self.assertEqual(sorted(hc.resolve_owners(db, "manager", emp, {}, None)), sorted([MANAGER, IT]))
+            emp.work_email = MANAGER                              # they ARE the head: only the backup
+            self.assertEqual(hc.resolve_owners(db, "manager", emp, {}, None), [IT])
+        finally:
+            db.close()
+
+    def test_a_new_backup_moves_open_steps_and_bad_people_are_refused(self):
+        self._dept("d-hr", "Human Resources", lead=HR)
+        cl = self._start(self._person())
+        self.assertEqual(self._owners(self._row(cl, "ON-20")), [HR])
+        r = self.client.patch(f"/hr/entities/{CO_A}/departments/d-hr", json={"backup_email": "nobody@example.com"})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.patch(f"/hr/entities/{CO_A}/departments/d-hr", json={"backup_email": HR})
+        self.assertEqual(r.status_code, 400)                    # backup is someone else
+        r = self.client.patch(f"/hr/entities/{CO_A}/departments/d-hr", json={"backup_email": SCOPED})
+        self.assertEqual(r.status_code, 200, r.text)
+        again = self.client.get(f"/hr/checklists/employee/{cl['employeeId']}").json()
+        rows = [i for c in again["checklists"] for i in c["items"] if i["key"] == "ON-20"]
+        self.assertEqual(self._owners(rows[0]), sorted([HR, SCOPED]))
+
+    def test_a_company_picks_which_department_plays_it(self):
+        self._dept("d-tech", "Technology", lead=MANAGER)
+        r = self.client.put(f"/hr/checklists/owner-departments?entity_id={CO_A}", json={"departments": {"it": "d-tech"}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["departments"]["it"]["name"], "Technology")
+        self.assertEqual(r.json()["effective"]["it"], [MANAGER])
+        cl = self._start(self._person())
+        self.assertEqual(self._row(cl, "ON-12")["ownerEmail"], MANAGER)
+        r = self.client.put(f"/hr/checklists/owner-departments?entity_id={CO_A}", json={"departments": {"it": "nope"}})
+        self.assertEqual(r.status_code, 400)

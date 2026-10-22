@@ -3489,11 +3489,14 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
     catch (e) { toastErr(e?.message || 'Could not add department.'); }
     setBusy(false);
   }
-  async function setDeptHead(d, email) {
+  // Head AND backup (Neil, Oct 22: "there's usually a number one and a number
+  // two"). HR / IT / Accounting checklist steps go to both.
+  async function setDeptPerson(d, field, email) {
+    const what = field === 'lead_email' ? 'head' : 'backup';
     try {
-      setDepts(await api.updateCompanyDepartment(entity.id, d.id, { lead_email: email }));
-      toastOk?.(email ? `${nameOf(email)} is now the head of ${d.name}.` : `${d.name} has no department head now.`);
-    } catch (e) { toastErr(e?.message || 'Could not set the department head.'); }
+      setDepts(await api.updateCompanyDepartment(entity.id, d.id, { [field]: email }));
+      toastOk?.(email ? `${nameOf(email)} is now the ${what} of ${d.name}.` : `${d.name} has no ${what} now.`);
+    } catch (e) { toastErr(e?.message || `Could not set the ${what}.`); }
   }
   const headPicker = (value, onPick, onClear, label) => value ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 12.5 }}>
@@ -3503,7 +3506,7 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
         <X size={12} />
       </button>
     </span>
-  ) : <PersonSearchSelect placeholder="Department head (optional)" groups={[{ label: 'Nexus People', people }]} onPick={onPick} />;
+  ) : <PersonSearchSelect placeholder={label.startsWith('backup') ? 'Backup (optional)' : 'Department head (optional)'} groups={[{ label: 'Nexus People', people }]} onPick={onPick} />;
   async function remove(d) {
     if (!await dialog.confirm(
       `Delete the "${d.name}" department? Anyone currently assigned to it will be left with no department - you can reassign them on their profile.`,
@@ -3527,6 +3530,7 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
       <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
         Departments for <strong>{entity.name}</strong>. These are the only choices when picking a department for someone in this company.
         The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Contact Directory.
+        The head and the backup both get the HR, IT and Accounting steps of every checklist, so set a backup for anyone who can be out.
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <input className="form-input" style={{ flex: '1 1 180px' }} placeholder="e.g. Estimating" value={name}
@@ -3541,11 +3545,9 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
         : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet - add the first one above.</div>
         : (
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) 32px', gap: 10, padding: '8px 12px', background: 'var(--paper)', borderBottom: '1px solid var(--line)', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
-              <span>Department</span><span>Department Head</span><span />
-            </div>
             {depts.map(d => (
-              <div key={d.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) 32px', gap: 10, padding: '8px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
+              <div key={d.id} style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', padding: '10px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
+                <div style={{ flex: '1 1 160px', minWidth: 0 }}>
                 {editId === d.id ? (
                   <input className="form-input" autoFocus value={editName} maxLength={40}
                     onChange={e => setEditName(e.target.value)}
@@ -3553,7 +3555,7 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
                     onBlur={() => { if (cancelRef.current) { cancelRef.current = false; return; } rename(d); }}
                     style={{ fontSize: 13, padding: '4px 8px' }} />
                 ) : (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
                     <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
                     <button onClick={() => { setEditId(d.id); setEditName(d.name); }} title={`Rename ${d.name}`} aria-label={`Rename ${d.name}`}
                       style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', padding: 0, flexShrink: 0 }}
@@ -3563,7 +3565,13 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
                     </button>
                   </span>
                 )}
-                <div style={{ minWidth: 0 }}>{headPicker(d.leadEmail, (email) => setDeptHead(d, email), () => setDeptHead(d, ''), `head of ${d.name}`)}</div>
+                </div>
+                {[['lead_email', 'Head', d.leadEmail, `head of ${d.name}`], ['backup_email', 'Backup', d.backupEmail, `backup for ${d.name}`]].map(([field, cap, value, label]) => (
+                  <div key={field} style={{ flex: '1 1 170px', minWidth: 0, display: 'grid', gap: 2 }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{cap}</span>
+                    {headPicker(value, (email) => setDeptPerson(d, field, email), () => setDeptPerson(d, field, ''), label)}
+                  </div>
+                ))}
                 <button onClick={() => remove(d)} title={`Remove ${d.name}`} aria-label={`Remove ${d.name}`}
                   style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: '50%', padding: 0 }}
                   onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
@@ -3900,7 +3908,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         )}
         {mode !== 'new' && tab === 'checklists' && (
           editingEntity
-            ? <ChecklistSettings entityId={editingEntity.id} entities={entities} toastOk={toastOk} toastErr={toastErr} />
+            ? <ChecklistSettings entityId={editingEntity.id} entities={entities} onOpenDepartments={() => setTab('departments')} toastOk={toastOk} toastErr={toastErr} />
             : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
         )}
         {mode !== 'new' && tab === 'roles' && can('administrator') && (
