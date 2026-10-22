@@ -52,12 +52,17 @@ vi.mock('../api', () => ({
     getChecklistBoard: vi.fn(() => Promise.resolve({ rows: BOARD })),
     getChecklistOwners: vi.fn(() => Promise.resolve({ owners: { it: 'it@greensglobal.com' }, effective: { it: 'it@greensglobal.com' }, hrContact: '' })),
     copyChecklistTemplates: vi.fn(() => Promise.resolve({ copied: 1, kinds: ['onboarding'], companies: ['co-a'] })),
+    copyRoleChecklist: vi.fn(() => Promise.resolve({ roleId: 'r-acct', roleName: 'Accounting Associate', companyName: 'Greens', copied: 2, templates: [
+      { kind: 'onboarding', kindLabel: 'Onboarding', entityId: '', inherited: false, updatedAt: 'y', baseline: { source: 'library', items: [] },
+        items: [{ key: 'ROW-1', phase: 'Accounting Associate Steps', title: 'Intacct Training', owner: 'manager', anchor: 'S', offset: 5, bd: false, applies: {}, signal: '', hint: '' },
+                { key: 'ROW-2', phase: 'Accounting Associate Steps', title: 'Bank Portal Access', owner: 'it', anchor: 'S', offset: 0, bd: false, applies: {}, signal: '', hint: '' }] }] })),
     getRoleChecklistRoles: vi.fn(() => Promise.resolve({ isHr: false, roles: [
       { roleId: 'r-acct', roleName: 'Accounting Associate', department: 'Accounting', companyId: 'co-a', companyName: 'Greens',
         counts: { onboarding: 1, promotion: 0, offboarding: 0, inactive: 0 } }] })),
-    getRoleChecklist: vi.fn(() => Promise.resolve({ roleId: 'r-acct', roleName: 'Accounting Associate', department: 'Accounting', templates: [
+    getRoleChecklist: vi.fn(() => Promise.resolve({ roleId: 'r-acct', roleName: 'Accounting Associate', department: 'Accounting', companyName: 'Greens', templates: [
       { kind: 'onboarding', kindLabel: 'Onboarding', entityId: '', inherited: false, updatedAt: 'x',
-        items: [{ key: 'ACC-1', phase: 'Accounting Associate Steps', title: 'Intacct Training', owner: 'manager', anchor: 'S', offset: 5, bd: false, applies: {}, signal: '', hint: '' }] },
+        items: [{ key: 'ACC-1', phase: 'Accounting Associate Steps', title: 'Intacct Training', owner: 'manager', anchor: 'S', offset: 5, bd: false, applies: {}, signal: '', hint: '' }],
+        baseline: { source: 'library', items: [{ key: 'ON-01', title: 'Profile Complete', phase: 'Offer Accepted', owner: 'hr' }, { key: 'ON-12', title: 'Microsoft 365 Account Provisioned', phase: 'Account And Access', owner: 'it' }] } },
       { kind: 'promotion', kindLabel: 'Promotion', entityId: '', inherited: false, updatedAt: '', items: [] },
     ] })),
     getChecklistTemplates: vi.fn((entityId) => Promise.resolve({ templates: [
@@ -286,5 +291,45 @@ describe('How a step gets marked done', () => {
     expect(await screen.findByText('Nexus marks this done by itself when any one of these is true:')).toBeInTheDocument();
     expect(screen.getByText('a provisioning run finished')).toBeInTheDocument();
     expect(screen.getByText('an Item Management assignment exists')).toBeInTheDocument();
+  });
+});
+
+// Neil, Oct 22: "this is a baseline and we build off of the baseline... there
+// needs to be a copy from option... while you are building it".
+describe('Building a role on the baseline', () => {
+  it('shows the baseline folded above the role steps, read-only, with where to edit it', async () => {
+    render(<RoleChecklists toastOk={() => {}} toastErr={() => {}} />);
+    const toggle = await screen.findByRole('button', { name: /Baseline - every hire at Greens gets these 2 onboarding steps first/ });
+    expect(screen.queryByText('Microsoft 365 Account Provisioned')).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.getByText('Microsoft 365 Account Provisioned')).toBeInTheDocument();
+    expect(screen.getByText(/edited in Global Settings > Hiring > Checklist Library/)).toBeInTheDocument();
+  });
+
+  it('copies another role steps in', async () => {
+    api.getRoleChecklistRoles.mockResolvedValue({ isHr: true, roles: [
+      { roleId: 'r-acct', roleName: 'Accounting Associate', department: 'Accounting', companyId: 'co-a', companyName: 'Greens', counts: { onboarding: 1 } },
+      { roleId: 'r-ap', roleName: 'AP Clerk', department: 'Accounting', companyId: 'co-a', companyName: 'Greens', counts: { onboarding: 2 } }] });
+    const ok = vi.fn();
+    render(<RoleChecklists toastOk={ok} toastErr={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Copy From/ }));
+    expect(await screen.findByText('Copy Steps Into Accounting Associate')).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('radio', { name: /AP Clerk/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Steps' }));
+    await waitFor(() => expect(api.copyRoleChecklist).toHaveBeenCalledWith('r-acct', { from_role_id: 'r-ap', kinds: ['onboarding'], mode: 'append' }));
+    expect(ok).toHaveBeenCalledWith('Copied 2 steps from AP Clerk.');
+    expect(await screen.findByText('Bank Portal Access')).toBeInTheDocument();
+    api.getRoleChecklistRoles.mockImplementation(() => Promise.resolve({ isHr: false, roles: [
+      { roleId: 'r-acct', roleName: 'Accounting Associate', department: 'Accounting', companyId: 'co-a', companyName: 'Greens',
+        counts: { onboarding: 1, promotion: 0, offboarding: 0, inactive: 0 } }] }));
+  });
+
+  it('a company shows its baseline and copies it from the library', async () => {
+    render(<ChecklistSettings entityId="co-a" entities={[{ id: 'co-a', name: 'Greens' }, { id: 'co-b', name: 'MCD' }]} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Baseline Steps')).toBeInTheDocument();
+    expect((await screen.findAllByText('From the Checklist Library')).length).toBe(4);
+    fireEvent.click(screen.getAllByRole('button', { name: /Copy From/ })[0]);
+    expect(await screen.findByText('Copy Steps Into Greens')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Checklist Library/ })).toBeChecked();
   });
 });

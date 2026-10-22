@@ -710,13 +710,80 @@ def role_templates(user: dict = Depends(get_current_user), db: Session = Depends
 @router.get("/role-templates/{role_id}")
 def role_template(role_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     role = _editable_role(db, user, role_id)
+    return _role_out(db, role)
+
+
+def _role_out(db: Session, role: NexusGroup) -> dict:
+    """A role's own steps per kind, each with the BASELINE every hire gets
+    first (Neil, Oct 22: "this is a baseline and we build off of the
+    baseline") - the role's company's own steps, else the Checklist Library -
+    so nobody re-adds those to each role."""
+    company = db.query(HrEntity).filter(HrEntity.id == role.company_id).first() if role.company_id else None
     out = []
     for k in hc.KINDS:
         t = hc.role_template(db, k, role.id)
+        base = hc.get_template(db, k, role.company_id or "")
         out.append({"kind": k, "kindLabel": hc.KIND_LABELS[k], "items": hc.norm_items(t.items) if t else [],
                     "updatedBy": t.updated_by if t else "", "updatedAt": t.updated_at if t else "",
-                    "entityId": "", "inherited": False})
-    return {"roleId": role.id, "roleName": role.name, "department": role.department or "", "templates": out}
+                    "entityId": "", "inherited": False,
+                    "baseline": {"source": "company" if base.entity_id else "library",
+                                 "items": [{"key": r.get("key", ""), "title": r.get("title", ""), "phase": r.get("phase", ""),
+                                            "owner": r.get("owner", "hr")} for r in hc.norm_items(base.items)]}})
+    db.commit()   # seeding the library on first read
+    return {"roleId": role.id, "roleName": role.name, "department": role.department or "",
+            "companyId": role.company_id or "", "companyName": company.name if company else "", "templates": out}
+
+
+class RoleCopyIn(BaseModel):
+    from_role_id: str
+    kinds: list = []             # [] = all four
+    mode: str = "append"         # append (skip titles it already has) | replace
+
+
+@router.post("/role-templates/{role_id}/copy")
+def copy_role_template(role_id: str, body: RoleCopyIn, user: dict = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    """Copy another role's own steps into this one while building it (Neil, Oct
+    22: "we have 25 to 30 roles... there needs to be a copy from option").
+    Both roles must be ones the caller keeps; each copied step gets a new key."""
+    role = _editable_role(db, user, role_id)
+    src = _editable_role(db, user, (body.from_role_id or "").strip())
+    if src.id == role.id:
+        raise HTTPException(400, "Pick a different role to copy from")
+    if body.mode not in ("append", "replace"):
+        raise HTTPException(400, "mode must be append or replace")
+    kinds = [k for k in (body.kinds or hc.KINDS) if k in hc.KINDS]
+    if not kinds:
+        raise HTTPException(400, "Pick which checklists to copy")
+    copied = 0
+    for kind in kinds:
+        st = hc.role_template(db, kind, src.id)
+        t = hc.role_template(db, kind, role.id)
+        mine = [] if body.mode == "replace" else hc.norm_items(t.items if t else [])
+        have = {(r.get("title") or "").strip().lower() for r in mine}
+        new = []
+        for r in hc.norm_items(st.items if st else []):
+            title = (r.get("title") or "").strip()
+            if title.lower() in have:
+                continue
+            have.add(title.lower())
+            phase = r.get("phase") or ""
+            new.append({**r, "key": "", "phase": f"{role.name} Steps" if phase == f"{src.name} Steps" else phase})
+        if not new and body.mode == "append":
+            continue
+        items = hc.clean_template_items(mine + new)
+        copied += len(new)
+        if not items:
+            if t is not None:
+                db.delete(t)
+            continue
+        if t is None:
+            t = HrChecklistTemplate(id=str(uuid.uuid4()), kind=kind, entity_id="", role_id=role.id,
+                                    name=f"{role.name} - {hc.KIND_LABELS[kind]}", created_at=hc._now())
+            db.add(t)
+        t.items, t.updated_by, t.updated_at = items, user["email"], hc._now()
+    db.commit()
+    return {**_role_out(db, role), "copied": copied}
 
 
 @router.put("/role-templates/{role_id}/{kind}")

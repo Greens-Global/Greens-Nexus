@@ -1335,7 +1335,7 @@ function CopyStepsModal({ direction, entityId, entities, kinds, kind, onClose, o
   const nameOf = id => (id ? entities.find(e => e.id === id)?.name || id : 'Checklist Library');
   async function go() {
     if (busy || !to.length || !which.size) return;
-    if (direction === 'to' && !await dialog.confirm(
+    if (!await dialog.confirm(
       `Replace the ${[...which].map(k => kinds.find(x => x.value === k)?.label || k).join(', ')} steps of ${to.map(nameOf).join(', ')} with ${nameOf(from)}'s? Checklists already started keep theirs.`,
       { title: 'Copy Steps', confirmText: 'Copy' })) return;
     setBusy(true);
@@ -1385,6 +1385,56 @@ function CopyStepsModal({ direction, entityId, entities, kinds, kind, onClose, o
   );
 }
 
+// Company Settings > Checklists: the steps every hire at this company gets
+// first, whatever the role - the Checklist Library's, or the company's own
+// copy (made by editing here or by Copy From…). Roles build on top of them.
+function BaselineCard({ companyName, entityId, templates, kinds, meta, onCopy, onSaved, toastOk, toastErr }) {
+  const [editing, setEditing] = useState('');
+  const tpl = (templates || []).find(t => t.kind === editing);
+  return (
+    <section style={{ ...card, padding: 18, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ flex: '1 1 300px', minWidth: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Baseline Steps</h3>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
+            Every hire at {companyName} gets these first, whatever the role; each role&apos;s own steps come after them, so a role never needs to repeat them.
+          </p>
+        </div>
+        <button onClick={onCopy} style={ghostBtn}><Copy size={13} /> Copy From…</button>
+      </div>
+      {templates === null && <SkeletonBlocks count={1} height={60} />}
+      {templates === false && <div style={{ fontSize: 13, color: 'var(--wk-dim)' }}>Could not load the steps.</div>}
+      {templates && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(210px, 100%), 1fr))', gap: 10 }}>
+          {kinds.map(k => {
+            const t = templates.find(x => x.kind === k.value);
+            const look = KIND_LOOK[k.value] || KIND_LOOK.onboarding;
+            return (
+              <div key={k.value} style={{ border: '1px solid var(--wk-line2)', borderRadius: 'var(--wk-r)', padding: 12, display: 'grid', gap: 6, alignContent: 'start' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <look.Icon size={14} color="var(--wk-dim)" />
+                  <b style={{ fontSize: 13.5, color: 'var(--wk-ink)', flex: 1 }}>{k.label}</b>
+                  <span style={{ fontSize: 12.5, color: 'var(--wk-dim)', fontVariantNumeric: 'tabular-nums' }}>{t?.items?.length || 0} steps</span>
+                </div>
+                <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>
+                  {!t || t.inherited ? 'From the Checklist Library' : `Own copy for ${companyName}${t.updatedAt ? `, updated ${formatDate(t.updatedAt)}` : ''}`}
+                </span>
+                <button onClick={() => setEditing(k.value)} style={{ ...ghostBtn, justifySelf: 'start' }}><Pencil size={13} /> View And Edit</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {tpl && (
+        <Modal title={`${companyName} - Baseline ${kinds.find(k => k.value === editing)?.label || ''} Steps`} onClose={() => setEditing('')}>
+          <TemplateEditor key={`${tpl.kind}:${tpl.updatedAt}:${tpl.entityId}`} template={tpl} meta={meta} entityId={entityId} toastOk={toastOk} toastErr={toastErr}
+            onSaved={onSaved} />
+        </Modal>
+      )}
+    </section>
+  );
+}
+
 export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartments, toastOk, toastErr }) {
   const [loaded, setLoaded] = useState({ entityId: null, templates: null });
   const [kind, setKind] = useState('onboarding');
@@ -1413,7 +1463,7 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>{entityId ? `Checklists For ${companyName}` : 'Checklist Library'}</div>
           <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
             {entityId
-              ? 'Each role builds its own onboarding, promotion, offboarding and leave steps (Roles tab > a role > Checklists). Below: which roles are built and what is still missing. Steps every hire gets, whatever the role, are in Global Settings > Hiring > Checklist Library.'
+              ? 'Each role builds its own onboarding, promotion, offboarding and leave steps (Roles tab > a role > Checklists). Below: the baseline steps every hire gets first, whatever the role, then which roles are built and what is still missing.'
               : 'The standard steps every new checklist starts with, whatever the role. Each role\'s own steps are built on the role (Company Settings > Roles > a role > Checklists).'}
           </div>
         </div>
@@ -1425,6 +1475,12 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
       {entityId
         ? <DepartmentOwnersCard key={entityId} entityId={entityId} people={people} onOpenDepartments={onOpenDepartments} toastOk={toastOk} toastErr={toastErr} />
         : <LibraryOwnersNote />}
+
+      {entityId && (
+        <BaselineCard companyName={companyName} entityId={entityId} templates={templates} kinds={kinds} meta={meta}
+          onCopy={() => setCopying('from')} toastOk={toastOk} toastErr={toastErr}
+          onSaved={saved => setTemplates(prev => prev.map(t => t.kind === saved.kind ? saved : t))} />
+      )}
 
       {/* A company's own steps are its roles' (Pranshu, Oct 20: "we are
           already adding phase and steps according to role ... just see an
@@ -1578,10 +1634,148 @@ const countsOf = d => Object.fromEntries((d?.templates || []).map(t => [t.kind, 
 // Checklists and by Company Settings > Roles (a role's Checklists tab, and
 // the Checklists button on shared roles). `onCounts` gets {kind: steps} after
 // the load and after every save so a parent can refresh its counts.
+// The baseline a role builds on (Neil, Oct 22: "this is a baseline and we
+// build off of the baseline"): read-only and folded, so a role adds only what
+// it needs on top. `baseline` = { source: 'company' | 'library', items }.
+function BaselineBlock({ baseline, companyName, roleItems = [], kindLabel = '' }) {
+  const [open, setOpen] = useState(false);
+  const items = baseline?.items || [];
+  if (!items.length) return null;
+  const where = baseline.source === 'company'
+    ? `Company Settings > ${companyName} > Checklists > Baseline Steps`
+    : 'Global Settings > Hiring > Checklist Library';
+  const who = companyName ? `every hire at ${companyName}` : 'every hire';
+  const titles = new Set(items.map(r => (r.title || '').trim().toLowerCase()));
+  const repeats = roleItems.filter(r => titles.has((r.title || '').trim().toLowerCase()));
+  const phases = [];
+  items.forEach(r => {
+    let g = phases.find(p => p.name === (r.phase || 'Steps'));
+    if (!g) { g = { name: r.phase || 'Steps', rows: [] }; phases.push(g); }
+    g.rows.push(r);
+  });
+  return (
+    <section aria-label="Baseline steps" style={{ border: '1px dashed var(--wk-line)', borderRadius: 'var(--wk-r)', background: 'var(--wk-hover)', marginBottom: 14 }}>
+      <button onClick={() => setOpen(o => !o)} aria-expanded={open}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: FONT, fontSize: 13, color: 'var(--wk-ink)' }}>
+        {open ? <ChevronDown size={15} color="var(--wk-faint)" /> : <ChevronRight size={15} color="var(--wk-faint)" />}
+        <span style={{ flex: 1, minWidth: 0 }}><b>Baseline</b> - {who} gets these {items.length} {kindLabel.toLowerCase()} steps first</span>
+      </button>
+      {repeats.length > 0 && (
+        <div role="note" style={{ display: 'flex', gap: 6, alignItems: 'flex-start', padding: '0 12px 10px 35px', fontSize: 12, color: 'var(--wk-orange)' }}>
+          <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>This role repeats {repeats.length === 1 ? 'a baseline step' : `${repeats.length} baseline steps`} ({repeats.map(r => r.title).join(', ')}) - the person would get {repeats.length === 1 ? 'it' : 'them'} twice.</span>
+        </div>
+      )}
+      {open && (
+        <div style={{ padding: '0 12px 12px 35px', display: 'grid', gap: 10 }}>
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
+            Read-only here. They are edited in {where}. Add below only what this role needs on top of them.
+          </p>
+          {phases.map(p => (
+            <div key={p.name}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--wk-dim)' }}>{p.name}</div>
+              <ul style={{ margin: '4px 0 0', paddingLeft: 18, display: 'grid', gap: 2 }}>
+                {p.rows.map(r => (
+                  <li key={r.key || r.title} style={{ fontSize: 12.5, color: 'var(--wk-ink)' }}>
+                    {r.title} <span style={{ color: 'var(--wk-faint)' }}>· {ROLE_LOOK[r.owner]?.label || (r.owner === 'manager' ? 'Manager' : r.owner === 'employee' ? 'Employee' : r.owner)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// Copy another role's steps into this one while building it (Neil, Oct 22:
+// "we have 25 to 30 roles... there needs to be a copy from option").
+function CopyRoleStepsModal({ roleId, roleName, kind, kinds, onClose, onDone, toastOk, toastErr }) {
+  const [roles, setRoles] = useState(null);
+  const [from, setFrom] = useState('');
+  const [q, setQ] = useState('');
+  const [which, setWhich] = useState(() => new Set([kind]));
+  const [mode, setMode] = useState('append');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.getRoleChecklistRoles().then(r => setRoles((r.roles || []).filter(x => x.roleId !== roleId))).catch(() => setRoles(false));
+  }, [roleId]);
+  const src = (roles || []).find(r => r.roleId === from);
+  const shown = (roles || []).filter(r => !q.trim() || `${r.roleName} ${r.department} ${r.companyName}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const kindName = k => kinds.find(x => x.value === k)?.label || k;
+  async function go() {
+    if (busy || !src || !which.size) return;
+    if (mode === 'replace' && !await dialog.confirm(
+      `Replace ${roleName}'s ${[...which].map(kindName).join(', ')} steps with ${src.roleName}'s?`,
+      { title: 'Replace Steps', confirmText: 'Replace', danger: true })) return;
+    setBusy(true);
+    try {
+      const r = await api.copyRoleChecklist(roleId, { from_role_id: from, kinds: [...which], mode });
+      toastOk(r.copied ? `Copied ${r.copied} step${r.copied === 1 ? '' : 's'} from ${src.roleName}.` : `Nothing new to copy - ${roleName} already has those steps.`);
+      onDone(r);
+    } catch (e) { toastErr(e?.message || 'Could not copy the steps.'); setBusy(false); }
+  }
+  const radio = (on, onClick, children, key) => (
+    <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: `1px solid ${on ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, background: on ? 'var(--wk-brand-tint)' : 'transparent', cursor: 'pointer', fontSize: 13 }}>
+      {children[0]} <span style={{ flex: 1, minWidth: 0 }}>{children[1]}</span>
+    </label>
+  );
+  return (
+    <Modal title={`Copy Steps Into ${roleName}`} onClose={onClose}
+      footer={<>
+        <button onClick={onClose} style={ghostBtn}>Cancel</button>
+        <button className="primary-btn" onClick={go} disabled={busy || !src || !which.size} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {busy ? <Spinner size={13} /> : <Copy size={13} />} Copy Steps
+        </button>
+      </>}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+        <span style={{ ...capLabel, flex: 1 }}>Copy From</span>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search roles" aria-label="Search roles" style={{ ...inputStyle, minWidth: 0, flex: '0 1 240px' }} />
+      </div>
+      <div className="nx-fill" role="radiogroup" aria-label="Role to copy from" style={{ overflowY: 'auto', display: 'grid', alignContent: 'start', gap: 6, minHeight: 160, marginBottom: 16 }}>
+        {roles === null && <SkeletonBlocks count={3} height={36} />}
+        {roles === false && <div style={{ fontSize: 13, color: 'var(--wk-dim)' }}>Could not load the roles.</div>}
+        {roles && !shown.length && <div style={{ fontSize: 13, color: 'var(--wk-dim)' }}>No other role to copy from.</div>}
+        {shown.map(r => {
+          const n = Object.values(r.counts || {}).reduce((a, b) => a + b, 0);
+          return radio(from === r.roleId, () => setFrom(r.roleId), [
+            <input key="i" type="radio" name="copy-role" checked={from === r.roleId} onChange={() => setFrom(r.roleId)} />,
+            <span key="t" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
+              <b style={{ fontWeight: 600 }}>{r.roleName}</b>
+              <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{[r.companyName || 'Shared role', r.department].filter(Boolean).join(' · ')}</span>
+              <span style={{ fontSize: 12, color: n ? 'var(--wk-green)' : 'var(--wk-faint)', marginLeft: 'auto' }}>{n ? `${n} step${n === 1 ? '' : 's'}` : 'No steps'}</span>
+            </span>], r.roleId);
+        })}
+      </div>
+      <div style={{ display: 'grid', gap: 14, flexShrink: 0 }}>
+        <div>
+          <div style={capLabel}>Which Checklists</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+            {kinds.map(k => (
+              <label key={k.value} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '6px 10px', borderRadius: 8, border: `1px solid ${which.has(k.value) ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, cursor: 'pointer' }}>
+                <input type="checkbox" checked={which.has(k.value)} onChange={() => setWhich(s => { const n = new Set(s); if (n.has(k.value)) n.delete(k.value); else n.add(k.value); return n; })} />
+                {k.label}{src ? ` (${src.counts?.[k.value] || 0})` : ''}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div role="radiogroup" aria-label="How to copy" style={{ display: 'grid', gap: 6 }}>
+          {radio(mode === 'append', () => setMode('append'), [<input key="i" type="radio" name="copy-mode" checked={mode === 'append'} onChange={() => setMode('append')} />,
+            <span key="t">Add To {roleName}&apos;s Steps <span style={{ color: 'var(--wk-dim)' }}>- a step with the same title is skipped</span></span>], 'append')}
+          {radio(mode === 'replace', () => setMode('replace'), [<input key="i" type="radio" name="copy-mode" checked={mode === 'replace'} onChange={() => setMode('replace')} />,
+            <span key="t">Replace {roleName}&apos;s Steps <span style={{ color: 'var(--wk-dim)' }}>- the picked checklists become a copy of the other role&apos;s</span></span>], 'replace')}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function RoleStepsEditor({ roleId, roleName, toastOk, toastErr, onCounts, heading = null, initialKind = 'onboarding' }) {
   const [data, setData] = useState(null);
   const [kind, setKind] = useState(initialKind);
   const [meta, setMeta] = useState(null);
+  const [copying, setCopying] = useState(false);
   useEffect(() => { api.getChecklistMeta().then(setMeta).catch(() => setMeta(null)); }, []);
   useEffect(() => {
     if (!roleId) { setData(null); return undefined; }
@@ -1622,9 +1816,16 @@ export function RoleStepsEditor({ roleId, roleName, toastOk, toastErr, onCounts,
             );
           })}
         </div>
+        {data && <button onClick={() => setCopying(true)} style={ghostBtn}><Copy size={13} /> Copy From…</button>}
       </div>
       {data === null && <SkeletonBlocks count={2} height={56} />}
       {data === false && <div style={{ fontSize: 13, color: 'var(--wk-dim)' }}>Could not load this role&apos;s steps.</div>}
+      {tpl && <BaselineBlock key={kind} baseline={tpl.baseline} companyName={data.companyName} roleItems={tpl.items} kindLabel={tpl.kindLabel || ''} />}
+      {copying && (
+        <CopyRoleStepsModal roleId={roleId} roleName={roleName || data?.roleName || 'This Role'} kind={kind} kinds={kinds}
+          onClose={() => setCopying(false)} toastOk={toastOk} toastErr={toastErr}
+          onDone={d => { setCopying(false); setData(d); onCounts?.(countsOf(d)); }} />
+      )}
       {tpl && (
         <TemplateEditor key={`${roleId}:${kind}:${tpl.updatedAt}`} template={tpl} meta={meta} entityId="" toastOk={toastOk} toastErr={toastErr}
           onSaved={() => {}} saveItems={saveItems} resetLabel="Remove All Steps"

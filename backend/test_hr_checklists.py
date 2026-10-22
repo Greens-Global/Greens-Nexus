@@ -923,6 +923,56 @@ class ChecklistTests(unittest.TestCase):
         values = {s["value"] for s in self.client.get("/hr/checklists/meta").json()["signals"]}
         self.assertTrue({"id_on_file", "work_auth_verified", "envelope:nda,handbook_ack"} <= values)
 
+    # --- Baseline + Copy From (Neil, Oct 22: "this is a baseline and we build
+    # off of the baseline... there needs to be a copy from option").
+
+    def test_the_role_editor_shows_the_baseline_it_builds_on(self):
+        rid = self._role()                                    # a Greens (CO_A) role
+        lib = next(t for t in self.client.get("/hr/checklists/templates").json()["templates"] if t["kind"] == "onboarding")
+        d = self.client.get(f"/hr/checklists/role-templates/{rid}").json()
+        self.assertEqual(d["companyName"], "Greens")
+        on = next(t for t in d["templates"] if t["kind"] == "onboarding")
+        self.assertEqual(on["baseline"]["source"], "library")
+        self.assertEqual(len(on["baseline"]["items"]), len(lib["items"]))
+        self.client.put(f"/hr/checklists/templates/onboarding?entity_id={CO_A}",
+                        json={"items": [{"key": "A-1", "title": "Site Induction", "owner": "manager"}]})
+        on = next(t for t in self.client.get(f"/hr/checklists/role-templates/{rid}").json()["templates"]
+                  if t["kind"] == "onboarding")
+        self.assertEqual((on["baseline"]["source"], [i["title"] for i in on["baseline"]["items"]]),
+                         ("company", ["Site Induction"]))
+
+    def test_copy_a_roles_steps_into_another_role(self):
+        src = self._role()
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroup(id="role-ap", name="AP Clerk", department="Accounting", is_job_role=1, company_id=CO_A))
+            db.add(models.NexusGroup(id="role-site", name="Site Lead", department="Operations", is_job_role=1, company_id=CO_A))
+            db.commit()
+        finally:
+            db.close()
+        put = lambda rid, rows: self.client.put(f"/hr/checklists/role-templates/{rid}/onboarding", json={"items": rows})  # noqa: E731
+        put(src, [{"key": "ACC-1", "phase": "Accounting Associate Steps", "title": "Intacct Training", "owner": "manager"},
+                  {"key": "ACC-2", "title": "Bank Portal Access", "owner": "it"}])
+        put("role-ap", [{"key": "AP-1", "title": "bank portal access", "owner": "it"}])
+        _as(MANAGER)                                         # head of Accounting
+        r = self.client.post("/hr/checklists/role-templates/role-ap/copy",
+                             json={"from_role_id": src, "kinds": ["onboarding"], "mode": "append"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["copied"], 1)              # the same title is not added twice
+        on = next(t for t in r.json()["templates"] if t["kind"] == "onboarding")
+        self.assertEqual([i["title"] for i in on["items"]], ["bank portal access", "Intacct Training"])
+        self.assertEqual(on["items"][1]["phase"], "AP Clerk Steps")       # the role's own phase name
+        self.assertNotIn(on["items"][1]["key"], ("ACC-1", "ACC-2"))     # a new key
+        r = self.client.post("/hr/checklists/role-templates/role-ap/copy",
+                             json={"from_role_id": src, "kinds": ["onboarding"], "mode": "replace"})
+        on = next(t for t in r.json()["templates"] if t["kind"] == "onboarding")
+        self.assertEqual([i["title"] for i in on["items"]], ["Intacct Training", "Bank Portal Access"])
+        # a role outside their department is neither a source nor a target
+        self.assertEqual(self.client.post("/hr/checklists/role-templates/role-ap/copy",
+                                          json={"from_role_id": "role-site"}).status_code, 404)
+        self.assertEqual(self.client.post("/hr/checklists/role-templates/role-site/copy",
+                                          json={"from_role_id": src}).status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

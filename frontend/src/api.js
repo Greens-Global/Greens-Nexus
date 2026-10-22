@@ -2184,6 +2184,8 @@ export const api = {
   getRoleChecklistRoles:  ()          => req('/hr/checklists/role-templates'),
   getRoleChecklist:       (roleId)    => req(`/hr/checklists/role-templates/${roleId}`),
   saveRoleChecklist:      (roleId, kind, items) => req(`/hr/checklists/role-templates/${roleId}/${kind}`, { method: 'PUT', body: JSON.stringify({ items }) }),
+  // Copy another role's steps into this one (Neil, Oct 22): { from_role_id, kinds, mode: append | replace }.
+  copyRoleChecklist:      (roleId, d) => req(`/hr/checklists/role-templates/${roleId}/copy`, { method: 'POST', body: JSON.stringify(d) }),
   // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
   // loan (built or the bank's file) and saved rate stress scenarios
   // (routers/accounting_loan_plans.py).
