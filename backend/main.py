@@ -1272,6 +1272,8 @@ def _run_migrations():
             "ALTER TABLE task_custom_fields ADD COLUMN formula_format JSON DEFAULT '{}'",
             # Tasks conditional row colors (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
+            # AMA bookkeepers (CR-13, Oct 23) - see the Postgres list.
+            "ALTER TABLE accounting_ama_settings ADD COLUMN bookkeepers JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2924,6 +2926,12 @@ def _run_migrations():
         # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
         # the _enable_rls_everywhere sweep. models.TimecardBonus.
         "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
+        # AMA notes and reclass approval (Charmi, CR-13, Oct 23): who may push
+        # a reclass ('' row; [] = the env fallback), and the per-line Notes /
+        # reclass table - new, so explicit RLS. models.AccountingAmaSetting /
+        # AccountingAmaLineReview.
+        "ALTER TABLE accounting_ama_settings ADD COLUMN IF NOT EXISTS bookkeepers JSON DEFAULT '[]'",
+        "ALTER TABLE accounting_ama_line_reviews ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4482,3 +4490,5 @@ from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
 app.include_router(ops_customer_map_router.router)  # Operations > Customer Map: current customers around each facility, with rings (Neil, Oct 21 2026)
 from routers import contractor_invoices as contractor_invoices_router  # noqa: E402
 app.include_router(contractor_invoices_router.router)  # Contractor invoices: drafted at Time Sheet finalize, HR approves and sends the PDF (Pranshu + Neil, Oct 21 2026)
+from routers import accounting_ask_review  # noqa: E402
+app.include_router(accounting_ask_review.router)   # Accounting > AMA: the other side of each line, Notes, GL reclass approved and pushed by a bookkeeper (Charmi, CR-13, Oct 23 2026)

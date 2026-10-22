@@ -58,6 +58,8 @@ def to_rows(entries: list[dict]) -> list[list[str]]:
             row[12] = _money(line.get("debit"))
             row[13] = _money(line.get("credit"))
             row[14] = line.get("source_entity") or ""
+            row[23] = line.get("customer_id") or ""   # the AMA reclass's counterparty (CR-13)
+            row[24] = line.get("vendor_id") or ""
             row[27] = line.get("employee_id") or ""
             rows.append(row)
     return rows
