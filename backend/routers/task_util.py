@@ -677,6 +677,26 @@ def require_project_role(db: Session, user: dict, project, min_role: str) -> Non
         raise HTTPException(403, f"You need at least {min_role} access to {name}.")
 
 
+def people_wall(db: Session, user=None) -> tuple:
+    """(walled, emp_map) for the people checks below, worked out ONCE per
+    request (Oct 21 2026): `walled` is whether the company comparison applies
+    (`user`'s scope; with no user, whether the walls are armed) and `emp_map`
+    the employee -> company map, built only when it does - with the walls off
+    nothing loads the whole directory. Kept on the request's session
+    (`db.info`), keyed by the caller and the walls switch, so a create that
+    checks people on a task and each of its subtasks pays for it once."""
+    import auth
+    on = auth._company_walls_on(db)
+    who = (user.get("email") or "").lower() if isinstance(user, dict) else ""
+    key = ("people_wall", who, isinstance(user, dict), on)
+    hit = db.info.get(key)
+    if hit is None:
+        walled = (auth.company_scope(user, db) is not None) if isinstance(user, dict) else on
+        hit = (walled, _emp_company_map(db) if walled else None)
+        db.info[key] = hit
+    return hit
+
+
 def person_problem(db: Session, task, email: str, user=None, emp_map: dict | None = None) -> str:
     """Why `email` may not be put ON `task` as an assignee or collaborator, or
     "" when they may (Oct 21 2026). Being put there is itself what lets them
@@ -686,8 +706,8 @@ def person_problem(db: Session, task, email: str, user=None, emp_map: dict | Non
     comparison only applies behind the company wall (`user`'s scope; with no
     user, whether the walls are armed) - with them off, a US manager assigns
     a Greens India colleague exactly as before. `emp_map` is the employee ->
-    company map when the caller already has it (one per request)."""
-    import auth
+    company map when the caller already has it (else people_wall's, built
+    once per request and only behind the wall)."""
     from sqlalchemy import func
     from models import NexusEmployee
     who = (email or "").strip().lower()
@@ -698,9 +718,9 @@ def person_problem(db: Session, task, email: str, user=None, emp_map: dict | Non
         return "is not in the Nexus directory"
     if (emp.status or "") == "offboarded":
         return "has left"
-    walled = (auth.company_scope(user, db) is not None) if isinstance(user, dict) else auth._company_walls_on(db)
+    walled, wall_map = people_wall(db, user)
     if walled:
-        task_co = task_company(task, emp_map if emp_map is not None else _emp_company_map(db))
+        task_co = task_company(task, emp_map if emp_map is not None else wall_map)
         if task_co and (emp.company or "") and emp.company != task_co:
             return "is in another company"
     return ""
@@ -727,14 +747,13 @@ def split_people(db: Session, task, emails, user=None, actor: str = "") -> tuple
     not fail the whole action; they are left off and the task says so
     (note_dropped_people). The caller adding themselves always passes."""
     me = (actor or "").strip().lower()
-    emp_map = _emp_company_map(db)
     kept, dropped, seen = [], [], set()
     for raw in emails or []:
         who = str(raw or "").strip().lower()
         if not who or who in seen:
             continue
         seen.add(who)
-        problem = "" if who == me else person_problem(db, task, who, user, emp_map)
+        problem = "" if who == me else person_problem(db, task, who, user)
         if problem:
             dropped.append({"email": who, "reason": problem})
         else:
@@ -778,7 +797,8 @@ def assert_person_on_task(db: Session, task, email: str) -> str:
     return who
 
 
-def require_task_role(db: Session, user: dict, task, min_role: str, scope=_UNSET) -> None:
+def require_task_role(db: Session, user: dict, task, min_role: str, scope=_UNSET,
+                      visible_cache: dict | None = None) -> None:
     """require_project_role for a check about ONE task, where anyone the task
     is assigned to always counts.
 
@@ -817,7 +837,54 @@ def require_task_role(db: Session, user: dict, task, min_role: str, scope=_UNSET
             and email in task_assignees(task)
             and PROJECT_ROLE_RANK[min_role] <= PROJECT_ROLE_RANK["editor"]):
         return
-    require_project_role(db, user, project_for_task(db, task) if task is not None else None, min_role)
+    project = project_for_task(db, task) if task is not None else None
+    require_project_role(db, user, project, min_role)
+    # A role is not sight (Oct 21 2026). project_role_for reads "no project"
+    # as editor for everyone, so a RESTRICTED standalone task - visible only
+    # to its owner, creator, assignees and collaborators - could be edited,
+    # deleted, commented on or saved as a template by anyone holding its id.
+    # Likewise it hands an EXTERNAL caller editor on any org-wide project,
+    # which externals never see. In those two cases the task must also be one
+    # the caller can see, by the same rule the lists and _wall_task apply;
+    # 404 like them. Checked after the role so a refusal the role already
+    # gave keeps its 403. A role an internal caller holds on the task's
+    # project already means they can see that project (visible_project_ids
+    # counts the same owner / member / team / org grants), so the common case
+    # pays for no extra scan.
+    if task is not None and (project is None or user.get("external")):
+        visible = None
+        if visible_cache is not None and user.get("external"):
+            # A batch (bulk edit) checks many tasks for one external: their
+            # visible projects are worked out once, not per row.
+            if "v" not in visible_cache:
+                visible_cache["v"] = visible_project_ids(db, user)
+            visible = visible_cache["v"]
+        if not task_visible_to(db, user, task, visible):
+            raise HTTPException(404, "Task not found")
+
+
+def task_visible_to(db: Session, user: dict, task, visible: set | None = None) -> bool:
+    """Whether `user` can see `task`: THE per-task visibility rule, shared by
+    require_task_role and routers/tasks._wall_task. Managers see everything
+    inside their company wall (the wall is checked separately); everybody
+    else what task_is_visible admits, with a subtask (no project of its own)
+    also admitted through its top-level ancestor's project. `visible` is the
+    caller's visible_project_ids when already worked out; it is only built
+    when the cheap checks (org task, owner / creator / assignee / follower)
+    have not already answered."""
+    if is_manager(user):
+        return True
+    if task_is_visible(task, user, set()):
+        return True
+    extras = [p for p in (task.project_ids or []) if p]
+    proj = project_for_task(db, task) if (not task.project_id and task.parent_task_id) else None
+    if not (task.project_id or extras or proj):
+        return False   # no project anywhere: nothing but the checks above can admit it
+    if visible is None:
+        visible = visible_project_ids(db, user)
+    if task_is_visible(task, user, visible):
+        return True
+    return bool(proj and proj.id in visible)
 
 
 def can_comment(db: Session, email: str, project) -> bool:
@@ -1005,10 +1072,42 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
 # ── Trash (Aug 27) ────────────────────────────────────────────────────────────
 # Moved here from routers/tasks.py's old hard-delete cascade so
 # purge_task_permanently (below) and any future caller share one copy.
+def _binned_subtree_ids(db: Session, task_id: str) -> list:
+    """`task_id` plus every BINNED task under it, however deep (Oct 21 2026 -
+    only the direct subtasks went before, and deeper ones were left behind),
+    plus anything stamped deleted_with = it. Cycle-safe.
+
+    A LIVE task found under it is not purged: it is made top-level instead,
+    so it stays visible rather than vanishing with a parent it no longer
+    belonged to (only older data has one - a delete bins the whole subtree
+    and a subtask cannot be restored under a binned parent)."""
+    q = db.query(Task).execution_options(include_deleted=True)
+    ids, seen, frontier = [task_id], {task_id}, [task_id]
+    while frontier:
+        kids = q.filter(Task.parent_task_id.in_(frontier)).all()
+        frontier = []
+        for k in kids:
+            if k.id in seen:
+                continue
+            seen.add(k.id)
+            if k.deleted_at:
+                ids.append(k.id)
+                frontier.append(k.id)
+            else:
+                k.parent_task_id = ""
+                k.modified_at = now_iso()
+    for k in q.filter(Task.deleted_with == task_id).all():
+        if k.id not in seen and k.deleted_at:
+            seen.add(k.id)
+            ids.append(k.id)
+    return ids
+
+
 def purge_task_permanently(db: Session, task_id: str, actor_email: str = "") -> bool:
     """Permanently remove an already-TRASHED task and everything under it - the
     full cascade delete_task ran immediately before soft delete existed:
-    subtasks, comments, attachments. Returns False if the id doesn't exist or
+    subtasks at every depth (_binned_subtree_ids), comments, attachments.
+    Returns False if the id doesn't exist or
     was never trashed (live tasks are never purged from here).
 
     Its Asana link rows (AsanaTaskLink) are deliberately LEFT: every asana_*
@@ -1028,9 +1127,7 @@ def purge_task_permanently(db: Session, task_id: str, actor_email: str = "") -> 
            .filter(Task.id == task_id).first())
     if not t or not t.deleted_at:
         return False
-    subs = (db.query(Task).execution_options(include_deleted=True)
-              .filter(Task.parent_task_id == task_id).all())
-    gone_ids = [task_id] + [s.id for s in subs]
+    gone_ids = _binned_subtree_ids(db, task_id)
     log_activity(db, type="purged", actor_email=actor_email or t.deleted_by or "",
                 entity_id=task_id, entity_code=t.code, entity_title=t.title,
                 detail="permanently deleted this task")

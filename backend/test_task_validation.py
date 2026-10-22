@@ -43,8 +43,11 @@ class TaskValidationTests(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        for m in (models.Task, models.TaskCustomStatus, models.TaskProject):
+        for m in (models.Task, models.TaskCustomStatus, models.TaskProject, models.NexusEmployee):
             self.db.query(m).delete()
+        # Collaborators are directory people (Oct 21 2026).
+        for who in ("a@x.com", "b@x.com"):
+            self.db.add(models.NexusEmployee(id=gen_id(), work_email=who, first_name=who[0]))
         self.db.commit()
 
     def tearDown(self):

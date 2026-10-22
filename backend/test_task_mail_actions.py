@@ -391,9 +391,11 @@ class ScheduledRecurrenceTests(_DBCase):
         self.assertEqual(spawn_scheduled_occurrences(self.db, "2026-09-21"), [])
 
     def test_the_new_occurrence_starts_clean(self):
-        self._task(due_on="2026-09-14", recurrence={**self.WEEKLY_MON, "count": 3})
+        first = self._task(due_on="2026-09-14", recurrence={**self.WEEKLY_MON, "count": 3})
         made = spawn_scheduled_occurrences(self.db, "2026-09-21")[0]
-        self.assertEqual(made.recurrence, {**self.WEEKLY_MON, "count": 2})
+        # Plus the series id (Oct 21 2026): a series from before ids is named
+        # after the occurrence it rolled forward from.
+        self.assertEqual(made.recurrence, {**self.WEEKLY_MON, "count": 2, "seriesId": first.id})
         self.assertFalse(made.completed)
 
 

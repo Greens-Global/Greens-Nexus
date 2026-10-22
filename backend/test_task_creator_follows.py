@@ -49,6 +49,13 @@ def _seed():
         if not db.query(models.NexusRole).filter(models.NexusRole.email == ME).first():
             db.add(models.NexusRole(email=ME, role="administrator", assigned_by="test"))
             db.commit()
+        # The people these tasks are given to are in the Nexus directory - an
+        # assignee or collaborator must be a current person (Oct 21 2026).
+        for who in (ME, OTHER, THIRD):
+            if who and not db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == who).first():
+                db.add(models.NexusEmployee(id=f"emp-{who}", work_email=who, first_name=who.split("@")[0],
+                                            status="active"))
+        db.commit()
     finally:
         db.close()
     # get_current_user caches the resolved role for a couple of minutes.

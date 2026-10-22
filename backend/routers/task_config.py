@@ -276,7 +276,9 @@ def delete_template(template_id: str, user: dict = Depends(get_current_user),
 # return with its eleven subtasks, saved once, started again for each entity.
 # Saving reads the task server-side (what it is, never its comments, files or
 # history); using builds the task, its subtasks and checklists in ONE commit.
-_RULE_MARKERS = ("nextOccurrenceId", "closedAsMissed", "count")
+# seriesId too (Oct 21 2026): every task started from a template is a series of
+# its own, never a copy of the one the template was saved from.
+_RULE_MARKERS = ("nextOccurrenceId", "closedAsMissed", "count", "seriesId")
 TEMPLATE_PARTS = ("subtasks", "assignees", "followers", "fields", "recurrence", "description", "checklist")
 
 
@@ -458,6 +460,8 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
                 recurrence=srec, is_milestone=False, approval_status="none", completed=False, completed_at="",
                 comment_ids=[], attachment_ids=[], activity_ids=[],
                 created_at=now, modified_at=now, created_by=actor)
+            if (srec or {}).get("freq"):
+                row.recurrence = tasks_router._with_series_id(srec, row.id)   # a series of its own
             kept_a, gone_a = split_people(db, row, s.get("assigneeIds") or [], user, actor)
             kept_f, gone_f = split_people(db, row, s.get("followerIds") or [], user, actor)
             set_task_assignees(row, kept_a)
@@ -475,7 +479,8 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
         parent.subtask_ids = ids
         _add_checklist(db, parent, tpl.checklist, actor, now)
 
-    out = tasks_router._create_task(main, background_tasks, user, db, before_commit=add_children)
+    out = tasks_router._create_task(main, background_tasks, user, db, before_commit=add_children,
+                                    check_people=True)   # its own people too
     if dropped_people:
         out["droppedPeople"] = [*(out.get("droppedPeople") or []), *dropped_people]
     return out
@@ -719,6 +724,28 @@ def _dump_applies_to(kinds) -> str:
     return json.dumps(out or ["task"])
 
 
+def _field_value_unchanged(f: models.TaskCustomField, key: str, value) -> bool:
+    """Whether `value` for `key` is what the field already holds, compared
+    the way it is stored and read back (blank vs missing, option shapes).
+    Unknown keys count as changed."""
+    if key == "name":
+        return (value or "").strip() == (f.name or "")
+    if key == "description":
+        return (value or "") == (f.description or "")
+    if key == "type":
+        return (value or "text") == (f.type or "text")
+    if key == "options":
+        return (normalize_field_options(value or [])
+                == normalize_field_options(f.options if isinstance(f.options, list) else []))
+    if key in ("required", "read_only"):
+        return bool(value) == bool(getattr(f, key))
+    if key in ("project_ids", "required_project_ids"):
+        return [p for p in (value or []) if p] == [p for p in (getattr(f, key) or []) if p]
+    if key == "applies_to":
+        return json.loads(_dump_applies_to(value)) == _parse_applies_to(f.applies_to)
+    return False
+
+
 def custom_field_to_dict(f: models.TaskCustomField) -> dict:
     return {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
             "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
@@ -804,6 +831,11 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
     if not f:
         raise HTTPException(404, "Custom field not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    # Only what actually CHANGES is an edit (Oct 21 2026). The Manage > Fields
+    # form sends the whole field back - name, type, options and all - so
+    # without this a walled manager ticking one of their own projects on a
+    # shared field was refused for "changing" a name they never touched.
+    data = {k: v for k, v in data.items() if not _field_value_unchanged(f, k, v)}
     # Company wall (Oct 21 2026): another company's field is a 404. A shared
     # field's DEFINITION reaches every company, so behind a wall only a Global
     # Admin changes it - but putting it on / taking it off a project of your

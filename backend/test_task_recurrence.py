@@ -197,7 +197,9 @@ class PeriodicSpawnTests(unittest.TestCase):
         update_task(t.id, TaskUpdate(completed=True), BackgroundTasks(), user=USER, db=self.db)
         spawned = (self.db.query(models.Task)
                      .filter(models.Task.title == t.title, models.Task.id != t.id).first())
-        self.assertEqual(spawned.recurrence, {"freq": "periodic", "daysAfterCompletion": 5})
+        # Plus the series id (Oct 21 2026) - this row predates ids, so the
+        # series is named after it.
+        self.assertEqual(spawned.recurrence, {"freq": "periodic", "daysAfterCompletion": 5, "seriesId": t.id})
 
     def test_count_still_ends_a_periodic_series(self):
         t = self._task(recurrence={"freq": "periodic", "daysAfterCompletion": 1, "count": 1})
