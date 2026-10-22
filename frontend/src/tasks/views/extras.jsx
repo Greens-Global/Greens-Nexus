@@ -2,15 +2,16 @@
 // Dashboard (KPIs, status/dept/assignee bars, completion donut, time tracking,
 // custom charts). Ported 1:1 from the export's NexusCalendarView / NexusDashboard.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Diamond, Sliders, Check, CalendarDays, Video, Rocket, PartyPopper, Plus, CheckCircle2, Clock, AlertTriangle, ListTodo } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Diamond, Sliders, Check, CalendarDays, CalendarOff, Video, Rocket, PartyPopper, Plus, CheckCircle2, Clock, AlertTriangle, ListTodo } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
 import { taskStats } from '../lib';
 import { Card, LightBar, Donut, TrendArea, CustomChartsPanel } from './charts';
 import AnchoredMenu from '../../components/AnchoredMenu';
 import { useRowColorMap } from '../rowColorState';
-import { DateField } from '../components';
-import { useRole } from '../../contexts/RoleContext';
-import { calendarMovePatch, canMoveOnCalendar, movedLabel, previousDates, undoEntryAt, wasSentForApproval } from '../calendarMove';
+import { DateField, Modal, useIsMobile } from '../components';
+import { useCanEditTask } from '../canEditTask';
+import { calendarDatePatch, clearingStopsSeries, datesLabel, previousDates, readPaneOpen, SERIES_NEEDS_DUE, undoEntryAt, unscheduledTasks, wasSentForApproval, writePaneOpen } from '../calendarMove';
+import UnscheduledPane from './UnscheduledPane';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -57,7 +58,14 @@ function holidaysForYear(y, region) {
 // task's own update (store.updateTask): optimistic, put back if refused, and
 // a due date that needs approval comes back as a request with the chip on its
 // old day. Week view has no hour slots, so a drop sets the day only.
-export function CalendarView({ tasks, onOpen, onCreate, store = null }) {
+//
+// With a store the calendar also carries the Unscheduled pane (Oct 22 2026,
+// views/UnscheduledPane.jsx): the open tasks in `tasks` with no due date,
+// scheduled by a drop on a day (or the row's Schedule button), and a chip
+// dropped on the pane loses its due date. All of it runs through moveTask
+// below. `lockedProjectId` hides the project pill inside one project. The
+// Teams calendar (no store) stays read-only, without the pane.
+export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProjectId = null }) {
   // Conditional row colors (Oct 22 2026): a task chip carries its rule's
   // color as a thin bar on its left edge.
   const rowColors = useRowColorMap();
@@ -68,17 +76,24 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null }) {
   const [moveAt, setMoveAt] = useState(null);
   const moveFor = moveAt?.id || null;
   const moveAnchor = useMemo(() => ({ current: moveAt?.el || null }), [moveAt]);
-  const { canAccessModule } = useRole() || {};
-  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'owner');
+  // Editor or better on the task (taskRoleFor, as the Board), and open.
+  const canEditTask = useCanEditTask(store);
   const taskMap = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks]);
-  const canMove = (t) => !!store?.updateTask && canMoveOnCalendar(t, {
-    projects: store.projects, teams: store.teams, taskById: store.taskById, email: store.myEmail, isManager,
-  });
+  const canSchedule = (t) => !!store?.updateTask && !!t && !t.completed && canEditTask(t);
+  const canMove = (t) => !!t?.dueOn && canSchedule(t);
+  // The one date path: a move between days, a task scheduled from the
+  // Unscheduled pane, or (`iso` empty) a due date cleared on the pane.
   const moveTask = async (id, iso) => {
     const t = taskMap[id];
-    if (!canMove(t)) return;
-    const patch = calendarMovePatch(t, iso);
+    if (!canSchedule(t)) return;
+    const patch = calendarDatePatch(t, iso);
     if (!patch) return;
+    // The live occurrence of a repeating series keeps its date - the
+    // server's refusal, said here without the round trip.
+    if (!patch.dueOn && clearingStopsSeries(t)) {
+      if (store.notify) store.notify(SERIES_NEEDS_DUE); else alert(SERIES_NEEDS_DUE);
+      return;
+    }
     const back = previousDates(t, patch);
     let saved;
     // A refused move (say a repeating task dropped on or before its previous
@@ -91,7 +106,7 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null }) {
     // extension counted for the trip back, no second bell. Without the
     // history entry to name, it falls back to putting the dates back.
     const at = undoEntryAt(saved, patch);
-    store.offerUndo?.(movedLabel(patch), () => (at && store.undoDueChange
+    store.offerUndo?.(datesLabel(t, patch), () => (at && store.undoDueChange
       ? store.undoDueChange(id, at)
       : store.updateTask(id, back)).catch(() => {}));
   };
@@ -104,6 +119,18 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null }) {
   const showRef = useRef(null);
   const [region, setRegion] = useState(() => localStorage.getItem('nexus.calendarHolidayRegion') || 'us');
   useEffect(() => { localStorage.setItem('nexus.calendarHolidayRegion', region); }, [region]);
+  // The Unscheduled pane: open or collapsed per person (desktop), a sheet on
+  // phones. Only the count is needed here; the pane sorts and searches.
+  const isMobile = useIsMobile();
+  const withPane = !!store;
+  const unscheduledCount = useMemo(() => (withPane ? unscheduledTasks(tasks).all.length : 0), [withPane, tasks]);
+  const [paneOpen, setPaneOpen] = useState(() => readPaneOpen(store?.myEmail));
+  const togglePane = () => setPaneOpen((o) => { writePaneOpen(store?.myEmail, !o); return !o; });
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const paneShown = withPane && !isMobile && paneOpen;
+  // A chip being dragged that the pane may take (its due date cleared).
+  const dragTask = dragId ? taskMap[dragId] : null;
+  const clearTarget = !!dragTask && !!dragTask.dueOn && canMove(dragTask);
 
   const days = useMemo(() => {
     if (weekly) {
@@ -152,15 +179,20 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null }) {
   // matches every other mode switch in the module.
   const seg = (active) => ({ borderRadius: 7, padding: '5px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? NX.border : 'transparent'}`, background: active ? NX.surface : 'transparent', color: active ? NX.ink : NX.dim, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' });
 
-  return (
-    <div style={{ margin: 16, borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, fontFamily: FONT }}>
+  const calendar = (
+    <div style={{ margin: paneShown ? 0 : 16, flex: 1, minWidth: 0, borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, fontFamily: FONT }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderBottom: `1px solid ${NX.border}`, padding: '12px 16px' }}>
         <button onClick={() => step(-1)} aria-label="Previous" title="Previous" style={{ ...btn('ghost'), padding: 4 }}><ChevronLeft size={18} /></button>
         <span style={{ minWidth: 150, fontSize: 15, fontWeight: 700, color: NX.ink }}>{rangeLabel}</span>
         <button onClick={() => step(1)} aria-label="Next" title="Next" style={{ ...btn('ghost'), padding: 4 }}><ChevronRight size={18} /></button>
         <button onClick={() => setCursor(new Date())} style={{ ...btn('outline'), fontSize: 12 }}>Today</button>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {withPane && (isMobile || !paneOpen) && (
+            <button type="button" onClick={() => (isMobile ? setSheetOpen(true) : togglePane())}
+              title={isMobile ? 'Tasks with no due date' : 'Show the tasks with no due date'}
+              style={{ ...btn('outline'), fontSize: 12 }}><CalendarOff size={13} />Unscheduled ({unscheduledCount})</button>
+          )}
           <div>
             <button ref={showRef} onClick={() => setShowOpen((o) => !o)} style={{ ...btn('outline'), fontSize: 12 }}><Sliders size={13} />Show</button>
             <AnchoredMenu anchorRef={showRef} open={showOpen} onClose={() => setShowOpen(false)} align="end" role="dialog"
@@ -194,11 +226,13 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null }) {
         </div>
       </div>
       {/* Weekday header - tinted band, sentence case (kit calendar grammar) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: `1px solid ${NX.border}`, background: NX.surface2 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', borderBottom: `1px solid ${NX.border}`, background: NX.surface2 }}>
         {WEEKDAYS.map((d) => <div key={d} style={{ padding: '9px 10px', fontSize: 12.5, fontWeight: 600, color: NX.dim }}>{d}</div>)}
       </div>
-      {/* Day grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)' }}>
+      {/* Day grid - minmax(0,1fr): a long title is cut off inside its day
+          rather than widening that column (the Unscheduled pane leaves the
+          grid narrower). */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))' }}>
         {days.map((d) => {
           const iso = toISO(d);
           const inMonth = weekly || d.getMonth() === cursor.getMonth();
@@ -253,13 +287,43 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null }) {
           <div style={{ display: 'grid', gap: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>Move To Date</div>
             <div style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskMap[moveFor].title}</div>
+            {/* The calendar's Clear takes the due date off - the keyboard
+                twin of dropping the chip on the Unscheduled pane. */}
             <DateField value={taskMap[moveFor].dueOn || ''} title="Move To Date"
-              onChange={(v) => { const id = moveFor; setMoveAt(null); if (v) moveTask(id, v); }}
+              onChange={(v) => { const id = moveFor; setMoveAt(null); moveTask(id, v || ''); }}
               style={{ ...inputStyle, padding: '6px 9px', fontSize: 12.5 }} />
           </div>
         )}
       </AnchoredMenu>
     </div>
+  );
+  if (!withPane) return calendar;
+  const paneProps = {
+    tasks, store, onOpen, lockedProjectId, canSchedule, onSchedule: moveTask,
+  };
+  return (
+    <>
+      {paneShown ? (
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, margin: 16 }}>
+          {calendar}
+          {/* The pane's content is out of the flow (absolute), so a long
+              list scrolls inside the calendar's height rather than
+              stretching the page. */}
+          <div style={{ position: 'relative', width: 288, flexShrink: 0, minHeight: 360, borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface2 }}>
+            <div style={{ position: 'absolute', inset: 0 }}>
+              <UnscheduledPane {...paneProps} dragId={dragId} onDragRow={setDragId} onDragEnd={endDrag}
+                clearTarget={clearTarget} onDropClear={() => { const id = dragId; endDrag(); moveTask(id, ''); }}
+                onCollapse={togglePane} />
+            </div>
+          </div>
+        </div>
+      ) : calendar}
+      {withPane && isMobile && sheetOpen && (
+        <Modal title={`Unscheduled (${unscheduledCount})`} onClose={() => setSheetOpen(false)}>
+          <UnscheduledPane {...paneProps} sheet onOpen={(id) => { setSheetOpen(false); onOpen(id); }} />
+        </Modal>
+      )}
+    </>
   );
 }
 

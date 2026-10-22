@@ -433,7 +433,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           <BoardView visible={boardTasks} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate}
             showSubtasks={showBoardSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('board')} />
         ) : view === 'calendar' ? (
-          <CalendarView tasks={visible} store={store} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
+          <CalendarView tasks={visible} store={store} lockedProjectId={lockedProjectId} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
         ) : view === 'timeline' ? (
           <TimelineView tasks={timelineTasks} onOpen={setOpenId} nameOf={nameOf} taskById={store.taskById}
             showSubtasks={showTimelineSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('timeline')} />

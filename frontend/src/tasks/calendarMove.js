@@ -5,6 +5,12 @@
 // Calendar days are the viewer's LOCAL days (lib.js localISO / addDays) -
 // never toISOString(), which is the UTC day and is already tomorrow on a US
 // evening.
+//
+// The Unscheduled pane (Oct 22 2026, Planner parity) runs through the same
+// path: a task with no due date dropped on a day is scheduled there
+// (schedulePatch), and a dated one dropped on the pane loses its due date
+// (calendarDatePatch with an empty day). The approval hold, the held start
+// date and the Undo are the same for all three.
 import { addDays, fmtDate, roleAtLeast, taskRoleFor } from './lib';
 
 const day = (iso) => String(iso || '').slice(0, 10);
@@ -35,6 +41,53 @@ export function calendarMovePatch(task, targetIso) {
   return patch;
 }
 
+/**
+ * The patch that schedules `task` (no due date yet) on day `targetIso`. A
+ * start date after that day comes back to it: the server would take a start
+ * after the due date silently, but no drag in the module ever makes one - the
+ * Calendar keeps a task's length and the Timeline never lets the end pass the
+ * start - so neither does this one. An earlier start stays where it is.
+ */
+export function schedulePatch(task, targetIso) {
+  const target = day(targetIso);
+  if (!task || !target || day(task.dueOn)) return null;
+  const patch = { dueOn: target };
+  if (task.startOn && day(task.startOn) > target) patch.startOn = target + String(task.startOn).slice(10);
+  return patch;
+}
+
+/** The patch that clears `task`'s due date, or null when it has none. The
+ *  start date stays: it still says when the work begins. */
+export function clearDuePatch(task) {
+  return task && day(task.dueOn) ? { dueOn: '' } : null;
+}
+
+/**
+ * The one entry point the Calendar uses for a date change: an empty
+ * `targetIso` clears the due date (dropped on the Unscheduled pane), a task
+ * with no due date is scheduled, and a dated one moves. null = nothing to do.
+ */
+export function calendarDatePatch(task, targetIso) {
+  if (!task) return null;
+  if (!day(targetIso)) return clearDuePatch(task);
+  return day(task.dueOn) ? calendarMovePatch(task, targetIso) : schedulePatch(task, targetIso);
+}
+
+// The server's words for it (routers/tasks.py SERIES_NEEDS_DUE), so the
+// refusal reads the same wherever it comes from.
+export const SERIES_NEEDS_DUE = 'A repeating task needs a due date - stop the repeat first or complete it.';
+const SCHEDULED_FREQS = new Set(['daily', 'weekly', 'monthly', 'yearly', 'custom']);
+
+/** Whether clearing the due date would stop a repeating series - the
+ *  server's _clearing_stops_series: the live occurrence of a calendar series
+ *  (open, not rolled forward yet, not a reopened Missed copy) keeps its date.
+ *  The server refuses it either way; this only saves the round trip. */
+export function clearingStopsSeries(task) {
+  const rec = task?.recurrence && typeof task.recurrence === 'object' ? task.recurrence : {};
+  return SCHEDULED_FREQS.has(rec.freq) && !!day(task?.dueOn) && !task?.completed
+    && !rec.nextOccurrenceId && !rec.closedAsMissed;
+}
+
 /** The dates `patch` would replace on `task` - what Undo puts back. */
 export function previousDates(task, patch) {
   const back = {};
@@ -60,13 +113,44 @@ export function undoEntryAt(saved, patch) {
 /** Whether this person may drag `task` on the calendar: an editor on it (the
  *  server's rule, taskRoleFor - unknown keeps the control, the server stays
  *  the authority), and not a completed task. */
-export function canMoveOnCalendar(task, { projects, teams, taskById, email, isManager } = {}) {
-  if (!task || !task.dueOn || task.completed) return false;
+export function canMoveOnCalendar(task, ctx = {}) {
+  return !!task?.dueOn && canScheduleOnCalendar(task, ctx);
+}
+
+/** The same rule without the due date: whether this person may give `task`
+ *  a date from the Unscheduled pane (or take its date away). */
+export function canScheduleOnCalendar(task, { projects, teams, taskById, email, isManager } = {}) {
+  if (!task || task.completed) return false;
   const role = taskRoleFor(task, { projects, teams, taskById, email, isManager });
   return role == null || roleAtLeast(role, 'editor');
 }
 
 export const movedLabel = (patch) => `Moved to ${fmtDate(day(patch.dueOn))}`;
+
+/** The Undo toast's words for any calendar date change: a move, a newly
+ *  scheduled task, or a due date taken off. */
+export function datesLabel(task, patch) {
+  if (!day(patch?.dueOn)) return 'Due date removed';
+  return day(task?.dueOn) ? movedLabel(patch) : `Scheduled for ${fmtDate(day(patch.dueOn))}`;
+}
+
+const PRIORITY_RANK = { urgent: 0, high: 1, medium: 2, low: 3 };
+
+/**
+ * The Unscheduled pane's rows: the open tasks in `tasks` - exactly the set
+ * the calendar was handed, so its filters, project scope and subtask rule
+ * apply unchanged - with no due date, Urgent first, then the newest.
+ * `search` narrows by title. Returns { all, rows }: `all` is the count the
+ * header shows, `rows` what the search leaves.
+ */
+export function unscheduledTasks(tasks, search = '') {
+  const all = (tasks || []).filter((t) => t && !t.completed && !day(t.dueOn));
+  all.sort((a, b) => ((PRIORITY_RANK[a.priority] ?? 4) - (PRIORITY_RANK[b.priority] ?? 4))
+    || String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
+    || String(a.title || '').localeCompare(String(b.title || '')));
+  const q = String(search || '').trim().toLowerCase();
+  return { all, rows: q ? all.filter((t) => String(t.title || '').toLowerCase().includes(q)) : all };
+}
 
 /** One line for what the batch bar's Dates action did, from the server's counts. */
 export function bulkDatesSummary(op, { changed = 0, skipped = 0, sentForApproval = 0, blocked = 0 } = {}, days = 0) {
@@ -83,4 +167,15 @@ export function bulkDatesSummary(op, { changed = 0, skipped = 0, sentForApproval
   if (sentForApproval) parts.push(`${sentForApproval} sent for approval`);
   if (blocked) parts.push(`${blocked} not moved`);
   return parts.join(' - ');
+}
+
+// The Unscheduled pane open or collapsed, remembered per person on this
+// browser. Storage can be missing or throw (a private window, blocked site
+// data): the pane is then simply open, as it is the first time.
+const paneKey = (email) => `nexus.calendarUnscheduled.${String(email || '').toLowerCase() || 'me'}`;
+export function readPaneOpen(email) {
+  try { return localStorage.getItem(paneKey(email)) !== '0'; } catch { return true; }
+}
+export function writePaneOpen(email, open) {
+  try { localStorage.setItem(paneKey(email), open ? '1' : '0'); } catch { /* not remembered - harmless */ }
 }
