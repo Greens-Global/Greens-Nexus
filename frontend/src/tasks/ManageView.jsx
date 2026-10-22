@@ -24,7 +24,7 @@ import {
 } from './automationRules';
 import { taskStats, topLevel, fmtDateTime, teamProjectIds, todayISO } from './lib';
 import TasksWorkspace from './TasksWorkspace';
-import { groupFieldChanges } from './fieldHistory';
+import { groupFieldChanges, foldBulkChanges } from './fieldHistory';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
 
@@ -1381,7 +1381,7 @@ const ACTIVITY_ICON = {
   created: Plus, updated: Pencil, completed: CheckCircle2, deleted: Trash2,
   restored: RotateCcw, purged: Trash2,
   status_changed: ArrowRightLeft, priority_changed: Flag, assignee_changed: User,
-  due: Calendar, commented: MessageSquare, automation: Zap, field_changed: Pencil,
+  due: Calendar, commented: MessageSquare, automation: Zap, field_changed: Pencil, bulk_changed: Pencil,
 };
 
 function ActivityTab({ store }) {
@@ -1395,8 +1395,19 @@ function ActivityTab({ store }) {
     return () => { alive = false; };
   }, []);
 
-  // A save's per-field history rows (Oct 22 2026) read as one line here.
-  const sorted = useMemo(() => groupFieldChanges([...(rows || [])].sort((a, b) => String(b.at).localeCompare(String(a.at))), store.customFields || []), [rows, store.customFields]);
+  // A save's per-field history rows (Oct 22 2026) read as one line here, and
+  // one person's bulk edit across many tasks as one expandable line.
+  const sorted = useMemo(() => {
+    const fields = store.customFields || [];
+    const byTime = [...(rows || [])].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    return foldBulkChanges(groupFieldChanges(byTime, fields), fields);
+  }, [rows, store.customFields]);
+  const [openBulk, setOpenBulk] = useState(() => new Set());
+  const toggleBulk = (id) => setOpenBulk((cur) => {
+    const next = new Set(cur);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   return (
     <div>
@@ -1425,6 +1436,19 @@ function ActivityTab({ store }) {
                     <span style={{ fontWeight: 700 }}>{actor}</span> {e.detail || humanize(e.type)}
                   </div>
                   {e.entityTitle && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.entityTitle}</div>}
+                  {e.type === 'bulk_changed' && (
+                    <>
+                      <button type="button" onClick={() => toggleBulk(e.id)} aria-expanded={openBulk.has(e.id)}
+                        style={{ ...btn('ghost'), padding: '2px 0', fontSize: 11.5, marginTop: 2 }}>
+                        {openBulk.has(e.id) ? 'Hide Tasks' : 'Show Tasks'}
+                      </button>
+                      {openBulk.has(e.id) && (
+                        <ul style={{ margin: '4px 0 0', padding: '0 0 0 16px', maxHeight: 200, overflowY: 'auto', fontSize: 11.5, color: NX.dim }}>
+                          {e.tasks.map((x) => <li key={x.entityId}>{x.entityTitle || 'Untitled task'}</li>)}
+                        </ul>
+                      )}
+                    </>
+                  )}
                 </div>
                 <span style={{ fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap' }}>{when}</span>
               </div>

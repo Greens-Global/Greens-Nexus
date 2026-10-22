@@ -930,13 +930,15 @@ def _apply_completion(t: models.Task, new_completed: bool, prev_completed: bool)
 # rules - the engine never chains (task_automation.py).
 
 def _land_completion(db: Session, t: models.Task, new_completed: bool, prev_completed: bool,
-                     actor_email: str) -> None:
+                     actor_email: str, exclude_ids=None) -> None:
     """_apply_completion, plus the HR checklist steps that follow the task:
-    an HR checklist task closes (or reopens) its checklist steps (Oct 20)."""
+    an HR checklist task closes (or reopens) its checklist steps (Oct 20).
+    `exclude_ids`: the tasks whose field history the caller records itself
+    (default: `t`) - the checklist sync records only the others."""
     _apply_completion(t, new_completed, prev_completed)
     if bool(new_completed) != bool(prev_completed):
         import hr_checklists
-        hr_checklists.task_completed(db, t, bool(new_completed), actor_email)
+        hr_checklists.task_completed(db, t, bool(new_completed), actor_email, exclude_ids=exclude_ids)
 
 
 def _log_completed(db: Session, t: models.Task, actor_email: str) -> str:
@@ -3203,6 +3205,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     before_due = {t.id: (t.due_on or "")[:10] for t in rows}
     auto_before = {t.id: task_automation.snapshot(t) for t in rows}
     hist_before = {t.id: task_history.snapshot(t) for t in rows}   # field history
+    batch_ids_set = set(hist_before)   # recorded by record_edit - the HR checklist sync skips them
     auto_by_id: dict = {}
     auto_results: list = []
     auto_changed: dict[str, dict] = {}   # task id -> fields the rules wrote on that row
@@ -3260,11 +3263,11 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         if auto.after_commit:
             auto_results.append(auto)
         # The shared completion path (flag + HR checklist), as update_task.
-        _land_completion(db, t, new_completed, prev_completed, user["email"])
+        _land_completion(db, t, new_completed, prev_completed, user["email"], exclude_ids=batch_ids_set)
         t.modified_at = now_iso()
         if (t.due_on or "")[:10] != (auto_before[t.id].get("due_on") or ""):
             import hr_checklists
-            hr_checklists.task_due_changed(db, t, user["email"])
+            hr_checklists.task_due_changed(db, t, user["email"], exclude_ids=batch_ids_set)
 
     # The FINAL state, after the automation rules (Oct 21 2026). A rule may
     # have reopened a task the gate above counted as done for its dependent,
@@ -4246,13 +4249,22 @@ def task_activity(task_id: str, user: dict = Depends(get_current_user), db: Sess
                     models.TaskActivity.type != "synced_from_asana")
             .order_by(models.TaskActivity.at.desc()).all())
     out = [activity_to_dict(a) for a in rows]
-    _hide_private_project_names(db, user, [d["change"] for d in out if d["change"]])
+    # Field history the caller may not read (task_history.Redactor): a
+    # restricted project's or section's name comes off, and a change to a
+    # field only such a project uses is told without saying which.
+    changes = [d["change"] for d in out if d["change"]]
+    hidden = task_history.Redactor(db, user).apply(changes)
+    for d in out:
+        if d["change"] is not None:
+            if id(d["change"]) in hidden:
+                d["change"], d["detail"] = None, "changed a field"
+            else:
+                d["change"].pop("scope", None)
     return out
 
 
-# Rows read per history page at most - a task's history is its own rows, but
-# a long-lived recurring task can collect thousands.
-_HISTORY_SCAN = 5000
+# Rows read per pass of the history scan (task_field_history).
+_HISTORY_CHUNK = 500
 
 
 @router.get("/{task_id}/history")
@@ -4263,36 +4275,39 @@ def task_field_history(task_id: str, field: str = "", limit: int = 50, offset: i
     "priority", "dueOn", "assigneeIds"...), "customField" for every custom
     field, or a custom field's id - several comma-separated. Same gate as the
     task's own activity (_wall_task): another company's task, or one the
-    caller cannot see, is a 404 - its history is as private as the task.
+    caller cannot see, is a 404 - its history is as private as the task, and
+    what the caller may not read inside it is taken off (task_history.Redactor).
     Values are raw (ids, emails, ISO dates); `labels` holds the names the ids
-    had when the change was made. Answers {items, more}."""
+    had when the change was made. Answers {items, more}.
+
+    The field narrows the query to the activity types that can hold it
+    (task_history.types_for); the rest of the match is read in chunks, newest
+    first, until the page is full - so every page, the oldest included, is
+    reachable however long the task's history is."""
     _wall_task(db, user, task_id)
     limit = max(1, min(int(limit or 50), 200))
     offset = max(0, int(offset or 0))
-    rows = (db.query(models.TaskActivity)
-            .filter(models.TaskActivity.entity_id == task_id,
-                    or_(models.TaskActivity.entity_kind.is_(None), models.TaskActivity.entity_kind == "task"),
-                    models.TaskActivity.type.in_(task_history.HISTORY_TYPES))
-            .order_by(models.TaskActivity.at.desc(), models.TaskActivity.id.desc())
-            .limit(_HISTORY_SCAN).all())
-    items = [e for e in (task_history.to_dict(a) for a in rows) if e and task_history.matches(e, field)]
-    page = items[offset:offset + limit]
-    _hide_private_project_names(db, user, page)
-    return {"items": page, "more": len(items) > offset + limit}
-
-
-def _hide_private_project_names(db: Session, user: dict, changes: list) -> None:
-    """A project's name is only for those who may see the project: a task can
-    also sit in a restricted project the caller is not on. Such a project's
-    name is taken off a history entry (the client shows a private project),
-    as the task row itself only ever carries its id."""
-    hits = [c for c in changes if isinstance(c, dict) and c.get("field") in ("projectId", "projectIds")
-            and c.get("labels")]
-    if not hits or is_manager(user):
-        return
-    visible = visible_project_ids(db, user)
-    for c in hits:
-        c["labels"] = {k: v for k, v in c["labels"].items() if k in visible}
+    q = (db.query(models.TaskActivity)
+         .filter(models.TaskActivity.entity_id == task_id,
+                 or_(models.TaskActivity.entity_kind.is_(None), models.TaskActivity.entity_kind == "task"),
+                 models.TaskActivity.type.in_(task_history.types_for(field)))
+         .order_by(models.TaskActivity.at.desc(), models.TaskActivity.id.desc()))
+    redactor = task_history.Redactor(db, user)
+    want, scanned, matched = offset + limit + 1, 0, []
+    while len(matched) < want:
+        chunk = q.offset(scanned).limit(_HISTORY_CHUNK).all()
+        if not chunk:
+            break
+        scanned += len(chunk)
+        pairs = [(a, dict(a.field_change)) for a in chunk if isinstance(a.field_change, dict)]
+        hidden = redactor.apply([ch for _, ch in pairs])
+        for a, ch in pairs:
+            if id(ch) in hidden:
+                continue
+            e = task_history.to_dict(a, ch)
+            if e and task_history.matches(e, field):
+                matched.append(e)
+    return {"items": matched[offset:offset + limit], "more": len(matched) > offset + limit}
 
 
 # ── The Updates card (Tasks Home) ────────────────────────────────────────────

@@ -848,7 +848,9 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
         out["projectsTransferred"] += 1
 
     for t in tasks:
-        task_history.record(db, t, hist_before[t.id], actor or "system")
+        # Quiet: one assignee line per task across a whole handover would flood
+        # the Updates card and the briefing; the task's own history keeps it.
+        task_history.record(db, t, hist_before[t.id], actor or "system", quiet=True)
     return out
 
 

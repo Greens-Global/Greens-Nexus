@@ -107,6 +107,24 @@ describe('the field history popover', () => {
     expect(await screen.findByText('No changes recorded yet.')).toBeTruthy();
   });
 
+  it('moves focus into the popover and back to the clock on Escape', async () => {
+    apiOverride.getTaskHistory = vi.fn(() => Promise.resolve({ items: [], more: false }));
+    render(
+      <FieldHistoryContext.Provider value={{ taskId: 't1', nameOf: state.nameOf }}>
+        <FieldHistoryButton field="status" label="Status" />
+      </FieldHistoryContext.Provider>,
+    );
+    const clock = screen.getByRole('button', { name: 'Status History' });
+    clock.focus();
+    fireEvent.click(clock);
+    await screen.findByText('No changes recorded yet.');
+    expect(document.activeElement?.textContent).toBe('Status History');
+    expect(document.activeElement).not.toBe(clock);
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByText('No changes recorded yet.')).toBeNull());
+    expect(document.activeElement).toBe(clock);
+  });
+
   it('renders nothing outside a task drawer', () => {
     const { container } = render(<FieldHistoryButton field="status" label="Status" />);
     expect(container.innerHTML).toBe('');

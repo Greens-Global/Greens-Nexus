@@ -184,8 +184,10 @@ def _labels_for(db: Session, field: str, frm, to, f=None) -> dict:
             for r in (db.query(models.TaskProject).execution_options(include_deleted=True)
                       .filter(models.TaskProject.id.in_(miss)).all())})
     elif field == "sectionId":
+        # The project rides along: a restricted project's section names are
+        # hidden from whoever cannot see that project (Redactor).
         out = _cached(db, "section", ids, lambda miss: {
-            r.id: {"label": r.name or ""}
+            r.id: {"label": r.name or "", "projectId": r.project_id or ""}
             for r in db.query(models.TaskSection).filter(models.TaskSection.id.in_(miss)).all()})
     elif field == CUSTOM and f is not None and (f.type or "") in ("select", "multiselect"):
         from routers.task_config import normalize_field_options
@@ -220,8 +222,12 @@ def diff(db: Session, before: dict, after: dict, *, only=None, exclude=(), with_
         f = defs.get(fid)
         if not _records_custom(f):
             continue   # deleted, read-only (formula) or a project field
-        out.append({"field": CUSTOM, "fieldId": fid, "label": f.name or "", "type": (f.type or "text").lower(),
-                    "from": _blank(_copy(cf0.get(fid))), "to": _blank(_copy(cf1.get(fid)))})
+        ch = {"field": CUSTOM, "fieldId": fid, "label": f.name or "", "type": (f.type or "text").lower(),
+              "from": _blank(_copy(cf0.get(fid))), "to": _blank(_copy(cf1.get(fid)))}
+        scope = [x for x in (f.project_ids or []) if x]
+        if scope:
+            ch["scope"] = scope   # a field only those projects use (Redactor)
+        out.append(ch)
     for ch in out:
         labels = _labels_for(db, ch["field"], ch["from"], ch["to"], defs.get(ch["fieldId"]))
         if labels:
@@ -261,20 +267,27 @@ def _type_and_detail(change: dict) -> tuple[str, str]:
 
 
 def record(db: Session, t: models.Task, before: dict, actor: str, *, after: dict | None = None,
-           only=None, exclude=(), with_due: bool = False) -> list[str]:
+           only=None, exclude=(), with_due: bool = False, quiet: bool = False, at: str | None = None) -> list[str]:
     """Log what changed on `t` since `before` (or up to `after`), attributed to
     `actor`. Returns the ids of new status / assignee rows - the ones callers
     keep on t.activity_ids; field rows are found by entity id and left off the
-    task row so it does not grow with every edit. A no-op records nothing."""
+    task row so it does not grow with every edit. A no-op records nothing.
+    `quiet` / `at`: see write."""
     if before is None:
         return []
     changes = diff(db, before, after if after is not None else snapshot(t), only=only, exclude=exclude,
                    with_due=with_due)
-    return write(db, t, changes, actor, since=before.get("_at") or "")
+    return write(db, t, changes, actor, since=before.get("_at") or "", quiet=quiet, at=at)
 
 
-def write(db: Session, t: models.Task, changes: list[dict], actor: str, *, since: str = "") -> list[str]:
-    """Log `changes` (from diff) on `t` - see record."""
+def write(db: Session, t: models.Task, changes: list[dict], actor: str, *, since: str = "",
+          quiet: bool = False, at: str | None = None) -> list[str]:
+    """Log `changes` (from diff) on `t` - see record. `quiet` writes even a
+    status / assignee move as a plain field_changed row: on the task's own
+    history, never on the Updates card or the briefing (an admin action across
+    hundreds of tasks, like the offboarding handover). `at` dates the rows
+    (default now) - a person's part of an edit a rule then added to is dated
+    to before the rule ran (record_edit)."""
     ids = []
     for ch in changes:
         row = _claim(db, t, ch, since)
@@ -282,8 +295,10 @@ def write(db: Session, t: models.Task, changes: list[dict], actor: str, *, since
             row.field_change = ch
             continue
         type_, detail = _type_and_detail(ch)
+        if quiet and type_ != "due_changed":
+            type_, detail = FIELD_CHANGED, f"changed {ch['label'] or 'a field'}"
         aid = log_activity(db, type=type_, actor_email=actor or "system", entity_id=t.id,
-                           entity_code=t.code or "", entity_title=t.title or "", detail=detail, change=ch)
+                           entity_code=t.code or "", entity_title=t.title or "", detail=detail, change=ch, at=at)
         if type_ != FIELD_CHANGED:
             ids.append(aid)
     return ids
@@ -292,15 +307,21 @@ def write(db: Session, t: models.Task, changes: list[dict], actor: str, *, since
 def record_edit(db: Session, t: models.Task, before: dict, actor: str, auto=None) -> list[str]:
     """A person's edit that an automation pass may have added to. The rules
     recorded their own changes (task_automation.run_for_change, as
-    AUTOMATION_ACTOR) and left the state they started from on `auto`; the
-    person is credited with everything else, and - for a field a rule then
-    rewrote - only with what they had done to it before the rule ran."""
+    AUTOMATION_ACTOR) and left on `auto` the state they started from
+    (history_mid) and the state they left (history_post). The person is
+    credited with everything else; for a field a rule moved, with what they
+    did to it before the rules ran (dated then, so it reads before the rule's
+    line) and with whatever the rest of their edit did to it after - a
+    completion landing on top of a rule's status move."""
     mid = getattr(auto, "history_mid", None)
+    post = getattr(auto, "history_post", None)
     keys = set(getattr(auto, "history_keys", None) or ())
     if mid is None or not keys:
         return record(db, t, before, actor)
-    ids = record(db, t, before, actor, after=mid, only=keys)
+    ids = record(db, t, before, actor, after=mid, only=keys, at=mid.get("_at"))
     ids += record(db, t, before, actor, exclude=keys)
+    if post is not None:
+        ids += record(db, t, post, actor, only=keys)
     return ids
 
 
@@ -310,8 +331,11 @@ def due_change(old: str, new: str) -> dict:
             "from": (old or "")[:10] or None, "to": (new or "")[:10] or None}
 
 
-def to_dict(a: models.TaskActivity) -> dict | None:
-    ch = a.field_change if isinstance(a.field_change, dict) else None
+def to_dict(a: models.TaskActivity, ch: dict | None = None) -> dict | None:
+    """One history entry for the client; `ch` is the row's change as the
+    Redactor left it (default: the row's own)."""
+    if ch is None:
+        ch = a.field_change if isinstance(a.field_change, dict) else None
     if not ch:
         return None
     return {
@@ -330,3 +354,79 @@ def matches(entry: dict, field: str) -> bool:
     if not wanted:
         return True
     return entry["field"] in wanted or (entry["field"] == CUSTOM and entry["fieldId"] in wanted)
+
+
+# Which activity types can hold a field's history - the SQL half of the
+# ?field= filter, so a page is read from the rows that can match at all.
+_TYPES_FOR = {
+    "status": ("status_changed", "completed", "closed_missed"),
+    "assigneeIds": ("assignee_changed", FIELD_CHANGED),   # field_changed: a quiet write (handover)
+    DUE: ("due_changed",),
+}
+
+
+def types_for(field: str) -> tuple:
+    wanted = {f.strip() for f in (field or "").split(",") if f.strip()}
+    if not wanted:
+        return HISTORY_TYPES
+    out: set = set()
+    for w in wanted:
+        out |= set(_TYPES_FOR.get(w, (FIELD_CHANGED,)))
+    return tuple(sorted(out))
+
+
+class Redactor:
+    """What a caller may not read in a task's history (Oct 22 2026 review).
+    Seeing the task is not seeing every project it touches: a task can also
+    sit in a restricted project the caller is not on. For someone who is not
+    a manager, `apply` takes off the names of projects they cannot see and of
+    those projects' sections, and marks for hiding the changes to a custom
+    field only such projects use (its name and option labels are that
+    project's). Managers see everything inside their wall, as on the lists.
+    The visible-project set is worked out once, and only when needed."""
+
+    def __init__(self, db: Session, user: dict):
+        from routers.task_util import is_manager
+        self.db, self.user = db, user
+        self.open = is_manager(user)
+        self._visible = None
+
+    def _vis(self) -> set:
+        if self._visible is None:
+            from routers.task_util import visible_project_ids
+            self._visible = visible_project_ids(self.db, self.user)
+        return self._visible
+
+    def apply(self, changes: list) -> set:
+        """Strip `changes` (field_change-shaped dicts) in place; answers the
+        id() of each change to hide entirely."""
+        changes = [c for c in changes if isinstance(c, dict)]
+        if self.open or not changes:
+            return set()
+        need_sec = {k for c in changes if c.get("field") == "sectionId"
+                    for k, v in (c.get("labels") or {}).items() if "projectId" not in (v or {})}
+        sec_project = ({r.id: r.project_id or "" for r in
+                        self.db.query(models.TaskSection.id, models.TaskSection.project_id)
+                        .filter(models.TaskSection.id.in_(need_sec)).all()} if need_sec else {})
+        need_cf = {c.get("fieldId") for c in changes
+                   if c.get("field") == CUSTOM and "scope" not in c and c.get("fieldId")}
+        cf_scope = ({f.id: [x for x in (f.project_ids or []) if x] for f in
+                     self.db.query(models.TaskCustomField.id, models.TaskCustomField.project_ids)
+                     .filter(models.TaskCustomField.id.in_(need_cf)).all()} if need_cf else {})
+        hidden = set()
+        for c in changes:
+            field, labels = c.get("field"), c.get("labels") or {}
+            if field in ("projectId", "projectIds") and labels:
+                c["labels"] = {k: v for k, v in labels.items() if k in self._vis()}
+            elif field == "sectionId" and labels:
+                keep = {}
+                for k, v in labels.items():
+                    pid = (v or {}).get("projectId") if "projectId" in (v or {}) else sec_project.get(k, "")
+                    if not pid or pid in self._vis():
+                        keep[k] = v
+                c["labels"] = keep
+            elif field == CUSTOM:
+                scope = c["scope"] if "scope" in c else cf_scope.get(c.get("fieldId"), [])
+                if scope and not (set(scope) & self._vis()):
+                    hidden.add(id(c))
+        return hidden

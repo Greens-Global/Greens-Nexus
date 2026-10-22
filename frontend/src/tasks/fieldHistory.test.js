@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { historyValueParts, historyFieldName, joinFieldNames, groupFieldChanges } from './fieldHistory';
+import { historyValueParts, historyFieldName, joinFieldNames, groupFieldChanges, foldBulkChanges } from './fieldHistory';
 
 // Field history values are stored raw (ids, emails, ISO dates) with the names
 // they had at the time; these helpers make them readable (Oct 22 2026).
@@ -94,5 +94,30 @@ describe('field names and the feed fold', () => {
     expect(out[1].detail).toBe('x');
     expect(out[2].detail).toBe('changed Title');
     expect(out[3].detail).toBe('changed Priority');
+  });
+
+  it('folds one bulk edit across many tasks into one expandable line for the Activity Log', () => {
+    const at = (ms) => new Date(Date.UTC(2026, 9, 22, 15, 0, 0) + ms).toISOString();
+    const rows = [];
+    for (let i = 0; i < 500; i += 1) {
+      rows.push({ id: `p${i}`, at: at(1000 - i), type: 'field_changed', actorId: 'sam@x.com', entityId: `t${i}`,
+        entityTitle: `Task ${i}`, change: { field: 'priority' } });
+    }
+    rows.push({ id: 'c', at: at(-10000), type: 'commented', actorId: 'sam@x.com', entityId: 't1', detail: 'commented' });
+    rows.push({ id: 'solo', at: at(-20000), type: 'field_changed', actorId: 'ana@x.com', entityId: 't9',
+      change: { field: 'title' } });
+    const out = foldBulkChanges(groupFieldChanges(rows));
+    expect(out.map((r) => r.type)).toEqual(['bulk_changed', 'commented', 'field_changed']);
+    expect(out[0].detail).toBe('changed Priority on 500 tasks');
+    expect(out[0].tasks).toHaveLength(500);
+    expect(out[0].tasks[0]).toEqual({ entityId: 't0', entityTitle: 'Task 0' });
+    expect(out[2].detail).toBe('changed Title');
+    // Two people, or edits far apart, never fold together.
+    const apart = [
+      { id: 'a', at: at(0), type: 'status_changed', actorId: 'sam@x.com', entityId: 't1', change: { field: 'status' } },
+      { id: 'b', at: at(-100), type: 'status_changed', actorId: 'ana@x.com', entityId: 't2', change: { field: 'status' } },
+      { id: 'd', at: at(-60000), type: 'status_changed', actorId: 'ana@x.com', entityId: 't3', change: { field: 'status' } },
+    ];
+    expect(foldBulkChanges(apart).map((r) => r.id)).toEqual(['a', 'b', 'd']);
   });
 });

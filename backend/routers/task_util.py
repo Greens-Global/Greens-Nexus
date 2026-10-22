@@ -148,13 +148,14 @@ def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str
 # ── Activity feed ────────────────────────────────────────────────────────────
 def log_activity(db: Session, *, type: str, actor_email: str, entity_kind: str = "task",
                  entity_id: str = "", entity_code: str = "", entity_title: str = "",
-                 detail: str = "", change: dict | None = None) -> str:
+                 detail: str = "", change: dict | None = None, at: str | None = None) -> str:
     """One activity row. `change` is a field-history entry (task_history.py)
-    for a row that records a field moving from one value to another."""
+    for a row that records a field moving from one value to another; `at`
+    dates the row (default now)."""
     aid = gen_id()
     row = TaskActivity(
         id=aid, entity_kind=entity_kind, entity_id=entity_id, entity_code=entity_code,
-        entity_title=entity_title, type=type, actor_email=actor_email, at=now_iso(),
+        entity_title=entity_title, type=type, actor_email=actor_email, at=at or now_iso(),
         detail=detail,
     )
     if change is not None:

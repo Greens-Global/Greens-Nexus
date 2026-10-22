@@ -699,7 +699,8 @@ def _parent_text(cl: HrChecklist, emp: NexusEmployee, open_rows: list) -> tuple:
     return title, desc
 
 
-def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus", first: bool = False) -> list:
+def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus", first: bool = False,
+               exclude_ids=()) -> list:
     """Bring the owners' tasks in line with the checklist: a parent per owner
     (per set of owners when a role has several - one shared task, so any of
     them closing it closes the step), a subtask per step (moved when a step is
@@ -707,7 +708,9 @@ def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus"
     closed. Returns the ids of new parent
     tasks (the caller commits, then may send the task email). Only checklists
     started with tasks (`first`, from start()) get them - the ones open before
-    Oct 19 are left as they were, never a burst of tasks."""
+    Oct 19 are left as they were, never a burst of tasks. `exclude_ids`: tasks
+    whose field history the caller records itself (the task or batch a Tasks
+    edit is saving - task_history.record_edit), so a change is not told twice."""
     import models
     from routers.task_util import set_task_assignees, task_assignees
     emp = emp or db.query(NexusEmployee).filter(NexusEmployee.id == cl.employee_id).first()
@@ -722,7 +725,9 @@ def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus"
     # already existed is recorded under `by`, due dates included (they are
     # written here directly, not through task_due).
     import task_history
-    hist_before = {t.id: (t, task_history.snapshot(t)) for t in [*subs.values(), *parents.values()]}
+    skip = set(exclude_ids or ())
+    hist_before = {t.id: (t, task_history.snapshot(t)) for t in [*subs.values(), *parents.values()]
+                   if t.id not in skip}
     def key(emails):                  # one task per owner, or per set of owners
         return ",".join(sorted(email_list(emails)))
 
@@ -781,7 +786,7 @@ def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus"
     return created
 
 
-def task_due_changed(db, task, by: str) -> bool:
+def task_due_changed(db, task, by: str, exclude_ids=None) -> bool:
     """Tasks told us a checklist subtask's due date changed (update_task /
     bulk_update): the step takes the date, pinned like a date HR sets on the
     step (Pranshu, Oct 20). The step -> subtask direction is sync_tasks.
@@ -797,7 +802,8 @@ def task_due_changed(db, task, by: str) -> bool:
         db.flush()
         cl = db.query(HrChecklist).filter(HrChecklist.id == it.checklist_id).first()
         if cl is not None:
-            sync_tasks(db, cl, by=(by or "").lower())     # the parent's date is its earliest open step
+            sync_tasks(db, cl, by=(by or "").lower(),     # the parent's date is its earliest open step
+                       exclude_ids={task.id} if exclude_ids is None else exclude_ids)
     return True
 
 
@@ -830,10 +836,11 @@ def _close_if_done(cl: HrChecklist, items: list) -> None:
         cl.status, cl.closed_at = "open", ""
 
 
-def task_completed(db, task, done: bool, by: str) -> bool:
+def task_completed(db, task, done: bool, by: str, exclude_ids=None) -> bool:
     """Tasks told us a checklist task was completed or reopened (update_task /
     bulk_update, after the change landed). Mirrors it onto the steps. Returns
-    True when it was a checklist task. The caller commits."""
+    True when it was a checklist task. The caller commits. `exclude_ids` are
+    the tasks the caller records the field history of (default: `task`)."""
     import models
     if task is None:
         return False
@@ -850,7 +857,9 @@ def task_completed(db, task, done: bool, by: str) -> bool:
     cl = db.query(HrChecklist).filter(HrChecklist.id == steps[0].checklist_id).first()
     if cl is None or cl.status == "cancelled":
         return True
+    import task_history
     who, now = (by or "").lower(), _now()
+    skip = {task.id} if exclude_ids is None else set(exclude_ids)
     for it in steps:
         if done and it.status == "open":
             it.status, it.done_by, it.done_at = "done", who, now
@@ -858,11 +867,17 @@ def task_completed(db, task, done: bool, by: str) -> bool:
             it.status, it.done_by, it.done_at = "open", "", ""
     if not task.parent_task_id and done:
         for sub in db.query(models.Task).filter(models.Task.id.in_([s.task_id for s in steps])).all():
+            # Field history (Oct 22 2026): the step's subtask closes with its
+            # parent - recorded here, from before the close (sync_tasks below
+            # only sees what it changes itself).
+            sub_before = task_history.snapshot(sub)
             _set_done(sub, True)
+            if sub.id not in skip:
+                task_history.record(db, sub, sub_before, who)
     db.flush()
     items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
     _close_if_done(cl, items)
-    sync_tasks(db, cl, by=who)
+    sync_tasks(db, cl, by=who, exclude_ids=skip)
     return True
 
 

@@ -56,7 +56,7 @@ AUTO = task_automation.AUTOMATION_ACTOR
 _CLEAR = (models.Task, models.TaskProject, models.TaskSection, models.TaskActivity, models.TaskNotification,
           models.NexusNotification, models.NexusEmployee, models.TaskCustomField, models.TaskCustomStatus,
           models.TaskAutomationRule, models.TaskAutomationRun, models.NexusSetting, models.TaskChecklistItem,
-          models.TaskTeam)
+          models.TaskTeam, models.HrChecklist, models.HrChecklistItem)
 
 
 class Base(unittest.TestCase):
@@ -199,7 +199,7 @@ class PatchTests(Base):
         entry = next(e for e in self.history(t) if e["field"] == "projectId")
         self.assertEqual(entry["labels"], {"p1": {"label": "Ops"}, "p2": {"label": "Build"}})
         sec = next(e for e in self.history(t) if e["field"] == "sectionId")
-        self.assertEqual(sec["labels"], {"s1": {"label": "Backlog"}})
+        self.assertEqual(sec["labels"], {"s1": {"label": "Backlog", "projectId": "p1"}})
 
     def test_a_no_op_write_records_nothing(self):
         t = self.task(priority="high", tags=["a"], assignee_email=ASSIGNEE["email"],
@@ -336,7 +336,7 @@ class OtherPathTests(Base):
         t = self.task(project_id="p1", section_id="s1")
         T.delete_section("s1", user=MANAGER, db=self.db)
         self.assertEqual(self.changes(t), [("sectionId", "s1", None, MANAGER["email"], "field_changed")])
-        self.assertEqual(self.history(t, user=MANAGER)[0]["labels"], {"s1": {"label": "Backlog"}})
+        self.assertEqual(self.history(t, user=MANAGER)[0]["labels"], {"s1": {"label": "Backlog", "projectId": "p1"}})
 
     def test_offboarding_handover_records_the_new_assignee(self):
         t = self.task(assignee_email=ASSIGNEE["email"], assignee_emails=[ASSIGNEE["email"]])
@@ -345,6 +345,13 @@ class OtherPathTests(Base):
         got = {c[0]: c for c in self.changes(t)}
         self.assertEqual(got["assigneeIds"][1:4], ([ASSIGNEE["email"]], [OTHER["email"]], MANAGER["email"]))
         self.assertEqual(got["projectId"][1], None)   # a homeless task moved into the handover project
+        # Quiet (review L2): field rows, which the Updates card and the briefing
+        # skip - one assignee line per handed-over task would flood both. The
+        # task's own history still shows it.
+        self.assertEqual(got["assigneeIds"][4], "field_changed")
+        self.assertEqual(self.db.query(models.TaskActivity).filter_by(type="assignee_changed").count(), 0)
+        [e] = self.history(t, user=MANAGER, field="assigneeIds")
+        self.assertEqual(e["to"], [OTHER["email"]])
 
 
 class EndpointTests(Base):
@@ -402,6 +409,168 @@ class EndpointTests(Base):
         [a] = T.task_activity(t.id, user=OWNER, db=self.db)
         self.assertEqual(a["type"], "field_changed")
         self.assertEqual(a["change"]["field"], "priority")
+
+
+class ReviewFixTests(Base):
+    """The Oct 22 review of this feature (M1-M3, L1, L4)."""
+
+    # -- M1: a restricted project's sections and fields stay private --------
+    def _secret_and_open(self):
+        self.db.add_all([
+            models.TaskProject(id="open", name="Open Board", access_level="org", created_at=now_iso()),
+            models.TaskProject(id="secret", name="Secret Board", access_level="restricted",
+                               owner_email=MANAGER["email"], created_at=now_iso()),
+            models.TaskSection(id="s-secret", project_id="secret", name="Secret Column"),
+        ])
+        self.db.commit()
+
+    def test_a_restricted_projects_section_name_is_not_handed_out(self):
+        self._secret_and_open()
+        t = self.task(project_id="secret", section_id="s-secret")
+        self.patch(t, user=MANAGER, project_id="open")          # the move leaves the section behind
+        [e] = self.history(t, user=OTHER, field="sectionId")
+        self.assertEqual((e["from"], e["labels"]), ("s-secret", {}))
+        [p] = self.history(t, user=OTHER, field="projectId")
+        self.assertEqual(p["labels"], {"open": {"label": "Open Board"}})
+        acts = [a["change"] for a in T.task_activity(t.id, user=OTHER, db=self.db) if a["change"]]
+        self.assertEqual([c["labels"] for c in acts if c["field"] == "sectionId"], [{}])
+        # A manager reads them all.
+        [e] = self.history(t, user=MANAGER, field="sectionId")
+        self.assertEqual(e["labels"]["s-secret"]["label"], "Secret Column")
+
+    def test_an_older_section_label_without_its_project_is_looked_up(self):
+        self._secret_and_open()
+        t = self.task(project_id="open")
+        self.db.add(models.TaskActivity(
+            id=gen_id(), entity_kind="task", entity_id=t.id, type="field_changed", actor_email=MANAGER["email"],
+            at=now_iso(), detail="changed Section",
+            field_change={"field": "sectionId", "fieldId": "", "label": "Section", "from": "s-secret", "to": None,
+                          "labels": {"s-secret": {"label": "Secret Column"}}}))
+        self.db.commit()
+        [e] = self.history(t, user=OTHER, field="sectionId")
+        self.assertEqual(e["labels"], {})
+
+    def test_a_field_only_a_restricted_project_uses_is_hidden(self):
+        self._secret_and_open()
+        self.field("select", id="cf-secret", name="Secret Budget", project_ids=["secret"],
+                   options=[{"id": "o1", "label": "Over", "color": "#f00"}])
+        t = self.task(project_id="open")
+        self.patch(t, user=MANAGER, custom_field_values={"cf-secret": "o1"}, priority="high")
+        self.assertEqual(self.history(t, user=OTHER, field="cf-secret"), [])
+        self.assertEqual([e["field"] for e in self.history(t, user=OTHER)], ["priority"])
+        acts = T.task_activity(t.id, user=OTHER, db=self.db)
+        hidden = [a for a in acts if a["type"] == "field_changed" and a["change"] is None]
+        self.assertEqual([a["detail"] for a in hidden], ["changed a field"])
+        self.assertNotIn("Secret Budget", " ".join(a["detail"] for a in acts))
+        self.assertTrue(all("scope" not in a["change"] for a in acts if a["change"]))
+        [e] = self.history(t, user=MANAGER, field="cf-secret")
+        self.assertEqual(e["labels"]["o1"]["label"], "Over")
+
+    # -- M2: a rule and the same edit both move the status ------------------
+    def test_a_rules_status_move_then_the_persons_completion(self):
+        self.rule({"type": "priority_changed", "value": "urgent"}, [{"type": "set_status", "value": "in_progress"}])
+        t = self.task()
+        self.patch(t, priority="urgent", completed=True)
+        self.db.expire_all()
+        self.assertTrue(self.db.get(models.Task, t.id).completed)
+        status = [c for c in self.changes(t) if c[0] == "status"]
+        self.assertEqual(status, [
+            ("status", "not_started", "in_progress", AUTO, "status_changed"),
+            ("status", "in_progress", "completed", OWNER["email"], "completed"),
+        ])
+        newest_first = [(e["actorId"], e["to"]) for e in self.history(t, field="status")]
+        self.assertEqual(newest_first, [(OWNER["email"], "completed"), (AUTO, "in_progress")])
+
+    def test_the_persons_part_reads_before_the_rules(self):
+        self.rule({"type": "status_changed", "value": "in_progress"}, [{"type": "set_priority", "value": "urgent"}])
+        t = self.task()
+        self.patch(t, status="in_progress", priority="high")
+        newest_first = [(e["actorId"], e["from"], e["to"]) for e in self.history(t, field="priority")]
+        self.assertEqual(newest_first, [(AUTO, "high", "urgent"), (OWNER["email"], "medium", "high")])
+
+    # -- M3: the HR checklist sync never tells a change twice ---------------
+    def _checklist(self):
+        import hr_checklists as hc
+        emp = models.NexusEmployee(id="emp-jo", first_name="Jo", last_name="New", status="onboarding",
+                                   work_email="", company=COA)
+        cl = models.HrChecklist(id="cl-1", employee_id="emp-jo", kind="onboarding", status="open", company=COA)
+        self.db.add_all([emp, cl])
+        for i, title in enumerate(("Laptop", "Badge")):
+            self.db.add(models.HrChecklistItem(id=f"it-{i}", checklist_id="cl-1", title=title, status="open",
+                                               owner_email=ASSIGNEE["email"], owner_emails=ASSIGNEE["email"],
+                                               sort_order=i, due_date="2026-11-0%d" % (i + 1)))
+        self.db.commit()
+        [pid] = hc.sync_tasks(self.db, cl, emp, by=MANAGER["email"], first=True)
+        self.db.commit()
+        self.db.query(models.TaskActivity).delete()
+        self.db.commit()
+        parent = self.db.get(models.Task, pid)
+        return parent, [self.db.get(models.Task, s) for s in parent.subtask_ids]
+
+    def _rows(self, t):
+        return [(a.type, (a.field_change or {}).get("field"), a.actor_email)
+                for a in self.db.query(models.TaskActivity).filter_by(entity_id=t.id).order_by(models.TaskActivity.at)
+                if a.field_change]
+
+    def test_completing_a_checklist_task_records_each_change_once(self):
+        parent, subs = self._checklist()
+        self.patch(parent, user=MANAGER, completed=True)
+        # The parent: its completion and the title the sync rewrote, once each,
+        # credited to the person (record_edit), not again by the sync.
+        got = self._rows(parent)
+        self.assertEqual(sorted(got), sorted([("completed", "status", MANAGER["email"]),
+                                              ("field_changed", "title", MANAGER["email"])]))
+        # Its subtasks closed with it - recorded from before the close.
+        for s in subs:
+            self.assertEqual(self._rows(s), [("status_changed", "status", MANAGER["email"])])
+
+    def test_completing_a_step_in_tasks_records_it_once(self):
+        parent, subs = self._checklist()
+        self.patch(subs[0], user=MANAGER, completed=True)
+        self.assertEqual(self._rows(subs[0]), [("completed", "status", MANAGER["email"])])
+        # The sync rewrites the parent (one step left, its date) - once each.
+        self.assertEqual(sorted(self._rows(parent)), [("due_changed", "dueOn", MANAGER["email"]),
+                                                      ("field_changed", "title", MANAGER["email"])])
+
+    def test_bulk_completing_steps_records_each_once(self):
+        parent, subs = self._checklist()
+        T.bulk_update(T.BulkUpdate(ids=[s.id for s in subs], patch={"completed": True}), user=MANAGER, db=self.db)
+        for s in subs:
+            self.assertEqual(self._rows(s), [("completed", "status", MANAGER["email"])])
+        # The parent was not in the batch: the sync records it closing, once.
+        self.assertEqual([r[1] for r in self._rows(parent)].count("status"), 1)
+
+    # -- L1: a rule is not a person in the briefing --------------------------
+    def test_the_briefing_does_not_count_a_rule_as_a_person(self):
+        import daily_briefing
+        rule_row = models.TaskActivity(type="field_changed", actor_email=AUTO)
+        person_row = models.TaskActivity(type="field_changed", actor_email=OWNER["email"])
+        self.assertFalse(daily_briefing._is_person_update(rule_row))
+        self.assertTrue(daily_briefing._is_person_update(person_row))
+
+    # -- L4: the field filter is in SQL and every page is reachable ----------
+    def test_types_for_narrows_the_query(self):
+        self.assertEqual(set(task_history.types_for("status")), {"status_changed", "completed", "closed_missed"})
+        self.assertEqual(set(task_history.types_for("dueOn")), {"due_changed"})
+        self.assertEqual(set(task_history.types_for("priority,cf-x")), {"field_changed"})
+        self.assertEqual(set(task_history.types_for("")), set(task_history.HISTORY_TYPES))
+
+    def test_old_history_is_reachable_past_any_scan_window(self):
+        t = self.task()
+        base = "2026-01-01T00:00:00.%06d+00:00"
+        for i in range(1300):
+            field = "priority" if i % 2 == 0 else "title"
+            self.db.add(models.TaskActivity(
+                id=f"h-{i:05d}", entity_kind="task", entity_id=t.id, type="field_changed", actor_email=OWNER["email"],
+                at=base % i, detail="x",
+                field_change={"field": field, "fieldId": "", "label": field, "from": str(i), "to": str(i + 1)}))
+        self.db.commit()
+        page = T.task_field_history(t.id, field="priority", limit=10, offset=640, user=OWNER, db=self.db)
+        self.assertEqual([e["from"] for e in page["items"]], [str(1298 - 2 * (640 + k)) for k in range(10)])
+        self.assertFalse(page["more"])
+        last = T.task_field_history(t.id, field="", limit=5, offset=1295, user=OWNER, db=self.db)
+        self.assertEqual([e["from"] for e in last["items"]], ["4", "3", "2", "1", "0"])
+        self.assertFalse(last["more"])
 
 
 class DiffUnitTests(Base):

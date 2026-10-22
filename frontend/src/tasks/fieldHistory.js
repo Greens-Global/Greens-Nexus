@@ -133,3 +133,48 @@ export function groupFieldChanges(rows, customFields = []) {
   }
   return out.map(({ _lastAt, ...r }) => r);   // eslint-disable-line no-unused-vars
 }
+
+// A bulk edit writes its rows a few milliseconds apart; a gap longer than this
+// between one person's rows ends the run.
+const BULK_GAP_MS = 2000;
+const BULK_TYPES = new Set(['field_changed', 'status_changed', 'assignee_changed']);
+
+/** For the workspace Activity Log (Oct 22 2026 review): one person's field
+ *  changes across SEVERAL tasks in one go - a bulk edit of 500 tasks - read as
+ *  one line, `{ type: 'bulk_changed', detail: 'changed Priority on 500 tasks',
+ *  tasks: [{ entityId, entityTitle }] }`, which the log can expand. Rows newest
+ *  first in (after groupFieldChanges), the same order out; a run on a single
+ *  task, and every other row, passes through untouched. */
+export function foldBulkChanges(rows, customFields = []) {
+  const out = [];
+  let run = [];
+  const flush = () => {
+    const tasks = [];
+    const seen = new Set();
+    for (const r of run) {
+      if (!seen.has(r.entityId)) { seen.add(r.entityId); tasks.push({ entityId: r.entityId, entityTitle: r.entityTitle || '' }); }
+    }
+    if (tasks.length >= 2) {
+      const changes = run.flatMap((r) => r.changes || [r.change]).filter(Boolean);
+      const names = joinFieldNames(changes.map((c) => historyFieldName(c, customFields)));
+      out.push({ ...run[0], id: `bulk-${run[0].id}`, type: 'bulk_changed', change: null, changes,
+        detail: `changed ${names} on ${tasks.length} tasks`, entityTitle: '', tasks });
+    } else {
+      out.push(...run);
+    }
+    run = [];
+  };
+  for (const r of rows || []) {
+    const foldable = !!r && BULK_TYPES.has(r.type) && (r.entityKind || 'task') === 'task';
+    const last = run[run.length - 1];
+    if (foldable && last && last.actorId === r.actorId
+        && Math.abs(Date.parse(last.at) - Date.parse(r.at)) <= BULK_GAP_MS) {
+      run.push(r);
+      continue;
+    }
+    flush();
+    if (foldable) run.push(r); else out.push(r);
+  }
+  flush();
+  return out;
+}

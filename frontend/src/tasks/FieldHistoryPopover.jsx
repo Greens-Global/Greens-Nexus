@@ -4,7 +4,7 @@
 // popover on desktop, the full-screen sheet on a phone. Read-only, so a
 // viewer sees it too: the trigger is not a form control, and FieldsLock lets
 // it through (data-history-trigger).
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { ArrowRight, History } from 'lucide-react';
 import { api } from '../api';
 import { Avatar, Modal, useIsMobile } from './components';
@@ -108,6 +108,19 @@ export function FieldHistoryButton({ field, label, nameOf }) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  // Focus moves into the popover when it opens (its heading, so a screen
+  // reader announces it) and back to the clock when it closes from inside -
+  // a click elsewhere keeps the focus where it landed.
+  const panelRef = useRef(null);
+  const focusPanel = useCallback((el) => {
+    panelRef.current = el;
+    if (el) el.focus({ preventScroll: true });
+  }, []);
+  const close = useCallback(() => {
+    const inside = isMobile || !!panelRef.current?.contains(document.activeElement);
+    setOpen(false);
+    if (inside) ref.current?.focus();
+  }, [isMobile]);
   if (!hist?.taskId || !field) return null;
   const name = typeof label === 'string' ? label : 'Field';
   const who = nameOf || hist.nameOf || ((e) => e);
@@ -123,15 +136,16 @@ export function FieldHistoryButton({ field, label, nameOf }) {
         <History size={12} />
       </span>
       {open && (isMobile ? (
-        <Modal title={`${name} History`} onClose={() => setOpen(false)}>
+        <Modal title={`${name} History`} onClose={close}>
           <div className="nx-fill"><FieldHistoryList taskId={hist.taskId} field={field} nameOf={who} /></div>
         </Modal>
       ) : (
-        <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} role="dialog"
+        <AnchoredMenu anchorRef={ref} open={open} onClose={close} role="dialog"
           aria-label={`${name} History`}
           style={{ width: 340, maxWidth: 'calc(100vw - 16px)', background: NX.surface, border: `1px solid ${NX.border}`,
             borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 6 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink, padding: '4px 8px 6px' }}>{name} History</div>
+          <div ref={focusPanel} tabIndex={-1}
+            style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink, padding: '4px 8px 6px', outline: 'none' }}>{name} History</div>
           <div style={{ maxHeight: 320, overflowY: 'auto' }}>
             <FieldHistoryList taskId={hist.taskId} field={field} nameOf={who} />
           </div>

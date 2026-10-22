@@ -879,7 +879,10 @@ def _is_person_update(a: "models.TaskActivity") -> bool:
     is logged under "system" / "asana", and counting it is how Neil got 41-56
     "updates" on tasks nobody had touched (call of 10/01)."""
     actor = (a.actor_email or "").strip().lower()
-    return "@" in actor and not (a.type or "").startswith("notify_")
+    # An automation rule's own lines (automation@nexus) are not a person
+    # either - the same rule as the Updates card (routers.tasks._is_person).
+    from task_automation import AUTOMATION_ACTOR
+    return "@" in actor and actor != AUTOMATION_ACTOR and not (a.type or "").startswith("notify_")
 
 
 def _update_line(a: "models.TaskActivity", names: dict, status_labels) -> str:

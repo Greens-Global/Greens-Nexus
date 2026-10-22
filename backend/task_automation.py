@@ -222,10 +222,12 @@ class Result:
     applied: list = field(default_factory=list)     # human lines, one per action
     after_commit: list = field(default_factory=list)  # callables(db, defer) to run once the caller has committed
     rule_ids: list = field(default_factory=list)
-    # Field history (Oct 22 2026): the task as the rules found it, and the
-    # fields they moved - task_history.record_edit credits the person with
-    # the rest. None / empty when no rule changed a recorded field.
+    # Field history (Oct 22 2026): the task as the rules found it, as they
+    # left it, and the fields they moved - task_history.record_edit credits
+    # the person with the rest. None / empty when no rule changed a recorded
+    # field.
     history_mid: Optional[dict] = None
+    history_post: Optional[dict] = None
     history_keys: set = field(default_factory=set)
 
 
@@ -459,10 +461,11 @@ def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
                 status="error", detail=str(e)[:500], at=now_iso(),
             ))
     if hist_before is not None and res.applied:
-        changes = task_history.diff(db, hist_before, task_history.snapshot(t))
+        hist_after = task_history.snapshot(t)
+        changes = task_history.diff(db, hist_before, hist_after)
         if changes:
             task_history.write(db, t, changes, AUTOMATION_ACTOR, since=hist_before["_at"])
-            res.history_mid = hist_before
+            res.history_mid, res.history_post = hist_before, hist_after
             res.history_keys = {task_history.key_of(c) for c in changes}
     return res
 
