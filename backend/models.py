@@ -6751,6 +6751,56 @@ class AccountingAmaSetting(Base):
     accountants = Column(JSON, default=list)                       # ['person@greensglobal.com', ...]
     updated_by  = Column(String, default="")
     updated_at  = Column(String, default="")
+    # CR-13 (Oct 23): who may approve and push an AMA reclass (the '' row
+    # only). Empty = accounting_assumptions.AMA_BOOKKEEPERS_FALLBACK.
+    bookkeepers = Column(JSON, default=list)
+
+
+class AccountingAmaLineReview(Base):
+    """CR-13 (Charmi, Oct 22): what Nexus keeps against one Ask My Accountant
+    ledger line - the Notes typed in the grid and the GL reclass proposed for
+    it. A reclass runs Awaiting Bookkeeper -> (Sent Back -> Awaiting
+    Bookkeeper) -> Pushing -> Pushed; only a bookkeeper approves and pushes.
+    A push creates a NEW reclass entry (never edits the original); with the
+    Intacct switch off it is recorded for the GL import file instead
+    (push_mode 'import'). `line_ref` = the ledger line id, else "k:" + the
+    entry / account / amount / date key. routers/accounting_ask_review.py.
+    New table - create_all builds it; RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_line_reviews"
+    id               = Column(String, primary_key=True)            # uuid
+    line_ref         = Column(String, unique=True, index=True)
+    entity_code      = Column(String, default="", index=True)
+    entry_id         = Column(String, default="")
+    entry_no         = Column(String, default="")
+    line_id          = Column(String, default="")
+    account_no       = Column(String, default="")                  # the AMA account
+    account_title    = Column(String, default="")
+    entry_date       = Column(String, default="")                  # YYYY-MM-DD
+    amount           = Column(Float, default=0.0)                  # debit - credit
+    description      = Column(String, default="")
+    department_id    = Column(String, default="")
+    note             = Column(Text, default="")
+    note_by          = Column(String, default="")
+    note_at          = Column(String, default="")
+    reclass_status   = Column(String, default="", index=True)      # '' | Awaiting Bookkeeper | Sent Back | Pushing | Pushed
+    reclass_ref      = Column(String, default="")                  # R-xxxxxxxx, on the reclass entry
+    to_account       = Column(String, default="")
+    to_account_title = Column(String, default="")
+    party_kind       = Column(String, default="")                  # '' | vendor | customer
+    party_id         = Column(String, default="")
+    party_name       = Column(String, default="")
+    reclass_memo     = Column(String, default="")
+    proposed_by      = Column(String, default="")
+    proposed_at      = Column(String, default="")
+    review_note      = Column(String, default="")                  # the bookkeeper's Send Back note
+    approved_by      = Column(String, default="")
+    approved_at      = Column(String, default="")
+    push_mode        = Column(String, default="")                  # intacct | import
+    push_started_at  = Column(String, default="")
+    intacct_ref      = Column(String, default="")                  # RECORDNO of the reclass entry
+    push_error       = Column(String, default="")
+    history          = Column(JSON, default=list)                  # [{at, by, event}]
+    updated_at       = Column(String, default="")
 
 
 class ShiftNoShowAlert(Base):

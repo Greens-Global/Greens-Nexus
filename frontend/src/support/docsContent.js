@@ -1218,6 +1218,15 @@ export const DOCS = [
         ],
       },
       {
+        title: 'Recode an AMA Line',
+        steps: [
+          'Open Reports > Audit & Insights > AMA. Other Side shows the account the money came from or went to; hover it for every account on the entry.',
+          'Type what you know in the Notes box on the line. It saves when you click away, and the bookkeeper sees it.',
+          'Click Pick GL, search for the account and, if there is one, the vendor or customer. Send To Bookkeeper - the line shows Awaiting Bookkeeper.',
+          'Bookkeepers (AMA Settings > Bookkeepers) pick Awaiting Bookkeeper in the Whose filter, check each one, change it or Send Back with a note, then Approve. Approving creates a new reclass entry - the original entry is never changed - and the line moves to Resolved.',
+        ],
+      },
+      {
         title: 'Plan a New Loan',
         steps: [
           'Open Financing > Loans and click the Loan Planning tab.',
@@ -1250,7 +1259,7 @@ export const DOCS = [
       { name: 'PFS', desc: 'Personal financial statements of the guarantors, for any date: Statement, Borrower(s), Affiliated Entities, History and Profile, Assets, Liabilities and Real Estate. Each file is locked: Send Code emails you a code that opens that one file for 90 minutes, the borrowers are emailed that it was opened, and every access is in the Access Log (the button beside Export, for editors): who, when, what they did and which statement.' },
       { name: 'MRI', desc: 'Monthly recurring income (leases, CAM, interest and loan payments) in Income Roll, Outstanding and Payers views. What was received is read from the ledger, never keyed. Lease Term is Annual, Month to Month or Custom, and picking the tenant fills empty contact fields from the Intacct customer.' },
       { name: 'MRE', desc: 'Monthly recurring expenses by vendor and entity, each month marked Paid, Short, Over, Missed or Upcoming against what was expected. A Variance % lets a payment close to expected still count as Paid.' },
-      { name: 'AMA', desc: 'Ask My Accountant: lines parked on the AMA (suspense) account, plus questions asked on any ledger line. Filter Open, Answered, Resolved or All, and Assigned To Me or Asked By Me; a row opens the thread with Resolve (and Moved To Account) and Reopen.' },
+      { name: 'AMA', desc: 'Ask My Accountant: lines parked on the AMA (suspense) account, plus questions asked on any ledger line. Filter Open, Answered, Resolved or All, and Assigned To Me or Asked By Me; a row opens the thread with Resolve (and Moved To Account) and Reopen. Other Side shows the offsetting account, Notes are typed on the line, and Pick GL sends a reclass to the bookkeeper, who alone approves and pushes it.' },
       { name: 'Management Fees', desc: 'The asset management agreements: for the period picked (Year to Date, a quarter or a month), each managed entity\'s gross revenue read from the ledger and the fee it works out to, Billed YTD against Expected YTD, and the next billing. A fee can be a percent of revenue, a flat amount, or Percent or Flat - the percent of gross when gross is above a threshold, else a flat fee, set per agreement. Editors use Add Agreement; Fee GL Account is searched by number or title, and Agreement opens the linked document.' },
       { name: 'Profitability', desc: 'Revenue, NOI, interest, depreciation, net income, debt service and cash flow after debt service per entity, against the same period a year earlier. Click a figure for the accounts behind it.' },
       { name: 'Compensation', desc: 'Reports > Payroll & People: hours and gross wages per employee from Time Clock for a run of months, with totals by company and department, and payroll expense on the ledger below. Full level only, and it asks you to confirm it is you.' },

@@ -1,4 +1,6 @@
-"""A small, read-only Sage Intacct Web Services client (Oct 21 2026).
+"""A small Sage Intacct Web Services client (Oct 21 2026). Reads only, but
+for one switched-off-by-default write at the end (create_gl_batch, the AMA
+reclass entry - CR-13, Oct 23).
 
 Used by People > Sync Employee Codes From Intacct (routers/hr_intacct_codes.py)
 to read the EMPLOYEE list straight from Intacct - the accounting app is not
@@ -245,3 +247,70 @@ def fetch_employees(post: Optional[Poster] = None) -> list:
         if not rows:
             break
     return [e for e in out if e["employeeId"]]
+
+
+# ── One write: a GL journal entry (AMA reclass, CR-13, Oct 23 2026) ─────────
+# The only thing Nexus ever writes to Intacct, and only when the AMA push
+# switch is on (accounting_assumptions.AMA_PUSH_TO_INTACCT). A NEW entry is
+# created - an existing one is never edited. `batch` = {journal, date (ISO),
+# description, reference_no, state, lines: [{acct_no, location_id, dept_id,
+# memo, debit, credit, vendor_id, customer_id}]}.
+
+def _amount(v) -> str:
+    return f"{float(v or 0):.2f}"
+
+
+def _glentry_xml(line: dict) -> str:
+    debit, credit = float(line.get("debit") or 0), float(line.get("credit") or 0)
+    tr_type, amount = ("1", debit) if debit else ("-1", credit)
+    parts = [f"<ACCOUNTNO>{escape(str(line.get('acct_no') or ''))}</ACCOUNTNO>"]
+    for tag, key in (("DEPARTMENT", "dept_id"), ("LOCATION", "location_id")):
+        if line.get(key):
+            parts.append(f"<{tag}>{escape(str(line[key]))}</{tag}>")
+    parts.append(f"<TR_TYPE>{tr_type}</TR_TYPE><TRX_AMOUNT>{_amount(amount)}</TRX_AMOUNT>")
+    if line.get("memo"):
+        parts.append(f"<DESCRIPTION>{escape(str(line['memo'])[:1000])}</DESCRIPTION>")
+    for tag, key in (("VENDORID", "vendor_id"), ("CUSTOMERID", "customer_id")):
+        if line.get(key):
+            parts.append(f"<{tag}>{escape(str(line[key]))}</{tag}>")
+    return "<GLENTRY>" + "".join(parts) + "</GLENTRY>"
+
+
+def glbatch_xml(batch: dict) -> str:
+    """The <create><GLBATCH> function for one journal entry (pure)."""
+    day = (batch.get("date") or "")[:10]
+    us = f"{day[5:7]}/{day[8:10]}/{day[0:4]}" if len(day) == 10 else ""
+    head = (f"<JOURNAL>{escape(batch.get('journal') or '')}</JOURNAL>"
+            f"<BATCH_DATE>{escape(us)}</BATCH_DATE>"
+            f"<BATCH_TITLE>{escape((batch.get('description') or '')[:80])}</BATCH_TITLE>")
+    if batch.get("reference_no"):
+        head += f"<REFERENCENO>{escape(str(batch['reference_no'])[:20])}</REFERENCENO>"
+    if batch.get("state"):
+        head += f"<STATE>{escape(batch['state'])}</STATE>"
+    lines = "".join(_glentry_xml(ln) for ln in batch.get("lines") or [])
+    return f"<create><GLBATCH>{head}<ENTRIES>{lines}</ENTRIES></GLBATCH></create>"
+
+
+def create_gl_batch(batch: dict, post: Optional[Poster] = None) -> str:
+    """Create one journal entry in Intacct; returns its RECORDNO. Raises
+    IntacctError with a user-safe message."""
+    creds = _creds()
+    if not all(creds[k] for k in REQUIRED_ENV):
+        raise IntacctError("Intacct is not configured on this server.")
+    if len(batch.get("lines") or []) < 2:
+        raise IntacctError("A journal entry needs at least two lines. Nothing was posted.")
+    post = post or _default_post
+    session = _call(post, DEFAULT_ENDPOINT, creds, _login_xml(creds), "<getAPISession/>")
+    api = session.find("data/api")
+    sid = (api.findtext("sessionid") if api is not None else "") or ""
+    if not sid.strip():
+        raise IntacctError("Intacct did not open a session. Nothing was posted.")
+    url = _allowed_endpoint(((api.findtext("endpoint") or "").strip() if api is not None else "") or DEFAULT_ENDPOINT)
+    creds = {**creds, "_session": sid.strip()}   # scrubbed from any error text too
+    result = _call(post, url, creds, f"<sessionid>{escape(sid.strip())}</sessionid>", glbatch_xml(batch))
+    data = result.find("data")
+    if data is not None:
+        for el in data.iter():
+            if el.tag.upper() == "RECORDNO" and (el.text or "").strip():
+                return el.text.strip()
+    return ""
