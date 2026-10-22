@@ -724,7 +724,7 @@ def _shift_request_rows(db: Session, email: str, my_reports: dict) -> list:
 
 def _timesheet_review_rows(db: Session, email: str) -> list:
     """Timesheets submitted to this person for review (Sep 29) - one row each,
-    opening Workday > Time Sheet's Timesheets to Review list (Oct 1). Send Back
+    opening People > Time's Time Sheets to Review list (Oct 22). Send Back
     needs a note and Agree may be refused for a still-open period, so these are
     "Open in Nexus" rather than one-click actions."""
     import timesheet_review as tsr
@@ -736,9 +736,8 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
             "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - {hours}"
                       + (" - resubmitted" if q["resubmitted"] else ""),
-            # Workday > Time Sheet, where Timesheets to Review sits (Oct 1) -
-            # the same place the bell opens; no HR grant needed to reach it.
-            "url": f"{app_url()}/timeclock/timesheet",
+            # People > Time, where Time Sheets to Review sits - the same place the bell opens.
+            "url": f"{app_url()}/hr/hr-time",
             "module": "timecard",
             **_since(q.get("submittedAt")),
         })
@@ -749,7 +748,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
         rows.append({
             "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(q['periodStart'])} - {_fmt_date(q['periodEnd'])} - {hours} - not submitted",
-            "url": f"{app_url()}/timeclock/timesheet",
+            "url": f"{app_url()}/hr/hr-time",
             "module": "timecard",
             **_since(q["periodEnd"]),
         })

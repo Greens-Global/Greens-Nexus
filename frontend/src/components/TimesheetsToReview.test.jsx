@@ -71,6 +71,8 @@ describe('TimesheetsToReview', () => {
     render(<TimesheetsToReview onOpen={() => {}} />);
     expect(await screen.findByText(/not submitted - period closed/)).toBeTruthy();
     expect(screen.queryByText('Send Back')).toBeNull();
+    // No stray note box under it (Oct 22: every unsubmitted row showed one, the last one focused).
+    expect(screen.queryByPlaceholderText('What needs changing?')).toBeNull();
     fireEvent.click(screen.getByText('Approve'));
     await waitFor(() => expect(approvePeriod).toHaveBeenCalledWith('erin@x.com', '2026-09-01', ''));
     expect(approve).not.toHaveBeenCalled();

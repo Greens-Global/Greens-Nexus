@@ -280,7 +280,7 @@ export const DOCS = [
     manager: {
       title: 'Managers & Admins',
       points: [
-        'Time Sheets to Review is also on your own Workday > Time Sheet tab, so you can approve without People access. A "For <name>" chip means you are covering that person\'s approvals.',
+        'Time Sheets to Review is only in People > Time - your own Workday > Time Sheet tab lists just the time sheets waiting on your signature. A "For <name>" chip means you are covering that person\'s approvals.',
         'Time-off requests route to your approver. Managers review them from the Dashboard (Time Off to Review) and the bell.',
         'Team hours, punch fixes and payroll time sheets live in People > Time. The schedule itself is built in Team > Schedule.',
         'HR sets locations (the geofence used for on-site checks) and holiday calendars in People.',
@@ -1566,7 +1566,7 @@ export const DOCS = [
       {
         title: 'Review and Approve Time Sheets',
         steps: [
-          'Open People > Time (or Workday > Time Sheet). Time Sheets to Review lists every time sheet waiting on you once its period is over, submitted or not.',
+          'Open People > Time. Time Sheets to Review lists every time sheet waiting on you once its period is over, submitted or not.',
           'Click Review All Clean to go through every time sheet with nothing flagged in one pass: look each one over (Open shows the full time sheet), tick it, and click Approve Reviewed - only the ticked ones are approved and sent to sign. Flagged ones stay in the list with a note saying why.',
           'For a flagged one, click Review, fix the hours and decide any open punch fixes - approval waits until none are pending.',
           'Click Review & Approve, or write what needs changing and click Send Back.',

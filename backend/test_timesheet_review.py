@@ -780,13 +780,13 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertTrue(e.exception.detail["message"].startswith("Fix this on the time sheet before sign-off - 08/05/2026"))
         self.assertIn("Or override to sign off anyway.", e.exception.detail["message"])
 
-    def test_the_bell_takes_the_manager_to_timesheets_to_review(self):
-        """Oct 1: Workday > Time Sheet, where the Timesheets to Review list is -
-        People > Time needs the HR grant, which a reviewing manager may lack."""
+    def test_the_bell_takes_the_manager_to_the_card_in_people_time(self):
+        """Oct 22: Time Sheets to Review lives only in People > Time - the bell
+        opens that employee's card for that period there."""
         tsr.submit(self.db, EMP, ANCHOR)
         import json as _json
         action = _json.loads(self._bells(MGR)[-1].action)
-        self.assertEqual(action, {"view": "timeclock", "sub": "timesheet"})
+        self.assertEqual((action["view"], action["sub"], action["timecard"]), ("hr", "hr-time", EMP))
         tsr.send_back(self.db, self._r(), MGR, "Check Monday")
         self.assertEqual(_json.loads(self._bells(EMP)[-1].action)["view"], "timeclock")   # the employee's own card
 
@@ -800,7 +800,7 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["title"], "Review Erin Test's Time Sheet")
         self.assertIn(f"{tsr.us_date(self.start)} - {tsr.us_date(self.end)} - 7h 00m", rows[0]["detail"])
-        self.assertTrue(rows[0]["url"].endswith("/timeclock/timesheet"))
+        self.assertTrue(rows[0]["url"].endswith("/hr/hr-time"))   # People > Time (Oct 22)
 
 
 class SentByNexusTests(ReviewCase):

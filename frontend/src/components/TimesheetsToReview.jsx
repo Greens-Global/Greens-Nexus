@@ -49,8 +49,9 @@ const ROLE_WORD = { manager: 'as the manager', hr: 'for HR', employee: 'as the e
 
 // `onCount` (optional) hears how many are waiting (to review plus to sign) -
 // null when the list could not be loaded - for the Workday Time Sheet tab's
-// count.
-export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount }) {
+// count. `signOnly` (Workday, Oct 22): reviewing moved to People > Time only,
+// so Workday lists just the time sheets waiting on my signature.
+export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount, signOnly = false }) {
   const [rows, setRows] = useState([]);
   const [toSign, setToSign] = useState([]);
   const [busyId, setBusyId] = useState('');
@@ -68,13 +69,13 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
 
   const load = useCallback(() => {
     api.timesheetReviewWaiting().then(r => {
-      const list = Array.isArray(r?.reviews) ? r.reviews : [];
+      const list = !signOnly && Array.isArray(r?.reviews) ? r.reviews : [];
       const sign = Array.isArray(r?.toSign) ? r.toSign : [];
       setRows(list);
       setToSign(sign);
       onCount?.(list.length + sign.length);
     }).catch(() => onCount?.(null));
-  }, [onCount]);
+  }, [onCount, signOnly]);
   useEffect(() => {
     load();
     window.addEventListener('nexus:timesheet-review-changed', load);
@@ -204,7 +205,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
                     <CheckCircle size={13} /> Approve
                   </button>
                 </div>
-                {backFor === r.id && (
+                {!r.notSubmitted && backFor === r.id && (
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <input className="form-input" value={note} onChange={e => setNote(e.target.value)} maxLength={1000} autoFocus
                       placeholder="What needs changing?" aria-label={`What needs changing for ${r.name}`} style={{ flex: 1, fontSize: 12.5 }} />

@@ -57,7 +57,7 @@ DEFAULT_ESCALATE_DAYS = 2
 NAMES_SHOWN = 12
 
 CLOSE, STALLED, UNSIGNED = "period-close", "period-stalled", "sign-stalled"
-_REVIEWER_ACTION = {"view": "timeclock", "sub": "timesheet"}
+_REVIEWER_ACTION = {"view": "hr", "sub": "hr-time"}   # Time Sheets to Review (People > Time only, Oct 22)
 
 
 def _span(start: str, end: str) -> str:
