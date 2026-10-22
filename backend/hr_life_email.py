@@ -679,8 +679,9 @@ def _event_email(db: Session, req: HrSignRequest, party, sender: dict, link: str
     if not is_subject and not (ev.kind == "promotion" and role == "manager" and stage == "invite"):
         return None
     company, location, manager = _context(db, ev)
-    # Who signed before this person (the packet arrives countersigned) and
-    # who still signs after them - read from the envelope, never assumed.
+    # Who signed before this person (only on an envelope sent before Oct 22
+    # 2026 - the person now signs first) and who still signs after them -
+    # read from the envelope, never assumed.
     signed_by, after_me = [], []
     if stage == "invite" and req.id:
         mine = getattr(party, "ordinal", None) or 0
@@ -749,10 +750,12 @@ def preview(db: Session, user: dict, event: str, entity_id: str, template_name: 
     inputs, pay = SAMPLE.get(event, ({}, {}))
     if event == "promotion" and role == "subject":
         fake_party.kind = "internal"          # an employee signs behind their Nexus login
-    # The sample envelope: the company (the sender) has signed a hire or
-    # separation before the person sees it; a promotion goes to the manager next.
-    signed_by = [(sender.get("name") or "HR", now)] if event in ("offer", "hire", "separation") else []
-    after_me = ["Max Manager"] if event == "promotion" else []
+    # The sample envelope: the person signs first (Neil, Oct 22 2026) - the
+    # company countersigns a hire or separation after them, a promotion goes
+    # to the manager next, and nobody signs an offer for the company.
+    signed_by = []
+    after_me = (["Max Manager"] if event == "promotion" else
+                [sender.get("name") or "HR"] if event in ("hire", "separation") else [])
     return compose(event, stage=stage, role=role, first_name="Jane" if role == "subject" else "Max", company=company,
                    location=location, inputs=inputs, pay=pay, manager="Max Manager", note=note,
                    docs=_docs_of(fake_req), link="#", sender=sender, party=fake_party, req=fake_req,

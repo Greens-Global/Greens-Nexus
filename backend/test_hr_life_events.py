@@ -1,7 +1,8 @@
 """HR life events - the hiring packet end to end (Neil/Pranshu call, Oct 8).
 
 Candidate at Offer -> HR sends the company's packet -> HR signs at send ->
-the candidate (external, personal email) signs LAST -> the candidate is hired
+the candidate (external, personal email) signs FIRST, HR countersigns after
+(Neil, Oct 22 2026: the company never signs before the employee) -> the candidate is hired
 by the same function Mark Hired uses -> the sealed packet is filed into the
 new employee's Egnyte folder by the filing pass. Plus the ways it must refuse
 or recover: no packet set up, wrong stage, the person not signing last, a
@@ -177,24 +178,23 @@ class LifeEventCase(unittest.TestCase):
 
 
 class HiringPacketTests(LifeEventCase):
-    def test_full_journey_company_signs_then_candidate_then_hired_and_filed(self):
+    def test_full_journey_candidate_signs_then_company_then_hired_and_filed(self):
         ev = self._send()
-        self.assertEqual(ev.status, "awaiting_sender")
+        self.assertEqual(ev.status, "sent")
         req = self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).first()
         self.assertEqual((req.link_kind, req.link_id), ("life_event", ev.id))
         self.assertIn("$96,000.00 per year", " ".join(req.body_snapshot))
         self.assertIn("November 2, 2026", " ".join(req.body_snapshot))
-        # HR signs at send - no self-invite, and the candidate is not invited yet.
-        self.assertEqual(self.invited, [])
-        self.assertEqual(hle.sender_party_id(self.db, ev, HR), self._party(req.id, HR).id)
-
-        self._sign(self._party(req.id, HR))
-        self.assertEqual(self._ev(ev.id).status, "sent")
-        self.assertEqual(self.invited, [CAND_EMAIL])          # invited only once HR signed
+        # The candidate is invited at once and signs first; HR has nothing to sign yet.
+        self.assertEqual(self.invited, [CAND_EMAIL])
+        self.assertEqual(hle.sender_party_id(self.db, ev, HR), "")
         cand_party = self._party(req.id, CAND_EMAIL)
-        self.assertEqual(cand_party.kind, "external")
+        self.assertEqual((cand_party.kind, cand_party.ordinal), ("external", 1))
 
         self._sign(cand_party)
+        self.assertEqual(self._ev(ev.id).status, "sent")
+        self.assertEqual(hle.sender_party_id(self.db, ev, HR), self._party(req.id, HR).id)   # now HR countersigns
+        self._sign(self._party(req.id, HR))
         ev = self._ev(ev.id)
         self.assertEqual(ev.status, "completed")
         cand = self.db.query(models.HrCandidate).filter_by(id="cand-1").first()
@@ -243,16 +243,21 @@ class HiringPacketTests(LifeEventCase):
         self.db.query(models.HrPacketSetting).update({"entity_id": ""})
         self.db.query(models.HrSignTemplate).update({"entity_id": ""})
         self.db.commit()
-        self.assertEqual(self._send().status, "awaiting_sender")
+        self.assertEqual(self._send().status, "sent")
 
-    def test_the_person_must_sign_last(self):
-        self.db.query(models.HrSignTemplate).update({"roles": [{"key": "employee", "order": 1},
-                                                               {"key": "company", "order": 2}]})
-        self.db.commit()
-        s = self.db.query(models.HrPacketSetting).first()
-        self.assertTrue(any("must sign last" in p for p in hle.setting_problems(self.db, s)))
-        with self.assertRaises(hle.PacketError):
-            self._send()
+    def test_the_person_signs_first_whatever_the_templates_order(self):
+        for roles in ([{"key": "employee", "order": 1}, {"key": "company", "order": 2}],
+                      [{"key": "company", "order": 1}, {"key": "employee", "order": 2}]):
+            self.db.query(models.HrLifeEvent).delete()
+            self.db.query(models.HrSignTemplate).update({"roles": roles})
+            self.db.commit()
+            s = self.db.query(models.HrPacketSetting).first()
+            self.assertEqual(hle.setting_problems(self.db, s), [])
+            ev = self._send()
+            parties = (self.db.query(models.HrSignParty).filter_by(request_id=ev.sign_request_id)
+                       .order_by(models.HrSignParty.ordinal).all())
+            self.assertEqual([p.email for p in parties], [CAND_EMAIL, HR])
+            self.assertEqual(ev.status, "sent")
 
     def test_an_offer_field_on_the_pdf_prints_this_offers_pay(self):
         """HR's merged packet PDF has a blank salary line; a Salary offer field
@@ -338,7 +343,6 @@ class HiringPacketTests(LifeEventCase):
             hle.plan_hire(self.db, HR_USER, "cand-1", self._inputs(packet_id="demo-packet-from-elsewhere"), None, None)
         ev = self._send(role_id="jr-it", job_title="")
         self.assertEqual(ev.setting_id, it["id"])
-        self._sign(self._party(ev.sign_request_id, HR))
         self.assertIn("Welcome to IT!", self.mails[CAND_EMAIL][1])
         # Removing the packet archives its template; the IT role falls back to the every-role packet.
         self.client.post(f"/hr/life-events/{ev.id}/void")
@@ -373,7 +377,7 @@ class HiringPacketTests(LifeEventCase):
             self._send()
         self.assertIn("signing_bonus", str(e.exception))
         ok = self._send(merge={"signing_bonus": "$2,000"})
-        self.assertEqual(ok.status, "awaiting_sender")
+        self.assertEqual(ok.status, "sent")
 
     def test_supervisor_must_be_in_nexus_people(self):
         with self.assertRaises(hle.PacketError):
@@ -385,7 +389,6 @@ class HiringPacketTests(LifeEventCase):
 
     def test_decline_returns_it_to_hr_and_the_candidate_stays_at_offer(self):
         ev = self._send()
-        self._sign(self._party(ev.sign_request_id, HR))
         p = self._party(ev.sign_request_id, CAND_EMAIL)
         self.client.post(f"/esign/public/{p.token}/consent", json={"agreed": True})
         r = self.client.post(f"/esign/public/{p.token}/decline", json={"reason": "Start date too soon"})
@@ -395,7 +398,7 @@ class HiringPacketTests(LifeEventCase):
         self.assertEqual(self.db.query(models.HrCandidate).filter_by(id="cand-1").first().stage, "offer")
         self.assertTrue(self.db.query(models.NexusNotification).filter_by(recipient=HR).count())
         # A new packet can go out after a decline.
-        self.assertEqual(self._send().status, "awaiting_sender")
+        self.assertEqual(self._send().status, "sent")
 
     def test_void(self):
         ev = self._send()
@@ -404,8 +407,8 @@ class HiringPacketTests(LifeEventCase):
 
     def test_egnyte_down_retries_then_tells_hr(self):
         ev = self._send()
-        self._sign(self._party(ev.sign_request_id, HR))
         self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
+        self._sign(self._party(ev.sign_request_id, HR))
         self.egnyte_down = True
         self._run_filing_now()
         ev = self._ev(ev.id)
@@ -434,8 +437,8 @@ class HiringPacketTests(LifeEventCase):
         egnyte_wiring._match_path = lambda path: "/Shared/HR Manual/Dana Diaz" if "hr manual" in path.lower() else None
         try:
             ev = self._send()
-            self._sign(self._party(ev.sign_request_id, HR))
             self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
+            self._sign(self._party(ev.sign_request_id, HR))
             self._run_filing_now()
             ev = self._ev(ev.id)
             self.assertEqual(ev.filing_status, "pending")
@@ -458,11 +461,11 @@ class HiringPacketTests(LifeEventCase):
 
     def test_a_hook_bug_never_costs_the_signer_their_signature(self):
         ev = self._send()
-        self._sign(self._party(ev.sign_request_id, HR))
+        self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
         real = hle._APPLY["hire"]
         hle._APPLY["hire"] = lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
         try:
-            self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
+            self._sign(self._party(ev.sign_request_id, HR))
         finally:
             hle._APPLY["hire"] = real
         self.db.expire_all()
@@ -497,7 +500,6 @@ class HiringPacketTests(LifeEventCase):
 
     def test_correcting_the_candidate_email_moves_the_packet(self):
         ev = self._send()
-        self._sign(self._party(ev.sign_request_id, HR))          # the candidate's turn now
         old_token = self._party(ev.sign_request_id, CAND_EMAIL).token
         self.assertEqual(self.invited.count(CAND_EMAIL), 1)
         r = self.client.patch("/hr/candidates/cand-1", json={"email": "Jane.Right@gmail.com"})
@@ -519,7 +521,7 @@ class HiringPacketTests(LifeEventCase):
         self.assertEqual(self._ev(ev.id).status, "expired")
         self.assertTrue(any("Expired" in n.title for n in
                             self.db.query(models.NexusNotification).filter_by(recipient=HR).all()))
-        self.assertEqual(self._send().status, "awaiting_sender")  # a new one can go out
+        self.assertEqual(self._send().status, "sent")  # a new one can go out
 
     def test_the_offer_expires_on_the_day_hr_gives(self):
         for bad, msg in (("", "date the offer expires"), ("2020-01-01", "today or later"), ("2026-12-01", "on or before the start")):
@@ -529,7 +531,6 @@ class HiringPacketTests(LifeEventCase):
         ev = self._send()
         req = self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).first()
         self.assertEqual(req.expires_on, "2026-10-30")
-        self._sign(self._party(ev.sign_request_id, HR))
         self.assertIn("Please sign by Friday, October 30, 2026", self.mails[CAND_EMAIL][1])
         # The day passes: the link is dead on open, the packet reads Expired, HR is told.
         self.db.query(models.HrSignRequest).filter_by(id=req.id).update({"expires_on": "2000-01-01"})
@@ -550,9 +551,9 @@ class HiringPacketTests(LifeEventCase):
         ev = self._send()
         self.assertIn("rehire of GG-042", self.db.query(models.HrStageEvent).filter_by(candidate_id="cand-1")
                       .order_by(models.HrStageEvent.created_at.desc()).first().note)
-        self._sign(self._party(ev.sign_request_id, HR))
         self.assertIn("Welcome back", self.mails[CAND_EMAIL][0])
         self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
+        self._sign(self._party(ev.sign_request_id, HR))
         self.db.expire_all()
         rows = self.db.query(models.NexusEmployee).filter_by(personal_email=CAND_EMAIL).all()
         self.assertEqual([(r.id, r.status, r.job_title, r.employee_code) for r in rows],
@@ -942,8 +943,8 @@ class OffboardTests(LifeEventCase):
         self.assertIn("Marked Left", ev.apply_note)
         party = self._party(ev.sign_request_id, "erin@gmail.com")
         self.assertEqual(party.kind, "external")              # no login needed - their account is closed
-        self._sign(self._party(ev.sign_request_id, HR))
         self._sign(party)
+        self._sign(self._party(ev.sign_request_id, HR))
         ev = self._ev(ev.id)
         self.assertEqual((ev.status, ev.apply_status), ("completed", "applied"))
         self._run_filing_now()
@@ -972,9 +973,9 @@ class OffboardTests(LifeEventCase):
         self.assertEqual(ev.subject_email, "erin@gmail.com")
         party = self._party(ev.sign_request_id, "erin@gmail.com")
         self.assertEqual(party.kind, "external")
-        self._sign(self._party(ev.sign_request_id, HR))
         self.assertIn("erin@gmail.com", self.mails)             # invited on the new link
         self._sign(party)
+        self._sign(self._party(ev.sign_request_id, HR))
         self.assertEqual(self._ev(ev.id).status, "completed")
 
     def test_the_morning_after_without_a_personal_email_tells_hr(self):
@@ -995,7 +996,7 @@ class OffboardTests(LifeEventCase):
 
     def test_a_declined_package_can_be_replaced_without_canceling(self):
         ev, _r = self._off("2099-01-31")
-        self._sign(self._party(ev.sign_request_id, HR))
+        self._sign(self._party(ev.sign_request_id, ERIN))
         esign.void_request(ev.sign_request_id, user=HR_USER, db=self.db)      # paperwork dead, offboarding stands
         ev = self._ev(ev.id)
         self.assertEqual((ev.status, ev.apply_status), ("voided", "scheduled"))
@@ -1056,7 +1057,6 @@ class EmailAndRoleTests(LifeEventCase):
 
     def test_the_new_hire_gets_a_welcome_email_with_the_link(self):
         ev = self._send(role_id="jr-an", job_title="")
-        self._sign(self._party(ev.sign_request_id, HR))
         subject, html = self.mails[CAND_EMAIL]
         self.assertEqual(subject, "Welcome to Greens Test Co, LLC, Jane! Your offer is ready to sign 🎉")
         self.assertIn("Welcome to the team, Jane!", html)
@@ -1069,11 +1069,12 @@ class EmailAndRoleTests(LifeEventCase):
         self.assertIn(f"/sign/{token}", html)                       # click and sign
         self.assertIn("Review &amp; Sign Your Offer", html)
         self.assertIn("What happens next", html)
-        self.assertIn("Already signed for Greens Test Co, LLC by Hana Test", html)   # arrives countersigned
+        self.assertNotIn("Already signed", html)                    # never arrives pre-signed (Neil, Oct 22 2026)
         self.assertIn("This link is unique to you", html)                          # external: it is a link
         self.assertNotIn(HR, self.mails)                            # HR signing for the company: Nexus Sign's own email
         # Everyone signed -> "it's official", signed PDF attached by Nexus Sign
         self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
+        self._sign(self._party(ev.sign_request_id, HR))
         subject, html = self.sealed[CAND_EMAIL]
         self.assertEqual(subject, "You're officially part of Greens Test Co, LLC 🎉")
         self.assertIn("Before you start", html)
@@ -1105,8 +1106,8 @@ class EmailAndRoleTests(LifeEventCase):
 
     def test_the_role_lands_when_the_work_email_does(self):
         ev = self._send(role_id="jr-an", job_title="")
-        self._sign(self._party(ev.sign_request_id, HR))
         self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
+        self._sign(self._party(ev.sign_request_id, HR))
         emp = self.db.query(models.NexusEmployee).filter_by(id=self._ev(ev.id).employee_id).first()
         emp.work_email = "jane.doe@greensglobal.com"
         hr_router.adopt_pending_pay(self.db, emp, HR)

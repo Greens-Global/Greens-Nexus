@@ -3,7 +3,8 @@ packet first, promotion and separation on the same engine.
 
     HR starts it from the person -> the company's packet template (merged PDFs,
     set per company in hr_packet_settings) is filled from what HR entered ->
-    HR signs at send, the person signs LAST -> when it is fully signed the
+    the person signs FIRST, HR countersigns after (Neil, Oct 22 2026: the
+    company never signs before the employee) -> when it is fully signed the
     change is applied (a hire becomes an employee) -> the sealed packet is
     filed in the person's own Egnyte folder, the same folder My HR > My
     Documents already shows them.
@@ -329,10 +330,8 @@ def setting_problems(db: Session, s: HrPacketSetting) -> list:
     if s.subject_role not in keys:
         out.append(f"The template has no \"{s.subject_role}\" role for the person to sign as "
                    f"(its roles: {', '.join(keys) or 'none'}).")
-    elif s.event in ("hire", "separation") and roles[-1]["key"] != s.subject_role:
-        # Pranshu, Oct 8: the company signs at send; the person signs last.
-        out.append(f"The person must sign last - move the \"{s.subject_role}\" role to the end "
-                   f"of the template's signing order.")
+    # The person signs first whatever the template's order (_parties_for,
+    # Neil, Oct 22 2026) - an old company-first template is never refused.
     return out
 
 
@@ -407,7 +406,8 @@ def ser_event(db: Session, ev: HrLifeEvent, *, show_pay: bool) -> dict:
                   .order_by(HrSignParty.ordinal).all()):
             parties.append({"id": p.id, "name": p.name, "email": p.email, "status": p.status, "role": p.role_key,
                             "order": p.ordinal, "signedAt": p.signed_at or "",
-                            "isSubject": p.email == (ev.subject_email or "").lower()})
+                            "isSubject": p.email == (ev.subject_email or "").lower(),
+                            "partyRole": p.party_role or "signer"})
     # A promotion carries the pay BEFORE the change in inputs (old_pay) so its
     # email can say what it went up by - salary data, hr_comp holders only.
     inputs = {k: v for k, v in (ev.inputs or {}).items() if show_pay or k != "old_pay"}
@@ -573,9 +573,10 @@ def _hire_merge(db: Session, details: dict, pay: dict) -> dict:
 
 def _parties_for(tpl: HrSignTemplate, subject_role: str, subject_name: str, subject_email: str,
                  subject_kind: str, sender: dict, manager: Optional[dict] = None) -> list:
-    """One party per template role, in the template's order: the subject role
-    is the person, 'manager' is their manager when one is given, every other
-    role is the HR sender (the company signs at send)."""
+    """One party per template role: the subject role is the person, 'manager'
+    is their manager when one is given, every other role is the HR sender.
+    The person signs FIRST and everyone else after, in the template's order -
+    the company never signs before the person (Neil, Oct 22 2026)."""
     from routers.esign import PartyIn
     out = []
     for r in template_roles(tpl):
@@ -587,8 +588,9 @@ def _parties_for(tpl: HrSignTemplate, subject_role: str, subject_name: str, subj
         else:
             who = {**sender, "kind": "internal"}
         out.append(PartyIn(role_key=key, name=who["name"], email=who["email"], kind=who["kind"],
-                           ordinal=int(r.get("order") or 1), party_role="signer"))
-    return out
+                           ordinal=1 if key == subject_role else int(r.get("order") or 1) + 1,
+                           party_role="signer"))
+    return sorted(out, key=lambda p: p.ordinal)
 
 
 def _load_candidate(db: Session, cid: str, scope, lock: bool = False) -> HrCandidate:
@@ -791,9 +793,9 @@ def preview_out(plan: dict) -> dict:
 
 def send_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dict], scope, *,
               excluded_ack: bool, ip: str = "", user_agent: str = "") -> HrLifeEvent:
-    """Send the company's hiring packet to a candidate at Offer. HR (the
-    sender) signs first, in the signing view the screen opens next; the
-    candidate is invited the moment HR has signed, and signs last."""
+    """Send the company's hiring packet to a candidate at Offer. The
+    candidate is invited at once and signs first; HR (the sender)
+    countersigns after them (Neil, Oct 22 2026)."""
     plan = plan_hire(db, user, cid, inputs, pay, scope, lock=True)
     cand = plan["candidate"]
     if plan.get("docplan") is not None:
@@ -1870,8 +1872,8 @@ def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> Non
 
 
 def _apply_offer(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
-    """The offer letter is signed by both sides: they are hired (the same
-    path Mark Hired uses), and the hiring packet starts by itself. A packet
+    """The candidate signed the offer letter (its only signer): they are hired
+    (the same path Mark Hired uses), and the hiring packet starts by itself. A packet
     that cannot start never undoes the hire - HR is told what to fix."""
     _apply_hire(db, ev, req)
     if not ev.employee_id:

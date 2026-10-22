@@ -260,8 +260,9 @@ def save_whole_packet(body: PacketIn, user: dict = Depends(require_hr_write), db
     tpl.attachments = _clean_attachments([dict(a) for a in (body.attachments or []) if isinstance(a, dict)])
     tpl.updated_at = now
     db.flush()
-    # The person signs as the LAST signer for a hire or separation (the
-    # company signs at send); a promotion letter's employee signs first.
+    # Which role is the person: 'employee', else the template's last role for a
+    # hire or separation, its first for a promotion. Whatever the template's
+    # order, the person signs FIRST (hle._parties_for, Neil, Oct 22 2026).
     subject = ("employee" if any(r["key"] == "employee" for r in signers)
                else (signers[0]["key"] if body.event == "promotion" else signers[-1]["key"]))
     setting = PacketSettingIn(id=row.id if row is not None else "", entity_id=entity_id, event=body.event,
@@ -545,13 +546,14 @@ def packet_render_preview(body: PreviewDocIn, user: dict = Depends(require_hr_wr
     if setting is None:
         setting = HrPacketSetting(entity_id=entity_id, event="hire", letterhead_id=body.letterhead_id or "",
                                   flow=hpd.clean_flow(body.flow or []), pay_mode="")
+    snap = hpd.signed_snaps(setting, [snap])[0]          # an offer prints no company signature
     entity = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
     import hr_checklists as hc
     ctx = {"entity": entity, "owners": hc.role_owners(db, entity_id), "sender": user["email"],
            "subject_email": "jane.doe@example.com", "subject_name": "Jane Doe", "subject_kind": "external",
            "manager_email": ""}
     parties, remap, _problems = hpd.build_parties(db, setting, ctx)
-    values = {**_SAMPLE, **hpd.signer_values(parties, remap)}
+    values = {**_SAMPLE, **hpd.unsigned_names(db, setting, ctx), **hpd.signer_values(parties, remap)}
     merge = hpd.full_merge(db, snap, entity_id=entity_id, overrides=values)
     for t in snap.tokens:
         if hpd.is_pay_token(t, snap.defs) and t not in merge:

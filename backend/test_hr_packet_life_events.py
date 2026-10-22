@@ -202,10 +202,11 @@ class SeparationDocsTests(LifeEventDocsCase):
         self.assertEqual((ev["status"], ev["applyStatus"]), ("review", "scheduled"))
         self.assertEqual(ev["subjectEmail"], ERIN)                 # still here: the work email
         sent = self._verify(ev["id"])
-        self.assertEqual(sent["status"], "awaiting_sender")       # HR signs for the company first
+        self.assertEqual(sent["status"], "sent")                  # the person signs first (Neil, Oct 22 2026)
         req = self._ev(ev["id"]).sign_request_id
-        self._sign(self._party(req, HR))
         self._sign(self._party(req, ERIN))
+        self.assertEqual(self._ev(ev["id"]).status, "sent")       # the company countersigns after
+        self._sign(self._party(req, HR))
         self.assertEqual(self._ev(ev["id"]).status, "completed")
         self.assertEqual(self._ev(ev["id"]).apply_status, "scheduled")   # Left on the day, not at signing
 

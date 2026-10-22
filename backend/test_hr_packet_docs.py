@@ -160,12 +160,65 @@ class PacketDocsTests(unittest.TestCase):
                                   {"key": "employee", "role": "employee", "action": "sign"}])
         self.assertEqual(ok, [])
 
-    def test_the_person_signs_last_and_exactly_once(self):
-        p = self._problems(flow=[{"key": "employee", "role": "employee", "action": "sign"},
-                                 {"key": "company", "role": "hr", "action": "sign"}])
-        self.assertTrue(any("signs last" in x for x in p), p)
+    def test_the_person_signs_exactly_once_in_either_saved_order(self):
+        # Neil, Oct 22 2026: the person signs first. An order saved either way
+        # is fine - signing_flow reorders it, it is never refused.
+        self.assertEqual(self._problems(flow=[{"key": "employee", "role": "employee", "action": "sign"},
+                                              {"key": "company", "role": "hr", "action": "sign"}]), [])
+        self.assertEqual(self._problems(), [])        # company first, as saved before Oct 22
         p = self._problems(flow=[{"key": "company", "role": "hr", "action": "sign"}])
         self.assertTrue(any("Exactly one step must be The Person" in x for x in p), p)
+
+    def test_the_company_never_signs_before_the_person(self):
+        """Neil, Oct 22 2026: "The company never signs prior to the employee,
+        ever." An old company-first config - Signs Once included - comes out
+        person first, the company countersigning after."""
+        db = database.SessionLocal()
+        try:
+            for event in ("hire", "separation", "promotion"):
+                s = self._setting(event=event, flow=[{"key": "company", "role": "hr", "action": "sign", "once": True},
+                                                     {"key": "employee", "role": "employee", "action": "sign"}])
+                self.assertEqual([x["key"] for x in hpd.signing_flow(s)], ["employee", "company"], event)
+                parties, _remap, problems = hpd.build_parties(db, s, self._ctx(db))
+                self.assertEqual(problems, [])
+                self.assertEqual([(x["key"], x["ordinal"]) for x in parties], [("employee", 1), ("company", 2)])
+                self.assertEqual([x["key"] for x in hpd.ser_flow(db, s)], ["employee", "company"])
+        finally:
+            db.close()
+
+    def test_an_offer_has_one_signer_the_person(self):
+        """"Offer is just saying, do you accept?" - no company signer, no
+        Signs Once, and the template's company block prints nothing rather
+        than blocking the offer."""
+        db = database.SessionLocal()
+        try:
+            s = self._setting(event="offer", doc_template_ids=["t-offer"],
+                              flow=[{"key": "company", "role": "hr", "action": "sign", "once": True},
+                                    {"key": "employee", "role": "employee", "action": "sign"},
+                                    {"key": "boss", "role": "hr", "action": "copy"}])
+            self.assertEqual([x["key"] for x in hpd.signing_flow(s)], ["employee", "boss"])
+            self.assertEqual(hpd.config_problems(db, s), [])
+            out = hpd.plan(db, s, ctx=self._ctx(db), overrides={"job_title": "Analyst", "start_date": "2026-11-02"},
+                           pay={"base": 85000, "payBasis": "salary", "frequency": "annual", "currency": "USD"},
+                           can_see_pay=True, candidate_id="cand-1", entity_id=CO)
+            self.assertEqual(out["problems"], [])
+            signers = [x for x in out["parties"] if x["partyRole"] != "cc"]
+            self.assertEqual([x["email"] for x in signers], ["jane.doe@gmail.com"])
+            self.assertEqual(out["signOnce"], [])                     # nothing saved to apply
+            self.assertFalse(any(x.get("saved") for x in out["parties"]))
+            snap = out["snaps"][0]
+            self.assertEqual(snap.signature_roles, {"employee"})
+            merge = hpd.full_merge(db, snap, candidate_id="cand-1", entity_id=CO, overrides=out["values"],
+                                   pay=hpd.pay_merge({"base": 85000, "payBasis": "salary", "frequency": "annual",
+                                                      "currency": "USD"}, {}))
+            anchors = []
+            pdf = hpd.render(db, snap, title="Offer", merge=merge, entity_id=CO, letterhead_id="", anchors=anchors)
+            text = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
+            self.assertIn("Sincerely, Charmi Shah", text)             # the name prints - as text
+            self.assertNotIn("For Greens Test, LLC", text)           # the company block prints nothing
+            self.assertEqual({a["role"] for a in anchors}, {"employee"})
+        finally:
+            db.close()
 
     def test_blocks_and_steps_must_match(self):
         p = self._problems(flow=[{"key": "employee", "role": "employee", "action": "sign"}])
@@ -259,13 +312,14 @@ class PacketDocsTests(unittest.TestCase):
                                     {"key": "witness", "role": "hr", "action": "sign"},
                                     {"key": "employee", "role": "employee", "action": "sign"}])
             parties, remap, _ = hpd.build_parties(db, s, self._ctx(db))
-            self.assertEqual([p["key"] for p in parties], ["company", "employee"])
+            self.assertEqual([p["key"] for p in parties], ["employee", "company"])     # the person first
             self.assertEqual(remap, {"witness": "company"})
             s.flow = [{"key": "company", "role": "hr", "action": "sign"},
+                      {"key": "late", "role": "signatory", "action": "sign"},
                       {"key": "employee", "role": "employee", "action": "sign"},
-                      {"key": "late", "role": "hr", "action": "sign"}]
+                      {"key": "again", "role": "hr", "action": "sign"}]
             parties, remap, _ = hpd.build_parties(db, s, self._ctx(db))
-            self.assertEqual([p["key"] for p in parties], ["company", "employee", "late"])
+            self.assertEqual([p["key"] for p in parties], ["employee", "company", "late", "again"])
             self.assertEqual(remap, {})
         finally:
             db.close()
@@ -324,7 +378,7 @@ class PacketDocsTests(unittest.TestCase):
             self.assertEqual(out["problems"], [])
             offer = out["documents"][0]
             self.assertEqual(offer["unresolved"], [])
-            self.assertEqual([r["name"] for r in out["recipients"]], ["Charmi Shah", "Jane Doe"])
+            self.assertEqual([r["name"] for r in out["recipients"]], ["Jane Doe", "Charmi Shah"])
             self.assertEqual(out["verifier"]["email"], HR)
             snap = out["snaps"][0]
             merge = hpd.full_merge(db, snap, candidate_id="cand-1", entity_id=CO, overrides=out["values"],

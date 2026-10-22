@@ -6,7 +6,7 @@
 
 Move To Offer -> HR answers (employee or contractor, where, the role, start,
 pay, the letter's own questions) -> the ONE offer letter for that kind of
-hire -> verified -> the company signs, then the candidate (no login) ->
+hire -> verified -> the candidate signs, the offer's only signer (no login) ->
 hired -> the hiring packet starts by itself: the person gets a link to their
 details form (no login), the documents fill themselves from it, they sign.
 Runs the real Nexus Sign engine on the review tests' fixture.
@@ -86,8 +86,11 @@ class OfferCase(ReviewCase):
         r = self._verify(eid, review)
         self.assertEqual(r.status_code, 200, r.text)
         req = self._ev(eid).sign_request_id
-        self._sign(self._party(req, HR))
+        # The person signs first; the company countersigns a hiring packet
+        # after them and never signs an offer at all (Neil, Oct 22 2026).
         self._sign(self._party(req, CAND))
+        if self._ev(eid).kind != "offer":
+            self._sign(self._party(req, HR))
 
     def _wait_for_mail(self):
         for _ in range(50):
@@ -145,6 +148,38 @@ class OptionsTests(OfferCase):
 
 
 class JourneyTests(OfferCase):
+    def test_an_offer_is_signed_by_the_candidate_only(self):
+        """Neil, Oct 22 2026: "Offer is just saying, do you accept?" - an old
+        company-first config with a saved HR signature (Signs Once) still
+        sends the candidate as the ONE signer: no company party, nothing
+        preset, and the letter's company block draws no field."""
+        db = database.SessionLocal()
+        db.query(models.HrPacketSetting).filter_by(id="s-offer").update({
+            "flow": [{"key": "company", "role": "hr", "action": "sign", "once": True},
+                     {"key": "employee", "role": "employee", "action": "sign"}],
+            "saved_signatures": [{"step": "company", "role": "hr", "entityId": CO, "email": HR, "name": "Charmi Shah",
+                                  "kind": "typed", "data": "HR Saved", "adoptedAt": "2026-10-01T00:00:00+00:00",
+                                  "replacedAt": ""}]})
+        db.commit()
+        db.close()
+        offer = self._offer().json()
+        review = self._review(offer["id"])
+        self.assertEqual([r["email"] for r in review["recipients"]], [CAND])
+        self.assertEqual(review["signOnce"], [])
+        r = self._verify(offer["id"], review)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["senderPartyId"], "")
+        ev = self._ev(offer["id"])
+        self.assertEqual(ev.status, "sent")
+        parties = self.db.query(models.HrSignParty).filter_by(request_id=ev.sign_request_id).all()
+        self.assertEqual([(p.email, p.party_role, p.auth_method or "") for p in parties], [(CAND, "signer", "")])
+        req = self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).first()
+        fields = list(req.fields or []) + [f for d in (req.documents or []) for f in (d.get("fields") or [])]
+        self.assertEqual({f["role"] for f in fields}, {"employee"})
+        self.assertEqual(self.invited, [CAND])
+        self._sign(self._party(ev.sign_request_id, CAND))
+        self.assertEqual(self._ev(offer["id"]).status, "completed", self._ev(offer["id"]).apply_note)
+
     def test_offer_signed_hires_them_and_the_packet_follows_with_no_login(self):
         r = self._offer()
         self.assertEqual(r.status_code, 200, r.text)
