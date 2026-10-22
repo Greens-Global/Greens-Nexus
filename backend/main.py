@@ -1277,6 +1277,9 @@ def _run_migrations():
             # Hiring documents by place (Neil, Oct 22) - see the Postgres list.
             "ALTER TABLE hr_packet_settings ADD COLUMN region VARCHAR DEFAULT ''",
             "ALTER TABLE hr_entities ADD COLUMN region VARCHAR DEFAULT ''",
+            # A role's own hiring paperwork (Neil, Oct 22) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN job_description TEXT DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN hiring_docs JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2936,6 +2939,10 @@ def _run_migrations():
         # country, and the state a company's people work in. Additive; '' = any.
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS region VARCHAR DEFAULT ''",
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS region VARCHAR DEFAULT ''",
+        # A role's own hiring paperwork (Neil, Oct 22): its duties text and its
+        # documents. models.NexusGroup.job_description / hiring_docs. Additive.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS job_description TEXT DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS hiring_docs JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

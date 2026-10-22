@@ -116,6 +116,9 @@ BUILTIN_VARIABLES = [
     ("new_role", "New role", "HR Packet"),
     ("change_type", "Change type", "HR Packet"),
     ("responsibilities", "Responsibilities", "HR Packet"),
+    # The role's duties, written once on the role (Neil, Oct 22) - one Job
+    # Description document serves every role.
+    ("role_description", "Role description (duties, from the role)", "HR Packet"),
     ("last_day", "Last day", "HR Packet"),
     ("separation_type", "Separation type", "HR Packet"),
     # The offer (Neil, Oct 14): what HR answers when they make it - whether

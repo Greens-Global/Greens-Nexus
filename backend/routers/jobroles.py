@@ -95,11 +95,43 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
         "bod_exempt": bool(getattr(jr, "bod_exempt", False)),
         "time_tracking_exempt": bool(getattr(jr, "time_tracking_exempt", False)),
         "default_manager_email": (getattr(jr, "default_manager_email", "") or ""),
+        "job_description": getattr(jr, "job_description", "") or "",
+        "hiring_docs": _ser_hiring_docs(db, getattr(jr, "hiring_docs", None) or []),
         "teams": _teams_target(jr),
         "company_id": (jr.company_id or ""),
         "created_by": jr.created_by,
         "created_at": jr.created_at,
     }
+
+
+def _ser_hiring_docs(db: Session, rows: list) -> list:
+    from models import DocTemplate
+    ids = {x for r in rows if isinstance(r, dict) for x in (r.get("templateId"), r.get("replaces")) if x}
+    names = {t.id: t.name for t in db.query(DocTemplate).filter(DocTemplate.id.in_(ids))} if ids else {}
+    return [{"templateId": r.get("templateId", ""), "templateName": names.get(r.get("templateId", ""), "A template that no longer exists"),
+             "replaces": r.get("replaces", "") or "", "replacesName": names.get(r.get("replaces", ""), "") if r.get("replaces") else ""}
+            for r in rows if isinstance(r, dict) and r.get("templateId")]
+
+
+def _clean_hiring_docs(db: Session, rows) -> list:
+    """A role's own hiring documents (Neil, Oct 22): each a Documents template
+    that exists, once, optionally replacing one of a packet's documents."""
+    from models import DocTemplate
+    out, seen = [], set()
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        tid, rep = str(r.get("templateId") or "").strip(), str(r.get("replaces") or "").strip()
+        if not tid or tid in seen:
+            continue
+        for x in (tid, rep):
+            if x and not db.query(DocTemplate.id).filter(DocTemplate.id == x).first():
+                raise HTTPException(status_code=400, detail="A role document points at a template that no longer exists - pick it again.")
+        if rep == tid:
+            rep = ""
+        seen.add(tid)
+        out.append({"templateId": tid, "replaces": rep})
+    return out[:20]
 
 
 def _teams_target(jr: NexusGroup) -> dict:
@@ -151,6 +183,8 @@ class JobRoleBody(BaseModel):
     bod_exempt: Optional[bool] = False
     time_tracking_exempt: Optional[bool] = False
     default_manager_email: Optional[str] = ""
+    job_description: Optional[str] = ""       # duties, printed by {{role_description}} (Oct 22)
+    hiring_docs: Optional[list] = None        # [{templateId, replaces}] - the role's own paperwork
     company_id: Optional[str] = ""            # HrEntity.id, or '' = shared across companies
     teams: Optional[TeamsTarget] = None       # BOD/EOD destination (Oct 7)
 
@@ -164,6 +198,8 @@ class JobRoleUpdate(BaseModel):
     bod_exempt: Optional[bool] = None
     time_tracking_exempt: Optional[bool] = None
     default_manager_email: Optional[str] = None
+    job_description: Optional[str] = None
+    hiring_docs: Optional[list] = None
     company_id: Optional[str] = None
     teams: Optional[TeamsTarget] = None       # BOD/EOD destination; {id: ''} clears it
 
@@ -268,6 +304,8 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
         bod_exempt=1 if body.bod_exempt else 0,
         time_tracking_exempt=1 if body.time_tracking_exempt else 0,
         default_manager_email=(body.default_manager_email or "").lower().strip(),
+        job_description=(body.job_description or "").strip()[:20000],
+        hiring_docs=_clean_hiring_docs(db, body.hiring_docs),
         company_id=company_id,
         created_by=user["email"],
         created_at=now,
@@ -304,6 +342,10 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         jr.time_tracking_exempt = 1 if body.time_tracking_exempt else 0
     if body.default_manager_email is not None:
         jr.default_manager_email = body.default_manager_email.lower().strip()
+    if body.job_description is not None:
+        jr.job_description = body.job_description.strip()[:20000]
+    if body.hiring_docs is not None:
+        jr.hiring_docs = _clean_hiring_docs(db, body.hiring_docs)
     if body.teams is not None:
         _apply_teams(jr, body.teams)
 

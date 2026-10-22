@@ -482,6 +482,17 @@ def _role_named(db: Session, company: str, name: str):
     return None
 
 
+def role_paperwork(role) -> dict:
+    """{role_description, role_docs} - the duties a white-label Job Description
+    prints and the role's own documents, frozen into an offer's details."""
+    if role is None:
+        return {"role_description": "", "role_docs": []}
+    docs = [{"templateId": str(r.get("templateId") or ""), "replaces": str(r.get("replaces") or "")}
+            for r in (getattr(role, "hiring_docs", None) or []) if isinstance(r, dict) and r.get("templateId")]
+    return {"role_description": (getattr(role, "job_description", "") or role.description or "").strip(),
+            "role_docs": docs}
+
+
 def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
     """The offer HR entered, validated, falling back to the candidate card.
     The job title is one of the hiring company's roles (Pranshu, Oct 8) - the
@@ -518,6 +529,9 @@ def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
         "packet_id": (inputs.get("packet_id") or "").strip(),
         "merge": {k: str(v).strip() for k, v in (inputs.get("merge") or {}).items()
                   if re.fullmatch(r"[a-z0-9_]+", str(k)) and str(v).strip()},
+        # What the role brings to the paperwork, as it stands when the offer is
+        # made (Neil, Oct 22): its duties text and its own documents.
+        **role_paperwork(role),
     }
     from routers.hr import _EMPLOYMENT_TYPES
     if not d["job_title"]:
@@ -1085,13 +1099,15 @@ def offer_from_people(db: Session, company: str, department: str) -> dict:
     return {"hr": hr, "department_head": head}
 
 
-def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", role_id: str = "") -> Optional[dict]:
+def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", role_id: str = "",
+              kind: str = "offer", role_docs=None) -> Optional[dict]:
     """What a letter or packet needs from HR, for the offer form - with the
-    documents it adds for this person's team and role."""
+    documents it adds for this person's team and role (a hiring packet with
+    the role's own documents filled in)."""
     if s is None:
         return None
     import hr_packet_docs as hpd
-    ids = hpd.template_ids_for(s, {"department": department, "role_id": role_id}, "offer")
+    ids = hpd.template_ids_for(s, {"department": department, "role_id": role_id, "role_docs": role_docs or []}, kind)
     snaps, problems = hpd.load_snaps(db, ids)
     tokens = {t for snap in snaps for t in snap.tokens}
     return {"id": s.id, "name": s.name or "", "workerType": s.worker_type or "any", "country": s.country or "",
@@ -1129,7 +1145,8 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
     role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first() if role_id else None
     department = (role.department if role is not None else "") or department or cand.department or ""
     out["offerLetter"] = _describe(db, letter, department, role_id)
-    out["hiringPacket"] = _describe(db, packet, department, role_id)
+    out["hiringPacket"] = _describe(db, packet, department, role_id, kind="hire",
+                                    role_docs=role_paperwork(role)["role_docs"])
     from hr_packet_docs import name_of
     out["offerFrom"] = {k: {"email": e, "name": name_of(db, e) if e else ""}
                         for k, e in offer_from_people(db, cand.company, department).items()}
