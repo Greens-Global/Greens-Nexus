@@ -133,8 +133,22 @@ class GapsTests(unittest.TestCase):
         return self.db.query(models.Task).filter(models.Task.id == tid).first()
 
     def _runs(self):
+        """The firings (the Runs panel), not the spawned-task markers."""
         self.db.expire_all()
-        return self.db.query(models.TaskAutomationRun).order_by(models.TaskAutomationRun.at).all()
+        return (self.db.query(models.TaskAutomationRun)
+                .filter(models.TaskAutomationRun.event != task_automation.SPAWNED_EVENT)
+                .order_by(models.TaskAutomationRun.at).all())
+
+    def _held_setup(self):
+        """Sam (an employee whose manager is Boss) holds a task due in 5 days;
+        moving it 60 days out is over a month, so it needs Boss's approval."""
+        e = self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == SAM).first()
+        e.manager_email = BOSS["email"]
+        self.db.commit()
+        sam = {"email": SAM, "role": "employee", "level": 1}
+        d0 = (TODAY + timedelta(days=5)).isoformat()
+        t = self._create(user=sam, title="Mine", assignee_emails=[SAM], due_on=d0)
+        return sam, t, d0
 
     def _tasks(self):
         self.db.expire_all()
@@ -503,6 +517,249 @@ class GapsTests(unittest.TestCase):
         # Still once per rule per task per date.
         self.assertEqual(task_automation.run_scheduled(self.db, TODAY.isoformat()), 0)
         self.assertEqual(len(self._tasks()), 2)
+
+
+    # ── review fixes (Oct 22 2026) ─────────────────────────────────────────
+    # H1: the clock never feeds on its own output.
+    def test_scheduled_create_never_feeds_itself(self):
+        self._rule("Due today", {"type": "due_date_arrives", "value": 0}, [
+            {"type": "create_task", "value": {"title": "Chase {title}", "dueInDays": 0}},
+            {"type": "create_task", "value": {"title": "Call {title}", "dueInDays": 0}},
+            {"type": "create_task", "value": {"title": "Mail {title}", "dueInDays": 0}},
+        ])
+        self._create(title="Permit", due_on=TODAY.isoformat())
+        counts = []
+        for _ in range(4):   # four hourly scans
+            task_automation.run_scheduled(self.db, TODAY.isoformat())
+            counts.append(len(self._tasks()))
+        self.assertEqual(counts, [4, 4, 4, 4])
+        marks = self.db.query(models.TaskAutomationRun).filter(
+            models.TaskAutomationRun.event == task_automation.SPAWNED_EVENT).count()
+        self.assertEqual(marks, 3)
+
+    def test_scheduled_rules_do_not_cross_chain(self):
+        # Rule A makes a task due today; rule B (same scan, later) must not act
+        # on it. Rule C acts one day before the due date; A's other task, due
+        # tomorrow, must not feed it either.
+        self._rule("A", {"type": "due_date_arrives", "value": 0}, [
+            {"type": "create_task", "value": {"title": "A today {title}", "dueInDays": 0}},
+            {"type": "create_task", "value": {"title": "A tomorrow {title}", "dueInDays": 1}}])
+        self._rule("B", {"type": "due_date_arrives", "value": 0}, [
+            {"type": "create_task", "value": {"title": "B {title}", "dueInDays": 0}}])
+        self._rule("C", {"type": "due_date_arrives", "value": -1}, [
+            {"type": "create_task", "value": {"title": "C {title}", "dueInDays": 1}}])
+        self._create(title="Permit", due_on=TODAY.isoformat())
+        for _ in range(3):
+            task_automation.run_scheduled(self.db, TODAY.isoformat())
+        self.assertEqual(sorted(t.title for t in self._tasks()),
+                         ["A today Permit", "A tomorrow Permit", "B Permit", "Permit"])
+        # ...and an event rule's task is never picked up by the clock either.
+        self._rule("On start", {"type": "status_changed", "value": "in_progress"}, [
+            {"type": "create_task", "value": {"title": "Kickoff {title}", "dueInDays": 0}}])
+        t = self._create(title="Roof")
+        self._patch(t["id"], status="in_progress")
+        before = len(self._tasks())
+        task_automation.run_scheduled(self.db, TODAY.isoformat())
+        self.assertEqual(len(self._tasks()), before)
+
+    def test_one_scan_has_one_create_budget_per_company(self):
+        self._rule("Prep", {"type": "due_date_arrives", "value": 0},
+                   [{"type": "create_task", "value": {"title": "Prep {title}", "dueInDays": 3}}])
+        for i in range(3):
+            self._create(title=f"T{i}", due_on=TODAY.isoformat())
+        old = task_automation.MAX_CREATES_PER_SCAN
+        task_automation.MAX_CREATES_PER_SCAN = 2
+        try:
+            with self.assertLogs("task_automation", level="WARNING"):
+                task_automation.run_scheduled(self.db, TODAY.isoformat())
+        finally:
+            task_automation.MAX_CREATES_PER_SCAN = old
+        self.assertEqual(len([t for t in self._tasks() if t.title.startswith("Prep")]), 2)
+        hit = [r for r in self._runs() if r.status == "error"]
+        self.assertEqual(len(hit), 1)
+        self.assertIn("one hourly scan for a company can create at most 2", hit[0].detail)
+
+    def test_the_per_task_cap_counts_every_rule_in_a_scan(self):
+        for name in ("One", "Two"):
+            self._rule(name, {"type": "due_date_arrives", "value": 0}, [
+                {"type": "create_task", "value": {"title": f"{name} a", "dueInDays": 5}},
+                {"type": "create_task", "value": {"title": f"{name} b", "dueInDays": 5}}])
+        self._create(title="Root", due_on=TODAY.isoformat())
+        task_automation.run_scheduled(self.db, TODAY.isoformat())
+        self.assertEqual(len(self._tasks()), 1 + task_automation.MAX_CREATES_PER_TASK)
+
+    def test_spawned_markers_stay_out_of_the_runs_panel(self):
+        from routers.task_config import list_rule_runs
+        self._rule("Spawn", {"type": "created"}, [{"type": "create_task", "value": {"title": "Child"}}])
+        self._create(title="Root")
+        rows = list_rule_runs(user=BOSS, db=self.db)
+        self.assertEqual(len(rows), 1)
+        self.assertNotEqual(rows[0]["event"], task_automation.SPAWNED_EVENT)
+
+    # H2 / M1: approval is decided before the rules run.
+    def test_a_held_due_change_does_not_fire_due_date_changed(self):
+        self._rule("Re-dated", {"type": "due_date_changed"}, [{"type": "add_tag", "value": "re-dated"}])
+        sam, t, d0 = self._held_setup()
+        wanted = (TODAY + timedelta(days=60)).isoformat()
+        self._patch(t["id"], user=sam, due_on=wanted)
+        row = self._row(t["id"])
+        self.assertEqual(row.due_on[:10], d0)                       # held
+        self.assertEqual((row.due_proposal or {}).get("dueOn"), wanted)
+        self.assertEqual(row.tags or [], [])
+        self.assertEqual(self._runs(), [])
+
+    def test_a_rule_cannot_launder_an_unapproved_date(self):
+        self._rule("Pad", {"type": "due_date_changed"}, [{"type": "shift_due_days", "value": 1}])
+        sam, t, d0 = self._held_setup()
+        self._patch(t["id"], user=sam, due_on=(TODAY + timedelta(days=60)).isoformat())
+        self.assertEqual(self._row(t["id"]).due_on[:10], d0)
+
+    def test_a_held_change_in_bulk_does_not_fire_or_bypass(self):
+        self._rule("Pad", {"type": "due_date_changed"}, [{"type": "shift_due_days", "value": 1}])
+        sam, t, d0 = self._held_setup()
+        wanted = (TODAY + timedelta(days=60)).isoformat()
+        bulk_update(BulkUpdate(ids=[t["id"]], patch={"due_on": wanted}), user=sam, db=self.db)
+        row = self._row(t["id"])
+        self.assertEqual(row.due_on[:10], d0)
+        self.assertEqual((row.due_proposal or {}).get("dueOn"), wanted)
+        self.assertEqual(self._runs(), [])
+
+    def test_an_approved_or_privileged_change_fires_the_rule(self):
+        self._rule("Re-dated", {"type": "due_date_changed"}, [{"type": "add_tag", "value": "re-dated"}])
+        sam, t, d0 = self._held_setup()
+        wanted = (TODAY + timedelta(days=60)).isoformat()
+        self._patch(t["id"], user=BOSS, due_on=wanted)              # a manager needs no approval
+        row = self._row(t["id"])
+        self.assertEqual(row.due_on[:10], wanted)
+        self.assertEqual(row.tags, ["re-dated"])
+        # A small move by Sam needs no approval either, and fires the rule.
+        t2 = self._create(user=sam, title="Small", assignee_emails=[SAM], due_on=d0)
+        out = self._patch(t2["id"], user=sam, due_on=(TODAY + timedelta(days=6)).isoformat())
+        self.assertEqual(out["tags"], ["re-dated"])
+
+    def test_a_rules_own_move_off_the_real_date_is_privileged(self):
+        self._rule("Push", {"type": "status_changed", "value": "in_progress"},
+                   [{"type": "shift_due_days", "value": 1}])
+        sam, t, d0 = self._held_setup()
+        wanted = (TODAY + timedelta(days=60)).isoformat()
+        # Sam asks for +60 days (held) and starts the task in the same edit:
+        # the rule moves the REAL date by one day; the request still stands.
+        self._patch(t["id"], user=sam, due_on=wanted, status="in_progress")
+        row = self._row(t["id"])
+        self.assertEqual(row.due_on[:10], (TODAY + timedelta(days=6)).isoformat())
+        self.assertEqual((row.due_proposal or {}).get("dueOn"), wanted)
+        self.assertEqual(row.due_history[-1]["source"], "automation")
+
+    # M2: a restricted task's title never reaches someone who cannot see it.
+    def test_create_task_leaves_off_people_who_cannot_see_a_restricted_source(self):
+        p = self._project()
+        for mode in ({}, {"asSubtask": True}):
+            self.db.query(models.TaskAutomationRule).delete()
+            self.db.commit()
+            self._rule("Ask", {"type": "status_changed", "value": "in_progress"},
+                       [{"type": "create_task", "value": {"title": "Check {title}", "assignee": PRIYA, **mode}}])
+            t = self._create(title="Secret merger", access_level="restricted", project_id=p.id,
+                             assignee_emails=[SAM])
+            p.access_level = "restricted"     # nobody sees it through the project either
+            self.db.commit()
+            self._patch(t["id"], status="in_progress")
+            made = [x for x in self._tasks() if x.title == "Check Secret merger"]
+            self.assertTrue(made)
+            self.assertNotIn(PRIYA, task_assignees(made[-1]))
+            self.assertNotEqual(made[-1].access_level or "org", "org")
+            self.assertIn(f"left off {PRIYA}", " ".join(self._runs()[-1].actions))
+            p.access_level = "org"
+            self.db.commit()
+
+    # M3: no borrowing the owner's access.
+    def test_a_change_by_someone_outside_the_directory_cannot_create(self):
+        locked = self._project("Board", access_level="restricted")
+        self._rule("Escalate", {"type": "priority_changed", "value": "urgent"}, [{"type": "create_task", "value": {
+            "title": "Look at {title}", "projectId": locked.id}}])
+        t = self._create(title="Leak")    # owner / creator: Boss, who could create there
+        ghost = {"email": "ghost@greensglobal.com", "level": 1}
+        self._patch(t["id"], user=ghost, priority="urgent")
+        self.assertEqual(len(self._tasks()), 1)
+        run = self._runs()[-1]
+        self.assertEqual(run.status, "error")
+        self.assertIn("ghost@greensglobal.com made the change and is not in the Nexus directory", run.detail)
+
+    # L1: a rule never moves a restricted task to another project.
+    def test_a_restricted_task_is_not_moved_to_another_project(self):
+        src, dst = self._project("Intake"), self._project("Everyone")
+        self._rule("Route", {"type": "status_changed", "value": "in_progress"},
+                   [{"type": "move_to_project", "value": {"projectId": dst.id}}])
+        t = self._create(title="Secret", project_id=src.id, access_level="restricted")
+        self._patch(t["id"], status="in_progress")
+        self.assertEqual(self._row(t["id"]).project_id, src.id)
+        self.assertIn("restricted", self._runs()[-1].detail)
+
+    # L4: the switches, and nobody is emailed about their own change.
+    def test_automation_emails_can_be_switched_off_and_skip_the_actor(self):
+        self.assertTrue(task_notify.get_settings(self.db)["enabledEvents"]["automation"])
+        self.assertIn("automation", task_notify_prefs.OPTIONAL_EVENTS)
+        self._rule("Tell them", {"type": "status_changed", "value": "in_progress"}, [{"type": "send_email", "value": {
+            "to": "assignees", "subject": "Hi", "body": "x"}}])
+        # The person who made the change is not emailed about it.
+        t = self._create(title="Roof", assignee_emails=[BOSS["email"], SAM])
+        self._patch(t["id"], status="in_progress")
+        self._run_automation_mail()
+        q = self.db.query(models.TaskEmailQueue).filter(models.TaskEmailQueue.event_type == "automation")
+        self.assertEqual([r.recipient for r in q.all()], [SAM])
+        # A person can turn rule emails off...
+        self.db.query(models.TaskEmailQueue).delete()
+        self.db.commit()
+        task_notify_prefs.save(self.db, SAM, {"events": {"automation": False}})
+        self.bg = BackgroundTasks()
+        self._patch(t["id"], status="not_started")
+        self._patch(t["id"], status="in_progress")
+        self._run_automation_mail()
+        self.assertEqual(self.db.query(models.TaskEmailQueue).count(), 0)
+        # ...and so can the company.
+        task_notify_prefs.save(self.db, SAM, {})
+        task_notify.save_settings(self.db, {"enabledEvents": {"automation": False}}, BOSS["email"])
+        self.bg = BackgroundTasks()
+        self._patch(t["id"], status="not_started")
+        self._patch(t["id"], status="in_progress")
+        self._run_automation_mail()
+        self.assertEqual(self.db.query(models.TaskEmailQueue).count(), 0)
+
+
+    # Formula fields (another branch): calculated, never stored, read_only=False.
+    def test_a_formula_field_cannot_be_watched_tested_or_set(self):
+        self._field("total", kind="formula", name="Total Cost")
+        for trigger, actions, conditions in (
+                ({"type": "custom_field_changed", "value": {"fieldId": "total"}},
+                 [{"type": "add_tag", "value": "x"}], []),
+                ({"type": "created"}, [{"type": "add_tag", "value": "x"}],
+                 [{"field": "custom_field", "fieldId": "total", "op": "is", "value": "5"}]),
+                ({"type": "created"}, [{"type": "set_custom_field", "value": {"fieldId": "total", "value": "5"}}], [])):
+            detail = self._422(lambda: self._rule("F", trigger, actions, conditions=conditions))
+            self.assertIn("formula", detail)
+        self.assertEqual(self.db.query(models.TaskAutomationRule).count(), 0)
+        # Rules that got past the validator (saved before the field became a
+        # formula) are skipped at run time.
+        for i, (trigger, actions, conditions) in enumerate((
+                ({"type": "custom_field_changed", "value": {"fieldId": "total"}},
+                 [{"type": "add_tag", "value": "watched"}], []),
+                ({"type": "created"}, [{"type": "add_tag", "value": "tested"}],
+                 [{"field": "custom_field", "fieldId": "total", "op": "is_not", "value": "5"}]),
+                ({"type": "created"}, [{"type": "set_custom_field", "value": {"fieldId": "total", "value": "5"}}], []),
+                ({"type": "due_date_arrives", "value": 0}, [{"type": "add_tag", "value": "clock"}],
+                 [{"field": "custom_field", "fieldId": "total", "op": "is_not", "value": "5"}]))):
+            self.db.add(models.TaskAutomationRule(id=f"f{i}", name=f"F{i}", trigger=trigger, actions=actions,
+                                                  conditions=conditions, enabled=True, created_at=now_iso()))
+        self.db.commit()
+        t = self._create(title="Bid", due_on=TODAY.isoformat(), custom_field_values={"total": "5"})
+        self.assertEqual(t["tags"], [])
+        run = self._runs()[-1]
+        self.assertIn("could not set Total Cost: it is a formula field", run.detail)
+        # Whatever a (stale) client wrote under the formula's id, a change to
+        # it never fires the watching rule, and the clock skips the condition.
+        self._patch(t["id"], custom_field_values={"total": "6"})
+        task_automation.run_scheduled(self.db, TODAY.isoformat())
+        self.assertEqual(self._row(t["id"]).tags or [], [])
+        self.assertEqual(len(self._runs()), 1)
 
 
 if __name__ == "__main__":

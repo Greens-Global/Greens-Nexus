@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   describeRule, describeTrigger, describeAction, describeCondition, describeDays, ruleProblem, ruleDraft,
-  rulePayload, defaultActionValue, defaultTriggerValue, fieldOptions,
+  rulePayload, defaultActionValue, defaultTriggerValue, fieldOptions, newActionKey,
 } from './automationRules';
 
 const ctx = {
@@ -179,6 +179,14 @@ describe('rulePayload', () => {
     expect(out.actions[1].value).toBe(7);
     expect(out.actions[2].value).toBe('');
     expect(rulePayload({ ...draft, trigger: { type: 'due_date_changed', value: 'junk' } }).trigger.value).toBe('');
+  });
+
+  it('gives every action row a stable key that is never sent', () => {
+    const d = ruleDraft({ name: 'r', trigger: { type: 'created' }, actions: [{ type: 'set_milestone' }, { type: 'add_tag', value: 'x' }] });
+    expect(d.actions.map((a) => a.key)).toEqual(['a0', 'a1']);
+    expect(JSON.stringify(ruleDraft(null))).toBe(JSON.stringify(ruleDraft(null)));   // the dirty check compares these
+    expect(newActionKey()).not.toBe(newActionKey());
+    expect(rulePayload({ ...d, name: 'r' }).actions.every((a) => !('key' in a))).toBe(true);
   });
 
   it('copies object values into the draft so edits never touch the listed rule', () => {

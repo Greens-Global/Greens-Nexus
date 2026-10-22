@@ -2583,6 +2583,24 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # Both ends of a parent/subtask link move together - see _sync_hierarchy.
     _sync_hierarchy(db, t, data, prev_parent, prev_subtasks)
 
+    # APPROVAL BEFORE AUTOMATION (Oct 22 2026, automation gaps review). The
+    # person's own due-date move is decided HERE, before the rules run: the
+    # 3rd+ extension, or one more than a month out, waits for approval
+    # (task_due.needs_approval) and the task keeps its date meanwhile. Holding
+    # it now means the rules see the REAL date - "When the due date changes"
+    # does not fire on a move that has not happened, and a rule's
+    # shift_due_days moves the approved date, never the person's unapproved
+    # one. The hold is filed (request_extension) further down, after the
+    # activity list is rebuilt, where it always was. Only the person's part
+    # is decided here; a rule's own move off the real date is privileged.
+    held_due, person_ask = "", []
+    if "due_on" in data and (t.due_on or "")[:10] != prev_due:
+        person_ask = task_due.needs_approval(db, t, prev_due, t.due_on or "", user["email"],
+                                             privileged=is_manager(user))
+        if person_ask:
+            held_due = (t.due_on or "")[:10]
+            t.due_on = prev_due
+
     # Automation rules (task_automation.py) see the row as this edit leaves it
     # and write onto the same row. Whatever they changed is merged into `data`
     # so the completion, activity, due-history and notification logic below
@@ -2644,30 +2662,11 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
 
     # After activity_ids is rebuilt above - task_due appends its own entries.
     due_entry = None
-    ask = []
+    # The approval was decided BEFORE the rules ran (held_due / person_ask,
+    # above). A date that moved now is either the person's own cleared move
+    # or a rule's move off the real date - neither needs asking. A held move
+    # is filed after any rule move is recorded, so the task ends Requested.
     if "due_on" in data and (t.due_on or "")[:10] != prev_due:
-        # The 3rd+ extension, or one more than a month out, waits for approval
-        # (task_due.needs_approval) - the task keeps its date meanwhile. A move
-        # an automation rule made has nobody to ask.
-        ask = task_due.needs_approval(db, t, prev_due, t.due_on or "", user["email"],
-                                      privileged=is_manager(user) or auto_moved_due)
-    if ask:
-        wanted_due = (t.due_on or "")[:10]
-        t.due_on = prev_due
-        # A start date sent in the same edit moves WITH the due date (a
-        # Calendar or Timeline drag keeps the task's length, Oct 22 2026), so
-        # it waits with it: moving the start alone would stretch or squash
-        # the task while the due date is still being asked about.
-        held = {"Due date changed"}
-        wanted_start = ""
-        if "start_on" in data:
-            if (t.start_on or "") != prev_start:
-                wanted_start = t.start_on or ""
-            t.start_on = prev_start
-            held.add("Start date changed")
-        task_due.request_extension(db, t, user["email"], wanted_due, ask, start_on=wanted_start)
-        modified_kinds = [k for k in modified_kinds if k not in held]
-    elif "due_on" in data and (t.due_on or "")[:10] != prev_due:
         due_entry = task_due.record_due_change(
             db, t, prev_due, t.due_on or "",
             actor=task_automation.AUTOMATION_ACTOR if auto_moved_due else user["email"],
@@ -2691,6 +2690,21 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     elif wanted is not None and set(task_assignees(t)) != prev_assignees and t.due_on:
         # A new holder did not agree to the old holder's date.
         task_due.settle_agreement(t, user["email"])
+    if person_ask:
+        # The person's held move (decided before the rules, above). A start
+        # date sent in the same edit moves WITH the due date (a Calendar or
+        # Timeline drag keeps the task's length, Oct 22 2026), so it waits
+        # with it: moving the start alone would stretch or squash the task
+        # while the due date is still being asked about.
+        held = {"Due date changed"}
+        wanted_start = ""
+        if "start_on" in data:
+            if (t.start_on or "") != prev_start:
+                wanted_start = t.start_on or ""
+            t.start_on = prev_start
+            held.add("Start date changed")
+        task_due.request_extension(db, t, user["email"], held_due, person_ask, start_on=wanted_start)
+        modified_kinds = [k for k in modified_kinds if k not in held]
 
     # A checklist subtask's new due date moves its step (Oct 20) - after the
     # approval decision above, so a held date moves nothing (Oct 22 2026).
@@ -3543,6 +3557,8 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     auto_results: list = []
     auto_changed: dict[str, dict] = {}   # task id -> fields the rules wrote on that row
     auto_budget: dict = {}   # create_task caps for the whole batch (task_automation.MAX_CREATES_PER_REQUEST)
+    held_due: dict = {}      # task id -> (wanted date, approvers): a due move held for approval
+    actor = (user["email"] or "").lower()
     for t in rows:
         prev_status, prev_completed, _ = before[t.id]
         # Decided BEFORE the loop writes anything, from the payload and the
@@ -3587,6 +3603,18 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             # Same re-clean update_task does: the primary must never also sit
             # in the "also in" extras list.
             t.project_ids = _extra_project_ids(t.project_ids, t.project_id or "")
+        # APPROVAL BEFORE AUTOMATION (Oct 22 2026), as in update_task: a due
+        # move that needs approval is held NOW, so the rules see the real
+        # date and never move (or fire on) an unapproved one. Filed below,
+        # after the activity list, where it always was. The Dates action's
+        # per-task values (row_dates, the calendar's shift) count as sent.
+        if (("due_on" in patch or "due_on" in row_dates.get(t.id, {}))
+                and (t.due_on or "")[:10] != before_due[t.id]):
+            ask = task_due.needs_approval(db, t, before_due[t.id], t.due_on or "", actor,
+                                          privileged=is_manager(user))
+            if ask:
+                held_due[t.id] = ((t.due_on or "")[:10], ask)
+                t.due_on = before_due[t.id]
         # Same engine pass update_task makes, per row - a rule on "status
         # changes to X" fires whether twenty cards were dragged or one.
         auto = task_automation.run_for_change(
@@ -3655,19 +3683,20 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         t.activity_ids = acts
         # After activity_ids is rebuilt - task_due appends its own entries.
         # Logged and counted like a single edit, but no per-row email (see above).
+        # The approval was decided before the rules ran (held_due, above); a
+        # rule's move is off the real date and lands as the automation's.
         auto_due = "due_on" in auto_changed.get(t.id, {})
         sent = {**patch, **row_dates.get(t.id, {})}
-        ask = (task_due.needs_approval(db, t, before_due[t.id], t.due_on or "", actor, privileged=is_manager(user))
-               if "due_on" in sent and not auto_due else [])
-        if auto_due:
-            task_due.record_due_change(db, t, before_due[t.id], t.due_on or "",
-                                       actor=task_automation.AUTOMATION_ACTOR, source="automation")
-        elif ask:
-            # Held for approval like a single edit; the approvers get one bell
-            # for the whole batch, below. A start date moved with it waits
-            # too, and moves on approval (see update_task).
-            wanted_due = (t.due_on or "")[:10]
-            t.due_on = before_due[t.id]
+        wanted_due, ask = held_due.get(t.id, ("", []))
+        if ask:
+            # Held for approval like a single edit (decided before the rules
+            # ran, held_due above); the approvers get one bell for the whole
+            # batch, below. A rule's own move off the real date is recorded
+            # first. A start date moved with it waits too, and moves on
+            # approval (see update_task).
+            if auto_due:
+                task_due.record_due_change(db, t, before_due[t.id], t.due_on or "",
+                                           actor=task_automation.AUTOMATION_ACTOR, source="automation")
             wanted_start = ""
             if "start_on" in sent:
                 if (t.start_on or "") != before_start[t.id]:
@@ -3677,6 +3706,9 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             held_count += 1
             for who in ask:
                 ext_asks.setdefault(who, []).append(t)
+        elif auto_due:
+            task_due.record_due_change(db, t, before_due[t.id], t.due_on or "",
+                                       actor=task_automation.AUTOMATION_ACTOR, source="automation")
         elif "due_on" in sent:
             entry = task_due.record_due_change(db, t, before_due[t.id], t.due_on or "", actor=actor,
                                                source="bulk")

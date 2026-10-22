@@ -31,6 +31,7 @@ const EVENT_LABELS = {
   created: 'New task created for me', commented: 'New comment on my task',
   modified: 'Task details changed', follower_added: 'Added as collaborator',
   completed: 'Task completed', deleted: 'Task deleted', recurring: 'Recurring task due',
+  automation: 'Automation rule emails',
 };
 
 function Toggle({ on, onChange, disabled }) {

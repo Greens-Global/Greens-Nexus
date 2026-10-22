@@ -42,7 +42,11 @@ The Monday-recipe actions (Neil, Oct 22 2026)
     who made the edit. A task an automation creates runs NO rules at all
     (_SUPPRESS) - depth 0, so two rules can never ping-pong - and one change
     creates at most MAX_CREATES_PER_TASK tasks (MAX_CREATES_PER_REQUEST
-    across a bulk edit).
+    across a bulk edit). The clock is guarded too: every task a rule creates
+    carries a SPAWNED_EVENT run row, run_scheduled acts on no such task, and
+    one scan creates at most MAX_CREATES_PER_SCAN per company. A change made
+    by someone outside the directory fails rather than borrowing the owner.
+    A restricted task's new task leaves off anyone who cannot see the source.
   * move_to_project is a field change on the same row, like set_status, and
     keeps the move rules update_task applies (section and team left behind,
     the required-field check of _newly_missing_required); the subtasks that
@@ -51,8 +55,9 @@ The Monday-recipe actions (Neil, Oct 22 2026)
     event, which goes through the person's mutes and the batched queue like
     every task email. Only Nexus directory people who can SEE the task get
     it (recipient_can_see), checked again when the batch goes out.
-  * A restricted task is never copied into another project by create_task:
-    its title (through {title}) would reach people who cannot see it.
+  * A restricted task is never copied (create_task) or moved
+    (move_to_project) into another project by a rule: its title would reach
+    people who cannot see it.
 
 Every rule that fires writes a TaskAutomationRun row (the Runs panel in
 Manage) and one activity entry on the task attributed to AUTOMATION_ACTOR, so
@@ -63,6 +68,7 @@ from __future__ import annotations
 import contextvars
 import functools
 import html
+import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Callable, Optional
@@ -111,6 +117,10 @@ ACTION_TYPES = (
 CONDITION_FIELDS = ("project", "status", "priority", "tag", "assignee", "team",
                     "custom_field")   # custom_field: {field, fieldId, op, value} - value read like a trigger's "to"
 EMAIL_TO = ("assignees", "creator", "followers", "project_owner")
+# A computed custom field type (another branch, Oct 2026): calculated on read,
+# never stored, and saved with read_only=False - only its serialization says
+# readOnly. A rule can neither watch, test nor set one; checked by type.
+FORMULA_TYPE = "formula"
 CONDITION_OPS = ("is", "is_not")
 PRIORITIES = ("low", "medium", "high", "urgent")
 
@@ -118,6 +128,12 @@ MAX_CONDITIONS = 10
 MAX_ACTIONS = 6
 MAX_CREATES_PER_TASK = 3       # tasks one change to one task can create, every rule together
 MAX_CREATES_PER_REQUEST = 25   # ...and one bulk edit, across all its rows
+MAX_CREATES_PER_SCAN = 50      # ...and one hourly run_scheduled call, per company
+# The TaskAutomationRun row that marks a task a rule created (event, plus
+# task_id = the new task). run_scheduled acts on no task carrying it, so a
+# "due date arrives -> create a task due today" rule cannot feed itself (or
+# another such rule) every hour. Kept out of the Runs panel.
+SPAWNED_EVENT = "spawned"
 MAX_TITLE = 200
 MAX_SUBJECT = 200
 MAX_BODY = 5000
@@ -145,6 +161,9 @@ def _check_field(db: Optional[Session], field_id, company_id: str):
     f = db.query(models.TaskCustomField).filter(models.TaskCustomField.id == field_id).first()
     if f is None:
         raise HTTPException(422, "That custom field no longer exists")
+    if (f.type or "") == FORMULA_TYPE:
+        raise HTTPException(422, f"{f.name} is a formula field - it is calculated, never stored, "
+                                 "so a rule cannot watch, test or set it")
     fc = (getattr(f, "company_id", "") or "").strip()
     if company_id and fc and fc != company_id:
         raise HTTPException(422, "That custom field belongs to another company")
@@ -399,6 +418,32 @@ def _matches_trigger(trigger: dict, event: str, before: dict, after: dict, *,
     return False   # due_date_arrives only fires from run_scheduled
 
 
+def _watched_fields(rule: models.TaskAutomationRule) -> set:
+    """The custom fields a rule's trigger and conditions read."""
+    trigger = rule.trigger if isinstance(rule.trigger, dict) else {}
+    out = set()
+    if trigger.get("type") == "custom_field_changed":
+        out.add(_spec(trigger.get("value")).get("fieldId") or "")
+    for c in (rule.conditions if isinstance(rule.conditions, list) else []):
+        if isinstance(c, dict) and c.get("field") == "custom_field":
+            out.add(c.get("fieldId") or "")
+    return out - {""}
+
+
+def _reads_a_formula(db: Session, rule: models.TaskAutomationRule, cache: dict) -> bool:
+    """A rule saved before its field became a formula (or written around the
+    validator) never runs: a formula has no stored value to watch or test.
+    The formula ids are read once per pass, and only for a rule that reads a
+    custom field at all."""
+    fields = _watched_fields(rule)
+    if not fields:
+        return False
+    if "formula" not in cache:
+        cache["formula"] = {i for (i,) in db.query(models.TaskCustomField.id)
+                            .filter(models.TaskCustomField.type == FORMULA_TYPE).all()}
+    return bool(fields & cache["formula"])
+
+
 def conditions_ok(conditions: list | None, snap: dict) -> bool:
     """`snap` is a snapshot() - the task as the person left it."""
     for c in conditions or []:
@@ -447,7 +492,12 @@ class _RunCtx:
     rule: models.TaskAutomationRule
     actor: str = ""
     ref: dict = field(default_factory=dict)
-    budget: dict = field(default_factory=dict)
+    budget: dict = field(default_factory=dict)   # {"creates": n, "limit": N, "scope": words for the run log}
+    # Who a created task is created as when NOBODY made the change (the
+    # scheduled scan): the task's owner, then its creator. Never used when
+    # there is an actor - a change by someone outside the directory fails
+    # rather than borrowing the owner's access.
+    fallbacks: tuple = ()
 
 
 def _employee(db: Session, email: str):
@@ -696,26 +746,35 @@ def _queue_create_task(db: Session, t: models.Task, spec: dict, res: Result, run
     the create to after-commit (_create_after_commit) - _create_task commits,
     and the caller's own edit is not committed yet."""
     total = int(run.budget.get("creates", 0) or 0)
+    limit = int(run.budget.get("limit") or MAX_CREATES_PER_REQUEST)
     if res.creates >= MAX_CREATES_PER_TASK:
         return f"could not create a task: one change can create at most {MAX_CREATES_PER_TASK} tasks"
-    if total >= MAX_CREATES_PER_REQUEST:
-        return f"could not create a task: one bulk edit can create at most {MAX_CREATES_PER_REQUEST} tasks"
+    if total >= limit:
+        if not run.budget.get("logged"):
+            run.budget["logged"] = True
+            logging.getLogger(__name__).warning(
+                "task automation: create_task budget hit (%s, %d tasks) - rule %s", run.budget.get("scope")
+                or "one bulk edit", limit, run.rule.id)
+        return f"could not create a task: {run.budget.get('scope') or 'one bulk edit'} can create at most {limit} tasks"
     res.creates += 1
     run.budget["creates"] = total + 1
     title = " ".join(_fill(str(spec.get("title") or ""), db, t).split())[:MAX_TITLE] or "Untitled task"
     line = f'creating task "{title}"'
     res.after_commit.append(functools.partial(
         _create_after_commit, task_id=t.id, spec=dict(spec), title=title, actor=run.actor,
-        ref=run.ref, line=line, rule_name=run.rule.name or "",
+        fallbacks=tuple(run.fallbacks), ref=run.ref, line=line, rule_id=run.rule.id,
+        rule_name=run.rule.name or "",
         rule_company=(getattr(run.rule, "company_id", "") or "").strip(), today=today))
     return line
 
 
 def _create_after_commit(db: Session, defer=None, *, task_id: str, spec: dict, title: str, actor: str,
-                         ref: dict, line: str, rule_name: str, rule_company: str, today: date) -> None:
+                         ref: dict, line: str, rule_id: str, rule_name: str, rule_company: str, today: date,
+                         fallbacks: tuple = ()) -> None:
     """Create the task through routers.tasks._create_task (the POST /tasks
-    path) as the person whose change fired the rule, else the task's owner
-    or creator. Any refusal is written onto the run; nothing is raised."""
+    path) as the person whose change fired the rule. Only when nobody made
+    the change (the scheduled scan) is it the task's owner, else its creator
+    (`fallbacks`). Any refusal is written onto the run; nothing is raised."""
     from routers.tasks import _create_task, TaskCreate
     from routers.task_util import project_for_task
 
@@ -745,12 +804,25 @@ def _create_after_commit(db: Session, defer=None, *, task_id: str, spec: dict, t
             return fail("that project is in another company")
         who = (spec.get("assignee") or "").strip().lower()
         assignees = task_assignees(src) if who == "{assignee}" else ([who] if who else [])
+        left_off = []
+        if restricted:
+            # The new task carries the restricted task's title (through
+            # {title}) and is restricted itself, so being put on it would
+            # show a person what they cannot see on the source. Whoever
+            # cannot see the source is left off, in every mode.
+            left_off = [a for a in assignees if not recipient_can_see(db, a, src)]
+            assignees = [a for a in assignees if a not in left_off]
         due = ""
         if spec.get("dueInDays") not in (None, ""):
             due = (today + timedelta(days=int(spec["dueInDays"]))).isoformat()
-        user = next((u for u in (_person_user(db, e) for e in (actor, src.owner_email, src.created_by)) if u), None)
-        if user is None:
-            return fail("nobody to create it as - the person who made the change is not in the Nexus directory")
+        if actor:
+            user = _person_user(db, actor)
+            if user is None:
+                return fail(f"{actor} made the change and is not in the Nexus directory")
+        else:
+            user = next((u for u in (_person_user(db, e) for e in fallbacks) if u), None)
+            if user is None:
+                return fail("nobody to create it as - the task's owner and creator are not in the Nexus directory")
         body = TaskCreate(
             title=title, project_id=project_id, parent_task_id=parent_id, assignee_emails=assignees,
             due_on=due, priority=spec.get("priority") if spec.get("priority") in PRIORITIES else "medium",
@@ -763,9 +835,17 @@ def _create_after_commit(db: Session, defer=None, *, task_id: str, spec: dict, t
                 db, type="automation", actor_email=AUTOMATION_ACTOR, entity_id=new.id,
                 entity_code=new.code, entity_title=new.title,
                 detail=f"{rule_name}: created this task from {src.title or 'a task'}")]
+            # The marker (SPAWNED_EVENT), in the same commit as the task: the
+            # scheduled scan never acts on a task a rule made.
+            db.add(models.TaskAutomationRun(
+                id=gen_id(), rule_id=rule_id, rule_name=rule_name, task_id=new.id, task_code=new.code or "",
+                task_title=new.title or "", trigger_type="", event=SPAWNED_EVENT,
+                actions=[f"created from task {src.code or src.id}"], status="applied",
+                dedupe_key=f"{SPAWNED_EVENT}:{new.id}", at=now_iso()))
         _create_task(body, _Later(defer), user, db, before_commit=_note, check_people=True)
         where = " as a subtask" if as_sub else (f" in {project.name}" if project is not None else "")
-        _amend_run(db, ref, line, f'created task "{title}"{where}')
+        note = (f" (left off {', '.join(left_off)}: cannot see the task it came from)" if left_off else "")
+        _amend_run(db, ref, line, f'created task "{title}"{where}{note}')
     except HTTPException as e:
         db.rollback()
         fail(str(e.detail))
@@ -781,9 +861,11 @@ _EMAIL_TO_WORDS = {"assignees": "the assignees", "creator": "the creator",
                    "followers": "the collaborators", "project_owner": "the project owner"}
 
 
-def email_recipients(db: Session, t: models.Task, to) -> tuple[list, int]:
+def email_recipients(db: Session, t: models.Task, to, actor: str = "") -> tuple[list, int]:
     """([(email, role)], how many were left out) for a send_email action:
-    who `to` names on this task, kept only when recipient_can_see."""
+    who `to` names on this task, kept only when recipient_can_see. `actor`,
+    the person whose change fired the rule, is never emailed about it - as
+    with every other task email (task_notify._recipients_for)."""
     from routers.task_util import project_for_task
     key = str(to or "").strip().lower()
     if key == "assignees":
@@ -799,7 +881,7 @@ def email_recipients(db: Session, t: models.Task, to) -> tuple[list, int]:
         cands = [(key, "recipient")]
     else:
         cands = []
-    out, seen, left_out = [], set(), 0
+    out, seen, left_out = [], {(actor or "").strip().lower()}, 0
     for e, role in cands:
         e = (e or "").strip().lower()
         if not e or e in seen:
@@ -816,11 +898,12 @@ def _queue_email(t: models.Task, spec: dict, res: Result, run: _RunCtx) -> str:
     to = str(spec.get("to") or "")
     line = f"emailing {_EMAIL_TO_WORDS.get(to, to)}"
     res.after_commit.append(functools.partial(_email_after_commit, task_id=t.id, spec=dict(spec),
-                                              ref=run.ref, line=line))
+                                              ref=run.ref, line=line, actor=run.actor))
     return line
 
 
-def _email_after_commit(db: Session, defer=None, *, task_id: str, spec: dict, ref: dict, line: str) -> None:
+def _email_after_commit(db: Session, defer=None, *, task_id: str, spec: dict, ref: dict, line: str,
+                        actor: str = "") -> None:
     """Resolve the recipients against the committed task and hand the email
     to notify_task_event as an "automation" event - mutes, batching and the
     retry log all apply. Never sends mail itself."""
@@ -828,10 +911,10 @@ def _email_after_commit(db: Session, defer=None, *, task_id: str, spec: dict, re
     if t is None:
         _amend_run(db, ref, line, "could not send the email: the task is gone", failed=True)
         return
-    recipients, left_out = email_recipients(db, t, spec.get("to"))
+    recipients, left_out = email_recipients(db, t, spec.get("to"), actor=actor)
     if not recipients:
-        _amend_run(db, ref, line, "could not send the email: nobody to send it to who can see this task",
-                   failed=True)
+        _amend_run(db, ref, line, "could not send the email: nobody to send it to who can see this task "
+                                  "(the person who made the change is never emailed about it)", failed=True)
         return
     subject = " ".join(_fill(str(spec.get("subject") or ""), db, t).split())[:MAX_SUBJECT]
     body = _fill(str(spec.get("body") or ""), db, t)[:MAX_BODY]
@@ -870,6 +953,10 @@ def _move_to_project(db: Session, t: models.Task, spec: dict, res: Result, run: 
     rc = (getattr(run.rule, "company_id", "") or "").strip()
     if (rc and pc != rc) or (auth._company_walls_on(db) and _task_company(db, t, cache) != pc):
         return f"could not move to {project.name}: it is in another company"
+    if old != pid and (t.access_level or "org") != "org":
+        # Same reason create_task refuses a copy: the other project's people
+        # would see a task that was hidden from them. A person can move it.
+        return f"could not move to {project.name}: the task is restricted, so a rule does not move it to another project"
     if old != pid:
         values = t.custom_field_values or {}
         missing = _newly_missing_required(db, t, old, values, pid, values)
@@ -903,6 +990,8 @@ def _set_custom_field(db: Session, t: models.Task, spec: dict, res: Result, cach
     f = db.query(models.TaskCustomField).filter(models.TaskCustomField.id == fid).first() if fid else None
     if f is None:
         return "could not set a custom field: that field no longer exists"
+    if (f.type or "") == FORMULA_TYPE:
+        return f"could not set {f.name}: it is a formula field, calculated rather than stored"
     if f.read_only:
         return f"could not set {f.name}: it is read-only"
     fc = (getattr(f, "company_id", "") or "").strip()
@@ -997,7 +1086,10 @@ def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
     if _SUPPRESS.get():
         return res
     budget = budget if budget is not None else {}
-    actor = (actor or t.owner_email or t.created_by or "").strip().lower()
+    actor = (actor or "").strip().lower()
+    # Only an in-process caller with no person (none today) falls back to
+    # the owner / creator - see _RunCtx.fallbacks.
+    fallbacks = () if actor else tuple(e for e in ((t.owner_email or ""), (t.created_by or "")) if e)
     today = today or business_today()
     rules = _enabled_rules(db)
     if not rules:
@@ -1022,13 +1114,15 @@ def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
             continue
         if not _rule_reaches(db, rule, t, company_cache):
             continue
+        if _reads_a_formula(db, rule, company_cache):
+            continue
         queued = len(res.after_commit)
         try:
             if not _matches_trigger(trigger, event, before, after, completing=completing, today=today):
                 continue
             if not conditions_ok(rule.conditions if isinstance(rule.conditions, list) else [], after):
                 continue
-            run = _RunCtx(rule=rule, actor=actor, ref={}, budget=budget)
+            run = _RunCtx(rule=rule, actor=actor, ref={}, budget=budget, fallbacks=fallbacks)
             lines = []
             for action in (rule.actions or []):
                 line = _apply_action(db, t, action, res, today=today, gate=gate,
@@ -1078,7 +1172,12 @@ def run_scheduled(db: Session, today_iso: str) -> int:
     from routers.tasks import (_check_dependency_gate, _resolve_completed, _land_completion,
                                _log_completed, _after_completed)
     fired = 0
+    scan_budget: dict = {}   # company -> create_task budget for this whole call (MAX_CREATES_PER_SCAN)
+    per_task: dict = {}      # task id -> tasks created from it this call, every rule (MAX_CREATES_PER_TASK)
+    formula_cache: dict = {}
     for rule in rules:
+        if _reads_a_formula(db, rule, formula_cache):
+            continue
         try:
             offset = int((rule.trigger or {}).get("value") or 0)
         except (TypeError, ValueError):
@@ -1098,9 +1197,16 @@ def run_scheduled(db: Session, today_iso: str) -> int:
         done = {k for (k,) in db.query(models.TaskAutomationRun.dedupe_key)
                 .filter(models.TaskAutomationRun.rule_id == rule.id,
                         models.TaskAutomationRun.dedupe_key.like(f"{rule.id}:%:{target}")).all()}
+        # Tasks a rule created are never acted on by the clock (SPAWNED_EVENT):
+        # this rule or another would otherwise create from its own output on
+        # every scan. Read per rule, so one made earlier in this scan counts.
+        rule_made = {i for (i,) in db.query(models.TaskAutomationRun.task_id)
+                     .filter(models.TaskAutomationRun.event == SPAWNED_EVENT,
+                             models.TaskAutomationRun.task_id.in_([r.id for r in rows])).all()}
+        creates = any(isinstance(a, dict) and a.get("type") == "create_task" for a in (rule.actions or []))
         for t in rows:
             key = f"{rule.id}:{t.id}:{target}"
-            if key in done:
+            if key in done or t.id in rule_made:
                 continue
             if not _rule_reaches(db, rule, t, {}):
                 continue   # another company's task (company wall)
@@ -1108,12 +1214,19 @@ def run_scheduled(db: Session, today_iso: str) -> int:
             if not conditions_ok(rule.conditions if isinstance(rule.conditions, list) else [], before):
                 continue
             res = Result()
+            # The per-task cap counts every rule this scan, not each rule alone.
+            res.creates = per_task.get(t.id, 0)
             lines = []
-            # Nobody made this change: a task the rule creates is created as
-            # the task's owner (as the next occurrence below is).
-            run = _RunCtx(rule=rule, actor=(t.owner_email or t.created_by or "").strip().lower(),
-                          ref={}, budget={})
             company_cache: dict = {}
+            # One create budget per company for the whole scan (looked up only
+            # for a rule that creates tasks - row_company is a query).
+            budget = (scan_budget.setdefault(_task_company(db, t, company_cache), {
+                "creates": 0, "limit": MAX_CREATES_PER_SCAN, "scope": "one hourly scan for a company"})
+                if creates else {})
+            # Nobody made this change: a task the rule creates is created as
+            # the task's owner, else its creator (as the next occurrence below is).
+            run = _RunCtx(rule=rule, actor="", ref={}, budget=budget,
+                          fallbacks=tuple(e for e in ((t.owner_email or ""), (t.created_by or "")) if e))
             try:
                 # The dependency gate applies here as it does to a person: the
                 # clock does not get to start or close a task its blocker holds.
@@ -1124,6 +1237,7 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                                          run=run, company_cache=company_cache)
                     if line:
                         lines.append(line)
+                per_task[t.id] = res.creates
                 # Keep status and the completed flag in step - through the same
                 # completion path a person's tick goes through (Oct 21 2026):
                 # the HR checklist steps follow here, and the activity and the

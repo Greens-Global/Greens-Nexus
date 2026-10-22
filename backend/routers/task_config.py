@@ -193,7 +193,9 @@ def list_rule_runs(rule_id: str = "", limit: int = 50, user: dict = Depends(get_
     so a manager only sees runs on tasks their scope admits."""
     import auth
     from routers.task_util import wall_tasks
-    q = db.query(models.TaskAutomationRun)
+    # The "spawned" rows only mark tasks a rule created (task_automation.
+    # SPAWNED_EVENT) - they are not firings.
+    q = db.query(models.TaskAutomationRun).filter(models.TaskAutomationRun.event != task_automation.SPAWNED_EVENT)
     if rule_id:
         q = q.filter(models.TaskAutomationRun.rule_id == rule_id)
     limit = max(1, min(int(limit or 50), 200))

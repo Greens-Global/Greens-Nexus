@@ -76,7 +76,7 @@ const blankRule = () => ({
   name: '', enabled: true,
   trigger: { type: 'status_changed', value: '' },
   conditions: [],
-  actions: [{ type: 'set_priority', value: 'high' }],
+  actions: [{ type: 'set_priority', value: 'high', key: 'a0' }],
 });
 
 // An object value is copied so editing the draft never writes through to the
@@ -93,11 +93,16 @@ export function ruleDraft(rule) {
       field: c.field, op: c.op || 'is', value: c.value ?? '',
       ...(c.field === 'custom_field' ? { fieldId: c.fieldId || '' } : {}),
     })),
-    actions: (rule.actions || []).length
-      ? rule.actions.map((a) => ({ type: a.type, value: copyValue(a.value) }))
-      : blankRule().actions,
+    actions: ((rule.actions || []).length ? rule.actions : blankRule().actions)
+      .map((a, i) => ({ type: a.type, value: copyValue(a.value), key: `a${i}` })),
   };
 }
+
+// A stable id for an action row the editor adds (the editors keep local
+// state, so a row keyed by its index would inherit its neighbor's after a
+// removal). Never sent: rulePayload builds the body field by field.
+let actionSeq = 0;
+export const newActionKey = () => `n${Date.now().toString(36)}${(actionSeq += 1)}`;
 
 export const defaultTriggerValue = (type) => {
   if (type === 'due_date_arrives') return 0;

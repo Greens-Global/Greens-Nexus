@@ -6,7 +6,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 vi.mock('../components/PersonHoverCard', () => ({ default: ({ children }) => children }));
-vi.mock('../api', () => ({ api: { getPeopleDirectory: () => Promise.resolve([]) } }));
+// The sections API answers with a section the store has never loaded (a
+// project nobody opened this session).
+vi.mock('../api', () => ({ api: {
+  getPeopleDirectory: () => Promise.resolve([]),
+  getTaskSections: () => Promise.resolve([{ id: 's9', projectId: 'p3', name: 'Fresh' }, { id: 's1', projectId: 'p2', name: 'Ready' }]),
+} }));
 vi.mock('./TasksContext', () => ({ useTasks: () => ({ teams: [], projects: [], tasks: [] }) }));
 
 const { RuleModal } = await import('./ManageView');
@@ -17,7 +22,8 @@ const ctx = {
   statusOrder: ['not_started', 'in_progress', 'completed'], statusMeta: {},
   projects: [{ id: 'p1', name: 'Ops' }, { id: 'p2', name: 'Build' }], teams: [],
   people: [{ email: 'sam@greensglobal.com', name: 'Sam Lee' }],
-  customFields: [budget, signed],
+  // A formula field (another branch): computed, saved with readOnly false.
+  customFields: [budget, signed, { id: 'total', name: 'Total Cost', type: 'formula', options: [], readOnly: false }],
   sections: [{ id: 's1', projectId: 'p2', name: 'Ready' }],
   statusLabel: (id) => id, priorityLabel: (k) => k, projectName: (id) => id, teamName: (id) => id,
   personName: (e) => e, fieldName: (id) => id, fieldOptionLabel: (f, v) => v, sectionName: (id) => id,
@@ -93,6 +99,38 @@ describe('Move to Project action', () => {
   });
 });
 
+describe('Move to Project loads the destination sections', () => {
+  it('shows sections of a project the store has not loaded', async () => {
+    const onSave = open({
+      name: 'Route', enabled: true, trigger: { type: 'created', value: '' }, conditions: [],
+      actions: [{ type: 'move_to_project', value: { projectId: 'p3', sectionId: '' } }],
+    });
+    const picker = await screen.findByDisplayValue('No Section');
+    fireEvent.change(picker, { target: { value: 's9' } });
+    save();
+    expect(onSave.mock.calls[0][0].actions[0].value).toEqual({ projectId: 'p3', sectionId: 's9' });
+  });
+});
+
+describe('action rows keep their own editor state', () => {
+  it('removing a row does not hand its editor to the next row', () => {
+    open({
+      name: 'Two emails', enabled: true, trigger: { type: 'created', value: '' }, conditions: [],
+      actions: [
+        { type: 'send_email', value: { to: 'assignees', subject: 'One', body: 'x' } },
+        { type: 'send_email', value: { to: 'creator', subject: 'Two', body: 'y' } },
+      ],
+    });
+    // The second row switches to "A Specific Person" (held in its editor's
+    // local state until a person is picked).
+    fireEvent.change(screen.getByDisplayValue('The Creator'), { target: { value: 'person' } });
+    fireEvent.click(screen.getAllByTitle('Remove Action')[0]);
+    expect(screen.getByDisplayValue('Two')).toBeTruthy();
+    expect(screen.getByDisplayValue('A Specific Person')).toBeTruthy();
+    expect(screen.queryByDisplayValue('The Assignees')).toBeNull();
+  });
+});
+
 describe('custom field trigger and condition', () => {
   it('picks the option a select field changes to', () => {
     const onSave = open({
@@ -107,6 +145,19 @@ describe('custom field trigger and condition', () => {
     const body = onSave.mock.calls[0][0];
     expect(body.trigger).toEqual({ type: 'custom_field_changed', value: { fieldId: 'budget', to: 'over' } });
     expect(body.conditions).toEqual([{ field: 'custom_field', fieldId: 'signed', op: 'is', value: 'checked' }]);
+  });
+
+  it('never offers a formula field', () => {
+    open({
+      name: 'Pick', enabled: true, trigger: { type: 'custom_field_changed', value: { fieldId: '', to: '' } },
+      conditions: [], actions: [{ type: 'set_custom_field', value: { fieldId: '', value: '' } }],
+    });
+    for (const button of screen.getAllByText('Choose a custom field')) {
+      fireEvent.click(button);
+      expect(screen.getAllByText('Budget Status').length).toBeGreaterThan(0);
+      expect(screen.queryByText('Total Cost')).toBeNull();
+      fireEvent.keyDown(document, { key: 'Escape' });
+    }
   });
 
   it('refuses a custom field trigger with no field', () => {

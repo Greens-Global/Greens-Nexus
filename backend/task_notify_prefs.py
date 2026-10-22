@@ -36,7 +36,8 @@ DEFAULT_HOUR = 8
 # Instant events a person may turn off. Assigned / mentioned are not here on
 # purpose - see the module docstring.
 OPTIONAL_EVENTS = ("created", "commented", "modified", "follower_added", "completed",
-                   "deleted", "recurring")
+                   "deleted", "recurring",
+                   "automation")   # an automation rule's Send Email action (task_automation, Oct 22 2026)
 LOCKED_EVENTS = ("assigned", "mentioned")
 
 OVERDUE_CHOICES = {"company": None, "daily": 1, "every2": 2, "every3": 3,

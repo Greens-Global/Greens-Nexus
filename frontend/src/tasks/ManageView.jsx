@@ -21,7 +21,7 @@ import { Avatar, EmptyState, Modal, SearchSelect, ChipMultiSelect, PersonSelect,
 import {
   TRIGGER_TYPES, ACTION_TYPES, CONDITION_FIELDS, CONDITION_OPS, MAX_CONDITIONS, MAX_ACTIONS,
   COMMENT_PLACEHOLDERS, ruleDraft, ruleProblem, defaultActionValue, describeRule,
-  defaultTriggerValue, rulePayload, fieldOptions, EMAIL_TO, MAX_TITLE, MAX_SUBJECT, MAX_BODY,
+  defaultTriggerValue, rulePayload, fieldOptions, EMAIL_TO, MAX_TITLE, MAX_SUBJECT, MAX_BODY, newActionKey,
 } from './automationRules';
 import { taskStats, topLevel, fmtDateTime, teamProjectIds, todayISO } from './lib';
 import TasksWorkspace from './TasksWorkspace';
@@ -416,7 +416,10 @@ const placeholderHint = (extra) => (
 
 /** The custom fields this company can see (the store is already company-filtered). */
 function CustomFieldPicker({ value, onChange, ctx, writable = false }) {
-  const rows = ctx.customFields.filter((f) => !writable || !f.readOnly);
+  // A formula field is calculated, never stored: a rule can neither watch,
+  // test nor set it (task_automation.FORMULA_TYPE). Read-only fields can be
+  // watched but not set.
+  const rows = ctx.customFields.filter((f) => f.type !== 'formula' && (!writable || !f.readOnly));
   return (
     <div style={{ flex: 1, minWidth: 160 }}>
       <SearchSelect options={rows.map((f) => ({ id: f.id, label: f.name }))} value={value || ''}
@@ -544,7 +547,19 @@ function CreateTaskEditor({ value, onChange, ctx }) {
 
 function MoveEditor({ value, onChange, ctx }) {
   const v = value && typeof value === 'object' ? value : {};
-  const sections = ctx.sections.filter((s) => s.projectId === v.projectId);
+  // The store's sections are as of when Tasks loaded; a project picked here
+  // may have sections made since. Re-read them (the existing sections API)
+  // whenever the destination changes; the store's copy shows meanwhile.
+  const [fetched, setFetched] = useState(null);
+  useEffect(() => {
+    if (!v.projectId) return undefined;
+    let alive = true;
+    api.getTaskSections()
+      .then((rows) => { if (alive && Array.isArray(rows)) setFetched(rows); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [v.projectId]);
+  const sections = (fetched || ctx.sections).filter((s) => s.projectId === v.projectId);
   return (
     <div style={editorBox}>
       <div style={editorRow}>
@@ -726,7 +741,7 @@ export function RuleModal({ rule, ctx, onClose, onSave }) {
           const def = ACTION_TYPES.find((x) => x.value === a.type) || ACTION_TYPES[0];
           const Editor = OBJECT_EDITORS[def.valueKind];
           return (
-            <div key={i} style={{ ...rowStyle, alignItems: def.valueKind === 'comment' ? 'flex-start' : 'center' }}>
+            <div key={a.key || i} style={{ ...rowStyle, alignItems: def.valueKind === 'comment' ? 'flex-start' : 'center' }}>
               <select value={a.type} onChange={(e) => setAction(i, { type: e.target.value, value: defaultActionValue(e.target.value) })} style={{ ...selectStyle, width: 220, flexShrink: 0 }}>
                 {ACTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
@@ -734,7 +749,10 @@ export function RuleModal({ rule, ctx, onClose, onSave }) {
                 <RuleValueInput kind={def.valueKind} value={a.value} ctx={ctx} onChange={(v) => setAction(i, { value: v })} />
               )}
               <IconButton icon={X} title="Remove Action" onClick={() => set({ actions: draft.actions.filter((_, idx) => idx !== i) })} />
-              {Editor && <Editor key={a.type} value={a.value} ctx={ctx} onChange={(v) => setAction(i, { value: v })} />}
+              {/* Keyed by the row's own id (and type, so a new type starts fresh) -
+                  never the index: removing a row must not hand the next row this
+                  editor's local state. */}
+              {Editor && <Editor key={`${a.key || i}:${a.type}`} value={a.value} ctx={ctx} onChange={(v) => setAction(i, { value: v })} />}
               {def.valueKind === 'comment' && (
                 <div style={{ flexBasis: '100%', fontSize: 11.5, color: NX.faint, marginTop: -4 }}>
                   Fill-ins: {COMMENT_PLACEHOLDERS.join(' ')}. Posted by "Automation" and emailed like any comment.
@@ -745,7 +763,7 @@ export function RuleModal({ rule, ctx, onClose, onSave }) {
         })}
       </div>
       {draft.actions.length < MAX_ACTIONS && (
-        <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => set({ actions: [...draft.actions, { type: 'set_priority', value: 'high' }] })}>
+        <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => set({ actions: [...draft.actions, { type: 'set_priority', value: 'high', key: newActionKey() }] })}>
           <Plus size={14} />Add Action
         </button>
       )}

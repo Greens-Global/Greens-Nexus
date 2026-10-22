@@ -57,6 +57,7 @@ _DEFAULT_SETTINGS = {
         "created": True, "assigned": True, "due_soon": True, "overdue": True,
         "completed": True, "commented": True, "mentioned": True, "follower_added": True,
         "modified": True, "deleted": True, "recurring": True,
+        "automation": True,   # automation rules' Send Email (task_automation, Oct 22 2026)
     },
     # Whether a person may switch overdue reminders OFF in their own email
     # settings (task_notify_prefs). Off by default: the least they can choose
