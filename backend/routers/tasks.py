@@ -941,15 +941,17 @@ def _log_completed(db: Session, t: models.Task, actor_email: str) -> str:
 
 
 def _after_completed(db: Session, t: models.Task, user: dict, prev_completed: bool,
-                     spawn_as: Optional[dict] = None) -> Optional[models.Task]:
+                     spawn_as: Optional[dict] = None, notify: bool = True) -> Optional[models.Task]:
     """What a completion sets off once it has landed: a recurring task rolls
     forward to its next occurrence, and a ticket's task tells its ticket.
     `spawn_as` is who the next occurrence is created by when that is not the
-    person who completed it (an automation rule has no person). Returns the
-    new occurrence, if any. Does not commit."""
+    person who completed it (an automation rule has no person). `notify`
+    False leaves the "Recurring Task Due" bell to the caller (bulk_update
+    sends one per person for the whole batch). Returns the new occurrence,
+    if any. Does not commit."""
     if not (t.completed and not prev_completed):
         return None
-    spawned = _spawn_next_occurrence(db, t, spawn_as or user)
+    spawned = _spawn_next_occurrence(db, t, spawn_as or user, notify=notify)
     if t.source_ticket_id:
         _tell_ticket_task_done(db, t, user)
     return spawned
@@ -1089,7 +1091,8 @@ def _next_due(base_iso: str, rec: dict) -> str:
 
 
 def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
-                           next_due_override: str = "", skip_locked: bool = False) -> Optional[models.Task]:
+                           next_due_override: str = "", skip_locked: bool = False,
+                           notify: bool = True) -> Optional[models.Task]:
     """Create the occurrence after `t` (unless the end condition - `until` date
     or `count` - is reached). Returns the new task, or None if the series has
     ended or `t` already rolled forward.
@@ -1218,14 +1221,30 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
                        entity_code=nxt.code, entity_title=nxt.title,
                        detail=f"recurring occurrence generated from {t.title}")
     nxt.activity_ids = [aid]
-    for _who in task_assignees(nxt):
-        if _who == user["email"].lower():
-            continue
-        task_notify(db, kind="task_assigned", for_email=_who,
-                    title="Recurring Task Due",
-                    body=f"{nxt.title} (due {_us(next_due)})", task_id=nid,
-                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    if notify:
+        for _who in task_assignees(nxt):
+            if _who == user["email"].lower():
+                continue
+            _recurring_due_bell(db, _who, [nxt])
     return nxt
+
+
+def _recurring_due_bell(db: Session, who: str, occurrences: list) -> None:
+    """The bell that tells an assignee their next occurrence is out: one
+    task reads exactly as it always has, several (a bulk completion) are ONE
+    bell - one notification per action, never one per task."""
+    if len(occurrences) == 1:
+        nxt = occurrences[0]
+        task_notify(db, kind="task_assigned", for_email=who,
+                    title="Recurring Task Due",
+                    body=f"{nxt.title} (due {_us(nxt.due_on)})", task_id=nxt.id,
+                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+        return
+    task_notify(db, kind="task_assigned", for_email=who,
+                title=f"{len(occurrences)} Recurring Tasks Due",
+                body=", ".join(f"{o.title or 'Untitled task'} (due {_us(o.due_on)})" for o in occurrences[:5])
+                     + (f" and {len(occurrences) - 5} more" if len(occurrences) > 5 else ""),
+                nexus_action={"view": "tasks", "sub": "mine", "label": "View tasks"})
 
 
 def _tell_ticket_task_done(db: Session, t: models.Task, user: dict) -> None:
@@ -3095,11 +3114,9 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             new_completed = _resolve_completed({**patch, **auto.changed}, prev_completed)
         if auto.after_commit:
             auto_results.append(auto)
-        _apply_completion(t, new_completed, prev_completed)
+        # The shared completion path (flag + HR checklist), as update_task.
+        _land_completion(db, t, new_completed, prev_completed, user["email"])
         t.modified_at = now_iso()
-        if bool(new_completed) != bool(prev_completed):
-            import hr_checklists
-            hr_checklists.task_completed(db, t, bool(new_completed), user["email"])
         if (t.due_on or "")[:10] != (auto_before[t.id].get("due_on") or ""):
             import hr_checklists
             hr_checklists.task_due_changed(db, t, user["email"])
@@ -3138,9 +3155,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             if (now_assignees - set(prev_assignees)) and "follower_emails" not in patch:
                 _follow_as_actor(t, actor)
         if t.completed and not prev_completed:
-            acts.append(log_activity(db, type="completed", actor_email=user["email"],
-                                     entity_id=t.id, entity_code=t.code, entity_title=t.title,
-                                     detail="completed this task"))
+            acts.append(_log_completed(db, t, user["email"]))
         t.activity_ids = acts
         # After activity_ids is rebuilt - task_due appends its own entries.
         # Logged and counted like a single edit, but no per-row email (see above).
@@ -3162,6 +3177,32 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             task_due.record_due_change(db, t, before_due[t.id], t.due_on or "", actor=actor, source="bulk")
         elif now_assignees != set(prev_assignees) and t.due_on:
             task_due.settle_agreement(t, actor)
+
+    # Completing in bulk is completing (Oct 21 2026): each recurring task rolls
+    # forward and each ticket's task tells its ticket, through the same
+    # _after_completed a single completion runs - before, a periodic task
+    # completed here simply ended its series. Every check above already
+    # passed, so nothing here can refuse part of the batch.
+    #
+    # Locks: every head about to roll is row-locked FIRST, in id order, before
+    # any next occurrence takes the task-code counter. A person completing one
+    # of them takes its row and then the counter - the same order - so the
+    # two can only queue, never deadlock; and two batches lock in one order.
+    # The "Recurring Task Due" bell is one per person for the batch.
+    completing = sorted((t for t in rows if t.completed and not before[t.id][1]), key=lambda t: t.id)
+    rolling = [t.id for t in completing if isinstance(t.recurrence, dict) and t.recurrence.get("freq")]
+    if rolling:
+        (db.query(models.Task.id).filter(models.Task.id.in_(rolling))
+         .order_by(models.Task.id).with_for_update().all())
+    next_due_for: dict[str, list] = {}
+    for t in completing:
+        nxt = _after_completed(db, t, user, before[t.id][1], notify=False)
+        if nxt is not None:
+            for who in task_assignees(nxt):
+                if who != actor:
+                    next_due_for.setdefault(who, []).append(nxt)
+    for who, occurrences in next_due_for.items():
+        _recurring_due_bell(db, who, occurrences)
 
     for email, assigned in newly_assigned.items():
         # One task through bulk is the same action as one through PATCH, so it

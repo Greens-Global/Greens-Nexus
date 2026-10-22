@@ -78,8 +78,13 @@ class _Case(unittest.TestCase):
         self.db = database.SessionLocal()
         for m in (models.Task, models.TaskActivity, models.TaskProject, models.TaskDeleteLog,
                   models.TaskAutomationRule, models.TaskAutomationRun, models.TaskNotification,
-                  models.TaskChecklistItem):
+                  models.TaskChecklistItem, models.NexusEmployee):
             self.db.query(m).execution_options(include_deleted=True).delete()
+        # The people tasks are given to are in the Nexus directory - an
+        # assignee must be a current person (Oct 21 2026).
+        for who in (SAM, DEAN["email"], BOSS["email"]):
+            self.db.add(models.NexusEmployee(id=gen_id(), work_email=who, first_name=who.split("@")[0],
+                                             status="active", deleted_at="", company=""))
         self.db.commit()
         type(self).sent.clear()
 
@@ -191,11 +196,12 @@ class SeriesIdentityTests(_Case):
         self.assertEqual(self._row(nxt.id).status, "missed")
 
     def test_the_next_occurrence_keeps_the_also_in_projects(self):
-        t = self._create(due_on="2026-09-21", recurrence=dict(WEEKLY_MON), project_ids=["p-extra"])
+        extra = self._project("Also in")
+        t = self._create(due_on="2026-09-21", recurrence=dict(WEEKLY_MON), project_ids=[extra.id])
         self._patch(t["id"], completed=True)
         self.db.expire_all()
         nxt = self.db.query(models.Task).filter(models.Task.id != t["id"]).one()
-        self.assertEqual(nxt.project_ids, ["p-extra"])
+        self.assertEqual(nxt.project_ids, [extra.id])
         self.assertEqual(nxt.recurrence["seriesId"], t["id"])
 
     def test_two_completions_racing_spawn_one_next_occurrence(self):
@@ -516,8 +522,8 @@ class HierarchyAccessTests(_Case):
     def test_cannot_pull_another_companys_task(self):
         import cache
         self.db.add(models.NexusSetting(key="company_walls", value="on"))
-        self.db.add(models.NexusEmployee(id=gen_id(), first_name="Dean", last_name="D", work_email=DEAN["email"],
-                                         status="active", deleted_at="", company="co-a"))
+        (self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == DEAN["email"])
+         .update({"company": "co-a"}))
         self.mine.company_id = "co-a"
         self.db.commit()
         cache.settings_config.invalidate()
@@ -530,7 +536,6 @@ class HierarchyAccessTests(_Case):
         finally:
             self.db.rollback()
             self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
-            self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == DEAN["email"]).delete()
             self.db.commit()
             cache.settings_config.invalidate()
 
@@ -590,6 +595,75 @@ class PurgeAndRestoreTests(_Case):
         restore_task(sub.id, user=BOSS, db=self.db)          # parent back: now it may
         self.assertEqual(self._row(sub.id).deleted_at, "")
         self.assertIn(sub.id, self._row(top.id).subtask_ids)
+
+
+class BulkCompletionTests(_Case):
+    """Completing through POST /tasks/bulk is completing: a recurring task
+    rolls forward (a periodic one used to end its series here)."""
+
+    def _bulk(self, ids, **patch):
+        from routers.tasks import bulk_update, BulkUpdate
+        return bulk_update(BulkUpdate(ids=ids, patch=patch), user=BOSS, db=self.db)
+
+    def _bells(self, who=SAM):
+        self.db.expire_all()
+        return (self.db.query(models.TaskNotification)
+                .filter(models.TaskNotification.for_email == who).all())
+
+    def test_two_recurring_tasks_each_roll_forward_once(self):
+        a = self._create(title="Water plants", recurrence={"freq": "periodic", "daysAfterCompletion": 3},
+                         assignee_emails=[SAM])
+        b = self._create(title="Payroll", due_on="2026-09-21", recurrence=dict(WEEKLY_MON), assignee_emails=[SAM])
+        self.db.query(models.TaskNotification).delete()
+        self.db.commit()
+        self._bulk([a["id"], b["id"]], completed=True)
+        self.db.expire_all()
+        for src in (a, b):
+            kids = self.db.query(models.Task).filter(models.Task.title == src["title"],
+                                                     models.Task.id != src["id"]).all()
+            self.assertEqual(len(kids), 1, src["title"])
+            self.assertEqual(kids[0].recurrence["seriesId"], src["id"])
+            self.assertFalse(kids[0].completed)
+            self.assertEqual(self._row(src["id"]).recurrence["nextOccurrenceId"], kids[0].id)
+            done = (self.db.query(models.TaskActivity)
+                    .filter(models.TaskActivity.entity_id == src["id"], models.TaskActivity.type == "completed").all())
+            self.assertEqual(len(done), 1)
+        bells = [n for n in self._bells() if "Recurring" in (n.title or "")]
+        self.assertEqual([n.title for n in bells], ["2 Recurring Tasks Due"], "one bell for the batch")
+        # Again: already completed, nothing more is made.
+        self._bulk([a["id"], b["id"]], completed=True)
+        self.assertEqual(self.db.query(models.Task).count(), 4)
+
+    def test_one_recurring_task_reads_like_a_single_completion(self):
+        a = self._create(title="Payroll", due_on="2026-09-21", recurrence=dict(WEEKLY_MON), assignee_emails=[SAM])
+        self.db.query(models.TaskNotification).delete()
+        self.db.commit()
+        self._bulk([a["id"]], status="completed")
+        bells = [n for n in self._bells() if "Recurring" in (n.title or "")]
+        self.assertEqual([(n.title, n.body) for n in bells], [("Recurring Task Due", "Payroll (due 09/28/2026)")])
+
+    def test_a_non_recurring_task_behaves_as_before(self):
+        t = self._create(title="One-off", assignee_emails=[SAM])
+        self.db.query(models.TaskNotification).delete()
+        self.db.commit()
+        out = self._bulk([t["id"]], completed=True)
+        self.assertTrue(out[0]["completed"])
+        self.assertEqual(out[0]["status"], "completed")
+        self.assertEqual(self.db.query(models.Task).count(), 1)
+        self.assertEqual(self._bells(), [])
+        done = (self.db.query(models.TaskActivity)
+                .filter(models.TaskActivity.entity_id == t["id"], models.TaskActivity.type == "completed").count())
+        self.assertEqual(done, 1)
+
+    def test_a_blocked_task_refuses_the_whole_batch_and_nothing_rolls(self):
+        blocker = self._create(title="Blocker")
+        a = self._create(title="Payroll", due_on="2026-09-21", recurrence=dict(WEEKLY_MON))
+        held = self._create(title="Held", blocked_by_ids=[blocker["id"]])
+        with self.assertRaises(HTTPException):
+            self._bulk([a["id"], held["id"]], completed=True)
+        self.db.rollback()
+        self.assertFalse(self._row(a["id"]).completed)
+        self.assertEqual(self.db.query(models.Task).count(), 3)
 
 
 # ── 6. Delta drops what the caller can no longer see ─────────────────────────
