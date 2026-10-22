@@ -145,16 +145,16 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
 
         {/* Toolbar: Photo · Attachment · Scan text */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <button ref={photoBtnRef} title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)} style={iconBtn()}><ImageIcon size={20} /></button>
-          <button title="Attach file" aria-label="Attach file" onClick={() => attachRef.current?.click()} style={iconBtn()}><Paperclip size={20} /></button>
-          <button title="Scan text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()} style={iconBtn({ opacity: ocrBusy ? 0.5 : 1 })}><ScanText size={20} /></button>
+          <button ref={photoBtnRef} title="Add Photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)} style={iconBtn()}><ImageIcon size={20} /></button>
+          <button title="Attach File" aria-label="Attach File" onClick={() => attachRef.current?.click()} style={iconBtn()}><Paperclip size={20} /></button>
+          <button title="Scan Text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()} style={iconBtn({ opacity: ocrBusy ? 0.5 : 1 })}><ScanText size={20} /></button>
           {ocrBusy
             ? <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>
             : <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
           <AnchoredMenu anchorRef={photoBtnRef} open={photoMenu} onClose={() => setPhotoMenu(false)} minWidth={180}
             style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: 4 }}>
-            <button onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
-            <button onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
+            <button onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take Photo</button>
+            <button onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose From Device</button>
           </AnchoredMenu>
           {/* Hidden inputs - capture=environment opens the camera on mobile */}
           <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={addFiles} />

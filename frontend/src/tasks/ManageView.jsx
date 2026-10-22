@@ -17,7 +17,7 @@ import {
   NX, FONT, card, chip, btn, input as inputStyle,
   STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, colorForKey,
 } from './theme';
-import { Avatar, EmptyState, Modal, SearchSelect, ChipMultiSelect, PersonSelect, usePeople } from './components';
+import { Avatar, EmptyState, Modal, SearchSelect, ChipMultiSelect, PersonSelect, usePeople, DateField } from './components';
 import {
   TRIGGER_TYPES, ACTION_TYPES, CONDITION_FIELDS, CONDITION_OPS, MAX_CONDITIONS, MAX_ACTIONS,
   COMMENT_PLACEHOLDERS, ruleDraft, ruleProblem, defaultActionValue, describeRule,
@@ -1674,8 +1674,8 @@ function ExportExcelModal({ store, onClose }) {
         placeholder="Anyone" searchable emptyHint="Nobody is assigned a task yet." />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="Due From"><input type="date" value={dueFrom} onChange={(e) => setDueFrom(e.target.value)} style={inputStyle} /></Field>
-        <Field label="Due To"><input type="date" value={dueTo} onChange={(e) => setDueTo(e.target.value)} style={inputStyle} /></Field>
+        <Field label="Due From"><DateField value={dueFrom} onChange={(v) => setDueFrom(v || '')} placeholder="Any date" title="Due From" style={{ ...inputStyle, cursor: 'pointer' }} /></Field>
+        <Field label="Due To"><DateField value={dueTo} onChange={(v) => setDueTo(v || '')} placeholder="Any date" title="Due To" style={{ ...inputStyle, cursor: 'pointer' }} /></Field>
       </div>
 
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.ink, cursor: 'pointer' }}>

@@ -137,7 +137,7 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
       )}
       <button onClick={duplicate} title="Duplicate the selected tasks" style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Copy size={14} />Duplicate</button>
       <button onClick={() => { if (confirm(`Delete ${selected.size} task(s)?`)) { const ids = [...selected]; clearSel(); deleteSelectedTasks(store, ids).catch(() => {}); } }} style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Trash2 size={15} />Delete</button>
-      <button onClick={clearSel} title="Clear Selection" style={{ ...btn('ghost'), color: '#fff', padding: 5, flexShrink: 0 }}><X size={16} /></button>
+      <button onClick={clearSel} title="Clear Selection" aria-label="Clear Selection" style={{ ...btn('ghost'), color: '#fff', padding: 5, flexShrink: 0 }}><X size={16} /></button>
     </div>
   );
 }

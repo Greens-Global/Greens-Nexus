@@ -287,11 +287,11 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             scrolling, and a camera/scan shortcut is meaningless with a mouse. */}
         {isMobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto' }}>
-            <button ref={photoBtnRef} type="button" title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
+            <button ref={photoBtnRef} type="button" title="Add Photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><ImageIcon size={20} /></button>
-            <button type="button" title="Attach file" aria-label="Attach file" onClick={() => fileRef.current?.click()}
+            <button type="button" title="Attach File" aria-label="Attach File" onClick={() => fileRef.current?.click()}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Paperclip size={20} /></button>
-            <button type="button" title="Scan text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()}
+            <button type="button" title="Scan Text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim, opacity: ocrBusy ? 0.5 : 1 }}><ScanText size={20} /></button>
             {ocrBusy && <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>}
             {attachments.length > 0 && (
@@ -301,8 +301,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
                 the modal - and a tap outside now closes it. */}
             <AnchoredMenu anchorRef={photoBtnRef} open={photoMenu} onClose={() => setPhotoMenu(false)} minWidth={180}
               style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: 4 }}>
-              <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
-              <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
+              <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take Photo</button>
+              <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose From Device</button>
             </AnchoredMenu>
             {/* capture="environment" opens the rear camera on a phone. */}
             <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
@@ -570,7 +570,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
             {form.labels.map((l) => (
               <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: NX.border2, color: NX.dim, borderRadius: 6, padding: '3px 8px', fontSize: 12, fontWeight: 600 }}>
-                {l}<button onClick={() => set('labels', form.labels.filter((x) => x !== l))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 0 }}><X size={12} /></button>
+                {l}<button onClick={() => set('labels', form.labels.filter((x) => x !== l))} aria-label={`Remove label ${l}`} title="Remove Label" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 0 }}><X size={12} /></button>
               </span>
             ))}
             <input value={labelInput} onChange={(e) => setLabelInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addLabel(); } }} placeholder="Add label + Enter" style={{ ...input, width: 160, padding: '5px 9px', fontSize: 13 }} />
@@ -583,7 +583,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             {subtasks.map((s, i) => (
               <div key={s.id ?? `new-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 13 }}>
                 <CircleCheck size={15} style={{ color: NX.faint }} /><span style={{ flex: 1 }}>{s.title}</span>
-                <button onClick={() => setSubtasks((arr) => arr.filter((_, x) => x !== i))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={13} /></button>
+                <button onClick={() => setSubtasks((arr) => arr.filter((_, x) => x !== i))} aria-label={`Remove subtask ${s.title}`} title="Remove Subtask" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={13} /></button>
               </div>
             ))}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
@@ -600,10 +600,10 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             {attachments.map((f, i) => (
               <span key={`${f.name}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '3px 8px', fontSize: 12 }}>
                 <Paperclip size={12} /> {f.name}
-                <button onClick={() => setAttachments((arr) => arr.filter((_, x) => x !== i))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={12} /></button>
+                <button onClick={() => setAttachments((arr) => arr.filter((_, x) => x !== i))} aria-label={`Remove ${f.name}`} title="Remove File" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={12} /></button>
               </span>
             ))}
-            <button type="button" onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), fontSize: 12, padding: '6px 10px' }}><Paperclip size={13} /> Attach file</button>
+            <button type="button" onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), fontSize: 12, padding: '6px 10px' }}><Paperclip size={13} /> Attach File</button>
             <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
           </div>
         </div>

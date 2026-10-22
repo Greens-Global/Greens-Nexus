@@ -6,7 +6,7 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   Circle, CheckCircle2, MessageSquare, Diamond, Plus, Trash2, ChevronsLeft, ChevronsRight,
-  MoreHorizontal, Gauge, Rows3, ChevronDown, ListChecks,
+  MoreHorizontal, Gauge, Rows3, ChevronDown, ListChecks, ArrowRightLeft, Check,
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
 import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor } from '../lib';
@@ -245,8 +245,19 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     // when the whole board is already locked to one project).
     const proj = !lockedProjectId && t.projectId ? store.projects.find((p) => p.id === t.projectId) : null;
     const projColor = projectLook(proj, NX.purple).color;
+    // Keyboard path (Oct 21 2026): the card is focusable and Enter / Space
+    // opens it; its Move To menu changes the status without dragging. Keys
+    // pressed inside the card's own controls (the comment box, a button) are
+    // theirs, not the card's. A group, not role="button": a button's children
+    // are hidden from screen readers, and this card holds real buttons.
+    const onCardKey = (e) => {
+      if (e.target !== e.currentTarget) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(t.id); }
+    };
     return (
       <div key={t.id} draggable data-task-row data-flip={t.id}
+        role="group" aria-roledescription="task card" tabIndex={0} aria-keyshortcuts="Enter"
+        aria-label={`${t.title} - ${statusMeta(t.status).label}`} onKeyDown={onCardKey}
         onDragStart={() => { setDragId(t.id); setDragFrom(laneKey); }}
         onDragEnd={() => { setDragId(null); setDragFrom(null); }} onClick={() => onOpen(t.id)}
         onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.09)'; }}
@@ -259,8 +270,11 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
           )}
           {t.isMilestone && <Diamond size={11} style={{ color: NX.purple }} />}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
-            <button onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} onMouseDown={(e) => e.stopPropagation()} title="More Actions" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><MoreHorizontal size={15} /></button>
-            <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} onMouseDown={(e) => e.stopPropagation()} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}</button>
+            <MoveToMenu current={t.status} statuses={statuses} statusMeta={statusMeta} title={t.title}
+              onPick={(status) => { if (status !== t.status) Promise.resolve(store.setStatus(t.id, status)).catch(() => {}); }} />
+            <button onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} onMouseDown={(e) => e.stopPropagation()} title="More Actions" aria-label="More Actions" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><MoreHorizontal size={15} /></button>
+            <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} onMouseDown={(e) => e.stopPropagation()}
+              aria-label={t.completed ? 'Mark Incomplete' : 'Mark Complete'} title={t.completed ? 'Mark Incomplete' : 'Mark Complete'} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}</button>
           </div>
         </div>
         <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</div>
@@ -268,6 +282,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
           <PriorityChip priority={t.priority} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button onClick={(e) => { e.stopPropagation(); setDraft(''); setCommentError(''); setCommentOpenId((id) => (id === t.id ? null : t.id)); }} onMouseDown={(e) => e.stopPropagation()}
+              aria-label={t.commentIds?.length ? `Comments (${t.commentIds.length})` : 'Add Comment'} title={t.commentIds?.length ? `${t.commentIds.length} Comments` : 'Add Comment'}
               style={{ ...btn('ghost'), padding: 2, gap: 2, fontSize: 11, color: commentOpenId === t.id ? NX.blue : NX.faint }}>
               <MessageSquare size={11} />{t.commentIds?.length > 0 ? t.commentIds.length : ''}
             </button>
@@ -456,6 +471,50 @@ function AddSectionColumn({ addingSection, setAddingSection, sectionName, setSec
         <button onClick={() => setAddingSection(true)} style={{ ...btn('ghost'), justifyContent: 'flex-start', color: NX.faint, padding: '8px 8px' }}><Plus size={15} />Add Column</button>
       )}
     </div>
+  );
+}
+
+/** "Move To" on a board card: the status columns as a menu, so a card can
+ *  change column from the keyboard (or a screen reader) without a drag.
+ *  Arrow keys walk the list; Escape closes it back onto the button. */
+function MoveToMenu({ current, statuses, statusMeta, title, onPick }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const listKey = (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const items = [...e.currentTarget.querySelectorAll('button:not([disabled])')];
+    const i = items.indexOf(document.activeElement);
+    const next = items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+    next?.focus();
+  };
+  const stop = (e) => e.stopPropagation();
+  return (
+    <span onClick={stop} onMouseDown={stop} onKeyDown={stop} style={{ display: 'inline-flex' }}>
+      <button ref={ref} type="button" onClick={() => setOpen((o) => !o)} title="Move To" aria-label={`Move ${title} to another status`}
+        aria-haspopup="menu" aria-expanded={open} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}>
+        <ArrowRightLeft size={14} />
+      </button>
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} align="end" aria-label="Move To"
+        style={{ width: 200, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+        <div onKeyDown={listKey}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, padding: '4px 8px' }}>Move To</div>
+          {statuses.map((s, i) => {
+            const m = statusMeta(s);
+            const here = s === current;
+            return (
+              <button key={s} type="button" role="menuitem" disabled={here} autoFocus={i === (statuses[0] === current ? 1 : 0)}
+                onClick={() => { setOpen(false); onPick(s); ref.current?.focus(); }}
+                style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12.5, color: NX.ink, opacity: here ? 0.55 : 1, cursor: here ? 'default' : 'pointer' }}>
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
+                <span style={{ flex: 1, textAlign: 'left' }}>{m.label}</span>
+                {here && <Check size={13} style={{ color: NX.faint }} />}
+              </button>
+            );
+          })}
+        </div>
+      </AnchoredMenu>
+    </span>
   );
 }
 

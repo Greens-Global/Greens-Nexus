@@ -378,12 +378,37 @@ export function TasksProvider({ children }) {
     );
   }, [patchLocalTask]);
 
+  // People a create could not add (Oct 21 2026): POST /tasks and a template's
+  // use answer with droppedPeople - not in the Nexus directory, or no longer
+  // with the company. Said in ONE notice that collects every name dropped
+  // while it is up (a bulk duplicate is many creates), and the key is taken
+  // off the row before it is stored.
+  const [dropped, setDropped] = useState(null);   // [email]
+  const droppedTimer = useRef(null);
+  useEffect(() => () => clearTimeout(droppedTimer.current), []);
+  const noteDropped = useCallback((emails) => {
+    // The API sends [{email, reason, taskId}] (POST /tasks) - plain emails are
+    // accepted too, so either shape reads as a list of addresses.
+    const list = (Array.isArray(emails) ? emails : [])
+      .map((e) => String((e && typeof e === 'object' ? e.email : e) || '').toLowerCase()).filter(Boolean);
+    if (!list.length) return;
+    clearTimeout(droppedTimer.current);
+    setDropped((prev) => [...new Set([...(prev || []), ...list])]);
+    droppedTimer.current = setTimeout(() => setDropped(null), 12000);
+  }, []);
+  const takeDropped = useCallback((row) => {
+    if (!row || typeof row !== 'object' || !('droppedPeople' in row)) return row;
+    const { droppedPeople, ...rest } = row;
+    noteDropped(droppedPeople);
+    return rest;
+  }, [noteDropped]);
+
   // ── Task actions ─────────────────────────────────────────────────────────
   const createTask = useCallback(async (data) => {
-    const created = await api.createTask(toBody(data));
+    const created = takeDropped(await api.createTask(toBody(data)));
     setTasks((prev) => [created, ...prev]);
     return created;
-  }, []);
+  }, [takeDropped]);
 
   // The latest task list for the actions below, which need the row as it
   // was BEFORE an optimistic change without re-creating themselves on every
@@ -691,7 +716,10 @@ export function TasksProvider({ children }) {
     // A task made from a ticket (Oct 14 2026): the server links both sides in
     // one save and hands both back.
     createTaskFromTicket: async (id) => {
-      const r = await api.createTaskFromTicket(id);
+      // The create underneath is POST /tasks's, so a dropped person is said
+      // here too, wherever the server puts the list.
+      const top = takeDropped(await api.createTaskFromTicket(id));
+      const r = { ...top, task: takeDropped(top.task) };
       setTasks((p) => [r.task, ...p.filter((x) => x.id !== r.task.id)]);
       setTickets((p) => p.map((x) => (x.id === id ? r.ticket : x)));
       return r;
@@ -712,7 +740,7 @@ export function TasksProvider({ children }) {
     },
     // The main task comes back; its subtasks arrive with the refetch.
     startFromTemplate: async (id, data) => {
-      const r = await api.useTaskTemplate(id, toBody(data));
+      const r = takeDropped(await api.useTaskTemplate(id, toBody(data)));
       setTasks((p) => [r, ...p.filter((x) => x.id !== r.id)]);
       refetchTasks().catch(() => {});
       return r;
@@ -843,6 +871,19 @@ export function TasksProvider({ children }) {
   return (
     <Ctx.Provider value={value}>
       {children}
+      {/* People a create could not add - above the undo toast when both show. */}
+      {dropped?.length > 0 && (
+        <div role="status" data-testid="dropped-people" style={{
+          position: 'fixed', left: '50%', bottom: undo ? 84 : 24, transform: 'translateX(-50%)', zIndex: 6000,
+          display: 'flex', alignItems: 'center', gap: 12, background: '#1f2733', color: '#fff',
+          borderRadius: 10, padding: '11px 16px', boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
+          fontFamily: "'Inter', sans-serif", fontSize: 13, maxWidth: 'min(92vw, 560px)',
+        }}>
+          <span>Not added: {dropped.map((e) => nameOf(e) || e).join(', ')} - not in the Nexus directory or no longer with the company.</span>
+          <button type="button" onClick={() => { clearTimeout(droppedTimer.current); setDropped(null); }} aria-label="Dismiss" title="Dismiss"
+            style={{ border: 'none', background: 'none', color: '#cbd5e1', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 2, flexShrink: 0, fontFamily: 'inherit' }}>×</button>
+        </div>
+      )}
       {/* Undo toast - completes, deletes, and recurring rolls offer a 6s rescue. */}
       {undo && (
         <div style={{

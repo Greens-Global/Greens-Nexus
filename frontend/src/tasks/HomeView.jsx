@@ -30,10 +30,10 @@ const WIDGET_META = [
   // saved dashboard layout stores, and renaming it would drop the widget off
   // everyone's Home rather than change what it shows.
   { key: 'projects', label: 'Bookmarks' },
-  { key: 'urgent', label: 'Urgent tasks' },
-  { key: 'activity', label: 'Completed this week' },
-  { key: 'week', label: 'Week ahead' },
-  { key: 'priorities', label: 'By priority' },
+  { key: 'urgent', label: 'Urgent Tasks' },
+  { key: 'activity', label: 'Completed This Week' },
+  { key: 'week', label: 'Week Ahead' },
+  { key: 'priorities', label: 'By Priority' },
   { key: 'teams', label: 'Teams' },
   { key: 'team_members', label: 'Team Members' },
   { key: 'notifications', label: 'Notifications' },
@@ -400,7 +400,7 @@ export default function HomeView({ onNavigate }) {
             <Circle size={16} style={{ color: NX.faint, flexShrink: 0 }} />
             <input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }} onBlur={() => commitCreate(false)} placeholder="Write a task name" className="nx-inline-edit" style={{ flex: 1, minWidth: 0, border: 'none', fontFamily: FONT, fontSize: 13, color: NX.ink }} />
             {newDue && <span style={{ fontSize: 12, fontWeight: 500, color: dueColor(newDue, false) }}>{fmtUS(newDue)}</span>}
-            <button onMouseDown={(e) => { e.preventDefault(); dateRef.current?.showPicker?.() ?? dateRef.current?.focus(); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Set due date"><CalendarDays size={16} /></button>
+            <button onMouseDown={(e) => { e.preventDefault(); dateRef.current?.showPicker?.() ?? dateRef.current?.focus(); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Set Due Date"><CalendarDays size={16} /></button>
             <input ref={dateRef} type="date" value={newDue ?? ''} min={localTodayISO()} onChange={(e) => setNewDue(notPast(e.target.value) || null)} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
             <button onMouseDown={(e) => { e.preventDefault(); commitCreate(true); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Details"><ChevronRight size={16} /></button>
           </div>
@@ -421,7 +421,7 @@ export default function HomeView({ onNavigate }) {
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {shown.map((t) => (
               <div key={t.id} data-task-row onClick={() => setOpenId(t.id)} className="nx-row-hover" style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 6px', margin: '0 -6px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
-                <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}</button>
+                <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} aria-label={t.completed ? 'Mark Incomplete' : 'Mark Complete'} title={t.completed ? 'Mark Incomplete' : 'Mark Complete'} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}</button>
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
                 {t.dueOn && <span style={{ fontSize: 12, fontWeight: 600, color: dueColor(t.dueOn, t.completed) }}>{fmtUS(t.dueOn)}</span>}
               </div>
@@ -686,7 +686,7 @@ export default function HomeView({ onNavigate }) {
             <button onClick={() => { setCustomizing(false); setDragKey(null); setOverKey(null); }} style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap' }}><Check size={14} /> Done</button>
           </>
         ) : (
-          <button onClick={() => setCustomizing(true)} title="Customize widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><SlidersHorizontal size={14} /> Customize</button>
+          <button onClick={() => setCustomizing(true)} title="Customize Widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><SlidersHorizontal size={14} /> Customize</button>
         ),
         barSlot,
       )}
@@ -831,7 +831,7 @@ export default function HomeView({ onNavigate }) {
             {customizing && (
               <div style={{ position: 'absolute', top: -12, right: 6, zIndex: 5, display: 'flex', gap: 4 }}>
                 <span title="Drag to rearrange" style={{ width: 26, height: 26, borderRadius: '50%', border: `1px solid ${NX.border}`, background: NX.surface, color: NX.faint, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.12)', cursor: 'grab' }}><GripVertical size={14} /></span>
-                <button onClick={() => persist(widgets.filter((k) => k !== key))} title="Remove widget"
+                <button onClick={() => persist(widgets.filter((k) => k !== key))} title="Remove Widget"
                   style={{ width: 26, height: 26, borderRadius: '50%', border: `1px solid ${NX.border}`, background: NX.surface, color: NX.dim, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.12)', cursor: 'pointer' }}><X size={14} /></button>
               </div>
             )}

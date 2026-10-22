@@ -47,6 +47,10 @@ import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const VIEW_ONLY_TITLE = 'You can view this task but not change it';
+// An approval state as a Title Case chip ("changes_requested" -> "Changes Requested").
+const APPROVAL_LABELS = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected', changes_requested: 'Changes Requested' };
+const approvalLabel = (s) => APPROVAL_LABELS[s]
+  || String(s || '').split('_').filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
 
 /** The task's fields, read-only for someone below editor on its project: a
  *  disabled fieldset turns every button, input and select inside it off at
@@ -474,7 +478,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   <MenuItem icon={<Ticket size={14} />} onClick={() => { setConverting(true); close(); }}>Convert to Ticket</MenuItem>
                   {canEdit && <MenuItem icon={<LayoutTemplate size={14} />} onClick={() => { close(); setSavingTemplate(true); }}>Save as Template</MenuItem>}
                   {canEdit && <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
-                    {task.isMilestone ? 'Unmark milestone' : 'Mark as milestone'}
+                    {task.isMilestone ? 'Unmark Milestone' : 'Mark as Milestone'}
                   </MenuItem>}
                   {canEdit && <MenuItem danger icon={<Trash2 size={14} />} onClick={() => {
                     close();
@@ -885,21 +889,26 @@ function ShareModal({ task, people, nameOf, patch, onClose }) {
   const level = task.accessLevel || 'org';
   const followers = task.followerIds || [];
   const [copied, setCopied] = useState(false);
+  // A phone gets the full-screen sheet; elsewhere the 60% popup (.nx-popup).
+  const isMobile = useIsMobile();
   const copy = () => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); setCopied(true); setTimeout(() => setCopied(false), 1500); };
   const OPTS = [
     { key: 'org', icon: Globe, label: 'Everyone in your organization', desc: 'Any organization member can find and access this task.' },
     { key: 'restricted', icon: Lock, label: 'Members of this task and connected projects', desc: 'Only invited members and members of connected projects can access.' },
   ];
   return createPortal(
-    <div className="nx-tasks-portal" onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 5000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '9vh 16px', fontFamily: FONT }}>
-      <div className="nx-popup" style={{ background: NX.surface, borderRadius: 14, boxShadow: '0 24px 60px rgba(0,0,0,0.28)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 20px', borderBottom: `1px solid ${NX.border}` }}>
+    <div className="nx-tasks-portal" onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 5000, display: 'flex', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'center', padding: isMobile ? 0 : '16px', fontFamily: FONT }}>
+      {/* A flex column: header and footer stay put, the body (.nx-fill) takes
+          the rest of the 60vh and scrolls - no short form over an empty half. */}
+      <div className="nx-popup" role="dialog" aria-modal="true" aria-label={`Share ${task.title}`}
+        style={{ background: NX.surface, borderRadius: isMobile ? 0 : 14, boxShadow: '0 24px 60px rgba(0,0,0,0.28)', display: 'flex', flexDirection: 'column', overflow: 'hidden', ...(isMobile ? { height: '100%', maxHeight: '100%' } : null) }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 20px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>Share “{task.title}”</div>
-          <button onClick={onClose} style={{ ...btn('ghost'), padding: 6 }}><X size={18} /></button>
+          <button onClick={onClose} aria-label="Close" title="Close" style={{ ...btn('ghost'), padding: 6 }}><X size={18} /></button>
         </div>
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="nx-fill nx-scroll" style={{ padding: 20, gap: 16, overflowY: 'auto' }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Who has access</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Who Has Access</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {OPTS.map((o) => (
                 <button key={o.key} onClick={() => patch({ accessLevel: o.key })} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 12, borderRadius: 10, border: `1px solid ${level === o.key ? NX.blue : NX.border}`, background: level === o.key ? 'rgba(37,99,235,0.10)' : NX.surface, cursor: 'pointer', fontFamily: FONT }}>
@@ -922,8 +931,8 @@ function ShareModal({ task, people, nameOf, patch, onClose }) {
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 20px', borderTop: `1px solid ${NX.border}` }}>
-          <button onClick={copy} style={btn('outline')}><Link2 size={14} /> {copied ? 'Copied!' : 'Copy link'}</button>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: isMobile ? '12px 16px calc(12px + env(safe-area-inset-bottom))' : '13px 20px', borderTop: `1px solid ${NX.border}`, flexShrink: 0 }}>
+          <button onClick={copy} style={btn('outline')}><Link2 size={14} /> {copied ? 'Copied!' : 'Copy Link'}</button>
           <button onClick={onClose} style={btn('primary')}>Done</button>
         </div>
       </div>
@@ -1291,7 +1300,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 10px', fontSize: 12, color: NX.ink }}>
                   <CheckCircle2 size={13} style={{ color: NX.faint }} />
                   {b.title}{b.dueOn ? ` · ${fmtDate(b.dueOn)}` : ''}
-                  <button onClick={() => removeDependency(b.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
+                  <button onClick={() => removeDependency(b.id)} aria-label={`Remove dependency on ${b.title}`} title="Remove Dependency" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
                 </span>
               </div>
             );
@@ -1610,12 +1619,12 @@ function DescriptionInput({ task, value, onCommit, refresh }) {
 function Approval({ task, patch }) {
   const s = task.approvalStatus || 'none';
   if (s === 'none') {
-    return <button onClick={() => patch({ approvalStatus: 'pending' })} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12 }}><ShieldCheck size={13} /> Request approval</button>;
+    return <button onClick={() => patch({ approvalStatus: 'pending' })} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12 }}><ShieldCheck size={13} /> Request Approval</button>;
   }
   const color = s === 'approved' ? NX.green : s === 'rejected' ? NX.red : NX.amber;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-      <Chip color={color} tint={NX.border2}>{s.replace('_', ' ')}</Chip>
+      <Chip color={color} tint={NX.border2}>{approvalLabel(s)}</Chip>
       <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         <button onClick={() => patch({ approvalStatus: 'approved' })} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.green }}><ThumbsUp size={13} /> Approve</button>
         <button onClick={() => patch({ approvalStatus: 'changes_requested' })} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.amber }}><RotateCcw size={13} /> Changes</button>
@@ -1645,7 +1654,7 @@ function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment
     <section style={{ borderTop: `1px solid ${NX.border}`, marginTop: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 18, borderBottom: `1px solid ${NX.border}`, marginBottom: 12 }}>
         {tab('comments', 'Comments')}
-        {tab('activity', 'All activity')}
+        {tab('activity', 'All Activity')}
       </div>
       {view === 'comments'
         ? <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusComment} canComment={canComment} canPin={canPin} />
@@ -1853,7 +1862,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
       {canAttach && (
         <>
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
-          <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach file</button>
+          <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach File</button>
           <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot</span>
         </>
       )}
@@ -2088,7 +2097,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
                 <GripVertical size={14} />
               </button>
             )}
-            <button onClick={(e) => { e.stopPropagation(); updateTask(s.id, { completed: !s.completed }); }} disabled={!rowEditable(s)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 0 }}>
+            <button onClick={(e) => { e.stopPropagation(); updateTask(s.id, { completed: !s.completed }); }} disabled={!rowEditable(s)} aria-label={s.completed ? 'Mark Incomplete' : 'Mark Complete'} title={s.completed ? 'Mark Incomplete' : 'Mark Complete'} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 0 }}>
               {s.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
             </button>
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: s.completed ? NX.faint : NX.ink, textDecoration: s.completed ? 'line-through' : 'none' }}>{s.title}</span>
@@ -2151,7 +2160,7 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency, readOnly
       <Link2 size={13} style={{ color }} />
       <span style={{ flex: 1, color: NX.ink }}>{b.title}</span>
       {b.dependencyType && DEP_TYPES[b.dependencyType] && <span style={{ color: NX.faint }}>{b.dependencyType}</span>}
-      {canRemove && <button onClick={() => removeDependency(b.id)} style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={13} /></button>}
+      {canRemove && <button onClick={() => removeDependency(b.id)} aria-label={`Remove dependency on ${b.title}`} title="Remove Dependency" style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={13} /></button>}
     </div>
   );
   return (
@@ -2244,7 +2253,7 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
       ['Actual', task.actualHours != null ? fmtHours(task.actualHours) : '-'],
     ] : []),
     ['Milestone', task.isMilestone ? 'Yes' : 'No'],
-    ['Approval', !task.approvalStatus || task.approvalStatus === 'none' ? '-' : task.approvalStatus.replace('_', ' ')],
+    ['Approval', !task.approvalStatus || task.approvalStatus === 'none' ? '-' : approvalLabel(task.approvalStatus)],
     ['Recurrence', recurrenceLabel(task.recurrence)],
     ['Created', fmtDate(task.createdAt)],
     ['Modified', fmtDate(task.modifiedAt)],
@@ -2288,7 +2297,7 @@ function LabelsEditor({ tags, onChange }) {
       {tags.map((t) => (
         <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: NX.dim, background: NX.border2 }}>
           {t}
-          <button onClick={() => onChange(tags.filter((x) => x !== t))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={11} /></button>
+          <button onClick={() => onChange(tags.filter((x) => x !== t))} aria-label={`Remove label ${t}`} title="Remove Label" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={11} /></button>
         </span>
       ))}
       <input className="nx-inline-edit" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} onBlur={add}
@@ -2357,8 +2366,17 @@ export function CustomFieldInput({ field, value, onChange }) {
         style={{ width: 16, height: 16, cursor: 'pointer' }} />
     );
   }
+  // A date field is the shared DateField (Oct 21 2026), never a native date
+  // box - that one shows the computer's region format (20-10-2026).
+  if (field.type === 'date') {
+    return (
+      <DateField value={typeof v === 'string' ? v : ''} placeholder="-" title={field.name || 'Set date'}
+        onChange={(d) => { setV(d || ''); onChange(d || ''); }}
+        style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '6px 9px', fontSize: 13, cursor: 'pointer' }} />
+    );
+  }
   return (
-    <input type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} value={v}
+    <input type={field.type === 'number' ? 'number' : 'text'} value={v}
       onChange={(e) => setV(e.target.value)} onBlur={() => onChange(v)}
       style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '6px 9px', fontSize: 13 }} />
   );

@@ -11,7 +11,7 @@ import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import { dialog } from '../ui/dialog';
 import { NX, FONT, btn, input as inputStyle } from './theme';
-import { Avatar, localTodayISO } from './components';
+import { Avatar, DateField, localTodayISO } from './components';
 import { fmtDate, fmtHours, fmtMinutes, fmtElapsed } from './lib';
 
 /** Ticks once a second while `startedAt` is set. */
@@ -135,7 +135,7 @@ export default function TimeTracking({ task, canLog = true }) {
             style={{ ...inputStyle, width: 56, padding: '6px 8px', fontSize: 12 }} />
           <input value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addManual()} placeholder="Note (optional)" aria-label="Note"
             style={{ ...inputStyle, flex: 1, minWidth: 120, padding: '6px 8px', fontSize: 12 }} />
-          <input type="date" value={on} max={localTodayISO()} onChange={(e) => setOn(e.target.value || localTodayISO())} aria-label="Day"
+          <DateField value={on} max={localTodayISO()} onChange={(v) => setOn(v && v <= localTodayISO() ? v : localTodayISO())} title="Day"
             style={{ ...inputStyle, width: 140, padding: '6px 8px', fontSize: 12 }} />
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: NX.dim, whiteSpace: 'nowrap' }}>
             <input type="checkbox" checked={billable} onChange={(e) => setBillable(e.target.checked)} /> Billable
