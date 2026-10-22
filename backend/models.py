@@ -8025,3 +8025,22 @@ class KbReminderLog(Base):
     recipient  = Column(String, default="", index=True)
     day        = Column(String, default="")
     created_at = Column(String, default="")
+
+
+class TimecardBonus(Base):
+    """A bonus on one person's pay period (Neil, Oct 22 2026): a manager or HR
+    writes why and how much; it adds to the period's pay, prints on the Time
+    Sheet the employee signs and on a contractor's invoice. `date` is a day
+    inside the period it pays in (the period start when added), so it lands on
+    a bi-weekly or a monthly card alike. Removing one stamps removed_* - the
+    row stays as the record."""
+    __tablename__ = "timecard_bonuses"
+    id             = Column(String, primary_key=True)
+    employee_email = Column(String, index=True, nullable=False)
+    date           = Column(String, index=True, nullable=False)   # YYYY-MM-DD
+    description    = Column(String, default="")
+    amount         = Column(Float, default=0.0)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    removed_by     = Column(String, default="")
+    removed_at     = Column(String, default="")

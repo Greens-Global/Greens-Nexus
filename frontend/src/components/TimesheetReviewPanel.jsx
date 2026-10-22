@@ -302,7 +302,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
       </>
     ) : (
       <p style={{ fontSize: 13, margin: 0 }}>
-        Approved by {name(r.agreedBy) || mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. HR changed the hours since, so it is waiting for {name(r.employeeEmail) || 'the employee'} to sign the updated time sheet.
+        Approved by {name(r.agreedBy) || mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. HR changed the time sheet since, so it is waiting for {name(r.employeeEmail) || 'the employee'} to sign the updated time sheet.
       </p>
     );
   }

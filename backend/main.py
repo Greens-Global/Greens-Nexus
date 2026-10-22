@@ -2921,6 +2921,9 @@ def _run_migrations():
         # Tasks conditional row colors (Oct 22 2026): a project's ordered color
         # rules, models.TaskProject.color_rules. Additive; [] = no colors.
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS color_rules JSONB DEFAULT '[]'::jsonb",
+        # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
+        # the _enable_rls_everywhere sweep. models.TimecardBonus.
+        "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

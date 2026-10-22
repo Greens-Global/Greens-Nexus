@@ -230,6 +230,12 @@ def fingerprint(db: Session, email: str, start: str, end: str) -> str:
     prem = ca_breaks.premium_rows(db, email, start, end)
     if prem:
         body += sorted(["prem", p.id, p.local_date, p.kind] for p in prem)
+    # Bonuses change the pay the employee signs for (Oct 22) - only a card
+    # that has one adds them, so every other fingerprint is unchanged.
+    from routers.timeclock import _bonus_rows
+    bonuses = _bonus_rows(db, email, start, end)
+    if bonuses:
+        body += sorted(["bonus", b.id, b.amount] for b in bonuses)
     return hashlib.sha256(json.dumps(body).encode()).hexdigest()
 
 
@@ -308,7 +314,7 @@ def review_covering(db: Session, email: str, local_date: str) -> TimesheetReview
 
 
 def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
-               employee_request: bool = False, dry_run: bool = False) -> None:
+               employee_request: bool = False, dry_run: bool = False, what: str = "") -> None:
     """Called by every route that changes hours, BEFORE the change. One side at
     a time during review.
 
@@ -322,7 +328,9 @@ def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
     changing a timesheet the manager already approved - or one out for the
     employee's signature - reopens it: back with the manager to approve again
     (reopen). `dry_run` only answers whether the change may go ahead (the Add
-    Time screen's lock check), changing nothing."""
+    Time screen's lock check), changing nothing. `what`: the change in words
+    for the notices and the approval log ("added a bonus: ...", Oct 22) -
+    default "changed the hours"."""
     email = (email or "").lower()
     actor = (actor_email or "").lower()
     r = review_covering(db, email, (local_date or "")[:10])
@@ -331,7 +339,7 @@ def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
     is_employee = actor == email
     if not is_employee and is_hr(db, actor, email):
         if not dry_run:
-            _hr_override(db, r, actor)
+            _hr_override(db, r, actor, what)
         return
     if in_correction(r):
         # Neil, Oct 22: "supervisor shouldn't be the one making a change like
@@ -340,7 +348,7 @@ def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
                                  f"{display_name(db, email)} signs it again.")
     if r.status in ("approved", "signing"):
         if not dry_run:
-            reopen(db, r, actor, "asked for a change" if (is_employee or employee_request) else "changed the hours")
+            reopen(db, r, actor, what or ("asked for a change" if (is_employee or employee_request) else "changed the hours"))
         return
     if employee_request:
         return
@@ -476,7 +484,8 @@ def _hr_override(db: Session, r: TimesheetReview, actor: str, note: str = "") ->
     was_signing = r.status == "signing"
     r.agreed_fingerprint = ""        # the approved version now includes HR's edit
     last = (r.rounds or [{}])[-1] if r.rounds else {}
-    if not was_signing and last.get("action") == "hr_edited" and last.get("by") == actor:
+    if (not was_signing and last.get("action") == "hr_edited" and last.get("by") == actor
+            and (last.get("note") or "") == (note or "")):   # a bonus gets its own line
         return       # one line (and one notice) per HR pass, not one per punch
     if was_signing:
         _void_envelope(db, r, actor, "HR changed the hours")
@@ -1394,6 +1403,8 @@ def approval_history(db: Session, r: TimesheetReview, offset: int = 0) -> list:
     out = []
     for e in (r.rounds or []):
         step = _HISTORY_STEPS.get(e.get("action"))
+        if e.get("action") == "hr_edited" and e.get("note"):
+            step = "Changed by HR"   # the note says what - a bonus is not hours (Oct 22)
         if not step:
             continue
         out.append({"step": step, "by": _who(db, e), "when": us_datetime(e.get("at", ""), offset),
@@ -1426,6 +1437,8 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
     out = []
     for e in rounds[start:]:
         w = words.get(e.get("action"))
+        if e.get("action") == "hr_edited" and e.get("note"):
+            w = "Changed by {who} (HR) on {when}"     # the note says what - a bonus is not hours (Oct 22)
         if w:
             line = w.format(who=_who(db, e), when=us_datetime(e.get("at", ""), offset))
             if e.get("note"):

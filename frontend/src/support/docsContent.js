@@ -1585,6 +1585,17 @@ export const DOCS = [
         ],
       },
       {
+        title: 'Add a Bonus to a Time Sheet',
+        steps: [
+          'Open their time sheet in People > Time for the pay period the bonus belongs to.',
+          'In the Bonus section at the bottom, write what the bonus is for and the amount, then click Add Bonus.',
+          'Each bonus is its own line in the pay summary and is added to the total. It prints on the Time Sheet the employee signs and on a contractor\'s invoice.',
+          'The employee is notified at once with the amount, and sees the bonus on their own Time Sheet (Workday > Time Sheet) - what it is for, who added it and when.',
+          'If the time sheet was already approved or sent to sign, adding or removing a bonus cancels that signing request. Added by the manager, it comes back to the manager to approve again; added by HR, the employee is asked to sign the updated time sheet. Either way the employee signs a copy that shows the bonus.',
+          'A bonus cannot be added or removed on your own Time Sheet, or on a period that is already signed and finalized - add it on the current pay period, or ask HR to unlock that one (the employee then signs it again).',
+        ],
+      },
+      {
         title: 'Add Time for Someone',
         steps: [
           'Open their time sheet in People > Time and click Add Time (or Add Time beside a person in the Action Log).',

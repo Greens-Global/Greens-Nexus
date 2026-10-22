@@ -237,7 +237,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
                     {formatDate(s.periodStart)} - {formatDate(s.periodEnd)}
                     {s.agreedBy ? ` · agreed by ${s.agreedBy}${s.agreedAt ? ` on ${formatDate(s.agreedAt)}` : ''}` : ''}
                     {` · you sign ${ROLE_WORD[s.role] || ''}`.replace(/ $/, '')}
-                    {s.needsResign ? ' · HR changed the hours - sign the updated time sheet' : ''}
+                    {s.needsResign ? ' · HR changed your time sheet - sign the updated one' : ''}
                   </div>
                   </div>
                 </div>

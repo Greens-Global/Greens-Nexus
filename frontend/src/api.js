@@ -2578,6 +2578,9 @@ export const api = {
   timesheetBreakClaim:   (rid, data) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-claim`, { method: 'POST', body: JSON.stringify(data) }),
   breakPremiumAdd:       (data) => req('/ca-breaks/premiums', { method: 'POST', body: JSON.stringify(data) }),
   breakPremiumRemove:    (id, reason) => req(`/ca-breaks/premiums/${encodeURIComponent(id)}/remove`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  // Time Sheet bonuses (Neil, Oct 22): { email, date, description, amount }
+  timecardBonusAdd:      (data) => req('/timeclock/bonuses', { method: 'POST', body: JSON.stringify(data) }),
+  timecardBonusRemove:   (id) => req(`/timeclock/bonuses/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   mealWaiver:            (email) => req(`/ca-breaks/waiver?email=${encodeURIComponent(email || '')}`),
   mealWaiverSend:        (email) => req('/ca-breaks/waiver/send', { method: 'POST', body: JSON.stringify({ email }) }),
   mealWaiverRevoke:      (email, note) => req('/ca-breaks/waiver/revoke', { method: 'POST', body: JSON.stringify({ email, note }) }),

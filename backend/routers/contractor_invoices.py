@@ -172,7 +172,11 @@ def draft_for(db: Session, email: str, final_row) -> Optional[ContractorInvoice]
         invoice_date=date.today().isoformat(), currency=currency, amount=round(amount, 2),
         hours=hours, rate=rate, description=(contractor.get("invoice_description") or "Services").strip(),
         status="draft", final_approval_id=final_row.id, created_at=_now(), sent_to=[])
-    inv.snapshot = _snapshot(emp, ent, inv)
+    snap_out = _snapshot(emp, ent, inv)
+    # Bonuses on the period (Neil, Oct 22) are in `amount`; each prints as its own line.
+    snap_out["bonuses"] = [{"description": b.description or "", "amount": round(float(b.amount or 0), 2)}
+                           for b in tc._bonus_rows(db, email, final_row.period_start, final_row.period_end)]
+    inv.snapshot = snap_out
     db.add(inv)
     _bell(db, emp, ent, inv)
     return inv
@@ -298,12 +302,18 @@ def render_pdf(snap: dict) -> bytes:
         desc += (f"<br/><font color='#6b6b75' size='8'>{float(snap['hours']):,.2f} hours x "
                  f"{esc(_money(snap['rate'], cur, rupee_ok))} per hour</font>")
     total = _money(snap.get("amount", 0), cur, rupee_ok)
+    bonuses = snap.get("bonuses") or []
+    services = float(snap.get("amount") or 0) - sum(float(b.get("amount") or 0) for b in bonuses)
+    lines = [[Paragraph(desc, S), Paragraph(esc(_money(services, cur, rupee_ok)), R)]]
+    lines += [[Paragraph(f"Bonus: {esc(b.get('description') or '')}", S),
+               Paragraph(esc(_money(b.get("amount", 0), cur, rupee_ok)), R)] for b in bonuses]
+    n = len(lines)
     items = Table([[Paragraph("DESCRIPTION", LBL), Paragraph("AMOUNT", ParagraphStyle("lr", parent=LBL, alignment=2))],
-                   [Paragraph(desc, S), Paragraph(esc(total), R)],
+                   *lines,
                    [Paragraph("TOTAL", RB), Paragraph(esc(total), RB)]],
                   colWidths=[W - 140, 140])
-    items.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, 0), 0.8, ink), ("LINEBELOW", (0, 1), (-1, 1), 0.5, line),
-                               ("LINEBELOW", (0, 2), (-1, 2), 0.8, ink), ("TOPPADDING", (0, 0), (-1, -1), 7),
+    items.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, 0), 0.8, ink), ("LINEBELOW", (0, 1), (-1, n), 0.5, line),
+                               ("LINEBELOW", (0, n + 1), (-1, n + 1), 0.8, ink), ("TOPPADDING", (0, 0), (-1, -1), 7),
                                ("BOTTOMPADDING", (0, 0), (-1, -1), 7), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                                ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
 
