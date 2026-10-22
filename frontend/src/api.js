@@ -2818,6 +2818,24 @@ export const api = {
   }))),
   kbCorpusCourses: () => req("/kb/courses").then((rows) => (rows || []).map((c) => ({ ...c, course_code: c.code, overview: [] }))),
 
+  // Workplace Notices (Neil, Oct 21 2026): People > Notices (HR library, two-person approval).
+  noticesLibrary:        ()          => req('/notices/library'),
+  noticeDetail:          (id)        => req(`/notices/notice/${encodeURIComponent(id)}`),
+  createNotice:          (body)      => req('/notices/notice', { method: 'POST', body: JSON.stringify(body) }),
+  updateNotice:          (id, body)  => req(`/notices/notice/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  retireNotice:          (id, reason) => req(`/notices/notice/${encodeURIComponent(id)}/retire`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  createNoticeVersion:   (id, body)  => req(`/notices/notice/${encodeURIComponent(id)}/versions`, { method: 'POST', body: JSON.stringify(body) }),
+  updateNoticeVersion:   (vid, body) => req(`/notices/versions/${vid}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  uploadNoticeFile:      (vid, form) => req(`/notices/versions/${vid}/files`, { method: 'POST', body: form }),
+  removeNoticeFile:      (vid, lang) => req(`/notices/versions/${vid}/files/remove`, { method: 'POST', body: JSON.stringify({ lang }) }),
+  noticeFile:            (vid, lang = 'en') => reqBlob(`/notices/versions/${vid}/file?lang=${encodeURIComponent(lang)}`),   // bearer-authenticated, so a blob
+  submitNoticeVersion:   (vid)       => req(`/notices/versions/${vid}/submit`, { method: 'POST' }),
+  reviewNoticeVersion:   (vid, body) => req(`/notices/versions/${vid}/review`, { method: 'POST', body: JSON.stringify(body) }),
+  withdrawNoticeVersion: (vid, reason) => req(`/notices/versions/${vid}/withdraw`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  noticeSettings:        ()          => req('/notices/settings'),
+  saveNoticeSettings:    (body)      => req('/notices/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  placeNoticePerson:     (email, body) => req(`/notices/person/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  noticeEvents:          ()          => req('/notices/events'),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

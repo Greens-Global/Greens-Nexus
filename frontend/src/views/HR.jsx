@@ -16,7 +16,7 @@ import {
   Building2, Trash2, MapPinned, Wallet, Receipt, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
-  ListChecks, RefreshCw, Video, Hourglass,
+  ListChecks, RefreshCw, Video, Hourglass, ScrollText,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -33,6 +33,7 @@ import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
 import LeaveBalancesAdmin from '../components/LeaveBalances';
+import NoticesAdmin from '../notices/NoticesAdmin';
 import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -6001,7 +6002,7 @@ export default function HR({ activeSub, onSubChange }) {
   const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions', 'hr-time-invoices': 'invoices' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists', 'hr-notices'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -6290,6 +6291,8 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
     { key: 'hr-checklists', label: 'Checklists', Icon: ListChecks },
+    // Workplace Notices + Employee Manual (Neil, Oct 21 2026): the library and its two-person approval.
+    { key: 'hr-notices', label: 'Notices', Icon: ScrollText },
     // The External tab is gone (Neil, Aug 24): external/guest people live in
     // the People directory with a worker-type filter, and their lifecycle
     // actions sit on their profile card.
@@ -6391,6 +6394,7 @@ export default function HR({ activeSub, onSubChange }) {
       {/* Approval Delegations (Oct 17): HR sees and sets everyone's stand-ins. */}
       {sub === 'hr-leave' && <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-notices' && <NoticesAdmin toastOk={toastOk} toastErr={toastErr} />}
       {/* Operations only (Neil, Oct 19: "once it's set up, we should be just
           operating it") - the steps are set up in Settings. */}
       {sub === 'hr-checklists' && (

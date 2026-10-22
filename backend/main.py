@@ -4422,3 +4422,5 @@ from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
 app.include_router(ops_customer_map_router.router)  # Operations > Customer Map: current customers around each facility, with rings (Neil, Oct 21 2026)
 from routers import contractor_invoices as contractor_invoices_router  # noqa: E402
 app.include_router(contractor_invoices_router.router)  # Contractor invoices: drafted at Time Sheet finalize, HR approves and sends the PDF (Pranshu + Neil, Oct 21 2026)
+from routers import notices as notices_router  # noqa: E402
+app.include_router(notices_router.router)          # People > Notices + Workday > Workplace Notices: per-state posters, the manual, two-person approval (Neil, 10/21)
