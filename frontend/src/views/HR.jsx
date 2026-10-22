@@ -5,6 +5,7 @@ import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus,
 import PacketReview from '../components/PacketReview';
 import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
+import MailboxExportResult from '../components/MailboxExportResult';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
@@ -1896,7 +1897,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           if (ev.applyStatus === 'applied') onEmployeeUpdated?.({ ...e, status: 'offboarded' });
           else onReload?.();
           const m = ev.result?.m365 || {};
-          const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.error && `M365 issue: ${m.error}`].filter(Boolean).join(', ');
+          const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.export && 'mailbox export started - download it from the Documents tab once it is ready', m.error && `M365 issue: ${m.error}`].filter(Boolean).join(', ');
           toastOk(ev.applyStatus === 'applied'
             ? `${e.firstName} is offboarded${extra ? ` - ${extra}` : ''}.`
             : `Offboarding scheduled - last day ${usDay(ev.effectiveDate)}, Nexus marks them Left the morning after.`);
@@ -2067,6 +2068,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 <EgnytePersonFolder email={e.workEmail} personName={fullName(e)} />
               </div>
             )}
+            {/* Started only from Offboard / Change Status; here is just the result. */}
+            <MailboxExportResult employeeId={e.id} toastErr={toastErr} />
           </>
         )}
       </div>
@@ -5005,7 +5008,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
       if (m?.sessions) bits.push(`M365 sessions ${m.sessions}`);
       if (m?.nexusSessions) bits.push(`logged out of Nexus on ${m.nexusSessions} device${m.nexusSessions === 1 ? '' : 's'}`);
       if (m?.licenses) bits.push(`license ${m.licenses}`);
-      if (m?.export) bits.push('mailbox export started');
+      if (m?.export) bits.push('mailbox export started - download it from the Documents tab once it is ready');
       if (m?.error) bits.push(`M365 issue: ${m.error}`);
       const it = saved.items;
       const ho = saved.handover;
