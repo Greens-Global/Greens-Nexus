@@ -4269,8 +4269,12 @@ def _lock_task_files(db: Session, t: models.Task) -> None:
     _lock_task_rows(db, [t.id])
     try:
         db.refresh(t)
-    except InvalidRequestError:        # trashed or purged while we waited
+    except InvalidRequestError:        # purged while we waited
         raise HTTPException(404, "Task not found")
+    # Trashed while we waited: refresh reads the row whatever its deleted_at
+    # (the soft-delete filter is not applied to it), so check it here.
+    if t.deleted_at:
+        raise HTTPException(409, "This task is in the Trash. Restore it to change its files.")
 
 
 def _attachment_and_task(db: Session, attachment_id: str):

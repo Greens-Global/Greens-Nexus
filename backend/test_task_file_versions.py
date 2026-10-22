@@ -435,6 +435,35 @@ class RaceTests(Base):
         self.assertEqual([x["id"] for x in self.listed()], [keep["id"]])
         self.assertEqual(self.task_row().attachment_ids, [keep["id"]])
 
+    def test_a_task_trashed_while_we_waited_takes_no_file_change(self):
+        a = self.attach(name="v1.pdf")
+        v2 = self.version(a["id"], name="v2.pdf")
+        keep = self.attach(name="keep.pdf")
+
+        def trash(db2):
+            row = db2.get(models.Task, self.t.id)
+            row.deleted_at = now_iso()
+            db2.commit()
+
+        def untrash():
+            self.db.rollback()
+            self.db.query(models.Task).execution_options(include_deleted=True).filter(
+                models.Task.id == self.t.id).update({"deleted_at": ""}, synchronize_session=False)
+            self.db.commit()
+
+        calls = (lambda: self.version(a["id"], name="v3.pdf"),
+                 lambda: T.delete_attachment(v2["id"], user=OWNER, db=self.db),
+                 lambda: T.delete_attachment_versions(a["id"], user=OWNER, db=self.db),
+                 lambda: T.add_egnyte_link(self.t.id, T.EgnyteLinkCreate(url="https://greens.egnyte.com/fl/x"),
+                                           user=OWNER, db=self.db))
+        for call in calls:
+            with mock.patch.dict(os.environ, EGNYTE), self.while_waiting(trash):
+                self.assertEqual(self.code(call), 409)
+            untrash()
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.TaskAttachment).count(), 3)     # nothing changed
+        self.assertEqual(sorted(self.task_row().attachment_ids), sorted([v2["id"], keep["id"]]))
+
     def test_removing_a_file_someone_removed_while_we_waited(self):
         a = self.attach(name="v1.pdf")
 
