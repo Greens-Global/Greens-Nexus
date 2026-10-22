@@ -158,7 +158,7 @@ export function TabGroupButton({ tab, active, onSelect, className, iconSize = 16
         {Icon && <Icon size={iconSize} strokeWidth={2} />}
         <span>{label}</span>
         {current && current.label !== label && <span className="tab-group-current">{current.label}</span>}
-        <ChevronDown size={14} style={{ opacity: 0.7, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+        <ChevronDown size={14} className="tab-group-caret" style={{ opacity: 0.7, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
       <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} minWidth={200} aria-label={label} style={MENU_STYLE}>
         <MenuRows items={items} active={active} onPick={pick} />

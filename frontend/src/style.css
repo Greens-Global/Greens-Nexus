@@ -4115,6 +4115,17 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .hdr-tab svg { display: none; }
 }
 @media (max-width: 900px) { .hdr-search { display: none; } }
+/* Accounting's bar (compactGroups, Oct 23): five dropdown tabs must fit the
+   header center with the sidebar open - 498px at 1366 wide, 572px at 1440.
+   The labels are 275px together at 14.5px, so each tab gets 36px around its
+   label (9px padding a side, 2px border, 4px gap, 12px caret): 463px with the
+   gaps. The icons come back from 1600px wide, where the center has ~730px for
+   the 563px they make. Other modules' tabs are untouched. */
+.hdr-tabs--compact .hdr-tab { padding: 9px 9px; gap: 4px; }
+.hdr-tabs--compact .hdr-tab .tab-group-caret { width: 12px; height: 12px; }
+@media (max-width: 1599px) {
+  .hdr-tabs--compact .hdr-tab svg:not(.tab-group-caret) { display: none; }
+}
 
 /* In-page fallback strip: phones only - the header center is hidden ≤900px,
    so <ModuleTabs> renders the classic swipeable strip in the page body. */
