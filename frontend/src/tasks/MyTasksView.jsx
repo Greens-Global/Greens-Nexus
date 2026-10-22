@@ -537,7 +537,7 @@ export default function MyTasksView({ onNavigate }) {
                 whoever creates it (CreateTaskModal). */}
           </div>
         ) : view === 'calendar' ? (
-          <CalendarView tasks={mine} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
+          <CalendarView tasks={mine} store={store} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
         ) : view === 'files' ? (
           <FilesView tasks={allMine} onOpen={setOpenId} nameOf={nameOf} />
         ) : view === 'time' ? (

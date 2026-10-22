@@ -153,3 +153,39 @@ def next_task_code(db: Session) -> str:
         if not _task_code_taken(db, code):
             return code
     raise RuntimeError("task counter is far behind the codes in use - run check_code_duplicates.py")
+
+
+def next_task_codes(db: Session, count: int) -> list[str]:
+    """`count` task codes in one go (the task import, Oct 22 2026): the same
+    counter row, bumped by `count` at once instead of once per task, so a
+    2,000-row import is two UPDATEs and a few lookups rather than 4,000 round
+    trips. The row lock the first UPDATE takes is held until the caller's
+    transaction ends, and every other task create waits on it - so call this
+    as the LAST thing before the commit (task_import builds its rows with
+    placeholder codes and swaps these in at the end). Same guarantees as
+    next_task_code: the bump is part of the caller's transaction (a rollback
+    hands the whole block back), and a number already on a row is skipped,
+    never reused - those are topped up one at a time."""
+    if count <= 0:
+        return []
+    # The first bump seeds the row when the sequence is new and takes the
+    # row lock; the second extends the block while that lock is held, so the
+    # numbers are contiguous.
+    last = next_number(db, TASK_SEQUENCE, _task_seed)
+    if count > 1:
+        row = db.execute(
+            text("UPDATE nexus_counters SET value = value + :k, updated_at = :at "
+                 "WHERE name = :n RETURNING value"),
+            {"n": TASK_SEQUENCE, "k": count - 1, "at": _now()},
+        ).first()
+        last = int(row[0])
+    block = [f"TASK-{n:03d}" for n in range(last - count + 1, last + 1)]
+    taken: set = set()
+    for i in range(0, len(block), 500):
+        part = block[i:i + 500]
+        taken |= {c for (c,) in (db.query(models.Task.code).filter(models.Task.code.in_(part))
+                                 .execution_options(include_deleted=True).all())}
+    codes = [c for c in block if c not in taken]
+    while len(codes) < count:
+        codes.append(next_task_code(db))
+    return codes

@@ -879,7 +879,10 @@ def _is_person_update(a: "models.TaskActivity") -> bool:
     is logged under "system" / "asana", and counting it is how Neil got 41-56
     "updates" on tasks nobody had touched (call of 10/01)."""
     actor = (a.actor_email or "").strip().lower()
-    return "@" in actor and not (a.type or "").startswith("notify_")
+    # An automation rule's own lines (automation@nexus) are not a person
+    # either - the same rule as the Updates card (routers.tasks._is_person).
+    from task_automation import AUTOMATION_ACTOR
+    return "@" in actor and actor != AUTOMATION_ACTOR and not (a.type or "").startswith("notify_")
 
 
 def _update_line(a: "models.TaskActivity", names: dict, status_labels) -> str:
@@ -897,7 +900,11 @@ def _update_line(a: "models.TaskActivity", names: dict, status_labels) -> str:
 def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> list:
     activity = [a for a in (db.query(models.TaskActivity)
                             .filter(models.TaskActivity.entity_kind == "task",
-                                    models.TaskActivity.at >= since_iso)
+                                    models.TaskActivity.at >= since_iso,
+                                    # Per-field history rows (Oct 22 2026) stay on the
+                                    # task's own History - one line per field edit would
+                                    # crowd this list and eat its 500-row window.
+                                    models.TaskActivity.type != "field_changed")
                             .order_by(models.TaskActivity.at.desc())
                             .limit(500).all())
                 if _is_person_update(a) and (a.actor_email or "").strip().lower() != email.lower()]

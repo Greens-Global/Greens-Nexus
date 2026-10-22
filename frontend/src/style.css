@@ -6625,3 +6625,14 @@ tr.nx-needs-you > td:first-child::before, tr.nx-needs-you--row > td:first-child:
 .pt-time-key span { display: inline-flex; align-items: center; gap: 6px; }
 .pt-time-key b { font-weight: 800; }
 .pt-time-key-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; }
+
+/* Task field history (Oct 22 2026, tasks/FieldHistoryPopover.jsx): the clock beside a
+   field label. Shown on hover where there is a mouse; always there on touch,
+   where nothing hovers. */
+.nx-hist-btn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; color: var(--nx-faint); cursor: pointer; flex-shrink: 0; vertical-align: middle; }
+.nx-hist-btn:hover, .nx-hist-btn:focus-visible { color: var(--nx-ink); background: var(--nx-hover); outline: none; }
+@media (hover: hover) and (pointer: fine) {
+  .nx-hist-btn { opacity: 0; transition: opacity 0.12s ease; }
+  .nx-hist-row:hover .nx-hist-btn, .nx-hist-row:focus-within .nx-hist-btn, .nx-hist-btn[aria-expanded="true"] { opacity: 1; }
+}
+@media (pointer: coarse) { .nx-hist-btn { width: 24px; height: 24px; } }

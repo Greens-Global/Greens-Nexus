@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from typing import Optional, Any
 import os
 import json
+import math
 import uuid
 import httpx
 from datetime import datetime, timedelta, timezone
@@ -596,7 +597,7 @@ def _select_option_id(f: models.TaskCustomField, raw) -> str:
     return lower.get(key.strip().lower(), "")
 
 
-def coerce_custom_field_values(db: Session, values) -> dict:
+def coerce_custom_field_values(db: Session, values, defs: dict | None = None) -> dict:
     """Store custom-field values in the shape their field declares.
 
     The column is a free JSON dict, so before this every value arrived as
@@ -607,10 +608,14 @@ def coerce_custom_field_values(db: Session, values) -> dict:
 
     Unknown field ids are dropped (the field was deleted); a value that can't be
     coerced is dropped rather than stored wrong. Never raises - inbound Asana
-    tasks come through the same create path and must not be rejected."""
+    tasks come through the same create path and must not be rejected.
+
+    `defs` ({id: TaskCustomField}) when the caller already loaded them - the
+    task import coerces up to 2,000 rows against one load."""
     if not isinstance(values, dict) or not values:
         return {}
-    defs = {f.id: f for f in db.query(models.TaskCustomField).all()}
+    if defs is None:
+        defs = {f.id: f for f in db.query(models.TaskCustomField).all()}
     out = {}
     for fid, raw in values.items():
         f = defs.get(fid)
@@ -622,6 +627,10 @@ def coerce_custom_field_values(db: Session, values) -> dict:
         try:
             if kind == "number":
                 n = float(raw)
+                # float() reads "nan" / "inf" too. Neither is a number anyone
+                # meant, and Postgres's JSON refuses both - the save would 500.
+                if not math.isfinite(n):
+                    continue
                 out[fid] = int(n) if n.is_integer() else n
             elif kind == "checkbox":
                 out[fid] = raw if isinstance(raw, bool) else str(raw).strip().lower() in ("1", "true", "yes", "on")
@@ -678,16 +687,18 @@ def field_required_in(f: models.TaskCustomField, project_id: str) -> bool:
     return bool(project_id) and project_id in [p for p in (f.required_project_ids or []) if p]
 
 
-def missing_required_fields(db: Session, project_id: str, values, task_company: str | None = None) -> list:
+def missing_required_fields(db: Session, project_id: str, values, task_company: str | None = None,
+                            fields: list | None = None) -> list:
     """The fields a new task in `project_id` still needs, given its (already
     coerced) custom-field values. Empty = it can be created.
 
     `task_company`: a field that belongs to one company (company_id, Oct 21
     2026) binds only that company's tasks; a shared ('') field binds every
-    task, as all of them did before. None = do not filter (every field)."""
+    task, as all of them did before. None = do not filter (every field).
+    `fields`: the definitions when the caller already loaded them."""
     have = values if isinstance(values, dict) else {}
     out = []
-    for f in db.query(models.TaskCustomField).all():
+    for f in (fields if fields is not None else db.query(models.TaskCustomField).all()):
         if not field_required_in(f, project_id):
             continue
         fc = (getattr(f, "company_id", "") or "").strip()

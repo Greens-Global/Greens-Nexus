@@ -9,13 +9,15 @@ import {
   ArrowLeft, ArrowRightToLine, CornerDownRight, GripVertical, Copy, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma,
+  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma, MoveRight,
+  History, Upload, HardDrive,
 } from 'lucide-react';
+import MoveTaskModal from './MoveTaskModal';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { formulaEngineFor } from './formula';
 import { FormulaValue } from './FormulaColumn';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, uploadTaskAttachmentVersion, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
@@ -36,6 +38,8 @@ import { toDownloadUrl } from '../lib/storageView';
 import { openNotificationTarget } from '../lib/openTarget';
 import { useRole } from '../contexts/RoleContext';
 import { dialog } from '../ui/dialog';
+import { VersionChip, VersionsModal, EgnyteLinkRow, EgnyteLinkPicker } from './attachmentParts';
+import { currentVersionsOf, isEgnyteLink, canVersion } from './egnyteLinks';
 import { ticketNo } from '../tickets/ticketMeta';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
@@ -46,6 +50,9 @@ import { RecurrenceMenu, RecurrenceEnds, repeatOption, repeatSummary } from './R
 // importable from here.
 export { CommitNumberInput } from './RecurrenceMenu';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
+import { FieldHistoryButton, HistoryChange } from './FieldHistoryPopover';
+import { FieldHistoryContext, useHistoryCtx } from './fieldHistoryContext';
+import { groupFieldChanges, historyFieldName } from './fieldHistory';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const VIEW_ONLY_TITLE = 'You can view this task but not change it';
@@ -66,6 +73,8 @@ function FieldsLock({ readOnly, children, style }) {
   // still delivers its click). Stopped here, in the capture phase, before
   // the span's own handler runs.
   const block = (e) => {
+    // Field history is reading, not editing - viewers open it too.
+    if (e.target.closest?.('[data-history-trigger]')) return;
     if (!e.target.closest?.('[role="button"]')) return;
     if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
     e.preventDefault(); e.stopPropagation();
@@ -100,10 +109,15 @@ function Section({ title, children, defaultOpen = true }) {
     </div>
   );
 }
-function Row({ label, children }) {
+// `history`: the field key(s) whose changes the clock beside the label lists
+// (FieldHistoryPopover.jsx); `historyLabel` names it there when `label` is not text.
+function Row({ label, children, history, historyLabel }) {
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minHeight: 32 }}>
-      <span style={{ width: 96, flexShrink: 0, color: NX.faint, fontSize: 13, paddingTop: 5 }}>{label}</span>
+    <div className={history ? 'nx-hist-row' : undefined} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minHeight: 32 }}>
+      <span style={{ width: 96, flexShrink: 0, color: NX.faint, fontSize: 13, paddingTop: 5, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+        <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{label}</span>
+        {history && <span style={{ marginTop: -1 }}><FieldHistoryButton field={history} label={historyLabel || label} /></span>}
+      </span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>{children}</div>
     </div>
   );
@@ -215,9 +229,13 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const [converting, setConverting] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  // Move To... (Oct 22 2026): the id of the task being moved - this one or one of its subtasks.
+  const [moving, setMoving] = useState(null);
 
   const task = taskById[activeId];
   const parent = task?.parentTaskId ? taskById[task.parentTaskId] : null;
+  // Field history (Oct 22 2026): which task the field rows' clocks read.
+  const historyScope = useMemo(() => ({ taskId: activeId, nameOf }), [activeId, nameOf]);
   // What this person may do on THIS task (Oct 21 2026), the server's rule:
   // viewer = read only; commenter = comment, attach, log time; editor and
   // up = everything. Unknown (project not loaded) keeps every control, as
@@ -413,7 +431,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           task={task} patch={patch} readOnly={!canEdit} canComment={canComment} canEditProject={canEditProject} canEditTask={canEditTask} people={people} projectName={projectName} teamName={teamName} teams={teams} projects={projects}
           blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
           setDependencyType={setDependencyType}
-          subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={openSub}
+          subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={openSub} onMoveSub={setMoving}
           nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
           onViewAllComments={() => setTab('comments')}
           onOpenTicket={() => (onBackToTicket ? onBackToTicket() : openSourceTicket(task.sourceTicketId, onClose, ticketView))}
@@ -422,7 +440,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
       case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment} canPin={canEditProject} />;
       case 'activity':     return <ActivityTab taskId={activeId} nameOf={nameOf} />;
       case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} canAttach={canComment} canRemoveAny={canEditProject} />;
-      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub}
+      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub} onMoveSub={setMoving}
         canAdd={canEditProject} canEditParent={canEdit} canEditTask={canEditTask} />;
       case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} readOnly={!canEdit} />;
       case 'properties':   return <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} teamName={teamName} customFields={customFields} patch={patch} readOnly={!canEdit} />;
@@ -477,6 +495,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   {/* Filed as a task when it is really a request for a team
                       (Neil, 10/05: "employees ... may still do it as a task"). */}
                   {canEdit && <MenuItem icon={<Copy size={14} />} onClick={() => { close(); setDuplicating(true); }}>Duplicate Task</MenuItem>}
+                  {canEdit && !task.hrChecklist && <MenuItem icon={<MoveRight size={14} />} onClick={() => { close(); setMoving(activeId); }}>Move To...</MenuItem>}
                   <MenuItem icon={<Ticket size={14} />} onClick={() => { setConverting(true); close(); }}>Convert to Ticket</MenuItem>
                   {canEdit && <MenuItem icon={<LayoutTemplate size={14} />} onClick={() => { close(); setSavingTemplate(true); }}>Save as Template</MenuItem>}
                   {canEdit && <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
@@ -501,13 +520,17 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           </div>
         </div>
 
+        <FieldHistoryContext.Provider value={historyScope}>
         {/* title + tabs */}
         <div style={{ padding: '14px 18px 0', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+          <div className="nx-hist-row" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
             {parent && (
               <button onClick={() => goBack()} title={`Back to ${parent.title}`} aria-label="Back to main task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><ArrowLeft size={18} /></button>
             )}
             <TitleInput key={activeId} value={task.title} completed={task.completed} readOnly={!canEdit} onCommit={(v) => v.trim() && v !== task.title && patch({ title: v.trim() })} />
+            <span style={{ display: 'inline-flex', flexShrink: 0 }}>
+              <FieldHistoryButton field="title" label="Title" />
+            </span>
           </div>
           {!canEdit && (
             <div data-testid="view-only-note" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '-4px 0 12px', fontSize: 12.5, color: NX.dim }}>
@@ -528,7 +551,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: NX.blue, textAlign: 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {parent.title}
                 </button>
-              ) : <span style={{ fontWeight: 600 }}>a task you cannot open</span>}
+              ) : <span style={{ fontWeight: 600 }}>Private Task</span>}
             </div>
           )}
           {/* Tabs are desktop-only. A phone has no room for seven of them, so
@@ -577,6 +600,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
             </>
           ) : paneFor(tab)}
         </div>
+        </FieldHistoryContext.Provider>
+        {moving && <MoveTaskModal taskId={moving} onClose={() => setMoving(null)} />}
         {savingTemplate && <SaveTemplateModal task={task} subtasks={subtasks} onClose={() => setSavingTemplate(false)} />}
         {duplicating && <DuplicateTaskModal task={task} subtasks={subtasks} onClose={() => setDuplicating(false)} onDuplicate={duplicate} />}
         {shareOpen && <ShareModal task={task} people={people} nameOf={nameOf} patch={patch} onClose={() => setShareOpen(false)} />}
@@ -1094,7 +1119,7 @@ function ProjectsField({ task, projects, teams, myEmail, projectName, patch }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, readOnly = false, canComment = true, canEditProject = true, canEditTask = null, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
+function OverviewTab({ task, patch, readOnly = false, canComment = true, canEditProject = true, canEditTask = null, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, onMoveSub = null, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
   const isMobile = useIsMobile();
   // Whether the folding sections below have anything in them.
   const hasApproval = !!task.approvalStatus && task.approvalStatus !== 'none';
@@ -1168,7 +1193,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       )}
       {/* Same column and gap as the tab body, so locking moves nothing. */}
       <FieldsLock readOnly={readOnly} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <Row label="Assignee">
+      <Row label="Assignee" history="assigneeIds" historyLabel="Assignees">
         <div style={{ minWidth: FIELD_W }}>
           {/* Several people can hold one task; any of them completing it
               completes it for all (one row, one flag). */}
@@ -1213,7 +1238,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {/* Project and Also In are one field now (Neil, Oct 14 2026), moved up
           under the people. A subtask lives in its main task's project. */}
       {!task.parentTaskId && (
-        <Row label="Projects">
+        <Row label="Projects" history="projectId,projectIds">
           <ProjectsField task={task} projects={projects} teams={teams} myEmail={myEmail} projectName={projectName} patch={patch} />
         </Row>
       )}
@@ -1222,7 +1247,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
           Due Date | Recurrence, Start Date | Status, Priority | Team, then
           Section and the custom fields in pairs. One column on a phone. */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))', columnGap: 20, rowGap: 8, alignItems: 'start' }}>
-      <Row label="Due Date">
+      <Row label="Due Date" history="dueOn">
         <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} compact noPast
           repeat={repeatOption({ value: task.recurrence, seedDate: task.dueOn, onChange: setRecurrence, ...repeatCtx })}
           style={task.dueOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
@@ -1242,20 +1267,20 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {!readOnly && <div style={{ gridColumn: '1 / -1' }}><DueNegotiation task={task} /></div>}
 
       {/* Empty is normal - it fills itself when the task leaves Not Started. */}
-      <Row label="Start Date">
+      <Row label="Start Date" history="startOn">
         <DateField value={task.startOn || ''} onChange={(v) => patch({ startOn: v || '' })} compact
           style={task.startOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
       </Row>
 
       {/* Status and Priority are dropdowns, not chips (Neil, Oct 14 2026: a
           chip did not say it could be changed). */}
-      <Row label="Status">
+      <Row label="Status" history="status">
         <MenuSelect ariaLabel="Status" label={sm.label || task.status} color={sm.color} current={task.status}
           options={taskStatusOrder.map((x) => ({ key: x, label: statusMeta[x]?.label || x, color: statusMeta[x]?.color }))}
           onPick={(x) => patch({ status: x })} />
       </Row>
 
-      <Row label="Priority">
+      <Row label="Priority" history="priority">
         <MenuSelect ariaLabel="Priority" label={pm.label || task.priority} color={pm.color} current={task.priority}
           options={PRIORITY_ORDER.map((x) => ({ key: x, label: PRIORITY_META[x].label, color: PRIORITY_META[x].color }))}
           onPick={(x) => patch({ priority: x })} />
@@ -1345,7 +1370,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
           were easy to miss. */}
       <Section key={`subtasks:${task.id}:${subtasks?.length > 0}`} defaultOpen={subtasks?.length > 0}
         title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
-        <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} hideHeading
+        <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} onMoveSub={onMoveSub} hideHeading
           canAdd={canEditProject} canEditParent={!readOnly} canEditTask={canEditTask} />
       </Section>
 
@@ -1774,23 +1799,62 @@ function AssignToggle({ value, onChange, people, nameOf }) {
   );
 }
 // ── Activity ────────────────────────────────────────────────────────────────
-function ActivityTab({ taskId, nameOf }) {
+// All Activity: one line per event, a save's field edits folded into one
+// ("changed Priority and Start Date") so editing a task does not flood it.
+// Field Changes: every recorded change on its own, with From -> To
+// (Oct 22 2026, task_history.py).
+const ACTIVITY_FILTERS = [['all', 'All Activity'], ['fields', 'Field Changes']];
+export function ActivityTab({ taskId, nameOf }) {
   const [rows, setRows] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const { customFields = [] } = useTasks();
+  const ctx = useHistoryCtx(nameOf);
   useEffect(() => { api.getTaskActivity(taskId).then(setRows).catch(() => setRows([])); }, [taskId]);
+  const shown = useMemo(() => {
+    const list = rows || [];
+    return (filter === 'fields' ? list.filter((a) => a.change) : groupFieldChanges(list, customFields)).slice().reverse();
+  }, [rows, filter, customFields]);
   if (rows === null) return <LoadingState />;
   if (!rows.length) return <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No activity yet.</div>;
   return (
-    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {rows.slice().reverse().map((a) => (
-        <div key={a.id} style={{ display: 'flex', gap: 10, fontSize: 12 }}>
-          <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
-          <div>
-            <span style={{ fontWeight: 600, color: NX.ink }}>{(nameOf(a.actorId) || '').split(' ')[0]}</span>{' '}
-            <span style={{ color: NX.dim }}>{a.detail}</span>
-            <div style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(a.at)}</div>
-          </div>
-        </div>
-      ))}
+    <div style={{ marginTop: 14 }}>
+      <div role="tablist" aria-label="Activity Filter" className="scroll-tabs" style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        {ACTIVITY_FILTERS.map(([key, label]) => {
+          const on = filter === key;
+          return (
+            <button key={key} type="button" role="tab" aria-selected={on} onClick={() => setFilter(key)}
+              style={{ ...btn(on ? 'outline' : 'ghost'), padding: '5px 10px', fontSize: 12, color: on ? NX.ink : NX.dim, whiteSpace: 'nowrap' }}>
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {shown.length === 0 && (
+        <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No field changes recorded yet.</div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {shown.map((a) => {
+          // The one change a line stands for, shown From -> To under it: every
+          // line under Field Changes; under All Activity a status move or a
+          // save that touched a single field (a fold of several stays one line).
+          const one = filter === 'fields' ? a.change
+            : a.type === 'field_changed' ? (a.changes?.length === 1 ? a.changes[0] : null)
+              : a.type === 'status_changed' ? a.change : null;
+          const text = filter === 'fields' ? `changed ${historyFieldName(a.change, customFields)}`
+            : a.type === 'status_changed' && a.change ? 'changed the status' : a.detail;
+          return (
+            <div key={a.id} style={{ display: 'flex', gap: 10, fontSize: 12 }}>
+              <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
+              <div style={{ minWidth: 0 }}>
+                <span style={{ fontWeight: 600, color: NX.ink }}>{(nameOf(a.actorId) || '').split(' ')[0]}</span>{' '}
+                <span style={{ color: NX.dim }}>{text}</span>
+                {one && <div style={{ marginTop: 3 }}><HistoryChange entry={one} ctx={ctx} /></div>}
+                <div style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(a.at)}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1799,9 +1863,20 @@ function ActivityTab({ taskId, nameOf }) {
 // canAttach: may add files (commenter and up). canRemoveAny: may remove
 // files someone else added (editor and up) - your own you can always remove,
 // as the server allows (delete_attachment).
+// File versions + Egnyte links (Oct 22 2026): each file shows its CURRENT
+// version (a soft "V3" when it has more), with Upload New Version (or drop a
+// file onto it) and a Versions panel; Add From Egnyte links a file or folder
+// in Egnyte instead of uploading a copy. See attachmentParts.jsx.
 function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }) {
-  const { myEmail } = useTasks();
+  const { myEmail, nameOf } = useTasks();
   const [rows, setRows] = useState(null);
+  const [versionsOf, setVersionsOf] = useState(null);     // the file whose Versions panel is open
+  const [egnyteOpen, setEgnyteOpen] = useState(false);
+  // New versions in flight, by the attachment they replace: {pct, error}.
+  const [verUploads, setVerUploads] = useState({});
+  const [dropRow, setDropRow] = useState('');
+  const versionFor = useRef(null);
+  const versionRef = useRef(null);
   // In-flight files: {key, name, pct, file, error}. A failed one STAYS, with
   // what went wrong and a Retry - it used to vanish without a word.
   const [uploads, setUploads] = useState([]);
@@ -1810,8 +1885,38 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
   const [dragOver, setDragOver] = useState(false);
   const dragDepth = useRef(0);   // dragenter/dragleave fire on every child crossed, not just the panel edge
   const fileRef = useRef(null);
-  const reload = () => api.getTaskAttachments(task.id).then(setRows).catch(() => setRows([]));
+  const reload = () => api.getTaskAttachments(task.id).then((r) => setRows(currentVersionsOf(r))).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
+
+  // Upload New Version: the file becomes the current version of `a`'s file.
+  // It replaces the file everyone sees, so it takes the right to remove it
+  // (the server's rule): whoever uploaded the FIRST version, or an editor.
+  const mayReplace = (a) => canAttach && canVersion(a) && (canRemoveAny
+    || (!!myEmail && (a.groupAddedBy || a.addedBy || '').toLowerCase() === myEmail.toLowerCase()));
+  const sendVersion = (a, f) => {
+    if (!f || !mayReplace(a)) return;
+    setVerUploads((m) => ({ ...m, [a.id]: { pct: 0, error: '' } }));
+    uploadTaskAttachmentVersion(a.id, f, (pct) => setVerUploads((m) => ({ ...m, [a.id]: { pct, error: '' } })))
+      .then(() => { setVerUploads((m) => { const n = { ...m }; delete n[a.id]; return n; }); reload(); refresh?.(); })
+      .catch((e) => setVerUploads((m) => ({ ...m, [a.id]: { pct: 0, error: `The new version of "${a.name}" did not upload: ${e?.message || 'upload failed'}.` } })));
+  };
+  const pickVersion = (a) => { versionFor.current = a; versionRef.current?.click(); };
+  const onVersionFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f && versionFor.current) sendVersion(versionFor.current, f); };
+  // Dropping a file ON a file row is a new version of that file; anywhere
+  // else in the panel it is still a new attachment.
+  const rowDrop = (a) => (mayReplace(a) ? {
+    onDragOver: (e) => { if (!e.dataTransfer?.types?.includes('Files')) return; e.preventDefault(); e.stopPropagation(); if (dropRow !== a.id) setDropRow(a.id); },
+    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropRow(''); },
+    onDrop: (e) => {
+      e.preventDefault(); e.stopPropagation();
+      dragDepth.current = 0; setDragOver(false); setDropRow('');
+      // The first file is the new version; any others are added as new
+      // attachments, as a drop beside the row would add them - never dropped.
+      const [first, ...rest] = Array.from(e.dataTransfer?.files || []);
+      sendVersion(a, first);
+      rest.forEach(sendFile);
+    },
+  } : {});
 
   const uploadSeq = useRef(0);
   const sendFile = (f) => {
@@ -1831,7 +1936,13 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
   // Asks first (a removed file is gone from the task for everyone) and says
   // so when the server refuses, instead of quietly re-reading the list.
   const del = async (a) => {
-    const ok = await dialog.confirm(`Remove "${a.name}" from this task?`, { title: 'Remove Attachment', confirmText: 'Remove', danger: true });
+    const versioned = (a.versionCount || 1) > 1;
+    const ok = await dialog.confirm(
+      versioned
+        ? `Remove version ${a.version} of "${a.name}"? The version before it becomes the current one. To remove the whole file, use Versions > Delete All Versions.`
+        : `Remove "${a.name}" from this task?`,
+      { title: versioned ? 'Remove Version' : 'Remove Attachment', confirmText: 'Remove', danger: true },
+    );
     if (!ok) return;
     setDelError('');
     try {
@@ -1847,15 +1958,17 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
   // file button - matching Ctrl+V paste already working over the whole panel.
   const onDragEnter = (e) => { e.preventDefault(); dragDepth.current += 1; if (e.dataTransfer.types.includes('Files')) setDragOver(true); };
   const onDragOver = (e) => { e.preventDefault(); };
-  const onDragLeave = (e) => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setDragOver(false); };
+  const onDragLeave = (e) => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) { setDragOver(false); setDropRow(''); } };
   const onDrop = (e) => {
     e.preventDefault();
     dragDepth.current = 0;
     setDragOver(false);
+    setDropRow('');
     if (canAttach) Array.from(e.dataTransfer.files || []).forEach(sendFile);
   };
 
   return (
+    <>
     <div onPaste={onPaste} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
       tabIndex={0} style={{
         marginTop: 14, borderRadius: 10, transition: 'background-color .12s ease',
@@ -1865,7 +1978,9 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
         <>
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
           <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach File</button>
-          <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot</span>
+          <button type="button" onClick={() => setEgnyteOpen(true)} style={{ ...btn('outline'), fontSize: 12, marginBottom: 12, marginLeft: 8 }}><HardDrive size={13} /> Add From Egnyte</button>
+          <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot. Drop a file onto a file to upload a new version.</span>
+          <input ref={versionRef} type="file" data-testid="version-input" style={{ display: 'none' }} onChange={onVersionFile} />
         </>
       )}
       {delError && <div role="alert" style={{ fontSize: 12, color: NX.red, marginBottom: 10 }}>{delError}</div>}
@@ -1874,7 +1989,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '18px 12px', margin: '10px 0',
           border: `1.5px dashed ${NX.primary}`, borderRadius: 10, color: NX.primary, fontSize: 12.5, fontWeight: 600,
           pointerEvents: 'none',
-        }}><Paperclip size={14} /> Drop to attach</div>
+        }}><Paperclip size={14} /> {dropRow ? 'Drop to upload a new version of that file' : 'Drop to attach'}</div>
       )}
       {(rows?.length || 0) === 0 && uploads.length === 0 ? (
         rows === null ? <LoadingState />
@@ -1901,12 +2016,22 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
                 </div>
               )))}
               {(rows || []).map((a) => {
+                if (isEgnyteLink(a)) {
+                  return <EgnyteLinkRow key={a.id} a={a} onRemove={mayRemove(a) ? () => del(a) : null} />;
+                }
                 const href = a.dataUrl || a.url;
                 const thumb = a.kind === 'image' && href
                   ? <img src={href} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
                   : <Paperclip size={13} style={{ color: NX.dim }} />;
+                const nVersions = a.versionCount || 1;
+                const up = verUploads[a.id];
                 return (
-                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
+                  <div key={a.id} data-testid="attachment-row" {...rowDrop(a)}
+                    title={dropRow === a.id ? 'Drop to upload a new version' : undefined}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', maxWidth: '100%', border: `1px solid ${dropRow === a.id ? NX.primary : NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12,
+                      ...(dropRow === a.id ? { boxShadow: `0 0 0 2px ${NX.primary} inset` } : null),
+                    }}>
                     {href ? (
                       // Opens the IN-APP viewer (images/videos/PDFs render
                       // inline; other types get a download card) - never a new tab.
@@ -1922,9 +2047,25 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
                         <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through' }}>{a.name}</span>
                       </span>
                     )}
+                    {(nVersions > 1 || (a.version || 1) > 1) && <VersionChip version={a.version} title={`Version ${a.version} of ${nVersions}`} />}
                     <span style={{ color: NX.faint }}>{a.size}</span>
                     {href && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
+                    {nVersions > 1 && (
+                      <button type="button" onClick={() => setVersionsOf(a)} title="Versions" aria-label={`Versions of ${a.name}`}
+                        style={{ ...btn('ghost'), padding: '3px 6px', fontSize: 11.5, color: NX.dim }}><History size={13} /> Versions</button>
+                    )}
+                    {mayReplace(a) && (
+                      <button type="button" onClick={() => pickVersion(a)} disabled={!!up && !up.error} title="Upload New Version" aria-label={`Upload new version of ${a.name}`}
+                        style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Upload size={13} /></button>
+                    )}
                     {mayRemove(a) && <button onClick={() => del(a)} title="Remove" aria-label={`Remove ${a.name}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>}
+                    {up && !up.error && <span style={{ color: NX.faint, fontVariantNumeric: 'tabular-nums' }}>Uploading new version {Math.round(up.pct * 100)}%</span>}
+                    {up?.error && (
+                      <span role="alert" style={{ flexBasis: '100%', color: NX.red, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {up.error}
+                        <button type="button" onClick={() => setVerUploads((m) => { const n = { ...m }; delete n[a.id]; return n; })} title="Dismiss" aria-label="Dismiss" style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={12} /></button>
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -1932,6 +2073,13 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
           )}
       {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
     </div>
+    {/* Outside the panel: its paste / drop handlers must not see the dialogs' events. */}
+      {versionsOf && (
+        <VersionsModal att={versionsOf} onClose={() => setVersionsOf(null)} onChanged={() => { reload(); refresh?.(); }}
+          canRemoveAny={canRemoveAny} myEmail={myEmail} nameOf={nameOf || ((e) => e)} />
+      )}
+      {egnyteOpen && <EgnyteLinkPicker taskId={task.id} onClose={() => setEgnyteOpen(false)} onAdded={() => { reload(); refresh?.(); }} />}
+    </>
   );
 }
 
@@ -1992,7 +2140,7 @@ function FacePicker({ value, people, onChange, label, disabled = false }) {
 // rule). canEditParent: may change the main task (its subtask order).
 // canEditTask(s): may change that subtask (its own role; its assignees count).
 // Opening a subtask is always allowed. Unknown roles keep every control.
-function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub, hideHeading, canAdd = true, canEditParent = true, canEditTask = null }) {
+function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub, onMoveSub = null, hideHeading, canAdd = true, canEditParent = true, canEditTask = null }) {
   const rowEditable = (s) => (canEditTask ? canEditTask(s) : true);
   // Reordering writes every sibling's position and the main task's order.
   const canReorder = canEditParent && canAdd;
@@ -2114,6 +2262,14 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
                 title={s.dueOn ? 'Change due date' : 'Set due date'}
                 repeat={subRepeat(s.recurrence, (r) => setSubRecurrence(s, r), s.dueOn)} />
             </span>
+            {/* Move To... (Oct 22 2026): under another task, or up to the top. */}
+            {onMoveSub && rowEditable(s) && !s.hrChecklist && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); onMoveSub(s.id); }}
+                title="Move To..." aria-label={`Move ${s.title} to another task`}
+                style={{ border: 'none', background: 'transparent', padding: 0, display: 'flex', color: NX.faint, cursor: 'pointer', flexShrink: 0 }}>
+                <MoveRight size={14} />
+              </button>
+            )}
             <ChevronRight size={14} style={{ color: NX.faint, flexShrink: 0 }} />
           </div>
         ))}
@@ -2189,7 +2345,7 @@ function TaskSectionRow({ task, patch }) {
   if (!task.projectId || !sec.sections.length) return null;
   const current = sec.sections.some((x) => x.id === task.sectionId) ? task.sectionId : '';
   return (
-    <Row label="Section">
+    <Row label="Section" history="sectionId">
       <select value={current} aria-label="Section" onChange={(e) => patch({ sectionId: e.target.value })}
         style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '5px 8px', fontSize: 13, cursor: 'pointer' }}>
         <option value="">No Section</option>
@@ -2228,7 +2384,8 @@ export function TaskCustomFieldRows({ task, customFields, projectName, patch }) 
     const missing = by.length > 0 && isBlankValue(values[f.id]);
     const where = by.filter(Boolean).map((pid) => projectName(pid)).filter(Boolean).join(', ');
     return (
-      <Row key={f.id} label={<>{f.name}{by.length > 0 && <span style={{ color: NX.red }}> *</span>}</>}>
+      <Row key={f.id} label={<>{f.name}{by.length > 0 && <span style={{ color: NX.red }}> *</span>}</>}
+        history={f.readOnly ? undefined : f.id} historyLabel={f.name}>
         <CustomFieldInput field={f} value={values[f.id]}
           onChange={(v) => patch({ customFieldValues: { ...values, [f.id]: v } })} />
         {missing && (
@@ -2240,6 +2397,13 @@ export function TaskCustomFieldRows({ task, customFields, projectName, patch }) 
     );
   });
 }
+
+// Properties rows whose changes are recorded (task_history.py) -> the field key(s).
+const PROPERTY_HISTORY = {
+  Status: 'status', Priority: 'priority', Assignee: 'assigneeIds', Projects: 'projectId,projectIds',
+  'Start Date': 'startOn', 'Due Date': 'dueOn', Estimate: 'estimateHours', Milestone: 'isMilestone',
+  Approval: 'approvalStatus',
+};
 
 function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patch, readOnly = false }) {
   // The same fields the Overview shows (fieldsForTask) - not every field
@@ -2279,13 +2443,18 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
     <div style={{ marginTop: 14 }}>
       <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden' }}>
         {rows.map(([label, value], i) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', fontSize: 13, borderTop: i ? `1px solid ${NX.border}` : 'none' }}>
-            <span style={{ width: 112, flexShrink: 0, color: NX.faint }}>{label}</span>
+          <div key={label} className={PROPERTY_HISTORY[label] ? 'nx-hist-row' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', fontSize: 13, borderTop: i ? `1px solid ${NX.border}` : 'none' }}>
+            <span style={{ width: 112, flexShrink: 0, color: NX.faint, display: 'flex', alignItems: 'center', gap: 2 }}>
+              {label}
+              {PROPERTY_HISTORY[label] && <FieldHistoryButton field={PROPERTY_HISTORY[label]} label={label} />}
+            </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: NX.ink }}>{value}</span>
           </div>
         ))}
-        <div style={{ display: 'flex', gap: 12, padding: '9px 12px', fontSize: 13, borderTop: `1px solid ${NX.border}` }}>
-          <span style={{ width: 112, flexShrink: 0, color: NX.faint, paddingTop: 2 }}>Labels</span>
+        <div className="nx-hist-row" style={{ display: 'flex', gap: 12, padding: '9px 12px', fontSize: 13, borderTop: `1px solid ${NX.border}` }}>
+          <span style={{ width: 112, flexShrink: 0, color: NX.faint, paddingTop: 2, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+            Labels <FieldHistoryButton field="tags" label="Labels" />
+          </span>
           <FieldsLock readOnly={readOnly}><LabelsEditor tags={task.tags || []} onChange={(tags) => patch({ tags })} /></FieldsLock>
         </div>
       </div>
