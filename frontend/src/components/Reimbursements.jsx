@@ -3,7 +3,7 @@
 // instead of an email forwarded eight times. One tile beside Ask HR opens one
 // panel (not a new tab): My Reimbursements, To Approve (for whoever was
 // picked to approve one), HR (to approve, to pay, paid - HR as on time
-// sheets). The People profile's Expenses tab is PersonReimbursements below.
+// sheets). The People profile's Reimbursements tab is PersonReimbursements below.
 // Server side: routers/reimbursements.py.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppWindow, ArrowRight, Check, ChevronDown, FileText, Laptop, Package, Plane, Plus, Receipt, Tag, Upload, Utensils, X } from 'lucide-react';
@@ -500,7 +500,7 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
   </>);
 }
 
-/** People > person > Expenses: every claim one person filed. */
+/** People > person > Reimbursements: every claim one person filed. */
 export function PersonReimbursements({ email, toastErr }) {
   const [rows, setRows] = useState(null);
   const errRef = useRef(toastErr);
