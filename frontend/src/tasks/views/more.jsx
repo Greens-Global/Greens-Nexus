@@ -3,15 +3,17 @@
 // NexusTimelineView / NexusFilesView / NexusWorkloadView to the Nexus idiom.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from '../../components/AsyncState';
-import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download, ChevronDown, ChevronRight, CornerDownRight, ListTree, Check } from 'lucide-react';
+import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download, ChevronDown, ChevronRight, CornerDownRight, ListTree, Check, HardDrive, ExternalLink } from 'lucide-react';
 import { api } from '../../api';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
 import { Avatar, EmptyState, AttachmentViewer, useIsMobile } from '../components';
 import { fmtDate, taskAssignees, localISO, nestSubtaskRows } from '../lib';
 import { useCanEditTask } from '../canEditTask';
 import { toDownloadUrl } from '../../lib/storageView';
+import { isEgnyteLink, safeEgnyteHref } from '../egnyteLinks';
 import { useTasks } from '../TasksContext';
 import { daysFromPixels, dragModeAt, dragDates, describeMove, HANDLE_W } from '../timelineDrag';
+import { wasSentForApproval } from '../calendarMove';
 
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -48,7 +50,7 @@ const MAX_TIMELINE_ROWS = 300;
 const INDENT = 14, INDENT_PHONE = 8;
 export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onToggleSubtasks = null, taskById = null }) {
   const store = useTasks();
-  const { applyServerTask } = store;
+  const { applyServerTask, offerUndo } = store;
   // A read-only person sees the bars but cannot drag them (Oct 22 2026).
   const canEditTask = useCanEditTask(store);
   const [collapsed, setCollapsed] = useState(() => new Set());
@@ -186,6 +188,15 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
       const res = await api.rescheduleTask(t.id, { start_on: dates.startOn, due_on: dates.dueOn });
       if (res?.task) applyServerTask(res.task);
       for (const m of res?.moved || []) applyServerTask(m);
+      if (wasSentForApproval(res?.task, dates)) {
+        // Held for approval (task_due.needs_approval): the bar stays where it
+        // was. Said the way the store's announceHeld says it, Withdraw as Undo.
+        say(`Due date change sent for approval - "${t.title}" stays due ${fmtDate(res.task.dueOn)} until it is approved.`);
+        offerUndo?.('Due date change sent for approval', () => {
+          api.withdrawTaskDue(t.id).then((x) => x && applyServerTask(x)).catch(() => {});
+        });
+        return;
+      }
       const text = describeMove(t.title, dates, (res?.moved || []).length, (res?.skipped || []).length, fmtDate);
       say(res?.cascadeError ? `${text}. The tasks waiting on it did not move: ${res.cascadeError}` : text);
     } catch (err) {
@@ -324,6 +335,7 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
 
 // ── Files (attachment gallery across the visible tasks) ──────────────────────
 function iconFor(kind) {
+  if (kind === 'egnyte') return <HardDrive size={18} style={{ color: NX.blue }} />;
   if (kind === 'image') return <FileImage size={18} style={{ color: NX.teal }} />;
   if (kind === 'doc') return <FileText size={18} style={{ color: NX.blue }} />;
   return <File size={18} style={{ color: NX.dim }} />;
@@ -363,13 +375,21 @@ export function FilesView({ tasks, onOpen, nameOf }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
               {files.slice(0, 200).map(({ a, t }) => {
                 const href = a.dataUrl || a.url;
+                // An Egnyte link (Oct 22 2026) opens in Egnyte - no copy here to view or download.
+                const egnyte = isEgnyteLink(a) ? safeEgnyteHref(a) : null;
                 return (
                 <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, padding: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     {iconFor(a.kind)}
-                    {href && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
+                    {href && egnyte === null && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
                   </div>
-                  {href ? (
+                  {egnyte !== null ? (
+                    <a href={egnyte || undefined} target="_blank" rel="noopener noreferrer" title="Open In Egnyte"
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', fontSize: 13, fontWeight: 600, color: NX.ink, textDecoration: 'none' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+                      <ExternalLink size={12} style={{ flexShrink: 0, color: NX.blue }} />
+                    </a>
+                  ) : href ? (
                     // Opens the in-app viewer - never a new tab.
                     <button type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}
                       style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.ink, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>{a.name}</button>

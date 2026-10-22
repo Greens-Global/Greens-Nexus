@@ -21,6 +21,9 @@ Choices a person can make:
   mutedTaskIds / mutedProjectIds
                            no email about these at all, except a mention (which
                            is somebody asking this person directly)
+  followedProjects         emails about projects they follow (new tasks,
+                           completions, comments - task_project_follow.py);
+                           on unless they switch it off (Oct 22 2026)
 """
 from __future__ import annotations
 
@@ -54,6 +57,7 @@ DEFAULTS = {
     "updateThrottleMinutes": 0,
     "mutedTaskIds": [],
     "mutedProjectIds": [],
+    "followedProjects": True,
 }
 
 
@@ -106,6 +110,7 @@ def normalize(raw: dict | None) -> dict:
     for key in ("mutedTaskIds", "mutedProjectIds"):
         vals = raw.get(key) if isinstance(raw.get(key), list) else []
         p[key] = list(dict.fromkeys(str(v) for v in vals if v))[:500]
+    p["followedProjects"] = raw.get("followedProjects", True) is not False
     return p
 
 

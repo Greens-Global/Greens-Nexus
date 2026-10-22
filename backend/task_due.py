@@ -176,9 +176,11 @@ def needs_approval(db: Session, t: models.Task, old: str, new: str, actor: str,
 
 
 def request_extension(db: Session, t: models.Task, actor: str, new: str, approvers: list[str],
-                      note: str = "", notify: bool = True) -> None:
+                      note: str = "", notify: bool = True, start_on: str = "") -> None:
     """Hold an extension for approval. The caller has put t.due_on back to the
-    current date; it stays until an approver says yes (respond)."""
+    current date; it stays until an approver says yes (respond). `start_on`:
+    a start date moved in the same edit (a Calendar / Timeline drag keeps the
+    task's length) - held with it and applied on approval (Oct 22 2026)."""
     actor = (actor or "").strip().lower()
     number = int(t.due_extension_count or 0) + 1
     # With no current date (it was cleared first) the date being extended is
@@ -190,6 +192,8 @@ def request_extension(db: Session, t: models.Task, actor: str, new: str, approve
     t.due_proposal = {"dueOn": new[:10], "by": actor, "at": now_iso(), "note": (note or "")[:500],
                       "kind": "extension", "number": number, "approvers": list(approvers),
                       "overMonth": over_month, "baseline": base}
+    if start_on:
+        t.due_proposal["startOn"] = start_on[:10]
     detail = (f"asked to extend the due date from {us_date(current)} to {us_date(new)}"
               f" - extension #{number}, needs approval")
     if note:
@@ -380,6 +384,8 @@ def _answer_extension(db: Session, t: models.Task, actor: str, accept: bool, not
         old = t.due_on or ""
         t.due_agreement = "accepted"      # the date being replaced is the agreed one
         t.due_on = prop.get("dueOn") or old
+        if prop.get("startOn"):
+            t.start_on = prop["startOn"]  # moved with it, so the task keeps its length
         record_due_change(db, t, old, t.due_on, actor=actor, source="approved", note=note)
         title, detail = "Extension Approved", f"approved the extension to {us_date(t.due_on)}"
     else:

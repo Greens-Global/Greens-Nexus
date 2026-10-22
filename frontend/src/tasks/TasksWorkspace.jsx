@@ -30,6 +30,7 @@ import BulkActionBar from './BulkActionBar';
 import { useCustomSections } from './customSections';
 import { formatDate } from '../lib/datetime';
 import ProjectIcon from './ProjectIcon';
+import ProjectFollowControl from './ProjectFollow';
 
 const VIEW_KINDS = [
   { key: 'list', label: 'List', icon: List },
@@ -237,6 +238,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
                 style={{ ...btn('ghost'), padding: 4, flexShrink: 0, color: isBookmarked ? '#f59e0b' : NX.faint }}>
                 <Star size={18} fill={isBookmarked ? 'currentColor' : 'none'} />
               </button>
+              {/* Phones: the header's action cluster is hidden, so Follow
+                  rides beside the star, icon and count only. */}
+              {isMobile && <ProjectFollowControl project={lockedProject} compact />}
               {lockedProject.hrDepartmentName && <span style={chip(NX.dim, NX.border2)}>{lockedProject.hrDepartmentName}</span>}
               {lockedProject.portfolioId && portfolioById(lockedProject.portfolioId) && (
                 <span style={chip(NX.purple, NX.border2)}>{portfolioById(lockedProject.portfolioId).name}</span>
@@ -246,6 +250,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         </div>
         {!isMobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+            {lockedProject && <ProjectFollowControl project={lockedProject} />}
             {lockedProject && <ProjectAccessButton project={lockedProject} teams={teams} people={people} />}
             {lockedProject && (
               <button onClick={() => setTemplating(true)} title="Save this project as a reusable template"
@@ -355,7 +360,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           <BoardView visible={boardTasks} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate}
             showSubtasks={showBoardSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('board')} />
         ) : view === 'calendar' ? (
-          <CalendarView tasks={visible} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
+          <CalendarView tasks={visible} store={store} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
         ) : view === 'timeline' ? (
           <TimelineView tasks={timelineTasks} onOpen={setOpenId} nameOf={nameOf} taskById={store.taskById}
             showSubtasks={showTimelineSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('timeline')} />

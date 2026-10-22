@@ -374,7 +374,7 @@ export function TasksProvider({ children }) {
     const held = rows.filter((r) => r?.dueAgreement === 'extension_requested' && r.dueProposal?.dueOn === patch.dueOn);
     if (!held.length) return;
     offerRef.current?.(
-      held.length === 1 ? 'Extension sent for approval' : `${held.length} extensions sent for approval`,
+      held.length === 1 ? 'Due date change sent for approval' : `${held.length} due date changes sent for approval`,
       () => Promise.all(held.map((r) => api.withdrawTaskDue(r.id).then((t) => patchLocalTask(t.id, t)))).catch(() => {}),
     );
   }, [patchLocalTask]);
@@ -452,6 +452,7 @@ export function TasksProvider({ children }) {
   }, [patchLocalTask, refetchTasks, announceHeld]);
 
   // Undo toast - one at a time; label + a run() that reverses the action.
+  // A null run() is a plain notice (no Undo button) in the same spot.
   const [undo, setUndo] = useState(null);
   const undoTimer = useRef(null);
   const offerUndo = useCallback((label, run) => {
@@ -462,7 +463,7 @@ export function TasksProvider({ children }) {
   useEffect(() => { offerRef.current = offerUndo; }, [offerUndo]);
   const runUndo = useCallback(() => {
     clearTimeout(undoTimer.current);
-    setUndo((u) => { if (u) u.run(); return null; });
+    setUndo((u) => { if (u?.run) u.run(); return null; });
   }, []);
 
   // Completing a task celebrates (unicorn + green sweep) and holds the store
@@ -611,6 +612,35 @@ export function TasksProvider({ children }) {
     }
   }, [announceHeld]);
 
+  // Undo of a due-date move (the Calendar drag, Oct 22 2026): the server
+  // takes the move out - no extension for the trip back, no second bell.
+  const undoDueChange = useCallback(async (id, at) => {
+    try {
+      const saved = await api.undoTaskDue(id, at);
+      if (saved?.id) patchLocalTask(saved.id, saved);
+      return saved;
+    } catch (e) {
+      refetchTasks().catch(() => {});
+      if (e?.status && e.status !== 401) alert(e.message || 'Could not undo that change.');
+      throw e;
+    }
+  }, [patchLocalTask, refetchTasks]);
+
+  // The batch bar's Dates action (Oct 22 2026): the server moves each task
+  // from its own date, so there is nothing to apply optimistically - the
+  // rows it answers with land in the store. Answers the server's counts.
+  const bulkDates = useCallback(async (ids, dates) => {
+    try {
+      const r = await api.bulkTaskDates(ids, dates);
+      const map = Object.fromEntries((r?.tasks || []).map((t) => [t.id, t]));
+      setTasks((prev) => prev.map((t) => map[t.id] || t));
+      return r;
+    } catch (e) {
+      if (e?.status && e.status !== 401) alert(e.message || 'Could not change the dates.');
+      throw e;
+    }
+  }, []);
+
   // Comments (loaded on demand, cached)
   const getComments = useCallback(async (taskId) => {
     const rows = await api.getTaskComments(taskId).catch(() => []);
@@ -696,6 +726,15 @@ export function TasksProvider({ children }) {
     return r;
   };
 
+  const applyProjectFollowers = (id, r) => {
+    if (!r) return r;
+    setProjects((prev) => prev.map((x) => {
+      if (x.id !== id) return x;
+      return r.name ? r : { ...x, followerIds: Array.isArray(r.followerIds) ? r.followerIds : [] };
+    }));
+    return r;
+  };
+
   const actions = useMemo(() => ({
     createProject: mk(api.createTaskProject, setProjects),
     updateProject: mkUpd(api.updateTaskProject, setProjects),
@@ -704,6 +743,13 @@ export function TasksProvider({ children }) {
     // toBody: a chart is data, its keys stay as the Dashboard wrote them.
     shareProjectChart: async (id, chart) => { const r = await api.putTaskProjectChart(id, chart.id, chart); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
     unshareProjectChart: async (id, chartId) => { const r = await api.deleteTaskProjectChart(id, chartId); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
+    // Follow a project (Oct 22 2026). Each answers with the project; an
+    // unfollow from a project you can no longer see answers with only its
+    // followers, so just those are merged in.
+    followProject: async (id) => applyProjectFollowers(id, await api.followTaskProject(id)),
+    unfollowProject: async (id) => applyProjectFollowers(id, await api.unfollowTaskProject(id)),
+    addProjectFollower: async (id, email) => applyProjectFollowers(id, await api.addTaskProjectFollower(id, email)),
+    removeProjectFollower: async (id, email) => applyProjectFollowers(id, await api.removeTaskProjectFollower(id, email)),
     // Not mkDel: a project delete bins its tasks server-side too, so the
     // whole core has to be refetched rather than just dropping the project
     // from its own list.
@@ -867,6 +913,7 @@ export function TasksProvider({ children }) {
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, deleteTasks, restoreTasks, bulkUpdate, toggleComplete, setStatus,
     moveTask,
+    bulkDates, undoDueChange,
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },
@@ -887,6 +934,8 @@ export function TasksProvider({ children }) {
     },
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,
     offerUndo,
+    // A one-line notice in the undo toast's place, with no Undo (Oct 22 2026).
+    notify: (label) => offerUndo(label, null),
     // Bookmarks live HERE, not in `actions` below. That object is
     // useMemo'd on [loadCore] - i.e. built once - so anything stateful put
     // inside it is frozen at its first value: the star never filled in, and
@@ -925,7 +974,7 @@ export function TasksProvider({ children }) {
           fontFamily: "'Inter', sans-serif", fontSize: 13, maxWidth: 'min(92vw, 520px)',
         }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{undo.label}</span>
-          <button onClick={runUndo} style={{ border: 'none', background: 'none', color: '#6ea8ff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Undo</button>
+          {undo.run && <button onClick={runUndo} style={{ border: 'none', background: 'none', color: '#6ea8ff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Undo</button>}
         </div>
       )}
     </Ctx.Provider>
