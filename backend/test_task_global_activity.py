@@ -125,6 +125,24 @@ class GlobalActivityAccessTests(unittest.TestCase):
         with mock.patch.object(auth, "company_scope", return_value={"co-a"}):
             self.assertEqual(self._codes(MANAGER), {"TASK-A", "Roof"})
 
+    def test_with_the_walls_really_armed(self):
+        # The switch itself, not a mocked scope: a level-3 manager in co-a.
+        import cache
+        self._seed()
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == MANAGER["email"]).delete()
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email=MANAGER["email"], first_name="N", company="co-a"))
+        self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+        self.db.add(models.NexusSetting(key="company_walls", value="on"))
+        self.db.commit()
+        cache.settings_config.invalidate()
+        try:
+            self.assertEqual(self._codes(MANAGER), {"TASK-A", "Roof"})
+        finally:
+            self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+            self.db.commit()
+            cache.settings_config.invalidate()
+        self.assertEqual(self._codes(MANAGER), {"TASK-A", "TASK-B", "Roof", "Vault"})   # off again: everything
+
     def test_the_wall_is_applied_before_the_limit(self):
         # Ten newer co-b rows ahead of one older co-a row: limit=1 used to take
         # the newest row and then wall it away, answering nothing at all.

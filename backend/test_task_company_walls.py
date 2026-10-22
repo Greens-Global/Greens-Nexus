@@ -17,6 +17,7 @@ that with the walls OFF nothing changes. Throwaway SQLite, no network.
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
@@ -53,7 +54,7 @@ _CLEAR = (models.Task, models.TaskProject, models.TaskPortfolio, models.TaskTeam
           models.TaskAutomationRule, models.TaskAutomationRun, models.TaskTemplate, models.TaskCustomField,
           models.TaskCustomStatus, models.TaskIntakeForm, models.TaskActivity, models.TaskNotification,
           models.NexusNotification, models.NexusEmployee, models.NexusSetting, models.TaskProjectBookmark,
-          models.TaskChecklistItem)
+          models.TaskChecklistItem, models.NexusAccessScope)
 
 
 class WallsBase(unittest.TestCase):
@@ -176,10 +177,31 @@ class ProjectWallTests(WallsBase):
         self.arm()
         self.assertEqual(P.list_projects(user=AMGR, db=self.db), [])
 
-    def test_create_stamps_the_creators_company(self):
-        out = P.create_project(P.ProjectBody(name="New"), user=AMGR, db=self.db)
-        row = self.db.query(models.TaskProject).filter(models.TaskProject.id == out["id"]).first()
-        self.assertEqual(row.company_id, COA)
+    def _stamp(self, out, model=models.TaskProject):
+        self.db.expire_all()
+        return self.db.get(model, out["id"]).company_id
+
+    def test_walls_off_new_rows_are_not_stamped(self):
+        # '' = derived from the owner / creator, exactly as before the walls.
+        self.assertEqual(self._stamp(P.create_project(P.ProjectBody(name="New"), user=AMGR, db=self.db)), "")
+        self.assertEqual(self._stamp(P.create_portfolio(P.PortfolioBody(name="Pf"), user=AMGR, db=self.db),
+                                     models.TaskPortfolio), "")
+        self.assertEqual(self._stamp(P.create_team(P.TeamBody(name="Tm"), user=AMGR, db=self.db),
+                                     models.TaskTeam), "")
+
+    def test_walls_on_stamps_the_owner_else_the_creator(self):
+        self.arm()
+        self.assertEqual(self._stamp(P.create_project(P.ProjectBody(name="New"), user=AMGR, db=self.db)), COA)
+        self.assertEqual(self._stamp(P.create_team(P.TeamBody(name="Tm"), user=AMGR, db=self.db),
+                                     models.TaskTeam), COA)
+        # A Global Admin naming a company-B owner stamps B; naming nobody, blank.
+        self.assertEqual(self._stamp(P.create_project(P.ProjectBody(name="For B", owner_email=BEMP["email"]),
+                                                      user=GA, db=self.db)), COB)
+        self.assertEqual(self._stamp(P.create_portfolio(P.PortfolioBody(name="Pf"), user=GA, db=self.db),
+                                     models.TaskPortfolio), "")
+        # A walled manager naming an owner over the wall gets their own company.
+        self.assertEqual(self._stamp(P.create_project(P.ProjectBody(name="X", owner_email=BEMP["email"]),
+                                                      user=AMGR, db=self.db)), COA)
 
     def test_walls_off_lists_everything(self):
         self.project(COA)
@@ -203,6 +225,26 @@ class ProjectWallTests(WallsBase):
         self.assertEqual(self.code(lambda: P.create_team(P.TeamBody(name="t", project_ids=[pb.id]),
                                                          user=AMGR, db=self.db)), 404)
 
+    def test_a_team_spanning_two_companies_is_seen_by_both_and_changed_by_its_own(self):
+        pa, pb = self.project(COA), self.project(COB)
+        span = models.TaskTeam(id=gen_id(), name="Shared IT", project_ids=[pa.id, pb.id])   # legacy: no creator
+        self.db.add(span)
+        self.db.commit()
+        self.arm()
+        bmgr = {"email": "bmgr@greensglobal.com", "level": 3}
+        self.assertEqual([t["id"] for t in P.list_teams(user=AMGR, db=self.db)], [span.id])
+        self.assertEqual([t["id"] for t in P.list_teams(user=bmgr, db=self.db)], [span.id])   # visible to B too
+        # Its own company is A (its first project's), so only A changes it.
+        P.update_team(span.id, P.TeamBody(name="IT"), user=AMGR, db=self.db)
+        self.assertEqual(self.code(lambda: P.update_team(span.id, P.TeamBody(name="B's now"),
+                                                         user=bmgr, db=self.db)), 404)
+
+    def test_walls_off_teams_are_unchanged(self):
+        pb = self.project(COB)
+        self.db.add(models.TaskTeam(id=gen_id(), name="B team", project_ids=[pb.id], created_by=BEMP["email"]))
+        self.db.commit()
+        self.assertEqual(len(P.list_teams(user=AMGR, db=self.db)), 1)
+
     def test_portfolios(self):
         pa, pb = self.project(COA), self.project(COB)
         fa = models.TaskPortfolio(id=gen_id(), name="A pf", company_id=COA, project_ids=[pa.id, pb.id])
@@ -220,6 +262,48 @@ class ProjectWallTests(WallsBase):
             P.MoveProjectsBody(project_ids=[pa.id, pb.id], portfolio_id=fa.id), user=AMGR, db=self.db)), 404)
         self.db.expire_all()
         self.assertEqual(self.db.get(models.TaskProject, pb.id).portfolio_id or "", "")   # nothing moved
+
+    def test_saving_a_portfolio_keeps_projects_the_caller_cannot_see(self):
+        pa1, pb, pa2 = self.project(COA, name="A1"), self.project(COB, name="B"), self.project(COA, name="A2")
+        for proj in (pa1, pb, pa2):
+            proj.portfolio_id = "pf"
+        self.db.add(models.TaskPortfolio(id="pf", name="Mixed", company_id=COA, project_ids=[pa1.id, pb.id, pa2.id]))
+        self.db.commit()
+        self.arm()
+        shown = P.list_portfolios(user=AMGR, db=self.db)[0]["projectIds"]
+        self.assertEqual(shown, [pa1.id, pa2.id])
+        # The Edit form sends back what it was shown: a rename, then a reorder.
+        P.update_portfolio("pf", P.PortfolioBody(name="Renamed", project_ids=shown), user=AMGR, db=self.db)
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.TaskPortfolio, "pf").project_ids, [pa1.id, pb.id, pa2.id])
+        self.assertEqual(self.db.get(models.TaskProject, pb.id).portfolio_id, "pf")
+        P.update_portfolio("pf", P.PortfolioBody(project_ids=[pa2.id, pa1.id]), user=AMGR, db=self.db)
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.TaskPortfolio, "pf").project_ids, [pa2.id, pb.id, pa1.id])
+        # Removing one of their own leaves B's alone.
+        P.update_portfolio("pf", P.PortfolioBody(project_ids=[pa2.id]), user=AMGR, db=self.db)
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.TaskPortfolio, "pf").project_ids, [pa2.id, pb.id])
+        self.assertEqual(self.db.get(models.TaskProject, pa1.id).portfolio_id, "")
+        self.assertEqual(self.db.get(models.TaskProject, pb.id).portfolio_id, "pf")
+
+    def test_walls_off_portfolio_save_is_unchanged(self):
+        pa, pb = self.project(COA), self.project(COB)
+        self.db.add(models.TaskPortfolio(id="pf", name="Mixed", project_ids=[pa.id, pb.id]))
+        self.db.commit()
+        P.update_portfolio("pf", P.PortfolioBody(project_ids=[pa.id]), user=AMGR, db=self.db)
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.TaskPortfolio, "pf").project_ids, [pa.id])
+
+    def test_bookmarks_with_walls_off_and_on(self):
+        pa, pb = self.project(COA), self.project(COB)
+        for proj in (pa, pb):
+            self.db.add(models.TaskProjectBookmark(id=gen_id(), owner_email=AMGR["email"], project_id=proj.id,
+                                                   position=0, created_at=now_iso()))
+        self.db.commit()
+        self.assertEqual(len(P.list_bookmarks(user=AMGR, db=self.db)), 2)
+        self.arm()
+        self.assertEqual([b["projectId"] for b in P.list_bookmarks(user=AMGR, db=self.db)], [pa.id])
 
     def test_member_requests(self):
         ta = models.TaskTeam(id=gen_id(), name="A", created_by=AEMP["email"])
@@ -258,12 +342,60 @@ class ConfigWallTests(WallsBase):
         self.assertEqual(self.code(lambda: C.delete_rule(rb.id, user=AMGR, db=self.db)), 404)
         C.update_rule(shared.id, C.RuleBody(enabled=False), user=GA, db=self.db)    # a Global Admin may
 
+    def test_a_project_scoped_rule_takes_that_projects_company(self):
+        # A manager in two companies: home A, plus an entity grant on B.
+        self.db.add(models.NexusAccessScope(id=gen_id(), email=AMGR["email"], scope_type="entity", scope_id=COB,
+                                            module_id="tasks"))
+        pb = self.project(COB)
+        self.db.commit()
+        self.arm()
+        made = C.create_rule(C.RuleBody(name="B only", trigger={"type": "created"},
+                                        conditions=[{"field": "project", "op": "is", "value": pb.id}],
+                                        actions=[{"type": "add_tag", "value": "x"}]), user=AMGR, db=self.db)
+        self.assertEqual(self.db.get(models.TaskAutomationRule, made["id"]).company_id, COB)
+        plain = C.create_rule(C.RuleBody(name="home", trigger={"type": "created"},
+                                         actions=[{"type": "add_tag", "value": "x"}]), user=AMGR, db=self.db)
+        self.assertEqual(self.db.get(models.TaskAutomationRule, plain["id"]).company_id, COA)
+        # A project over the wall cannot be named at all.
+        pc = self.project("co-c")
+        self.assertEqual(self.code(lambda: C.create_custom_field(C.CustomFieldBody(name="f", project_ids=[pc.id]),
+                                                                 user=AMGR, db=self.db)), 404)
+
+    def test_a_walled_manager_makes_a_shared_field_required_in_their_own_projects_only(self):
+        pa, pb = self.project(COA), self.project(COB)
+        self.db.add(models.TaskCustomField(id="loc", name="Location", type="text", company_id="",
+                                           required_project_ids=[pb.id]))
+        self.db.commit()
+        self.arm()
+        out = C.update_custom_field("loc", C.CustomFieldBody(required_project_ids=[pb.id, pa.id]), user=AMGR, db=self.db)
+        self.assertEqual(sorted(out["requiredProjectIds"]), sorted([pa.id, pb.id]))   # B's entry kept
+        self.assertEqual(self.code(lambda: C.update_custom_field("loc", C.CustomFieldBody(required_project_ids=[pa.id]),
+                                                                 user=AMGR, db=self.db)), 404)   # can't drop B's
+        self.assertEqual(self.code(lambda: C.update_custom_field("loc", C.CustomFieldBody(name="Renamed"),
+                                                                 user=AMGR, db=self.db)), 403)
+
+    def test_walls_off_shared_rules_fire_everywhere_and_fields_bind_everyone(self):
+        # Every row made before (and while the walls are off) is shared: a rule
+        # fires on every task and a required field binds every task - unchanged.
+        self._rule("", "shared")
+        for co in (COA, COB, ""):
+            t = self.task(co)
+            task_automation.run_for_change(self.db, t, event="created", before=task_automation.snapshot(t))
+            self.assertEqual(t.tags, ["shared"])
+        p = self.project(COB)
+        self.db.add(models.TaskCustomField(id="req", name="Shared", type="text", required=True, company_id=""))
+        self.db.commit()
+        self.assertEqual(self.code(lambda: T.create_task(T.TaskCreate(title="x", project_id=p.id), BackgroundTasks(),
+                                                         user=AMGR, db=self.db)), 422)
+
     def test_rules_made_with_walls_off_are_shared(self):
         made = C.create_rule(C.RuleBody(name="new", trigger={"type": "created"},
                                         actions=[{"type": "add_tag", "value": "x"}]), user=AMGR, db=self.db)
         self.assertEqual(self.db.get(models.TaskAutomationRule, made["id"]).company_id, "")
 
     def test_a_company_rule_fires_only_on_that_companys_tasks(self):
+        # Rows carry a company only when made behind the wall; armed here.
+        self.arm()
         self._rule("", "shared")
         self._rule(COB, "b-only")
         t = self.task(COA)
@@ -303,6 +435,7 @@ class ConfigWallTests(WallsBase):
         self.assertEqual(self.db.get(models.TaskIntakeForm, made["id"]).company_id, COA)
 
     def test_a_company_required_field_binds_only_that_companys_tasks(self):
+        self.arm()
         p = self.project(COA)
         self.db.add(models.TaskCustomField(id="req-b", name="B Only", type="text", required=True, company_id=COB))
         self.db.add(models.TaskCustomField(id="req-s", name="Shared", type="text", required=True, company_id=""))
@@ -322,7 +455,11 @@ class CustomStatusDeleteTests(WallsBase):
         live = self.task(COA, status="waiting")
         binned = self.task(COA, status="waiting", deleted_at=now_iso())
         other = self.task(COA, status="in_progress")
-        T.delete_custom_status("waiting", user=AMGR, db=self.db)
+        with mock.patch.object(T, "fire_task_event") as ping:
+            T.delete_custom_status("waiting", user=AMGR, db=self.db)
+        ping.assert_called_once_with("", "bulk")          # one ping for the batch
+        self.assertEqual(self.db.query(models.TaskActivity)
+                         .filter(models.TaskActivity.type == "status_changed").count(), 2)
         self.db.expire_all()
         q = self.db.query(models.Task).execution_options(include_deleted=True)
         self.assertEqual(q.filter(models.Task.id == live.id).first().status, "not_started")
@@ -332,21 +469,43 @@ class CustomStatusDeleteTests(WallsBase):
 
 
 class UseTemplateAssigneeTests(WallsBase):
-    def test_a_subtask_assignee_outside_the_directory_is_refused(self):
+    def _use(self, people, followers=()):
         self.db.add(models.TaskTemplate(id="tpl", name="T", patch={},
-                                        subtasks=[{"title": "s", "assigneeIds": ["stranger@outside.com"]}]))
+                                        subtasks=[{"title": "s", "assigneeIds": list(people),
+                                                   "followerIds": list(followers)}]))
         self.db.commit()
-        with self.assertRaises(HTTPException) as e:
-            C.use_template("tpl", C.UseTemplateBody(), BackgroundTasks(), user=AMGR, db=self.db)
-        self.assertEqual(e.exception.status_code, 422)
-        self.assertEqual(self.db.query(models.Task).count(), 0)   # nothing half-built
+        out = C.use_template("tpl", C.UseTemplateBody(), BackgroundTasks(), user=AMGR, db=self.db)
+        return out, self.db.get(models.Task, out["subtaskIds"][0])
 
-    def test_a_subtask_assignee_in_another_company_is_refused(self):
-        self.db.add(models.TaskTemplate(id="tpl", name="T", patch={},
-                                        subtasks=[{"title": "s", "assigneeIds": [BEMP["email"]]}]))
+    def test_someone_outside_the_directory_or_departed_is_left_off_not_refused(self):
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email="gone@greensglobal.com", first_name="Gone",
+                                         status="offboarded"))
         self.db.commit()
-        self.assertEqual(self.code(lambda: C.use_template("tpl", C.UseTemplateBody(), BackgroundTasks(),
-                                                          user=AMGR, db=self.db)), 422)
+        out, sub = self._use(["stranger@outside.com", AEMP["email"]], followers=["gone@greensglobal.com"])
+        self.assertEqual(sub.assignee_emails, [AEMP["email"]])
+        self.assertEqual(sub.follower_emails, [])
+        self.assertEqual({(d["email"], d["reason"]) for d in out["droppedPeople"]},
+                         {("stranger@outside.com", "is not in the Nexus directory"),
+                          ("gone@greensglobal.com", "has left")})
+        note = self.db.query(models.TaskActivity).filter(models.TaskActivity.type == "people_not_added").one()
+        self.assertEqual(note.entity_id, sub.id)
+
+    def test_another_company_is_fine_with_walls_off(self):
+        _, sub = self._use([BEMP["email"]])
+        self.assertEqual(sub.assignee_emails, [BEMP["email"]])
+
+    def test_another_company_is_left_off_behind_the_wall(self):
+        self.arm()
+        out, sub = self._use([BEMP["email"]])
+        self.assertEqual(sub.assignee_emails, [])
+        self.assertEqual(out["droppedPeople"][0]["reason"], "is in another company")
+
+    def test_an_inactive_person_is_kept_as_the_people_picker_offers_them(self):
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email="leave@greensglobal.com", first_name="L",
+                                         status="inactive"))
+        self.db.commit()
+        _, sub = self._use(["leave@greensglobal.com"])
+        self.assertEqual(sub.assignee_emails, ["leave@greensglobal.com"])
 
     def test_a_directory_person_is_fine(self):
         self.db.add(models.TaskTemplate(id="tpl", name="T", patch={},
@@ -369,6 +528,19 @@ class RecycleBinWallTests(WallsBase):
         self.assertEqual(len(P.list_recycle_bin(user=AMGR, db=self.db)), 2)
 
 
+class TemplateRestoreTests(WallsBase):
+    def test_whoever_saved_a_shared_template_can_restore_it_behind_the_wall(self):
+        self.db.add(models.TaskTemplate(id="tpl", name="Mine", company_id="", patch={}, created_by=AEMP["email"],
+                                        deleted_at=now_iso(), deleted_by=AEMP["email"]))
+        self.db.commit()
+        self.arm()
+        self.assertEqual(self.code(lambda: P.restore_from_recycle_bin("task_template", "tpl", user=AMGR,
+                                                                      db=self.db)), 403)   # not theirs, shared
+        P.restore_from_recycle_bin("task_template", "tpl", user=AEMP, db=self.db)
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.TaskTemplate, "tpl").deleted_at, "")
+
+
 class SearchWallTests(WallsBase):
     def test_search_walls_every_group(self):
         self.project(COA, name="Roof A")
@@ -377,17 +549,24 @@ class SearchWallTests(WallsBase):
         self.db.add(models.TaskTeam(id=gen_id(), name="Roof team B", created_by=BEMP["email"]))
         self.db.add(models.NexusEmployee(id=gen_id(), work_email="roofer.b@greensglobal.com", first_name="Roofer",
                                          status="active", company=COB))
+        # An external belongs to a partner org (external_company), not to one of
+        # our companies: the wall does not hide them.
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email="roofguy@partner.com", first_name="Roofguy",
+                                         status="active", company="", identity_type="external",
+                                         external_company="Partner Roofing"))
         self.db.commit()
         self.arm()
         out = T.search_everything(q="roof", user=AMGR, db=self.db)
         self.assertEqual([p["name"] for p in out["projects"]], ["Roof A"])
         self.assertEqual(out["portfolios"], [])
         self.assertEqual(out["teams"], [])
-        self.assertEqual(out["people"], [])
+        self.assertEqual([p["email"] for p in out["people"]], ["roofguy@partner.com"])
+        T.person_profile("roofguy@partner.com", user=AMGR, db=self.db)   # not a 404
+        self.assertEqual(self.code(lambda: T.person_profile("roofer.b@greensglobal.com", user=AMGR, db=self.db)), 404)
         self.arm(False)
         out = T.search_everything(q="roof", user=AMGR, db=self.db)
         self.assertEqual(len(out["projects"]), 2)
-        self.assertEqual(len(out["people"]), 1)
+        self.assertEqual(len(out["people"]), 2)
 
 
 if __name__ == "__main__":

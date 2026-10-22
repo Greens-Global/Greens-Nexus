@@ -25,7 +25,8 @@ from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible
                                task_assignees, set_task_assignees, team_is_approved,
                                require_project_access, wall_rows, wall_teams, wall_tasks,
                                assert_row_wall, assert_team_wall, assert_task_wall,
-                               config_admits, config_company_for_new, assert_config_editable)
+                               config_admits, config_company_for_new, assert_config_editable,
+                               teams_editable, tenant_company_for_new)
 from routers.hr import _ensure_departments
 from routers.task_config import coerce_custom_field_values
 
@@ -395,9 +396,10 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
     _require_portfolio_wall(db, user, body.portfolio_id)
     p = models.TaskProject(
         id=body.id or gen_id(), name=body.name, description=body.description or "",
-        # Company wall: the creator's company, so the project stays on their
-        # side even if its owner later changes (task_util.row_company).
-        company_id=auth.company_of(user, db),
+        # Company wall: stamped only while the walls are on - the owner's
+        # company, else the creator's (task_util.tenant_company_for_new). With
+        # them off it stays '' and derives from the owner, as before.
+        company_id=tenant_company_for_new(db, user, body.owner_email or ""),
         color=clean_project_color(body.color), icon=clean_project_icon(body.icon),
         owner_email=(body.owner_email or user["email"]).lower(),
         member_emails=body.member_emails or [], portfolio_id=body.portfolio_id or "",
@@ -446,10 +448,45 @@ def _require_projects_wall(db: Session, user: dict, project_ids) -> None:
     (managers included - they skip the role checks). Unknown ids are left to
     the caller's own handling."""
     ids = [(i or "").strip() for i in (project_ids or []) if (i or "").strip()]
-    if not ids or auth.company_scope(user, db) is None:
+    if not ids:
+        return
+    scope = auth.company_scope(user, db)   # once for the batch
+    if scope is None:
         return
     for proj in db.query(models.TaskProject).filter(models.TaskProject.id.in_(ids)).all():
-        assert_row_wall(db, user, proj)
+        assert_row_wall(db, user, proj, scope=scope)
+
+
+def _keep_hidden_projects(db: Session, user: dict, prev_ids, sent_ids) -> list:
+    """A portfolio's project list as the caller saves it, with every project
+    they cannot see (another company's, behind the wall) kept where it was.
+
+    list_portfolios leaves those ids out, so the Edit form - which always
+    sends projectIds back - would otherwise drop them on a mere rename and
+    clear those projects' portfolio_id. The caller's own ids take the order
+    they sent; each hidden id keeps its original slot. Unchanged with the
+    walls off."""
+    sent = [i for i in dict.fromkeys(sent_ids or []) if i]
+    scope = auth.company_scope(user, db)
+    prev = [i for i in (prev_ids or []) if i]
+    if scope is None or not prev:
+        return sent
+    rows = db.query(models.TaskProject).filter(models.TaskProject.id.in_(prev)).all()
+    seen = {r.id for r in wall_rows(db, user, rows, scope=scope)}
+    hidden = {r.id for r in rows if r.id not in seen}
+    if not hidden:
+        return sent
+    mine = iter([i for i in sent if i not in hidden])
+    out = []
+    for pid in prev:
+        if pid in hidden:
+            out.append(pid)
+        else:
+            nxt = next(mine, None)
+            if nxt is not None:
+                out.append(nxt)
+    out += list(mine)
+    return list(dict.fromkeys(out))
 
 
 def _sync_portfolio_membership(db: Session, project_id: str, portfolio_id: str) -> None:
@@ -732,8 +769,10 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
             description=f"Tasks handed over from {label} on offboarding.",
             owner_email=to_email, member_emails=[to_email], member_roles={to_email: "owner"},
             access_level="restricted", status="not_started",
-            # The leaver's company, like the clear-up task below.
-            company_id=(getattr(who, "company", "") or "") if who is not None else "",
+            # The leaver's company while the walls are on; '' (derived) with
+            # them off, like every other new project.
+            company_id=((getattr(who, "company", "") or "") if who is not None else "")
+            if auth._company_walls_on(db) else "",
             created_at=now, modified_at=now, created_by=actor or to_email,
         )
         db.add(project)
@@ -839,7 +878,7 @@ def create_portfolio(body: PortfolioBody, user: dict = Depends(get_current_user)
     _require_projects_wall(db, user, body.project_ids)
     p = models.TaskPortfolio(
         id=body.id or gen_id(), name=body.name, description=body.description or "",
-        company_id=auth.company_of(user, db),   # company wall, like a project
+        company_id=tenant_company_for_new(db, user, body.owner_email or ""),   # walls on only, like a project
         color=body.color or "", owner_email=(body.owner_email or user["email"]).lower(),
         parent_id=parent_id,
         project_ids=body.project_ids or [], archived=bool(body.archived),   # same drop as create_project had
@@ -871,6 +910,8 @@ def update_portfolio(portfolio_id: str, body: PortfolioBody, user: dict = Depend
     _require_portfolio_wall(db, user, data.get("parent_id"))
     if "project_ids" in data:
         _require_projects_wall(db, user, set(data["project_ids"] or []) - set(p.project_ids or []))
+        # Another company's projects stay in it, in place (see _keep_hidden_projects).
+        data["project_ids"] = _keep_hidden_projects(db, user, p.project_ids, data["project_ids"])
     if "parent_id" in data:
         parent_id = (data["parent_id"] or "").strip()
         if parent_id:
@@ -1023,7 +1064,12 @@ def list_bookmarks(user: dict = Depends(get_current_user), db: Session = Depends
             .filter(models.TaskProjectBookmark.owner_email == user["email"].lower())
             .order_by(models.TaskProjectBookmark.position).all())
     # Behind a company wall, a bookmark on a project over it reads as gone.
-    live = {p.id for p in wall_rows(db, user, db.query(models.TaskProject).all())} if rows else set()
+    if not rows:
+        live = set()
+    elif auth.company_scope(user, db) is None:
+        live = {p.id for p in db.query(models.TaskProject.id).all()}   # ids only, as before
+    else:
+        live = {p.id for p in wall_rows(db, user, db.query(models.TaskProject).all())}
     return [{"id": r.id, "projectId": r.project_id, "position": r.position or 0}
             for r in rows if r.project_id in live]
 
@@ -1145,7 +1191,7 @@ def create_team(body: TeamBody, user: dict = Depends(get_current_user),
                         icon=body.icon or "", member_emails=body.member_emails or [],
                         created_at=now_iso(), created_by=user["email"],
                         approval_status="personal" if personal else "approved",
-                        granted_emails={}, company_id=auth.company_of(user, db))
+                        granted_emails={}, company_id=tenant_company_for_new(db, user))
     _set_team_projects(d, body.project_ids if body.project_ids is not None
                        else ([body.project_id] if body.project_id else []))
     db.add(d)
@@ -1674,7 +1720,7 @@ def _resolve_custom_fields(db: Session, payload: dict, project_id: str, user: di
     existing = [f for f in db.query(models.TaskCustomField).all()
                 if config_admits(getattr(f, "company_id", "") or "", scope)]
     def new_company():   # only asked when a definition is actually minted
-        return config_company_for_new(db, user) if user is not None else ""
+        return config_company_for_new(db, user, [project_id]) if user is not None else ""
     by_name = {}
     for f in existing:
         by_name.setdefault(((f.name or "").strip().lower(), (f.type or "text").lower()), f)
@@ -1718,7 +1764,7 @@ def _resolve_custom_statuses(db: Session, payload: dict, project_id: str, user: 
     existing = [s for s in db.query(models.TaskCustomStatus).all()
                 if config_admits(getattr(s, "company_id", "") or "", scope)]
     def new_company():   # only asked when a definition is actually minted
-        return config_company_for_new(db, user) if user is not None else ""
+        return config_company_for_new(db, user, [project_id]) if user is not None else ""
     by_label = {}
     for s in existing:
         by_label.setdefault((s.label or "").strip().lower(), s)
@@ -1844,7 +1890,7 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
         archived=bool(given.get("archived")),
         activity_ids=[], created_at=now, modified_at=now, created_by=user["email"],
         custom_field_values={},   # re-keyed below, once the field ids are known
-        company_id=auth.company_of(user, db),   # company wall, like create_project
+        company_id=tenant_company_for_new(db, user, owner),   # walls on only, like create_project
     )
     db.add(p)
     db.flush()   # autoflush=False - p.id must be visible to the rows built below
@@ -1862,10 +1908,15 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
     team_ids = list(given.get("team_ids") or [])
     if include_teams and not blueprint:
         team_ids += [t for t in (src.get("teamIds") or []) if t not in team_ids]
+    named = (db.query(models.TaskTeam).filter(models.TaskTeam.id.in_(team_ids)).all()) if team_ids else []
+    # Attaching a team changes it, so it takes the team's OWN company (one check
+    # for the lot; another company's team is not attached).
+    ok_ids = {t.id for t in teams_editable(db, user, named)}
+    by_id = {t.id: t for t in named}
     for tid in team_ids:
-        team = db.query(models.TaskTeam).filter(models.TaskTeam.id == tid).first()
-        if team is not None and not wall_teams(db, user, [team]):
-            continue   # another company's team is not attached (company wall)
+        team = by_id.get(tid)
+        if team is not None and team.id not in ok_ids:
+            continue
         if team and p.id not in team_project_ids(team):
             _set_team_projects(team, team_project_ids(team) + [p.id])
 
@@ -2446,7 +2497,14 @@ def _assert_recycle_wall(db: Session, user: dict, kind: str, row) -> None:
     elif kind == "team":
         assert_team_wall(db, user, row)
     elif kind == "task_template":
-        assert_config_editable(db, user, getattr(row, "company_id", "") or "")
+        # Whoever saved it may restore it, as they may delete it (delete_template):
+        # only another company's template is out of reach. Anyone else needs
+        # the edit right (a shared one is a Global Admin's behind a wall).
+        if (row.created_by or "").lower() == (user.get("email") or "").lower():
+            if not config_admits(getattr(row, "company_id", "") or "", auth.company_scope(user, db)):
+                raise HTTPException(404, "Not found")
+        else:
+            assert_config_editable(db, user, getattr(row, "company_id", "") or "")
     else:
         assert_row_wall(db, user, row)
 

@@ -115,6 +115,13 @@ def _scope(user, db: Session):
     return auth.company_scope(user, db) if isinstance(user, dict) else None
 
 
+def _rule_projects(conditions) -> list:
+    """The projects a rule is confined to ("project is X" conditions) - a
+    project-scoped rule is stamped with that project's company."""
+    return [str(c.get("value") or "").strip() for c in (conditions or [])
+            if isinstance(c, dict) and c.get("field") == "project" and c.get("op", "is") == "is" and c.get("value")]
+
+
 @router.get("/task-automation-rules")
 def list_rules(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Behind a company wall (Oct 21 2026): the caller's companies' rules and
@@ -138,7 +145,8 @@ def create_rule(body: RuleBody, user: dict = Depends(get_current_user), db: Sess
                                   # '' (shared) while the walls are off / for a Global
                                   # Admin; else the creator's company, and the engine
                                   # then fires it only on that company's tasks.
-                                  company_id=config_company_for_new(db, user) if isinstance(user, dict) else "")
+                                  company_id=(config_company_for_new(db, user, _rule_projects(body.conditions))
+                                              if isinstance(user, dict) else ""))
     db.add(r)
     db.commit()
     db.refresh(r)
@@ -235,7 +243,8 @@ def create_template(body: TemplateBody, user: dict = Depends(get_current_user), 
     t = models.TaskTemplate(id=body.id or gen_id(), name=body.name, description=body.description or "",
                             patch=body.patch or {}, subtask_titles=body.subtask_titles or [],
                             created_at=now_iso(),
-                            company_id=config_company_for_new(db, user) if isinstance(user, dict) else "")
+                            company_id=(config_company_for_new(db, user, [(body.patch or {}).get("projectId") or ""])
+                                        if isinstance(user, dict) else ""))
     db.add(t)
     db.commit()
     db.refresh(t)
@@ -359,7 +368,7 @@ def save_task_as_template(task_id: str, body: SaveAsTemplateBody, user: dict = D
         subtask_titles=[s["title"] for s in subtasks], subtasks=subtasks,
         checklist=_checklist_of(db, t.id) if "checklist" in keep else [],
         source_task_id=t.id, created_by=user["email"].lower(), created_at=now_iso(),
-        company_id=config_company_for_new(db, user))
+        company_id=config_company_for_new(db, user, [t.project_id or ""]))
     db.add(tpl)
     db.commit()
     db.refresh(tpl)
@@ -415,20 +424,18 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
         {"title": x} for x in (tpl.subtask_titles or []) if x]
     actor = user["email"].lower()
 
+    dropped_people: list = []
+
     def add_children(parent: models.Task) -> None:
         # Every subtask assignee and collaborator has to be somebody who may
-        # hold the work - a current person in the Nexus directory, on the
-        # parent's side of the company wall (Oct 21 2026). A template keeps
-        # whoever was on the task it was saved from, who may have left since.
-        # Checked before anything is added: the whole use fails with a 422
-        # naming the problem rather than quietly handing work to an address
-        # nobody reads. Being put on the subtask is what lets them see it, so
-        # (unlike a checklist line) no prior visibility is asked for.
-        from routers.task_util import assert_person_assignable
-        for s in subs:
-            for who in [*(s.get("assigneeIds") or []), *(s.get("followerIds") or [])]:
-                if str(who or "").strip():
-                    assert_person_assignable(db, parent, str(who))
+        # hold the work (Oct 21 2026): in the Nexus directory, not offboarded,
+        # and - behind the company wall only - not in another company. A
+        # template keeps whoever was on the task it was saved from, who may
+        # have left since. Such a person is LEFT OFF, not refused: one departed
+        # collaborator must not fail the whole template. The subtask's history
+        # says who was not added and why, and the response lists them
+        # (droppedPeople). See task_util.split_people.
+        from routers.task_util import split_people, note_dropped_people
         now = parent.created_at or now_iso()
         ids = []
         for i, s in enumerate(subs):
@@ -442,7 +449,7 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
                 title=s.get("title") or "Subtask", description=s.get("description") or "",
                 type=s.get("type") or "task", status="recurring" if (srec or {}).get("freq") else "not_started",
                 priority=s.get("priority") or "medium", owner_email="",
-                follower_emails=list(s.get("followerIds") or []), liked_by_emails=[],
+                follower_emails=[], liked_by_emails=[],
                 access_level=parent.access_level or "org", project_id=parent.project_id or "",
                 section_id="", team_id=parent.team_id or "", parent_task_id=parent.id, position=float(i),
                 subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={}, tags=[],
@@ -451,7 +458,12 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
                 recurrence=srec, is_milestone=False, approval_status="none", completed=False, completed_at="",
                 comment_ids=[], attachment_ids=[], activity_ids=[],
                 created_at=now, modified_at=now, created_by=actor)
-            set_task_assignees(row, list(s.get("assigneeIds") or []))
+            kept_a, gone_a = split_people(db, row, s.get("assigneeIds") or [], user, actor)
+            kept_f, gone_f = split_people(db, row, s.get("followerIds") or [], user, actor)
+            set_task_assignees(row, kept_a)
+            row.follower_emails = kept_f
+            note_dropped_people(db, row, gone_a + gone_f, actor)
+            dropped_people.extend({**d, "taskId": row.id} for d in gone_a + gone_f)
             db.add(row)
             _add_checklist(db, row, s.get("checklist"), actor, now)
             ids.append(row.id)
@@ -463,7 +475,10 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
         parent.subtask_ids = ids
         _add_checklist(db, parent, tpl.checklist, actor, now)
 
-    return tasks_router._create_task(main, background_tasks, user, db, before_commit=add_children)
+    out = tasks_router._create_task(main, background_tasks, user, db, before_commit=add_children)
+    if dropped_people:
+        out["droppedPeople"] = [*(out.get("droppedPeople") or []), *dropped_people]
+    return out
 
 
 def _add_checklist(db: Session, task: models.Task, items, actor: str, now: str) -> None:
@@ -499,7 +514,8 @@ def list_intake_forms(user: dict = Depends(get_current_user), db: Session = Depe
 def create_intake_form(body: IntakeFormBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     f = models.TaskIntakeForm(id=body.id or gen_id(), title=body.title, fields=body.fields or [],
                               target_project_id=body.target_project_id or "", created_at=now_iso(),
-                              company_id=config_company_for_new(db, user) if isinstance(user, dict) else "")
+                              company_id=(config_company_for_new(db, user, [body.target_project_id or ""])
+                                          if isinstance(user, dict) else ""))
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -774,7 +790,7 @@ def create_custom_field(body: CustomFieldBody, user: dict = Depends(get_current_
                                required=bool(body.required), read_only=bool(body.read_only),
                                required_project_ids=required_project_ids,
                                applies_to=_dump_applies_to(body.applies_to),
-                               company_id=config_company_for_new(db, user))
+                               company_id=config_company_for_new(db, user, project_ids))
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -795,22 +811,33 @@ def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depen
     scope = _scope(user, db)
     if not config_admits(getattr(f, "company_id", "") or "", scope):
         raise HTTPException(404, "Custom field not found")
-    if set(data) - {"project_ids"}:
-        assert_config_editable(db, user, getattr(f, "company_id", "") or "")
-    elif scope is not None and "project_ids" in data and not (getattr(f, "company_id", "") or ""):
-        # A walled manager moving a SHARED field on or off projects: only
-        # their own projects, and never to or from "every project" - that
-        # would take the column off (or put it on) every other company's
-        # boards. The same limits an editor has, without the role check.
-        old = {x for x in (f.project_ids or []) if x}
-        new = {x for x in (data["project_ids"] or []) if x}
-        if not old or not new:
-            raise HTTPException(403, "This field is shared by every company - only a Global Admin can change that.")
-        for pid in old ^ new:
+    shared_walled = scope is not None and not (getattr(f, "company_id", "") or "")
+    if set(data) - {"project_ids", "required_project_ids"} or not shared_walled:
+        if set(data) - {"project_ids"}:
+            assert_config_editable(db, user, getattr(f, "company_id", "") or "")
+    else:
+        # A walled manager on a SHARED field may move it on or off, and make
+        # it required or optional in, their OWN projects - never another
+        # company's, and never to or from "every project", which would change
+        # every other company's boards. The same limits an editor has,
+        # without the role check.
+        def _own(pid):
             proj = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
             if proj is None:
-                raise HTTPException(403, "You can only add a field to a project you can edit.")
-            assert_row_wall(db, user, proj)
+                raise HTTPException(403, "You can only change a field on a project you can edit.")
+            assert_row_wall(db, user, proj, scope=scope)
+        if "project_ids" in data:
+            old = {x for x in (f.project_ids or []) if x}
+            new = {x for x in (data["project_ids"] or []) if x}
+            if not old or not new:
+                raise HTTPException(403, "This field is shared by every company - only a Global Admin can change that.")
+            for pid in old ^ new:
+                _own(pid)
+        if "required_project_ids" in data:
+            old = [x for x in (f.required_project_ids or []) if x]
+            new = [x for x in (data["required_project_ids"] or []) if x]
+            for pid in set(old) ^ set(new):
+                _own(pid)
     if "name" in data and not (data["name"] or "").strip():
         raise HTTPException(422, "Field name is required")
     if "options" in data:

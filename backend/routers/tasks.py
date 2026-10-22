@@ -1435,6 +1435,12 @@ def export_tasks_excel(
     )
 
 
+def _is_external(e) -> bool:
+    """A guest / external identity (their org is external_company, not one of
+    our companies) - see models.NexusEmployee.identity_type."""
+    return (getattr(e, "identity_type", "") or "") in ("guest", "external")
+
+
 @router.get("/search")
 def search_everything(q: str = "", limit: int = 6,
                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1477,7 +1483,7 @@ def search_everything(q: str = "", limit: int = 6,
     # cap, so a capped list is never short because the cap ate admitted rows.
     import auth
     scope = auth.company_scope(user, db)
-    all_projects = wall_rows(db, user, db.query(models.TaskProject).all())
+    all_projects = wall_rows(db, user, db.query(models.TaskProject).all(), scope=scope)
     project_names = {p.id: p.name for p in all_projects}
     # Archived projects DO appear here. Archiving hides a project from the
     # active list and from task pickers - it is not deletion, and search is how
@@ -1486,15 +1492,19 @@ def search_everything(q: str = "", limit: int = 6,
     projects = [p for p in all_projects
                 if term in (p.name or "").lower()
                 and (manager or p.id in visible)]
-    portfolios = [p for p in wall_rows(db, user, db.query(models.TaskPortfolio).all())
+    portfolios = [p for p in wall_rows(db, user, db.query(models.TaskPortfolio).all(), scope=scope)
                   if term in (p.name or "").lower()]
-    teams = [t for t in wall_teams(db, user, db.query(models.TaskTeam).all()) if term in (t.name or "").lower()]
+    teams = [t for t in wall_teams(db, user, db.query(models.TaskTeam).all(), scope=scope)
+             if term in (t.name or "").lower()]
 
     people = []
     for e in db.query(models.NexusEmployee).all():
         if (e.status or "") in ("inactive", "offboarded"):
             continue
-        if not auth.company_ok((e.company or "").strip(), scope):
+        # An external (guest / external identity) belongs to a partner org -
+        # external_company is its free-text name, never one of our companies -
+        # so the company wall does not hide them; they are found as before.
+        if not _is_external(e) and not auth.company_ok((e.company or "").strip(), scope):
             continue
         name = f"{e.first_name or ''} {e.last_name or ''}".strip()
         if term in name.lower() or term in (e.work_email or "").lower():
@@ -1573,7 +1583,8 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
     # 2026): their directory card is as walled as their work. No-op while the
     # walls are off and for a Global Admin.
     import auth
-    if emp is not None and not auth.company_ok((emp.company or "").strip(), auth.company_scope(user, db)):
+    if (emp is not None and not _is_external(emp)
+            and not auth.company_ok((emp.company or "").strip(), auth.company_scope(user, db))):
         raise HTTPException(404, "Person not found")
 
     manager = is_manager(user)
@@ -2449,7 +2460,9 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # 2026). A manager clears every role check, so without this one batch
     # could reassign or close another company's tasks by id. 404, as for one
     # task: the caller learns nothing about which ids exist over the wall.
-    if len(wall_tasks(db, user, rows)) != len(rows):
+    import auth
+    scope = auth.company_scope(user, db)   # once for the batch
+    if len(wall_tasks(db, user, rows, scope=scope)) != len(rows):
         raise HTTPException(404, "Task not found")
     # Same editor requirement update_task enforces per task. Without this, bulk
     # was a straight bypass of it: _BULK_ALLOWED covers assignee, project,
@@ -2458,7 +2471,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # All-or-nothing on purpose - a partial apply would leave the caller with no
     # way to tell which ids were silently skipped.
     for t in rows:
-        require_task_role(db, user, t, "editor")
+        require_task_role(db, user, t, "editor", scope=scope)
     if "status" in patch or "completed" in patch:
         for t in rows:
             prev_status, prev_completed = t.status, bool(t.completed)
@@ -4037,7 +4050,7 @@ def create_custom_status(body: CustomStatusBody, user: dict = Depends(get_curren
     s = models.TaskCustomStatus(id=body.id or gen_id(), label=body.label or "",
                                 color=body.color or "", position=body.position or 0,
                                 project_ids=[p for p in (body.project_ids or []) if p],
-                                company_id=config_company_for_new(db, user))
+                                company_id=config_company_for_new(db, user, body.project_ids or []))
     db.add(s)
     db.commit()
     db.refresh(s)
@@ -4081,8 +4094,12 @@ def delete_custom_status(status_id: str, user: dict = Depends(get_current_user),
         return
     assert_config_editable(db, user, getattr(s, "company_id", "") or "")
     now = now_iso()
+    # Locked: a concurrent edit of one of these tasks must not write the
+    # deleted status back after this moves it (no-op on SQLite).
     moved = (db.query(models.Task).execution_options(include_deleted=True)
-             .filter(models.Task.status == status_id).all())
+             .filter(models.Task.status == status_id).with_for_update().all())
+    # One history line per moved task, Trash included - a restored task should
+    # still say why its status changed.
     for t in moved:
         t.status = "not_started"
         t.modified_at = now
@@ -4092,8 +4109,10 @@ def delete_custom_status(status_id: str, user: dict = Depends(get_current_user),
                          detail=f'changed status to not_started ("{s.label}" was deleted)')]
     db.delete(s)
     db.commit()
-    for t in moved:
-        fire_task_event(t.id, "updated")
+    if moved:
+        # ONE ping for the batch, as bulk_update sends - a ping per task is a
+        # thread and an HTTP call each.
+        fire_task_event("", "bulk")
 
 
 # ── Task email notification settings (admin) ─────────────────────────────────
