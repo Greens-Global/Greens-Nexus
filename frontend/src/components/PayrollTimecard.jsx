@@ -799,6 +799,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   };
   const periodFinder = <PeriodFinder label={periodLabel} minWidth={isFixed ? 130 : 175} periods={finderPeriods()}
     goTo={(iso) => setPStart(anchorForStart(iso, isFixed ? 'fixed' : 'hourly'))} />;
+  // ‹ period › - at the top of the employee sidebar when there is one (Neil,
+  // Oct 22: pick the pay period first, then go down the people), else in the
+  // card's toolbar (your own sheet, a phone).
+  const periodNav = (
+    <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+      <button className="icon-btn" aria-label="Previous pay period" onClick={() => (isFixed ? shiftMonth(-1) : shift(-1))} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
+      {periodFinder}
+      <button className="icon-btn" aria-label="Next pay period" onClick={() => (isFixed ? shiftMonth(1) : shift(1))} style={{ padding: 6 }}><ChevronRight size={16} /></button>
+    </div>
+  );
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
   const ownCard = !self && !!myEmail && (data?.email || email || '').toLowerCase() === myEmail.toLowerCase();
@@ -1349,7 +1359,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // On a phone the list gives way to the card; the employee picker above the
   // card still switches people.
   const employeeSidebar = (!self && !phone) ? (
-    <div data-tour="pr-sidebar" style={{ width: 210, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', maxHeight: 620, overflowY: 'auto', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
+    <div style={{ width: 250, flexShrink: 0, display: 'grid', gap: 8 }}>
+    <div style={{ border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)', padding: '6px 6px 4px' }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--wk-dim)', padding: '0 6px 2px' }}>Pay Period</div>
+      {periodNav}
+    </div>
+    <div data-tour="pr-sidebar" style={{ border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', maxHeight: 620, overflowY: 'auto', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
       {(companies.length > 1 || depts.length > 1 || (showPay && companies.length > 0)) && (
         <div style={{ padding: '8px 10px 6px', display: 'grid', gap: 5, borderBottom: '1px solid var(--line)' }}>
           {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
@@ -1384,6 +1399,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         );
       })}
     </div>
+    </div>
   ) : null;
 
   // Fixed-salary employees get a dedicated MONTHLY card - the hourly SwipeClock
@@ -1394,7 +1410,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       <FixedTimecard data={data} self={self} email={email} people={people} setEmail={setEmail}
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
-        onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)} periodFinder={periodFinder}
+        periodNav={employeeSidebar ? null : periodNav}
         onFinalize={finalize} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
         setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard} />
@@ -1451,11 +1467,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Time Sheet</span>
           : <EmployeeCombobox people={pickable} value={email} onChange={setEmail} title="Also selectable from the sidebar"
               labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`} />}
-        <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <button className="icon-btn" onClick={() => shift(-1)} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
-          {periodFinder}
-          <button className="icon-btn" onClick={() => shift(1)} style={{ padding: 6 }}><ChevronRight size={16} /></button>
-        </div>
+        {!employeeSidebar && periodNav}
         {!self && (
         <button onClick={() => setTour(true)} title="A guided walkthrough of this screen - nothing is changed while it runs."
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
@@ -1891,7 +1903,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         { target: 'pr-sidebar', title: 'Start with the employee list',
           body: 'Everyone in this pay period. M = missing punches, E = exceptions - the red numbers are your to-do list each morning. Click a name to open their card.' },
         { target: 'pr-period', title: 'The pay period',
-          body: 'Bi-weekly, Sunday to Saturday - the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period.' },
+          body: 'Bi-weekly, Sunday to Saturday - the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period; click the dates to pick one. Pick it first - every employee you open stays on it.' },
         { target: 'pr-table', title: 'The time sheet - same columns as SwipeClock',
           body: 'Date, Edit, In, Out, Deducted Time, Category, Total Hours, OT (1.5× and, past 12 hours in California, 2×), Loc, Pay Rate and Wage. A shift with a break reads as punch pairs, like SwipeClock - one row from the clock-in to the break, the next from the break end to the clock-out, each with its own hours - and a thin line between them gives the length and times of the break. Hrs/Day shows the total for the day on its last row. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Add Note in the toolbar leaves a note on a day; it reads on the line under that day. Weekly total rows appear after each week.' },
         { target: 'pr-rounding', title: 'Options: rounded vs raw times',
@@ -1929,7 +1941,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, periodFinder, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false }) {
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, periodNav, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false }) {
   const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
@@ -2007,11 +2019,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 160 }}>My Time Sheet</span>
           : <EmployeeCombobox people={people} value={email} onChange={setEmail}
               labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : ''}`} />}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <button className="icon-btn" onClick={onPrev} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
-          {periodFinder}
-          <button className="icon-btn" onClick={onNext} style={{ padding: 6 }}><ChevronRight size={16} /></button>
-        </div>
+        {periodNav}
         {!fin && (
         <button onClick={() => setNoteModal(true)} title={self ? 'Leave a note on a day for your manager' : 'Leave a note on a day - seen by managers and HR, not the employee'}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
