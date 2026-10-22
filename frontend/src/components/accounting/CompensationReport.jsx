@@ -7,7 +7,8 @@ import { downloadBlob } from './reportModel';
 import { linesFile } from './linesExport';
 import { formatDate } from '../../lib/datetime';
 import { isStepUpRequired, StepUpNeeded } from '../../stepup/StepUp';
-import { compensationTable, HOUR_COLUMNS, hoursOf, ledgerTable, monthsBetween, payTypeLabel, rateLabel, viewRows, VIEWS } from './compensationModel';
+import { buildingHint, compensationTable, emptyReason, HOUR_COLUMNS, hoursOf, LEDGER_SPLIT_COLUMNS, ledgerTable, loadErrorMessage, monthsBetween, payTypeLabel, rateLabel, viewRows, VIEWS } from './compensationModel';
+import { COMP_REQUEST_TIMEOUT_MS } from './assumptions';
 
 // Accounting > Reporting > Employee Compensation (Neil, 10/15: "We still need
 // to make employee compensation report"). For a run of months: each person's
@@ -53,9 +54,11 @@ export default function CompensationReport() {
 
   const loadPeople = useCallback(([f, t]) => {
     setState({ loading: true, error: '', stepUp: false });
-    api.getCompensationPeople(f, t)
+    // One attempt (api.js noRetry): the server stops a run that runs long and
+    // says why, so a failure is shown at once instead of after silent retries.
+    api.getCompensationPeople(f, t, { timeoutMs: COMP_REQUEST_TIMEOUT_MS })
       .then((d) => { setData(d); setState({ loading: false, error: '', stepUp: false }); })
-      .catch((e) => { setData(null); setState({ loading: false, error: isStepUpRequired(e) ? '' : (e?.message || 'Could not build the report.'), stepUp: isStepUpRequired(e) }); });
+      .catch((e) => { setData(null); setState({ loading: false, error: isStepUpRequired(e) ? '' : loadErrorMessage(e, monthsBetween(f, t)), stepUp: isStepUpRequired(e) }); });
   }, []);
   const loadLedger = useCallback(([f, t], b) => {
     setLedgerState({ loading: true, error: '' });
@@ -107,13 +110,19 @@ export default function CompensationReport() {
       {state.stepUp ? (
         <StepUpNeeded label="Wages and hours by person." onVerified={() => loadPeople(asked)} />
       ) : (
-        <AsyncSection loading={state.loading} error={!!state.error} errorMessage={state.error} onRetry={() => loadPeople(asked)} skeleton={<SkeletonBlocks count={2} />}
+        <AsyncSection loading={state.loading} error={!!state.error} errorMessage={state.error} onRetry={() => loadPeople(asked)}
+          skeleton={(
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div role="status" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{buildingHint(monthsBetween(asked[0], asked[1]))}</div>
+              <SkeletonBlocks count={2} />
+            </div>
+          )}
           isEmpty={!!data && !data.people?.length}
-          emptyContent={<div style={{ ...card, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>No hours or wages on any payroll card in these months.</div>}>
+          emptyContent={<div style={{ ...card, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>{emptyReason(data)}</div>}>
           {data && (
             <div style={{ ...card, overflow: 'auto' }}>
               <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' }}>
-                <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Employee Compensation</h3>
+                <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Compensation</h3>
                 <span style={muted}>{period} · {data.people.length} {data.people.length === 1 ? 'employee' : 'employees'}</span>
               </div>
               <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -189,7 +198,8 @@ export default function CompensationReport() {
             emptyContent={<p style={{ margin: 0, padding: '8px 12px 14px', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>No payroll accounts posted on the ledger in these months.</p>}>
             {ledger && (
               <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-                <thead><tr><th style={th}>{ledger.by === 'employee' ? 'Employee' : 'Department'}</th><th style={thNum}>Wages</th><th style={thNum}>Employer Taxes</th><th style={thNum}>Benefits</th><th style={thNum}>Total</th></tr></thead>
+                <thead><tr><th style={th}>{ledger.by === 'employee' ? 'Employee' : 'Department'}</th><th style={thNum}>Wages</th><th style={thNum}>Employer Taxes</th><th style={thNum}>Benefits</th>
+                  {LEDGER_SPLIT_COLUMNS.map((c) => <th key={c.key} style={thNum}>{c.label}</th>)}<th style={thNum}>Total</th></tr></thead>
                 <tbody>
                   {ledger.rows.map((r) => (
                     <tr key={r.key || 'none'}>
@@ -197,6 +207,7 @@ export default function CompensationReport() {
                       <td style={tdNum}><Amount value={r.wages} zero="dash" /></td>
                       <td style={tdNum}><Amount value={r.taxes} zero="dash" /></td>
                       <td style={tdNum}><Amount value={r.benefits} zero="dash" /></td>
+                      {LEDGER_SPLIT_COLUMNS.map((c) => <td key={c.key} style={tdNum}><Amount value={r[c.key]} zero="dash" /></td>)}
                       <td style={{ ...tdNum, fontWeight: 600 }}><Amount value={r.total} zero="dash" /></td>
                     </tr>
                   ))}
@@ -207,6 +218,7 @@ export default function CompensationReport() {
                     <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={ledger.totals.wages} zero="dash" /></td>
                     <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={ledger.totals.taxes} zero="dash" /></td>
                     <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={ledger.totals.benefits} zero="dash" /></td>
+                    {LEDGER_SPLIT_COLUMNS.map((c) => <td key={c.key} style={{ ...tdNum, fontWeight: 700 }}><Amount value={ledger.totals[c.key]} zero="dash" /></td>)}
                     <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={ledger.totals.total} zero="dash" /></td>
                   </tr>
                 </tfoot>
@@ -216,6 +228,7 @@ export default function CompensationReport() {
           <p style={{ margin: 0, padding: '8px 12px 12px', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
             Expense accounts whose titles say payroll, salary, wage, bonus or commission count as wages; payroll tax, FICA, FUTA, SUTA and Medicare as employer taxes;
             health, dental, 401(k), retirement and workers&apos; comp as benefits. Contract labor is not payroll.
+            {LEDGER_SPLIT_COLUMNS.length ? ' Direct is payroll booked to cost of sales (labor charged to properties and jobs); Indirect is payroll booked to operating and other expense (overhead).' : ''}
           </p>
         </div>
       )}

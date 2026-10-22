@@ -754,7 +754,69 @@ def _serialize(p: TimePunch, geo: dict = None) -> dict:
     return out
 
 
+# A READ-ONLY roster pass over a date range (Accounting > Compensation, Oct 23
+# 2026) prices one card per person per month. preload_range() reads the
+# range's punches, finalizations, idle frames and pending punch requests in
+# four queries and parks them on the session; the per-card readers below
+# answer from it when the asked range lies inside, and from the database
+# otherwise - same rows, same order, same pay. Always paired with
+# clear_range_preload() in a finally (ca_breaks.preload's pattern).
+_RANGE_PRELOAD = "timeclock_range_preload"
+
+
+def preload_range(db: Session, start: str, end: str) -> None:
+    pre = {"start": start, "end": end, "punches": {}, "finals": {}, "idle": {}, "requests": {}}
+    for p in (db.query(TimePunch).filter(TimePunch.voided == 0, TimePunch.local_date >= start,
+                                         TimePunch.local_date <= end).order_by(TimePunch.at).all()):
+        pre["punches"].setdefault(p.employee_email, []).append(p)
+    for a in (db.query(TimeApproval).filter(TimeApproval.revoked == 0, TimeApproval.kind == "final",
+                                            TimeApproval.period_start <= end, TimeApproval.period_end >= start).all()):
+        pre["finals"].setdefault(a.employee_email, []).append(a)
+    for em, ld in (db.query(TimeScreenshot.employee_email, TimeScreenshot.local_date)
+                   .filter(TimeScreenshot.local_date >= start, TimeScreenshot.local_date <= end,
+                           TimeScreenshot.idle_sec >= 240).all()):
+        pre["idle"].setdefault(em, []).append(ld or "")
+    for r in (db.query(PunchRequest).filter(PunchRequest.status == "pending", PunchRequest.local_date >= start,
+                                            PunchRequest.local_date <= end).order_by(PunchRequest.at.asc()).all()):
+        pre["requests"].setdefault(r.employee_email, []).append(r)
+    db.info[_RANGE_PRELOAD] = pre
+
+
+def clear_range_preload(db: Session) -> None:
+    db.info.pop(_RANGE_PRELOAD, None)
+
+
+def _range_pre(db: Session, start: str, end: str):
+    pre = db.info.get(_RANGE_PRELOAD) if hasattr(db, "info") else None
+    if pre is not None and start and end and pre["start"] <= start and end <= pre["end"]:
+        return pre
+    return None
+
+
+def _idle_frame_count(db: Session, em: str, start: str, end: str) -> int:
+    pre = _range_pre(db, start, end)
+    if pre is not None:
+        return sum(1 for ld in pre["idle"].get(em, ()) if start <= ld <= end)
+    return (db.query(TimeScreenshot)
+            .filter(TimeScreenshot.employee_email == em,
+                    TimeScreenshot.local_date >= start, TimeScreenshot.local_date <= end,
+                    TimeScreenshot.idle_sec >= 240).count())
+
+
+def _pending_punch_requests(db: Session, em: str, start: str, end: str) -> list:
+    pre = _range_pre(db, start, end)
+    if pre is not None:
+        return [r for r in pre["requests"].get(em, ()) if start <= (r.local_date or "") <= end]
+    return (db.query(PunchRequest)
+            .filter(PunchRequest.employee_email == em, PunchRequest.status == "pending",
+                    PunchRequest.local_date >= start, PunchRequest.local_date <= end)
+            .order_by(PunchRequest.at.asc()).all())
+
+
 def _live_punches(db: Session, email: str, start: str = "", end: str = ""):
+    pre = _range_pre(db, start, end)
+    if pre is not None:
+        return [p for p in pre["punches"].get(email, ()) if start <= (p.local_date or "") <= end]
     q = db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0)
     if start:
         q = q.filter(TimePunch.local_date >= start)
@@ -1629,6 +1691,12 @@ def _finalized_row(db: Session, email: str, d_start: str, d_end: str = ""):
     """The non-revoked HR FINALIZATION covering [d_start, d_end or d_start] -
     a finalized period is LOCKED: no punch edits, adds, voids, or re-approvals
     until HR unlocks it. Mirrors SwipeClock's '(finalized)' periods."""
+    pre = _range_pre(db, d_start, d_end or d_start)
+    if pre is not None:
+        de = d_end or d_start
+        return next((a for a in pre["finals"].get(email, ())
+                     if a.period_start is not None and a.period_end is not None
+                     and a.period_start <= d_start and a.period_end >= de), None)
     return (db.query(TimeApproval)
             .filter(TimeApproval.employee_email == email,
                     TimeApproval.revoked == 0,
@@ -10203,10 +10271,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # idle time. Only meaningful while the browser capture was actively sharing;
     # 0 otherwise. Capped at worked so active never goes negative.
     interval_min = max(1, int(_get_policy(db, _company_of(db, em)).interval_minutes or 5))
-    idle_frames = (db.query(TimeScreenshot)
-                   .filter(TimeScreenshot.employee_email == em,
-                           TimeScreenshot.local_date >= start, TimeScreenshot.local_date <= end,
-                           TimeScreenshot.idle_sec >= 240).count())
+    idle_frames = _idle_frame_count(db, em, start, end)
     idle_min = min(worked_min, idle_frames * interval_min)
     active_min = max(0, worked_min - idle_min)
 
@@ -10243,10 +10308,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # (grouped by their local date) so HR can approve/reject in-context, not only
     # from the separate Punch requests tab. Inline time EDITS already ride on their
     # segment; these are the add/remove asks that have no existing punch to attach to.
-    preqs = (db.query(PunchRequest)
-             .filter(PunchRequest.employee_email == em, PunchRequest.status == "pending",
-                     PunchRequest.local_date >= start, PunchRequest.local_date <= end)
-             .order_by(PunchRequest.at.asc()).all())
+    preqs = _pending_punch_requests(db, em, start, end)
     pending_requests = [{"id": r.id, "action": r.action, "punchKind": r.punch_kind,
                          "at": r.at, "localDate": r.local_date, "reason": r.reason,
                          "targetPunchId": r.target_punch_id, "employeeName": r.employee_name,

@@ -203,7 +203,11 @@ function _detailToMessage(detail, status) {
 // A POST/PATCH/PUT/DELETE that committed server-side but exceeded the 18s abort
 // (Azure cold start) or 5xx'd after committing would otherwise be re-sent -
 // duplicate checkouts/assignments/notifications (P1-10). No method = GET.
+// `noRetry: true` opts ONE call out (Oct 23, Compensation): a long report the
+// server already bounds and explains gets one attempt - retrying a 180s read
+// three times only made people wait nine minutes in front of empty rows.
 function _isRetryable(options) {
+  if (options.noRetry) return false;
   const method = (options.method || 'GET').toUpperCase();
   return method === 'GET' || method === 'HEAD';
 }
@@ -271,7 +275,9 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
       await new Promise(r => setTimeout(r, 800 * attempt));
       return req(path, options, attempt + 1, tokenRefreshed);
     }
-    _setBackendDown(true);
+    // A no-retry call that ran out its own long timeout says nothing about
+    // whether Nexus is up - no "reconnecting" banner for it.
+    if (!(options.noRetry && err?.name === 'AbortError')) _setBackendDown(true);
     throw _networkError(err);
   }
 
@@ -2470,7 +2476,8 @@ export const api = {
   updateLoanSlow:    (id, body) => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body), timeoutMs: 90_000 }),
   // Accounting > Reporting > Profitability and Employee Compensation (10/15).
   getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
-  getCompensationPeople: (from, to) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs: 180_000 }),
+  // One attempt (noRetry): the server bounds the run and says why it stopped.
+  getCompensationPeople: (from, to, { timeoutMs = 180_000 } = {}) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs, noRetry: true }),
   getCompensationLedger: (from, to, by = 'department') => req(`/accounting/compensation/ledger?from=${from}&to=${to}&by=${by}`, { timeoutMs: 120_000 }),
   // Flux Analysis review (Charmi, Oct 15): close (sign off) or reopen one
   // account's review - { entity, period, accountNo, closed }.

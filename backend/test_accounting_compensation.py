@@ -19,6 +19,7 @@ os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+import accounting_assumptions as A  # noqa: E402
 import auth  # noqa: E402
 import cache  # noqa: E402
 import database  # noqa: E402
@@ -33,6 +34,7 @@ FULL = "full.comp.test@greensglobal.com"        # accounting:full
 VIEWER = "viewer.comp.test@greensglobal.com"    # accounting:viewer - not enough
 LIMITED = "limited.comp.test@greensglobal.com"  # accounting:full but limited to one entity
 NOBODY = "nobody.comp.test@greensglobal.com"
+ADMIN = "admin.comp.test@greensglobal.com"      # administrator role, no group
 GROUP_F, GROUP_V = "grp-comp-test-full", "grp-comp-test-viewer"
 
 PEOPLE = [
@@ -101,6 +103,18 @@ class MathTests(unittest.TestCase):
         self.assertEqual([(g["label"], g["wages"], g["taxes"], g["benefits"], g["total"]) for g in out["rows"]],
                          [("Maintenance", 1000.0, 80.0, 0.0, 1080.0), ("Unassigned", 0.0, 0.0, 180.0, 180.0)])
         self.assertEqual(out["totals"]["total"], 1260.0)
+        # CR-02: every payroll account above sits in "expense" = indirect.
+        self.assertEqual((out["totals"]["direct"], out["totals"]["indirect"]), (0.0, 1260.0))
+
+    def test_ledger_direct_and_indirect(self):
+        rows = [
+            {"bucket": "9100", "section": "cogs", "account_no": "50100", "title": "Direct Labor Wages", "debit": 700, "credit": 0},
+            {"bucket": "9100", "section": "cogs", "account_no": "50200", "title": "Payroll Taxes - Direct", "debit": 50, "credit": 0},
+            {"bucket": "9100", "section": "expense", "account_no": "60000", "title": "Salaries", "debit": 300, "credit": 0},
+        ]
+        g = ledger_rows(rows, {})["rows"][0]
+        self.assertEqual((g["direct"], g["indirect"], g["total"], g["wages"], g["taxes"]), (750.0, 300.0, 1050.0, 1000.0, 50.0))
+        self.assertEqual([a["cost"] for a in g["accounts"]], ["direct", "direct", "indirect"])
 
 
 class RouteTests(unittest.TestCase):
@@ -117,6 +131,7 @@ class RouteTests(unittest.TestCase):
             db.add(models.NexusGroupMember(group_id=GROUP_F, email=LIMITED))
             db.add(models.NexusGroupMember(group_id=GROUP_V, email=VIEWER))
             db.add(models.NexusAccessScope(id=str(uuid.uuid4()), email=LIMITED, module_id="accounting", scope_type="ledger", scope_id="15000"))
+            db.add(models.NexusRole(email=ADMIN, role="administrator"))
             db.commit()
         finally:
             db.close()
@@ -149,6 +164,7 @@ class RouteTests(unittest.TestCase):
             db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_((GROUP_F, GROUP_V))).delete(synchronize_session=False)
             db.query(models.NexusGroup).filter(models.NexusGroup.id.in_((GROUP_F, GROUP_V))).delete(synchronize_session=False)
             db.query(models.NexusAccessScope).filter(models.NexusAccessScope.email == LIMITED).delete(synchronize_session=False)
+            db.query(models.NexusRole).filter(models.NexusRole.email == ADMIN).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -161,7 +177,43 @@ class RouteTests(unittest.TestCase):
 
     def test_limited_full_person_is_refused(self):
         _as(LIMITED)
-        self.assertEqual(self.client.get("/accounting/compensation/people?from=2026-09&to=2026-10").status_code, 403)
+        r = self.client.get("/accounting/compensation/people?from=2026-09&to=2026-10")
+        self.assertEqual(r.status_code, 403)
+        self.assertIn("limited to certain entities", r.json()["detail"])
+
+    def test_scoped_policy_all_lets_a_limited_full_person_read(self):
+        _as(LIMITED)
+        was, A.COMP_ENTITY_SCOPED_POLICY = A.COMP_ENTITY_SCOPED_POLICY, "all"
+        try:
+            self.assertEqual(self.client.get("/accounting/compensation/people?from=2026-09&to=2026-10").status_code, 200)
+        finally:
+            A.COMP_ENTITY_SCOPED_POLICY = was
+
+    def test_controller_sees_what_a_global_admin_sees(self):
+        """CR-02: Charmi (Controller - Full on Accounting, not an administrator,
+        no entity rows) and Visesh (administrator) get the same report."""
+        out = {}
+        for who in (FULL, ADMIN):
+            _as(who)
+            r = self.client.get("/accounting/compensation/people?from=2026-01&to=2026-09")
+            self.assertEqual(r.status_code, 200, (who, r.text))
+            out[who] = r.json()
+        self.assertEqual(out[FULL], out[ADMIN])
+        self.assertEqual(len(out[FULL]["months"]), 9)
+
+    def test_too_large_and_too_slow_answer_422_with_a_reason(self):
+        _as(FULL)
+        was = (A.COMP_MAX_PERSON_MONTHS, A.COMP_TIME_BUDGET_SEC)
+        try:
+            A.COMP_MAX_PERSON_MONTHS = -1
+            r = self.client.get("/accounting/compensation/people?from=2026-01&to=2026-09")
+            self.assertEqual((r.status_code, r.json()["detail"]["code"]), (422, "too_large"), r.text)
+            A.COMP_MAX_PERSON_MONTHS, A.COMP_TIME_BUDGET_SEC = was[0], -1
+            r = self.client.get("/accounting/compensation/people?from=2026-01&to=2026-09")
+            self.assertEqual((r.status_code, r.json()["detail"]["code"]), (422, "too_slow"), r.text)
+            self.assertIn("Pick fewer months", r.json()["detail"]["message"])
+        finally:
+            A.COMP_MAX_PERSON_MONTHS, A.COMP_TIME_BUDGET_SEC = was
 
     def test_full_level_reads_people_and_ledger(self):
         _as(FULL)
