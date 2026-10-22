@@ -3085,6 +3085,11 @@ class TaskProject(Base):
     # this): the company is then derived from the owner / creator
     # (routers/task_util.row_company), like an unstamped Task.
     company_id    = Column(String, default="")
+    # People following the whole project (Neil, Oct 22 2026): lowercase
+    # emails. They hear about new tasks, completions and comments in it
+    # (task_project_follow.py), checked against who can still see the project
+    # and the task at send time. Written only under a row lock.
+    follower_emails = Column(JSON, default=list)
 
 
 class TaskPortfolio(Base):

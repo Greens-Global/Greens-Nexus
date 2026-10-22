@@ -33,6 +33,7 @@ import graph_mail
 import task_mail_templates as tmpl
 import task_mail_actions as mail_actions
 import task_notify_prefs as prefs_mod
+import task_project_follow as project_follow
 from app_url import app_url
 from task_inbound_parse import reply_address, reply_mailbox
 from routers.task_util import log_activity, task_assignees
@@ -208,6 +209,14 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
         add(creator, "creator")
         for f in followers:
             add(f, "follower")
+
+    # People following the task's PROJECT (Oct 22 2026) - new task, completed,
+    # comment. Worked out once by notify_task_event (visibility checked there,
+    # task_project_follow.event_recipients); add() keeps anyone already told as
+    # an assignee / collaborator / creator in that role, so nobody gets two.
+    if event_type in project_follow.FOLLOW_EVENTS:
+        for who in extra.get("project_followers") or []:
+            add(who, "project_follower")
 
     return list(out.items())
 
@@ -385,10 +394,9 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
     db = SessionLocal()
     try:
         cfg = get_settings(db)
-        if not cfg["enabledEvents"].get(event_type, True):
-            return
-
         if event_type == "deleted":
+            if not cfg["enabledEvents"].get(event_type, True):
+                return
             snap = kw.get("snapshot") or {}
             t = models.Task(id=task_id, **{k: v for k, v in snap.items() if k not in ("id",)})
         else:
@@ -396,7 +404,23 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
             if not t:
                 return
 
-        recipients = _recipients_for(db, t, event_type, actor_email, cfg, kw)
+        # Project followers (Oct 22 2026): who may hear this, checked now, and
+        # their grouped Tasks-bell notice - which rings whether or not the
+        # company emails this event, as every other task bell does.
+        project_followers = {}
+        if event_type in project_follow.FOLLOW_EVENTS:
+            try:
+                project_followers = project_follow.event_recipients(db, t, event_type, actor_email, kw)
+                project_follow.ring_bells(db, t, event_type, _name_of(db, actor_email), project_followers)
+            except Exception:
+                db.rollback()
+                project_followers = {}
+
+        if not cfg["enabledEvents"].get(event_type, True):
+            return
+
+        recipients = _recipients_for(db, t, event_type, actor_email, cfg,
+                                     {**kw, "project_followers": list(project_followers)})
         if not recipients:
             return
         ctx = _task_context(db, t, actor_email)
@@ -410,13 +434,18 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
             p = prefs_mod.load(db, recipient)
             if not prefs_mod.wants_event(p, event_type, t):
                 continue
+            if role == "project_follower" and not p.get("followedProjects", True):
+                continue
             if event_type == "modified" and _recently_sent(db, task_id, "modified", recipient,
                                                            p["updateThrottleMinutes"]):
                 continue
             # Batching: everything that can wait is queued and goes out with
             # the rest of this person's hour (flush_batches). A deleted task
             # has no row left to batch from, so it never waits.
-            if event_type != "deleted" and not _sends_now(t, event_type, cfg):
+            # A project follower's email is an FYI: it always waits for their
+            # batch, even about an urgent task (the people ON it hear at once).
+            follower_fyi = role == "project_follower" and batch_window_minutes(cfg) > 0
+            if event_type != "deleted" and (follower_fyi or not _sends_now(t, event_type, cfg)):
                 _enqueue(db, recipient=recipient, role=role, task_id=task_id, event_type=event_type,
                          actor_email=actor_email, payload=kw)
                 continue
@@ -855,6 +884,13 @@ def _drop_reason(db: Session, q, t, p: dict) -> str:
         return "no longer assigned"
     if q.role == "follower" and who not in followers and who not in assignees:
         return "no longer following"
+    # A project follower: still following a live project of the task's, and
+    # still able to see it and the task (walls, sharing, left the company).
+    if q.role == "project_follower":
+        if not p.get("followedProjects", True):
+            return "turned off or muted"
+        if not project_follow.still_receives(db, who, t):
+            return "no longer following the project"
     if t.completed and q.event_type in ("created", "assigned", "modified", "follower_added"):
         return "task already completed"
     if not prefs_mod.wants_event(p, q.event_type, t):
