@@ -30,19 +30,19 @@ def _flag(name: str, default: bool) -> bool:
 
 # ── CR-02 Compensation report ────────────────────────────────────────────────
 
-# CR-02 (Charmi to confirm): chosen 100 seconds because the screen waits 180s
+# CR-02 (assumption, Charmi to confirm): chosen 100 seconds because the screen waits 180s
 # for one attempt and Azure's front end cuts a request at 230s - stopping
 # here leaves time to send a clear "pick fewer months" answer instead of a
 # dead connection. Measured runs are a few seconds; this is only a backstop.
 COMP_TIME_BUDGET_SEC = _env_int("NEXUS_COMP_TIME_BUDGET_SEC", 100)
 
-# CR-02 (Charmi to confirm): chosen 6,000 person-months (500 people x 12
+# CR-02 (assumption, Charmi to confirm): chosen 6,000 person-months (500 people x 12
 # months) because that is several times today's roster over the longest
 # range the screen allows, while still refusing a run that could not finish
 # inside the time budget. Checked BEFORE any card is priced.
 COMP_MAX_PERSON_MONTHS = _env_int("NEXUS_COMP_MAX_PERSON_MONTHS", 6000)
 
-# CR-02 (Charmi to confirm): chosen "refuse" because the report lists wages
+# CR-02 (assumption, Charmi to confirm): chosen "refuse" because the report lists wages
 # for EVERY company's people and the HR roster has no link to an Intacct
 # entity, so a Full-level person limited to some entities (Accounting >
 # Access rows) cannot be shown "their part" - widening that to everyone's
@@ -53,7 +53,7 @@ COMP_MAX_PERSON_MONTHS = _env_int("NEXUS_COMP_MAX_PERSON_MONTHS", 6000)
 # Admin sees either way (test_accounting_compensation covers it).
 COMP_ENTITY_SCOPED_POLICY = (os.environ.get("NEXUS_COMP_ENTITY_SCOPED", "") or "refuse").strip().lower()
 
-# CR-02 (Charmi to confirm): "RDI" / "direct or indirect expenses" (Neil's
+# CR-02 (assumption, Charmi to confirm): "RDI" / "direct or indirect expenses" (Neil's
 # definition was given to Visesh separately) - chosen: split the ledger's
 # payroll expense by where it is booked, DIRECT = cost of sales (the "cogs"
 # section: labor charged to properties / jobs), INDIRECT = operating and
@@ -106,18 +106,18 @@ MGMT_FEE_GREATER_OF_COMPARE = (os.environ.get("NEXUS_MGMT_FEE_GREATER_OF_COMPARE
 # the month's gross is read whole too. True = the minimum times the share of
 # the month's days inside the window.
 MGMT_FEE_PRORATE_PARTIAL_MONTH = _flag("NEXUS_MGMT_FEE_PRORATE", False)
-# CR-03 (Charmi to confirm): chosen $100,000 because it is the first figure
+# CR-03 (assumption, Charmi to confirm): chosen $100,000 because it is the first figure
 # Charmi gave ("$100,000 or $30,000 or $50,000") and 3% of $100,000 is exactly
 # the $3,000 flat fee - the usual "3% of gross, at least $3,000" shape, where
 # the two fees meet at the threshold. Pre-filled in Add Agreement only.
 MGMT_FEE_DEFAULT_THRESHOLD = _env_float("NEXUS_MGMT_FEE_THRESHOLD", 100000.0)
 
-# CR-03 (Charmi to confirm): chosen 3% / $3,000 because those are the figures
+# CR-03 (assumption, Charmi to confirm): chosen 3% / $3,000 because those are the figures
 # in the operating agreement as Charmi quoted it on the call.
 MGMT_FEE_DEFAULT_RATE = _env_float("NEXUS_MGMT_FEE_RATE", 3.0)
 MGMT_FEE_DEFAULT_FLAT = _env_float("NEXUS_MGMT_FEE_FLAT", 3000.0)
 
-# CR-03 (Charmi to confirm): chosen "annual" because an operating agreement's
+# CR-03 (assumption, Charmi to confirm): chosen "annual" because an operating agreement's
 # income threshold is a yearly figure: the test is the managed entity's gross
 # for the calendar year, Jan 1 through the end of the period being looked at
 # (the whole year once it has closed). "period" tests the gross of the period
@@ -125,25 +125,25 @@ MGMT_FEE_DEFAULT_FLAT = _env_float("NEXUS_MGMT_FEE_FLAT", 3000.0)
 MGMT_FEE_THRESHOLD_BASES = ("annual", "period")
 MGMT_FEE_DEFAULT_THRESHOLD_BASIS = (os.environ.get("NEXUS_MGMT_FEE_THRESHOLD_BASIS", "") or "annual").strip().lower()
 
-# CR-03 (Charmi to confirm): chosen "the flat fee is per YEAR" (spread evenly
+# CR-03 (assumption, Charmi to confirm): chosen "the flat fee is per YEAR" (spread evenly
 # over the year's billing dates: $3,000 a year = $250 a month when billed
 # monthly) because a $3,000 floor paired with a 3% / $100,000 threshold only
 # adds up as a yearly amount. False = the flat fee is per billing period, the
 # way a plain Flat Amount agreement reads it.
 MGMT_FEE_TIER_FLAT_IS_ANNUAL = (os.environ.get("NEXUS_MGMT_FEE_FLAT_ANNUAL", "") or "true").strip().lower() not in ("0", "false", "no")
 
-# CR-03 (Charmi to confirm): chosen "above" (strictly more than) because
+# CR-03 (assumption, Charmi to confirm): chosen "above" (strictly more than) because
 # Charmi said "if the income is MORE than ... then 3%", so gross exactly at
 # the threshold takes the flat fee.
 MGMT_FEE_STRICTLY_ABOVE = True
 
-# CR-03 (Charmi to confirm): "gross income" = the P&L's Revenue and Other
+# CR-03 (assumption, Charmi to confirm): "gross income" = the P&L's Revenue and Other
 # Income sections, because that is what Percent of Revenue agreements already
 # read (so no existing figure moves) and it is everything the entity earned
 # before expenses.
 MGMT_FEE_GROSS_SECTIONS = ("revenue", "other_income")
 
-# CR-03 (Charmi to confirm): no account narrowing by default (empty = every
+# CR-03 (assumption, Charmi to confirm): no account narrowing by default (empty = every
 # account in the sections above) because the chart of accounts is Intacct's
 # and has no fixed number ranges across entities. To count only some, list
 # codes and inclusive ranges, e.g. NEXUS_MGMT_FEE_GROSS_ACCOUNTS="40000-49999,70100".

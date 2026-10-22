@@ -48,6 +48,8 @@ vi.mock('../components/accounting/AllocationsTab', () => stub('allocations'));
 vi.mock('../components/accounting/AskAccountantTab', () => ({ default: ({ limited }) => <div data-testid="tab-ama" data-limited={limited ? 'yes' : 'no'} /> }));
 vi.mock('../components/accounting/ManagementFeesTab', () => stub('mgmt-fees'));
 vi.mock('../components/accounting/CompensationReport', () => stub('compensation'));
+vi.mock('../components/accounting/RecordsLists', () => ({ GlAccountsTab: () => <div data-testid="tab-gl-accounts" />, EntitiesTab: () => <div data-testid="tab-entities" /> }));
+vi.mock('../components/accounting/JournalTab', () => ({ default: ({ symbol }) => <div data-testid="tab-journal" data-symbol={symbol} /> }));
 vi.mock('../components/accounting/dashboard/OverviewTab', () => stub('overview'));
 vi.mock('../components/accounting/dashboard/CashTab', () => stub('cash'));
 vi.mock('../components/accounting/dashboard/PerformanceTab', () => stub('performance'));
@@ -90,7 +92,7 @@ describe('Accounting navigation', () => {
   it('makes Records a menu of Vendors and Customers, each opening its list (Oct 22, item 12)', async () => {
     render(<Harness start="overview" />);
     fireEvent.click(await screen.findByRole('button', { name: /^Records/ }));
-    expect(menuLabels('Records')).toEqual(['Vendors', 'Customers']);
+    expect(menuLabels('Records')).toEqual(['Vendors', 'Customers', 'General Ledger Accounts', 'Entities', 'Journals']);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Customers' }));
     expect(screen.getByTestId('sub').textContent).toBe('customers');
     expect((await screen.findByTestId('tab-partners')).getAttribute('data-kind')).toBe('customer');
@@ -114,7 +116,22 @@ describe('Accounting navigation', () => {
     render(<Harness start="customers" />);
     expect((await screen.findByTestId('tab-partners')).getAttribute('data-kind')).toBe('customer');
     fireEvent.click(screen.getByRole('button', { name: /^Records/ }));
-    expect(menuLabels('Records')).toEqual(['Vendors', 'Customers']);
+    expect(menuLabels('Records')).toEqual(['Vendors', 'Customers', 'General Ledger Accounts', 'Entities', 'Journals']);
+  });
+
+  it('opens General Ledger Accounts, Entities and every configured journal from Records (CR-12)', async () => {
+    render(<Harness start="overview" />);
+    await choose(/^Records/, 'General Ledger Accounts');
+    expect(await screen.findByTestId('tab-gl-accounts')).toBeTruthy();
+    await choose(/^Records/, 'Entities');
+    expect(await screen.findByTestId('tab-entities')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Records/ }));
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Journals' }));
+    expect(menuLabels('Journals')).toEqual(['APJ', 'GJCA', 'GJC', 'PYRJ', 'PEJ', 'PIJ', 'SJI', 'GJ', 'HJCA']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'PYRJ' }));
+    expect(screen.getByTestId('sub').textContent).toBe('journal-PYRJ');
+    expect((await screen.findByTestId('tab-journal')).getAttribute('data-symbol')).toBe('PYRJ');
+    expect(document.querySelectorAll('.module-tabs-inline > button')).toHaveLength(5);
   });
 
   it('never names the picked page in the bar', async () => {

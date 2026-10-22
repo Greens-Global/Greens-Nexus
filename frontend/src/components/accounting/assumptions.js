@@ -7,7 +7,7 @@
 
 // ── CR-02 Compensation ──────────────────────────────────────────────────────
 
-// CR-02 (Charmi to confirm): chosen to show the ledger's payroll expense split
+// CR-02 (assumption, Charmi to confirm): chosen to show the ledger's payroll expense split
 // Direct / Indirect because Neil asked for compensation "including direct or
 // indirect expenses" and "RDI" is read as that same split. Direct = cost of
 // sales (labor charged to properties / jobs), Indirect = operating and other
@@ -16,7 +16,7 @@ export const COMP_SHOW_DIRECT_INDIRECT = true;
 export const COMP_DIRECT_LABEL = 'Direct';
 export const COMP_INDIRECT_LABEL = 'Indirect';
 
-// CR-02 (Charmi to confirm): chosen 180 seconds and ONE attempt because the
+// CR-02 (assumption, Charmi to confirm): chosen 180 seconds and ONE attempt because the
 // server stops a run itself at 100 seconds (backend COMP_TIME_BUDGET_SEC) and
 // answers why; a silent retry only tripled the wait (three 180-second tries
 // = nine minutes of empty rows).
@@ -39,23 +39,23 @@ export const MGMT_FEE_DEFAULT_MONTHLY_MINIMUM = 3000;
 
 // The defaults below serve the older "Percent or Flat (Threshold)" basis,
 // kept for agreements saved with it.
-// CR-03 (Charmi to confirm): chosen $100,000 because it is the first figure
+// CR-03 (assumption, Charmi to confirm): chosen $100,000 because it is the first figure
 // Charmi gave ("$100,000 or $30,000 or $50,000") and 3% of it is exactly the
 // $3,000 flat fee, so the two fees meet at the threshold.
 export const MGMT_FEE_DEFAULT_THRESHOLD = 100000;
-// CR-03 (Charmi to confirm): chosen 3% and $3,000 because those are the
+// CR-03 (assumption, Charmi to confirm): chosen 3% and $3,000 because those are the
 // operating-agreement figures Charmi quoted on the call.
 export const MGMT_FEE_DEFAULT_RATE = 3;
 export const MGMT_FEE_DEFAULT_FLAT = 3000;
-// CR-03 (Charmi to confirm): chosen "annual" because an operating agreement's
+// CR-03 (assumption, Charmi to confirm): chosen "annual" because an operating agreement's
 // income threshold is a yearly figure (calendar-year gross through the end of
 // the period). "period" tests the chosen period's gross instead.
 export const MGMT_FEE_DEFAULT_THRESHOLD_BASIS = 'annual';
-// CR-03 (Charmi to confirm): chosen "per year" because a $3,000 floor next to
+// CR-03 (assumption, Charmi to confirm): chosen "per year" because a $3,000 floor next to
 // 3% of a $100,000 threshold only adds up yearly. Must match backend
 // MGMT_FEE_TIER_FLAT_IS_ANNUAL - it only changes the dialog's wording.
 export const MGMT_FEE_TIER_FLAT_IS_ANNUAL = true;
-// CR-03 (Charmi to confirm): chosen Year to Date as the period the page opens
+// CR-03 (assumption, Charmi to confirm): chosen Year to Date as the period the page opens
 // on because Billed YTD and Expected YTD were already yearly figures.
 export const MGMT_FEE_DEFAULT_PERIOD = 'ytd';
 
@@ -128,6 +128,24 @@ export const T12_MONTHS = 12;
 // CR-06 (assumption, Charmi to confirm): the other reading of "13" - the 12
 // full months AND the current month to date as a 13th column. Off.
 export const T12_INCLUDE_CURRENT_MONTH = false;
+
+// ── CR-12 Records menu ──────────────────────────────────────────────────────
+// Team answer, 23 Oct - Charmi's edited Teams post: "Under Records - Change
+// Chart of Accounts to General Ledger Accounts and also add Journals and under
+// Journals add APJ, GJCA, GJC, PYRJ, PEJ, PIJ, SJI, GJ, HJCA". Neil: "Each
+// journal page should allow us to view the transactions of that journal and
+// have all standard filters and search functionality and resizable columns".
+
+// CR-12 (confirmed by team, 23 Oct): the journals under Records > Journals,
+// in Charmi's order (GJC, not GC). Add or remove a symbol here; each opens
+// that journal's lines (sub key `journal-<symbol>`).
+export const RECORDS_JOURNALS = ['APJ', 'GJCA', 'GJC', 'PYRJ', 'PEJ', 'PIJ', 'SJI', 'GJ', 'HJCA'];
+// CR-12 (assumption, Charmi to confirm): a journal page opens on Year to
+// Date, the period every statement opens on; the stepper changes it.
+export const JOURNAL_PAGE_DEFAULT_PRESET = 'ytd';
+// CR-12 (assumption, Charmi to confirm): General Ledger Accounts hides
+// inactive accounts until "Show inactive" is ticked, like the report pickers.
+export const GL_ACCOUNTS_SHOW_INACTIVE = false;
 
 // ── CR-13: AMA (Ask My Accountant) ─────────────────────────────────────────
 

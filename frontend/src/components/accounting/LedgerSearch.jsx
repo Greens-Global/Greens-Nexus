@@ -386,9 +386,12 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   return (
     <div style={card}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <button type="button" className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '4px 10px' }}>
-          <ArrowLeft size={14} /> Back to Report
-        </button>
+        {/* A journal page (Records > Journals) is the lines themselves: no report to go back to. */}
+        {onClose && (
+          <button type="button" className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '4px 10px' }}>
+            <ArrowLeft size={14} /> Back to Report
+          </button>
+        )}
         <div style={{ minWidth: 0 }}>
           <h3 style={{ fontSize: '0.98rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{heading}</h3>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>

@@ -66,6 +66,14 @@ class ReportsProxyTests(unittest.TestCase):
                 ]}
             if path == "/api/internal/reports/budget" and getattr(self, "budget_missing", False):
                 raise accounting.UpstreamError(404, "Accounting service returned 404")
+            if path == "/api/internal/accounts" and getattr(self, "accounts_missing", False):
+                raise accounting.UpstreamError(404, "Accounting service returned 404")
+            if path == "/api/internal/accounts":
+                return {"ok": True, "accounts": [{"account_no": "61000", "title": "Advertising", "section": "expense", "active": True, "secret": "x"},
+                                                 {"account_no": "11000", "title": "Chase", "section": "asset", "active": False}]}
+            if path == "/api/internal/reports/buckets" and getattr(self, "accounts_missing", False):
+                return {"ok": True, "rows": [{"account_no": "61000", "title": "Advertising", "section": "expense", "debit": 1, "credit": 0},
+                                             {"account_no": "61000", "title": "Advertising", "section": "expense", "debit": 2, "credit": 0}]}
             if path == "/api/internal/reports/budget":
                 return {"ok": True, "budget_id": "STD", "budgets": [], "rows": [{"account_no": "41000", "section": "revenue", "month": "2026-01-01", "amount": 10}], "total": 10}
             return {"ok": True, "rows": [], "total": 0}
@@ -91,6 +99,19 @@ class ReportsProxyTests(unittest.TestCase):
             db.commit()
         finally:
             db.close()
+
+    # CR-12: Records > General Ledger Accounts.
+    def test_accounts_list_the_chart_and_fall_back_to_the_ledger(self):
+        r = self.client.get("/accounting/accounts")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["source"], "chart")
+        self.assertEqual([a["account_no"] for a in r.json()["accounts"]], ["11000", "61000"])
+        self.assertNotIn("secret", r.json()["accounts"][0])
+        self.assertEqual(self.calls[-1], ("/api/internal/accounts", {"status": "all"}))
+        accounting._ACCT_CACHE.clear()
+        self.accounts_missing = True
+        r = self.client.get("/accounting/accounts")
+        self.assertEqual((r.json()["source"], [a["account_no"] for a in r.json()["accounts"]]), ("ledger", ["61000"]))
 
     def test_search_passes_the_dimension_filters(self):
         r = self.client.get("/accounting/search", params={"account": "12000", "from": "2026-01-01", "to": "2026-10-06", "vendor": "V05022", "departments": "9100,9200", "journals": "apj"})

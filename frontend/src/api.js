@@ -2104,6 +2104,8 @@ export const api = {
   //    accounting app has no list yet), and the Flux Analysis explanation
   //    notes kept per entity set, account and period ──
   getAccountingJournals:   ()               => req('/accounting/journals'),
+  // Oct 23 (CR-12): Records > General Ledger Accounts - the chart ({source, accounts}).
+  getAccountingAccounts:   ()               => req('/accounting/accounts'),
   getAccountingFluxNotes:  (entity, period) => req(`/accounting/flux-notes?entity=${encodeURIComponent(entity || 'all')}&period=${encodeURIComponent(period)}`),
   saveAccountingFluxNote:  (body)           => req('/accounting/flux-notes', { method: 'PUT', body: JSON.stringify(body) }),
 

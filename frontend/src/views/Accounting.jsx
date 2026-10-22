@@ -42,7 +42,10 @@ import { CreditCard } from 'lucide-react';
 import ReportCenter from '../components/accounting/ReportCenter';
 import ReportBuilder from '../components/accounting/ReportBuilder';
 import { STATEMENTS_SUB } from '../components/accounting/drill';
-import { BUILDER_PUBLISH_MIN_LEVEL, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
+import { BUILDER_PUBLISH_MIN_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
+import { EntitiesTab, GlAccountsTab } from '../components/accounting/RecordsLists';
+import JournalTab from '../components/accounting/JournalTab';
+import { Building2, Library } from 'lucide-react';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -91,6 +94,9 @@ import { BUILDER_PUBLISH_MIN_LEVEL, REPORT_MENU_PLACEMENT } from '../components/
 // quick view (REPORT_VIEWS in reportModel); an activity report's key may
 // carry its account after a colon (activitySub). Older keys (rpt-pnl,
 // rpt-budget) still land.
+// Records > Journals: `journal-<symbol>` - lines read through the entity scope, so open to a limited person too.
+const JOURNAL_SUB = 'journal-';
+const journalOf = (key) => (String(key || '').startsWith(JOURNAL_SUB) ? key.slice(JOURNAL_SUB.length) : null);
 const rpt = (key, label, Icon) => ({ key: `rpt-${key}`, label, Icon });
 const BASE_TABS = [
   { key: 'dashboard', label: 'Dashboard', Icon: LayoutGrid, landing: 'overview', items: [
@@ -161,12 +167,16 @@ const BASE_TABS = [
   // Oct 2 (Charmi and Neil, 10/01 call): vendor and customer records with
   // changes sent for approval. Oct 22 (Neil): "Vendors & Customers" is
   // Records, a menu - Vendors and Customers open that screen on their list
-  // (`partners` stays the Vendors key, so older links land). General Ledger
-  // Accounts, Entities and Journals (item 12) wait on open questions: no
-  // screen lists the chart of accounts or the entities yet.
+  // (`partners` stays the Vendors key, so older links land).
+  // Oct 23 (Charmi's edited post, Neil, CR-12): General Ledger Accounts (the
+  // chart), Entities, and a Journals flyout - one page per journal in
+  // RECORDS_JOURNALS (assumptions.js), its lines with every filter.
   { key: 'records', label: 'Records', Icon: Users, items: [
     { key: 'partners', label: 'Vendors', Icon: Users },
     { key: 'customers', label: 'Customers', Icon: Users },
+    { key: 'gl-accounts', label: 'General Ledger Accounts', Icon: BookOpen },
+    { key: 'entities', label: 'Entities', Icon: Building2 },
+    { key: 'grp-journals', label: 'Journals', Icon: Library, items: RECORDS_JOURNALS.map((s) => ({ key: `${JOURNAL_SUB}${s}`, label: s, Icon: BookOpen })) },
   ] },
   // Oct 6 (Neil: "create a Tools section in accounting"): the utility screens.
   { key: 'tools', label: 'Tools', Icon: Wrench, items: [
@@ -200,7 +210,7 @@ function placeItems(items, placement = REPORT_MENU_PLACEMENT) {
 }
 const TABS = placeItems(BASE_TABS);
 // Every `rpt-` key (a statement or a quick view) is Reports, open to a limited person too.
-const LIMITED_TABS = ['reports', 'report-builder', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'customers', 'imports', 'ama', 'mgmt-fees', 'profitability'];
+const LIMITED_TABS = ['reports', 'report-builder', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'customers', 'imports', 'ama', 'mgmt-fees', 'profitability', 'gl-accounts', 'entities'];
 // Links made before a rename still land; a group's own key opens its first item.
 const ALIAS = { leasing: 'mri', financing: 'loans' };
 const leafKeys = (items) => items.flatMap((t) => (t.items ? leafKeys(t.items) : [t.key]));
@@ -265,7 +275,7 @@ export default function Accounting({ activeSub, onSubChange }) {
   const [prefs] = useAccountingPrefs();
   const dashDensity = dashDensityOf(prefs);
   // Data, Intercompany and Investments are the editable reference grids (editors and up).
-  const allowed = (key) => (key === 'pfs' ? canPfs : limited ? LIMITED_TABS.includes(key) || !!reportOf(key)
+  const allowed = (key) => (key === 'pfs' ? canPfs : journalOf(key) ? true : limited ? LIMITED_TABS.includes(key) || !!reportOf(key)
     : (!['data', 'intercompany', 'investments'].includes(key) || canEdit) && (key !== 'access' || canManage) && (key !== 'compensation' || canManage));
   // Groups (and the flyouts inside them) keep only the items this person may
   // open; an empty one goes, and a top-level group left with one item is a
@@ -354,7 +364,17 @@ export default function Accounting({ activeSub, onSubChange }) {
     'mgmt-fees': 'Asset management agreements - the fee per managed entity, billed against expected',
     profitability: 'Revenue, NOI, net income and cash flow after debt service per entity, against the prior year',
     compensation: 'Hours and gross wages per employee from Time Clock, with payroll expense on the ledger',
-  }[isReports(sub) ? 'statements' : sub === 'customers' ? 'partners' : sub];
+    'gl-accounts': 'The chart of accounts - every general ledger account, read-only',
+    entities: 'The entities (Intacct locations) on the ledger, with their parents',
+    journal: 'One journal\'s lines, with every report filter, search and column',
+  }[isReports(sub) ? 'statements' : sub === 'customers' ? 'partners' : journalOf(sub) ? 'journal' : sub];
+  const records = (
+    <>
+      {sub === 'gl-accounts' && <GlAccountsTab />}
+      {sub === 'entities' && <EntitiesTab />}
+      {journalOf(sub) && <JournalTab key={sub} symbol={journalOf(sub)} />}
+    </>
+  );
   const partnersTab = (sub === 'partners' || sub === 'customers') && (
     <PartnersTab canApprove={canApprovePartners} initialKind={sub === 'customers' ? 'customer' : 'vendor'} />
   );
@@ -414,6 +434,7 @@ export default function Accounting({ activeSub, onSubChange }) {
           {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
           {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
           {partnersTab}
+          {records}
           {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'imports' && <ImportHub />}
           {sub === 'ama' && <AskAccountantTab canEdit={canEdit} limited />}
@@ -442,6 +463,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'access' && canManage && <AccessTab />}
               {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
               {partnersTab}
+              {records}
               {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
               {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'imports' && <ImportHub />}
