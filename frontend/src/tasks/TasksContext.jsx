@@ -665,6 +665,15 @@ export function TasksProvider({ children }) {
     return r;
   };
 
+  const applyProjectFollowers = (id, r) => {
+    if (!r) return r;
+    setProjects((prev) => prev.map((x) => {
+      if (x.id !== id) return x;
+      return r.name ? r : { ...x, followerIds: Array.isArray(r.followerIds) ? r.followerIds : [] };
+    }));
+    return r;
+  };
+
   const actions = useMemo(() => ({
     createProject: mk(api.createTaskProject, setProjects),
     updateProject: mkUpd(api.updateTaskProject, setProjects),
@@ -673,6 +682,13 @@ export function TasksProvider({ children }) {
     // toBody: a chart is data, its keys stay as the Dashboard wrote them.
     shareProjectChart: async (id, chart) => { const r = await api.putTaskProjectChart(id, chart.id, chart); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
     unshareProjectChart: async (id, chartId) => { const r = await api.deleteTaskProjectChart(id, chartId); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
+    // Follow a project (Oct 22 2026). Each answers with the project; an
+    // unfollow from a project you can no longer see answers with only its
+    // followers, so just those are merged in.
+    followProject: async (id) => applyProjectFollowers(id, await api.followTaskProject(id)),
+    unfollowProject: async (id) => applyProjectFollowers(id, await api.unfollowTaskProject(id)),
+    addProjectFollower: async (id, email) => applyProjectFollowers(id, await api.addTaskProjectFollower(id, email)),
+    removeProjectFollower: async (id, email) => applyProjectFollowers(id, await api.removeTaskProjectFollower(id, email)),
     // Not mkDel: a project delete bins its tasks server-side too, so the
     // whole core has to be refetched rather than just dropping the project
     // from its own list.

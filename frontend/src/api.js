@@ -529,6 +529,11 @@ export const api = {
   putTaskProjectChart: (id, chartId, chart) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "PUT", body: JSON.stringify(chart) }),
   deleteTaskProjectChart: (id, chartId) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "DELETE" }),
   deleteTaskProject: (id) => req(`/task-projects/${id}`, { method: "DELETE" }),
+  // Follow a project (Oct 22 2026): yourself, or (owners / editors) someone else.
+  followTaskProject: (id) => req(`/task-projects/${id}/follow`, { method: "POST" }),
+  unfollowTaskProject: (id) => req(`/task-projects/${id}/follow`, { method: "DELETE" }),
+  addTaskProjectFollower: (id, email) => req(`/task-projects/${id}/followers`, { method: "POST", body: JSON.stringify({ email }) }),
+  removeTaskProjectFollower: (id, email) => req(`/task-projects/${id}/followers/${encodeURIComponent(email)}`, { method: "DELETE" }),
   // Department names only, readable by anyone in the task module (the People
   // module's own listing needs HR access) - see list_project_departments.
   getProjectDepartments: () => req("/task-projects/meta/departments"),
