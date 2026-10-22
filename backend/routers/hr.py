@@ -645,6 +645,7 @@ class CandidateUpdate(BaseModel):
     role_id:        Optional[str] = None
     expected_interview_on: Optional[str] = None
     inactive:       Optional[bool] = None  # Remove a rejected candidate from the board (True)
+    skip_interview: Optional[bool] = None  # with stage="decision": Skip Interview (Neil, Oct 22)
 
 
 def _is_inactive(c: HrCandidate) -> bool:
@@ -669,6 +670,7 @@ def _ser_candidate(c: HrCandidate) -> dict:
         "company": c.company or "", "roleId": c.role_id or "",
         "interviewAt": c.interview_at or "",
         "decision": c.decision or "", "decisionBy": c.decision_by or "", "decisionAt": c.decision_at or "",
+        "interviewSkippedBy": c.interview_skipped_by or "",
         "resumeUrl": c.resume_url, "notes": c.notes, "employeeId": c.employee_id,
         "createdAt": c.created_at, "updatedAt": c.updated_at,
     }
@@ -1032,7 +1034,12 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
     if body.stage is not None and body.stage != row.stage:
         if body.stage not in _STAGES:
             raise HTTPException(400, f"stage must be one of {_STAGES}")
-        if body.stage not in _STAGE_MOVES.get(row.stage, set()):
+        # Skip Interview (Neil, Oct 22: "it could be the interview has already
+        # happened") - straight to Decision from before Interview, on purpose only.
+        skip = bool(body.skip_interview)
+        if skip and not (body.stage == "decision" and row.stage in ("applied", "screening")):
+            raise HTTPException(409, "Only a candidate who has not reached Interview can skip it.")
+        if not skip and body.stage not in _STAGE_MOVES.get(row.stage, set()):
             raise HTTPException(409, _STAGE_HINTS.get(body.stage)
                                 or f"A candidate in {row.stage} can't move to {body.stage}.")
         if row.stage == "offer" and body.stage != "hired" or body.stage == "rejected":
@@ -1052,9 +1059,17 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
                 raise HTTPException(400, "Say why they are marked hired by hand.")
         import hiring_decision
         if body.stage == "decision":
+            note = (body.stage_note or "").strip()
+            if skip:
+                note = "Interview skipped" + (f" - {note}" if note else "")
+                row.interview_skipped_by = user["email"]
+                import hiring_screening
+                hiring_screening.close(db, row)      # nothing left to screen before an interview
             # The "Decide on" task for the interviewers and the department head.
-            decision_task = hiring_decision.enter(db, row, user["email"], (body.stage_note or "").strip())
+            decision_task = hiring_decision.enter(db, row, user["email"], note)
         else:
+            if body.stage in ("applied", "screening", "interview"):
+                row.interview_skipped_by = ""        # back before the interview: it is owed again
             db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
                                 to_stage=body.stage, note=(body.stage_note or "").strip(),
                                 by_email=user["email"], created_at=now))

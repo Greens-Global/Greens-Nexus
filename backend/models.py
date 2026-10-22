@@ -1011,6 +1011,8 @@ class HrCandidate(Base):
     decision_by    = Column(String, default="")
     decision_at    = Column(String, default="")
     decision_note  = Column(String, default="")
+    # Skip Interview (Neil, Oct 22): who moved them to Decision without one.
+    interview_skipped_by = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
