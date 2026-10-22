@@ -572,12 +572,53 @@ class GapsTests(unittest.TestCase):
         try:
             with self.assertLogs("task_automation", level="WARNING"):
                 task_automation.run_scheduled(self.db, TODAY.isoformat())
+            self.assertEqual(len([t for t in self._tasks() if t.title.startswith("Prep")]), 2)
+            hit = [r for r in self._runs() if r.status == "error"]
+            self.assertEqual(len(hit), 1)
+            self.assertIn("one hourly scan for a company can create at most 2", hit[0].detail)
+            self.assertEqual(hit[0].dedupe_key, "")
+            # The deferred task is finished on the next scan, once.
+            task_automation.run_scheduled(self.db, TODAY.isoformat())
+            task_automation.run_scheduled(self.db, TODAY.isoformat())
         finally:
             task_automation.MAX_CREATES_PER_SCAN = old
-        self.assertEqual(len([t for t in self._tasks() if t.title.startswith("Prep")]), 2)
-        hit = [r for r in self._runs() if r.status == "error"]
-        self.assertEqual(len(hit), 1)
-        self.assertIn("one hourly scan for a company can create at most 2", hit[0].detail)
+        self.assertEqual(len([t for t in self._tasks() if t.title.startswith("Prep")]), 3)
+
+    def test_sixty_due_tasks_take_two_scans(self):
+        self._rule("Prep", {"type": "due_date_arrives", "value": 0},
+                   [{"type": "create_task", "value": {"title": "Prep {title}", "dueInDays": 3}}])
+        for i in range(60):
+            self._create(title=f"T{i}", due_on=TODAY.isoformat())
+        prep = lambda: len([t for t in self._tasks() if t.title.startswith("Prep")])  # noqa: E731
+        with self.assertLogs("task_automation", level="WARNING"):
+            task_automation.run_scheduled(self.db, TODAY.isoformat())
+        self.assertEqual(prep(), 50)
+        task_automation.run_scheduled(self.db, TODAY.isoformat())
+        self.assertEqual(prep(), 60)
+        task_automation.run_scheduled(self.db, TODAY.isoformat())
+        self.assertEqual(prep(), 60)          # the per-day dedupe still holds
+
+    def test_a_rule_made_task_still_gets_escalated_by_the_clock(self):
+        # Rule-made tasks are never fed to create_task, but a rule that only
+        # changes the task (escalation) still reaches them.
+        self._rule("Follow up", {"type": "due_date_arrives", "value": 0},
+                   [{"type": "create_task", "value": {"title": "Follow {title}", "dueInDays": 0}}])
+        self._rule("Escalate", {"type": "due_date_arrives", "value": 0},
+                   [{"type": "set_priority", "value": "urgent"}])
+        self._create(title="Permit", due_on=TODAY.isoformat())
+        for _ in range(3):
+            task_automation.run_scheduled(self.db, TODAY.isoformat())
+        rows = self._tasks()
+        self.assertEqual(sorted(t.title for t in rows), ["Follow Permit", "Permit"])
+        self.assertEqual({t.priority for t in rows}, {"urgent"})
+        # A rule mixing both on a rule-made task: only the create is skipped.
+        self._rule("Both", {"type": "due_date_arrives", "value": 0}, [
+            {"type": "create_task", "value": {"title": "Again {title}", "dueInDays": 0}},
+            {"type": "add_tag", "value": "seen"}])
+        task_automation.run_scheduled(self.db, TODAY.isoformat())
+        follow = next(t for t in self._tasks() if t.title == "Follow Permit")
+        self.assertEqual(follow.tags, ["seen"])
+        self.assertEqual(sorted(t.title for t in self._tasks()), ["Again Permit", "Follow Permit", "Permit"])
 
     def test_the_per_task_cap_counts_every_rule_in_a_scan(self):
         for name in ("One", "Two"):
@@ -623,6 +664,28 @@ class GapsTests(unittest.TestCase):
         self.assertEqual(row.due_on[:10], d0)
         self.assertEqual((row.due_proposal or {}).get("dueOn"), wanted)
         self.assertEqual(self._runs(), [])
+
+    def test_a_held_calendar_shift_does_not_fire_or_bypass(self):
+        # The batch bar's Dates action (the calendar's shift path): a shift
+        # that needs approval is held before the rules, start date with it.
+        from routers.tasks import BulkDates
+        self._rule("Pad", {"type": "due_date_changed"}, [{"type": "shift_due_days", "value": 1}])
+        sam, t, d0 = self._held_setup()
+        start0 = (TODAY + timedelta(days=2)).isoformat()
+        row = self._row(t["id"])
+        row.start_on = start0
+        self.db.commit()
+        bulk_update(BulkUpdate(ids=[t["id"]], dates=BulkDates(op="shift", days=60)), user=sam, db=self.db)
+        row = self._row(t["id"])
+        self.assertEqual(row.due_on[:10], d0)
+        self.assertEqual(row.start_on, start0)
+        self.assertEqual((row.due_proposal or {}).get("dueOn"), (TODAY + timedelta(days=65)).isoformat())
+        self.assertEqual((row.due_proposal or {}).get("startOn"), (TODAY + timedelta(days=62)).isoformat())
+        self.assertEqual(self._runs(), [])
+        # A shift nobody needs to approve fires the rule, which pads it.
+        t2 = self._create(user=sam, title="Small", assignee_emails=[SAM], due_on=d0)
+        bulk_update(BulkUpdate(ids=[t2["id"]], dates=BulkDates(op="shift", days=1)), user=sam, db=self.db)
+        self.assertEqual(self._row(t2["id"]).due_on[:10], (TODAY + timedelta(days=7)).isoformat())
 
     def test_an_approved_or_privileged_change_fires_the_rule(self):
         self._rule("Re-dated", {"type": "due_date_changed"}, [{"type": "add_tag", "value": "re-dated"}])

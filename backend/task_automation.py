@@ -1197,16 +1197,24 @@ def run_scheduled(db: Session, today_iso: str) -> int:
         done = {k for (k,) in db.query(models.TaskAutomationRun.dedupe_key)
                 .filter(models.TaskAutomationRun.rule_id == rule.id,
                         models.TaskAutomationRun.dedupe_key.like(f"{rule.id}:%:{target}")).all()}
-        # Tasks a rule created are never acted on by the clock (SPAWNED_EVENT):
-        # this rule or another would otherwise create from its own output on
-        # every scan. Read per rule, so one made earlier in this scan counts.
+        # A task a rule created never feeds create_task on the clock
+        # (SPAWNED_EVENT): this rule or another would otherwise create from
+        # its own output on every scan. Its OTHER actions still run, so "due
+        # date arrives -> set priority" escalates a follow-up task like any
+        # other. Read per rule, so one made earlier in this scan counts.
         rule_made = {i for (i,) in db.query(models.TaskAutomationRun.task_id)
                      .filter(models.TaskAutomationRun.event == SPAWNED_EVENT,
                              models.TaskAutomationRun.task_id.in_([r.id for r in rows])).all()}
-        creates = any(isinstance(a, dict) and a.get("type") == "create_task" for a in (rule.actions or []))
+        all_actions = [a for a in (rule.actions or []) if isinstance(a, dict)]
+        n_creates = sum(1 for a in all_actions if a.get("type") == "create_task")
+        deferred: list = []   # tasks left for the next scan (the company's create budget is spent)
         for t in rows:
             key = f"{rule.id}:{t.id}:{target}"
-            if key in done or t.id in rule_made:
+            if key in done:
+                continue
+            made_by_rule = t.id in rule_made
+            actions = [a for a in all_actions if not (made_by_rule and a.get("type") == "create_task")]
+            if not actions:
                 continue
             if not _rule_reaches(db, rule, t, {}):
                 continue   # another company's task (company wall)
@@ -1220,9 +1228,22 @@ def run_scheduled(db: Session, today_iso: str) -> int:
             company_cache: dict = {}
             # One create budget per company for the whole scan (looked up only
             # for a rule that creates tasks - row_company is a query).
+            wants = 0 if made_by_rule else min(n_creates, max(0, MAX_CREATES_PER_TASK - res.creates))
             budget = (scan_budget.setdefault(_task_company(db, t, company_cache), {
                 "creates": 0, "limit": MAX_CREATES_PER_SCAN, "scope": "one hourly scan for a company"})
-                if creates else {})
+                if wants else {})
+            if wants and int(budget["creates"]) + wants > int(budget["limit"]):
+                # The budget is spent: the WHOLE rule waits for the next scan
+                # for this task - nothing applied, no dedupe key - so it is
+                # finished then rather than lost for the day, and no other
+                # action (a comment, an email) runs twice.
+                if not budget.get("logged"):
+                    budget["logged"] = True
+                    logging.getLogger(__name__).warning(
+                        "task automation: create_task budget hit (%s, %d tasks) - the rest wait for the next scan",
+                        budget["scope"], budget["limit"])
+                deferred.append(t)
+                continue
             # Nobody made this change: a task the rule creates is created as
             # the task's owner, else its creator (as the next occurrence below is).
             run = _RunCtx(rule=rule, actor="", ref={}, budget=budget,
@@ -1230,7 +1251,7 @@ def run_scheduled(db: Session, today_iso: str) -> int:
             try:
                 # The dependency gate applies here as it does to a person: the
                 # clock does not get to start or close a task its blocker holds.
-                for action in (rule.actions or []):
+                for action in actions:
                     line = _apply_action(db, t, action, res, today=today,
                                          gate=functools.partial(_check_dependency_gate, db, t),
                                          prev_status=before["status"], prev_completed=before["completed"],
@@ -1314,4 +1335,18 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                     dedupe_key=key, at=now_iso(),
                 ))
                 db.commit()
+        if deferred:
+            # One line in the Runs panel per rule and scan - not one per task
+            # (there can be hundreds) - and no dedupe key: the next scan picks
+            # every deferred task up again.
+            first, limit = deferred[0], MAX_CREATES_PER_SCAN
+            db.add(models.TaskAutomationRun(
+                id=gen_id(), rule_id=rule.id, rule_name=rule.name or "", task_id=first.id,
+                task_code=first.code or "", task_title=first.title or "", trigger_type="due_date_arrives",
+                event="scheduled", actions=[], status="error",
+                detail=(f"could not create tasks for {len(deferred)} task{'s' if len(deferred) != 1 else ''} yet: "
+                        f"one hourly scan for a company can create at most {limit} tasks - "
+                        f"they run on the next scan"),
+                dedupe_key="", at=now_iso()))
+            db.commit()
     return fired
