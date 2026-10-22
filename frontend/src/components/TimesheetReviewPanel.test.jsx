@@ -14,6 +14,8 @@ const approvePeriod = vi.fn(() => Promise.resolve({}));
 const sign = vi.fn(() => Promise.resolve({ status: 'signing', myPartyId: 'p-emp' }));
 const finalizeUnsigned = vi.fn(() => Promise.resolve({ status: 'completed' }));
 const downloadSign = vi.fn(() => Promise.resolve({ url: 'http://storage/signed.pdf' }));
+const sendCorrection = vi.fn(() => Promise.resolve({ status: 'signing' }));
+const relock = vi.fn(() => Promise.resolve({ status: 'completed' }));
 vi.mock('../api', () => ({
   api: {
     timesheetReviewSubmit: (...a) => submit(...a),
@@ -23,6 +25,8 @@ vi.mock('../api', () => ({
     timesheetReviewSign: (...a) => sign(...a),
     timesheetReviewFinalizeUnsigned: (...a) => finalizeUnsigned(...a),
     downloadSign: (...a) => downloadSign(...a),
+    timesheetReviewSendCorrection: (...a) => sendCorrection(...a),
+    timesheetReviewRelock: (...a) => relock(...a),
   },
 }));
 vi.mock('./ESign', () => ({ SignModal: ({ partyId }) => <div data-testid="sign-modal">{partyId}</div> }));
@@ -31,6 +35,42 @@ const TimesheetReviewPanel = (await import('./TimesheetReviewPanel')).default;
 const nameFor = (e) => ({ 'mgr@x.com': 'Max', 'emp@x.com': 'Erin', 'hr@x.com': 'Hana' }[e] || e);
 const base = { id: 'r1', managerEmail: 'mgr@x.com', employeeEmail: 'emp@x.com', rounds: [], parties: [] };
 const props = { self: true, anchor: '2026-09-06', periodLabel: '09/06/2026 - 09/19/2026', nameFor, onChanged: () => {} };
+
+// HR corrects a finalized period (Neil, Oct 22 2026): HR / Global Admin only,
+// the employee signs the corrected card again, or HR re-locks it unchanged.
+describe('TimesheetReviewPanel - HR correction', () => {
+  const corr = { ...base, status: 'correcting', inCorrection: true,
+    correction: { by: 'hr@x.com', at: '2026-10-22T15:00:00', reason: 'Wrong lunch on Monday', acceptBy: '' } };
+
+  it('gives HR Send to Sign when the hours changed', async () => {
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...corr, isHr: true, canSendCorrection: true, canRelock: false }} />);
+    expect(screen.getByText(/Wrong lunch on Monday/)).toBeTruthy();
+    expect(screen.queryByText('Re-lock (No Changes)')).toBeNull();
+    fireEvent.click(screen.getByText('Send to Erin to Sign'));
+    await waitFor(() => expect(sendCorrection).toHaveBeenCalledWith('r1'));
+  });
+
+  it('gives HR Re-lock when nothing changed', async () => {
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...corr, isHr: true, canSendCorrection: false, canRelock: true }} />);
+    expect(screen.queryByText('Send to Erin to Sign')).toBeNull();
+    fireEvent.click(screen.getByText('Re-lock (No Changes)'));
+    await waitFor(() => expect(relock).toHaveBeenCalledWith('r1'));
+  });
+
+  it('tells the manager and the employee, with no buttons', () => {
+    const { unmount } = render(<TimesheetReviewPanel {...props} self={false} review={{ ...corr, isHr: false }} />);
+    expect(screen.getByText(/Only HR can change it; Erin signs it again/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Re-lock|Send to|Review & Approve/ })).toBeNull();
+    unmount();
+    render(<TimesheetReviewPanel {...props} review={{ ...corr }} />);
+    expect(screen.getByText(/You will be asked to review and sign it again/)).toBeTruthy();
+  });
+
+  it('shows the date a corrected card out to sign is accepted', () => {
+    render(<TimesheetReviewPanel {...props} review={{ ...corr, status: 'signing', correction: { ...corr.correction, acceptBy: '2026-10-25T15:00:00' } }} />);
+    expect(screen.getByText(/If it is not signed or declined by 10\/25\/2026, it is accepted as sent/)).toBeTruthy();
+  });
+});
 
 describe('TimesheetReviewPanel', () => {
   it('lets the employee send a fresh time sheet to their manager', async () => {

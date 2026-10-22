@@ -57,7 +57,7 @@ DEFAULT_ESCALATE_DAYS = 2
 NAMES_SHOWN = 12
 
 CLOSE, STALLED, UNSIGNED = "period-close", "period-stalled", "sign-stalled"
-_REVIEWER_ACTION = {"view": "timeclock", "sub": "timesheet"}
+_REVIEWER_ACTION = {"view": "hr", "sub": "hr-time"}   # Time Sheets to Review (People > Time only, Oct 22)
 
 
 def _span(start: str, end: str) -> str:
@@ -203,6 +203,8 @@ def _collect(db: Session, now_utc: datetime) -> dict:
         em = (r.employee_email or "").lower()
         if _finalized_row(db, em, r.period_start, r.period_end):
             continue
+        if tr.in_correction(r):
+            continue          # HR's correction is accepted on its own after the wait (_tick)
         left = tr._has_left(db, em)
         since = _parse(tr._waiting_since(r))
         if not left and (since is None or now_utc < since + timedelta(days=tr.UNSIGNED_WAIT_DAYS)):
@@ -292,6 +294,16 @@ def scan(db: Session, now_utc: datetime | None = None) -> dict:
 
 def _tick() -> dict:
     db = SessionLocal()
+    try:
+        # HR's corrected cards nobody signed in time are accepted as sent (Oct 22).
+        import timesheet_review as tr
+        accepted = tr.accept_unsigned_corrections(db)
+        db.commit()
+        if accepted:
+            print(f"[period-close] accepted {accepted} unsigned corrected time sheet(s)")
+    except Exception as e:   # noqa: BLE001 - the notices below still run
+        db.rollback()
+        print(f"[period-close] correction acceptance failed: {e}")
     try:
         return scan(db)
     except Exception as e:   # noqa: BLE001 - a bad row must not kill the loop

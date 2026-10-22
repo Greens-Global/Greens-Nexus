@@ -66,7 +66,13 @@ from sqlalchemy.orm import Session
 from models import (HrEntity, HrSignParty, HrSignRequest, NexusEmployee, PunchRequest,
                     TimeApproval, TimePunch, TimesheetReview)
 
-ACTIVE = ("with_manager", "with_employee", "approved", "signing")
+ACTIVE = ("with_manager", "with_employee", "approved", "signing", "correcting")
+# HR unlocked a finalized period to correct it (Neil, Oct 22 2026): only HR /
+# Global Admin changes it, then the employee signs the corrected card again -
+# or it is accepted on its own after UNSIGNED_WAIT_DAYS. See start_correction.
+CORRECTING = "correcting"
+# The rounds that close a correction (the period is finalized again).
+_CORRECTION_ENDS = ("completed", "finalized_unsigned", "relocked", "auto_accepted")
 # The reviewer's decisions a stand-in may take (approver delegation, Oct 17) -
 # the rounds that record who they were taken for.
 _DELEGABLE = ("sent_back", "agreed", "approved")
@@ -224,6 +230,12 @@ def fingerprint(db: Session, email: str, start: str, end: str) -> str:
     prem = ca_breaks.premium_rows(db, email, start, end)
     if prem:
         body += sorted(["prem", p.id, p.local_date, p.kind] for p in prem)
+    # Bonuses change the pay the employee signs for (Oct 22) - only a card
+    # that has one adds them, so every other fingerprint is unchanged.
+    from routers.timeclock import _bonus_rows
+    bonuses = _bonus_rows(db, email, start, end)
+    if bonuses:
+        body += sorted(["bonus", b.id, b.amount] for b in bonuses)
     return hashlib.sha256(json.dumps(body).encode()).hexdigest()
 
 
@@ -302,7 +314,7 @@ def review_covering(db: Session, email: str, local_date: str) -> TimesheetReview
 
 
 def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
-               employee_request: bool = False, dry_run: bool = False) -> None:
+               employee_request: bool = False, dry_run: bool = False, what: str = "") -> None:
     """Called by every route that changes hours, BEFORE the change. One side at
     a time during review.
 
@@ -316,7 +328,9 @@ def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
     changing a timesheet the manager already approved - or one out for the
     employee's signature - reopens it: back with the manager to approve again
     (reopen). `dry_run` only answers whether the change may go ahead (the Add
-    Time screen's lock check), changing nothing."""
+    Time screen's lock check), changing nothing. `what`: the change in words
+    for the notices and the approval log ("added a bonus: ...", Oct 22) -
+    default "changed the hours"."""
     email = (email or "").lower()
     actor = (actor_email or "").lower()
     r = review_covering(db, email, (local_date or "")[:10])
@@ -325,11 +339,16 @@ def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
     is_employee = actor == email
     if not is_employee and is_hr(db, actor, email):
         if not dry_run:
-            _hr_override(db, r, actor)
+            _hr_override(db, r, actor, what)
         return
+    if in_correction(r):
+        # Neil, Oct 22: "supervisor shouldn't be the one making a change like
+        # that" - the employee says what is wrong by declining in Nexus Sign.
+        raise HTTPException(403, f"HR unlocked this pay period to correct it. Only HR can change it until "
+                                 f"{display_name(db, email)} signs it again.")
     if r.status in ("approved", "signing"):
         if not dry_run:
-            reopen(db, r, actor, "asked for a change" if (is_employee or employee_request) else "changed the hours")
+            reopen(db, r, actor, what or ("asked for a change" if (is_employee or employee_request) else "changed the hours"))
         return
     if employee_request:
         return
@@ -370,37 +389,36 @@ def _round(db: Session, r: TimesheetReview, *, by: str, action: str, note: str =
 
 
 def _notify(db: Session, to: str, title: str, body: str, r: TimesheetReview) -> None:
-    """The employee lands on their own timecard. The manager, while the
-    timesheet is waiting on THEM (submitted, handed back, signing cancelled),
-    lands on Workday > Time Sheet, whose Timesheets to Review list sits at the
-    top (Oct 1) - reachable without the HR grant People > Time needs, and the
-    list's Agree / Send Back only need manager level. Anyone else (HR, a
-    manager told for information) opens THAT employee's card for THAT period
-    in People > Time > Payroll (Sep 29)."""
+    """The employee lands on their own timecard. Everyone else - the
+    reviewing manager included - opens THAT employee's card for THAT period
+    in People > Time > Payroll (Sep 29). Time Sheets to Review lives only in
+    People > Time now; the Workday copy is gone (Oct 22)."""
     if not to:
         return
     if to.lower() == r.employee_email:
         action = {"view": "timeclock", "sub": "timecard", "email": r.employee_email, "start": r.period_start}
-    elif to.lower() == (r.manager_email or "").lower() and r.status == "with_manager":
-        action = {"view": "timeclock", "sub": "timesheet"}
     else:
-        action = {"view": "hr", "sub": "hr-time", "timecard": r.employee_email,
-                  "start": r.period_start, "payType": r.pay_type}
+        action = _reviewer_action(r)
     # A timesheet waiting on someone is a priority notice: the bar across the
     # top of their screen until they act (Neil, call of 09/29).
     _tc()._hr_notify(db, to, title, body, action=action, priority=1)
 
 
+def _reviewer_action(r: TimesheetReview) -> dict:
+    return {"view": "hr", "sub": "hr-time", "timecard": r.employee_email,
+            "start": r.period_start, "payType": r.pay_type}
+
+
 def _notify_reviewer(db: Session, r: TimesheetReview, title: str, body: str, actor: str = "") -> None:
     """The time sheet now waits on its reviewer: the reviewer, plus the live
     stand-in of that reviewer (approver delegation, Oct 17) - one notice each,
-    landing on their Time Sheets to Review list."""
+    opening the card in People > Time."""
     _notify(db, r.manager_email, title, body, r)
     import approval_delegation
     for dl, dg in approval_delegation.stand_ins(db, r.employee_email, [r.manager_email]):
         if dl != (actor or "").lower():
             _tc()._hr_notify(db, dl, title, f"For {display_name(db, dg)}: {body}",
-                             action={"view": "timeclock", "sub": "timesheet"}, priority=1)
+                             action=_reviewer_action(r), priority=1)
 
 
 def _who(db: Session, e: dict) -> str:
@@ -435,6 +453,13 @@ def reopen(db: Session, r: TimesheetReview, actor: str, what: str, *, note: str 
         return
     was_signing = r.status == "signing"
     _void_envelope(db, r, actor, what)
+    if in_correction(r):
+        r.status, r.agreed_fingerprint = CORRECTING, ""
+        _round(db, r, by=actor, action="reopened", note=what if note is None else note, extra=extra)
+        _notify_correction_hr(db, r, "Corrected Time Sheet Back With HR",
+                              f"{display_name(db, actor)} {what} on {display_name(db, r.employee_email)}'s "
+                              f"corrected time sheet for {_label(r)}, so it is back with HR.")
+        return
     r.status, r.agreed_fingerprint = "with_manager", ""
     _round(db, r, by=actor, action="reopened", note=what if note is None else note, extra=extra)
     who = display_name(db, actor)
@@ -453,17 +478,21 @@ def _hr_override(db: Session, r: TimesheetReview, actor: str, note: str = "") ->
     review keeps its place; one already approved stays approved, and one out
     for signature is pulled back so the employee signs the edited version.
     The employee always signs the final card."""
-    if r.status not in ("approved", "signing"):
+    if r.status not in ("approved", "signing", CORRECTING):
         return       # still in review: HR edits like the manager, nothing moves
+    correcting = in_correction(r)
     was_signing = r.status == "signing"
     r.agreed_fingerprint = ""        # the approved version now includes HR's edit
     last = (r.rounds or [{}])[-1] if r.rounds else {}
-    if not was_signing and last.get("action") == "hr_edited" and last.get("by") == actor:
+    if (not was_signing and last.get("action") == "hr_edited" and last.get("by") == actor
+            and (last.get("note") or "") == (note or "")):   # a bonus gets its own line
         return       # one line (and one notice) per HR pass, not one per punch
     if was_signing:
         _void_envelope(db, r, actor, "HR changed the hours")
-        r.status = "approved"
+        r.status = CORRECTING if correcting else "approved"
     _round(db, r, by=actor, action="hr_edited", note=note)
+    if correcting:
+        return       # the employee hears when HR sends the corrected card to sign
     _notify(db, r.employee_email, "Time Sheet Updated by HR",
             f"{display_name(db, actor)} (HR) updated your time sheet for {_label(r)}. Review the hours, "
             "then approve and sign it.", r)
@@ -772,6 +801,9 @@ def submit(db: Session, employee_email: str, anchor: str, note: str = "") -> Tim
                                  "Nexus Sign with a reason to send it back to your manager.")
     if r and r.status == "completed":
         raise HTTPException(409, "This time sheet is already signed and finalized.")
+    if r and r.status == CORRECTING:
+        raise HTTPException(409, "HR is correcting this time sheet. You will be asked to sign it again when "
+                                 "they are done.")
     mgr = manager_of(db, email)
     if not mgr:
         raise HTTPException(409, "You have no manager set in Nexus People, so there is nobody to review "
@@ -875,6 +907,8 @@ def approve_period(db: Session, employee_email: str, anchor: str, actor: str, no
         raise HTTPException(409, "This time sheet is back with the employee for changes.")
     elif r.status in ("signing", "completed"):
         raise HTTPException(409, "This time sheet is already approved and with the employee to sign.")
+    elif r.status == CORRECTING:
+        raise HTTPException(409, "HR unlocked this time sheet to correct it. Only HR changes it now.")
     return approve(db, r, actor, note)
 
 
@@ -994,6 +1028,201 @@ def finalize_unsigned(db: Session, email: str, start: str, actor: str, reason: s
     tc.finalize_timecard(tc.FinalizeIn(email=email, start=s, end=e, allow_exceptions=True),
                          user={"email": actor, "level": 4}, db=db)
     return r
+
+
+# ── HR corrects a finalized period (Neil, Oct 22 2026) ───────────────────────
+#
+# "HR should always be able to unlock and modify ... but requires re signing
+# if already signed. Employee must accept the changes, legally, always. ...
+# HR/Global Admin only - supervisor shouldn't be the one making a change like
+# that." Unlock (timeclock.unfinalize_timecard, is_hr) puts the review in
+# CORRECTING: only HR changes the hours (guard_edit). Then either
+#   - nothing changed: Re-lock, no new signature (relock), or
+#   - Send to Employee to Sign: one envelope of the corrected card (send_correction);
+#     their signature finalizes it (on_completed), a decline brings it back
+#     to HR, and one not signed UNSIGNED_WAIT_DAYS after it was sent is
+#     accepted as sent (accept_unsigned_corrections, from timesheet_alerts'
+#     half-hourly loop) - the envelope and the notice tell them the date.
+# The manager is told at the unlock and when it is final again.
+
+def in_correction(r: TimesheetReview | None) -> bool:
+    """An unlock round with nothing after it that finalized the period again."""
+    for e in reversed(list((r.rounds if r is not None else None) or [])):
+        a = e.get("action")
+        if a == "unlocked":
+            return True
+        if a in _CORRECTION_ENDS:
+            return False
+    return False
+
+
+def _unlock_round(r: TimesheetReview) -> dict:
+    return next((e for e in reversed(list(r.rounds or [])) if e.get("action") == "unlocked"), {})
+
+
+def _sent_round(r: TimesheetReview) -> dict:
+    return next((e for e in reversed(list(r.rounds or [])) if e.get("action") == "correction_sent"), {})
+
+
+def accept_by(r: TimesheetReview) -> str:
+    """The day a corrected card out for signature is accepted on its own ('' = none)."""
+    at = _sent_round(r).get("at") or ""
+    try:
+        return (datetime.fromisoformat(at.replace("Z", "+00:00")) + timedelta(days=UNSIGNED_WAIT_DAYS)).isoformat()
+    except ValueError:
+        return ""
+
+
+def _notify_correction_hr(db: Session, r: TimesheetReview, title: str, body: str) -> None:
+    """Whoever unlocked it, else the company's HR contact."""
+    to = (_unlock_round(r).get("by") or hr_of(db, r.employee_email) or "").lower()
+    if to and to != r.employee_email:
+        _notify(db, to, title, body, r)
+
+
+def _tell_manager(db: Session, r: TimesheetReview, actor: str, title: str, body: str) -> None:
+    m = (r.manager_email or manager_of(db, r.employee_email) or "").lower()
+    if m and m not in (actor, r.employee_email):
+        _notify(db, m, title, body, r)
+
+
+def _hr_only(db: Session, r: TimesheetReview, actor: str) -> None:
+    if not is_hr(db, actor, r.employee_email):
+        raise HTTPException(403, "Only HR or a Global Admin can do this.")
+    if r.status != CORRECTING:
+        raise HTTPException(409, "This time sheet is not unlocked for corrections.")
+
+
+def start_correction(db: Session, email: str, start: str, end: str, actor: str, reason: str) -> TimesheetReview:
+    """Called by the unlock, after the final row is revoked: the review is
+    HR's to correct, holding the fingerprint of the version that was locked."""
+    email, actor = email.lower(), actor.lower()
+    r = active_review(db, email, start)
+    if r is None or r.status not in ("completed", CORRECTING):
+        # Finalized another way (the legacy Finalize button): a review to hold the correction.
+        _s, _e, pay_type = period_for(db, email, start)
+        r = TimesheetReview(id=str(uuid.uuid4()), employee_email=email, period_start=start, period_end=end,
+                            pay_type=pay_type, manager_email=manager_of(db, email) or actor,
+                            rounds=[], last_snapshot={}, status=CORRECTING, created_at=_now())
+        db.add(r)
+    r.status = CORRECTING
+    _round(db, r, by=actor, action="unlocked", note=reason,
+           extra={"lockedFingerprint": fingerprint(db, email, start, end), "signedEnvelope": r.sign_request_id or ""})
+    who = display_name(db, actor)
+    _notify(db, email, "Time Sheet Unlocked by HR",
+            f"{who} (HR) unlocked your time sheet for {_label(r)} to correct it: \"{reason[:200]}\". When HR is "
+            "done you will be asked to review and sign it again.", r)
+    _tell_manager(db, r, actor, "Time Sheet Unlocked by HR",
+                  f"{who} (HR) unlocked {display_name(db, email)}'s time sheet for {_label(r)} to correct it: "
+                  f"\"{reason[:200]}\". Only HR changes it now; {display_name(db, email)} signs it again.")
+    return r
+
+
+def correction_changed(db: Session, r: TimesheetReview) -> bool:
+    return fingerprint(db, r.employee_email, r.period_start, r.period_end) != _unlock_round(r).get("lockedFingerprint")
+
+
+def relock(db: Session, r: TimesheetReview, actor: str) -> TimesheetReview:
+    """Unlocked, nothing changed: locked again with no new signature - the
+    signed copy still describes this exact card (Pranshu, Oct 22)."""
+    actor = (actor or "").lower()
+    _hr_only(db, r, actor)
+    if correction_changed(db, r):
+        raise HTTPException(409, f"The time sheet changed since it was unlocked, so "
+                                 f"{display_name(db, r.employee_email)} must sign the corrected version. "
+                                 "Use Send to Employee to Sign.")
+    r.status = "completed"
+    _round(db, r, by=actor, action="relocked")
+    db.flush()
+    tc = _tc()
+    tc.finalize_timecard(tc.FinalizeIn(email=r.employee_email, start=r.period_start, end=r.period_end,
+                                       allow_exceptions=True), user={"email": actor, "level": 4}, db=db)
+    msg = (f"{display_name(db, actor)} (HR) locked {display_name(db, r.employee_email)}'s time sheet for "
+           f"{_label(r)} again without changes - the signed copy stands.")
+    _notify(db, r.employee_email, "Time Sheet Locked Again", msg, r)
+    _tell_manager(db, r, actor, "Time Sheet Locked Again", msg)
+    return r
+
+
+def send_correction(db: Session, r: TimesheetReview, actor: str, *, ip: str = "",
+                    user_agent: str = "") -> TimesheetReview:
+    """HR is done: the corrected card goes to the employee, its only signer.
+    The earlier signature no longer covers these hours, so its sign-off row
+    is revoked (the signed copy stays in Documents / Egnyte as the record)."""
+    actor = (actor or "").lower()
+    _hr_only(db, r, actor)
+    if not correction_changed(db, r):
+        raise HTTPException(409, "Nothing on the time sheet changed since it was unlocked. Use Re-lock instead - "
+                                 "no new signature is needed.")
+    blocker = approve_blocker(db, r.employee_email, r.period_start, r.period_end)
+    if blocker:
+        raise HTTPException(409, blocker)
+    for old in (db.query(TimeApproval)
+                .filter(TimeApproval.employee_email == r.employee_email, TimeApproval.revoked == 0,
+                        TimeApproval.period_start == r.period_start, TimeApproval.period_end == r.period_end,
+                        TimeApproval.kind == "employee_sign").all()):
+        old.revoked, old.revoked_by = 1, actor
+    r.agreed_fingerprint = fingerprint(db, r.employee_email, r.period_start, r.period_end)
+    _round(db, r, by=actor, action="correction_sent", note=_unlock_round(r).get("note", ""))
+    due = us_date(accept_by(r)[:10])
+    r.sign_request_id = _send_envelope(
+        db, r, actor, ip=ip, user_agent=user_agent,
+        message=(f"HR corrected your time sheet for {_label(r)}. Please review and sign it. If you do not sign "
+                 f"or decline it by {due}, the corrected time sheet is accepted as sent."))
+    r.status = "signing"
+    _notify(db, r.employee_email, "Corrected Time Sheet to Sign",
+            f"{display_name(db, actor)} (HR) corrected your time sheet for {_label(r)}. Review it and sign it, or "
+            f"decline it with what is wrong. If you do neither by {due}, it is accepted as sent.", r)
+    return r
+
+
+def accept_unsigned_corrections(db: Session, now_utc: datetime | None = None) -> int:
+    """A corrected card not signed or declined UNSIGNED_WAIT_DAYS after it was
+    sent is accepted as sent (Pranshu, Oct 22) - unless its totals moved
+    since, which sends it back to HR like a signature would. Returns how many."""
+    now_utc = now_utc or datetime.now(timezone.utc)
+    done = 0
+    for r in db.query(TimesheetReview).filter(TimesheetReview.status == "signing").all():
+        if not in_correction(r):
+            continue
+        due = accept_by(r)
+        try:
+            due_at = datetime.fromisoformat(due)
+        except ValueError:
+            continue
+        if due_at.tzinfo is None:
+            due_at = due_at.replace(tzinfo=timezone.utc)
+        if now_utc < due_at:
+            continue
+        card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
+        sent = next((e.get("signed") for e in reversed(r.rounds or []) if e.get("envelope") == r.sign_request_id), None)
+        if sent:
+            now = signed_totals(card, r.pay_type)
+            now["payType"] = period_for(db, r.employee_email, r.period_start)[2]
+            drift = totals_drift(sent, now)
+            if drift:
+                req = db.query(HrSignRequest).filter(HrSignRequest.id == r.sign_request_id).first()
+                if req is not None:
+                    _reopen_totals_changed(db, r, req, drift)
+                continue
+        by = (_sent_round(r).get("by") or hr_of(db, r.employee_email) or "").lower()
+        _void_envelope(db, r, "Nexus", f"Not signed within {UNSIGNED_WAIT_DAYS} days - accepted as sent")
+        r.status = "completed"
+        _round(db, r, by=by, action="auto_accepted")
+        db.flush()
+        tc = _tc()
+        tc.finalize_timecard(tc.FinalizeIn(email=r.employee_email, start=r.period_start, end=r.period_end,
+                                           allow_exceptions=True), user={"email": by, "level": 4}, db=db)
+        who = display_name(db, r.employee_email)
+        msg = (f"{who}'s corrected time sheet for {_label(r)} was not signed within {UNSIGNED_WAIT_DAYS} days, "
+               "so it was accepted as sent and finalized for payroll.")
+        _notify(db, r.employee_email, "Corrected Time Sheet Accepted",
+                f"You did not sign or decline your corrected time sheet for {_label(r)} within "
+                f"{UNSIGNED_WAIT_DAYS} days, so it was accepted as sent and finalized for payroll.", r)
+        _notify_correction_hr(db, r, "Corrected Time Sheet Accepted", msg)
+        _tell_manager(db, r, by, "Corrected Time Sheet Accepted", msg)
+        done += 1
+    return done
 
 
 # ── The document and the envelope ────────────────────────────────────────────
@@ -1161,6 +1390,9 @@ _HISTORY_STEPS = {
     "finalized_unsigned": "Finalized by HR without the employee's signature",
     "break_attested": "Meal and rest breaks confirmed by employee",
     "break_not_collected": "Signed on paper without the meal and rest break statement",
+    "correction_sent": "Corrected time sheet sent to the employee to sign",
+    "relocked": "Locked again by HR - nothing changed",
+    "auto_accepted": "Corrected time sheet accepted - not signed within the wait",
 }
 
 
@@ -1171,6 +1403,8 @@ def approval_history(db: Session, r: TimesheetReview, offset: int = 0) -> list:
     out = []
     for e in (r.rounds or []):
         step = _HISTORY_STEPS.get(e.get("action"))
+        if e.get("action") == "hr_edited" and e.get("note"):
+            step = "Changed by HR"   # the note says what - a bonus is not hours (Oct 22)
         if not step:
             continue
         out.append({"step": step, "by": _who(db, e), "when": us_datetime(e.get("at", ""), offset),
@@ -1192,10 +1426,19 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
              # CA-rule staff only (ca_breaks.py) - no other card has this round.
              "break_attested": "Meal and rest breaks: confirmed by {who} (employee) by signing on {when}",
              "break_not_collected": "Meal and rest breaks: signed on paper without the printed statement "
-                                    "(recorded {when})"}
+                                    "(recorded {when})",
+             # HR's correction of a signed period (Neil, Oct 22): the earlier
+             # signature, the unlock and its reason, then what went out to sign.
+             "signed_employee": "Signed by {who} (employee) on {when}",
+             "unlocked": "Unlocked for corrections by {who} (HR) on {when}",
+             "correction_sent": "Corrected time sheet sent to sign by {who} (HR) on {when}",
+             "auto_accepted": "Accepted on {when} - not signed within " + str(UNSIGNED_WAIT_DAYS)
+                              + " days of being sent"}
     out = []
     for e in rounds[start:]:
         w = words.get(e.get("action"))
+        if e.get("action") == "hr_edited" and e.get("note"):
+            w = "Changed by {who} (HR) on {when}"     # the note says what - a bonus is not hours (Oct 22)
         if w:
             line = w.format(who=_who(db, e), when=us_datetime(e.get("at", ""), offset))
             if e.get("note"):
@@ -1204,7 +1447,8 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
     return out
 
 
-def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user_agent: str) -> str:
+def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user_agent: str,
+                   message: str = "") -> str:
     from routers import esign
     card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
     pdf, spot = build_pdf(db, r, card)
@@ -1226,7 +1470,7 @@ def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user
         source="pdf", template_id="", employee_id=(emp.id if emp else ""), candidate_id="",
         entity_id=(emp.company if emp else ""), body_snapshot=[], pdf_storage_path=path,
         fields=esign._clean_fields(_sig_fields(spot)),
-        message=f"Please review and sign the time sheet for {_label(r)}.", expires_on="",
+        message=message or f"Please review and sign the time sheet for {_label(r)}.", expires_on="",
         parties=parties, ip=ip, user_agent=user_agent, routing="sequential",
         excluded_ack=True, document_class="employment")
     req = db.query(HrSignRequest).filter(HrSignRequest.id == out["id"]).first()
@@ -1350,12 +1594,16 @@ def on_declined(db: Session, req, party, reason: str) -> None:
     r = _for(db, req)
     if not r or r.status != "signing":
         return
-    r.status = "with_manager"
+    correcting = in_correction(r)
+    r.status = CORRECTING if correcting else "with_manager"
     r.sign_request_id, r.agreed_fingerprint = "", ""
     _round(db, r, by=party.email, action="returned" if party.role_key == "hr" else "declined",
            note=reason, with_changes=True)
     msg = (f"{display_name(db, party.email)} did not sign the time sheet for {_label(r)}"
            + (f': "{reason.strip()[:200]}"' if (reason or "").strip() else "") + ".")
+    if correcting:
+        _notify_correction_hr(db, r, "Corrected Time Sheet Declined", msg + " It is back with HR to correct.")
+        return
     _notify(db, r.manager_email, "Time Sheet Returned for Changes", msg + " It is back with you to review.", r)
     if (party.email or "").lower() != r.employee_email:
         _notify(db, r.employee_email, "Time Sheet Returned for Changes", msg, r)
@@ -1389,8 +1637,11 @@ def on_voided(db: Session, req, actor: str) -> None:
     r = _for(db, req)
     if not r or r.status != "signing":
         return
-    r.status, r.sign_request_id, r.agreed_fingerprint = "with_manager", "", ""
+    correcting = in_correction(r)
+    r.status, r.sign_request_id, r.agreed_fingerprint = (CORRECTING if correcting else "with_manager"), "", ""
     _round(db, r, by=actor, action="cancelled", note="Signing was canceled in Nexus Sign.")
+    if correcting:
+        return
     _notify(db, r.manager_email, "Time Sheet Signing Canceled",
             f"Signing of {display_name(db, r.employee_email)}'s time sheet for {_label(r)} was canceled. "
             "It is back with you.", r)
@@ -1436,8 +1687,13 @@ def on_completed(db: Session, req) -> None:
     if approver:
         db.add(TimeApproval(id=str(uuid.uuid4()), approved_by=approver, approved_at=r.agreed_at or _now(),
                             kind="manager", note=f"Agreed in review; Nexus Sign {req.id}", **base))
+    corrected = in_correction(r)
     r.status = "completed"
     _round(db, r, by=approver or r.hr_email, action="completed")
+    if corrected:
+        _tell_manager(db, r, "", "Corrected Time Sheet Signed",
+                      f"{display_name(db, r.employee_email)} signed the corrected time sheet for {_label(r)}. "
+                      "It is finalized for payroll again.")
     db.flush()
     if not tc._finalized_row(db, r.employee_email, r.period_start, r.period_end):
         tc.finalize_timecard(tc.FinalizeIn(email=r.employee_email, start=r.period_start, end=r.period_end,
@@ -1455,9 +1711,15 @@ def _reopen_totals_changed(db: Session, r: TimesheetReview, req, drift: list) ->
     from routers.esign import _log
     detail = "; ".join(drift[:6]) + (f"; and {len(drift) - 6} more" if len(drift) > 6 else "")
     _log(db, req.id, "superseded", f"{TOTALS_CHANGED_NOTE}: {detail}"[:900])
-    r.status, r.sign_request_id, r.agreed_fingerprint = "with_manager", "", ""
+    correcting = in_correction(r)
+    r.status, r.sign_request_id, r.agreed_fingerprint = (CORRECTING if correcting else "with_manager"), "", ""
     _round(db, r, by="", action="totals_changed", note=TOTALS_CHANGED_NOTE, extra={"drift": drift[:20]})
     who = display_name(db, r.employee_email)
+    if correcting:
+        _notify_correction_hr(db, r, "Corrected Time Sheet Back With HR",
+                              f"The totals on {who}'s corrected time sheet for {_label(r)} changed after it was "
+                              f"sent ({detail}). It was not finalized - send it to {who} to sign again.")
+        return
     msg = (f"{who} signed the time sheet for {_label(r)}, but its totals changed after it was approved "
            f"({detail}). It was not finalized - it is back with the manager to approve again, and "
            f"{who} signs the updated version.")
@@ -1492,7 +1754,8 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
                # Oct 16: the manager reviews and approves without waiting for a submission.
                "canApprove": manager_side and not _tc()._finalized_row(db, email, s, e),
                "agreeBlocker": approve_blocker(db, email, s, e) if manager_side else "",
-               "managerEmail": manager_of(db, email)}
+               "managerEmail": manager_of(db, email),
+               "canUnlock": hr_view and bool(_tc()._finalized_row(db, email, s, e))}
         if hr_view:
             out["finalizeUnsignedBlocker"] = finalize_unsigned_blocker(db, email, s, viewer)
             out["canFinalizeUnsigned"] = not out["finalizeUnsignedBlocker"]
@@ -1513,6 +1776,7 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
                 turn = p.role_key
     unsigned_blocker = (finalize_unsigned_blocker(db, email, r.period_start, viewer)
                         if hr_view and r.status in ACTIVE else "")
+    corr = in_correction(r)
     out = {
         "canFinalizeUnsigned": hr_view and r.status in ACTIVE and not unsigned_blocker,
         "finalizeUnsignedBlocker": unsigned_blocker,
@@ -1529,11 +1793,22 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
         "canEmployeeApprove": is_self and r.status == "approved",
         "isHr": hr_view,
         "approvalLog": (approval_log(db, r, _offset(db, email))
-                        if r.status in ("approved", "signing", "completed") else []),
+                        if r.status in ("approved", "signing", "completed", CORRECTING) else []),
+        # HR's correction of a finalized period (Oct 22).
+        "inCorrection": corr,
+        "correction": ({"by": _unlock_round(r).get("by", ""), "at": _unlock_round(r).get("at", ""),
+                        "reason": _unlock_round(r).get("note", ""),
+                        "acceptBy": accept_by(r) if r.status == "signing" else ""} if corr else None),
+        "canUnlock": hr_view and r.status == "completed"
+                     and bool(_tc()._finalized_row(db, email, r.period_start, r.period_end)),
         "agreeBlocker": agree_blocker(db, r) if manager_side and r.status == "with_manager" else "",
         "submitBlocker": (submit_blocker(db, email, r.period_start, r.period_end)
                           if is_self and r.status in ("with_employee", "approved") else ""),
     }
+    if hr_view and r.status == CORRECTING:
+        changed = correction_changed(db, r)
+        out["canSendCorrection"], out["canRelock"] = changed, not changed
+        out["correctionBlocker"] = approve_blocker(db, email, r.period_start, r.period_end) if changed else ""
     # CA-rule staff only (ca_breaks.py): the meal and rest break statement
     # their signature confirms. No key for anyone else.
     if is_self and r.status in ("signing", "approved") and needs_break_attestation(db, r):

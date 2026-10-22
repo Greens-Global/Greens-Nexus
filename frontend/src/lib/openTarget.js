@@ -29,4 +29,11 @@ export function openNotificationTarget(action) {
     setPendingOpen('timecard', detail);
     fire('nexus:open-timecard', detail);
   }
+  // The employee's OWN Time Sheet on the notice's period (Oct 22): a bonus or
+  // a change on a past period opened the current one, where it is not.
+  if (action.view === 'timeclock' && action.start && !action.timecard) {
+    const detail = { start: action.start, payType: action.payType || '' };
+    setPendingOpen('myTimecard', detail);
+    fire('nexus:open-my-timecard', detail);
+  }
 }

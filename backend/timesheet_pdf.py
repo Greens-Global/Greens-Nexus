@@ -362,6 +362,7 @@ def hourly_summary(card: dict) -> list:
     if t.get("restPremiumMin"):
         rows.append((f"Rest Premium ({int(t['restPremiumMin']) // 60} x 1 hour of pay)", "-",
                      money(t.get("restPremiumPay"), cur)))
+    rows += _bonus_lines(card, cur)
     worked = t.get("workedMin")
     if worked is None:
         worked = int(t.get("regMin") or 0) + int(t.get("otMin") or 0) + int(t.get("dtMin") or 0)
@@ -369,6 +370,12 @@ def hourly_summary(card: dict) -> list:
     rows.append(("TOTAL EDITED PUNCHES", str(int(t.get("editedPunches") or 0)), ""))
     rows.append(("MISSING PUNCHES", str(int(t.get("missingPunches") or 0)), ""))
     return rows
+
+
+def _bonus_lines(card: dict, cur: str, hours: str = "-") -> list:
+    """One summary line per bonus, with why (Neil, Oct 22) - already in totalPay."""
+    return [(f"Bonus: {b.get('description') or ''}", hours, f"+{money(b.get('amount'), cur)}")
+            for b in card.get("bonuses") or []]
 
 
 def fixed_rows(card: dict, ctx: dict) -> Table:
@@ -431,6 +438,7 @@ def fixed_summary(card: dict) -> list:
             (missed, "", f"-{money(t['deduction'], cur)}" if t.get("deduction") else money(0, cur)),
             (f"Weekend pay ({wk} day{'' if wk == 1 else 's'}, {card.get('weekendMultiplier') or 1.35} x daily by hours)",
              "", f"+{money(t['weekendBonus'], cur)}" if t.get("weekendBonus") else money(0, cur)),
+            *_bonus_lines(card, cur, ""),
             ("NET PAY THIS MONTH", "", money(t.get("totalPay"), cur)),
             ("TOTAL HOURS WORKED", hd(t.get("workedMin")), ""),
             ("MISSING PUNCHES", str(int(t.get("missingPunches") or 0)), "")]

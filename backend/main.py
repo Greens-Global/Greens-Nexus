@@ -1252,6 +1252,26 @@ def _run_migrations():
             "ALTER TABLE task_templates ADD COLUMN company_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_intake_forms ADD COLUMN company_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_custom_fields ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Follow a project (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_projects ADD COLUMN follower_emails JSON DEFAULT '[]'",
+            # Task file versions + Egnyte links (Oct 22 2026). See TaskAttachment.
+            "ALTER TABLE task_attachments ADD COLUMN version_group VARCHAR DEFAULT ''",
+            "ALTER TABLE task_attachments ADD COLUMN version INTEGER DEFAULT 1",
+            "ALTER TABLE task_attachments ADD COLUMN egnyte_path VARCHAR DEFAULT ''",
+            "ALTER TABLE task_attachments ADD COLUMN egnyte_kind VARCHAR DEFAULT ''",
+            # HR checklist tasks (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN hr_checklist BOOLEAN DEFAULT 0",
+            "UPDATE tasks SET hr_checklist = 1 WHERE COALESCE(hr_checklist, 0) = 0 AND ("
+            "id IN (SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') != '') OR "
+            "id IN (SELECT parent_task_id FROM tasks WHERE id IN "
+            "(SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') != '')))",
+            # Field history (Neil, Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_activity ADD COLUMN field_change JSON",
+            # Formula columns (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_custom_fields ADD COLUMN formula TEXT DEFAULT ''",
+            "ALTER TABLE task_custom_fields ADD COLUMN formula_format JSON DEFAULT '{}'",
+            # Tasks conditional row colors (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2874,6 +2894,36 @@ def _run_migrations():
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_intake_forms ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # Follow a project (Oct 22 2026): who follows it (lowercase emails).
+        # models.TaskProject.follower_emails / task_project_follow.py.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS follower_emails JSONB DEFAULT '[]'::jsonb",
+        # Task file versions + Egnyte links (Oct 22 2026). See TaskAttachment.
+        "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS version_group VARCHAR DEFAULT ''",
+        "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1",
+        "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS egnyte_path VARCHAR DEFAULT ''",
+        "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS egnyte_kind VARCHAR DEFAULT ''",
+        # HR checklist tasks (Oct 22 2026): models.Task.hr_checklist - a step's
+        # subtask or the parent over an owner's steps. Stamped by the checklist
+        # sync from now on; this marks the ones already there (a no-op once done).
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS hr_checklist BOOLEAN DEFAULT FALSE",
+        "UPDATE tasks SET hr_checklist = TRUE WHERE hr_checklist IS NOT TRUE AND ("
+        "id IN (SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') <> '') OR "
+        "id IN (SELECT parent_task_id FROM tasks WHERE id IN "
+        "(SELECT task_id FROM hr_checklist_items WHERE COALESCE(task_id, '') <> '')))",
+        # Field history (Neil, Oct 22 2026): {field, fieldId, label, from, to,
+        # labels} on the activity row that recorded a change (task_history.py).
+        # NULL on every other row. Additive only.
+        "ALTER TABLE task_activity ADD COLUMN IF NOT EXISTS field_change JSONB",
+        # Formula columns (Oct 22 2026): a formula field's expression and how
+        # its result is shown. Computed in the browser, never stored per task.
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS formula TEXT DEFAULT ''",
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS formula_format JSONB DEFAULT '{}'::jsonb",
+        # Tasks conditional row colors (Oct 22 2026): a project's ordered color
+        # rules, models.TaskProject.color_rules. Additive; [] = no colors.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS color_rules JSONB DEFAULT '[]'::jsonb",
+        # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
+        # the _enable_rls_everywhere sweep. models.TimecardBonus.
+        "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -6636,3 +6636,50 @@ tr.nx-needs-you > td:first-child::before, tr.nx-needs-you--row > td:first-child:
 .pt-time-key span { display: inline-flex; align-items: center; gap: 6px; }
 .pt-time-key b { font-weight: 800; }
 .pt-time-key-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; }
+
+/* Task field history (Oct 22 2026, tasks/FieldHistoryPopover.jsx): the clock beside a
+   field label. Shown on hover where there is a mouse; always there on touch,
+   where nothing hovers. */
+.nx-hist-btn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; color: var(--nx-faint); cursor: pointer; flex-shrink: 0; vertical-align: middle; }
+.nx-hist-btn:hover, .nx-hist-btn:focus-visible { color: var(--nx-ink); background: var(--nx-hover); outline: none; }
+@media (hover: hover) and (pointer: fine) {
+  .nx-hist-btn { opacity: 0; transition: opacity 0.12s ease; }
+  .nx-hist-row:hover .nx-hist-btn, .nx-hist-row:focus-within .nx-hist-btn, .nx-hist-btn[aria-expanded="true"] { opacity: 1; }
+}
+@media (pointer: coarse) { .nx-hist-btn { width: 24px; height: 24px; } }
+/* Conditional row colors (Neil, Oct 22 2026) - tasks/colorRules.js. A rule's
+   color is a 3px accent on the row's left edge plus a faint tint across it,
+   never a solid fill (no solid cell fills in any list). --rc is the rule's
+   palette hex. The tint is a background-IMAGE layered over the row's own
+   band; !important because every row sets its band with an inline
+   `background` shorthand, which would otherwise reset the image to none. A
+   selected row drops the tint (it reads as selected and keeps only the
+   accent), and so does a hovered one - the hover color shows as it does on
+   every other row.
+   Contrast, worst case over all seven colors and both row bands (WCAG 2.x):
+     AA text (4.5:1) on the tint - light: ink 14.7, dim 5.2, Bold Title
+       (--rc-ink) 5.0, overdue date (--rc-overdue) 5.6, due-today date
+       (--rc-due-today) 5.5; dark: ink 11.7, dim 5.6, Bold Title 6.5,
+       overdue 7.2, due today 9.5.
+     Non-text (3:1) - the accent against the row: light 3.0 (amber), dark
+       3.7 (purple; the dark accent is lifted 15% toward white for that).
+     NOT AA, and not changed by this: the faint placeholder gray ("-") is
+       below 4.5:1 on every row, tinted or not. */
+.nx-rc { position: relative; --rc-ink: color-mix(in srgb, var(--rc) 72%, #000); --rc-bar: var(--rc);
+  --rc-overdue: #b91c1c; --rc-due-today: #9a4a06; }
+[data-theme="dark"] .nx-rc { --rc-ink: color-mix(in srgb, var(--rc) 50%, #fff); --rc-bar: color-mix(in srgb, var(--rc) 85%, #fff);
+  --rc-overdue: #fca5a5; --rc-due-today: #fcd34d; }
+.nx-rc::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--rc-bar); pointer-events: none; z-index: 1; }
+.nx-rc-tint:not([data-selected="true"]) { background-image: linear-gradient(color-mix(in srgb, var(--rc) 6%, transparent), color-mix(in srgb, var(--rc) 6%, transparent)) !important; }
+[data-theme="dark"] .nx-rc-tint:not([data-selected="true"]) { background-image: linear-gradient(color-mix(in srgb, var(--rc) 12%, transparent), color-mix(in srgb, var(--rc) 12%, transparent)) !important; }
+@media (hover: hover) {
+  .nx-row-hover.nx-rc-tint:hover { background-image: none !important; }
+}
+/* Cards (board, phone): an inset accent that clears the rounded corners. */
+.nx-rc-card::before { top: 10px; bottom: 10px; left: -1px; border-radius: 0 3px 3px 0; }
+.nx-rc-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--rc); flex-shrink: 0; }
+/* The Row Colors editor's warning and error text, AA on both themes. */
+.nx-cr-warn { color: #9a4a06; }
+[data-theme="dark"] .nx-cr-warn { color: #fcd34d; }
+.nx-cr-error { color: #b91c1c; background: rgba(220, 38, 38, 0.08); }
+[data-theme="dark"] .nx-cr-error { color: #fca5a5; background: rgba(248, 113, 113, 0.12); }

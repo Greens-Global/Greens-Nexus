@@ -52,7 +52,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole, ScheduleDayNote,
-                    ShiftAvailability, TimecardNote, PayrollRateHistory, ShiftAvailabilityDate,
+                    ShiftAvailability, TimecardNote, TimecardBonus, PayrollRateHistory, ShiftAvailabilityDate,
                     ShiftAvailabilityPref)
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from client_ip import client_ip as _trusted_ip
@@ -304,7 +304,8 @@ PAY_KEYS = frozenset({"pay", "rate", "rateSet", "rateSplits", "amount", "regPay"
                       "deduct", "deduction", "bonus", "weekendBonus",
                       "diffPay", "callBackPay",
                       # CA meal / rest premiums (ca_breaks.py) - pay, like the rest.
-                      "mealPremiumPay", "restPremiumPay"})
+                      "mealPremiumPay", "restPremiumPay",
+                      "bonusPay"})
 
 
 def strip_pay(o):
@@ -1398,6 +1399,20 @@ def my_timesheet(start: str = "", end: str = "",
 
 # ── Manager / HR endpoints ────────────────────────────────────────────────────
 
+def _left_before(emp, start: str) -> bool:
+    """An inactive / offboarded person whose leaving took effect before `start`
+    - off the payroll roster for that period (Neil, Oct 22). One who left
+    during or after it stays for their last pay, and anyone with punches in
+    the period shows regardless (_team_rows adds punchers)."""
+    if (emp.status or "active") not in ("inactive", "offboarded"):
+        return False
+    for e in emp.status_log or []:   # newest first
+        if isinstance(e, dict) and e.get("to") == emp.status:
+            left = (e.get("effectiveDate") or e.get("at") or "")[:10]
+            return bool(left) and left < (start or "")
+    return True   # no dated record of leaving: left long ago
+
+
 def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixed: bool = False) -> list:
     rmin = _round_min(db)   # round like the pay engine so review == paid
     q = db.query(TimePunch).filter(TimePunch.voided == 0)
@@ -1452,7 +1467,7 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
         return (getattr(r, "pay_type", None) or "hourly") != "fixed"
 
     roster = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all()
-              if e.work_email and _in_roster((e.work_email or "").lower())}
+              if e.work_email and _in_roster((e.work_email or "").lower()) and not _left_before(e, start)}
     if only_emails is not None:
         roster &= set(only_emails)
 
@@ -2100,6 +2115,7 @@ class FinalizeIn(BaseModel):
     start: str
     end: str
     allow_exceptions: bool = False   # override unresolved missing/unmatched punches
+    reason: str = ""                 # /unfinalize: why HR unlocks it (required there)
 
 
 @router.post("/finalize")
@@ -2285,9 +2301,22 @@ def _notify_period_ready(db: Session, email: str, start: str, end: str, is_fixed
 
 
 @router.post("/unfinalize")
-def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrator),
+def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(get_current_user),
                         db: Session = Depends(get_db)):
+    """HR / Global Admin unlocks a finalized period to correct it (Neil, Oct
+    22 2026: "HR should always be able to unlock and modify ... supervisor
+    shouldn't be the one making a change like that"). timesheet_review.is_hr
+    is the gate - the company's HR contact, an administrator or the Full HR
+    grant, never on their own card. The reason is required and printed in the
+    approval log; the employee signs the corrected card again
+    (timesheet_review.start_correction)."""
+    import timesheet_review as _tsr
     email = body.email.strip().lower()
+    if not _tsr.is_hr(db, user["email"], email):
+        raise HTTPException(403, "Only HR or a Global Admin can unlock a finalized time sheet.")
+    reason = (body.reason or "").strip()
+    if len(reason) < 5:
+        raise HTTPException(422, "Give a reason of at least 5 characters - it is logged on the time sheet.")
     row = (db.query(TimeApproval)
            .filter(TimeApproval.employee_email == email, TimeApproval.revoked == 0,
                    TimeApproval.kind == "final",
@@ -2302,20 +2331,9 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administr
     leave_balances.remove_period(db, row.id)
     from routers import contractor_invoices
     contractor_invoices.void_for_final(db, row.id)   # its draft invoice goes; a sent one stays
-    # A period signed through Nexus Sign keeps its review row as "completed",
-    # which refused every new submission - so an unlocked period could never be
-    # re-agreed or re-signed (Oct 16). Close that review out as "unlocked"; the
-    # employee's next Submit starts a fresh round and a fresh envelope.
-    import timesheet_review as _tsr
-    _rv = _tsr.active_review(db, email, body.start)
-    if _rv is not None and _rv.status == "completed":
-        _rv.status = "unlocked"
-        _tsr._round(db, _rv, by=user["email"], action="unlocked",
-                    note="Period unlocked by HR for corrections - submit it again when the hours are right")
-        _hr_notify(db, email, "Time Sheet Unlocked",
-                   f"HR unlocked your time sheet for {_us_span(body.start, body.end)} for corrections. "
-                   f"Once the hours are right, submit it again for review and signatures.",
-                   action={"view": "timeclock", "sub": "timesheet"})
+    # The review is HR's to correct until the employee signs again (or the
+    # corrected card is accepted after the wait) - never back to the manager.
+    _tsr.start_correction(db, email, body.start, body.end, user["email"], reason[:500])
     db.commit()
     return {"unfinalized": True}
 
@@ -9251,9 +9269,15 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                            "holidayName": (hol or {}).get("name", "")})
 
     weekend_bonus = round(weekend_bonus, 2)
-    deduction = round(deduction, 2)
     base_pay = round(base_pay, 2)
+    # Absences never take more than the month's pay (Oct 23: Aarav, absent all
+    # 22 working days of June at 1/261 of a year's fee each, was "owed" -344.83
+    # before his bonus). A month with no work pays 0, not less.
+    deduction = round(min(deduction, base_pay), 2)
     total_pay = round(base_pay - deduction + weekend_bonus, 2)
+    _bt = {"totalPay": total_pay}
+    _add_bonuses(card, _bt, _bonus_rows(db, em, m_start, m_end), db)
+    total_pay = _bt["totalPay"]   # the finalize snapshot below already holds it
     # A finalized month is PINNED to its finalize-time result (day statuses key off
     # "today", so without this a mid-month finalize would drift as days elapse).
     if _frozen:
@@ -9292,7 +9316,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                       "sickDays": leave_days["sick"], "vacationDays": leave_days["vacation"],
                       "personalDays": leave_days["personal"],
                       "deduction": deduction, "weekendBonus": weekend_bonus,
-                      "totalPay": total_pay}
+                      **({"bonusPay": _bt["bonusPay"]} if "bonusPay" in _bt else {}), "totalPay": total_pay}
     card["periodStart"], card["periodEnd"] = m_start, m_end
     card["periodDays"] = days_in_month
     return card
@@ -10307,6 +10331,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                        "pendingEdits": pending_edits}}
     if _prem is not None:
         pay_premiums.add_totals(card["totals"], _prem)
+    _add_bonuses(card, card["totals"], _bonus_rows(db, em, start, end), db)
     return card
 
 
@@ -10362,7 +10387,7 @@ def payroll_timecard(email: str, start: str, end: str,
         # The Notes column is on the monthly card too (Sep 29).
         card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
         card["zoneKey"] = _employee_zone_key(db, em)   # India staff open in India time (Oct 20)
-        card.update(_invoice_keys(db, em, card["periodStart"], card["periodEnd"]))
+        card.update(_invoice_keys(db, em, card["periodStart"], card["periodEnd"], user))
         return _no_pay(db, user, card)
     card = _compute_timecard(db, em, start, end)
     if em == (user.get("email") or "").lower():
@@ -10376,15 +10401,16 @@ def payroll_timecard(email: str, start: str, end: str,
     # India-based staff read in India time, US staff in California time,
     # unless the viewer picked the other one (lib/displayTz.js).
     card["zoneKey"] = _employee_zone_key(db, em)
-    card.update(_invoice_keys(db, em, start, end))
+    card.update(_invoice_keys(db, em, start, end, user))
     return _no_pay(db, user, card)
 
 
-def _invoice_keys(db: Session, em: str, start: str, end: str) -> dict:
-    """`contractor` and `invoice` on a card (contractor_invoices.py, Oct 21)."""
+def _invoice_keys(db: Session, em: str, start: str, end: str, viewer: dict | None = None) -> dict:
+    """`contractor` and `invoice` on a card (contractor_invoices.py, Oct 21);
+    `viewer` (HR's view of someone's card) adds Approve & Send when allowed."""
     try:
         from routers import contractor_invoices
-        return contractor_invoices.card_keys(db, em, start, end)
+        return contractor_invoices.card_keys(db, em, start, end, viewer)
     except Exception as e:  # noqa: BLE001 - the card must still load
         print(f"[contractor-invoices] card keys failed for {em}: {type(e).__name__}: {e}")
         return {"contractor": False, "invoice": None}
@@ -10460,6 +10486,133 @@ def set_timecard_note(body: TimecardNoteIn, user: dict = Depends(require_team_wr
         row.note, row.updated_by, row.updated_at = text, user["email"], now
         db.commit()
     return {"date": day, "note": text, "by": user["email"], "at": now}
+
+
+def _bonus_rows(db: Session, em: str, start: str, end: str) -> list:
+    """The live bonuses on a person's period (models.TimecardBonus), oldest first.
+    Who has any bonus at all is read once per session: most cards have none,
+    and payroll readiness builds one per person (its query budget)."""
+    who = db.info.get("_bonus_emails")
+    if who is None:
+        who = db.info["_bonus_emails"] = {e for (e,) in db.query(TimecardBonus.employee_email)
+                                          .filter(TimecardBonus.removed_at == "").distinct()}
+    if em not in who:
+        return []
+    return (db.query(TimecardBonus)
+            .filter(TimecardBonus.employee_email == em, TimecardBonus.removed_at == "",
+                    TimecardBonus.date >= (start or "0"), TimecardBonus.date <= (end or "9"))
+            .order_by(TimecardBonus.created_at).all())
+
+
+def _add_bonuses(card: dict, totals: dict, rows: list, db: Session) -> None:
+    """Bonuses (Neil, Oct 22): their own lines on the card, added to totalPay -
+    keys only on a card that has any, so every other card stays as it was."""
+    if not rows:
+        return
+    from timesheet_review import display_name
+    card["bonuses"] = [{"id": b.id, "date": b.date, "description": b.description or "",
+                        "amount": round(float(b.amount or 0), 2), "by": b.created_by or "", "at": b.created_at or "",
+                        "byName": display_name(db, b.created_by) if b.created_by else ""}
+                       for b in rows]
+    totals["bonusPay"] = round(sum(x["amount"] for x in card["bonuses"]), 2)
+    totals["totalPay"] = round(float(totals.get("totalPay") or 0) + totals["bonusPay"], 2)
+
+
+class TimecardBonusIn(BaseModel):
+    email: str
+    date: str               # YYYY-MM-DD, a day of the period it pays in
+    description: str
+    amount: float
+
+
+def _bonus_guard(db: Session, user: dict, em: str, day: str, what: str) -> str:
+    """Who may change a bonus, and the review step it triggers - the same
+    lock as the hours: a bonus after approval reopens it (manager) or asks
+    the employee to sign again (HR). Returns the review status before."""
+    import timesheet_review
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    if em == (user.get("email") or "").lower():
+        raise HTTPException(403, "A bonus on your own Time Sheet is added by someone else")
+    if _finalized_row(db, em, day):
+        raise HTTPException(403, "This pay period is signed and finalized. Add the bonus on the current pay "
+                                 "period, or ask HR to unlock this one - the employee then signs it again.")
+    r = timesheet_review.review_covering(db, em, day)
+    before = r.status if r else ""
+    timesheet_review.guard_edit(db, em, day, user["email"], what=what)
+    return before
+
+
+def _bonus_told(db: Session, user: dict, row: TimecardBonus, added: bool, before: str) -> dict:
+    """Tell the employee - always, with the amount: nothing about their pay
+    changes without them hearing (Neil / Pranshu, Oct 22). Returns the next
+    step for the person who made the change."""
+    import timesheet_review
+    start, end, _pt = timesheet_review.period_for(db, row.employee_email, row.date)
+    r = timesheet_review.review_covering(db, row.employee_email, row.date)
+    after = r.status if r else ""
+    rr = db.query(PayrollRate).filter(PayrollRate.employee_email == row.employee_email).first()
+    import timesheet_pdf
+    amt = timesheet_pdf.money(row.amount, (rr.currency if rr else "") or "USD")
+    who = timesheet_review.display_name(db, user["email"])
+    span = f"{timesheet_review.us_date(start)} - {timesheet_review.us_date(end)}"
+    if added:
+        title, line = "Bonus Added to Your Time Sheet", f"{who} added a bonus to your time sheet for {span}: {row.description} - {amt}."
+    else:
+        title, line = "Bonus Removed from Your Time Sheet", f"{who} removed the bonus \"{row.description}\" ({amt}) from your time sheet for {span}."
+    if after == "approved" and before in ("approved", "signing"):
+        nxt = "Review your updated time sheet and sign it again."
+    elif after == "with_manager" and before in ("approved", "signing"):
+        nxt = "Your time sheet goes back to your manager to approve, then to you to sign again."
+    else:
+        nxt = "You will see it on your time sheet and on the copy you sign for this period."
+    _hr_notify(db, row.employee_email, title, f"{line} {nxt}", ref_id=row.id, requested_by=user["email"],
+               action={"view": "timeclock", "sub": "timecard", "email": row.employee_email, "start": start, "payType": _pt},
+               priority=1 if after == "approved" else 0)
+    return {"reviewStatus": after, "reopened": before in ("approved", "signing") and after == "with_manager",
+            "signAgain": before in ("approved", "signing") and after == "approved"}
+
+
+@router.post("/bonuses")
+def add_timecard_bonus(body: TimecardBonusIn, user: dict = Depends(require_team_write),
+                       _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    """A manager or HR adds a bonus to one person's pay period, with why
+    (Neil, Oct 22). It changes pay, so it is locked like hours: not on a
+    finalized period, and through the review's one-side-at-a-time rule."""
+    em = (body.email or "").strip().lower()
+    day = (body.date or "").strip()[:10]
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    desc = (body.description or "").strip()[:500]
+    if not em or not desc:
+        raise HTTPException(400, "Say what the bonus is for")
+    if not math.isfinite(body.amount) or body.amount <= 0 or body.amount > 10_000_000:
+        raise HTTPException(400, "Enter a bonus amount above zero")
+    before = _bonus_guard(db, user, em, day, f"added a bonus: {desc[:80]}")
+    row = TimecardBonus(id=str(uuid.uuid4()), employee_email=em, date=day, description=desc,
+                        amount=round(body.amount, 2), created_by=user["email"], created_at=_now_iso())
+    db.add(row)
+    db.info.pop("_bonus_emails", None)
+    out = {"id": row.id, **_bonus_told(db, user, row, True, before)}
+    db.commit()
+    return out
+
+
+@router.delete("/bonuses/{bonus_id}")
+def remove_timecard_bonus(bonus_id: str, user: dict = Depends(require_team_write),
+                          _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    row = db.query(TimecardBonus).filter(TimecardBonus.id == bonus_id, TimecardBonus.removed_at == "").first()
+    if row is None:
+        raise HTTPException(404, "Bonus not found")
+    before = _bonus_guard(db, user, row.employee_email, row.date, f"removed the bonus: {(row.description or '')[:80]}")
+    row.removed_by, row.removed_at = user["email"], _now_iso()
+    db.info.pop("_bonus_emails", None)
+    out = {"ok": True, **_bonus_told(db, user, row, False, before)}
+    db.commit()
+    return out
 
 
 class MyTimecardNoteIn(BaseModel):

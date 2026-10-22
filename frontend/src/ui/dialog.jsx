@@ -11,7 +11,8 @@
 //
 // Options (all optional): { title, confirmText, cancelText, danger, placeholder,
 // defaultValue, required, multiline }. `danger:true` styles the confirm button as
-// destructive. `required:true` (prompt) disables OK until non-empty.
+// destructive. `required:true` (prompt) disables OK until non-empty;
+// `minLength:n` keeps it disabled until n characters, with a hint saying so.
 //
 // One <DialogHost/> is mounted at the app root (main.jsx). Calls made before it
 // mounts are queued and shown once it does.
@@ -97,7 +98,8 @@ export function DialogHost() {
 
   const isPrompt = item.kind === 'prompt';
   const isAlert = item.kind === 'alert';
-  const okDisabled = isPrompt && item.required && !value.trim();
+  const short = isPrompt && item.minLength > 0 && value.trim().length < item.minLength;
+  const okDisabled = isPrompt && ((item.required && !value.trim()) || short);
   const confirmResult = () => close(isPrompt ? value : true);
   const cancelResult = () => close(isPrompt ? null : false);
   // A typed prompt whose value has diverged from the default is "dirty" -
@@ -228,6 +230,11 @@ export function DialogHost() {
               }}
             />
           )
+        )}
+        {short && (
+          <div style={{ fontSize: 12, color: 'var(--muted, #5b675f)', marginTop: 6 }}>
+            At least {item.minLength} characters ({value.trim().length} so far).
+          </div>
         )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9, marginTop: 'auto', paddingTop: 20 }}>

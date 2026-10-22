@@ -55,7 +55,7 @@ class ContractorInvoices(unittest.TestCase):
         auth.invalidate_role_cache()
         self.db = database.SessionLocal()
         for m in (models.NexusEmployee, models.HrEntity, models.NexusRole, models.TimePunch, models.PayrollRate,
-                  models.TimeApproval, models.ContractorInvoice, models.NexusNotification):
+                  models.TimeApproval, models.ContractorInvoice, models.NexusNotification, models.TimecardBonus):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=CO, name="GGCon", legal_name="GGCon Private Limited", tax_id="29AAAAA0000A1Z5",
                                     physical_address="1 MG Road, Bengaluru", main_phone="+91 80 0000 0000",
@@ -139,6 +139,25 @@ class ContractorInvoices(unittest.TestCase):
         self.assertNotIn("gstin", r.json()["compensation"])
         self.assertEqual(hr._norm_gstin("29ABCDE1234F1Z5"), "29ABCDE1234F1Z5")
 
+    def test_pan_on_pay_and_benefits_is_the_compliance_pan(self):
+        # Pranshu, Oct 23: PAN is edited beside the GSTIN too - one field, compliance.pan.
+        self.db.query(models.NexusRole).filter(models.NexusRole.email == ADMIN).update({"role": "owner"})
+        self.db.commit()
+        auth.invalidate_role_cache()
+        self.assertEqual(self.client.get("/hr/employees/id-ci-con/compensation").json()["pan"], "ABCDE1234F")
+        r = self.client.put("/hr/employees/id-ci-con/compensation", json={"pan": "bad"})
+        self.assertEqual(r.status_code, 400, r.text)
+        r = self.client.put("/hr/employees/id-ci-con/compensation", json={"pan": " pqrst6789z "})
+        self.assertEqual((r.status_code, r.json()["pan"]), (200, "PQRST6789Z"))
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.NexusEmployee, "id-ci-con").compliance["pan"], "PQRST6789Z")
+        # A save that does not mention it keeps it; the next invoice prints it.
+        self.client.put("/hr/employees/id-ci-con/compensation", json={"gstin": ""})
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.NexusEmployee, "id-ci-con").compliance["pan"], "PQRST6789Z")
+        self._finalize(CON)
+        self.assertEqual(self._invoices()[0].snapshot["billedBy"]["pan"], "PQRST6789Z")
+
     # ── draft at finalize ────────────────────────────────────────────────
 
     def test_draft_for_a_contractor_only_once_and_void_on_unfinalize(self):
@@ -167,12 +186,64 @@ class ContractorInvoices(unittest.TestCase):
         # An employee gets none.
         self._finalize(EMP)
         self.assertEqual(self._invoices(EMP), [])
-        # Unfinalize voids the draft; finalizing again drafts number 8.
-        tc.unfinalize_timecard(tc.FinalizeIn(email=CON, start=PS, end=PE), user=HR_USER, db=self.db)
+        # Unfinalize voids the draft, which was never sent, so its number comes
+        # back: finalizing again drafts number 7 again (Oct 23).
+        tc.unfinalize_timecard(tc.FinalizeIn(email=CON, start=PS, end=PE, reason="Wrong lunch on Monday"), user=HR_USER, db=self.db)
         self.db.expire_all()
         self.assertEqual(self.db.get(models.ContractorInvoice, inv.id).status, "void")
         self._finalize(CON)
-        self.assertEqual(sorted((i.number, i.status) for i in self._invoices()), [(7, "void"), (8, "draft")])
+        self.assertEqual(sorted((i.number, i.status) for i in self._invoices()), [(7, "draft"), (7, "void")])
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.NexusEmployee, "id-ci-con").contractor["invoice_next_number"], 8)
+
+    def test_a_sent_invoice_keeps_its_number(self):
+        ent = self.db.get(models.HrEntity, CO)
+        ent.invoice_recipients = ["ap@ggcon.in"]
+        self.db.commit()
+        self._finalize(CON)
+        inv = self._invoices()[0]
+        self.assertEqual(self.client.post(f"/contractor-invoices/{inv.id}/send").status_code, 200)
+        self.db.expire_all()   # the send ran in the API's own session
+        tc.unfinalize_timecard(tc.FinalizeIn(email=CON, start=PS, end=PE, reason="Wrong lunch on Monday"), user=HR_USER, db=self.db)
+        self._finalize(CON)
+        self.assertEqual(sorted((i.number, i.status) for i in self._invoices()), [(7, "sent"), (8, "draft")])
+
+    def test_hr_sends_from_the_time_sheet_card(self):
+        # Oct 23: after the signature the card had only Preview - HR now gets
+        # Approve & Send there, by the Invoices tab's rule; nobody else does.
+        ent = self.db.get(models.HrEntity, CO)
+        ent.invoice_recipients = ["ap@ggcon.in"]
+        self.db.commit()
+        self._finalize(CON)
+        inv = ci.card_keys(self.db, CON, PS, PE, HR_USER)["invoice"]
+        self.assertEqual((inv["canSend"], inv["recipients"], inv["employeeName"]), (True, ["ap@ggcon.in"], "Dev One"))
+        for viewer in ({"email": CON, "level": 1}, {"email": EMP, "level": 3}, None):
+            self.assertNotIn("canSend", ci.card_keys(self.db, CON, PS, PE, viewer)["invoice"])
+
+    def test_a_month_of_absences_never_takes_more_than_the_fee(self):
+        # Aarav, June 2026 (Oct 23): 22 working days absent at 1/261 of a
+        # year's 30,000 fee each came to 30,344.83 - more than the fee.
+        rate = self.db.query(models.PayrollRate).filter_by(employee_email=CON).one()
+        rate.pay_type, rate.monthly_salary, rate.currency = "fixed", 30000.0, "INR"
+        self.db.commit()
+        t = tc._fixed_card(self.db, CON, "2026-06-15")["totals"]
+        self.assertEqual(t["missedFullDays"], 22)
+        self.assertEqual((t["deduction"], t["totalPay"]), (t["salaryForPeriod"], 0.0))
+
+    def test_a_bonus_on_the_period_is_billed_on_its_own_line(self):
+        # Oct 22: a bonus added before finalizing is in the invoice total and itemized.
+        base = tc._compute_timecard(self.db, CON, PS, PE)["totals"]["totalPay"]
+        tc.add_timecard_bonus(tc.TimecardBonusIn(email=CON, date=PS, description="Go-live weekend", amount=2500.0),
+                              user=HR_USER, _su={}, db=self.db)
+        self._finalize(CON)
+        inv = self._invoices()[0]
+        self.assertEqual(inv.amount, round(base + 2500.0, 2))
+        self.assertEqual(inv.snapshot["bonuses"], [{"description": "Go-live weekend", "amount": 2500.0}])
+        from pypdf import PdfReader
+        import io
+        text = " ".join(pg.extract_text() for pg in PdfReader(io.BytesIO(ci.render_pdf(inv.snapshot | {
+            "number": inv.number, "currency": inv.currency, "amount": inv.amount}))).pages)
+        self.assertIn("Go-live weekend", text)
 
     def test_card_payloads_carry_contractor_and_invoice(self):
         self._as(CON)
@@ -223,6 +294,24 @@ class ContractorInvoices(unittest.TestCase):
         r = self.client.get("/contractor-invoices", params={"status": "sent", "company": CO})
         self.assertEqual(r.json()["invoices"][0]["sentTo"], ["ap@ggcon.in"])
         self.assertEqual(r.json()["invoices"][0]["employeeName"], "Dev One")
+
+    def test_the_email_reads_like_a_filing_name(self):
+        # Pranshu, Oct 23: subject "<invoice date> - <contractor> (<total>)"; the
+        # body names the month for a monthly fee, the dates for a bi-weekly one,
+        # and the approver by name with their email.
+        inv = models.ContractorInvoice(number=7, invoice_date="2026-10-19", currency="INR", amount=42500.0,
+                                       period_start="2026-10-04", period_end="2026-10-17")
+        subject, html = ci.invoice_email(inv, "Arjun Mehta", "Hana Test", "hana.hr@greensglobal.com")
+        self.assertEqual(subject, "10/19/2026 - Arjun Mehta (INR 42,500.00)")
+        self.assertEqual(html, "<p>Please find attached invoice 7 from Arjun Mehta from 10/04/2026 to 10/17/2026: "
+                               "INR 42,500.00.</p><p>Approved in Nexus by Hana Test (hana.hr@greensglobal.com).</p>")
+        inv.period_start, inv.period_end = "2026-09-01", "2026-09-30"
+        _s, html = ci.invoice_email(inv, "Arjun Mehta", "Hana Test", "hana.hr@greensglobal.com")
+        self.assertIn("invoice 7 from Arjun Mehta for September 2026: INR 42,500.00.", html)
+        inv.period_start, inv.period_end = "2024-02-01", "2024-02-29"      # a leap February is a whole month
+        self.assertIn("for February 2024", ci.invoice_email(inv, "A", "", "x@y.com")[1])
+        self.assertIn("Approved in Nexus by x@y.com.", ci.invoice_email(inv, "A", "", "x@y.com")[1])
+        self.assertIn("&lt;b&gt;", ci.invoice_email(inv, "<b>", "", "x@y.com")[1])   # names are escaped
 
     def test_pdf_has_the_rupee_sign_font(self):
         self.assertEqual(ci._fonts(), ("DejaVu", "DejaVu-Bold"))

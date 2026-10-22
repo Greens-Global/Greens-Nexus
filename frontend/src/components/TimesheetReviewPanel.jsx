@@ -36,6 +36,9 @@ const ACTION_LABEL = {
   break_not_collected: 'signed on paper without the meal and rest break statement',
   // Oct 20: signed, but a pay setting moved the totals - not finalized.
   totals_changed: 'Totals changed after approval - sent back to the manager',
+  // HR's correction of a finalized period (Neil, Oct 22).
+  correction_sent: 'sent the corrected time sheet to sign (HR)', relocked: 'locked it again unchanged (HR)',
+  auto_accepted: 'Not signed in time - the corrected time sheet was accepted as sent',
 };
 // Oct 16 (Neil): only the employee signs. The lead approver - the manager, or
 // the company's HR contact / a Global Admin when nobody is set - approves by
@@ -47,7 +50,7 @@ const STEPS = [
 const hm = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 
 function stepIndex(r) {
-  if (!r || ['not_submitted', 'with_manager', 'with_employee'].includes(r.status)) return 0;
+  if (!r || ['not_submitted', 'with_manager', 'with_employee', 'correcting'].includes(r.status)) return 0;
   if (r.status === 'completed') return STEPS.length;
   return 1;
 }
@@ -198,6 +201,8 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   );
 
   let body = null;
+  const corr = r.correction || {};
+  const emp = name(r.employeeEmail) || 'the employee';
   if (r.status === 'not_submitted') {
     if (self) {
       body = (
@@ -251,6 +256,35 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Send size={13} /> Resubmit</button>
       </>
     ) : <p style={{ fontSize: 13, margin: 0 }}><Lock size={12} style={{ verticalAlign: '-1px' }} /> Back with {name(r.employeeEmail) || 'the employee'} for changes.</p>;
+  } else if (r.status === 'correcting') {
+    // HR unlocked a finalized period to correct it (Neil, Oct 22): HR changes
+    // it, then the employee signs it again - or it is locked again unchanged.
+    const why = corr.reason ? `: "${corr.reason}"` : '';
+    body = r.isHr && !self ? (
+      <>
+        <p style={{ fontSize: 13, margin: '0 0 8px' }}>
+          Unlocked by {name(corr.by) || 'HR'}{corr.at ? ` on ${formatDate(corr.at)}` : ''}{why}. Only HR can change these hours now. When they are right, send the time sheet to {emp} to sign. If nothing needed changing, lock it again - no new signature is needed.
+        </p>
+        {r.correctionBlocker && <p role="note" style={{ fontSize: 12.5, margin: '0 0 8px', color: '#b45309' }}>{r.correctionBlocker}</p>}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {r.canRelock && (
+            <button className="secondary-btn" disabled={busy} onClick={() => run(() => api.timesheetReviewRelock(r.id), 'Locked again - the signed copy stands.')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Lock size={13} /> Re-lock (No Changes)</button>
+          )}
+          {r.canSendCorrection && (
+            <button className="primary-btn" disabled={busy || !!r.correctionBlocker} title={r.correctionBlocker || undefined}
+              onClick={() => run(() => api.timesheetReviewSendCorrection(r.id), `Sent to ${emp} to sign.`)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><FileSignature size={13} /> Send to {emp} to Sign</button>
+          )}
+        </div>
+      </>
+    ) : (
+      <p style={{ fontSize: 13, margin: 0 }}>
+        {self
+          ? `HR (${name(corr.by) || 'HR'}) unlocked your time sheet to correct it${why}. You will be asked to review and sign it again when they are done.`
+          : `${name(corr.by) || 'HR'} unlocked this time sheet${corr.at ? ` on ${formatDate(corr.at)}` : ''} to correct it${why}. Only HR can change it; ${emp} signs it again.`}
+      </p>
+    );
   } else if (r.status === 'approved') {
     body = r.canEmployeeApprove ? (
       <>
@@ -268,7 +302,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
       </>
     ) : (
       <p style={{ fontSize: 13, margin: 0 }}>
-        Approved by {name(r.agreedBy) || mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. HR changed the hours since, so it is waiting for {name(r.employeeEmail) || 'the employee'} to sign the updated time sheet.
+        Approved by {name(r.agreedBy) || mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. HR changed the time sheet since, so it is waiting for {name(r.employeeEmail) || 'the employee'} to sign the updated time sheet.
       </p>
     );
   }
@@ -288,7 +322,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   // Oct 17: an employee who never signs (left, unreachable) must not hold the
   // period open. HR finalizes it with a reason - at once for someone who left,
   // after the wait for anyone else (the server's finalizeUnsignedBlocker).
-  const showUnsigned = r.isHr && r.status !== 'completed'
+  const showUnsigned = r.isHr && r.status !== 'completed' && (!r.inCorrection || r.employeeLeft)
     && (r.canFinalizeUnsigned || ['approved', 'signing'].includes(r.status) || r.employeeLeft);
   const unsignedBox = showUnsigned && (
     <div data-finalize-unsigned style={{ marginTop: 12, padding: '10px 12px', border: '1px dashed var(--line)', borderRadius: 10 }}>
@@ -338,7 +372,9 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
                 <span><CheckCircle size={13} style={{ verticalAlign: '-2px' }} /> Approved and signed - finalized for payroll. The sealed copy is filed to the employee's HR folder.</span>
                 {r.signRequestId && <button type="button" className="secondary-btn" onClick={openSigned} style={{ fontSize: 12.5 }}>Open Signed Copy</button>}
               </p>
-            : <p style={{ fontSize: 13, margin: '0 0 10px' }}>Agreed by {name(r.agreedBy)} on {formatDate(r.agreedAt)}. To change the hours, ask for a punch fix or decline in Nexus Sign with a reason - either way it goes back to the manager.</p>}
+            : r.inCorrection
+            ? <p style={{ fontSize: 13, margin: '0 0 10px' }}>HR corrected this time sheet after it was signed. {self ? 'Sign it, or decline it with what is wrong' : `${emp} signs it, or declines it with what is wrong`} - a decline goes back to HR.{corr.acceptBy ? ` If it is not signed or declined by ${formatDate(corr.acceptBy)}, it is accepted as sent.` : ''}</p>
+            : <p style={{ fontSize: 13, margin: '0 0 10px' }}>{r.agreedBy ? `Agreed by ${name(r.agreedBy)}${r.agreedAt ? ` on ${formatDate(r.agreedAt)}` : ''}. ` : ''}To change the hours, ask for a punch fix or decline in Nexus Sign with a reason - either way it goes back to the manager.</p>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>Approval</div>
