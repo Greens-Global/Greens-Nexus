@@ -523,6 +523,8 @@ export const api = {
   // One shared dashboard chart at a time: upsert / remove by id (Oct 2026).
   putTaskProjectChart: (id, chartId, chart) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "PUT", body: JSON.stringify(chart) }),
   deleteTaskProjectChart: (id, chartId) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "DELETE" }),
+  // Conditional row colors (Oct 22 2026): the whole ordered list + the rev it was read at (409 = changed since).
+  putTaskProjectColorRules: (id, rules, rev) => req(`/task-projects/${id}/color-rules`, { method: "PUT", body: JSON.stringify({ rules, rev }) }),
   deleteTaskProject: (id) => req(`/task-projects/${id}`, { method: "DELETE" }),
   // Department names only, readable by anyone in the task module (the People
   // module's own listing needs HR access) - see list_project_departments.

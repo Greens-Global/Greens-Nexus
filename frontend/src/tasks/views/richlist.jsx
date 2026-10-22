@@ -28,6 +28,7 @@ import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
 import { StatusLabel, PrioritySignal } from '../../components/StatusLabel';
+import { useRowColor, rowColorAttrs, boldTitleStyle, srOnly } from '../rowColorState';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -332,6 +333,10 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
   // something to ride from the title out to the last cell. Selection and hover
   // both win over it, so they restore to the row's own band, not to transparent.
   const rowBg = selected ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : 'transparent';
+  // Conditional row color (Oct 22 2026): an accent bar and a faint tint over
+  // the band; selection and hover still win (style.css .nx-rc).
+  const rc = useRowColor(t.id);
+  const rcAttrs = rowColorAttrs(rc);
       // Cells are keyed and rendered in the HEADER's order, not in source
       // order - once columns can be dragged, a row that renders them in a fixed
       // sequence puts every value under the wrong heading. `cols` is already
@@ -356,7 +361,8 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
             {isMissed(t) ? <XCircle size={15} /> : t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}
           </button>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
-          <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
+          <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none', ...boldTitleStyle(rc, t.completed) }}>{t.title}</span>
+          {rc && <span style={srOnly}>, colored {rc.name}</span>}
           {t.checklistTotal > 0 && (
             <span title={`Checklist ${t.checklistDone || 0} of ${t.checklistTotal} done`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600, flexShrink: 0, color: t.checklistDone === t.checklistTotal ? NX.green : NX.faint }}>
               <ListChecks size={12} />{t.checklistDone || 0}/{t.checklistTotal}
@@ -549,12 +555,12 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         e.preventDefault();
         onPick(t.id, e);
       }}
-      data-task-row data-row-id={t.id} data-flip={t.id} draggable className="nx-row-hover" data-selected={selected ? 'true' : undefined}
+      data-task-row data-row-id={t.id} data-flip={t.id} draggable className={`nx-row-hover${rcAttrs.className ? ` ${rcAttrs.className}` : ''}`} data-selected={selected ? 'true' : undefined} data-row-color={rc?.id}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
       onDragEnd={() => onDragEndRow?.()}
       onDragOver={onRowDragOver} onDrop={onRowDrop} onDragLeave={onRowDragLeave}
       style={{
-        position: 'relative', borderBottom: `1px solid ${NX.border2}`, background: rowBg, cursor: 'pointer',
+        position: 'relative', borderBottom: `1px solid ${NX.border2}`, background: rowBg, cursor: 'pointer', ...rcAttrs.style,
         // Manual-reorder drop indicator: a colored line on whichever edge the
         // cursor is over, so dropping "reads" as inserting there rather than
         // replacing the row.

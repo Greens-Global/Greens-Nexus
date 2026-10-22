@@ -673,6 +673,21 @@ export function TasksProvider({ children }) {
     // toBody: a chart is data, its keys stay as the Dashboard wrote them.
     shareProjectChart: async (id, chart) => { const r = await api.putTaskProjectChart(id, chart.id, chart); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
     unshareProjectChart: async (id, chartId) => { const r = await api.deleteTaskProjectChart(id, chartId); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
+    // Conditional row colors (Oct 22 2026): the whole ordered list, with the
+    // rev it was read at. A 409 means someone else saved first - the reply
+    // carries the project as it is now, which replaces ours before the error
+    // goes back to the editor. Not through toBody: rules are data.
+    saveColorRules: async (id, rules, rev) => {
+      try {
+        const r = await api.putTaskProjectColorRules(id, rules, rev);
+        setProjects((p) => p.map((x) => (x.id === id ? r : x)));
+        return r;
+      } catch (e) {
+        const latest = e?.status === 409 ? e?.detail?.project : null;
+        if (latest?.id === id) setProjects((p) => p.map((x) => (x.id === id ? latest : x)));
+        throw e;
+      }
+    },
     // Not mkDel: a project delete bins its tasks server-side too, so the
     // whole core has to be refetched rather than just dropping the project
     // from its own list.

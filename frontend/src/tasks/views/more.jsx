@@ -11,6 +11,7 @@ import { fmtDate, taskAssignees, localISO } from '../lib';
 import { toDownloadUrl } from '../../lib/storageView';
 import { useTasks } from '../TasksContext';
 import { daysFromPixels, dragModeAt, dragDates, describeMove, HANDLE_W } from '../timelineDrag';
+import { useRowColorMap, rowColorAttrs } from '../rowColorState';
 
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -40,6 +41,10 @@ const PRESS_SLOP = 8;   // px a finger may wander before the press is a scroll
 const MAX_TIMELINE_ROWS = 300;
 export function TimelineView({ tasks, onOpen, nameOf }) {
   const { applyServerTask } = useTasks();
+  // Conditional row colors (Oct 22 2026): the title column gets the accent
+  // and tint like a list row; the bar itself keeps its status color and gains
+  // a thin outline in the rule's color.
+  const rowColors = useRowColorMap();
   // Drag (Oct 2026): a bar moves, or its start / end edge stretches. The bar
   // follows the pointer by whole days; on release the server moves the task
   // AND pushes whatever waits on it (POST /tasks/{id}/reschedule), and the
@@ -199,11 +204,16 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
         </div>
         <div style={{ display: 'flex' }}>
           <div data-testid="timeline-titles" style={{ width: labelW, flexShrink: 0, borderRight: `1px solid ${NX.border}`, ...(isMobile ? { position: 'sticky', left: 0, zIndex: 4, background: NX.surface } : null) }}>
-            {rows.map((t) => (
-              <button key={t.id} onClick={() => onOpen(t.id)} title={isMobile ? t.title : undefined} style={{ display: 'flex', alignItems: 'center', gap: 8, height: ROW_H, width: '100%', border: 'none', borderBottom: `1px solid ${NX.border2}`, padding: isMobile ? '0 8px' : '0 12px', textAlign: 'left', background: 'transparent', cursor: 'pointer', fontSize: 12, fontFamily: FONT }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.ink }}>{t.title}</span>
-              </button>
-            ))}
+            {rows.map((t) => {
+              const rc = rowColors?.get(t.id) || null;
+              const rcAttrs = rowColorAttrs(rc);
+              return (
+                <button key={t.id} onClick={() => onOpen(t.id)} title={isMobile ? t.title : undefined} className={rcAttrs.className || undefined} data-row-color={rc?.id}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, height: ROW_H, width: '100%', border: 'none', borderBottom: `1px solid ${NX.border2}`, padding: isMobile ? '0 8px' : '0 12px', textAlign: 'left', background: 'transparent', cursor: 'pointer', fontSize: 12, fontFamily: FONT, ...rcAttrs.style }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.ink, ...(rc?.bold ? { fontWeight: 700, color: 'var(--rc-ink)' } : null) }}>{t.title}</span>
+                </button>
+              );
+            })}
           </div>
           <div style={{ position: 'relative', width: gridW, height: gridH }}>
             {rows.map((_, i) => <div key={i} style={{ position: 'absolute', left: 0, right: 0, borderBottom: `1px solid ${NX.border2}`, top: (i + 1) * ROW_H - 1 }} />)}
@@ -243,9 +253,10 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
               const [primary = ''] = taskAssignees(t);
               const ini = primary ? initialsOf(nameOf ? nameOf(primary) : primary) : '';
               const edge = { position: 'absolute', top: 0, bottom: 0, width: HANDLE_W, cursor: 'ew-resize' };
+              const rc = rowColors?.get(t.id);
               return (
                 <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={`${t.title} (${meta.label})`} aria-label={t.title} data-bar={t.id}
-                  style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: cursorFor(t), background: meta.color, overflow: 'hidden', touchAction: 'pan-x pan-y', WebkitTouchCallout: 'none', userSelect: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1, boxShadow: dragging ? '0 6px 18px rgba(0,0,0,0.25)' : 'none', transition: dragging ? 'none' : 'left 0.12s, width 0.12s' }}>
+                  style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: cursorFor(t), background: meta.color, overflow: 'hidden', touchAction: 'pan-x pan-y', WebkitTouchCallout: 'none', userSelect: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1, boxShadow: dragging ? '0 6px 18px rgba(0,0,0,0.25)' : 'none', transition: dragging ? 'none' : 'left 0.12s, width 0.12s', ...(rc ? { outline: `2px solid ${rc.hex}`, outlineOffset: 1 } : null) }} data-row-color={rc?.id}>
                   <span style={{ ...edge, left: 0 }} />
                   {ini && <span style={{ flexShrink: 0, fontWeight: 700, opacity: 0.9 }}>{ini}</span>}
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.95 }}>{t.title}</span>

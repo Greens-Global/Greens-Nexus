@@ -3085,6 +3085,13 @@ class TaskProject(Base):
     # this): the company is then derived from the owner / creator
     # (routers/task_util.row_company), like an unstamped Task.
     company_id    = Column(String, default="")
+    # Conditional row colors (Neil, Oct 22 2026): an ordered list of rules
+    # [{id, name, color, bold, enabled, match, conditions: [{field, op, value}]}]
+    # that color this project's task rows for everyone who views it. First
+    # enabled match wins; evaluated in the browser (tasks/colorRules.js),
+    # validated by task_color_rules.clean_rules, written only through
+    # PUT /task-projects/{id}/color-rules under the row lock.
+    color_rules   = Column(JSON, default=list)
 
 
 class TaskPortfolio(Base):

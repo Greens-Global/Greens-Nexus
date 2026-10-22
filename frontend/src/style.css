@@ -6625,3 +6625,26 @@ tr.nx-needs-you > td:first-child::before, tr.nx-needs-you--row > td:first-child:
 .pt-time-key span { display: inline-flex; align-items: center; gap: 6px; }
 .pt-time-key b { font-weight: 800; }
 .pt-time-key-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; }
+
+/* Conditional row colors (Neil, Oct 22 2026) - tasks/colorRules.js. A rule's
+   color is a 3px accent on the row's left edge plus a faint tint across it,
+   never a solid fill (no solid cell fills in any list). --rc is the rule's
+   palette hex. The tint is a background-IMAGE layered over the row's own
+   band; !important because every row sets its band with an inline
+   `background` shorthand, which would otherwise reset the image to none. A
+   selected row drops the tint (it reads as selected and keeps only the
+   accent), and so does a hovered one - the hover color shows as it does on
+   every other row. Body text stays AA on the tint in both themes (ink >= 12:1,
+   dim >= 5:1); --rc-ink is the deep shade a "Bold Title" rule uses, the same
+   mix the soft labels use for their words (>= 5:1 on the tint). */
+.nx-rc { position: relative; --rc-ink: color-mix(in srgb, var(--rc) 72%, #000); }
+[data-theme="dark"] .nx-rc { --rc-ink: color-mix(in srgb, var(--rc) 50%, #fff); }
+.nx-rc::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--rc); pointer-events: none; z-index: 1; }
+.nx-rc-tint:not([data-selected="true"]) { background-image: linear-gradient(color-mix(in srgb, var(--rc) 8%, transparent), color-mix(in srgb, var(--rc) 8%, transparent)) !important; }
+[data-theme="dark"] .nx-rc-tint:not([data-selected="true"]) { background-image: linear-gradient(color-mix(in srgb, var(--rc) 12%, transparent), color-mix(in srgb, var(--rc) 12%, transparent)) !important; }
+@media (hover: hover) {
+  .nx-row-hover.nx-rc-tint:hover { background-image: none !important; }
+}
+/* Cards (board, phone): an inset accent that clears the rounded corners. */
+.nx-rc-card::before { top: 10px; bottom: 10px; left: -1px; border-radius: 0 3px 3px 0; }
+.nx-rc-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--rc); flex-shrink: 0; }

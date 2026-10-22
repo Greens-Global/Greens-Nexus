@@ -7,6 +7,7 @@ import { NX, FONT, btn, STATUS_META, STATUS_ORDER } from '../theme';
 import { taskStats } from '../lib';
 import { Card, LightBar, Donut, TrendArea, CustomChartsPanel } from './charts';
 import AnchoredMenu from '../../components/AnchoredMenu';
+import { useRowColorMap } from '../rowColorState';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -48,6 +49,9 @@ function holidaysForYear(y, region) {
 }
 
 export function CalendarView({ tasks, onOpen, onCreate }) {
+  // Conditional row colors (Oct 22 2026): a task chip carries its rule's
+  // color as a thin bar on its left edge.
+  const rowColors = useRowColorMap();
   const [hoverDay, setHoverDay] = useState(null);
   const [cursor, setCursor] = useState(() => new Date());
   const [weekly, setWeekly] = useState(false);
@@ -166,8 +170,8 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
                 )}
               </div>
               <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {events.slice(0, cap).map((ev, i) => ev.taskId ? (
-                  <button key={i} onClick={() => onOpen(ev.taskId)} title={`${KIND_META[ev.kind].label}: ${ev.label}`} style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '2px 6px', textAlign: 'left', fontSize: 11, fontWeight: 500, border: 'none', cursor: 'pointer', background: ev.tint, color: ev.color, overflow: 'hidden' }}>
+                {events.slice(0, cap).map((ev, i) => { const rc = ev.taskId ? rowColors?.get(ev.taskId) : null; return ev.taskId ? (
+                  <button key={i} onClick={() => onOpen(ev.taskId)} data-row-color={rc?.id} title={`${KIND_META[ev.kind].label}: ${ev.label}${rc ? ` (${rc.name})` : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: rc ? '2px 6px 2px 8px' : '2px 6px', textAlign: 'left', fontSize: 11, fontWeight: 500, border: 'none', cursor: 'pointer', background: ev.tint, color: ev.color, overflow: 'hidden', boxShadow: rc ? `inset 3px 0 0 ${rc.hex}` : undefined }}>
                     {ev.isMilestone && <Diamond size={9} style={{ flexShrink: 0 }} />}
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: ev.completed ? 'line-through' : 'none' }}>{ev.label}</span>
                   </button>
@@ -175,7 +179,7 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
                   <span key={i} title={`Holiday: ${ev.label}`} style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '2px 6px', fontSize: 11, fontWeight: 500, background: ev.tint, color: ev.color, overflow: 'hidden' }}>
                     <PartyPopper size={9} style={{ flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.label}</span>
                   </span>
-                ))}
+                ); })}
                 {events.length > cap && <span style={{ padding: '0 4px', fontSize: 10, color: NX.faint }}>+{events.length - cap} more</span>}
               </div>
             </div>

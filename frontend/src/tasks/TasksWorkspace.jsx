@@ -2,10 +2,10 @@
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { useMemo, useState } from 'react';
-import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin } from 'lucide-react';
+import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin, Palette } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, roleAtLeast, todayISO } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, roleAtLeast, todayISO, topLevel, taskInProject } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, UnassignedAvatar, ExportMenu } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -30,6 +30,12 @@ import BulkActionBar from './BulkActionBar';
 import { useCustomSections } from './customSections';
 import { formatDate } from '../lib/datetime';
 import ProjectIcon from './ProjectIcon';
+import { RowColorsProvider, useRowColorScope, useRuleContext } from './rowColorState';
+import { RowColorLegend } from './RowColors';
+import ColorRulesEditor from './ColorRulesEditor';
+
+// Stable identity for a project with no color rules (see useRowColorScope).
+const NO_RULES = [];
 
 const VIEW_KINDS = [
   { key: 'list', label: 'List', icon: List },
@@ -174,6 +180,19 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   // time tracking setting, or any task on screen being time tracked.
   const tracksTime = lockedProject ? projectTracksTime(lockedProject, store.tasks)
     : visible.some((t) => taskTracksTime(t, store.projects, store.tasks));
+  // Conditional row colors (Neil, Oct 22 2026): the project's rules, shared
+  // with everyone who opens it; editors change them (Row Colors). Only a
+  // project has them here - the person's own rules live on My Tasks.
+  const colorRules = lockedProject?.colorRules || NO_RULES;
+  const ruleCtx = useRuleContext({ projectId: lockedProjectId || '', sections: lockedProjectId ? sec.sections : null, sectionOf: sec.sectionOf });
+  const rowScope = useRowColorScope({ rules: colorRules, tasks: visible, ruleCtx });
+  const editorCtx = useMemo(() => ({ ...ruleCtx, people }), [ruleCtx, people]);
+  const canEditColors = !!lockedProject && roleAtLeast(projectRoleOf(lockedProject, myEmail, canManage), 'editor');
+  const [colorsOpen, setColorsOpen] = useState(false);
+  // What the editor's live count runs over: the project's rows as its list
+  // shows them, before any filter.
+  const projectTasks = useMemo(() => (lockedProjectId ? topLevel(tasks).filter((t) => taskInProject(t, lockedProjectId)) : NO_RULES),
+    [tasks, lockedProjectId]);
   const isBookmarked = !!lockedProject && bookmarks?.has(lockedProject.id);
   const toggleStar = () => {
     const id = lockedProject.id;
@@ -242,6 +261,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               <button onClick={openProjectEdit} title="Edit Project"
                 style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: NX.dim }}>
                 <Pencil size={14} />{!isMobile && 'Edit'}
+              </button>
+            )}
+            {canEditColors && (
+              <button onClick={() => setColorsOpen(true)} title="Color rows by their data"
+                style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}>
+                <Palette size={14} />Row Colors
               </button>
             )}
             {/* No "New Task" here (Neil, Sept 7). A project screen carried a
@@ -324,7 +349,13 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       </div>
       )}
 
+      {/* The color key - only where a rule can color something here. */}
+      {view !== 'dashboard' && view !== 'files' && view !== 'workload' && (
+        <RowColorLegend scope={rowScope} canEdit={canEditColors} onEdit={() => setColorsOpen(true)} compact={isMobile} />
+      )}
+
       {/* Body */}
+      <RowColorsProvider map={rowScope.map}>
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'list' ? (
           <RichListView visible={visible} group={group} sort={sort} setSort={setSort} ctx={ctx} store={store} people={people} selected={selected} setSelected={setSelected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} onFullCreate={openCreate} customSections={sec} />
@@ -344,6 +375,21 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           <DashboardView tasks={visible} stats={stats} store={store} scopeKey={lockedProjectId || 'workspace'} onFilter={goFiltered} />
         )}
       </div>
+      </RowColorsProvider>
+
+      {colorsOpen && lockedProject && canEditColors && (
+        <ColorRulesEditor
+          title={`Row Colors - ${lockedProject.name}`}
+          rules={colorRules}
+          onSave={(next) => store.saveColorRules(lockedProject.id, next, lockedProject.colorRulesRev ?? null)}
+          onClose={() => setColorsOpen(false)}
+          ctx={editorCtx}
+          customFields={activeFields}
+          statusOrder={ruleCtx.statusOrder}
+          countTasks={projectTasks}
+          scopeNoun="in this project"
+        />
+      )}
 
       {/* Bulk bar */}
       <BulkActionBar selected={selected} clearSel={clearSel} store={store} people={people} lockedProjectId={lockedProjectId} isMobile={isMobile} sections={sec} />
@@ -385,6 +431,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               current={{ view, group }} onApplyView={applyView}
               search={search} setSearch={setSearch}
               lockedProjectId={lockedProjectId}
+              rowColors={canEditColors ? () => setColorsOpen(true) : null}
               columnControls={view === 'list' ? (
                 <ListColumnControls
                   hidden={hiddenCols} setHidden={setHiddenCols}

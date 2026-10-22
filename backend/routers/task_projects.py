@@ -29,6 +29,7 @@ from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible
                                teams_editable, tenant_company_for_new)
 from routers.hr import _ensure_departments
 from routers.task_config import coerce_custom_field_values
+from task_color_rules import clean_rules as clean_color_rules, rules_rev
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets")),
@@ -79,6 +80,7 @@ def clean_project_icon(v) -> str:
 
 
 def project_to_dict(p: models.TaskProject) -> dict:
+    color_rules = _color_rules_of(p)
     return {
         "id": p.id, "name": p.name, "description": p.description or "", "color": _nz(p.color),
         "icon": _nz(getattr(p, "icon", "")),
@@ -94,7 +96,17 @@ def project_to_dict(p: models.TaskProject) -> dict:
         # Oct 2026 - see models.TaskProject.
         "defaultView": p.default_view if isinstance(p.default_view, dict) else None,
         "sharedCharts": p.shared_charts if isinstance(p.shared_charts, list) else [],
+        # Conditional row colors (Oct 22 2026) - see task_color_rules.py. The
+        # rev is what the editor sends back so a save over someone else's
+        # newer list is refused instead of silently replacing it.
+        "colorRules": color_rules,
+        "colorRulesRev": rules_rev(color_rules),
     }
+
+
+def _color_rules_of(p: models.TaskProject) -> list:
+    rules = getattr(p, "color_rules", None)
+    return [r for r in rules if isinstance(r, dict)] if isinstance(rules, list) else []
 
 
 def portfolio_to_dict(p: models.TaskPortfolio, project_ids: Optional[list] = None) -> dict:
@@ -346,6 +358,42 @@ def delete_shared_chart(project_id: str, chart_id: str,
         raise HTTPException(404, "Project not found")
     require_project_access(db, user, p, "editor")
     p.shared_charts = [c for c in (p.shared_charts or []) if not (isinstance(c, dict) and c.get("id") == chart_id)]
+    p.modified_at = now_iso()
+    db.commit()
+    db.refresh(p)
+    return project_to_dict(p)
+
+
+class ColorRulesBody(BaseModel):
+    rules: list
+    # colorRulesRev from the project the editor read. Left out = no check (a
+    # script or test); the editor always sends it.
+    rev: Optional[str] = None
+
+
+@router.put("/task-projects/{project_id}/color-rules")
+def put_color_rules(project_id: str, body: ColorRulesBody,
+                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Replace a project's conditional row colors (Neil, Oct 22 2026).
+
+    The whole ordered list in one write - order is meaning here (the first
+    enabled match wins), so add / edit / reorder / delete all send the list.
+    Under the project row lock, and refused with 409 (carrying the current
+    project) when the list changed since the editor read it, so two editors
+    can never silently drop each other's rules. Editor work, like the shared
+    charts: the company wall first (require_project_access), then the role -
+    a viewer or commenter sees the colors but cannot change them."""
+    p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).with_for_update().first()
+    if not p:
+        raise HTTPException(404, "Project not found")
+    require_project_access(db, user, p, "editor")
+    current = _color_rules_of(p)
+    if body.rev is not None and body.rev != rules_rev(current):
+        latest = project_to_dict(p)
+        db.rollback()
+        raise HTTPException(409, {"message": "Someone else changed these color rules. The latest version is shown now.",
+                                  "project": latest})
+    p.color_rules = clean_color_rules(db, user, p, body.rules)   # reassigned - JSON column
     p.modified_at = now_iso()
     db.commit()
     db.refresh(p)

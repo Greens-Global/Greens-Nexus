@@ -5,7 +5,7 @@
 // TasksContext store. The export's store had applyTemplate/submitIntakeForm/
 // saveView helpers; here those are expressed directly via createTask/createSavedView.
 import { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, X, ListChecks, CalendarRange, LayoutGrid, ChevronRight, Search } from 'lucide-react';
+import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, X, ListChecks, CalendarRange, LayoutGrid, ChevronRight, Search, Palette } from 'lucide-react';
 import { BottomSheet } from './MobileTaskBar';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, useIsMobile, DateField } from './components';
@@ -391,7 +391,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
 // `columnControls` - the List view's Hide / + Column pair. On desktop they sit
 // in the toolbar; there is no toolbar on mobile, so they ride along at the
 // bottom of this sheet rather than being unreachable on a phone.
-export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, current, onApplyView, search, setSearch, lockedProjectId, hideAssignee, columnControls, customFields = [], sortFieldOptions = [], onClose }) {
+export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, current, onApplyView, search, setSearch, lockedProjectId, hideAssignee, columnControls, rowColors = null, customFields = [], sortFieldOptions = [], onClose }) {
   const store = useTasks();
   const { savedViews, createSavedView, deleteSavedView, projects, teams } = store;
   const people = usePeople();
@@ -429,6 +429,16 @@ export function MobileFilters({ filters, setFilters, sort, setSort, group, setGr
               <ChevronRight size={18} style={{ color: NX.faint }} />
             </button>
           ))}
+          {/* Row Colors (Oct 22 2026): the project's color rules editor, for
+              its editors - the desktop button lives in the project header,
+              which a phone does not show. */}
+          {rowColors && (
+            <button onClick={() => { onClose?.(); rowColors(); }} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '14px 6px', border: 'none', borderBottom: `1px solid ${NX.border2}`, background: 'transparent', cursor: 'pointer', fontSize: 15, fontWeight: 600, color: NX.ink, fontFamily: FONT, textAlign: 'left' }}>
+              <Palette size={18} style={{ color: NX.dim }} />
+              <span style={{ flex: 1 }}>Row Colors</span>
+              <ChevronRight size={18} style={{ color: NX.faint }} />
+            </button>
+          )}
           {columnControls && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 6px 2px' }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim, flex: 1 }}>Columns</span>

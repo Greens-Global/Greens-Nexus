@@ -18,6 +18,7 @@ import { Avatar, PriorityChip } from '../components';
 import { fmtDate, todayISO, wipStorageKey } from '../lib';
 import DueBadge from '../DueBadge';
 import AnchoredMenu from '../../components/AnchoredMenu';
+import { useRowColorMap, rowColorAttrs, boldTitleStyle } from '../rowColorState';
 import { projectLook } from '../projectLook';
 
 const SECTION_PALETTE = ['#4573fa', '#8b6bf0', '#14a76c', '#e8a33d', '#e0844e', '#e8384f', '#29a8ab', '#db2777'];
@@ -58,6 +59,9 @@ function MoreCards({ n }) {
 }
 
 export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId, defaultAssigneeId = '', onFullCreate }) {
+  // Conditional row colors (Oct 22 2026): a card wears its rule's color as an
+  // inset accent on its left edge - no tint on a card.
+  const rowColors = useRowColorMap();
   const [dragId, setDragId] = useState(null);
   // Which lane the card was picked up FROM. With a task able to sit in
   // several assignee lanes at once, the destination alone no longer says
@@ -241,6 +245,8 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
 
   const renderCard = (t, laneKey = null) => {
     const dc = dueColor(t.dueOn, t.completed);
+    const rc = rowColors?.get(t.id) || null;
+    const rcAttrs = rowColorAttrs(rc, { card: true });
     // Kit card signature: a colored project tag pill leads the card (hidden
     // when the whole board is already locked to one project).
     const proj = !lockedProjectId && t.projectId ? store.projects.find((p) => p.id === t.projectId) : null;
@@ -255,14 +261,14 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(t.id); }
     };
     return (
-      <div key={t.id} draggable data-task-row data-flip={t.id}
+      <div key={t.id} draggable data-task-row data-flip={t.id} className={rcAttrs.className || undefined} data-row-color={rc?.id}
         role="group" aria-roledescription="task card" tabIndex={0} aria-keyshortcuts="Enter"
-        aria-label={`${t.title} - ${statusMeta(t.status).label}`} onKeyDown={onCardKey}
+        aria-label={`${t.title} - ${statusMeta(t.status).label}${rc ? ` - ${rc.name}` : ''}`} onKeyDown={onCardKey}
         onDragStart={() => { setDragId(t.id); setDragFrom(laneKey); }}
         onDragEnd={() => { setDragId(null); setDragFrom(null); }} onClick={() => onOpen(t.id)}
         onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.09)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)'; }}
-        style={{ position: 'relative', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s' }}>
+        style={{ position: 'relative', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s', ...rcAttrs.style }}>
         <ChangeFlash value={`${t.status}:${!!t.completed}`} color={statusMeta(t.status)?.color} isFresh={() => changedRecently(t.id)} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {proj && (
@@ -277,7 +283,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
               aria-label={t.completed ? 'Mark Incomplete' : 'Mark Complete'} title={t.completed ? 'Mark Incomplete' : 'Mark Complete'} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}</button>
           </div>
         </div>
-        <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</div>
+        <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none', ...boldTitleStyle(rc, t.completed) }}>{t.title}</div>
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <PriorityChip priority={t.priority} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
