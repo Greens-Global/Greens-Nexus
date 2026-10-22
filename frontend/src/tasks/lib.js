@@ -1179,3 +1179,21 @@ export function groupTimeByDay(entries) {
   }
   return [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
 }
+
+/** The caller's role on a PROJECT, counting approved teams on it as the
+ * server's project_role_for does (team accessRole, default editor) - for
+ * screens that add work to a project (Import, Oct 22 2026). null = none. */
+export function projectRoleWithTeams(project, email, isManager = false, teams = []) {
+  if (!project) return null;
+  if (isManager) return 'owner';
+  const me = (email || '').toLowerCase();
+  let role = projectRoleOf(project, me, false);
+  for (const tm of teams || []) {
+    if ((tm.approvalStatus || 'approved') !== 'approved') continue;
+    if (!teamProjectIds(tm).includes(project.id)) continue;
+    if (!(tm.memberIds || []).some((e) => (e || '').toLowerCase() === me)) continue;
+    const r = tm.accessRole || 'editor';
+    if (!role || (ROLE_RANK[r] || 0) > (ROLE_RANK[role] || 0)) role = r;
+  }
+  return ROLE_RANK[role] ? role : null;
+}

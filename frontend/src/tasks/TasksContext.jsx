@@ -838,6 +838,16 @@ export function TasksProvider({ children }) {
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },
+    // Import from CSV / Excel (Oct 22 2026, ImportTasksModal). A dry run only
+    // reports. A real one can mint hundreds of tasks plus sections and select
+    // options, so the workspace is re-read rather than patched row by row.
+    importTasks: async (data) => {
+      const r = await api.importTasks(data);
+      if (!data?.dry_run) {
+        await Promise.all([loadCore(), loadSections()]).catch(() => {});
+      }
+      return r;
+    },
     // Timer (Oct 2026). Starting on a second task stops the first; the
     // stopped task comes back with its new total and lands in the store too.
     runningTimer,

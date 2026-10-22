@@ -337,10 +337,11 @@ def _apply_action(db: Session, t: models.Task, action: dict, res: Result, *, tod
         text = _fill(str(value or ""), db, t)
         body = "<p>" + html.escape(text).replace("\n", "<br>") + "</p>"
 
-        def _post(db2: Session, defer=None, _tid=t.id, _body=body):
+        def _post(db2: Session, defer=None, notify: bool = True, _tid=t.id, _body=body):
             task = db2.query(models.Task).filter(models.Task.id == _tid).first()
             if task is not None:
-                create_comment(db2, task, actor_email=AUTOMATION_ACTOR, body=_body, defer=defer)
+                create_comment(db2, task, actor_email=AUTOMATION_ACTOR, body=_body, defer=defer,
+                               notify=notify)
         res.after_commit.append(_post)
         return "added a comment"
     return ""
@@ -393,17 +394,21 @@ def _record(db: Session, rule: models.TaskAutomationRule, t: models.Task, *, eve
 
 def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
                    completed: Optional[bool] = None,
-                   gate: Optional[Callable] = None, today: Optional[date] = None) -> Result:
+                   gate: Optional[Callable] = None, today: Optional[date] = None,
+                   rules: Optional[list] = None) -> Result:
     """Evaluate every enabled rule against one task that `event` ("created" |
     "updated" | "bulk") just changed from `before` (see snapshot). Mutates `t`
     in place; the caller commits. `completed` is what the task's completed
     flag becomes once the caller lands it (routers.tasks applies it AFTER this
     pass, dragging status along - see _apply_completion). Never raises for a
     rule's own problems - a broken rule is logged on the run and skipped, the
-    person's edit still lands."""
+    person's edit still lands. `rules`: the enabled rules when the caller
+    already loaded them (_enabled_rules) - the task import runs this for up to
+    2,000 new tasks against one load."""
     res = Result()
     today = today or business_today()
-    rules = _enabled_rules(db)
+    if rules is None:
+        rules = _enabled_rules(db)
     if not rules:
         return res
     after = snapshot(t)
@@ -452,13 +457,15 @@ def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
     return res
 
 
-def run_after_commit(db: Session, res: Result, defer=None) -> None:
+def run_after_commit(db: Session, res: Result, defer=None, notify: bool = True) -> None:
     """Run the comment posts an engine pass handed back. `defer` is the
     request's BackgroundTasks.add_task when there is one (the emails are Graph
-    calls); a worker thread passes nothing and they run inline."""
+    calls); a worker thread passes nothing and they run inline. `notify=False`
+    posts them silently (the task import: the import is the one announcement,
+    not a comment bell per imported task)."""
     for fn in res.after_commit:
         try:
-            fn(db, defer)
+            fn(db, defer) if notify else fn(db, defer, notify=False)
         except Exception:
             db.rollback()
 

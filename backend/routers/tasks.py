@@ -2197,6 +2197,69 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
             "serverTime": server_time}
 
 
+def _new_task_row(db: Session, body: TaskCreate, *, tid: str, code: str, company_id: str,
+                  access_level: str, user: dict, now: str, field_defs: dict | None = None) -> models.Task:
+    """The new Task row create_task writes, from its body - shared with the
+    task import (task_import.py, Oct 22 2026) so an imported task is built
+    field for field like a typed one. Assignees are set by the caller
+    (set_task_assignees), as before. `field_defs` ({id: TaskCustomField}) is
+    the custom-field definitions when the caller already loaded them."""
+    return models.Task(
+        id=tid,
+        company_id=company_id,
+        code=code,
+        title=body.title,
+        description=body.description or "",
+        type=body.type or "task",
+        status=body.status or "not_started",
+        priority=body.priority or "medium",
+        # Defaults to "now" (epoch seconds) rather than 0 so a freshly created
+        # task lands at the END of manual order, after everything dragged
+        # before it - not shuffled to the front of every group.
+        position=body.position if body.position is not None else time.time(),
+        # Set below via set_task_assignees, which writes both columns.
+        assignee_email="",
+        owner_email=(body.owner_email or "").strip().lower(),
+        follower_emails=body.follower_emails or [],
+        liked_by_emails=body.liked_by_emails or [],
+        access_level=access_level,
+        project_id=body.project_id or "",
+        project_ids=_extra_project_ids(body.project_ids, body.project_id or ""),
+        section_id=body.section_id or "",
+        team_id=body.team_id or "",
+        parent_task_id=body.parent_task_id or "",
+        subtask_ids=body.subtask_ids or [],
+        blocked_by_ids=body.blocked_by_ids or [],
+        blocking_ids=body.blocking_ids or [],
+        dependency_types=body.dependency_types or {},
+        tags=body.tags or [],
+        custom_field_values=coerce_custom_field_values(db, body.custom_field_values, defs=field_defs),
+        # A task created straight INTO a started column began today, by
+        # definition - there is no move off Not Started for _autostamp_start to
+        # catch, so the created date IS the start date. Same reasoning as
+        # `completed` just below: the group a task is added to states its
+        # status, and the fields that follow from that status have to be set
+        # here or nothing ever sets them. An explicit start_on still wins.
+        start_on=body.start_on or ("" if (body.status or "not_started") == "not_started" else now[:10]),
+        due_on=body.due_on or "",
+        estimate_hours=body.estimate_hours,
+        actual_hours=body.actual_hours,
+        # A repeating task starts its own series - see _with_series_id.
+        recurrence=_with_series_id(body.recurrence, tid),
+        is_milestone=bool(body.is_milestone),
+        approval_status=body.approval_status or "none",
+        # Not hardcoded False any more: a task created straight INTO the
+        # Completed group (the "+ Add task…" row inherits its group's status)
+        # arrived with status "completed" and this flag off, so it showed no
+        # strikethrough and kept drawing overdue emails. TaskCreate has no
+        # `completed` field, so status is the only thing that can say so here.
+        completed=(body.status == "completed"),
+        completed_at=(now if body.status == "completed" else ""),
+        comment_ids=[], attachment_ids=[], activity_ids=[],
+        created_at=now, modified_at=now, created_by=user["email"],
+    )
+
+
 @router.post("", status_code=201)
 def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -2273,60 +2336,8 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
             where = f" in {project.name}" if project and project.name else " in this project"
             raise HTTPException(422, f"{names} {'is' if len(missing) == 1 else 'are'} required for tasks{where}.")
     access_level = body.access_level or (project.access_level if project else None) or "org"
-    t = models.Task(
-        id=tid,
-        company_id=company_id,
-        code=_next_code(db),
-        title=body.title,
-        description=body.description or "",
-        type=body.type or "task",
-        status=body.status or "not_started",
-        priority=body.priority or "medium",
-        # Defaults to "now" (epoch seconds) rather than 0 so a freshly created
-        # task lands at the END of manual order, after everything dragged
-        # before it - not shuffled to the front of every group.
-        position=body.position if body.position is not None else time.time(),
-        # Set below via set_task_assignees, which writes both columns.
-        assignee_email="",
-        owner_email=(body.owner_email or "").strip().lower(),
-        follower_emails=body.follower_emails or [],
-        liked_by_emails=body.liked_by_emails or [],
-        access_level=access_level,
-        project_id=body.project_id or "",
-        project_ids=_extra_project_ids(body.project_ids, body.project_id or ""),
-        section_id=body.section_id or "",
-        team_id=body.team_id or "",
-        parent_task_id=body.parent_task_id or "",
-        subtask_ids=body.subtask_ids or [],
-        blocked_by_ids=body.blocked_by_ids or [],
-        blocking_ids=body.blocking_ids or [],
-        dependency_types=body.dependency_types or {},
-        tags=body.tags or [],
-        custom_field_values=coerce_custom_field_values(db, body.custom_field_values),
-        # A task created straight INTO a started column began today, by
-        # definition - there is no move off Not Started for _autostamp_start to
-        # catch, so the created date IS the start date. Same reasoning as
-        # `completed` just below: the group a task is added to states its
-        # status, and the fields that follow from that status have to be set
-        # here or nothing ever sets them. An explicit start_on still wins.
-        start_on=body.start_on or ("" if (body.status or "not_started") == "not_started" else now[:10]),
-        due_on=body.due_on or "",
-        estimate_hours=body.estimate_hours,
-        actual_hours=body.actual_hours,
-        # A repeating task starts its own series - see _with_series_id.
-        recurrence=_with_series_id(body.recurrence, tid),
-        is_milestone=bool(body.is_milestone),
-        approval_status=body.approval_status or "none",
-        # Not hardcoded False any more: a task created straight INTO the
-        # Completed group (the "+ Add task…" row inherits its group's status)
-        # arrived with status "completed" and this flag off, so it showed no
-        # strikethrough and kept drawing overdue emails. TaskCreate has no
-        # `completed` field, so status is the only thing that can say so here.
-        completed=(body.status == "completed"),
-        completed_at=(now if body.status == "completed" else ""),
-        comment_ids=[], attachment_ids=[], activity_ids=[],
-        created_at=now, modified_at=now, created_by=user["email"],
-    )
+    t = _new_task_row(db, body, tid=tid, code=_next_code(db), company_id=company_id,
+                      access_level=access_level, user=user, now=now)
     set_task_assignees(t, _assignees_from(body.__dict__, []) or [])
     dropped_people: list = []
     if check_people:
@@ -5028,3 +5039,28 @@ def drain_task_inbox(user: dict = Depends(require_manager), db: Session = Depend
         # Surfaced, not swallowed: the first thing this hits on a new mailbox is
         # a missing Mail.ReadWrite grant, and "500" would not say so.
         raise HTTPException(502, f"Could not read the task mailbox: {e}")
+
+
+# ── Import from CSV / Excel (Neil, Oct 22 2026) ──────────────────────────────
+class TaskImportBody(BaseModel):
+    """The rows of one file, already mapped to fields by the import wizard -
+    raw cell values, re-checked from scratch here (task_import.py)."""
+    project_id: str
+    section_id: Optional[str] = ""          # default section for rows that name none
+    file_name: Optional[str] = ""           # for the project's "imported N tasks from ..." entry
+    dry_run: bool = True                    # report only; nothing is written
+    notify_assignees: bool = False          # one bell + one batched email per person, or nothing
+    create_sections: bool = False           # make the Section values the project lacks
+    add_missing_options: bool = False       # managers: add select options the file uses
+    # [{row, title, description, assignees, due, start, priority, status,
+    #   tags, section, parent, custom: {fieldId: value}}]
+    rows: list = []
+
+
+@router.post("/import")
+def import_tasks(body: TaskImportBody, background_tasks: BackgroundTasks,
+                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Dry run -> the per-row report the wizard previews; otherwise create
+    every row without an error in one transaction. See task_import.py."""
+    import task_import   # lazy: task_import imports this module
+    return task_import.run_import(db, user, body, background_tasks.add_task)

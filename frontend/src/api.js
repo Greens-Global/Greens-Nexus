@@ -430,6 +430,9 @@ export const api = {
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
   bulkUpdateTasks: (ids, patch) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }),
+  // Import from CSV / Excel (Oct 22 2026): dry_run returns the per-row report
+  // the wizard previews; otherwise it creates. Up to 2,000 rows in one call.
+  importTasks: (data) => req("/tasks/import", { method: "POST", body: JSON.stringify(data), timeoutMs: 120000 }),
   // Trash (Aug 27): deleteTask above now moves to Trash - it's restorable for
   // 90 days (see task_trash.py) via these three, Manage > Deleted Tasks only.
   // scope="mine" is the Recycle Bin OUTSIDE Manage - what you deleted plus what
