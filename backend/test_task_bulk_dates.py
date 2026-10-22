@@ -330,10 +330,17 @@ class UndoTests(Base):
         hist_before = len(t.due_history or [])
         t = self.move(t, start_on="2026-10-22", due_on="2026-10-26")
         self.assertEqual(self.bells(), 1)                      # the requester heard about the move
-        self.db.add(models.TaskEmailQueue(id=gen_id(), recipient=BOSS["email"], task_id=t.id,
-                                          event_type="modified", actor_email=SAGAR["email"],
-                                          status="pending", created_at=now_iso()))
+        at = t.due_history[-1]["at"]
+        # The move's own email, and one for a title change made meanwhile.
+        own = models.TaskEmailQueue(id=gen_id(), recipient=BOSS["email"], task_id=t.id, event_type="modified",
+                                    actor_email=SAGAR["email"], status="pending", created_at=now_iso(),
+                                    payload={"update_kind": "Due date changed", "due_entry_at": at})
+        title = models.TaskEmailQueue(id=gen_id(), recipient=BOSS["email"], task_id=t.id, event_type="modified",
+                                      actor_email=SAGAR["email"], status="pending", created_at=now_iso(),
+                                      payload={"update_kind": "Title changed"})
+        self.db.add_all([own, title])
         self.db.commit()
+        own_id, title_id = own.id, title.id
         out = self.undo(t)
         t = self.fresh(t)
         self.assertEqual((out["dueOn"], t.start_on, t.due_on), ("2026-10-30", "2026-10-26", "2026-10-30"))
@@ -341,8 +348,9 @@ class UndoTests(Base):
         self.assertEqual(len(t.due_history or []), hist_before)
         self.assertEqual(t.due_agreement, "accepted")
         self.assertEqual(self.bells(), 0)
-        q = self.db.query(models.TaskEmailQueue).one()
+        q = self.db.get(models.TaskEmailQueue, own_id)
         self.assertEqual((q.status, q.drop_reason), ("dropped", "undone"))
+        self.assertEqual(self.db.get(models.TaskEmailQueue, title_id).status, "pending")
 
     def test_undo_of_an_extension_takes_the_count_back(self):
         t = self.task(due_on="2026-10-30")
@@ -374,6 +382,29 @@ class UndoTests(Base):
         t.due_history = hist
         self.db.commit()
         self.assertEqual(self.code(lambda: self.undo(t)), 409)
+
+    def test_the_move_records_which_entry_its_email_reports(self):
+        t = self.task(due_on="2026-10-30", created_by=BOSS["email"])
+        bg = BackgroundTasks()
+        T.update_task(t.id, T.TaskUpdate(due_on="2026-10-28"), bg, user=SAGAR, db=self.db)
+        t = self.fresh(t)
+        kw = [x.kwargs for x in bg.tasks if x.args[1:2] == ("modified",)][0]
+        self.assertEqual(kw["due_entry_at"], t.due_history[-1]["at"])
+
+    def test_undo_reads_under_the_row_lock(self):
+        t = self.task(due_on="2026-10-30")
+        t = self.move(t, due_on="2026-10-28")
+        with mock.patch.object(T, "_lock_task_rows", wraps=T._lock_task_rows) as lock:
+            self.undo(t)
+        lock.assert_called_once_with(self.db, [t.id])
+
+    def test_a_timeline_move_is_not_undone_here(self):
+        t = self.task(due_on="2026-10-30")
+        T.reschedule_task(t.id, T.RescheduleBody(due_on="2026-10-28"), BackgroundTasks(), user=SAGAR, db=self.db)
+        t = self.fresh(t)
+        self.assertEqual(t.due_history[-1]["undo"]["via"], "reschedule")
+        self.assertEqual(self.code(lambda: self.undo(t)), 409)
+        self.assertEqual(self.fresh(t).due_on, "2026-10-28")
 
     def test_a_held_move_has_nothing_to_undo(self):
         t = self.task(due_on="2026-10-30", due_extension_count=2)
@@ -422,6 +453,84 @@ class SeriesOrderTests(Base):
         prev, cur = self.series()
         T.update_task(prev.id, T.TaskUpdate(due_on="2026-10-11"), BackgroundTasks(), user=SAGAR, db=self.db)
         self.assertEqual(self.dates([cur.id], op="shift", days=2)["changed"], 1)
+
+    def test_a_completed_occurrence_may_not_pass_the_live_one(self):
+        prev, cur = self.series()
+        for day in ("2026-10-19", "2026-10-25"):
+            with self.assertRaises(HTTPException) as e:
+                T.update_task(prev.id, T.TaskUpdate(due_on=day), BackgroundTasks(), user=SAGAR, db=self.db)
+            self.db.rollback()
+            self.assertEqual(e.exception.status_code, 422)
+            self.assertIn("(10/19/2026)", e.exception.detail)
+        out = self.dates([prev.id], op="shift", days=7)
+        self.assertEqual(out["blocked"], 1)
+        self.assertEqual(self.fresh(prev).due_on, "2026-10-12")
+
+    def test_a_reopened_missed_copy_may_move(self):
+        prev, cur = self.series()
+        prev.completed, prev.status = False, "not_started"
+        prev.recurrence = {**prev.recurrence, "closedAsMissed": "2026-10-19T00:00:00+00:00"}
+        late = self.task(due_on="2026-10-05", recurrence={"freq": "weekly", "daysOfWeek": [1], "seriesId": "s-9",
+                                                          "nextOccurrenceId": prev.id})
+        self.db.commit()
+        T.update_task(prev.id, T.TaskUpdate(due_on="2026-10-02"), BackgroundTasks(), user=SAGAR, db=self.db)
+        self.assertEqual(self.fresh(prev).due_on, "2026-10-02")
+        self.assertEqual(self.fresh(late).due_on, "2026-10-05")
+
+    def test_shifting_the_whole_series_together_is_judged_on_the_new_dates(self):
+        prev, cur = self.series()
+        out = self.dates([prev.id, cur.id], op="shift", days=-7)
+        self.assertEqual((out["changed"], out["blocked"]), (2, 0))
+        self.assertEqual((self.fresh(prev).due_on, self.fresh(cur).due_on), ("2026-10-05", "2026-10-12"))
+        out = self.dates([prev.id, cur.id], op="shift", days=10)
+        self.assertEqual((out["changed"], out["blocked"]), (2, 0))
+
+    def test_only_the_series_candidates_are_read(self):
+        prev, cur = self.series()
+        other = self.task(title="Something else", due_on="2026-10-20", recurrence={"freq": "daily"})
+        other_id, prev_id, cur_id = other.id, prev.id, cur.id
+        self.db.expunge_all()
+        cur = self.db.get(models.Task, cur_id)
+        members = T._series_members(self.db, cur)
+        self.assertEqual({m.id for m in members}, {prev_id, cur_id})
+        self.assertNotIn(other_id, {o.id for o in self.db.identity_map.values()})
+
+
+class ReviewRoundThreeTests(Base):
+    def test_bulk_held_due_with_a_reassignment_keeps_the_request(self):
+        t = self.task(due_on="2026-10-30", due_extension_count=2)
+        T.bulk_update(T.BulkUpdate(ids=[t.id], patch={"due_on": "2026-11-02",
+                                                      "assignee_emails": [SAGAR["email"], BOSS["email"]]}),
+                      user=SAGAR, db=self.db)
+        t = self.fresh(t)
+        self.assertEqual(t.due_agreement, "extension_requested")
+        self.assertEqual(t.due_proposal["dueOn"], "2026-11-02")
+        T.respond_due(T.DueAnswer(accept=True), t.id, user=MANAGER, db=self.db)
+        self.assertEqual(self.fresh(t).due_on, "2026-11-02")
+
+    def test_answered_dates_move_the_checklist_step(self):
+        held = self.task(due_on="2026-10-30", due_extension_count=2)
+        T.update_task(held.id, T.TaskUpdate(due_on="2026-11-02"), BackgroundTasks(), user=SAGAR, db=self.db)
+        proposed = self.task(due_on="2026-10-30", created_by=BOSS["email"], due_agreement="proposed",
+                             due_proposal={"dueOn": "2026-11-04", "by": SAGAR["email"]})
+        countered = self.task(due_on="2026-10-30", created_by=BOSS["email"], due_agreement="proposed",
+                              due_proposal={"dueOn": "2026-11-04", "by": SAGAR["email"]})
+        with mock.patch("hr_checklists.task_due_changed") as hook:
+            T.respond_due(T.DueAnswer(accept=True), held.id, user=MANAGER, db=self.db)      # approve
+            self.assertEqual(hook.call_args[0][1].id, held.id)
+            T.respond_due(T.DueAnswer(accept=True), proposed.id, user=BOSS, db=self.db)     # accept proposal
+            self.assertEqual(hook.call_args[0][1].id, proposed.id)
+            T.respond_due(T.DueAnswer(counter_on="2026-11-01"), countered.id, user=BOSS, db=self.db)   # counter
+            self.assertEqual(hook.call_args[0][1].id, countered.id)
+            self.assertEqual(hook.call_count, 3)
+            T.respond_due(T.DueAnswer(accept=False), self._held_again(), user=MANAGER, db=self.db)   # decline
+            self.assertEqual(hook.call_count, 3)
+        self.assertEqual(self.fresh(countered).due_on, "2026-11-01")
+
+    def _held_again(self):
+        t = self.task(due_on="2026-10-30", due_extension_count=2)
+        T.update_task(t.id, T.TaskUpdate(due_on="2026-11-02"), BackgroundTasks(), user=SAGAR, db=self.db)
+        return t.id
 
 
 class ReviewLowTests(Base):

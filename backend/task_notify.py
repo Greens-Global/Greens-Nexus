@@ -808,7 +808,9 @@ def _sends_now(t, event_type: str, cfg: dict) -> bool:
             or _is_time_critical(t))
 
 
-_PAYLOAD_KEYS = ("update_kind", "comment_body", "new_follower")
+# due_entry_at: the due_history entry a "modified" email reports, so an Undo
+# of that move (tasks.undo_due) drops exactly its email (Oct 22 2026).
+_PAYLOAD_KEYS = ("update_kind", "comment_body", "new_follower", "due_entry_at")
 
 
 def _enqueue(db: Session, *, recipient: str, role: str, task_id: str, event_type: str,

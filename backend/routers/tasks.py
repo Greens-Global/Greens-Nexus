@@ -18,7 +18,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import String, cast, func, or_
+from sqlalchemy import String, and_, cast, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -1571,41 +1571,72 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
     return spawned
 
 
-def _series_previous_due(db: Session, t: models.Task, cache: Optional[dict] = None) -> str:
-    """The latest due date among `t`'s EARLIER occurrences, grouped exactly as
-    the daily scan groups a series (spawn_scheduled_occurrences), or "".
-    `cache` lets a batch load the recurring rows once."""
+def _series_members(db: Session, t: models.Task, cache: Optional[dict] = None) -> list:
+    """`t`'s series (itself included), grouped exactly as the daily scan
+    groups one (spawn_scheduled_occurrences / _series_groups), or [] for a
+    task without a calendar schedule or a due date. Only the series'
+    candidates are read: the same series id, or the legacy fingerprint's
+    title, project and company. `cache` keeps them for a batch."""
     rec = t.recurrence if isinstance(t.recurrence, dict) else {}
-    mine = (t.due_on or "")[:10]
-    if rec.get("freq") not in _SCHEDULED_FREQS or not mine:
-        return ""
+    if rec.get("freq") not in _SCHEDULED_FREQS or not (t.due_on or "")[:10]:
+        return []
+    sid = str(rec.get("seriesId") or "")
+    company = getattr(t, "company_id", "") or ""
+    key = ("series", sid) if sid else ("print", t.title or "", t.project_id or "", company)
     cache = {} if cache is None else cache
-    if "member_of" not in cache:
+    if key not in cache:
+        same = [and_(models.Task.title == (t.title or ""),
+                     func.coalesce(models.Task.project_id, "") == (t.project_id or ""),
+                     func.coalesce(models.Task.company_id, "") == company)]
+        if sid:
+            same.append(models.Task.recurrence["seriesId"].as_string() == sid)
         rows = (db.query(models.Task)
                 .filter(models.Task.recurrence.isnot(None),
-                        (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None)))
+                        (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None)), or_(*same))
                 .all())
         by_id = {r.id: r for r in rows}
         scheduled = [r for r in rows
                      if isinstance(r.recurrence, dict) and r.recurrence.get("freq") in _SCHEDULED_FREQS and r.due_on]
-        cache["member_of"] = {m.id: g for g in _series_groups(scheduled, by_id) for m in g}
-    earlier = [(m.due_on or "")[:10] for m in cache["member_of"].get(t.id, [])
-               if m.id != t.id and (m.due_on or "")[:10] <= mine]
-    return max(earlier, default="")
+        cache[key] = {m.id: g for g in _series_groups(scheduled, by_id) for m in g}
+    return cache[key].get(t.id, [])
 
 
-def _series_order_problem(db: Session, t: models.Task, new_due: str, cache: Optional[dict] = None) -> str:
-    """Why an OPEN occurrence may not move to `new_due`, or "" (Oct 22 2026).
-    The daily scan carries a series forward from its LATEST-due occurrence:
-    moved on or before the one before it, the older one becomes the head -
-    which has already rolled forward - and this one is closed as Missed, so
-    the series silently stops. Refused here rather than changing the scan."""
+def _series_order_problem(db: Session, t: models.Task, new_due: str, cache: Optional[dict] = None,
+                          moving: Optional[dict] = None) -> str:
+    """Why an occurrence may not move to `new_due`, or "" (Oct 22 2026).
+    The daily scan carries a series forward from its LATEST-due occurrence,
+    so a move that changes which one that is stops the series silently:
+      - an OPEN occurrence moved on or before the one before it - the older
+        one (already rolled forward) becomes the head and this one is closed
+        as Missed. A reopened late copy (closedAsMissed) is history, not the
+        head, and may move.
+      - an earlier occurrence (a completed one, say) moved on or after the
+        next one - it becomes the head, has already rolled forward, and the
+        live occurrence is closed as Missed.
+    Refused here rather than changing the scan. `moving` = {task id: new due}
+    for siblings moved in the same batch: each is judged against their NEW
+    dates, so shifting a whole series together is fine."""
     new_due = (new_due or "")[:10]
-    if not new_due or t.completed:
+    mine = (t.due_on or "")[:10]
+    if not new_due or new_due == mine:
         return ""
-    prev = _series_previous_due(db, t, cache)
-    if prev and new_due <= prev:
-        return f"A repeating task can't move on or before its previous occurrence ({task_due.us_date(prev)})."
+    others = [m for m in _series_members(db, t, cache) if m.id != t.id]
+    if not others:
+        return ""
+    moving = moving or {}
+
+    def due_of(m):
+        return (moving.get(m.id) or m.due_on or "")[:10]
+    later = [due_of(m) for m in others if (m.due_on or "")[:10] > mine]
+    if later and new_due >= max(later):
+        return (f"An earlier occurrence of a repeating task can't move on or after its next one "
+                f"({task_due.us_date(max(later))}).")
+    rec = t.recurrence if isinstance(t.recurrence, dict) else {}
+    if t.completed or rec.get("closedAsMissed"):
+        return ""
+    earlier = [due_of(m) for m in others if (m.due_on or "")[:10] <= mine]
+    if earlier and new_due <= max(earlier):
+        return f"A repeating task can't move on or before its previous occurrence ({task_due.us_date(max(earlier))})."
     return ""
 
 
@@ -2667,7 +2698,8 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         # the requester".
         background_tasks.add_task(notify_task_event, t.id, "modified", user["email"],
                                   update_kind=", ".join(modified_kinds),
-                                  due_changed=due_entry is not None)
+                                  due_changed=due_entry is not None,
+                                  due_entry_at=(due_entry or {}).get("at") or "")
     return task_to_dict(t)
 
 
@@ -2693,8 +2725,18 @@ def reschedule_task(task_id: str, body: RescheduleBody, background_tasks: Backgr
     fields = {k: v for k, v in (("start_on", body.start_on), ("due_on", body.due_on)) if v is not None}
     if not fields:
         raise HTTPException(422, "Nothing to move: send start_on and/or due_on")
+    before = _get_task(db, task_id).due_history
+    entries_before = len(before) if isinstance(before, list) else 0
     primary = update_task(task_id, TaskUpdate(**fields), background_tasks, user=user, db=db)
     t = _get_task(db, task_id)
+    # A Timeline move may push other tasks, which the due-date Undo cannot
+    # take back - the entry this move added says where it came from (undo_due).
+    hist = list(t.due_history) if isinstance(t.due_history, list) else []
+    if len(hist) > entries_before and isinstance(hist[-1], dict) and isinstance(hist[-1].get("undo"), dict):
+        hist[-1] = {**hist[-1], "undo": {**hist[-1]["undo"], "via": "reschedule"}}
+        t.due_history = hist
+        db.commit()
+        primary["dueHistory"] = hist
     moved, skipped = [], []
     if body.cascade:
         def _can_edit(d: models.Task) -> bool:
@@ -2817,7 +2859,7 @@ def respond_due(body: DueAnswer, task_id: str, user: dict = Depends(get_current_
             raise HTTPException(403, "Only whoever requested this task, or a manager, can approve this extension.")
         if me in task_assignees(t) and not is_manager(user):
             raise HTTPException(403, "You cannot approve an extension on your own task.")
-        task_due.respond(db, t, me, body.accept, (body.note or "").strip())
+        _respond_and_sync(db, t, me, body.accept, (body.note or "").strip())
         return _due_done(db, t)
     if (t.due_agreement or "") != "proposed" or not isinstance(t.due_proposal, dict):
         raise HTTPException(409, "There is no proposed date to answer.")
@@ -2828,8 +2870,20 @@ def respond_due(body: DueAnswer, task_id: str, user: dict = Depends(get_current_
         _check_iso_date(counter, "counter_on")
         if counter in ((t.due_on or "")[:10], ((t.due_proposal or {}).get("dueOn") or "")[:10]):
             raise HTTPException(422, "Suggest a date different from both the current and the proposed one.")
-    task_due.respond(db, t, me, body.accept, (body.note or "").strip(), counter_on=counter)
+    _respond_and_sync(db, t, me, body.accept, (body.note or "").strip(), counter_on=counter)
     return _due_done(db, t)
+
+
+def _respond_and_sync(db: Session, t: models.Task, me: str, accept: bool, note: str, counter_on: str = "") -> None:
+    """task_due.respond, and a date it moved (an approved extension, an
+    accepted proposal, a counter) moves a checklist subtask's step too -
+    otherwise the step keeps the old date and its next sync moves the task
+    back (Oct 22 2026)."""
+    before = (t.due_on or "")[:10]
+    task_due.respond(db, t, me, accept, note, counter_on=counter_on)
+    if (t.due_on or "")[:10] != before:
+        import hr_checklists
+        hr_checklists.task_due_changed(db, t, me)
 
 
 class DueUndo(BaseModel):
@@ -2854,6 +2908,10 @@ def undo_due(task_id: str, body: DueUndo, user: dict = Depends(get_current_user)
     t = _get_task(db, task_id)
     assert_task_wall(db, user, t)
     require_task_role(db, user, t, "editor")
+    # Read the history under the row lock: two Undos (or an Undo racing a
+    # new move) must not both take the same entry out.
+    _lock_task_rows(db, [t.id])
+    db.refresh(t)
     me = (user.get("email") or "").strip().lower()
     hist = list(t.due_history) if isinstance(t.due_history, list) else []
     last = hist[-1] if hist and isinstance(hist[-1], dict) else {}
@@ -2867,6 +2925,10 @@ def undo_due(task_id: str, body: DueUndo, user: dict = Depends(get_current_user)
             or (t.due_on or "")[:10] != (last.get("to") or "")[:10]
             or (t.due_agreement or "") == task_due.REQUESTED):
         raise HTTPException(409, "That change can no longer be undone - set the date again instead.")
+    if undo.get("via") == "reschedule":
+        # A Timeline move may have pushed the tasks waiting on it; taking
+        # back only this one would leave them where it pushed them.
+        raise HTTPException(409, "A move made on the Timeline can't be undone here - drag it back instead.")
     at = last["at"]
     t.due_on = (last.get("from") or "")[:10]
     if "startTo" in undo and (t.start_on or "") == undo.get("startTo"):
@@ -2887,11 +2949,13 @@ def undo_due(task_id: str, body: DueUndo, user: dict = Depends(get_current_user)
     db.query(models.NexusNotification).filter(
         models.NexusNotification.ref_id == t.id, models.NexusNotification.type.in_([f"task_{k}" for k in kinds]),
         models.NexusNotification.created_at >= at).delete(synchronize_session=False)
+    # Only the email that reports THIS move (it carries the entry's "at") -
+    # another change the same person made meanwhile keeps its own.
     for q in (db.query(models.TaskEmailQueue)
               .filter(models.TaskEmailQueue.task_id == t.id, models.TaskEmailQueue.event_type == "modified",
-                      models.TaskEmailQueue.actor_email == me, models.TaskEmailQueue.status == "pending",
-                      models.TaskEmailQueue.created_at >= at).all()):
-        q.status, q.drop_reason, q.updated_at = "dropped", "undone", now_iso()
+                      models.TaskEmailQueue.actor_email == me, models.TaskEmailQueue.status == "pending").all()):
+        if isinstance(q.payload, dict) and q.payload.get("due_entry_at") == at:
+            q.status, q.drop_reason, q.updated_at = "dropped", "undone", now_iso()
     import hr_checklists
     hr_checklists.task_due_changed(db, t, me)
     return _due_done(db, t)
@@ -3268,12 +3332,25 @@ def _bulk_date_changes(db: Session, dates: BulkDates, rows: list) -> tuple[dict,
             ch = {"start_on": dates.on[:10]} if start != dates.on[:10] else {}
         else:   # clear_due
             ch = {"due_on": ""} if due else {}
-        problem = _series_order_problem(db, t, ch.get("due_on") or "", series) if ch.get("due_on") else ""
-        if problem:
-            blocked.append({"id": t.id, "title": t.title or "", "code": "series", "reason": problem})
-            continue
         if ch:
             out[t.id] = ch
+    # A repeating task must keep its place in its series - judged against
+    # the NEW dates of its siblings in this batch. Leaving one out changes
+    # what the others are judged against, so it runs until nothing new is
+    # left out (each round leaves at least one out, or stops).
+    by_id = {t.id: t for t in rows}
+    while True:
+        moving = {i: ch["due_on"] for i, ch in out.items() if ch.get("due_on")}
+        stuck = []
+        for i, nd in moving.items():
+            problem = _series_order_problem(db, by_id[i], nd, series, moving)
+            if problem:
+                stuck.append({"id": i, "title": by_id[i].title or "", "code": "series", "reason": problem})
+        if not stuck:
+            break
+        for b in stuck:
+            out.pop(b["id"], None)
+        blocked += stuck
     return out, skipped, blocked
 
 
@@ -3579,13 +3656,13 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             req = task_due.requester_of(t)
             if entry is not None and req and req != actor:
                 due_moved_for.setdefault(req, []).append((t, entry))
+        elif now_assignees != set(prev_assignees) and t.due_on:
+            task_due.settle_agreement(t, actor)
         # A checklist subtask's step follows its due date - after the approval
         # decision, so a held date moves nothing (Oct 22 2026).
         if (t.due_on or "")[:10] != (auto_before[t.id].get("due_on") or ""):
             import hr_checklists
             hr_checklists.task_due_changed(db, t, user["email"])
-        elif now_assignees != set(prev_assignees) and t.due_on:
-            task_due.settle_agreement(t, actor)
 
     # Completing in bulk is completing (Oct 21 2026): each recurring task rolls
     # forward and each ticket's task tells its ticket, through the same

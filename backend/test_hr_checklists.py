@@ -653,6 +653,41 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(self.client.patch(f"/hr/checklists/items/{row['id']}", json={"due_date": "2027-02-01"}).status_code, 200)
         self.assertEqual(self._task(sub_id).due_on, "2027-02-01")
 
+    def test_an_approved_or_countered_date_moves_the_step(self):
+        # Oct 22 2026: a date set by an answer (an approved extension, a
+        # counter) moves the step too - otherwise the step keeps the old date
+        # and its next sync moves the task back.
+        cl = self._start(self._person())
+        row = next(i for i in cl["items"] if i["ownerEmail"] == MANAGER)
+        sub_id = self._step(row["id"]).task_id
+        self._grant_tasks(MANAGER, HR)
+        _as(MANAGER)
+        r = self.client.patch(f"/tasks/{sub_id}", json={"due_on": "2027-01-15"})
+        self.assertEqual(r.json()["dueAgreement"], "extension_requested")
+        _as(HR)                                # approve, then the step follows
+        r = self.client.post(f"/tasks/{sub_id}/due/respond", json={"accept": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._step(row["id"]).due_date, "2027-01-15")
+        db = database.SessionLocal()           # the assignee proposed another date...
+        try:
+            t = db.get(models.Task, sub_id)
+            t.due_agreement, t.due_proposal = "proposed", {"dueOn": "2027-02-10", "by": MANAGER}
+            db.commit()
+        finally:
+            db.close()
+        r = self.client.post(f"/tasks/{sub_id}/due/respond", json={"counter_on": "2027-02-05"})
+        self.assertEqual(r.status_code, 200, r.text)   # ...and HR's counter moves the step
+        self.assertEqual((self._task(sub_id).due_on, self._step(row["id"]).due_date), ("2027-02-05", "2027-02-05"))
+        db = database.SessionLocal()           # an accepted proposal moves it too
+        try:
+            t = db.get(models.Task, sub_id)
+            t.due_agreement, t.due_proposal = "proposed", {"dueOn": "2027-02-20", "by": MANAGER}
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self.client.post(f"/tasks/{sub_id}/due/respond", json={"accept": True}).status_code, 200)
+        self.assertEqual(self._step(row["id"]).due_date, "2027-02-20")
+
     def test_a_reassigned_step_moves_its_subtask(self):
         cl = self._start(self._person())
         rows, subs, parents = self._tasks_of(cl["id"], MANAGER)
