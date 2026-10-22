@@ -1275,6 +1275,8 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
         try:
             import hr_life_email
             custom = hr_life_email.invite_email(db, req, party, sender, _sign_link(party))
+            if custom:      # Offer Comes From (Neil, Oct 22): the From name and Reply-To too
+                sender = hr_life_email.offer_sender(db, req) or sender
         except Exception as e:      # the generic invite still goes out
             print(f"[nexus-sign] life-event email not built: {type(e).__name__}: {e}")
     ok, detail = _send_sign_email(party, req, sender, custom) if custom else _send_sign_email(party, req, sender)
