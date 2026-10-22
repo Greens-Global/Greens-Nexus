@@ -13,11 +13,12 @@
 //   - rowColorAttrs / boldTitleStyle / srOnly: how a colored row is drawn
 //     (style.css .nx-rc).
 // The legend and the switch are components, in RowColors.jsx.
-import { createContext, createElement, useCallback, useContext, useMemo } from 'react';
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { todayISO } from './lib';
-import { colorMap, usableRules } from './colorRules';
+import { colorMapWith, compileRules, sanitizeRules, usableRules } from './colorRules';
 import { useTableValue } from './tableCols';
 import { useTasks } from './TasksContext';
+import { NX } from './theme';
 
 const RowColorsContext = createContext(null);
 
@@ -45,6 +46,17 @@ export function rowColorAttrs(entry, { card = false } = {}) {
   return { className: card ? 'nx-rc nx-rc-card' : 'nx-rc nx-rc-tint', style: { '--rc': entry.hex } };
 }
 
+/** A due-date color as it should read on a tinted row: the overdue red and
+ *  the due-today amber become the deeper shades the tint keeps at 4.5:1
+ *  (style.css --rc-overdue / --rc-due-today). Anything else, or an uncolored
+ *  row, is left as it is. */
+export function onTint(color, entry) {
+  if (!entry) return color;
+  if (color === NX.red) return 'var(--rc-overdue)';
+  if (color === NX.amber) return 'var(--rc-due-today)';
+  return color;
+}
+
 /** Text for screen readers only - a row's color is also said in words. */
 export const srOnly = {
   position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden',
@@ -64,9 +76,55 @@ export const boldTitleStyle = (entry, completed = false) => (entry?.bold
 // save, so the editor can say when one did not land.
 export function useRowColorPrefs() {
   const [data, setData] = useTableValue('rowColors', 'data', null);
-  const prefs = data && typeof data === 'object' ? data : {};
-  const patch = useCallback((p) => setData((cur) => ({ ...(cur && typeof cur === 'object' ? cur : {}), ...p })), [setData]);
+  const prefs = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  const patch = useCallback((p) => setData((cur) => ({ ...(cur && typeof cur === 'object' && !Array.isArray(cur) ? cur : {}), ...p })), [setData]);
   return [prefs, patch];
+}
+
+/** The person's own rules (My Tasks), read defensively - a malformed document
+ *  drops the bad rules, never the screen - and how to save them. A save the
+ *  server refuses puts the previous rules back (in this browser and in the
+ *  profile) and rejects, so the editor can say why. */
+export function useMyColorRules() {
+  const [prefs, patch] = useRowColorPrefs();
+  const raw = prefs.mine;
+  const rules = useMemo(() => sanitizeRules(raw), [raw]);
+  const save = useCallback(async (next) => {
+    const before = raw;
+    try {
+      await patch({ mine: next });
+    } catch (e) {
+      Promise.resolve(patch({ mine: Array.isArray(before) ? before : [] })).catch(() => {});
+      throw e;
+    }
+  }, [patch, raw]);
+  return [rules, save];
+}
+
+/** Today's LOCAL date as a string that changes when the day does: at local
+ *  midnight (a timer), and whenever the tab comes back into view or focus
+ *  (a timer does not run in a sleeping laptop). "Overdue" flips on its own. */
+export function useToday() {
+  const [today, setToday] = useState(todayISO);
+  useEffect(() => {
+    const check = () => setToday((cur) => { const now = todayISO(); return now === cur ? cur : now; });
+    let timer;
+    const arm = () => {
+      const now = new Date();
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
+      timer = setTimeout(() => { check(); arm(); }, Math.max(1000, next - now));
+    };
+    arm();
+    const onVisible = () => { if (document.visibilityState !== 'hidden') check(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', check);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', check);
+    };
+  }, []);
+  return today;
 }
 
 /** What the evaluator and the editor read about this scope, memoized: every
@@ -98,15 +156,16 @@ export function useRuleContext({ projectId = '', sections = null, sectionOf = nu
 export function useRowColorScope({ rules, tasks, ruleCtx }) {
   const [prefs, patchPrefs] = useRowColorPrefs();
   const show = !prefs.hidden;
-  // A day string, so the map refreshes when the date turns over and "due
-  // today" moves on with it - nothing finer about the clock matters.
-  const today = todayISO();
-  const usable = useMemo(() => usableRules(rules, ruleCtx), [rules, ruleCtx]);
-  const map = useMemo(() => (show && usable.length
-    ? colorMap(usable, tasks, { ...ruleCtx, today })
-    : new Map()), [show, usable, tasks, ruleCtx, today]);
+  const today = useToday();
+  const clean = useMemo(() => sanitizeRules(rules), [rules]);
+  const usable = useMemo(() => usableRules(clean, ruleCtx), [clean, ruleCtx]);
+  // Compiled once per (rules, context, day); its per-task cache then carries
+  // across every re-render that only changes WHICH tasks are on screen.
+  const compiled = useMemo(() => compileRules(usable, { ...ruleCtx, today }), [usable, ruleCtx, today]);
+  const map = useMemo(() => (show && usable.length ? colorMapWith(compiled, tasks) : new Map()),
+    [show, usable.length, compiled, tasks]);
   return {
-    show, map, usable,
+    show, map, usable, today,
     setShow: (on) => patchPrefs({ hidden: !on }),
     legendOpen: !prefs.legendClosed,
     setLegendOpen: (open) => patchPrefs({ legendClosed: !open }),

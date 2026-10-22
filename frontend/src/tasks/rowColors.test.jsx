@@ -55,7 +55,7 @@ const { default: RichListView } = await import('./views/richlist');
 const { default: BoardView } = await import('./views/board');
 const { CalendarView } = await import('./views/extras');
 const { __setTablePrefsCache } = await import('./tableCols');
-const { RowColorsProvider, useRowColorScope, useRuleContext } = await import('./rowColorState');
+const { RowColorsProvider, useRowColorScope, useRuleContext, useToday } = await import('./rowColorState');
 const { RowColorLegend } = await import('./RowColors');
 const { colorMap } = await import('./colorRules');
 const { default: ColorRulesEditor } = await import('./ColorRulesEditor');
@@ -228,7 +228,7 @@ describe('the editor', () => {
     expect(rows()).toHaveLength(2);
     expect(within(rows()[0]).getByText('Overdue')).toBeInTheDocument();
     expect(within(rows()[0]).getByText('Due Date is overdue')).toBeInTheDocument();
-    expect(within(rows()[0]).getByText('1 task')).toBeInTheDocument();
+    expect(within(rows()[0]).getByText('Matches 1 task')).toBeInTheDocument();
     expect(within(rows()[1]).getByText('Priority is Urgent')).toBeInTheDocument();
   });
 
@@ -243,10 +243,10 @@ describe('the editor', () => {
     expect(onSave).not.toHaveBeenCalled();
     // "Overdue" is already a rule here, so it is not suggested again.
     expect(screen.queryByRole('button', { name: 'Add Overdue' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Add Due This Week' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Due In Next 7 Days' }));
     const saved = onSave.mock.calls[0][0];
     expect(saved).toHaveLength(3);
-    expect(saved[2]).toMatchObject({ name: 'Due This Week', color: 'amber', enabled: true });
+    expect(saved[2]).toMatchObject({ name: 'Due In Next 7 Days', color: 'amber', enabled: true });
     expect(saved[2].id).toBeTruthy();
   });
 
@@ -312,11 +312,128 @@ describe('the editor', () => {
     expect(screen.getByText('Matches 1 task in this project')).toBeInTheDocument();
   });
 
+  it('says what a rule actually colors when earlier rules take some of its matches', () => {
+    const busy = { id: 'r-busy', name: 'Busy', color: 'teal', bold: false, enabled: true, match: 'all',
+      conditions: [{ field: 'priority', op: 'is_any_of', value: ['urgent', 'medium'] }] };
+    open({ rules: [...RULES, busy] });
+    expect(within(rows()[2]).getByTestId('rule-count').textContent).toBe('Matches 3 tasks - colors 1, 2 go to an earlier rule');
+    expect(within(rows()[0]).getByTestId('rule-count').textContent).toBe('Matches 1 task');
+  });
+
+  it('one condition reads "this is true"; two offer all / any', () => {
+    open({ rules: [] });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Rule' }));
+    expect(screen.getByText('Color a task when this is true')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Match')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Add Condition/ }));
+    expect(screen.getByLabelText('Match')).toBeInTheDocument();
+  });
+
+  it('the palette is one tab stop that the arrow keys move through', () => {
+    open({ rules: [] });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Rule' }));
+    const red = screen.getByRole('radio', { name: 'Red' });
+    expect(red).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('radio', { name: 'Amber' })).toHaveAttribute('tabindex', '-1');
+    fireEvent.keyDown(red, { key: 'ArrowRight' });
+    expect(screen.getByRole('radio', { name: 'Amber' })).toHaveAttribute('aria-checked', 'true');
+    expect(document.activeElement).toBe(screen.getByRole('radio', { name: 'Amber' }));
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowLeft' });
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowLeft' });
+    expect(screen.getByRole('radio', { name: 'Gray' })).toHaveAttribute('aria-checked', 'true');   // wraps around
+  });
+
+  it('a keyboard move is announced', () => {
+    open();
+    fireEvent.keyDown(screen.getByRole('button', { name: /Reorder Overdue/ }), { key: 'ArrowDown' });
+    expect(screen.getByRole('status').textContent).toBe('Moved Overdue to 2 of 2');
+  });
+
+  it('a conflict (409) swaps in the newer list and says so', async () => {
+    const latest = [{ id: 'r-new', name: "Someone Else's", color: 'purple', bold: false, enabled: true, match: 'all', conditions: [{ field: 'completed', op: 'is_true' }] }];
+    function Harness() {
+      const [rules, setRules] = React.useState(RULES);
+      const onSave = () => {
+        // What store.saveColorRules does on a 409: take the project the server sent, then throw.
+        setRules(latest);
+        const e = new Error('Someone else changed these color rules. The latest version is shown now.');
+        e.status = 409;
+        return Promise.reject(e);
+      };
+      return <ColorRulesEditor rules={rules} onSave={onSave} onClose={() => {}} ctx={edCtx} countTasks={tasks} statusOrder={store.statusOrder} />;
+    }
+    render(<Harness />);
+    await act(async () => { fireEvent.click(screen.getByRole('switch', { name: 'Turn off Overdue' })); });
+    expect(screen.getByRole('alert').textContent).toContain('Someone else changed these color rules');
+    expect(rows()).toHaveLength(1);
+    expect(within(rows()[0]).getByText("Someone Else's")).toBeInTheDocument();
+  });
+
+  it('on a phone: 40px controls, and Edit / Duplicate / Delete behind a "..." menu', async () => {
+    const before = window.matchMedia;
+    window.matchMedia = (q) => ({ matches: q.includes('max-width: 640px') || q.includes('pointer: coarse'), media: q, onchange: null,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; } });
+    try {
+      const onSave = open();
+      expect(screen.queryByRole('button', { name: 'Edit Overdue' })).toBeNull();
+      const up = screen.getByRole('button', { name: 'Move Urgent Up' });
+      expect(up.style.minWidth).toBe('40px');
+      expect(up.style.minHeight).toBe('40px');
+      expect(screen.getByRole('switch', { name: 'Turn off Overdue' }).style.minHeight).toBe('40px');
+      const more = screen.getByRole('button', { name: 'More actions for Urgent' });
+      expect(more.style.minHeight).toBe('40px');
+      fireEvent.click(more);
+      await act(async () => { fireEvent.click(await screen.findByRole('menuitem', { name: /Delete/ })); });
+      expect(dialogConfirm).toHaveBeenCalled();
+      expect(onSave.mock.calls.at(-1)[0].map((r) => r.id)).toEqual(['r-over']);
+    } finally {
+      window.matchMedia = before;
+    }
+  });
+
+  it("the personal editor talks about your rules, not a project's", () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ ...RULES[0], id: `p${i}`, name: `R${i}` }));
+    open({ rules: many, personal: true });
+    expect(screen.getByText('You can have up to 20 rules.')).toBeInTheDocument();
+    expect(screen.queryByText(/A project can have/)).toBeNull();
+  });
+
   it('a failed save says why and leaves the list as it was', async () => {
     const onSave = vi.fn(() => Promise.reject(new Error('You need at least editor access to "Ops".')));
     open({ onSave });
     await act(async () => { fireEvent.click(screen.getByRole('switch', { name: 'Turn off Overdue' })); });
     expect(screen.getByRole('alert').textContent).toContain('editor access');
     expect(screen.getByRole('switch', { name: 'Turn off Overdue' })).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+describe('today moves on by itself', () => {
+  it('re-reads the date at local midnight and when the tab comes back', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2026, 9, 22, 23, 59, 0));
+      function Show() { return <span data-testid="today">{useToday()}</span>; }
+      render(<Show />);
+      expect(screen.getByTestId('today').textContent).toBe('2026-10-22');
+      act(() => { vi.advanceTimersByTime(2 * 60 * 1000); });   // past midnight: the timer fires
+      expect(screen.getByTestId('today').textContent).toBe('2026-10-23');
+      vi.setSystemTime(new Date(2026, 9, 25, 9, 0, 0));        // a laptop that slept for two days
+      act(() => { window.dispatchEvent(new Event('focus')); });
+      expect(screen.getByTestId('today').textContent).toBe('2026-10-25');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('the key on a phone', () => {
+  it('keeps a word beside the switch', () => {
+    function Phone() {
+      const ruleCtx = useRuleContext({ projectId: 'p1' });
+      const scope = useRowColorScope({ rules: RULES, tasks, ruleCtx });
+      return <RowColorLegend scope={scope} compact />;
+    }
+    render(<Phone />);
+    expect(screen.getByText('Show Colors')).toBeInTheDocument();
   });
 });

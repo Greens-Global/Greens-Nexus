@@ -18,6 +18,7 @@ The browser evaluates them; the server owns their shape and who may write:
 
 Throwaway SQLite, no network.  python -m pytest test_task_color_rules.py
 """
+import json
 import os
 import tempfile
 import unittest
@@ -55,7 +56,8 @@ MANAGER = {"email": "manager@greensglobal.com", "level": 3}
 BMGR = {"email": "bmgr@greensglobal.com", "level": 3}
 DIRECTORY = [OWNER, EDITOR, VIEWER, COMMENTER, OUTSIDER, MANAGER]
 
-_CLEAR = (models.Task, models.TaskProject, models.TaskCustomField, models.NexusEmployee,
+_CLEAR = (models.Task, models.TaskProject, models.TaskCustomField, models.NexusEmployee, models.TaskSection,
+          models.TaskCustomStatus, models.TaskProjectTemplate, models.TaskTablePref, models.TaskTeam,
           models.NexusSetting, models.NexusAccessScope)
 
 
@@ -207,7 +209,10 @@ class ShapeTests(Base):
         self.bad([rule(conditions=[{"field": "status", "op": "is"}])])
         self.bad([rule(conditions=[{"field": "status", "op": "is_any_of", "value": []}])])
         self.bad([rule(conditions=[{"field": "priority", "op": "is", "value": "critical"}])])
+        self.bad([rule(conditions=[{"field": "status", "op": "is", "value": "<img src=x>"}])])   # no such status
+        self.bad([rule(conditions=[{"field": "status", "op": "is_any_of", "value": ["in_progress", "nope"]}])])
         self.bad([rule(conditions=[{"field": "due", "op": "within", "value": -1}])])
+        self.bad([rule(conditions=[{"field": "due", "op": "within", "value": 0}])])   # "the next 0 days" is not a window
         self.bad([rule(conditions=[{"field": "due", "op": "within", "value": 1.5}])])
         self.bad([rule(conditions=[{"field": "due", "op": "within", "value": 9999}])])
         self.bad([rule(conditions=[{"field": "due", "op": "before", "value": "10/22/2026"}])])
@@ -254,6 +259,8 @@ class ShapeTests(Base):
                 value = samples[R.OP_KIND[op]]
                 if field == "priority":
                     value = ["urgent", "high"] if op == "is_any_of" else "urgent"
+                if field == "status" and op == "is_any_of":
+                    value = ["not_started", "in_progress"]
                 c = {"field": field, "op": op}
                 if value is not None:
                     c["value"] = value
@@ -346,6 +353,149 @@ class WallTests(Base):
         status, _ = self.code(lambda: self.put(p, OWNER, [rule(conditions=[
             {"field": f"cf:{b_field.id}", "op": "is_empty"}])]))
         self.assertEqual(status, 422)
+
+
+class ReviewFixTests(Base):
+    """Oct 22 2026 review pass."""
+
+    def test_a_field_whose_type_changed_does_not_block_the_rest_of_the_list(self):
+        p = self.project()
+        f = self.field("select")
+        out = self.put(p, EDITOR, [rule(conditions=[{"field": f"cf:{f.id}", "op": "is", "value": "opt-a"}]),
+                                   rule(id="r2", name="Other")])
+        f.type = "text"            # someone retypes the field: "is" no longer fits a text field
+        self.db.commit()
+        self.db.expire_all()
+        p = self.db.get(models.TaskProject, p.id)
+        stored = json.loads(json.dumps(P.project_to_dict(p)["colorRules"]))   # what a client sends back
+        stored[1]["enabled"] = False   # toggle the OTHER rule
+        saved = self.put(p, EDITOR, stored, rev=out["colorRulesRev"])
+        self.assertEqual(saved["colorRules"][0]["conditions"], [{"field": f"cf:{f.id}", "op": "is", "value": "opt-a"}])
+        self.assertFalse(saved["colorRules"][1]["enabled"])
+        # A NEW condition still has to fit the field's current type.
+        status, _ = self.code(lambda: self.put(p, EDITOR, saved["colorRules"] + [rule(
+            id="r3", conditions=[{"field": f"cf:{f.id}", "op": "is", "value": "opt-b"}])]))
+        self.assertEqual(status, 422)
+
+    def test_enabled_and_bold_are_strictly_true_or_false(self):
+        p = self.project()
+        for bad in ({"enabled": "false"}, {"bold": "no"}, {"enabled": 0}, {"bold": None}):
+            status, detail = self.code(lambda: self.put(p, OWNER, [rule(**bad)]))
+            self.assertEqual(status, 422, bad)
+            self.assertIn("true or false", detail)
+        out = self.put(p, OWNER, [rule(enabled=False, bold=True), rule(id="r2")])
+        self.assertEqual([(r["enabled"], r["bold"]) for r in out["colorRules"]], [(False, True), (True, False)])
+
+
+class PersonalRulesTests(Base):
+    """My Tasks rules ride in the person's task prefs ("rowColors" -> data)."""
+
+    def save(self, user, data):
+        from routers import task_prefs as TP
+        return TP.set_table_prefs("rowColors", TP.TablePrefIn(data=data), user=user, db=self.db)
+
+    def test_valid_rules_are_stored_in_their_clean_shape(self):
+        out = self.save(OWNER, {"hidden": False, "mine": [rule(conditions=[{"field": "due", "op": "within", "value": "3"}])]})
+        mine = out["prefs"]["rowColors"]["data"]["mine"]
+        self.assertEqual(mine[0]["conditions"][0]["value"], 3)
+        self.assertEqual(out["prefs"]["rowColors"]["data"]["hidden"], False)
+
+    def test_a_bad_personal_rule_is_refused_like_a_project_one(self):
+        for data in ({"mine": [rule(color="blue")]}, {"mine": [rule(conditions=[{"field": "salary", "op": "is", "value": 1}])]},
+                     {"mine": "nope"}, {"hidden": "yes"}, {"mine": [rule(enabled="false")]}):
+            status, _ = self.code(lambda: self.save(OWNER, data))
+            self.assertEqual(status, 422, data)
+
+    def test_only_fields_used_everywhere_and_directory_people(self):
+        scoped = self.field("select", project_ids=["some-project"])
+        everywhere = self.field("select")
+        status, _ = self.code(lambda: self.save(OWNER, {"mine": [rule(conditions=[{"field": f"cf:{scoped.id}", "op": "is_empty"}])]}))
+        self.assertEqual(status, 422)
+        status, _ = self.code(lambda: self.save(OWNER, {"mine": [rule(conditions=[
+            {"field": "assignee", "op": "person_is", "value": "stranger@example.com"}])]}))
+        self.assertEqual(status, 422)
+        self.save(OWNER, {"mine": [rule(conditions=[{"field": f"cf:{everywhere.id}", "op": "is", "value": "opt-a"}])]})
+
+    def test_reset_columns_keeps_personal_rules_even_on_a_deleted_field(self):
+        from routers import task_prefs as TP
+        f = self.field("select")
+        self.save(OWNER, {"mine": [rule(conditions=[{"field": f"cf:{f.id}", "op": "is", "value": "opt-a"}])]})
+        TP.set_table_prefs("richlist", TP.TablePrefIn(order=["task", "due"]), user=OWNER, db=self.db)
+        self.db.delete(self.db.get(models.TaskCustomField, f.id))
+        self.db.commit()
+        out = TP.reset_all_prefs(user=OWNER, db=self.db)
+        self.assertEqual(list(out["prefs"]), ["rowColors"])
+        # ...and the stored rule still saves alongside a toggle.
+        mine = out["prefs"]["rowColors"]["data"]["mine"]
+        self.save(OWNER, {"hidden": True, "mine": mine})
+
+    def test_unknown_keys_are_dropped_and_other_tables_stay_opaque(self):
+        out = self.save(OWNER, {"hidden": True, "junk": {"x": 1}})
+        self.assertEqual(out["prefs"]["rowColors"]["data"], {"hidden": True})
+        from routers import task_prefs as TP
+        out = TP.set_table_prefs("charts", TP.TablePrefIn(data={"anything": [1, 2]}), user=OWNER, db=self.db)
+        self.assertEqual(out["prefs"]["charts"]["data"], {"anything": [1, 2]})
+
+
+class CopyAndTemplateTests(Base):
+    """Duplicate Project and Save As Template carry the color rules."""
+
+    def setup_source(self):
+        p = self.project(name="Source")
+        sel = self.field("select", project_ids=[p.id])
+        sec = models.TaskSection(id=gen_id(), project_id=p.id, name="Annual", position=1, custom=True, created_at=now_iso())
+        hold = models.TaskCustomStatus(id=gen_id(), label="On Hold", project_ids=[p.id], position=1)
+        self.db.add_all([sec, hold])
+        self.db.commit()
+        self.put(p, OWNER, [
+            rule(id="r-sel", name="Phase A", conditions=[{"field": f"cf:{sel.id}", "op": "is", "value": "opt-a"}]),
+            rule(id="r-sec", name="Annual", conditions=[{"field": "section", "op": "is", "value": sec.id}]),
+            rule(id="r-hold", name="Held", color="gray", conditions=[{"field": "status", "op": "is_any_of", "value": ["in_progress", hold.id]}]),
+            rule(id="r-who", name="Ana's", conditions=[{"field": "assignee", "op": "person_is", "value": EDITOR["email"]},
+                                                      {"field": "due", "op": "overdue"}]),
+            rule(id="r-me", name="Mine", enabled=False, bold=True, conditions=[{"field": "assignee", "op": "is_me"}]),
+        ])
+        return p, sel, sec, hold
+
+    def test_duplicate_carries_every_rule_onto_the_copy(self):
+        p, sel, sec, hold = self.setup_source()
+        out = P.duplicate_project(p.id, P.DuplicateProjectBody(name="Copy"), user=OWNER, db=self.db)
+        rules = out["colorRules"]
+        self.assertEqual([r["id"] for r in rules], ["r-sel", "r-sec", "r-hold", "r-who", "r-me"])
+        new_sec = self.db.query(models.TaskSection).filter(models.TaskSection.project_id == out["id"]).one()
+        self.assertTrue(new_sec.custom)                       # still a Custom-grouping section
+        self.assertEqual(rules[1]["conditions"][0]["value"], new_sec.id)
+        self.assertEqual(rules[0]["conditions"][0]["field"], f"cf:{sel.id}")   # the same field, now on the copy too
+        self.assertEqual(rules[2]["conditions"][0]["value"], ["in_progress", hold.id])
+        self.assertEqual(rules[3]["conditions"][0]["value"], EDITOR["email"])
+        self.assertEqual((rules[4]["enabled"], rules[4]["bold"]), (False, True))
+
+    def test_template_drops_people_and_what_the_destination_lacks(self):
+        p, sel, sec, hold = self.setup_source()
+        tpl = P.create_project_template(P.ProjectTemplateBody(project_id=p.id, name="Tpl"), user=OWNER, db=self.db)
+        # The source's select loses option A before the template is used.
+        sel.options = [{"id": "opt-b", "label": "B"}]
+        self.db.commit()
+        out = P.use_project_template(tpl["id"], P.UseTemplateBody(name="From template"), user=OWNER, db=self.db)
+        rules = {r["id"]: r for r in out["colorRules"]}
+        self.assertNotIn("r-sel", rules)                       # its option is gone
+        self.assertEqual(rules["r-who"]["conditions"], [{"field": "due", "op": "overdue"}])   # no people in a template
+        self.assertIn("r-me", rules)                           # "is me" names nobody
+        self.assertIn("r-sec", rules)
+        new_sec = self.db.query(models.TaskSection).filter(models.TaskSection.project_id == out["id"]).one()
+        self.assertEqual(rules["r-sec"]["conditions"][0]["value"], new_sec.id)
+
+    def test_a_rule_whose_every_reference_is_gone_is_dropped(self):
+        p = self.project(name="Src")
+        self.put(p, OWNER, [rule(id="r1", conditions=[{"field": "assignee", "op": "person_is", "value": EDITOR["email"]}])])
+        tpl = P.create_project_template(P.ProjectTemplateBody(project_id=p.id, name="T"), user=OWNER, db=self.db)
+        out = P.use_project_template(tpl["id"], P.UseTemplateBody(name="New"), user=OWNER, db=self.db)
+        self.assertEqual(out["colorRules"], [])
+        # A copy keeps it - unless the person has gone from the directory.
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == EDITOR["email"]).delete()
+        self.db.commit()
+        out = P.duplicate_project(p.id, P.DuplicateProjectBody(name="Copy"), user=OWNER, db=self.db)
+        self.assertEqual(out["colorRules"], [])
 
 
 if __name__ == "__main__":

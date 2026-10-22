@@ -6,13 +6,19 @@ import { ChevronDown, Palette, Pencil } from 'lucide-react';
 import { NX, FONT, btn } from './theme';
 import { colorHex } from './colorRules';
 
-export function RowColorSwitch({ on, onChange, label, disabled = false }) {
+/** An on / off switch. `large` (touch screens) keeps the same small track but
+ *  gives it a 40px hit area, so a finger does not have to land on 30x18. */
+export function RowColorSwitch({ on, onChange, label, disabled = false, large = false }) {
   return (
     <button type="button" role="switch" aria-checked={!!on} aria-label={label} title={label} disabled={disabled} onClick={() => onChange(!on)}
-      style={{ width: 30, height: 18, borderRadius: 999, border: 'none', padding: 2, flexShrink: 0,
-        background: on ? NX.primary : NX.border, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1,
-        display: 'flex', justifyContent: on ? 'flex-end' : 'flex-start', transition: 'background .15s' }}>
-      <span style={{ width: 14, height: 14, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.2)' }} />
+      style={{ border: 'none', background: 'transparent', padding: 0, flexShrink: 0,
+        minWidth: large ? 40 : undefined, minHeight: large ? 40 : undefined,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
+      <span aria-hidden="true" style={{ width: 30, height: 18, borderRadius: 999, padding: 2, boxSizing: 'border-box',
+        background: on ? NX.primary : NX.border, display: 'flex', justifyContent: on ? 'flex-end' : 'flex-start', transition: 'background .15s' }}>
+        <span style={{ width: 14, height: 14, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.2)' }} />
+      </span>
     </button>
   );
 }
@@ -39,7 +45,7 @@ export function RowColorLegend({ scope, onEdit, canEdit = false, compact = false
   return (
     <div data-testid="row-color-legend" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: compact ? '6px 12px' : '7px 20px', borderBottom: `1px solid ${NX.border2}`, background: NX.surface, fontFamily: FONT, fontSize: 12 }}>
       <button type="button" onClick={() => setLegendOpen(!legendOpen)} aria-expanded={legendOpen}
-        style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 12, color: NX.dim, gap: 5 }}>
+        style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 12, color: NX.dim, gap: 5, ...(compact ? { minHeight: 40 } : null) }}>
         <Palette size={13} />
         Colors
         <span style={{ color: NX.faint, fontWeight: 500 }}>{usable.length}</span>
@@ -58,11 +64,12 @@ export function RowColorLegend({ scope, onEdit, canEdit = false, compact = false
       )}
       <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 12 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: NX.dim, whiteSpace: 'nowrap' }}>
-          <RowColorSwitch on={show} onChange={setShow} label="Show Row Colors" />
-          {!compact && <span aria-hidden="true" onClick={() => setShow(!show)} style={{ cursor: 'pointer' }}>Show Row Colors</span>}
+          <RowColorSwitch on={show} onChange={setShow} label="Show Row Colors" large={compact} />
+          {/* Always a word beside the switch - shorter on a phone, never bare. */}
+          <span aria-hidden="true" onClick={() => setShow(!show)} style={{ cursor: 'pointer' }}>{compact ? 'Show Colors' : 'Show Row Colors'}</span>
         </span>
         {canEdit && onEdit && (
-          <button type="button" onClick={onEdit} style={{ ...btn('ghost'), padding: '2px 6px', fontSize: 12, color: NX.dim, gap: 5 }}>
+          <button type="button" onClick={onEdit} style={{ ...btn('ghost'), padding: '2px 6px', fontSize: 12, color: NX.dim, gap: 5, ...(compact ? { minHeight: 40 } : null) }}>
             <Pencil size={12} /> Edit Rules
           </button>
         )}

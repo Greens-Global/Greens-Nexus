@@ -1,33 +1,46 @@
 // Task Module - the Row Colors editor (Neil, Oct 22 2026).
 //
 // One Modal, two panes: the ordered list of rules (swatch, name, the rule as
-// a sentence, an on/off switch, drag or arrow keys to reorder, edit /
-// duplicate / delete, and three suggested starters) and one rule's editor
-// (name, palette color, Bold Title, all/any, up to five conditions with the
-// right widget for each value, a live "Matches N tasks" count and a preview
-// row). Every change to the list is saved as it is made through `onSave`;
-// the server refuses a save over a list someone else changed meanwhile and
-// the screen re-reads it (see TasksWorkspace / store.saveColorRules).
+// a sentence, an on/off switch, drag or arrow keys to reorder - Move Up / Move
+// Down on touch screens - edit / duplicate / delete, and three suggested
+// starters) and one rule's editor (name, palette color, Bold Title, all/any,
+// up to five conditions with the right widget for each value, a live
+// "Matches N tasks" count and a preview row). Every change to the list is
+// saved as it is made through `onSave`; the server refuses a save over a list
+// someone else changed meanwhile and the screen re-reads it (see
+// TasksWorkspace / store.saveColorRules).
 //
 // Read-only for anyone who cannot edit: the parent does not open it for them.
 import { useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronDown, ChevronUp, Copy, GripVertical, Pencil, Plus, Trash2, X, Sparkles } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronUp, Copy, GripVertical, MoreHorizontal, Pencil, Plus, Trash2, X, Sparkles } from 'lucide-react';
 import { Modal, DateField, PersonSelect, useIsMobile } from './components';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { StatusLabel } from '../components/StatusLabel';
+import AnchoredMenu from '../components/AnchoredMenu';
 import { dialog } from '../ui/dialog';
 import {
-  PALETTE, MAX_RULES, MAX_CONDITIONS, MAX_NAME, MAX_DAYS, OP_KIND, colorHex, fieldInfo, fieldChoices, opLabel,
-  defaultValue, blankRule, blankCondition, newRuleId, ruleProblems, draftProblem, describeRule, starterRules,
-  usableRules, colorMap,
+  PALETTE, MAX_RULES, MAX_CONDITIONS, MAX_NAME, MIN_DAYS, MAX_DAYS, opKind, colorHex, fieldInfo, fieldChoices, opLabel,
+  defaultValue, blankRule, blankCondition, newRuleId, ruleProblems, draftProblem, describeRule, starterRules, ruleCounts,
+  compileRules, colorOf,
 } from './colorRules';
-import { rowColorAttrs, boldTitleStyle } from './rowColorState';
+import { rowColorAttrs, boldTitleStyle, srOnly, useToday } from './rowColorState';
 import { RowColorSwitch as Switch } from './RowColors';
-import { todayISO } from './lib';
 
 const label = { display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const hint = { fontSize: 12.5, color: NX.dim, lineHeight: 1.5 };
 const iconBtn = { ...btn('ghost'), padding: 5, color: NX.dim };
+// Touch screens: every control a finger has to hit is at least 40px square.
+const touchBtn = { ...iconBtn, minWidth: 40, minHeight: 40, justifyContent: 'center', padding: 0 };
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** "Matches 12 tasks" - and, when earlier rules take some of them, how many
+ *  this one actually colors. */
+function countText(own, first, noun = '') {
+  if (own == null) return '';
+  const base = `Matches ${plural(own, 'task')}${noun ? ` ${noun}` : ''}`;
+  if (first == null || first >= own) return base;
+  return `${base} - colors ${first}, ${own - first} go to an earlier rule`;
+}
 
 /** Pick one (or several) from a short list, as soft chips. */
 function OptionChips({ options, value, multi = false, onChange, ariaLabel }) {
@@ -52,12 +65,12 @@ function OptionChips({ options, value, multi = false, onChange, ariaLabel }) {
 }
 
 function ValueInput({ cond, field, onChange, ctx }) {
-  const kind = OP_KIND[cond.op];
+  const kind = opKind(cond.op);
   if (!field || kind === 'none') return null;
   const v = cond.value;
   const multi = kind === 'list';
   if (field.kind === 'status') {
-    return <OptionChips ariaLabel="Status" multi={multi} value={v} onChange={onChange} options={ctx.statusOptions} />;
+    return <OptionChips ariaLabel="Status" multi={multi} value={v} onChange={onChange} options={ctx.statusOptions || []} />;
   }
   if (field.kind === 'priority') {
     return <OptionChips ariaLabel="Priority" multi={multi} value={v} onChange={onChange}
@@ -84,7 +97,7 @@ function ValueInput({ cond, field, onChange, ctx }) {
   if (kind === 'days') {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.dim }}>
-        <input type="number" min={0} max={MAX_DAYS} step={1} aria-label="Number of days" value={v ?? ''}
+        <input type="number" min={MIN_DAYS} max={MAX_DAYS} step={1} aria-label="Number of days" value={v ?? ''}
           onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
           style={{ ...inputStyle, width: 72, padding: '6px 8px', fontSize: 13 }} />
         days
@@ -117,12 +130,12 @@ function ConditionRow({ cond, index, onChange, onRemove, canRemove, ctx, choices
   const setField = (key) => {
     const f = fieldInfo(key, ctx.fieldsById);
     const op = f?.ops[0] || '';
-    onChange({ field: key, op, ...(OP_KIND[op] === 'none' ? null : { value: defaultValue(op, f) }) });
+    onChange({ field: key, op, ...(opKind(op) === 'none' ? null : { value: defaultValue(op, f) }) });
   };
   const setOp = (op) => {
-    const keep = OP_KIND[op] === OP_KIND[cond.op] && cond.value !== undefined;
+    const keep = opKind(op) === opKind(cond.op) && cond.value !== undefined;
     const next = { field: cond.field, op };
-    if (OP_KIND[op] !== 'none') next.value = keep ? cond.value : defaultValue(op, field);
+    if (opKind(op) !== 'none') next.value = keep ? cond.value : defaultValue(op, field);
     onChange(next);
   };
   // A short value (days, a date, a number, text, a person) sits on the same
@@ -155,23 +168,66 @@ function ConditionRow({ cond, index, onChange, onRemove, canRemove, ctx, choices
         )}
       </div>
       {chips && value}
-      {problem && <div role="note" style={{ fontSize: 12, color: broken ? NX.amber : NX.dim, fontWeight: broken ? 600 : 400 }}>{problem}</div>}
+      {problem && <div role="note" className={broken ? 'nx-cr-warn' : undefined} style={{ fontSize: 12, color: broken ? undefined : NX.dim, fontWeight: broken ? 600 : 400 }}>{problem}</div>}
     </div>
   );
 }
 
-function RuleForm({ draft, setDraft, ctx, choices, countTasks, scopeNoun, touch }) {
+/** The palette as a radio group: one tab stop, the arrow keys move the pick
+ *  (and the focus) the way a native radio group does. */
+function PalettePicker({ value, onChange }) {
+  const refs = useRef([]);
+  const at = Math.max(0, PALETTE.findIndex((p) => p.key === value));
+  const onKey = (e) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    const jump = e.key === 'Home' ? 0 : e.key === 'End' ? PALETTE.length - 1 : null;
+    if (step == null && jump == null) return;
+    e.preventDefault();
+    const next = jump ?? (at + step + PALETTE.length) % PALETTE.length;
+    onChange(PALETTE[next].key);
+    refs.current[next]?.focus();
+  };
+  return (
+    <div role="radiogroup" aria-labelledby="cr-color" onKeyDown={onKey} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      {PALETTE.map((p, i) => {
+        const on = i === at && value === p.key;
+        return (
+          <button key={p.key} ref={(el) => { refs.current[i] = el; }} type="button" role="radio" aria-checked={on}
+            aria-label={p.label} title={p.label} tabIndex={i === at ? 0 : -1}
+            onClick={() => onChange(p.key)}
+            style={{ width: 26, height: 26, borderRadius: 8, cursor: 'pointer', padding: 0, background: p.hex,
+              border: `2px solid ${on ? NX.ink : 'transparent'}`, boxShadow: on ? `inset 0 0 0 2px ${NX.surface}` : 'none' }} />
+        );
+      })}
+    </div>
+  );
+}
+
+function RuleForm({ draft, setDraft, ctx, choices, countTasks, scopeNoun, touch, list, today }) {
   const problems = ruleProblems(draft, ctx);
   const problemAt = (i) => problems.find((p) => p.index === i)?.text || '';
-  // The live count and the sample row: this rule on its own, as if enabled.
-  const today = todayISO();
+  // The live count: this rule on its own, and - in its place in the list -
+  // how many it would actually color once the rules above it have theirs.
   const broken = problems.length > 0;
-  const matches = useMemo(() => (broken ? null : colorMap([{ ...draft, enabled: true }], countTasks, { ...ctx, today })),
-    [broken, draft, countTasks, ctx, today]);
-  const sample = matches && matches.size ? countTasks.find((t) => matches.has(t.id)) : null;
+  const counts = useMemo(() => {
+    if (broken) return null;
+    const live = { ...draft, enabled: true };
+    const at = list.findIndex((r) => r.id === draft.id);
+    const inPlace = at >= 0 ? list.map((r) => (r.id === draft.id ? live : r)) : [...list, live];
+    return ruleCounts(inPlace, countTasks, { ...ctx, today });
+  }, [broken, draft, list, countTasks, ctx, today]);
+  const own = counts?.own[draft.id];
+  const first = counts?.first[draft.id];
+  // A real task the rule matches, for the preview row.
+  const sample = useMemo(() => {
+    if (!own) return null;
+    const one = compileRules([{ ...draft, enabled: true }], { ...ctx, today });
+    return countTasks.find((t) => colorOf(one, t)) || null;
+  }, [own, draft, countTasks, ctx, today]);
   const preview = { id: draft.id, name: draft.name, color: draft.color, hex: colorHex(draft.color), bold: !!draft.bold };
   const attrs = rowColorAttrs(preview);
   const setCond = (i, c) => setDraft((d) => ({ ...d, conditions: d.conditions.map((x, j) => (j === i ? c : x)) }));
+  const single = draft.conditions.length === 1;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div>
@@ -181,32 +237,26 @@ function RuleForm({ draft, setDraft, ctx, choices, countTasks, scopeNoun, touch 
       </div>
       <div>
         <span style={label} id="cr-color">Color</span>
-        <div role="radiogroup" aria-labelledby="cr-color" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {PALETTE.map((p) => {
-            const on = draft.color === p.key;
-            return (
-              <button key={p.key} type="button" role="radio" aria-checked={on} aria-label={p.label} title={p.label}
-                onClick={() => setDraft((d) => ({ ...d, color: p.key }))}
-                style={{ width: 26, height: 26, borderRadius: 8, cursor: 'pointer', padding: 0, background: p.hex,
-                  border: `2px solid ${on ? NX.ink : 'transparent'}`, boxShadow: on ? `inset 0 0 0 2px ${NX.surface}` : 'none' }} />
-            );
-          })}
-        </div>
+        <PalettePicker value={draft.color} onChange={(key) => setDraft((d) => ({ ...d, color: key }))} />
       </div>
       <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.ink, cursor: 'pointer', width: 'fit-content' }}>
-        <Switch on={!!draft.bold} onChange={(on) => setDraft((d) => ({ ...d, bold: on }))} label="Bold Title" />
+        <Switch on={!!draft.bold} onChange={(on) => setDraft((d) => ({ ...d, bold: on }))} label="Bold Title" large={touch} />
         Bold Title
         <span style={{ ...hint, fontSize: 12 }}>- also set the task name in bold</span>
       </label>
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10, fontSize: 13, color: NX.ink }}>
-          Color a task when
-          <select aria-label="Match" value={draft.match} onChange={(e) => setDraft((d) => ({ ...d, match: e.target.value }))}
-            style={{ ...inputStyle, width: 'auto', padding: '5px 8px', fontSize: 13 }}>
-            <option value="all">all</option>
-            <option value="any">any</option>
-          </select>
-          of these are true
+          {single ? 'Color a task when this is true' : (
+            <>
+              Color a task when
+              <select aria-label="Match" value={draft.match} onChange={(e) => setDraft((d) => ({ ...d, match: e.target.value }))}
+                style={{ ...inputStyle, width: 'auto', padding: '5px 8px', fontSize: 13 }}>
+                <option value="all">all</option>
+                <option value="any">any</option>
+              </select>
+              of these are true
+            </>
+          )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {draft.conditions.map((c, i) => (
@@ -225,7 +275,7 @@ function RuleForm({ draft, setDraft, ctx, choices, countTasks, scopeNoun, touch 
       </div>
       <div className="nx-fill" style={{ gap: 8 }}>
         <div aria-live="polite" style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
-          {matches ? `Matches ${matches.size} task${matches.size === 1 ? '' : 's'} ${scopeNoun}` : 'Finish the conditions to see what this colors.'}
+          {counts ? countText(own ?? 0, first, scopeNoun) : 'Finish the conditions to see what this colors.'}
         </div>
         <div style={{ ...label, marginBottom: 0 }}>Preview</div>
         <div data-testid="rule-preview" className={attrs.className} style={{ ...attrs.style, display: 'flex', alignItems: 'center', gap: 10, minHeight: 38, padding: '0 14px', border: `1px solid ${NX.border}`, borderRadius: 8, background: NX.surface, fontSize: 13, overflow: 'hidden' }}>
@@ -236,6 +286,27 @@ function RuleForm({ draft, setDraft, ctx, choices, countTasks, scopeNoun, touch 
   );
 }
 
+/** Edit / Duplicate / Delete behind one "..." button - phones, where a row of
+ *  four 40px controls would crowd the rule's name off a 375px screen. */
+function RowMenu({ rule, onEdit, onDuplicate, onDelete, canDuplicate, busy }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const item = { ...btn('ghost'), width: '100%', minHeight: 44, justifyContent: 'flex-start', gap: 10, color: NX.ink, fontSize: 14 };
+  const pick = (fn) => () => { setOpen(false); fn(); };
+  return (
+    <>
+      <button ref={ref} type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}
+        aria-label={`More actions for ${rule.name}`} style={touchBtn}><MoreHorizontal size={18} /></button>
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} align="end" aria-label={`Actions for ${rule.name}`}
+        style={{ width: 200, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+        <button type="button" role="menuitem" onClick={pick(onEdit)} style={item}><Pencil size={16} /> Edit</button>
+        <button type="button" role="menuitem" onClick={pick(onDuplicate)} disabled={busy || !canDuplicate} style={{ ...item, opacity: canDuplicate ? 1 : 0.45 }}><Copy size={16} /> Duplicate</button>
+        <button type="button" role="menuitem" onClick={pick(onDelete)} disabled={busy} style={{ ...item, color: NX.red }}><Trash2 size={16} /> Delete</button>
+      </AnchoredMenu>
+    </>
+  );
+}
+
 /**
  * props:
  *   rules, onSave(nextRules) -> Promise   - the list and how to store it
@@ -243,8 +314,9 @@ function RuleForm({ draft, setDraft, ctx, choices, countTasks, scopeNoun, touch 
  *   customFields - the custom fields offered as conditions here
  *   countTasks   - the tasks the live count runs over
  *   scopeNoun    - "in this project" / "in your tasks"
+ *   personal     - the person's own rules (My Tasks), not a project's
  */
-export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, onClose, ctx, customFields = [], countTasks = [], scopeNoun = 'in this project', statusOrder = [] }) {
+export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, onClose, ctx, customFields = [], countTasks = [], scopeNoun = 'in this project', statusOrder = [], personal = false }) {
   const [list, setList] = useState(rules || []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -253,11 +325,15 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
   const [initialDraft, setInitialDraft] = useState('');
   const [dragIdx, setDragIdx] = useState(null);
   const [overIdx, setOverIdx] = useState(null);
+  // What a screen reader hears after a reorder ("Moved Overdue to 2 of 5").
+  const [announce, setAnnounce] = useState('');
   const handles = useRef([]);
-  // Touch screens cannot drag a list row, so they get Move Up / Move Down.
+  // Touch screens cannot drag a list row, so they get Move Up / Move Down;
+  // phones also fold Edit / Duplicate / Delete into a "..." menu.
   const isPhone = useIsMobile();
   const coarse = useIsMobile('(pointer: coarse)');
   const touch = isPhone || coarse;
+  const today = useToday();
 
   // The stored list wins whenever no save is in flight: after a save it is
   // what the server kept, after a refused one (409) it is the newer list
@@ -268,14 +344,8 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
   if (!busy && seen !== rules) { setSeen(rules); setList(rules || []); }
 
   const choices = useMemo(() => fieldChoices({ customFields, sections: ctx.sections || [] }), [customFields, ctx.sections]);
-  const today = todayISO();
-  const counts = useMemo(() => {
-    const out = {};
-    for (const r of usableRules(list.map((r) => ({ ...r, enabled: true })), ctx)) {
-      out[r.id] = colorMap([r], countTasks, { ...ctx, today }).size;
-    }
-    return out;
-  }, [list, countTasks, ctx, today]);
+  // Each rule's own matches and what it actually colors in its place.
+  const counts = useMemo(() => ruleCounts(list, countTasks, { ...ctx, today }), [list, countTasks, ctx, today]);
 
   const commit = async (next) => {
     const prev = list;
@@ -307,6 +377,8 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
   const saveDraft = async () => {
     if (!draft || problem || busy) return false;
     const clean = { ...draft, name: draft.name.trim() };
+    // One condition has nothing to be "all" or "any" of.
+    if (clean.conditions.length === 1) clean.match = 'all';
     const next = list.some((r) => r.id === clean.id) ? list.map((r) => (r.id === clean.id ? clean : r)) : [...list, clean];
     const ok = await commit(next);
     if (ok) setEditing(null);
@@ -318,8 +390,9 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
     const next = [...list];
     const [r] = next.splice(from, 1);
     next.splice(to, 0, r);
+    setAnnounce(`Moved ${r.name} to ${to + 1} of ${next.length}`);
     commit(next);
-    requestAnimationFrame?.(() => handles.current[to]?.focus());
+    if (!touch) requestAnimationFrame?.(() => handles.current[to]?.focus());
   };
   const remove = async (i) => {
     const ok = await dialog.confirm(`Delete the rule "${list[i].name}"? Rows it colors go back to plain.`,
@@ -338,6 +411,7 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
       .filter((s) => !have.has(s.name.toLowerCase()));
   }, [list, statusOrder, ctx.statusMeta]);
   const full = list.length >= MAX_RULES;
+  const control = touch ? touchBtn : iconBtn;
 
   const footer = editing ? (
     <>
@@ -354,13 +428,15 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
   return (
     <Modal title={title} onClose={onClose} footer={footer} isDirty={dirty}
       onSave={async () => { if (await saveDraft()) onClose(); }}>
-      {error && <div role="alert" style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 8, background: `${NX.red}14`, color: NX.red, fontSize: 12.5, fontWeight: 600 }}>{error}</div>}
+      <div aria-live="polite" role="status" style={srOnly}>{announce}</div>
+      {error && <div role="alert" className="nx-cr-error" style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600 }}>{error}</div>}
       {editing ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1, minHeight: 0 }}>
           <button type="button" onClick={() => setEditing(null)} style={{ ...btn('ghost'), alignSelf: 'flex-start', padding: '4px 6px', fontSize: 12.5 }}>
             <ArrowLeft size={14} /> All Rules
           </button>
-          <RuleForm draft={draft} setDraft={setDraft} ctx={ctx} choices={choices} countTasks={countTasks} scopeNoun={scopeNoun} touch={touch} />
+          <RuleForm draft={draft} setDraft={setDraft} ctx={ctx} choices={choices} countTasks={countTasks} scopeNoun={scopeNoun}
+            touch={touch} list={list} today={today} />
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1, minHeight: 0 }}>
@@ -373,17 +449,19 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
                 {list.map((r, i) => {
                   const probs = ruleProblems(r, ctx);
                   const off = r.enabled === false;
+                  const own = counts.own[r.id];
+                  const first = off ? null : counts.first[r.id];
                   return (
                     <li key={r.id} data-testid="rule-row"
                       onDragOver={(e) => { if (dragIdx == null) return; e.preventDefault(); setOverIdx(i); }}
                       onDrop={(e) => { e.preventDefault(); if (dragIdx != null) move(dragIdx, i); setDragIdx(null); setOverIdx(null); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderTop: i ? `1px solid ${NX.border2}` : 'none', background: overIdx === i && dragIdx !== i ? NX.hover : NX.surface, opacity: dragIdx === i ? 0.5 : 1 }}>
+                      style={{ display: 'flex', alignItems: 'center', gap: touch ? 6 : 10, padding: touch ? '6px 6px 6px 4px' : '10px 12px', borderTop: i ? `1px solid ${NX.border2}` : 'none', background: overIdx === i && dragIdx !== i ? NX.hover : NX.surface, opacity: dragIdx === i ? 0.5 : 1 }}>
                       {touch ? (
                         <span style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
                           <button type="button" onClick={() => move(i, i - 1)} disabled={busy || i === 0} aria-label={`Move ${r.name} Up`}
-                            style={{ ...iconBtn, padding: 2, opacity: i === 0 ? 0.3 : 1 }}><ChevronUp size={15} /></button>
+                            style={{ ...touchBtn, opacity: i === 0 ? 0.3 : 1 }}><ChevronUp size={18} /></button>
                           <button type="button" onClick={() => move(i, i + 1)} disabled={busy || i === list.length - 1} aria-label={`Move ${r.name} Down`}
-                            style={{ ...iconBtn, padding: 2, opacity: i === list.length - 1 ? 0.3 : 1 }}><ChevronDown size={15} /></button>
+                            style={{ ...touchBtn, opacity: i === list.length - 1 ? 0.3 : 1 }}><ChevronDown size={18} /></button>
                         </span>
                       ) : (
                         <button type="button" ref={(el) => { handles.current[i] = el; }} draggable
@@ -401,18 +479,28 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
                       <span className="nx-rc-swatch" style={{ '--rc': colorHex(r.color), opacity: off ? 0.4 : 1 }} aria-hidden="true" />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 13.5, fontWeight: r.bold ? 700 : 600, color: off ? NX.faint : NX.ink }}>{r.name}</span>
+                          <span style={{ fontSize: 13.5, fontWeight: r.bold ? 700 : 600, color: off ? NX.faint : NX.ink, overflowWrap: 'anywhere' }}>{r.name}</span>
                           {probs.length > 0 && <StatusLabel size="sm" label="Needs Attention" color={NX.amber} title={probs.map((p) => p.text).join(' ')} />}
                           {off && <StatusLabel size="sm" label="Off" color="#64748b" />}
-                          {!probs.length && !off && <span style={{ fontSize: 12, color: NX.faint }}>{counts[r.id] ?? 0} task{counts[r.id] === 1 ? '' : 's'}</span>}
                         </div>
                         <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 2 }}>{describeRule(r, ctx)}</div>
+                        {!probs.length && own != null && (
+                          <div data-testid="rule-count" style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{countText(own, first)}</div>
+                        )}
                       </div>
-                      <Switch on={!off} disabled={busy} label={off ? `Turn on ${r.name}` : `Turn off ${r.name}`}
+                      <Switch on={!off} disabled={busy} large={touch} label={off ? `Turn on ${r.name}` : `Turn off ${r.name}`}
                         onChange={(on) => commit(list.map((x, j) => (j === i ? { ...x, enabled: on } : x)))} />
-                      <button type="button" onClick={() => openDraft(JSON.parse(JSON.stringify(r)), r.id)} aria-label={`Edit ${r.name}`} title="Edit" style={iconBtn}><Pencil size={14} /></button>
-                      <button type="button" onClick={() => duplicate(i)} disabled={busy || full} aria-label={`Duplicate ${r.name}`} title="Duplicate" style={{ ...iconBtn, opacity: full ? 0.4 : 1 }}><Copy size={14} /></button>
-                      <button type="button" onClick={() => remove(i)} disabled={busy} aria-label={`Delete ${r.name}`} title="Delete" style={iconBtn}><Trash2 size={14} /></button>
+                      {isPhone ? (
+                        <RowMenu rule={r} busy={busy} canDuplicate={!full}
+                          onEdit={() => openDraft(JSON.parse(JSON.stringify(r)), r.id)}
+                          onDuplicate={() => duplicate(i)} onDelete={() => remove(i)} />
+                      ) : (
+                        <>
+                          <button type="button" onClick={() => openDraft(JSON.parse(JSON.stringify(r)), r.id)} aria-label={`Edit ${r.name}`} title="Edit" style={control}><Pencil size={14} /></button>
+                          <button type="button" onClick={() => duplicate(i)} disabled={busy || full} aria-label={`Duplicate ${r.name}`} title="Duplicate" style={{ ...control, opacity: full ? 0.4 : 1 }}><Copy size={14} /></button>
+                          <button type="button" onClick={() => remove(i)} disabled={busy} aria-label={`Delete ${r.name}`} title="Delete" style={control}><Trash2 size={14} /></button>
+                        </>
+                      )}
                     </li>
                   );
                 })}
@@ -424,10 +512,10 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
               </div>
             )}
             <div style={{ marginTop: 10 }}>
-              <button type="button" disabled={full || busy} onClick={() => openDraft(blankRule(), null)} aria-label="Add Rule" style={{ ...btn('outline'), opacity: full ? 0.5 : 1 }}>
+              <button type="button" disabled={full || busy} onClick={() => openDraft(blankRule(), null)} aria-label="Add Rule" style={{ ...btn('outline'), opacity: full ? 0.5 : 1, ...(touch ? { minHeight: 40 } : null) }}>
                 <Plus size={14} /> Add Rule
               </button>
-              {full && <span style={{ ...hint, marginLeft: 10 }}>A project can have up to {MAX_RULES} rules.</span>}
+              {full && <span style={{ ...hint, marginLeft: 10 }}>{personal ? `You can have up to ${MAX_RULES} rules.` : `A project can have up to ${MAX_RULES} rules.`}</span>}
             </div>
           </div>
           {suggestions.length > 0 && !full && (
@@ -442,7 +530,7 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
                       <div style={{ fontSize: 12, color: NX.dim }}>{describeRule(s, ctx)}</div>
                     </div>
                     <button type="button" disabled={busy} onClick={() => commit([...list, { ...s, id: newRuleId() }])}
-                      aria-label={`Add ${s.name}`} style={{ ...btn('ghost'), padding: '4px 10px', fontSize: 12.5, color: NX.blue }}>
+                      aria-label={`Add ${s.name}`} style={{ ...btn('ghost'), padding: '4px 10px', fontSize: 12.5, color: NX.blue, ...(touch ? { minHeight: 40 } : null) }}>
                       <Plus size={13} /> Add
                     </button>
                   </div>

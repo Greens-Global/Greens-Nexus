@@ -39,6 +39,9 @@ MIN_WIDTH, MAX_WIDTH = 40, 2000
 MAX_DATA_BYTES = 64 * 1024
 # ...and the whole document, which every table on every page load fetches.
 MAX_DOC_BYTES = 256 * 1024
+# The table key the Tasks module keeps row-color settings under
+# (frontend/src/tasks/rowColorState.js useRowColorPrefs).
+ROW_COLORS_TABLE = "rowColors"
 
 
 def _now() -> str:
@@ -154,9 +157,17 @@ def set_table_prefs(table: str, body: TablePrefIn,
     prefs = dict(row.prefs or {})
     if table not in prefs and len(prefs) >= MAX_TABLES:
         raise HTTPException(400, "Too many saved table layouts")
+    clean = _clean(body)
+    # The one document here that is not opaque: the person's own row-color
+    # rules (Oct 22 2026), which My Tasks evaluates and the rule editor reads.
+    # Same validator as a project's rules, so a hand-made PUT cannot store a
+    # rule that would break either.
+    if table == ROW_COLORS_TABLE and "data" in clean:
+        from task_color_rules import clean_personal_settings
+        clean["data"] = clean_personal_settings(db, user, clean["data"], (prefs.get(table) or {}).get("data"))
     # Merged, not replaced: the width save and the order save are separate
     # calls, and a width write must not wipe the order the user just set.
-    prefs[table] = {**prefs.get(table, {}), **_clean(body)}
+    prefs[table] = {**prefs.get(table, {}), **clean}
     if len(json.dumps(prefs).encode("utf-8")) > MAX_DOC_BYTES:
         raise HTTPException(400, "Your saved layouts are too large to add to; reset some tables first")
     row.prefs = prefs           # reassigned, not mutated - JSON columns only
@@ -181,10 +192,16 @@ def reset_table_prefs(table: str, user: dict = Depends(get_current_user), db: Se
 
 @router.delete("")
 def reset_all_prefs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Put EVERY table back to its defaults - the "restore all" the UI offers."""
+    """Put every table back to its defaults - the "restore all" the UI offers.
+    The row-color settings stay (see below)."""
     row = _row(db, user["email"].lower())
+    kept = {}
     if row:
-        row.prefs = {}
+        # The person's own row-color rules are not a column arrangement and
+        # are not what "restore all" offers - kept, so a rule on a field
+        # deleted since (stored, so allowed) is never lost to a column reset.
+        kept = {k: v for k, v in (row.prefs or {}).items() if k == ROW_COLORS_TABLE}
+        row.prefs = kept
         row.updated_at = _now()
         db.commit()
-    return {"prefs": {}}
+    return {"prefs": kept}

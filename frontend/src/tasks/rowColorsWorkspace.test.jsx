@@ -6,8 +6,11 @@ import { render, screen, within, fireEvent, act } from '@testing-library/react';
 // the list for everyone who opens it; only an editor (or a manager) gets Row
 // Colors / Edit Rules - a viewer sees the colors and the key, no controls.
 
+const saveTaskTablePrefs = vi.fn(() => Promise.resolve({}));
 vi.mock('../api', () => ({
-  api: new Proxy({}, { get: (_t, k) => (k === 'then' ? undefined : () => Promise.resolve(k === 'getTaskTablePrefs' ? { prefs: {} } : [])) }),
+  api: new Proxy({}, { get: (_t, k) => (k === 'then' ? undefined
+    : k === 'saveTaskTablePrefs' ? (...a) => saveTaskTablePrefs(...a)
+      : () => Promise.resolve(k === 'getTaskTablePrefs' ? { prefs: {} } : [])) }),
 }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ canAccessModule: () => false }) }));
 vi.mock('./TaskDetailDrawer', () => ({ default: () => null }));
@@ -41,9 +44,10 @@ const makeStore = (role) => {
 vi.mock('./TasksContext', async (importOriginal) => ({ ...(await importOriginal()), useTasks: () => store }));
 
 const { default: TasksWorkspace } = await import('./TasksWorkspace');
+const { default: MyTasksView } = await import('./MyTasksView');
 const { __setTablePrefsCache } = await import('./tableCols');
 
-beforeEach(() => { __setTablePrefsCache({}); });
+beforeEach(() => { __setTablePrefsCache({}); saveTaskTablePrefs.mockReset(); saveTaskTablePrefs.mockImplementation(() => Promise.resolve({})); });
 
 describe('Row colors in a project', () => {
   it('a viewer sees the colored rows and the key, but no Row Colors and no Edit Rules', () => {
@@ -65,5 +69,42 @@ describe('Row colors in a project', () => {
     expect(screen.getByText('Row Colors - Ops')).toBeInTheDocument();
     await act(async () => { fireEvent.click(screen.getByRole('switch', { name: 'Turn off Overdue' })); });
     expect(store.saveColorRules).toHaveBeenCalledWith('p1', [expect.objectContaining({ id: 'r1', enabled: false })], 'rev-1');
+  });
+});
+
+describe('My Tasks: the person\'s own rules', () => {
+  const mineTasks = tasks.map((t) => ({ ...t, assigneeIds: [ME], assigneeId: ME }));
+  const myStore = () => ({ ...makeStore('editor'), tasks: mineTasks, taskById: Object.fromEntries(mineTasks.map((t) => [t.id, t])) });
+  const PERSONAL = [{ id: 'm1', name: 'Mine Late', color: 'pink', bold: false, enabled: true, match: 'all', conditions: [{ field: 'due', op: 'overdue' }] }];
+
+  it('colors My Tasks rows from the profile, with a key', () => {
+    store = myStore();
+    __setTablePrefsCache({ rowColors: { data: { mine: PERSONAL } } });
+    render(<MyTasksView />);
+    expect(screen.getByText('Late one').closest('[data-task-row]').getAttribute('data-row-color')).toBe('m1');
+    expect(within(screen.getByTestId('row-color-legend')).getByText('Mine Late')).toBeInTheDocument();
+  });
+
+  it('a malformed document does not take the screen down', () => {
+    store = myStore();
+    __setTablePrefsCache({ rowColors: { data: { mine: [null, 'x', { id: 'bad' }, { ...PERSONAL[0], conditions: 'nope' }, PERSONAL[0]] } } });
+    render(<MyTasksView />);
+    expect(screen.getByText('Late one').closest('[data-task-row]').getAttribute('data-row-color')).toBe('m1');
+    __setTablePrefsCache({ rowColors: { data: 'garbage' } });
+    expect(screen.getByText('Late one')).toBeInTheDocument();
+  });
+
+  it('a save the server refuses puts the previous rules back and says why', async () => {
+    store = myStore();
+    __setTablePrefsCache({ rowColors: { data: { mine: PERSONAL } } });
+    saveTaskTablePrefs.mockImplementationOnce(() => Promise.reject(new Error('Rule 1: pick a color from the palette')));
+    render(<MyTasksView />);
+    fireEvent.click(screen.getByRole('button', { name: /Row Colors/ }));
+    await act(async () => { fireEvent.click(screen.getByRole('switch', { name: 'Turn off Mine Late' })); });
+    expect(screen.getByRole('alert').textContent).toContain('pick a color');
+    // The failed write was followed by one that puts the old rules back.
+    expect(saveTaskTablePrefs).toHaveBeenLastCalledWith('rowColors', { data: { mine: PERSONAL } });
+    expect(screen.getByRole('switch', { name: 'Turn off Mine Late' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText('Late one').closest('[data-task-row]').getAttribute('data-row-color')).toBe('m1');
   });
 });

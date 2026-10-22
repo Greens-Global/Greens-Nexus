@@ -30,12 +30,9 @@ import DueBadge from './DueBadge';
 import AnchoredMenu from '../components/AnchoredMenu';
 import ChangeFlash from '../components/ChangeFlash';
 import { changedRecently } from './recentChanges';
-import { RowColorsProvider, useRowColorScope, useRuleContext, useRowColorPrefs, useRowColor, rowColorAttrs, boldTitleStyle, srOnly } from './rowColorState';
+import { RowColorsProvider, useRowColorScope, useRuleContext, useMyColorRules, useRowColor, rowColorAttrs, boldTitleStyle, srOnly, onTint } from './rowColorState';
 import { RowColorLegend } from './RowColors';
 import ColorRulesEditor from './ColorRulesEditor';
-
-// Stable identity for "no personal color rules" (see useRowColorScope).
-const NO_RULES = [];
 
 const VIEW_TABS = [
   { key: 'list', label: 'List', icon: ListIcon },
@@ -236,7 +233,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
       // the row's right edge instead of the left-aligned default, so it isn't
       // stranded in a sea of empty space between it and the name column.
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, ...(isMobilePortrait ? { justifyContent: 'flex-end', width: '100%' } : null) }}>
-        <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={dueColor(t.dueOn, t.completed)}
+        <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={onTint(dueColor(t.dueOn, t.completed), rc)}
           title="Due Date" compact
           style={t.dueOn ? { fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' } : undefined} />
         <DueBadge task={t} nameOf={store.nameOf} compact />
@@ -423,8 +420,7 @@ export default function MyTasksView({ onNavigate }) {
   // them. Evaluated over every row any view here can show (the Board keeps
   // completed work). Only fields that apply everywhere can be conditions:
   // a project's own field means nothing on a task outside that project.
-  const [rcPrefs, patchRcPrefs] = useRowColorPrefs();
-  const myRules = useMemo(() => (Array.isArray(rcPrefs.mine) ? rcPrefs.mine : NO_RULES), [rcPrefs.mine]);
+  const [myRules, saveMyRules] = useMyColorRules();
   const ruleCtx = useRuleContext({ projectId: '', sections: sec.sections, sectionOf: sec.sectionOf });
   const rowScope = useRowColorScope({ rules: myRules, tasks: allMine, ruleCtx });
   const editorCtx = useMemo(() => ({ ...ruleCtx, people: directory }), [ruleCtx, directory]);
@@ -592,13 +588,14 @@ export default function MyTasksView({ onNavigate }) {
         <ColorRulesEditor
           title="Row Colors - Your Tasks"
           rules={myRules}
-          onSave={(next) => patchRcPrefs({ mine: next })}
+          onSave={saveMyRules}
           onClose={() => setColorsOpen(false)}
           ctx={editorCtx}
           customFields={globalFields}
           statusOrder={ruleCtx.statusOrder}
           countTasks={allMine}
           scopeNoun="in your tasks"
+          personal
         />
       )}
 

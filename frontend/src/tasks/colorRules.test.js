@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   PALETTE, BUILTIN_FIELDS, CF_OPS, OP_KIND, colorHex, conditionMatches, conditionProblem, ruleProblems,
   draftProblem, usableRules, firstMatch, colorMap, describeRule, describeCondition, starterRules, fieldChoices,
-  blankRule, MAX_CONDITIONS,
+  blankRule, MAX_CONDITIONS, compileRules, colorMapWith, ruleCounts, sanitizeRules, fieldInfo,
 } from './colorRules';
 import { NX } from './theme';
 
@@ -100,7 +100,10 @@ describe('built-in fields', () => {
     expect(m({ field: 'due', op: 'within', value: 7 }, task({ dueOn: '2026-10-29' }))).toBe(true);
     expect(m({ field: 'due', op: 'within', value: 7 }, task({ dueOn: '2026-10-30' }))).toBe(false);
     expect(m({ field: 'due', op: 'within', value: 7 }, task({ dueOn: '2026-10-21' }))).toBe(false);
-    expect(m({ field: 'due', op: 'within', value: 0 }, task({ dueOn: TODAY }))).toBe(true);
+    expect(m({ field: 'due', op: 'within', value: 1 }, task({ dueOn: TODAY }))).toBe(true);
+    expect(m({ field: 'due', op: 'within', value: 1 }, task({ dueOn: '2026-10-23' }))).toBe(true);
+    // "Within the next 0 days" is not a window - the editor asks for 1 or more.
+    expect(conditionProblem({ field: 'due', op: 'within', value: 0 }, ctx)).toMatch(/from 1 to 365/);
     expect(m({ field: 'due', op: 'before', value: '2026-11-01' }, task({ dueOn: '2026-10-31' }))).toBe(true);
     expect(m({ field: 'due', op: 'after', value: '2026-11-01' }, task({ dueOn: '2026-10-31' }))).toBe(false);
     expect(m({ field: 'due', op: 'on', value: '2026-10-31' }, task({ dueOn: '2026-10-31T00:00:00' }))).toBe(true);
@@ -289,7 +292,8 @@ describe('palette and starters', () => {
 
   it('three suggestions; the third uses a held-up status when the project has one', () => {
     const plain = starterRules({ statusOrder: ['not_started', 'in_progress'], statusMeta });
-    expect(plain.map((r) => r.name)).toEqual(['Overdue', 'Due This Week', 'Unassigned']);
+    // Named for what it tests: today through the next seven days.
+    expect(plain.map((r) => r.name)).toEqual(['Overdue', 'Due In Next 7 Days', 'Unassigned']);
     expect(plain.map((r) => r.color)).toEqual(['red', 'amber', 'gray']);
     const held = starterRules({ statusOrder: ['in_progress', 'cs-hold'], statusMeta });
     expect(held[2]).toMatchObject({ name: 'On Hold', conditions: [{ field: 'status', op: 'is', value: 'cs-hold' }] });
@@ -303,5 +307,77 @@ describe('palette and starters', () => {
     expect(keys).toContain('cf:stage');
     expect(keys).not.toContain('cf:weird');
     expect(fieldChoices({ sections: [{ id: 's' }] }).map((f) => f.key)).toContain('section');
+  });
+});
+
+describe('review pass (Oct 22 2026)', () => {
+  const overdue = { id: 'r1', name: 'Overdue', color: 'red', match: 'all', conditions: [{ field: 'due', op: 'overdue' }] };
+  const urgent = { id: 'r2', name: 'Urgent', color: 'amber', match: 'all', conditions: [{ field: 'priority', op: 'is', value: 'urgent' }] };
+
+  it('compiled rules evaluate each task object once; a changed task (new object) is evaluated again', () => {
+    let reads = 0;
+    const counted = (over) => {
+      const t = task(over);
+      const dueOn = t.dueOn;
+      Object.defineProperty(t, 'dueOn', { get() { reads += 1; return dueOn; } });
+      return t;
+    };
+    const a = counted({ id: 'a', dueOn: '2026-10-01' });
+    const b = counted({ id: 'b', dueOn: '' });
+    const compiled = compileRules([overdue], ctx);
+    expect([...colorMapWith(compiled, [a, b]).keys()]).toEqual(['a']);
+    const after = reads;
+    // A "search keystroke": the same objects again, or a subset of them.
+    colorMapWith(compiled, [a, b]);
+    colorMapWith(compiled, [b]);
+    expect(reads).toBe(after);
+    // The store replaces a task when it changes; the new object is fresh work.
+    const a2 = { ...task({ id: 'a' }), dueOn: '2099-01-01' };
+    expect(colorMapWith(compiled, [a2]).has('a')).toBe(false);
+  });
+
+  it('own matches and what a rule actually colors in its place', () => {
+    const anyPriority = { id: 'r3', name: 'Busy', color: 'teal', match: 'all', conditions: [{ field: 'priority', op: 'is_any_of', value: ['urgent', 'medium'] }] };
+    const tasks = [task({ id: 'a', dueOn: '2026-10-01' }), task({ id: 'b', priority: 'urgent' }), task({ id: 'c' })];
+    const n = ruleCounts([overdue, urgent, anyPriority, { ...overdue, id: 'r4', enabled: false }], tasks, ctx);
+    expect(n.own).toEqual({ r1: 1, r2: 1, r3: 3, r4: 1 });
+    expect(n.first).toEqual({ r1: 1, r2: 1, r3: 1 });   // r4 is off: it colors nothing
+  });
+
+  it('section "is not set" matches what the Custom grouping shows as No Section', () => {
+    const notSet = { field: 'section', op: 'is_empty' };
+    expect(m(notSet, task({ sectionId: 'asana-column-id' }))).toBe(true);   // not one of this project's sections
+    expect(m(notSet, task({ sectionId: 'sec-1' }))).toBe(false);
+    expect(m({ field: 'section', op: 'is_not', value: 'sec-1' }, task({ sectionId: 'asana-column-id' }))).toBe(true);
+  });
+
+  it('a stored document that is malformed loses only the bad rules', () => {
+    const raw = [
+      overdue, null, 'x', [], { id: '', name: 'n', conditions: [{ field: 'due', op: 'overdue' }] },
+      { id: 'r9', name: 'no conditions', conditions: [] },
+      { id: 'r8', name: 'bad condition', conditions: [{ field: 3, op: 'is' }] },
+      { ...overdue },   // repeated id
+      { id: 'r7', name: 'Odd', color: 7, bold: 'yes', enabled: 'no', match: 'most', conditions: [{ field: 'completed', op: 'is_false' }] },
+    ];
+    const clean = sanitizeRules(raw);
+    expect(clean.map((r) => r.id)).toEqual(['r1', 'r7']);
+    expect(clean[1]).toMatchObject({ color: 'gray', bold: false, enabled: true, match: 'all' });
+    expect(sanitizeRules({ not: 'a list' })).toEqual([]);
+  });
+
+  it('keys from stored data never reach the prototype', () => {
+    expect(colorHex('__proto__')).toBe('#64748b');
+    expect(colorHex('constructor')).toBe('#64748b');
+    expect(fieldInfo('constructor', new Map())).toBe(null);
+    expect(conditionProblem({ field: '__proto__', op: 'is', value: 'x' }, ctx)).toBe('This field is not known.');
+    expect(conditionProblem({ field: 'status', op: 'toString' }, ctx)).toMatch(/no longer fits/);
+    expect(conditionProblem({ field: 'status', op: 'is', value: 'constructor' }, ctx)).toMatch(/deleted/);
+  });
+
+  it('a custom field whose type changed needs attention and never matches', () => {
+    const retyped = new Map([['stage', { id: 'stage', name: 'Stage', type: 'text' }]]);
+    const rule = { id: 'x', name: 'X', color: 'red', match: 'all', conditions: [{ field: 'cf:stage', op: 'is', value: 'o-a' }] };
+    expect(ruleProblems(rule, { ...ctx, fieldsById: retyped })[0].text).toMatch(/no longer fits/);
+    expect(colorMap([rule], [task({ customFieldValues: { stage: 'o-a' } })], { ...ctx, fieldsById: retyped }).size).toBe(0);
   });
 });

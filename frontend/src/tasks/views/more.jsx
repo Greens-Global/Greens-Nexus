@@ -208,7 +208,8 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
               const rc = rowColors?.get(t.id) || null;
               const rcAttrs = rowColorAttrs(rc);
               return (
-                <button key={t.id} onClick={() => onOpen(t.id)} title={isMobile ? t.title : undefined} className={rcAttrs.className || undefined} data-row-color={rc?.id}
+                <button key={t.id} onClick={() => onOpen(t.id)} title={isMobile ? t.title : rc ? `Colored ${rc.name}` : undefined} className={rcAttrs.className || undefined} data-row-color={rc?.id}
+                  aria-label={rc ? `${t.title}, colored ${rc.name}` : undefined}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, height: ROW_H, width: '100%', border: 'none', borderBottom: `1px solid ${NX.border2}`, padding: isMobile ? '0 8px' : '0 12px', textAlign: 'left', background: 'transparent', cursor: 'pointer', fontSize: 12, fontFamily: FONT, ...rcAttrs.style }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.ink, ...(rc?.bold ? { fontWeight: 700, color: 'var(--rc-ink)' } : null) }}>{t.title}</span>
                 </button>
@@ -255,7 +256,7 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
               const edge = { position: 'absolute', top: 0, bottom: 0, width: HANDLE_W, cursor: 'ew-resize' };
               const rc = rowColors?.get(t.id);
               return (
-                <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={`${t.title} (${meta.label})`} aria-label={t.title} data-bar={t.id}
+                <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={`${t.title} (${meta.label})${rc ? ` - ${rc.name}` : ''}`} aria-label={rc ? `${t.title}, colored ${rc.name}` : t.title} data-bar={t.id}
                   style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: cursorFor(t), background: meta.color, overflow: 'hidden', touchAction: 'pan-x pan-y', WebkitTouchCallout: 'none', userSelect: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1, boxShadow: dragging ? '0 6px 18px rgba(0,0,0,0.25)' : 'none', transition: dragging ? 'none' : 'left 0.12s, width 0.12s', ...(rc ? { outline: `2px solid ${rc.hex}`, outlineOffset: 1 } : null) }} data-row-color={rc?.id}>
                   <span style={{ ...edge, left: 0 }} />
                   {ini && <span style={{ flexShrink: 0, fontWeight: 700, opacity: 0.9 }}>{ini}</span>}

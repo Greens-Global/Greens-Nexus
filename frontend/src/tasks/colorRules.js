@@ -14,14 +14,26 @@
 // broken in it (a deleted field, option, status or section) never matches -
 // the editor flags it instead of quietly coloring by half a rule. Calendar
 // days are the viewer's LOCAL day (lib.js todayISO), never the UTC one.
+//
+// Speed: rules are COMPILED once per (rules, context, day) into plain
+// predicates - date limits worked out, values lowercased, "any of" lists made
+// into Sets - and each task's answer is cached on the compiled set, keyed by
+// the task OBJECT (a WeakMap). The store replaces a task object whenever the
+// task changes, so an edit is re-evaluated and a search keystroke, which only
+// changes which of the same objects are on screen, is not.
 import { NX, PRIORITY_META } from './theme';
-import { addDays, taskAssignees, isBlankValue } from './lib';
+import { addDays, taskAssignees, isBlankValue, todayISO } from './lib';
 import { formatDate } from '../lib/datetime';
 
 export const MAX_RULES = 20;
 export const MAX_CONDITIONS = 5;
 export const MAX_NAME = 60;
+export const MIN_DAYS = 1;
 export const MAX_DAYS = 365;
+
+// Lookups by a key that came from stored data go through this, never a bare
+// obj[key]: a rule naming "constructor" or "__proto__" must read as unknown.
+const own = (obj, key) => (obj && typeof key === 'string' && Object.hasOwn(obj, key) ? obj[key] : undefined);
 
 // The soft label palette - the accents the status labels and project looks
 // already use (theme.js NX) plus slate. Stored as the KEY, so a rule never
@@ -38,10 +50,10 @@ export const PALETTE = [
   { key: 'gray', label: 'Gray', hex: '#64748b' },
 ];
 const HEX = Object.fromEntries(PALETTE.map((p) => [p.key, p.hex]));
-export const colorHex = (key) => HEX[key] || HEX.gray;
+export const colorHex = (key) => own(HEX, key) || HEX.gray;
 
 // What value an operator takes - the same kinds as the server's OP_KIND.
-export const OP_KIND = {
+export const OP_KIND = Object.freeze({
   is: 'text', is_not: 'text', is_any_of: 'list',
   is_me: 'none', is_not_me: 'none', is_unassigned: 'none', is_assigned: 'none',
   person_is: 'person', person_is_not: 'person',
@@ -51,7 +63,8 @@ export const OP_KIND = {
   before: 'date', after: 'date', on: 'date',
   eq: 'number', ne: 'number', gt: 'number', gte: 'number', lt: 'number', lte: 'number',
   between: 'range',
-};
+});
+export const opKind = (op) => own(OP_KIND, op);
 
 // The words each operator reads as, in the picker and in the summary.
 const OP_LABEL = {
@@ -105,17 +118,18 @@ export const CF_PREFIX = 'cf:';
 /** The field a condition names: a built-in, a custom field (with its def),
  *  or null when it names nothing that exists any more. */
 export function fieldInfo(key, fieldsById) {
-  if (BUILTIN[key]) return BUILTIN[key];
+  const builtin = own(BUILTIN, key);
+  if (builtin) return builtin;
   if (!String(key || '').startsWith(CF_PREFIX)) return null;
   const def = fieldsById?.get?.(key.slice(CF_PREFIX.length));
   if (!def) return null;
-  const type = (def.type || 'text').toLowerCase();
-  const ops = CF_OPS[type];
+  const type = String(def.type || 'text').toLowerCase();
+  const ops = own(CF_OPS, type);
   if (!ops) return null;
-  return { key, label: def.name || 'Custom Field', kind: `cf-${type}`, type, ops, words: CF_WORDS[type], def };
+  return { key, label: def.name || 'Custom Field', kind: `cf-${type}`, type, ops, words: own(CF_WORDS, type), def };
 }
 
-export const opLabel = (field, op) => field?.words?.[op] || OP_LABEL[op] || op;
+export const opLabel = (field, op) => own(field?.words, op) || own(OP_LABEL, op) || String(op || '');
 
 /** The fields the editor offers here: the built-ins (Section only where there
  *  are sections to pick) and the custom fields this scope uses. */
@@ -123,14 +137,41 @@ export function fieldChoices({ customFields = [], sections = [] } = {}) {
   const out = BUILTIN_FIELDS.filter((f) => f.key !== 'section' || sections.length > 0)
     .map((f) => ({ key: f.key, label: f.label }));
   for (const f of customFields) {
-    if (CF_OPS[(f.type || 'text').toLowerCase()]) out.push({ key: `${CF_PREFIX}${f.id}`, label: f.name || 'Custom Field' });
+    if (own(CF_OPS, String(f.type || 'text').toLowerCase())) out.push({ key: `${CF_PREFIX}${f.id}`, label: f.name || 'Custom Field' });
+  }
+  return out;
+}
+
+// ── Reading stored rules ─────────────────────────────────────────────────────
+/** Rules as read from storage, with anything malformed dropped rather than
+ *  thrown on: a hand-edited or half-written document must never take My Tasks
+ *  or the editor down. Conditions keep their content (the editor flags what
+ *  no longer fits); only their SHAPE is checked here. */
+export function sanitizeRules(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const r of raw) {
+    if (!r || typeof r !== 'object' || Array.isArray(r)) continue;
+    if (typeof r.id !== 'string' || !r.id || seen.has(r.id) || typeof r.name !== 'string') continue;
+    if (!Array.isArray(r.conditions) || !r.conditions.length) continue;
+    const conditions = r.conditions.filter((c) => c && typeof c === 'object' && !Array.isArray(c)
+      && typeof c.field === 'string' && typeof c.op === 'string');
+    if (conditions.length !== r.conditions.length) continue;
+    seen.add(r.id);
+    out.push({
+      id: r.id, name: r.name, color: typeof r.color === 'string' ? r.color : 'gray',
+      bold: r.bold === true, enabled: r.enabled !== false, match: r.match === 'any' ? 'any' : 'all',
+      conditions: conditions.slice(0, MAX_CONDITIONS),
+    });
+    if (out.length >= MAX_RULES) break;
   }
   return out;
 }
 
 // ── Defaults the editor fills in when a field or operator changes ────────────
 export function defaultValue(op, field) {
-  const kind = OP_KIND[op];
+  const kind = opKind(op);
   if (kind === 'none') return undefined;
   if (kind === 'days') return 7;
   if (kind === 'list') return [];
@@ -159,22 +200,24 @@ export function conditionProblem(c, ctx = {}) {
     return String(c.field || '').startsWith(CF_PREFIX) ? 'The field this uses was deleted.' : 'This field is not known.';
   }
   if (!field.ops.includes(c.op)) return 'This comparison no longer fits the field.';
-  const kind = OP_KIND[c.op];
+  const kind = opKind(c.op);
   const v = c.value;
   if (kind === 'text' || kind === 'person' || kind === 'date') {
-    if (v === undefined || v === null || String(v).trim() === '') return 'Pick a value.';
+    if (v === undefined || v === null || typeof v === 'object' || String(v).trim() === '') return 'Pick a value.';
   }
   if (kind === 'list' && (!Array.isArray(v) || v.length === 0)) return 'Pick at least one value.';
-  if (kind === 'days' && !(Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= MAX_DAYS)) return `Enter a whole number of days from 0 to ${MAX_DAYS}.`;
-  if (kind === 'number' && (v === '' || v === null || !Number.isFinite(Number(v)))) return 'Enter a number.';
+  if (kind === 'days' && !(v !== '' && v !== null && Number.isInteger(Number(v)) && Number(v) >= MIN_DAYS && Number(v) <= MAX_DAYS)) {
+    return `Enter a whole number of days from ${MIN_DAYS} to ${MAX_DAYS}.`;
+  }
+  if (kind === 'number' && (v === '' || v === null || typeof v === 'object' || !Number.isFinite(Number(v)))) return 'Enter a number.';
   if (kind === 'range' && (!Array.isArray(v) || v.length !== 2 || v.some((x) => x === '' || x === null || !Number.isFinite(Number(x))))) return 'Enter both numbers.';
   const vals = Array.isArray(v) && kind === 'list' ? v : [v];
   if ((field.type === 'select' || field.type === 'multiselect') && kind !== 'none') {
     const ids = new Set((field.def.options || []).map((o) => o?.id ?? o));
     if (vals.some((x) => !ids.has(x))) return 'An option this uses was deleted.';
   }
-  if (field.kind === 'status' && ctx.statusMeta && vals.some((x) => !ctx.statusMeta[x])) return 'A status this uses was deleted.';
-  if (field.kind === 'priority' && vals.some((x) => !PRIORITY_META[x])) return 'This priority is not known.';
+  if (field.kind === 'status' && ctx.statusMeta && vals.some((x) => !own(ctx.statusMeta, x))) return 'A status this uses was deleted.';
+  if (field.kind === 'priority' && vals.some((x) => !own(PRIORITY_META, x))) return 'This priority is not known.';
   if (field.kind === 'section' && kind !== 'none' && Array.isArray(ctx.sections) && !ctx.sections.some((s) => s.id === v)) {
     return 'The section this uses was deleted.';
   }
@@ -184,7 +227,7 @@ export function conditionProblem(c, ctx = {}) {
 /** [{ index, text }] for every condition that needs attention. */
 export function ruleProblems(rule, ctx = {}) {
   const out = [];
-  (rule?.conditions || []).forEach((c, index) => {
+  (Array.isArray(rule?.conditions) ? rule.conditions : []).forEach((c, index) => {
     const text = conditionProblem(c, ctx);
     if (text) out.push({ index, text });
   });
@@ -201,171 +244,230 @@ export function draftProblem(rule, ctx = {}) {
   return p ? `Condition ${p.index + 1}: ${p.text}` : '';
 }
 
-// ── Evaluation ──────────────────────────────────────────────────────────────
+// ── Compiling ───────────────────────────────────────────────────────────────
 const day = (v) => (v ? String(v).slice(0, 10) : '');
-
-function dateMatches(op, d, value, task, today) {
-  switch (op) {
-    case 'overdue': return !!d && d < today && !task.completed;
-    case 'past': return !!d && d < today;
-    case 'today': return d === today;
-    case 'within': return !!d && d >= today && d <= addDays(today, Number(value) || 0);
-    case 'before': return !!d && d < day(value);
-    case 'after': return !!d && d > day(value);
-    case 'on': return !!d && d === day(value);
-    case 'is_empty': return !d;
-    case 'is_not_empty': return !!d;
-    default: return false;
-  }
-}
-
 const lowerList = (xs) => (Array.isArray(xs) ? xs : []).map((x) => String(x || '').toLowerCase()).filter(Boolean);
+const NEVER = () => false;
 
-function personMatches(op, people, value, me) {
+/** The section a task is filed under, as the Custom grouping shows it: an id
+ *  that is not one of this scope's sections reads as "No Section" ('') - the
+ *  same resolution as lib.js groupTasks. */
+function sectionResolver(ctx) {
+  const known = Array.isArray(ctx.sections) ? new Set(ctx.sections.map((s) => s.id)) : null;
+  return (task) => {
+    const sid = (ctx.sectionOf ? ctx.sectionOf(task) : task.sectionId) || '';
+    return known && !known.has(sid) ? '' : sid;
+  };
+}
+
+function compileDate(op, value, get, today) {
   switch (op) {
-    case 'is_me': return !!me && people.includes(me);
-    case 'is_not_me': return !me || !people.includes(me);
-    case 'person_is': case 'person_contains': return people.includes(String(value || '').toLowerCase());
-    case 'person_is_not': return !people.includes(String(value || '').toLowerCase());
-    case 'is_unassigned': case 'is_empty': return people.length === 0;
-    case 'is_assigned': case 'is_not_empty': return people.length > 0;
-    default: return false;
+    case 'overdue': return (t) => { const d = get(t); return !!d && d < today && !t.completed; };
+    case 'past': return (t) => { const d = get(t); return !!d && d < today; };
+    case 'today': return (t) => get(t) === today;
+    case 'within': {
+      const until = addDays(today, Number(value) || 0);
+      return (t) => { const d = get(t); return !!d && d >= today && d <= until; };
+    }
+    case 'before': { const v = day(value); return (t) => { const d = get(t); return !!d && d < v; }; }
+    case 'after': { const v = day(value); return (t) => { const d = get(t); return !!d && d > v; }; }
+    case 'on': { const v = day(value); return (t) => { const d = get(t); return !!d && d === v; }; }
+    case 'is_empty': return (t) => !get(t);
+    case 'is_not_empty': return (t) => !!get(t);
+    default: return NEVER;
   }
 }
 
-function customMatches(field, op, raw, value, task, ctx) {
-  const blank = isBlankValue(raw);
-  if (op === 'is_empty') return blank;
-  if (op === 'is_not_empty') return !blank;
+function compilePeople(op, value, get, me) {
+  const who = String(value || '').toLowerCase();
+  switch (op) {
+    case 'is_me': return (t) => !!me && get(t).includes(me);
+    case 'is_not_me': return (t) => !me || !get(t).includes(me);
+    case 'person_is': case 'person_contains': return (t) => get(t).includes(who);
+    case 'person_is_not': return (t) => !get(t).includes(who);
+    case 'is_unassigned': case 'is_empty': return (t) => get(t).length === 0;
+    case 'is_assigned': case 'is_not_empty': return (t) => get(t).length > 0;
+    default: return NEVER;
+  }
+}
+
+function compileCustom(field, op, value, ctx) {
+  const id = field.def.id;
+  const raw = (t) => own(t.customFieldValues, id);
+  if (op === 'is_empty') return (t) => isBlankValue(raw(t));
+  if (op === 'is_not_empty') return (t) => !isBlankValue(raw(t));
   switch (field.type) {
-    case 'select':
-      if (op === 'is') return raw === value;
-      if (op === 'is_not') return raw !== value;
-      if (op === 'is_any_of') return Array.isArray(value) && value.includes(raw);
-      return false;
+    case 'select': {
+      if (op === 'is') return (t) => raw(t) === value;
+      if (op === 'is_not') return (t) => raw(t) !== value;
+      const set = new Set(Array.isArray(value) ? value : []);
+      return (t) => set.has(raw(t));
+    }
     case 'multiselect': {
-      const have = Array.isArray(raw) ? raw : [];
-      if (op === 'contains') return have.includes(value);
-      if (op === 'not_contains') return !have.includes(value);
-      return false;
+      const has = (t) => { const v = raw(t); return Array.isArray(v) && v.includes(value); };
+      return op === 'contains' ? has : (t) => !has(t);
     }
     case 'number': {
-      if (blank) return false;
-      const n = Number(raw);
-      if (!Number.isFinite(n)) return false;
+      const num = (t) => { const v = raw(t); if (isBlankValue(v)) return NaN; return Number(v); };
       const x = Number(value);
-      switch (op) {
-        case 'eq': return n === x;
-        case 'ne': return n !== x;
-        case 'gt': return n > x;
-        case 'gte': return n >= x;
-        case 'lt': return n < x;
-        case 'lte': return n <= x;
-        case 'between': {
-          const [a, b] = (value || []).map(Number);
-          return n >= Math.min(a, b) && n <= Math.max(a, b);
-        }
-        default: return false;
-      }
+      const [a, b] = Array.isArray(value) ? value.map(Number) : [NaN, NaN];
+      const lo = Math.min(a, b), hi = Math.max(a, b);
+      const cmp = {
+        eq: (n) => n === x, ne: (n) => n !== x, gt: (n) => n > x, gte: (n) => n >= x,
+        lt: (n) => n < x, lte: (n) => n <= x, between: (n) => n >= lo && n <= hi,
+      }[op] || NEVER;
+      return (t) => { const n = num(t); return Number.isFinite(n) && cmp(n); };
     }
     case 'checkbox':
-      return op === 'is_true' ? raw === true : raw !== true;
+      return op === 'is_true' ? (t) => raw(t) === true : (t) => raw(t) !== true;
     case 'text': {
-      const hay = String(raw ?? '').toLowerCase();
       const needle = String(value ?? '').toLowerCase();
-      return op === 'contains' ? hay.includes(needle) : !hay.includes(needle);
+      const has = (t) => String(raw(t) ?? '').toLowerCase().includes(needle);
+      return op === 'contains' ? has : (t) => !has(t);
     }
-    case 'date':
-      return dateMatches(op, day(raw), value, task, ctx.today);
-    case 'people':
-      return personMatches(op, lowerList(raw), value, ctx.me);
-    default:
-      return false;
+    case 'date': return compileDate(op, value, (t) => day(raw(t)), ctx.today);
+    case 'people': return compilePeople(op, value, (t) => lowerList(raw(t)), ctx.me);
+    default: return NEVER;
   }
 }
 
-/** Does one (problem-free) condition hold for `task`?
- *  ctx: { today, me, fieldsById, sectionOf } */
-export function conditionMatches(c, task, ctx) {
+/** One (problem-free) condition as a predicate over a task. */
+export function compileCondition(c, ctx) {
   const { op, value } = c;
   switch (c.field) {
     case 'status':
-      if (op === 'is') return task.status === value;
-      if (op === 'is_not') return task.status !== value;
-      return Array.isArray(value) && value.includes(task.status);
-    case 'priority':
-      if (op === 'is') return task.priority === value;
-      if (op === 'is_not') return task.priority !== value;
-      return Array.isArray(value) && value.includes(task.priority);
-    case 'assignee':
-      return personMatches(op, lowerList(taskAssignees(task)), value, ctx.me);
-    case 'created_by':
-      return personMatches(op, lowerList([task.requesterId || task.ownerId]), value, ctx.me);
+    case 'priority': {
+      const get = c.field === 'status' ? (t) => t.status : (t) => t.priority;
+      if (op === 'is') return (t) => get(t) === value;
+      if (op === 'is_not') return (t) => get(t) !== value;
+      const set = new Set(Array.isArray(value) ? value : []);
+      return (t) => set.has(get(t));
+    }
+    case 'assignee': return compilePeople(op, value, (t) => lowerList(taskAssignees(t)), ctx.me);
+    case 'created_by': return compilePeople(op, value, (t) => lowerList([t.requesterId || t.ownerId]), ctx.me);
     case 'tags': {
-      const tags = lowerList(task.tags);
-      if (op === 'is_empty') return tags.length === 0;
-      if (op === 'is_not_empty') return tags.length > 0;
       const want = String(value || '').trim().toLowerCase();
-      return op === 'contains' ? tags.includes(want) : !tags.includes(want);
+      if (op === 'is_empty') return (t) => lowerList(t.tags).length === 0;
+      if (op === 'is_not_empty') return (t) => lowerList(t.tags).length > 0;
+      return op === 'contains' ? (t) => lowerList(t.tags).includes(want) : (t) => !lowerList(t.tags).includes(want);
     }
     case 'section': {
-      const sid = (ctx.sectionOf ? ctx.sectionOf(task) : task.sectionId) || '';
-      if (op === 'is_empty') return !sid;
-      return op === 'is' ? sid === value : sid !== value;
+      const sectionOf = sectionResolver(ctx);
+      if (op === 'is_empty') return (t) => !sectionOf(t);
+      return op === 'is' ? (t) => sectionOf(t) === value : (t) => sectionOf(t) !== value;
     }
-    case 'due': return dateMatches(op, day(task.dueOn), value, task, ctx.today);
-    case 'start': return dateMatches(op, day(task.startOn), value, task, ctx.today);
-    case 'completed': return op === 'is_true' ? !!task.completed : !task.completed;
+    case 'due': return compileDate(op, value, (t) => day(t.dueOn), ctx.today);
+    case 'start': return compileDate(op, value, (t) => day(t.startOn), ctx.today);
+    case 'completed': return op === 'is_true' ? (t) => !!t.completed : (t) => !t.completed;
     default: {
       const field = fieldInfo(c.field, ctx.fieldsById);
-      if (!field?.def) return false;
-      return customMatches(field, op, (task.customFieldValues || {})[field.def.id], value, task, ctx);
+      return field?.def ? compileCustom(field, op, value, ctx) : NEVER;
     }
   }
+}
+
+const fullCtx = (ctx = {}) => ({ ...ctx, today: ctx.today || todayISO(), me: String(ctx.me || '').toLowerCase() });
+
+/** Does one (problem-free) condition hold for `task`? (Tests and one-offs;
+ *  lists go through compileRules.) */
+export function conditionMatches(c, task, ctx) {
+  return compileCondition(c, fullCtx(ctx))(task);
 }
 
 /** The rules that can color anything: enabled, and nothing in them broken. */
 export function usableRules(rules, ctx = {}) {
   return (Array.isArray(rules) ? rules : [])
-    .filter((r) => r && r.enabled !== false && Array.isArray(r.conditions) && r.conditions.length > 0
+    .filter((r) => r && typeof r === 'object' && r.enabled !== false && Array.isArray(r.conditions) && r.conditions.length > 0
       && ruleProblems(r, ctx).length === 0);
 }
 
-export function ruleMatches(rule, task, ctx) {
-  const test = (c) => conditionMatches(c, task, ctx);
-  return rule.match === 'any' ? rule.conditions.some(test) : rule.conditions.every(test);
+function compileOne(r, ctx) {
+  const tests = r.conditions.map((c) => compileCondition(c, ctx));
+  const any = r.match === 'any';
+  return {
+    id: r.id,
+    enabled: r.enabled !== false,
+    entry: { id: r.id, name: r.name, color: r.color, hex: colorHex(r.color), bold: r.bold === true },
+    test: any ? (t) => tests.some((f) => f(t)) : (t) => tests.every((f) => f(t)),
+  };
 }
 
-/** The rule that colors `task` - the first usable one that matches - or null.
- *  `usable` is usableRules(...) worked out once for the whole list. */
-export function firstMatch(usable, task, ctx) {
-  if (!task || task.type === 'section') return null;
-  for (const r of usable) if (ruleMatches(r, task, ctx)) return r;
-  return null;
+/**
+ * The usable rules, compiled for this context and day, with a per-task cache.
+ * ctx: { today, me, fieldsById, statusMeta, sections, sectionOf }. A new
+ * compile (new rules, context or day) starts a new cache.
+ */
+export function compileRules(rules, ctx = {}) {
+  const c = fullCtx(ctx);
+  return { rules: usableRules(rules, c).map((r) => compileOne(r, c)), cache: new WeakMap() };
 }
 
-/** taskId -> { id, name, color, hex, bold } for every task a rule colors.
- *  ctx needs `today` (todayISO()) and `me` (lowercased email). */
-export function colorMap(rules, tasks, ctx = {}) {
+/** The color entry for one task under compiled rules, or null. */
+export function colorOf(compiled, task) {
+  if (!task || typeof task !== 'object' || task.type === 'section') return null;
+  const hit = compiled.cache.get(task);
+  if (hit !== undefined) return hit;
+  let out = null;
+  for (const r of compiled.rules) if (r.test(task)) { out = r.entry; break; }
+  compiled.cache.set(task, out);
+  return out;
+}
+
+/** taskId -> { id, name, color, hex, bold } for every task a compiled set colors. */
+export function colorMapWith(compiled, tasks) {
   const out = new Map();
-  const usable = usableRules(rules, ctx);
-  if (!usable.length) return out;
-  const c = { ...ctx, me: String(ctx.me || '').toLowerCase() };
+  if (!compiled.rules.length) return out;
   for (const t of tasks || []) {
-    const r = firstMatch(usable, t, c);
-    if (r) out.set(t.id, { id: r.id, name: r.name, color: r.color, hex: colorHex(r.color), bold: !!r.bold });
+    const e = colorOf(compiled, t);
+    if (e) out.set(t.id, e);
   }
   return out;
+}
+
+/** The same, compiling on the spot (one-offs and tests). */
+export function colorMap(rules, tasks, ctx = {}) {
+  return colorMapWith(compileRules(rules, ctx), tasks);
+}
+
+/** The rule that colors `task` - the first usable one that matches - or null. */
+export function firstMatch(rules, task, ctx) {
+  const e = colorOf(compileRules(rules, ctx), task);
+  return e ? (rules.find((r) => r.id === e.id) || null) : null;
+}
+
+/**
+ * For the editor: per rule id, `own` = how many of `tasks` the rule matches
+ * on its own (on or off), `first` = how many it actually colors once earlier
+ * rules have taken theirs (enabled rules only). A rule with a problem in it
+ * has neither.
+ */
+export function ruleCounts(rules, tasks, ctx = {}) {
+  const c = fullCtx(ctx);
+  const list = (Array.isArray(rules) ? rules : [])
+    .filter((r) => r && Array.isArray(r.conditions) && r.conditions.length && !ruleProblems(r, c).length)
+    .map((r) => compileOne(r, c));
+  const own_ = Object.fromEntries(list.map((r) => [r.id, 0]));
+  const first = Object.fromEntries(list.filter((r) => r.enabled).map((r) => [r.id, 0]));
+  for (const t of tasks || []) {
+    if (!t || t.type === 'section') continue;
+    let taken = false;
+    for (const r of list) {
+      if (!r.test(t)) continue;
+      own_[r.id] += 1;
+      if (r.enabled && !taken) { first[r.id] += 1; taken = true; }
+    }
+  }
+  return { own: own_, first };
 }
 
 // ── Plain-English summaries ──────────────────────────────────────────────────
 // ctx: { fieldsById, statusMeta, sections, nameOf(email) }
 function valueText(field, op, v, ctx) {
-  const kind = OP_KIND[op];
+  const kind = opKind(op);
   if (kind === 'none' || v === undefined) return '';
   const one = (x) => {
-    if (field.kind === 'status') return ctx.statusMeta?.[x]?.label || String(x);
-    if (field.kind === 'priority') return PRIORITY_META[x]?.label || String(x);
+    if (field.kind === 'status') return own(ctx.statusMeta, x)?.label || String(x);
+    if (field.kind === 'priority') return own(PRIORITY_META, x)?.label || String(x);
     if (field.kind === 'section') return (ctx.sections || []).find((s) => s.id === x)?.name || 'a deleted section';
     if (field.type === 'select' || field.type === 'multiselect') {
       const o = (field.def.options || []).find((o2) => (o2?.id ?? o2) === x);
@@ -399,23 +501,25 @@ export function describeCondition(c, ctx = {}) {
 
 /** "Priority is Urgent and Due Date is overdue". */
 export function describeRule(rule, ctx = {}) {
-  return (rule?.conditions || []).map((c) => describeCondition(c, ctx))
+  return (Array.isArray(rule?.conditions) ? rule.conditions : []).map((c) => describeCondition(c, ctx))
     .join(rule?.match === 'any' ? ' or ' : ' and ');
 }
 
 // ── Suggested starters (added only when someone clicks Add) ─────────────────
 /** Three ready-made rules. The third colors a held-up status when the project
- *  has one ("On Hold", "Blocked", "Waiting..."), else unassigned work. */
+ *  has one ("On Hold", "Blocked", "Waiting..."), else unassigned work. The
+ *  second is named for what it tests - today through the next seven days -
+ *  not "this week", which would end on Saturday. */
 export function starterRules({ statusOrder = [], statusMeta = {} } = {}) {
-  const held = statusOrder.filter((id) => /hold|block|wait|stuck|paus/i.test(statusMeta[id]?.label || ''));
+  const held = statusOrder.filter((id) => /hold|block|wait|stuck|paus/i.test(own(statusMeta, id)?.label || ''));
   const third = held.length
-    ? { name: held.length === 1 ? (statusMeta[held[0]]?.label || 'On Hold') : 'On Hold or Blocked', color: 'gray',
+    ? { name: held.length === 1 ? (own(statusMeta, held[0])?.label || 'On Hold') : 'On Hold or Blocked', color: 'gray',
       conditions: [held.length === 1 ? { field: 'status', op: 'is', value: held[0] } : { field: 'status', op: 'is_any_of', value: held }] }
     : { name: 'Unassigned', color: 'gray',
       conditions: [{ field: 'assignee', op: 'is_unassigned' }, { field: 'completed', op: 'is_false' }] };
   return [
     { name: 'Overdue', color: 'red', conditions: [{ field: 'due', op: 'overdue' }] },
-    { name: 'Due This Week', color: 'amber', conditions: [{ field: 'due', op: 'within', value: 7 }, { field: 'completed', op: 'is_false' }] },
+    { name: 'Due In Next 7 Days', color: 'amber', conditions: [{ field: 'due', op: 'within', value: 7 }, { field: 'completed', op: 'is_false' }] },
     third,
   ].map((r) => ({ id: '', bold: false, enabled: true, match: 'all', ...r }));
 }

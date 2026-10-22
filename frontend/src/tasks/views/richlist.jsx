@@ -28,7 +28,7 @@ import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
 import { StatusLabel, PrioritySignal } from '../../components/StatusLabel';
-import { useRowColor, rowColorAttrs, boldTitleStyle, srOnly } from '../rowColorState';
+import { useRowColor, rowColorAttrs, boldTitleStyle, srOnly, onTint } from '../rowColorState';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -455,7 +455,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         due: (
         <div className="rl-cell" style={{ ...editCell, gap: 4, justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
           {/* Repeat rides in the calendar, as on the task itself (Oct 14 2026). */}
-          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={dueColor(t.dueOn, t.completed)} title="Due Date" compact style={{ fontSize: 12 }}
+          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={onTint(dueColor(t.dueOn, t.completed), rc)} title="Due Date" compact style={{ fontSize: 12 }}
             repeat={repeatOption({
               value: t.recurrence, seedDate: t.dueOn, subtask: !!t.parentTaskId,
               mainRule: t.parentTaskId ? store.taskById?.[t.parentTaskId]?.recurrence || null : null,

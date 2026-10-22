@@ -1590,12 +1590,15 @@ def _snapshot_project(db: Session, p: models.TaskProject, *, blueprint: bool,
     used_field_ids = {fid for t in rows
                       for fid in (t.custom_field_values or {}) if fid}
     used_field_ids |= {fid for fid in (p.custom_field_values or {}) if fid}
+    # ...and any field a color rule tests, so the copy's rules have it to test.
+    used_field_ids |= _color_rule_field_ids(p)
     field_rows = [f for f in all_fields if _scoped_to(f, p.id) or f.id in used_field_ids]
     field_rows.sort(key=lambda f: (f.name or "").lower())
     field_key = {f.id: i for i, f in enumerate(field_rows)}
 
     all_statuses = db.query(models.TaskCustomStatus).all()
     used_status_ids = {(t.status or "") for t in rows} - BUILTIN_STATUSES
+    used_status_ids |= _color_rule_status_ids(p) - BUILTIN_STATUSES
     status_rows = [s for s in all_statuses if _scoped_to(s, p.id) or s.id in used_status_ids]
     status_rows.sort(key=lambda s: (s.position or 0, (s.label or "").lower()))
     status_key = {s.id: i for i, s in enumerate(status_rows)}
@@ -1709,9 +1712,144 @@ def _snapshot_project(db: Session, p: models.TaskProject, *, blueprint: bool,
             "key": status_key[s.id], "label": s.label, "color": s.color or "",
             "position": s.position or 0, "scoped": _scoped_to(s, p.id),
         } for s in status_rows],
-        "sections": [{"key": section_key[s.id], "name": s.name, "position": s.position or 0} for s in sections],
+        "sections": [{"key": section_key[s.id], "name": s.name, "position": s.position or 0,
+                      # A Custom-grouping section stays one (the grouping only offers those).
+                      "custom": bool(getattr(s, "custom", False))} for s in sections],
         "tasks": snap_tasks,
+        # Conditional row colors (Oct 22 2026), re-keyed like everything else.
+        "colorRules": _snapshot_color_rules(p, field_key, status_key, section_key, blueprint=blueprint),
     }
+
+
+# ── Color rules through a copy or a template (Oct 22 2026) ──────────────────
+# A rule's references are re-keyed onto the payload's own keys - "cf:#3" for
+# the fourth captured field, "#2" for a section, "status:#1" for a custom
+# status - and resolved back to real ids when the payload is built. Anything a
+# rule points at that the copy will not have is dropped from it: a field or
+# status that was not captured, a section that is gone, a person who is not in
+# the directory (and every person in a TEMPLATE, which carries no people). A
+# rule left with no conditions is dropped whole; nothing that cannot be
+# resolved is ever guessed at.
+_SEC_KEY = "#"
+_STATUS_KEY = "status:#"
+
+
+def _rules_of(p) -> list:
+    rules = getattr(p, "color_rules", None)
+    return [r for r in rules if isinstance(r, dict)] if isinstance(rules, list) else []
+
+
+def _color_rule_field_ids(p) -> set:
+    return {str(c.get("field"))[3:] for r in _rules_of(p) for c in (r.get("conditions") or [])
+            if isinstance(c, dict) and str(c.get("field") or "").startswith("cf:")}
+
+
+def _color_rule_status_ids(p) -> set:
+    out = set()
+    for r in _rules_of(p):
+        for c in (r.get("conditions") or []):
+            if isinstance(c, dict) and c.get("field") == "status":
+                v = c.get("value")
+                out |= {x for x in (v if isinstance(v, list) else [v]) if isinstance(x, str)}
+    return out
+
+
+def _snapshot_color_rules(p, field_key: dict, status_key: dict, section_key: dict, *, blueprint: bool) -> list:
+    from task_color_rules import OP_KIND
+    out = []
+    for r in _rules_of(p):
+        conds = []
+        for c in (r.get("conditions") or []):
+            if not isinstance(c, dict):
+                continue
+            field, op, value = str(c.get("field") or ""), str(c.get("op") or ""), c.get("value")
+            c2 = dict(c)
+            if field.startswith("cf:"):
+                key = field_key.get(field[3:])
+                if key is None:
+                    continue
+                c2["field"] = f"cf:#{key}"
+            elif field == "status" and op != "is_empty":
+                vals = value if isinstance(value, list) else [value]
+                mapped = [v if v in BUILTIN_STATUSES else (f"{_STATUS_KEY}{status_key[v]}" if v in status_key else None)
+                          for v in vals]
+                mapped = [v for v in mapped if v is not None]
+                if not mapped:
+                    continue
+                c2["value"] = mapped if isinstance(value, list) else mapped[0]
+            elif field == "section" and op != "is_empty":
+                if value not in section_key:
+                    continue
+                c2["value"] = f"{_SEC_KEY}{section_key[value]}"
+            if OP_KIND.get(op) == "person" and blueprint:
+                continue
+            conds.append(c2)
+        if conds:
+            out.append({**r, "conditions": conds})
+    return out
+
+
+def _rebuild_color_rules(db: Session, user: dict, p, rules, field_ids: dict, status_ids: dict,
+                         section_ids: dict) -> list:
+    """The payload's rules on the NEW project `p`, each one validated the way
+    the editor's save is; one that still fails is left off, never the build."""
+    from task_color_rules import OP_KIND, MAX_RULES, clean_rules
+    from routers.task_config import normalize_field_options
+    fields = {f.id: f for f in db.query(models.TaskCustomField).all()}
+    out = []
+    for r in (rules if isinstance(rules, list) else [])[:MAX_RULES]:
+        if not isinstance(r, dict):
+            continue
+        conds = []
+        for c in (r.get("conditions") or []):
+            if not isinstance(c, dict):
+                continue
+            field, op, value = str(c.get("field") or ""), str(c.get("op") or ""), c.get("value")
+            c2 = dict(c)
+            if field.startswith("cf:#"):
+                fid = field_ids.get(field[4:])
+                f = fields.get(fid) if fid else None
+                if f is None:
+                    continue
+                c2["field"] = f"cf:{fid}"
+                if (f.type or "text").lower() in ("select", "multiselect") and op not in ("is_empty", "is_not_empty"):
+                    have = {o["id"] for o in normalize_field_options(f.options or [])}
+                    vals = value if isinstance(value, list) else [value]
+                    if any(v not in have for v in vals):
+                        continue
+            elif field.startswith("cf:"):
+                continue   # a raw id never travels in a payload
+            elif field == "status" and op != "is_empty":
+                vals = value if isinstance(value, list) else [value]
+                mapped = [v if v in BUILTIN_STATUSES else status_ids.get(str(v)[len(_STATUS_KEY):])
+                          if str(v).startswith(_STATUS_KEY) else None for v in vals]
+                mapped = [v for v in mapped if v]
+                if not mapped:
+                    continue
+                c2["value"] = mapped if isinstance(value, list) else mapped[0]
+            elif field == "section" and op != "is_empty":
+                raw = str(value or "")
+                try:
+                    sid = section_ids.get(int(raw[len(_SEC_KEY):])) if raw.startswith(_SEC_KEY) else None
+                except ValueError:
+                    sid = None
+                if not sid:
+                    continue
+                c2["value"] = sid
+            if OP_KIND.get(op) == "person":
+                who = str(value or "").strip().lower()
+                if not who or db.query(models.NexusEmployee).filter(
+                        func.lower(models.NexusEmployee.work_email) == who).first() is None:
+                    continue
+            conds.append(c2)
+        if not conds:
+            continue
+        candidate = {**r, "conditions": conds}
+        try:
+            out += clean_rules(db, user, p, [candidate], existing=[])
+        except HTTPException:
+            continue
+    return out
 
 
 def _widen_scope(row, project_id: str) -> None:
@@ -1999,9 +2137,12 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
     section_ids = {}
     for s in (payload.get("sections") or []):
         row = models.TaskSection(id=gen_id(), project_id=p.id, name=s.get("name") or "Untitled",
-                                 position=int(s.get("position") or 0), created_at=now)
+                                 position=int(s.get("position") or 0), created_at=now,
+                                 custom=bool(s.get("custom")))
         db.add(row)
         section_ids[s.get("key")] = row.id
+    # Conditional row colors (Oct 22 2026) - see _rebuild_color_rules.
+    p.color_rules = _rebuild_color_rules(db, user, p, payload.get("colorRules"), field_ids, status_ids, section_ids)
 
     made = []
     if include_tasks:
