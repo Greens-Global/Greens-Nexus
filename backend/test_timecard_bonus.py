@@ -47,6 +47,14 @@ class BonusTests(ReviewCase):
         self.assertNotIn("amount", stripped["bonuses"][0])
         self.assertNotIn("bonusPay", stripped["totals"])
 
+    def test_a_bonus_changes_what_the_employee_signs(self):
+        import timesheet_review as tsr
+        before = tsr.fingerprint(self.db, EMP, self.start, self.end)
+        bid = self._add()["id"]
+        self.assertNotEqual(tsr.fingerprint(self.db, EMP, self.start, self.end), before)
+        timeclock.remove_timecard_bonus(bid, user=HR, _su={}, db=self.db)
+        self.assertEqual(tsr.fingerprint(self.db, EMP, self.start, self.end), before)
+
     def test_remove_takes_it_back_out(self):
         before = self._card()["totals"]["totalPay"]
         bid = self._add()["id"]
