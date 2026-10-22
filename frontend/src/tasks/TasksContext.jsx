@@ -387,7 +387,10 @@ export function TasksProvider({ children }) {
   const droppedTimer = useRef(null);
   useEffect(() => () => clearTimeout(droppedTimer.current), []);
   const noteDropped = useCallback((emails) => {
-    const list = (Array.isArray(emails) ? emails : []).map((e) => String(e || '').toLowerCase()).filter(Boolean);
+    // The API sends [{email, reason, taskId}] (POST /tasks) - plain emails are
+    // accepted too, so either shape reads as a list of addresses.
+    const list = (Array.isArray(emails) ? emails : [])
+      .map((e) => String((e && typeof e === 'object' ? e.email : e) || '').toLowerCase()).filter(Boolean);
     if (!list.length) return;
     clearTimeout(droppedTimer.current);
     setDropped((prev) => [...new Set([...(prev || []), ...list])]);

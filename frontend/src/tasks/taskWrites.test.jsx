@@ -178,7 +178,7 @@ describe('people a create could not add (Oct 21 2026)', () => {
   it('names them in one notice, by name, and keeps the key out of the stored row', async () => {
     api.createTask
       .mockResolvedValueOnce({ id: 'n1', title: 'Copy one', priority: 'low', droppedPeople: ['jane@x.com'] })
-      .mockResolvedValueOnce({ id: 'n2', title: 'Copy two', priority: 'low', droppedPeople: ['john@x.com', 'jane@x.com'] })
+      .mockResolvedValueOnce({ id: 'n2', title: 'Copy two', priority: 'low', droppedPeople: [{ email: 'john@x.com', reason: 'not in the Nexus directory', taskId: 'n2' }, { email: 'jane@x.com', reason: 'has left', taskId: 'n2' }] })
       .mockResolvedValueOnce({ id: 'n3', title: 'Copy three', priority: 'low' });
     await mount();
     let created;
