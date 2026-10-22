@@ -1826,8 +1826,12 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
   // Upload New Version: the file becomes the current version of `a`'s file.
+  // It replaces the file everyone sees, so it takes the right to remove it
+  // (the server's rule): whoever uploaded the FIRST version, or an editor.
+  const mayReplace = (a) => canAttach && canVersion(a) && (canRemoveAny
+    || (!!myEmail && (a.groupAddedBy || a.addedBy || '').toLowerCase() === myEmail.toLowerCase()));
   const sendVersion = (a, f) => {
-    if (!f || !canAttach || !canVersion(a)) return;
+    if (!f || !mayReplace(a)) return;
     setVerUploads((m) => ({ ...m, [a.id]: { pct: 0, error: '' } }));
     uploadTaskAttachmentVersion(a.id, f, (pct) => setVerUploads((m) => ({ ...m, [a.id]: { pct, error: '' } })))
       .then(() => { setVerUploads((m) => { const n = { ...m }; delete n[a.id]; return n; }); reload(); refresh?.(); })
@@ -1837,13 +1841,17 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
   const onVersionFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f && versionFor.current) sendVersion(versionFor.current, f); };
   // Dropping a file ON a file row is a new version of that file; anywhere
   // else in the panel it is still a new attachment.
-  const rowDrop = (a) => (canAttach && canVersion(a) ? {
+  const rowDrop = (a) => (mayReplace(a) ? {
     onDragOver: (e) => { if (!e.dataTransfer?.types?.includes('Files')) return; e.preventDefault(); e.stopPropagation(); if (dropRow !== a.id) setDropRow(a.id); },
     onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropRow(''); },
     onDrop: (e) => {
       e.preventDefault(); e.stopPropagation();
       dragDepth.current = 0; setDragOver(false); setDropRow('');
-      sendVersion(a, e.dataTransfer?.files?.[0]);
+      // The first file is the new version; any others are added as new
+      // attachments, as a drop beside the row would add them - never dropped.
+      const [first, ...rest] = Array.from(e.dataTransfer?.files || []);
+      sendVersion(a, first);
+      rest.forEach(sendFile);
     },
   } : {});
 
@@ -1983,7 +1991,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
                       <button type="button" onClick={() => setVersionsOf(a)} title="Versions" aria-label={`Versions of ${a.name}`}
                         style={{ ...btn('ghost'), padding: '3px 6px', fontSize: 11.5, color: NX.dim }}><History size={13} /> Versions</button>
                     )}
-                    {canAttach && canVersion(a) && (
+                    {mayReplace(a) && (
                       <button type="button" onClick={() => pickVersion(a)} disabled={!!up && !up.error} title="Upload New Version" aria-label={`Upload new version of ${a.name}`}
                         style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Upload size={13} /></button>
                     )}

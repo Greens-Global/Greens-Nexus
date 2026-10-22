@@ -38,19 +38,31 @@ export function safeEgnyteHref(a) {
 
 /** "" when `value` is a link the server will take, else what is wrong.
  *  `host` is the company Egnyte host (/egnyte/status webHost); "" = unknown,
- *  and then only the https shape is checked (the server has the last word). */
+ *  and then only the https shape is checked (the server has the last word).
+ *  The host is read from the RAW text, the way the server reads it
+ *  (tasks._check_egnyte_url) - never through new URL(), which would bend a
+ *  trailing dot, full-width dots or an IDN look-alike into the real host
+ *  and pass a link the server then refuses. */
 export function egnyteLinkProblem(value, host = '') {
   const s = String(value || '').trim();
   if (!s) return 'Paste the link to the Egnyte file or folder.';
-  if (/\s/.test(s)) return 'Paste the Egnyte link exactly as Egnyte shows it.';
-  let u;
-  try { u = new URL(s); } catch { return 'That is not a link. Copy it from Egnyte and paste it here.'; }
+  // eslint-disable-next-line no-control-regex
+  if (/[\s\u0000-\u001f\u007f]/.test(s)) return 'Paste the Egnyte link exactly as Egnyte shows it.';
   const own = String(host || '').toLowerCase();
   const where = own ? `the company Egnyte (${own})` : 'the company Egnyte';
-  if (u.protocol !== 'https:') return `Only https links to ${where} can be added.`;
-  if (u.username || u.password) return `Only links to ${where} can be added.`;
-  if (u.port && u.port !== '443') return `Only links to ${where} can be added.`;
-  if (own && u.hostname.toLowerCase() !== own) return `Only links to ${where} can be added.`;
+  const m = /^https:\/\/([^/?#]*)/i.exec(s);
+  if (!m) {
+    return /^[a-z][a-z0-9+.-]*:/i.test(s)
+      ? `Only https links to ${where} can be added.`
+      : 'That is not a link. Copy it from Egnyte and paste it here.';
+  }
+  const authority = m[1];
+  // ASCII only, no user@ part, no backslash, one optional port.
+  if (!/^[\x21-\x7e]*$/.test(authority) || /[@\\]/.test(authority)) return `Only links to ${where} can be added.`;
+  const hp = /^([^:]+)(?::(\d*))?$/.exec(authority);
+  if (!hp) return 'That is not a link. Copy it from Egnyte and paste it here.';
+  if (hp[2] && Number(hp[2]) !== 443) return `Only links to ${where} can be added.`;
+  if (own && hp[1].toLowerCase() !== own) return `Only links to ${where} can be added.`;
   return '';
 }
 

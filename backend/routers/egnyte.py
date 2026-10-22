@@ -106,7 +106,7 @@ def status(user: dict = Depends(get_current_user)):
     from database import SessionLocal
     import os
     from urllib.parse import urlparse
-    dom_set =bool(os.getenv("EGNYTE_DOMAIN", "").strip())
+    dom_set = bool(os.getenv("EGNYTE_DOMAIN", "").strip())
     out = {"configured": svc.configured(),
            # The company Egnyte's host, for "Paste Egnyte Link" (Tasks, Oct 22
            # 2026) to say up front that only links there are taken.

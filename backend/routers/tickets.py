@@ -1264,7 +1264,7 @@ def _copy_task_files(db: Session, task, t: models.TaskTicket, actor: str) -> Non
             .order_by(models.TaskAttachment.added_at).all())
     # The CURRENT version of each file only, and no Egnyte links (Oct 22
     # 2026): a ticket keeps files in our storage, never links out.
-    files = [a for a, _ in current_versions(rows) if (a.kind or "") != "egnyte"]
+    files = [a for a, _, _ in current_versions(rows) if (a.kind or "") != "egnyte"]
     for a in files:
         db.add(models.TaskAttachment(id=gen_id(), task_id=t.id, name=a.name, size=a.size or "",
                                      kind=a.kind or "other", url=a.url or "", added_at=now_iso(), added_by=actor))

@@ -11,7 +11,10 @@ vi.mock('../components/PersonHoverCard', () => ({ default: ({ children }) => chi
 const api = vi.hoisted(() => ({}));
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => api[k] || (() => Promise.resolve([])) }) }));
 const uploadVersion = vi.hoisted(() => vi.fn());
-vi.mock('./lib', async (orig) => ({ ...(await orig()), uploadTaskAttachmentVersion: (...a) => uploadVersion(...a) }));
+const upload = vi.hoisted(() => vi.fn(() => Promise.resolve({ id: 'n1' })));
+vi.mock('./lib', async (orig) => ({
+  ...(await orig()), uploadTaskAttachmentVersion: (...a) => uploadVersion(...a), uploadTaskAttachment: (...a) => upload(...a),
+}));
 const dialogConfirm = vi.hoisted(() => vi.fn(() => Promise.resolve(true)));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => dialogConfirm(...a), alert: () => Promise.resolve() } }));
 
@@ -34,7 +37,7 @@ const EGNYTE = { id: 'e1', name: 'Temecula Lease', kind: 'egnyte', egnyteKind: '
 
 beforeEach(() => {
   for (const k of Object.keys(api)) delete api[k];
-  uploadVersion.mockReset(); dialogConfirm.mockClear();
+  uploadVersion.mockReset(); upload.mockClear(); dialogConfirm.mockClear();
   state = {
     tasks: [task], taskById: { t1: task }, teams: [], projects: [], customFields: [],
     statusMeta: { not_started: { label: 'Not Started', color: '#888' } }, statusOrder: ['not_started'],
@@ -67,6 +70,14 @@ describe('version and link helpers', () => {
       'https://greens.egnyte.com:8443/x', 'javascript:alert(1)', 'data:text/html,hi', 'greens.egnyte.com/fl/x', '', 'https://greens.egnyte.com/a b']) {
       expect(egnyteLinkProblem(bad, host), bad).not.toBe('');
     }
+    // Read from the raw text, as the server does: what new URL() would bend
+    // into the real host is refused here too.
+    for (const bent of ['https://greens.egnyte.com./fl/x', 'https://greens\uff0eegnyte.com/fl/x',
+      'https://gr\u0435ens.egnyte.com/fl/x', 'https://xn--grens-2ve.egnyte.com/fl/x', 'https://greens.egnyte.com\\@evil.com/x',
+      'https://greens.egnyte.com/x\u007f', 'https://greens.egnyte.com:44a/x']) {
+      expect(egnyteLinkProblem(bent, host), bent).not.toBe('');
+    }
+    expect(egnyteLinkProblem('https://greens.egnyte.com:443/fl/x', host)).toBe('');
     // Host unknown: the https shape is still checked.
     expect(egnyteLinkProblem('javascript:alert(1)', '')).not.toBe('');
     expect(egnyteLinkProblem('https://anything.example.com/x', '')).toBe('');
@@ -127,6 +138,38 @@ describe('the Attachments list', () => {
     const row = screen.getByTestId('attachment-row');
     await act(async () => { fireEvent.drop(row, { dataTransfer: { files: [f2], types: ['Files'] } }); });
     expect(uploadVersion).toHaveBeenLastCalledWith('a1', f2, expect.any(Function));
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('several files dropped on a row: the first is the new version, the rest are added', async () => {
+    api.getTaskAttachments = vi.fn(() => Promise.resolve([file()]));
+    uploadVersion.mockResolvedValue({ id: 'v2' });
+    render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
+    const row = await screen.findByTestId('attachment-row');
+    const [f1, f2, f3] = ['a.pdf', 'b.pdf', 'c.pdf'].map((n) => new File(['x'], n, { type: 'application/pdf' }));
+    await act(async () => { fireEvent.drop(row, { dataTransfer: { files: [f1, f2, f3], types: ['Files'] } }); });
+    expect(uploadVersion).toHaveBeenCalledTimes(1);
+    expect(uploadVersion).toHaveBeenCalledWith('a1', f1, expect.any(Function));
+    expect(upload.mock.calls.map((c) => c[1].name)).toEqual(['b.pdf', 'c.pdf']);
+  });
+
+  it('a commenter may upload a new version of their own file only', async () => {
+    const t = { ...task, projectId: 'p1', assigneeIds: ['other@x.com'] };
+    state = { ...state, tasks: [t], taskById: { t1: t },
+      projects: [{ id: 'p1', name: 'Plant', ownerId: 'boss@x.com', accessLevel: 'restricted', memberIds: [ME], memberRoles: { [ME]: 'commenter' } }] };
+    const mine = file({ id: 'm2', name: 'mine-v2.pdf', version: 2, versionGroup: 'm1', versionCount: 2, addedBy: 'boss@x.com', groupAddedBy: ME });
+    const theirs = file({ id: 'o1', name: 'theirs.pdf', versionGroup: 'o1', addedBy: 'boss@x.com', groupAddedBy: 'boss@x.com' });
+    api.getTaskAttachments = vi.fn(() => Promise.resolve([mine, theirs]));
+    render(<TaskDetailDrawer taskId="t1" onClose={() => {}} />);
+    expect(await screen.findByLabelText('Upload new version of mine-v2.pdf')).toBeTruthy();
+    expect(screen.queryByLabelText('Upload new version of theirs.pdf')).toBeNull();
+    expect(screen.getByText('Add From Egnyte')).toBeTruthy();       // still a commenter's right
+    // Dropping on someone else's file is a plain new attachment, not a version.
+    const theirRow = screen.getAllByTestId('attachment-row').find((r) => r.textContent.includes('theirs.pdf'));
+    const f = new File(['x'], 'x.pdf', { type: 'application/pdf' });
+    await act(async () => { fireEvent.drop(theirRow, { dataTransfer: { files: [f], types: ['Files'] } }); });
+    expect(uploadVersion).not.toHaveBeenCalled();
+    expect(upload).toHaveBeenCalledWith('t1', f, {}, expect.any(Function));
   });
 
   it('a failed new version is said out loud', async () => {

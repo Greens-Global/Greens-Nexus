@@ -224,19 +224,38 @@ class VersionTests(Base):
 
 
 class VersionPermissionTests(Base):
-    def test_a_commenter_adds_versions_a_viewer_cannot(self):
-        a = self.attach()
-        self.assertEqual(self.version(a["id"], user=COMMENTER)["version"], 2)
-        self.assertEqual(self.code(lambda: self.version(a["id"], user=VIEWER)), 403)
-        self.assertEqual(self.code(lambda: self.version(a["id"], user=OUTSIDER)), 403)
+    def test_a_commenter_versions_their_own_file_only(self):
+        # Replacing someone else's file takes the right to remove it.
+        mine = self.attach(user=COMMENTER, name="mine.pdf")
+        theirs = self.attach(user=OWNER, name="theirs.pdf")
+        self.assertEqual(self.version(mine["id"], user=COMMENTER)["version"], 2)
+        self.assertEqual(self.code(lambda: self.version(theirs["id"], user=COMMENTER)), 403)
+        self.assertEqual(self.version(theirs["id"], user=EDITOR)["version"], 2)     # an editor may
+        self.assertEqual(self.version(theirs["id"], user=AMGR)["version"], 3)       # so may a manager
+        # The FIRST version decides: an editor's v2 on the commenter's file
+        # does not take it away from the commenter.
+        self.version(mine["id"], user=EDITOR)
+        self.assertEqual(self.version(mine["id"], user=COMMENTER)["version"], 4)
+        self.assertEqual(self.code(lambda: self.version(mine["id"], user=VIEWER)), 403)
+        self.assertEqual(self.code(lambda: self.version(mine["id"], user=OUTSIDER)), 403)
+        rows = {r["versionGroup"]: r for r in self.listed()}
+        self.assertEqual(rows[mine["id"]]["groupAddedBy"], COMMENTER["email"])
+        self.assertEqual(rows[mine["id"]]["versionCount"], 4)
+        self.assertEqual(rows[theirs["id"]]["groupAddedBy"], OWNER["email"])
 
     def test_removing_matches_the_attachment_rule(self):
+        a = self.attach(user=COMMENTER)
+        v2 = self.version(a["id"], user=EDITOR)
+        # The editor uploaded v2 - not the commenter's to remove; their v1 is.
+        self.assertEqual(self.code(lambda: T.delete_attachment(v2["id"], user=COMMENTER, db=self.db)), 403)
+        T.delete_attachment(a["id"], user=COMMENTER, db=self.db)
+        self.assertEqual(self.listed()[0]["id"], v2["id"])
+
+    def test_a_blank_or_outside_new_version_is_refused(self):
         a = self.attach()
-        v2 = self.version(a["id"], user=COMMENTER)
-        # The commenter uploaded v2 - theirs to remove; the owner's v1 is not.
-        self.assertEqual(self.code(lambda: T.delete_attachment(a["id"], user=COMMENTER, db=self.db)), 403)
-        T.delete_attachment(v2["id"], user=COMMENTER, db=self.db)
-        self.assertEqual(self.listed()[0]["id"], a["id"])
+        for url in ("", "   "):
+            self.assertEqual(self.code(lambda u=url: self.version(a["id"], url=u)), 400, repr(url))
+        self.assertEqual(self.db.query(models.TaskAttachment).count(), 1)
 
     def test_delete_all_needs_every_version_yours_or_an_editor(self):
         a = self.attach(user=COMMENTER)
@@ -361,6 +380,137 @@ class EgnyteLinkTests(Base):
             self.assertEqual(E.status(user=OWNER)["webHost"], "greens.egnyte.com")
         with mock.patch.dict(os.environ, {"EGNYTE_DOMAIN": ""}):
             self.assertEqual(E.status(user=OWNER)["webHost"], "")
+
+
+class RaceTests(Base):
+    """Another request commits while this one waits on the task lock: the
+    waiter must rebuild attachment_ids / activity_ids from what was
+    committed, not from the task row it read before waiting. SQLite has no
+    row locks, so the other request is run INSIDE the lock call."""
+
+    def while_waiting(self, other):
+        orig = T._lock_task_rows
+        state = {"done": False}
+
+        def fake(db, ids, **kw):
+            if not state["done"]:
+                state["done"] = True
+                db2 = database.SessionLocal()
+                try:
+                    other(db2)
+                finally:
+                    db2.close()
+            return orig(db, ids, **kw)
+        return mock.patch.object(T, "_lock_task_rows", fake)
+
+    def other_version(self, aid, name):
+        return lambda db2: T.add_attachment_version(
+            aid, T.AttachmentVersionCreate(name=name, url="data:z"), user=OWNER, db=db2)
+
+    def test_two_new_versions_at_once(self):
+        a = self.attach(name="v1.pdf")
+        acts_before = len(self.task_row().activity_ids)
+        with self.while_waiting(self.other_version(a["id"], "v2.pdf")):
+            r = self.version(a["id"], name="v3.pdf")
+        self.assertEqual(r["version"], 3)
+        row = self.task_row()
+        self.assertEqual(row.attachment_ids, [r["id"]])                     # one file on the badge
+        self.assertEqual(len(row.activity_ids), acts_before + 2)           # neither entry lost
+        self.assertEqual([(x["name"], x["version"], x["versionCount"]) for x in self.listed()], [("v3.pdf", 3, 3)])
+
+    def test_removing_the_current_version_while_a_new_one_lands(self):
+        a = self.attach(name="v1.pdf")
+        v2 = self.version(a["id"], name="v2.pdf")
+        with self.while_waiting(self.other_version(a["id"], "v3.pdf")):
+            T.delete_attachment(v2["id"], user=OWNER, db=self.db)
+        listed = self.listed()
+        self.assertEqual([(x["name"], x["version"]) for x in listed], [("v3.pdf", 3)])
+        self.assertEqual(self.task_row().attachment_ids, [listed[0]["id"]])  # never emptied
+
+    def test_delete_all_while_a_new_version_lands(self):
+        a = self.attach(name="v1.pdf")
+        keep = self.attach(name="keep.pdf")
+        with self.while_waiting(self.other_version(a["id"], "v2.pdf")):
+            T.delete_attachment_versions(a["id"], user=OWNER, db=self.db)
+        self.assertEqual([x["id"] for x in self.listed()], [keep["id"]])
+        self.assertEqual(self.task_row().attachment_ids, [keep["id"]])
+
+    def test_removing_a_file_someone_removed_while_we_waited(self):
+        a = self.attach(name="v1.pdf")
+
+        def other(db2):
+            T.delete_attachment(a["id"], user=OWNER, db=db2)
+        with self.while_waiting(other):
+            self.assertEqual(self.code(lambda: T.delete_attachment(a["id"], user=OWNER, db=self.db)), 404)
+        self.assertEqual(self.task_row().attachment_ids, [])
+
+
+class DeleteGuardTests(Base):
+    def test_a_trashed_tasks_files_keep_their_checks(self):
+        secret = self.task(project_id="", access_level="restricted", owner_email=OWNER["email"],
+                           created_by=OWNER["email"])
+        mine = self.attach(t=secret, user=OWNER)
+        theirs = models.TaskAttachment(id=gen_id(), task_id=secret.id, name="o.pdf", url="data:x",
+                                       added_by=OUTSIDER["email"], added_at=now_iso())
+        self.db.add(theirs)
+        secret.deleted_at = now_iso()
+        self.db.commit()
+        # The uploader who cannot see the task: 404, as on a live task (the
+        # Trash used to skip this check and delete it).
+        self.assertEqual(self.code(lambda: T.delete_attachment(theirs.id, user=OUTSIDER, db=self.db)), 404)
+        # Someone who may: told to restore the task first.
+        self.assertEqual(self.code(lambda: T.delete_attachment(mine["id"], user=OWNER, db=self.db)), 409)
+        self.assertEqual(self.db.query(models.TaskAttachment).filter_by(task_id=secret.id).count(), 2)
+
+    def test_a_trashed_task_takes_no_new_versions(self):
+        a = self.attach()
+        self.t.deleted_at = now_iso()
+        self.db.commit()
+        self.assertEqual(self.code(lambda: self.version(a["id"])), 404)
+        self.assertEqual(self.code(lambda: T.delete_attachment_versions(a["id"], user=OWNER, db=self.db)), 404)
+
+    def test_a_tickets_file_is_not_reachable_through_the_tasks_route(self):
+        tk = models.TaskTicket(id=gen_id(), code="TK-9", subject="S", created_at=now_iso())
+        a = models.TaskAttachment(id=gen_id(), task_id=tk.id, name="shot.png", url="data:x",
+                                  added_by=OWNER["email"], added_at=now_iso())
+        self.db.add_all([tk, a])
+        self.db.commit()
+        for who in (OWNER, AMGR):
+            self.assertEqual(self.code(lambda u=who: T.delete_attachment(a.id, user=u, db=self.db)), 404)
+        self.assertEqual(self.db.query(models.TaskAttachment).filter_by(id=a.id).count(), 1)
+
+
+class EgnyteLinkMoreTests(Base):
+    def add(self, url, **kw):
+        with mock.patch.dict(os.environ, EGNYTE):
+            return T.add_egnyte_link(self.t.id, T.EgnyteLinkCreate(url=url, **kw), user=OWNER, db=self.db)
+
+    def test_the_same_item_twice_is_a_friendly_409(self):
+        self.add("https://greens.egnyte.com/navigate/file/g1", path="/Shared/Plans/site.pdf", name="site.pdf")
+        self.assertEqual(self.code(lambda: self.add("https://greens.egnyte.com/navigate/file/g1")), 409)
+        self.assertEqual(self.code(lambda: self.add("https://greens.egnyte.com/fl/other",
+                                                    path="/shared/Plans/site.pdf")), 409)
+        self.assertEqual(len(self.listed()), 1)
+        self.add("https://greens.egnyte.com/navigate/file/g2", path="/Shared/Plans/other.pdf")
+        self.assertEqual(len(self.listed()), 2)
+
+    def test_the_path_label_is_a_clean_display_string(self):
+        r = self.add("https://greens.egnyte.com/fl/a", path="shared//Plans/./Site\x07 A//")
+        self.assertEqual(r["egnytePath"], "/Shared/Plans/Site A")
+        for bad in ("/Shared/../Private/boss", "/Shared/Plans/..", "\\Shared\\..\\x"):
+            self.assertEqual(self.code(lambda p=bad: self.add("https://greens.egnyte.com/fl/x", path=p)), 400, bad)
+        # Also when the ".." comes percent-encoded inside an address-bar link.
+        self.assertEqual(self.code(lambda: self.add(
+            "https://greens.egnyte.com/app/index.do#storage/files/1/Shared/%2E%2E/Private")), 400)
+        self.assertEqual(len(self.listed()), 1)
+
+    def test_host_spellings_the_browser_would_bend_are_refused(self):
+        bent = ("https://greens.egnyte.com./fl/x", "https://greens．egnyte.com/fl/x",
+                "https://grеens.egnyte.com/fl/x", "https://xn--grens-2ve.egnyte.com/fl/x",
+                "https://greens.egnyte.com\\@evil.com/fl/x", "https://greens.egnyte.com/fl/x\x7f")
+        for url in bent:
+            self.assertEqual(self.code(lambda u=url: self.add(u)), 400, url)
+        self.assertEqual(self.add("https://GREENS.EGNYTE.COM:443/fl/x")["kind"], "egnyte")
 
 
 if __name__ == "__main__":
