@@ -540,6 +540,19 @@ class ReviewFixTests(Base):
         # The parent was not in the batch: the sync records it closing, once.
         self.assertEqual([r[1] for r in self._rows(parent)].count("status"), 1)
 
+    # -- The Updates card carries no field change ----------------------------
+    def test_the_updates_card_hands_out_no_field_change(self):
+        # A status move on my task by someone else is an update for me - but
+        # its field-history change (names a restricted project's sections and
+        # fields could ride on) is the task history's business, not the card's.
+        t = self.task(assignee_email=ASSIGNEE["email"], assignee_emails=[ASSIGNEE["email"]])
+        self.patch(t, user=MANAGER, status="in_progress")
+        rows = T.my_task_activity(limit=30, days=14, user=ASSIGNEE, db=self.db)
+        self.assertEqual([r["type"] for r in rows], ["status_changed"])
+        self.assertNotIn("change", rows[0])
+        self.assertTrue(all("change" not in e for r in rows for e in (r.get("events") or [])
+                            if isinstance(e, dict)))
+
     # -- L1: a rule is not a person in the briefing --------------------------
     def test_the_briefing_does_not_count_a_rule_as_a_person(self):
         import daily_briefing

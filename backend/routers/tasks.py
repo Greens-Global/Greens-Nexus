@@ -4357,6 +4357,16 @@ def _plain(body: str, limit: int = 180) -> str:
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
+def _update_row(a: models.TaskActivity) -> dict:
+    """An activity row for the Updates card - without its field-history
+    `change`: the card reads none of it, and the change can carry names
+    (a restricted project's, its sections' and fields') that only the
+    task's own history, through task_history.Redactor, may hand out."""
+    out = activity_to_dict(a)
+    out.pop("change", None)
+    return out
+
+
 def _is_person(actor: str) -> bool:
     """A real colleague, not the scheduler, the mailer, the Asana sync or a
     rule ("system", "asana-sync", automation@nexus)."""
@@ -4598,7 +4608,7 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
         key = (a.entity_id, (a.actor_email or "").lower())
         g = open_groups.get(key)
         if g is None or at is None or g["_oldest"] is None or g["_oldest"] - at > _UPDATE_BURST:
-            g = {**activity_to_dict(a), "taskId": a.entity_id, "relation": mine[a.entity_id],
+            g = {**_update_row(a), "taskId": a.entity_id, "relation": mine[a.entity_id],
                  "forYou": False, "ask": "", "preview": "", "_events": [], "_oldest": at}
             open_groups[key] = g
             updates.append(g)
@@ -4734,7 +4744,7 @@ def _unblocked_updates(db: Session, me: str, completions: dict) -> list:
             a = completions.get(b)
             if a is None or not blockers[b].completed:
                 continue
-            out.append({**activity_to_dict(a), "id": f"unblocked:{a.id}:{t.id}", "type": "unblocked",
+            out.append({**_update_row(a), "id": f"unblocked:{a.id}:{t.id}", "type": "unblocked",
                         "detail": "", "entityId": t.id, "entityCode": t.code or "",
                         "entityTitle": t.title or "", "taskId": t.id, "relation": "assignee",
                         "forYou": True, "preview": "", "comment": None,

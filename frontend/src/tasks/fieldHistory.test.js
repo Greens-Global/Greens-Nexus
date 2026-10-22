@@ -120,4 +120,45 @@ describe('field names and the feed fold', () => {
     ];
     expect(foldBulkChanges(apart).map((r) => r.id)).toEqual(['a', 'b', 'd']);
   });
+
+  const at = (ms) => new Date(Date.UTC(2026, 9, 22, 15, 0, 0) + ms).toISOString();
+  const fieldRow = (id, ms, entityId, field, type = 'field_changed') => ({
+    id, at: at(ms), type, actorId: 'sam@x.com', entityId, entityTitle: entityId, change: { field },
+  });
+
+  it('never folds hand edits to different fields into one misleading line', () => {
+    const rows = [fieldRow('a', 0, 't1', 'priority'), fieldRow('b', -500, 't2', 'status', 'status_changed')];
+    const out = foldBulkChanges(groupFieldChanges(rows));
+    expect(out.map((r) => r.id)).toEqual(['a', 'b']);
+    expect(out.some((r) => r.type === 'bulk_changed')).toBe(false);
+  });
+
+  it('folds a bulk completion, Start Date stamps and all, into "completed N tasks"', () => {
+    const rows = [];
+    for (let i = 0; i < 300; i += 1) {
+      rows.push({ id: `c${i}`, at: at(-i), type: 'completed', actorId: 'sam@x.com', entityId: `t${i}`,
+        entityTitle: `Task ${i}`, detail: 'completed this task', change: { field: 'status', from: 'in_progress', to: 'completed' } });
+      // Only some had no start date yet - the completion stamps it on those.
+      if (i % 3 === 0) rows.push(fieldRow(`s${i}`, -i, `t${i}`, 'startOn'));
+    }
+    const out = foldBulkChanges(groupFieldChanges(rows));
+    expect(out).toHaveLength(1);
+    expect(out[0].detail).toBe('completed 300 tasks');
+    expect(out[0].tasks).toHaveLength(300);
+  });
+
+  it('a run ends 2 seconds after its first row - it does not chain on', () => {
+    const rows = [fieldRow('a', 0, 't1', 'priority'), fieldRow('b', -1500, 't2', 'priority'),
+      fieldRow('c', -3000, 't3', 'priority'), fieldRow('d', -4400, 't4', 'priority')];
+    const out = foldBulkChanges(groupFieldChanges(rows));
+    expect(out.map((r) => r.detail)).toEqual(['changed Priority on 2 tasks', 'changed Priority on 2 tasks']);
+    expect(out.map((r) => r.tasks.map((x) => x.entityId))).toEqual([['t1', 't2'], ['t3', 't4']]);
+  });
+
+  it('a run whose tasks changed different field sets stays as it was', () => {
+    const rows = [fieldRow('a', 0, 't1', 'priority'), fieldRow('b', -10, 't2', 'priority'),
+      fieldRow('c', -20, 't2', 'title')];
+    const out = foldBulkChanges(groupFieldChanges(rows));
+    expect(out.every((r) => r.type !== 'bulk_changed')).toBe(true);
+  });
 });

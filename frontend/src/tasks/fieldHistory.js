@@ -134,31 +134,47 @@ export function groupFieldChanges(rows, customFields = []) {
   return out.map(({ _lastAt, ...r }) => r);   // eslint-disable-line no-unused-vars
 }
 
-// A bulk edit writes its rows a few milliseconds apart; a gap longer than this
-// between one person's rows ends the run.
-const BULK_GAP_MS = 2000;
-const BULK_TYPES = new Set(['field_changed', 'status_changed', 'assignee_changed']);
+// A bulk edit writes its rows a few milliseconds apart. A run is one
+// person's rows within this long of the run's FIRST (newest) row - never
+// chained on from row to row, so steady editing does not snowball into one.
+const BULK_WINDOW_MS = 2000;
+const BULK_TYPES = new Set(['field_changed', 'status_changed', 'assignee_changed', 'completed']);
 
-/** For the workspace Activity Log (Oct 22 2026 review): one person's field
- *  changes across SEVERAL tasks in one go - a bulk edit of 500 tasks - read as
- *  one line, `{ type: 'bulk_changed', detail: 'changed Priority on 500 tasks',
- *  tasks: [{ entityId, entityTitle }] }`, which the log can expand. Rows newest
- *  first in (after groupFieldChanges), the same order out; a run on a single
- *  task, and every other row, passes through untouched. */
+const changeKey = (c) => (c?.field === 'customField' ? `cf:${c.fieldId}` : c?.field || '?');
+
+/** For the workspace Activity Log (Oct 22 2026 review): one person's bulk edit
+ *  across SEVERAL tasks reads as one line, which the log can expand -
+ *  `{ type: 'bulk_changed', detail, tasks: [{ entityId, entityTitle }] }`.
+ *  Only a same-shape run folds: every task in it changed the same set of
+ *  fields ("changed Priority on 500 tasks"), or every task in it was
+ *  completed ("completed 500 tasks" - the Start Date a completion stamps
+ *  rides along). Two hand edits to different fields stay two lines. Rows
+ *  newest first in (after groupFieldChanges), the same order out; anything
+ *  that does not fold passes through untouched. */
 export function foldBulkChanges(rows, customFields = []) {
   const out = [];
   let run = [];
   const flush = () => {
-    const tasks = [];
-    const seen = new Set();
+    const byTask = new Map();
     for (const r of run) {
-      if (!seen.has(r.entityId)) { seen.add(r.entityId); tasks.push({ entityId: r.entityId, entityTitle: r.entityTitle || '' }); }
+      const g = byTask.get(r.entityId) || { entityId: r.entityId, entityTitle: r.entityTitle || '', completed: false, keys: new Set(), changes: [] };
+      if (r.type === 'completed') g.completed = true;
+      for (const c of (r.changes || [r.change])) {
+        if (r.type !== 'completed') g.keys.add(changeKey(c));
+        if (c) g.changes.push(c);
+      }
+      byTask.set(r.entityId, g);
     }
-    if (tasks.length >= 2) {
-      const changes = run.flatMap((r) => r.changes || [r.change]).filter(Boolean);
-      const names = joinFieldNames(changes.map((c) => historyFieldName(c, customFields)));
-      out.push({ ...run[0], id: `bulk-${run[0].id}`, type: 'bulk_changed', change: null, changes,
-        detail: `changed ${names} on ${tasks.length} tasks`, entityTitle: '', tasks });
+    const groups = [...byTask.values()];
+    const shape = (g) => (g.completed ? 'completed' : [...g.keys].sort().join('|'));
+    if (groups.length >= 2 && groups.every((g) => shape(g) === shape(groups[0]))) {
+      const first = groups[0];
+      const detail = first.completed
+        ? `completed ${groups.length} tasks`
+        : `changed ${joinFieldNames(first.changes.map((c) => historyFieldName(c, customFields)))} on ${groups.length} tasks`;
+      out.push({ ...run[0], id: `bulk-${run[0].id}`, type: 'bulk_changed', change: null,
+        changes: groups.flatMap((g) => g.changes), detail, entityTitle: '',
+        tasks: groups.map(({ entityId, entityTitle }) => ({ entityId, entityTitle })) });
     } else {
       out.push(...run);
     }
@@ -166,9 +182,9 @@ export function foldBulkChanges(rows, customFields = []) {
   };
   for (const r of rows || []) {
     const foldable = !!r && BULK_TYPES.has(r.type) && (r.entityKind || 'task') === 'task';
-    const last = run[run.length - 1];
-    if (foldable && last && last.actorId === r.actorId
-        && Math.abs(Date.parse(last.at) - Date.parse(r.at)) <= BULK_GAP_MS) {
+    const head = run[0];
+    if (foldable && head && head.actorId === r.actorId
+        && Math.abs(Date.parse(head.at) - Date.parse(r.at)) <= BULK_WINDOW_MS) {
       run.push(r);
       continue;
     }
