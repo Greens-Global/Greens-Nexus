@@ -135,18 +135,18 @@ def list_rules(user: dict = Depends(get_current_user), db: Session = Depends(get
 def create_rule(body: RuleBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Rule name is required")
+    # '' (shared) while the walls are off / for a Global Admin; else the
+    # creator's company, and the engine then fires it only on that company's
+    # tasks.
+    company = config_company_for_new(db, user, _rule_projects(body.conditions)) if isinstance(user, dict) else ""
     # The engine (task_automation.py) runs whatever is stored, so a rule it
-    # cannot run is refused here rather than silently never firing.
-    task_automation.validate_rule(body.trigger, body.conditions, body.actions)
+    # cannot run is refused here rather than silently never firing. The
+    # projects, fields and people a rule names are checked against its company.
+    task_automation.validate_rule(body.trigger, body.conditions, body.actions, db=db, company_id=company)
     r = models.TaskAutomationRule(id=body.id or gen_id(), name=body.name, trigger=body.trigger or {},
                                   conditions=body.conditions or [], actions=body.actions or [],
                                   enabled=True if body.enabled is None else bool(body.enabled),
-                                  created_at=now_iso(),
-                                  # '' (shared) while the walls are off / for a Global
-                                  # Admin; else the creator's company, and the engine
-                                  # then fires it only on that company's tasks.
-                                  company_id=(config_company_for_new(db, user, _rule_projects(body.conditions))
-                                              if isinstance(user, dict) else ""))
+                                  created_at=now_iso(), company_id=company)
     db.add(r)
     db.commit()
     db.refresh(r)
@@ -164,7 +164,8 @@ def update_rule(rule_id: str, body: RuleBody, user: dict = Depends(get_current_u
     data = body.model_dump(exclude_unset=True, exclude={"id"})
     if any(k in data for k in ("trigger", "conditions", "actions")):
         task_automation.validate_rule(data.get("trigger", r.trigger), data.get("conditions", r.conditions),
-                                      data.get("actions", r.actions))
+                                      data.get("actions", r.actions), db=db,
+                                      company_id=getattr(r, "company_id", "") or "")
     for k, v in data.items():
         setattr(r, k, v)
     db.commit()

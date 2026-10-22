@@ -329,6 +329,29 @@ def modified_email(*, t: dict, base_url: str, logo_url: str, update_kind: str) -
     return subject, html
 
 
+def automation_email(*, t: dict, base_url: str, logo_url: str, subject: str, body: str) -> tuple[str, str]:
+    """An automation rule's "Send Email" action (task_automation, Oct 22 2026).
+    `subject` and `body` are the rule's text with the task's details filled
+    in - plain text from a manager's rule and a task's fields, so both are
+    escaped here (the body keeps its line breaks) and nothing in them can
+    become markup."""
+    subject_text = " ".join(str(subject or "").split()) or "Automated Update"
+    message = rich_to_email_html(escape(str(body or "")).replace("\n", "<br>"), 2000)
+    html = task_email_html(
+        task_title=t["title"], status=t["status"],
+        heading=subject_text,
+        intro="An automation rule sent you this about the task below.",
+        rows=[
+            ("Message", message),
+            *_common_rows(t),
+        ],
+        cta_label="View Task", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
+    )
+    # The rule's own subject (it can carry {title}), under the company name
+    # every task email leads with.
+    return f"[{COMPANY_NAME}] - {subject_text}", html
+
+
 def deleted_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
     subject = _task_subject(t, "Deleted")
     html = task_email_html(

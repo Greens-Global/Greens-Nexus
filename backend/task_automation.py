@@ -31,12 +31,36 @@ What it never does
     task_util.create_comment, which commits; the engine hands it back as an
     `after_commit` callable so the caller runs it once its own commit landed.
 
+The Monday-recipe actions (Neil, Oct 22 2026)
+  * create_task runs AFTER the caller's commit, through routers.tasks
+    ._create_task - the POST /tasks path, with its codes, activity, company
+    wall, people checks and required fields - as the person whose change
+    fired the rule (on the clock: the task's owner), so a rule can never make
+    a task that person could not. A refusal (no editor role on the target
+    project, a required custom field, another company) lands in the Runs
+    panel as "could not create a task: ...", never as an error to the person
+    who made the edit. A task an automation creates runs NO rules at all
+    (_SUPPRESS) - depth 0, so two rules can never ping-pong - and one change
+    creates at most MAX_CREATES_PER_TASK tasks (MAX_CREATES_PER_REQUEST
+    across a bulk edit).
+  * move_to_project is a field change on the same row, like set_status, and
+    keeps the move rules update_task applies (section and team left behind,
+    the required-field check of _newly_missing_required); the subtasks that
+    carry the old project go with it. It never re-fires moved_to_project.
+  * send_email never sends mail: it hands notify_task_event an "automation"
+    event, which goes through the person's mutes and the batched queue like
+    every task email. Only Nexus directory people who can SEE the task get
+    it (recipient_can_see), checked again when the batch goes out.
+  * A restricted task is never copied into another project by create_task:
+    its title (through {title}) would reach people who cannot see it.
+
 Every rule that fires writes a TaskAutomationRun row (the Runs panel in
 Manage) and one activity entry on the task attributed to AUTOMATION_ACTOR, so
 "why did this task's priority change?" has an answer in the task itself.
 """
 from __future__ import annotations
 
+import contextvars
 import functools
 import html
 from dataclasses import dataclass, field
@@ -68,6 +92,8 @@ TRIGGER_TYPES = (
     "moved_to_project",   # value: project id the task landed in, or "" for any move
     "completed_early",    # completed before its due date
     "due_date_arrives",   # SCHEDULED. value: days relative to the due date (-2 = two days before, 0 = on, 3 = three days after)
+    "custom_field_changed",  # value: {fieldId, to?} - to: option id (select), an option it now includes (multiselect), "checked" / "unchecked" (checkbox), else the value; blank = any change
+    "due_date_changed",   # the due date moved (set, cleared or changed)
 )
 ACTION_TYPES = (
     "set_status", "set_priority", "add_tag", "set_milestone",
@@ -77,20 +103,143 @@ ACTION_TYPES = (
     "set_due_in_days",  # value: N - due date becomes today + N
     "shift_due_days",   # value: N - due date moves by N days from where it is (from today when it has none)
     "add_comment",      # value: text; {title} {assignee} {due} {priority} {status} are filled in
+    "create_task",      # value: {title, projectId?, asSubtask?, assignee? (email | "{assignee}"), dueInDays?, priority?}
+    "move_to_project",  # value: {projectId, sectionId?}
+    "send_email",       # value: {to: assignees | creator | followers | project_owner | a directory email, subject, body}
+    "set_custom_field",  # value: {fieldId, value} - a blank value clears the field
 )
-CONDITION_FIELDS = ("project", "status", "priority", "tag", "assignee", "team")
+CONDITION_FIELDS = ("project", "status", "priority", "tag", "assignee", "team",
+                    "custom_field")   # custom_field: {field, fieldId, op, value} - value read like a trigger's "to"
+EMAIL_TO = ("assignees", "creator", "followers", "project_owner")
 CONDITION_OPS = ("is", "is_not")
 PRIORITIES = ("low", "medium", "high", "urgent")
 
 MAX_CONDITIONS = 10
 MAX_ACTIONS = 6
+MAX_CREATES_PER_TASK = 3       # tasks one change to one task can create, every rule together
+MAX_CREATES_PER_REQUEST = 25   # ...and one bulk edit, across all its rows
+MAX_TITLE = 200
+MAX_SUBJECT = 200
+MAX_BODY = 5000
+MAX_DUE_DAYS = 3650
+
+# Set while an automation is creating a task: that task's own create runs no
+# rules (see the module docstring). A ContextVar, not a flag on the session,
+# so a request on another thread is never affected.
+_SUPPRESS: contextvars.ContextVar = contextvars.ContextVar("task_automation_suppress", default=False)
 
 
 # ── Validation (shared by the CRUD endpoints) ────────────────────────────────
-def validate_rule(trigger: dict | None, conditions: list | None, actions: list | None) -> None:
+def _spec(value) -> dict:
+    """An object-valued trigger / action's value, or {} for anything else."""
+    return value if isinstance(value, dict) else {}
+
+
+def _check_field(db: Optional[Session], field_id, company_id: str):
+    """The custom field a rule names must exist and, for a company's rule, be
+    shared or that company's own. None without a db (a bare shape check)."""
+    if not (isinstance(field_id, str) and field_id.strip()):
+        raise HTTPException(422, "Pick a custom field")
+    if db is None:
+        return None
+    f = db.query(models.TaskCustomField).filter(models.TaskCustomField.id == field_id).first()
+    if f is None:
+        raise HTTPException(422, "That custom field no longer exists")
+    fc = (getattr(f, "company_id", "") or "").strip()
+    if company_id and fc and fc != company_id:
+        raise HTTPException(422, "That custom field belongs to another company")
+    return f
+
+
+def _check_project(db: Optional[Session], project_id, company_id: str):
+    """A project a rule creates tasks in or moves tasks to: it must exist (a
+    binned one is invisible to the query) and, for a company's rule, be that
+    company's - so a rule can never reach across the wall."""
+    if not (isinstance(project_id, str) and project_id.strip()):
+        raise HTTPException(422, "Pick a project")
+    if db is None:
+        return None
+    p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
+    if p is None:
+        raise HTTPException(422, "That project no longer exists")
+    if company_id and row_company(db, p) != company_id:
+        raise HTTPException(422, "That project belongs to another company")
+    return p
+
+
+def _check_person(db: Optional[Session], email, company_id: str) -> None:
+    """A person a rule names by address: a current Nexus directory person
+    (the People list, never an outside address), on the rule's company's side."""
+    if not (isinstance(email, str) and "@" in email):
+        raise HTTPException(422, "Pick a person")
+    if db is None:
+        return
+    emp = _employee(db, email)
+    who = email.strip().lower()
+    if emp is None or (emp.status or "") in ("inactive", "offboarded"):
+        raise HTTPException(422, f"{who} is not in the Nexus directory")
+    if company_id and (emp.company or "") and emp.company != company_id:
+        raise HTTPException(422, f"{who} is in another company")
+
+
+def _check_text(value, what: str, limit: int) -> None:
+    if not (isinstance(value, str) and value.strip()):
+        raise HTTPException(422, f"The {what} is required")
+    if len(value) > limit:
+        raise HTTPException(422, f"The {what} can be at most {limit} characters")
+
+
+def _check_action(db: Optional[Session], kind: str, value, company_id: str) -> None:
+    """The newer, object-valued actions (Oct 22 2026)."""
+    spec = _spec(value)
+    if kind == "create_task":
+        _check_text(spec.get("title"), "new task's title", MAX_TITLE)
+        if spec.get("projectId") and not spec.get("asSubtask"):
+            _check_project(db, spec.get("projectId"), company_id)
+        who = spec.get("assignee") or ""
+        if who and who != "{assignee}":
+            _check_person(db, who, company_id)
+        days = spec.get("dueInDays")
+        if days not in (None, ""):
+            try:
+                n = int(days)
+            except (TypeError, ValueError):
+                raise HTTPException(422, "Days must be a whole number")
+            if abs(n) > MAX_DUE_DAYS:
+                raise HTTPException(422, f"Days can be at most {MAX_DUE_DAYS}")
+        if spec.get("priority") and spec.get("priority") not in PRIORITIES:
+            raise HTTPException(422, "Pick a priority")
+    elif kind == "move_to_project":
+        _check_project(db, spec.get("projectId"), company_id)
+        sid = spec.get("sectionId") or ""
+        if sid and db is not None:
+            sec = db.query(models.TaskSection).filter(models.TaskSection.id == sid).first()
+            if sec is None or (sec.project_id or "") != spec.get("projectId"):
+                raise HTTPException(422, "That section is not in the project")
+    elif kind == "send_email":
+        if spec.get("to") not in EMAIL_TO:
+            _check_person(db, spec.get("to"), company_id)
+        _check_text(spec.get("subject"), "email subject", MAX_SUBJECT)
+        _check_text(spec.get("body"), "email message", MAX_BODY)
+    elif kind == "set_custom_field":
+        f = _check_field(db, spec.get("fieldId"), company_id)
+        if f is not None and f.read_only:
+            raise HTTPException(422, "That custom field is read-only")
+        v = spec.get("value")
+        if not isinstance(v, (str, bool, int, float, list, type(None))):
+            raise HTTPException(422, "The custom field value is not valid")
+
+
+def validate_rule(trigger: dict | None, conditions: list | None, actions: list | None,
+                  db: Optional[Session] = None, company_id: str = "") -> None:
     """422 for a rule the engine could not run. Kept loose on VALUES on
     purpose - a status that is deleted later must not make the rule unsaveable,
-    it just stops matching."""
+    it just stops matching. The objects the newer triggers and actions name
+    (a custom field, a project, a section, a person) are checked against the
+    database when the endpoint passes `db`, and against the rule's company
+    (`company_id`, '' = shared) so a company's rule never names another
+    company's project, field or person."""
+    company_id = (company_id or "").strip()
     trigger = trigger or {}
     if trigger.get("type") not in TRIGGER_TYPES:
         raise HTTPException(422, "Choose a trigger")
@@ -99,12 +248,21 @@ def validate_rule(trigger: dict | None, conditions: list | None, actions: list |
             int(trigger.get("value") or 0)
         except (TypeError, ValueError):
             raise HTTPException(422, "Days before or after the due date must be a whole number")
+    if trigger.get("type") == "custom_field_changed":
+        spec = _spec(trigger.get("value"))
+        _check_field(db, spec.get("fieldId"), company_id)
+        if spec.get("to") not in (None, "") and not isinstance(spec.get("to"), (str, bool, int, float)):
+            raise HTTPException(422, "Pick the value the field changes to")
     conds = conditions or []
     if len(conds) > MAX_CONDITIONS:
         raise HTTPException(422, f"At most {MAX_CONDITIONS} conditions")
     for c in conds:
         if not isinstance(c, dict) or c.get("field") not in CONDITION_FIELDS or c.get("op", "is") not in CONDITION_OPS:
             raise HTTPException(422, "A condition is incomplete")
+        if c.get("field") == "custom_field":
+            _check_field(db, c.get("fieldId"), company_id)
+            if c.get("value") in (None, "") or not isinstance(c.get("value"), (str, bool, int, float)):
+                raise HTTPException(422, "A custom field condition needs a value")
     acts = actions or []
     if not acts:
         raise HTTPException(422, "Add at least one action")
@@ -126,6 +284,8 @@ def validate_rule(trigger: dict | None, conditions: list | None, actions: list |
             raise HTTPException(422, "Pick a priority")
         elif kind in ("set_status", "add_tag", "add_comment") and not (isinstance(value, str) and value.strip()):
             raise HTTPException(422, "The action needs a value")
+        elif kind in ("create_task", "move_to_project", "send_email", "set_custom_field"):
+            _check_action(db, kind, value, company_id)
 
 
 # ── Snapshots and matching ───────────────────────────────────────────────────
@@ -144,7 +304,41 @@ def snapshot(t: models.Task) -> dict:
         "tags": tuple(str(x).strip().lower() for x in (t.tags or [])),
         "due_on": (t.due_on or "")[:10],
         "completed": bool(t.completed),
+        # Copied, lists included: the JSON column's dict can be edited in
+        # place later in the request, and the "before" must not move with it.
+        "custom": {k: (list(v) if isinstance(v, list) else v)
+                   for k, v in (t.custom_field_values or {}).items()}
+                  if isinstance(t.custom_field_values, dict) else {},
     }
+
+
+def _cf_empty(v) -> bool:
+    """An unset custom field: absent, blank, an empty list, or an unticked
+    checkbox (coerce stores False, a task never edited has nothing)."""
+    return v is None or v is False or v == "" or v == []
+
+
+def _cf_hit(current, wanted) -> bool:
+    """Whether a custom field's stored value `current` is `wanted` - the rule
+    a trigger's "to" and a condition's value share. Option ids for select and
+    multiselect (a list "is" a value it includes), "checked" / "unchecked" for
+    a checkbox, an email a people field includes, the number for a number,
+    else the text, ignoring case."""
+    if isinstance(wanted, bool):
+        wanted = "checked" if wanted else "unchecked"
+    w = str(wanted if wanted is not None else "").strip().lower()
+    if w in ("checked", "unchecked") and (isinstance(current, bool) or current is None):
+        return bool(current) == (w == "checked")
+    if isinstance(current, list):
+        return any(str(x).strip().lower() == w for x in current)
+    if _cf_empty(current):
+        return False
+    if isinstance(current, (int, float)) and not isinstance(current, bool):
+        try:
+            return float(w) == float(current)
+        except ValueError:
+            return False
+    return str(current).strip().lower() == w
 
 
 BUSINESS_TZ = "America/Los_Angeles"
@@ -185,6 +379,23 @@ def _matches_trigger(trigger: dict, event: str, before: dict, after: dict, *,
         if not completing:
             return False
         return bool(after["due_on"]) and today.isoformat() < after["due_on"]
+    if kind == "due_date_changed":
+        return after["due_on"] != before["due_on"]
+    if kind == "custom_field_changed":
+        spec = _spec(trigger.get("value"))
+        fid = spec.get("fieldId") or ""
+        was, now = before.get("custom", {}).get(fid), after.get("custom", {}).get(fid)
+        if (_cf_empty(was) and _cf_empty(now)) or was == now:
+            return False
+        to = spec.get("to")
+        if to in (None, ""):
+            return True
+        if isinstance(now, list):
+            # Multiselect / people: the change ADDED that option (or person) -
+            # ticking a second option on a task that already had it is not
+            # "changed to" it.
+            return _cf_hit(now, to) and not _cf_hit(was if isinstance(was, list) else [], to)
+        return _cf_hit(now, to)
     return False   # due_date_arrives only fires from run_scheduled
 
 
@@ -193,7 +404,10 @@ def conditions_ok(conditions: list | None, snap: dict) -> bool:
     for c in conditions or []:
         f, op, v = c.get("field"), c.get("op", "is"), c.get("value")
         v = (v or "").strip().lower() if isinstance(v, str) else v
-        if f == "project":
+        if f == "custom_field":
+            # The raw value, not `v`: _cf_hit has its own matching rules.
+            hit = _cf_hit(snap.get("custom", {}).get(c.get("fieldId") or ""), c.get("value"))
+        elif f == "project":
             hit = bool(v) and (snap["project_id"] == v or v in snap["project_ids"])
         elif f == "status":
             hit = snap["status"] == v
@@ -221,6 +435,102 @@ class Result:
     applied: list = field(default_factory=list)     # human lines, one per action
     after_commit: list = field(default_factory=list)  # callables(db, defer) to run once the caller has committed
     rule_ids: list = field(default_factory=list)
+    creates: int = 0                                 # tasks create_task actions asked for in this pass
+
+
+@dataclass
+class _RunCtx:
+    """What an action needs beyond the task: the rule (its name and company),
+    who made the change (the person a created task is created AS), the run
+    row once it is written (`ref["id"]`, for the after-commit actions to
+    report back to), and the create budget shared across one request."""
+    rule: models.TaskAutomationRule
+    actor: str = ""
+    ref: dict = field(default_factory=dict)
+    budget: dict = field(default_factory=dict)
+
+
+def _employee(db: Session, email: str):
+    from sqlalchemy import func
+    who = (email or "").strip().lower()
+    if not who:
+        return None
+    return (db.query(models.NexusEmployee)
+            .filter(func.lower(models.NexusEmployee.work_email) == who).first())
+
+
+def _person_user(db: Session, email: str) -> Optional[dict]:
+    """The user dict get_current_user would build for a CURRENT directory
+    person (as ticket_inbound._user_for does), or None - the identity the
+    permission checks take when the engine acts as someone or asks what
+    they can see. An external (guest) is never elevated, as at sign-in."""
+    import auth
+    who = (email or "").strip().lower()
+    if not who or "@" not in who or who == AUTOMATION_ACTOR:
+        return None
+    emp = _employee(db, who)
+    if emp is None or (emp.status or "") in ("inactive", "offboarded"):
+        return None
+    if (getattr(emp, "identity_type", "") or "internal") in ("guest", "external"):
+        return {"email": who, "role": "employee", "level": 1, "external": True}
+    role, level = auth._role_for(who, db)
+    return {"email": who, "role": role, "level": level}
+
+
+def recipient_can_see(db: Session, email: str, t: models.Task) -> bool:
+    """Whether `email` may be sent an automation email about `t`: a current
+    directory person (person_problem: not offboarded, on the task's side of
+    the company wall when the walls are on), inside their own company scope,
+    and able to see the task by the same rule the lists apply
+    (task_visible_to) - so a restricted task never reaches anyone it is
+    hidden from. task_notify re-asks this when a held batch goes out."""
+    import auth
+    from routers.task_util import person_problem, task_visible_to
+    u = _person_user(db, email)
+    if u is None or person_problem(db, t, u["email"]):
+        return False
+    scope = auth.company_scope(u, db)
+    if scope is not None and not auth.company_ok(row_company(db, t), scope):
+        return False
+    return task_visible_to(db, u, t)
+
+
+def _amend_run(db: Session, ref: dict, old_line: str, new_line: str, *, failed: bool = False) -> None:
+    """Rewrite one line of a run row once an after-commit action knows how it
+    went ("creating task X" -> "created task X" / "could not create a task:
+    ..."). A run whose every line failed reads as an error in the Runs panel;
+    one with some lines through reads as partial. Commits."""
+    run_id = (ref or {}).get("id")
+    if not run_id:
+        return
+    run = db.query(models.TaskAutomationRun).filter(models.TaskAutomationRun.id == run_id).first()
+    if run is None:
+        return
+    lines = list(run.actions or [])
+    if old_line in lines:
+        lines[lines.index(old_line)] = new_line
+    else:
+        lines.append(new_line)
+    run.actions = lines
+    failures = [ln for ln in lines if ln.startswith("could not ")]
+    if failures:
+        run.status = "error" if len(failures) == len(lines) else "partial"
+        run.detail = "; ".join(failures)[:500]
+    db.commit()
+
+
+class _Later:
+    """BackgroundTasks' add_task for code that may have none: hands the call
+    to the request's queue when there is one, else runs it now (a bulk edit
+    and the scheduled scan already run on a worker thread)."""
+    def __init__(self, defer=None):
+        self._defer = defer
+
+    def add_task(self, fn, *args, **kwargs):
+        if self._defer is not None:
+            self._defer(fn, *args, **kwargs)
+        else:
+            fn(*args, **kwargs)
 
 
 def _label_status(db: Session, status_id: str) -> str:
@@ -241,7 +551,12 @@ def _us(iso: str) -> str:
 
 
 def _fill(template: str, db: Session, t: models.Task) -> str:
-    """{title} {assignee} {due} {priority} {status} {project} in an add_comment."""
+    """{title} {assignee} {due} {priority} {status} {project} in an add_comment,
+    a created task's title or an email's subject and message. Plain text out:
+    every caller escapes it where it becomes HTML (the comment body here, the
+    email template in task_mail_templates). One pass, so a task titled
+    "{due}" stays "{due}" rather than being filled in again."""
+    import re
     from routers.task_util import project_for_task
     names = []
     for e in task_assignees(t):
@@ -257,18 +572,27 @@ def _fill(template: str, db: Session, t: models.Task) -> str:
         "status": _label_status(db, t.status or ""),
         "project": project.name if project else "no project",
     }
-    out = template
-    for k, v in values.items():
-        out = out.replace("{" + k + "}", v)
-    return out
+    return re.sub(r"\{(title|assignee|due|priority|status|project)\}", lambda m: values[m.group(1)], template)
 
 
 def _apply_action(db: Session, t: models.Task, action: dict, res: Result, *, today: date,
-                  gate: Optional[Callable], prev_status: str, prev_completed: bool) -> str:
+                  gate: Optional[Callable], prev_status: str, prev_completed: bool,
+                  run: Optional[_RunCtx] = None, company_cache: Optional[dict] = None) -> str:
     """Apply one action to `t`. Returns the human line for the run log, or ""
     when the action was a no-op (already in that state)."""
     kind = action.get("type")
     value = action.get("value")
+    if kind in ("create_task", "send_email", "move_to_project", "set_custom_field"):
+        if run is None:
+            return ""
+        cache = company_cache if company_cache is not None else {}
+        if kind == "create_task":
+            return _queue_create_task(db, t, _spec(value), res, run, today)
+        if kind == "send_email":
+            return _queue_email(t, _spec(value), res, run)
+        if kind == "move_to_project":
+            return _move_to_project(db, t, _spec(value), res, run, cache)
+        return _set_custom_field(db, t, _spec(value), res, cache)
     if kind == "set_status":
         if (t.status or "") == value:
             return ""
@@ -346,6 +670,263 @@ def _apply_action(db: Session, t: models.Task, action: dict, res: Result, *, tod
     return ""
 
 
+def _task_company(db: Session, t: models.Task, cache: dict) -> str:
+    if "company" not in cache:
+        cache["company"] = row_company(db, t)
+    return cache["company"]
+
+
+def _cf_label(f: models.TaskCustomField, v) -> str:
+    """A custom field value as the run log and the Activity tab print it."""
+    from routers.task_config import normalize_field_options
+    if isinstance(v, bool):
+        return "checked" if v else "unchecked"
+    opts = {o["id"]: o["label"] for o in normalize_field_options(f.options or [])}
+    if isinstance(v, list):
+        return ", ".join(opts.get(str(x), str(x)) for x in v)
+    if (f.type or "") == "date":
+        return _us(str(v))
+    return opts.get(str(v), str(v))
+
+
+# ── create_task ──────────────────────────────────────────────────────────────
+def _queue_create_task(db: Session, t: models.Task, spec: dict, res: Result, run: _RunCtx,
+                       today: date) -> str:
+    """Counts the task against the per-change and per-request caps and hands
+    the create to after-commit (_create_after_commit) - _create_task commits,
+    and the caller's own edit is not committed yet."""
+    total = int(run.budget.get("creates", 0) or 0)
+    if res.creates >= MAX_CREATES_PER_TASK:
+        return f"could not create a task: one change can create at most {MAX_CREATES_PER_TASK} tasks"
+    if total >= MAX_CREATES_PER_REQUEST:
+        return f"could not create a task: one bulk edit can create at most {MAX_CREATES_PER_REQUEST} tasks"
+    res.creates += 1
+    run.budget["creates"] = total + 1
+    title = " ".join(_fill(str(spec.get("title") or ""), db, t).split())[:MAX_TITLE] or "Untitled task"
+    line = f'creating task "{title}"'
+    res.after_commit.append(functools.partial(
+        _create_after_commit, task_id=t.id, spec=dict(spec), title=title, actor=run.actor,
+        ref=run.ref, line=line, rule_name=run.rule.name or "",
+        rule_company=(getattr(run.rule, "company_id", "") or "").strip(), today=today))
+    return line
+
+
+def _create_after_commit(db: Session, defer=None, *, task_id: str, spec: dict, title: str, actor: str,
+                         ref: dict, line: str, rule_name: str, rule_company: str, today: date) -> None:
+    """Create the task through routers.tasks._create_task (the POST /tasks
+    path) as the person whose change fired the rule, else the task's owner
+    or creator. Any refusal is written onto the run; nothing is raised."""
+    from routers.tasks import _create_task, TaskCreate
+    from routers.task_util import project_for_task
+
+    def fail(why: str) -> None:
+        _amend_run(db, ref, line, f"could not create a task: {why}", failed=True)
+
+    token = _SUPPRESS.set(True)   # the new task runs no rules (see the module docstring)
+    try:
+        src = db.query(models.Task).filter(models.Task.id == task_id).first()
+        if src is None:
+            return fail("the task that fired the rule is gone")
+        as_sub = bool(spec.get("asSubtask"))
+        home = project_for_task(db, src)
+        home_id = home.id if home else ""
+        if as_sub:
+            project_id, parent_id = (src.project_id or ""), src.id
+        else:
+            project_id, parent_id = ((spec.get("projectId") or "").strip() or home_id), ""
+        restricted = (src.access_level or "org") != "org"
+        if restricted and not as_sub and project_id != home_id:
+            return fail("the task is restricted, so a rule does not copy it into another project")
+        project = (db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
+                   if project_id else None)
+        if project_id and project is None:
+            return fail("that project no longer exists")
+        if project is not None and rule_company and not as_sub and row_company(db, project) != rule_company:
+            return fail("that project is in another company")
+        who = (spec.get("assignee") or "").strip().lower()
+        assignees = task_assignees(src) if who == "{assignee}" else ([who] if who else [])
+        due = ""
+        if spec.get("dueInDays") not in (None, ""):
+            due = (today + timedelta(days=int(spec["dueInDays"]))).isoformat()
+        user = next((u for u in (_person_user(db, e) for e in (actor, src.owner_email, src.created_by)) if u), None)
+        if user is None:
+            return fail("nobody to create it as - the person who made the change is not in the Nexus directory")
+        body = TaskCreate(
+            title=title, project_id=project_id, parent_task_id=parent_id, assignee_emails=assignees,
+            due_on=due, priority=spec.get("priority") if spec.get("priority") in PRIORITIES else "medium",
+            # A subtask of a restricted task, or a copy in its own project,
+            # stays restricted - never wider than the task it came from.
+            access_level=(src.access_level if restricted else None))
+
+        def _note(new: models.Task) -> None:
+            new.activity_ids = list(new.activity_ids or []) + [log_activity(
+                db, type="automation", actor_email=AUTOMATION_ACTOR, entity_id=new.id,
+                entity_code=new.code, entity_title=new.title,
+                detail=f"{rule_name}: created this task from {src.title or 'a task'}")]
+        _create_task(body, _Later(defer), user, db, before_commit=_note, check_people=True)
+        where = " as a subtask" if as_sub else (f" in {project.name}" if project is not None else "")
+        _amend_run(db, ref, line, f'created task "{title}"{where}')
+    except HTTPException as e:
+        db.rollback()
+        fail(str(e.detail))
+    except Exception as e:   # never let one rule's task break the rest of the after-commit work
+        db.rollback()
+        fail(str(e)[:200])
+    finally:
+        _SUPPRESS.reset(token)
+
+
+# ── send_email ───────────────────────────────────────────────────────────────
+_EMAIL_TO_WORDS = {"assignees": "the assignees", "creator": "the creator",
+                   "followers": "the collaborators", "project_owner": "the project owner"}
+
+
+def email_recipients(db: Session, t: models.Task, to) -> tuple[list, int]:
+    """([(email, role)], how many were left out) for a send_email action:
+    who `to` names on this task, kept only when recipient_can_see."""
+    from routers.task_util import project_for_task
+    key = str(to or "").strip().lower()
+    if key == "assignees":
+        cands = [(e, "assignee") for e in task_assignees(t)]
+    elif key == "creator":
+        cands = [(t.created_by or "", "creator")]
+    elif key == "followers":
+        cands = [(e, "follower") for e in email_list(t.follower_emails)]
+    elif key == "project_owner":
+        p = project_for_task(db, t)
+        cands = [(p.owner_email or "", "owner")] if p is not None else []
+    elif "@" in key:
+        cands = [(key, "recipient")]
+    else:
+        cands = []
+    out, seen, left_out = [], set(), 0
+    for e, role in cands:
+        e = (e or "").strip().lower()
+        if not e or e in seen:
+            continue
+        seen.add(e)
+        if recipient_can_see(db, e, t):
+            out.append((e, role))
+        else:
+            left_out += 1
+    return out, left_out
+
+
+def _queue_email(t: models.Task, spec: dict, res: Result, run: _RunCtx) -> str:
+    to = str(spec.get("to") or "")
+    line = f"emailing {_EMAIL_TO_WORDS.get(to, to)}"
+    res.after_commit.append(functools.partial(_email_after_commit, task_id=t.id, spec=dict(spec),
+                                              ref=run.ref, line=line))
+    return line
+
+
+def _email_after_commit(db: Session, defer=None, *, task_id: str, spec: dict, ref: dict, line: str) -> None:
+    """Resolve the recipients against the committed task and hand the email
+    to notify_task_event as an "automation" event - mutes, batching and the
+    retry log all apply. Never sends mail itself."""
+    t = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if t is None:
+        _amend_run(db, ref, line, "could not send the email: the task is gone", failed=True)
+        return
+    recipients, left_out = email_recipients(db, t, spec.get("to"))
+    if not recipients:
+        _amend_run(db, ref, line, "could not send the email: nobody to send it to who can see this task",
+                   failed=True)
+        return
+    subject = " ".join(_fill(str(spec.get("subject") or ""), db, t).split())[:MAX_SUBJECT]
+    body = _fill(str(spec.get("body") or ""), db, t)[:MAX_BODY]
+    import task_notify as _mail   # lazy: task_notify imports this module
+    _Later(defer).add_task(_mail.notify_task_event, t.id, "automation", AUTOMATION_ACTOR,
+                           automation_to=recipients, auto_subject=subject, auto_body=body)
+    note = f" ({left_out} left out - cannot see this task)" if left_out else ""
+    _amend_run(db, ref, line, "queued an email to " + ", ".join(e for e, _ in recipients) + note)
+
+
+# ── move_to_project / set_custom_field (field changes on the same row) ───────
+def _move_to_project(db: Session, t: models.Task, spec: dict, res: Result, run: _RunCtx, cache: dict) -> str:
+    """The move update_task makes for a new project: the old section and team
+    are left behind, the extras list is re-cleaned, and a required custom
+    field the move would leave empty refuses it (_newly_missing_required).
+    Subtasks that carry the old project as their own go with it; those with
+    none already follow their main task."""
+    import auth
+    from routers.tasks import _extra_project_ids, _newly_missing_required, _required_message, _live_descendants
+    pid = (spec.get("projectId") or "").strip()
+    sid = (spec.get("sectionId") or "").strip()
+    if not pid:
+        return ""
+    if t.parent_task_id:
+        return "could not move: a subtask moves with its main task"
+    project = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
+    if project is None:
+        return "could not move: that project no longer exists"
+    sec = db.query(models.TaskSection).filter(models.TaskSection.id == sid).first() if sid else None
+    if sec is None or (sec.project_id or "") != pid:
+        sec, sid = None, ""
+    old = t.project_id or ""
+    if old == pid and (not sid or (t.section_id or "") == sid):
+        return ""
+    pc = row_company(db, project)
+    rc = (getattr(run.rule, "company_id", "") or "").strip()
+    if (rc and pc != rc) or (auth._company_walls_on(db) and _task_company(db, t, cache) != pc):
+        return f"could not move to {project.name}: it is in another company"
+    if old != pid:
+        values = t.custom_field_values or {}
+        missing = _newly_missing_required(db, t, old, values, pid, values)
+        if missing:
+            return f"could not move to {project.name}: {_required_message(db, missing, pid)}"
+    t.project_id = pid
+    t.section_id = sid
+    res.changed["project_id"] = pid
+    res.changed["section_id"] = sid
+    if old != pid:
+        t.team_id = ""
+        t.project_ids = _extra_project_ids(t.project_ids, pid)
+        res.changed["team_id"] = ""
+        if old:
+            now = now_iso()
+            for d in _live_descendants(db, [t.id]):
+                if (d.project_id or "") == old:
+                    d.project_id, d.section_id, d.team_id = pid, "", ""
+                    d.project_ids = _extra_project_ids(d.project_ids, pid)
+                    d.modified_at = now
+    return f"moved to {project.name}" + (f" ({sec.name})" if sec is not None else "")
+
+
+def _set_custom_field(db: Session, t: models.Task, spec: dict, res: Result, cache: dict) -> str:
+    """Writes one custom field the way a bulk edit does (merged into the
+    task's own values, coerced to the field's shape; a blank value clears
+    it). A company's field is only written on that company's tasks, and a
+    required field is never cleared."""
+    from routers.tasks import _merge_custom_field_values, _newly_missing_required, _required_message
+    fid = (spec.get("fieldId") or "").strip()
+    f = db.query(models.TaskCustomField).filter(models.TaskCustomField.id == fid).first() if fid else None
+    if f is None:
+        return "could not set a custom field: that field no longer exists"
+    if f.read_only:
+        return f"could not set {f.name}: it is read-only"
+    fc = (getattr(f, "company_id", "") or "").strip()
+    if fc and _task_company(db, t, cache) != fc:
+        return f"could not set {f.name}: it belongs to another company"
+    current = dict(t.custom_field_values) if isinstance(t.custom_field_values, dict) else {}
+    raw = spec.get("value")
+    if (f.type or "") == "checkbox" and isinstance(raw, str) and raw.strip().lower() in ("checked", "unchecked"):
+        raw = raw.strip().lower() == "checked"   # the rule builder's words for a checkbox
+    merged = _merge_custom_field_values(db, current, {fid: raw})
+    clearing = raw in ("", None) or raw == []
+    if not clearing and fid not in merged:
+        return f"could not set {f.name}: that value does not fit the field"
+    if merged.get(fid) == current.get(fid) or (_cf_empty(merged.get(fid)) and _cf_empty(current.get(fid))):
+        return ""   # already so (an unticked checkbox and an unset one are the same)
+    if clearing:
+        missing = _newly_missing_required(db, t, t.project_id or "", current, t.project_id or "", merged)
+        if missing:
+            return f"could not clear {f.name}: {_required_message(db, missing, t.project_id or '')}"
+    t.custom_field_values = merged
+    res.changed["custom_field_values"] = merged
+    return f"cleared {f.name}" if clearing else f"set {f.name} to {_cf_label(f, merged[fid])}"
+
+
 def _valid_status_ids(db: Session) -> set:
     from routers.tasks import _valid_statuses   # lazy: routers.tasks imports this module
     return _valid_statuses(db)
@@ -376,12 +957,18 @@ def _rule_reaches(db: Session, rule: models.TaskAutomationRule, t: models.Task, 
 
 
 def _record(db: Session, rule: models.TaskAutomationRule, t: models.Task, *, event: str,
-            lines: list[str], dedupe_key: str = "") -> None:
+            lines: list[str], dedupe_key: str = "") -> str:
+    """Writes the run row and the task's activity line; returns the run id
+    (the after-commit actions report back onto it - _amend_run)."""
+    failures = [ln for ln in lines if ln.startswith("could not ")]
+    run_id = gen_id()
     db.add(models.TaskAutomationRun(
-        id=gen_id(), rule_id=rule.id, rule_name=rule.name or "", task_id=t.id,
+        id=run_id, rule_id=rule.id, rule_name=rule.name or "", task_id=t.id,
         task_code=t.code or "", task_title=t.title or "",
-        trigger_type=(rule.trigger or {}).get("type", ""), event=event,
-        actions=lines, status="applied", dedupe_key=dedupe_key, at=now_iso(),
+        trigger_type=(rule.trigger or {}).get("type", ""), event=event, actions=lines,
+        # applied | partial (some actions could not run) | error (none could)
+        status=("error" if len(failures) == len(lines) else "partial") if failures else "applied",
+        detail="; ".join(failures)[:500], dedupe_key=dedupe_key, at=now_iso(),
     ))
     rule.run_count = int(rule.run_count or 0) + 1
     rule.last_run_at = now_iso()
@@ -389,19 +976,28 @@ def _record(db: Session, rule: models.TaskAutomationRule, t: models.Task, *, eve
                        entity_code=t.code, entity_title=t.title,
                        detail=f"{rule.name}: " + "; ".join(lines))
     t.activity_ids = list(t.activity_ids or []) + [aid]
+    return run_id
 
 
 def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
                    completed: Optional[bool] = None,
-                   gate: Optional[Callable] = None, today: Optional[date] = None) -> Result:
+                   gate: Optional[Callable] = None, today: Optional[date] = None,
+                   actor: str = "", budget: Optional[dict] = None) -> Result:
     """Evaluate every enabled rule against one task that `event` ("created" |
     "updated" | "bulk") just changed from `before` (see snapshot). Mutates `t`
     in place; the caller commits. `completed` is what the task's completed
     flag becomes once the caller lands it (routers.tasks applies it AFTER this
     pass, dragging status along - see _apply_completion). Never raises for a
     rule's own problems - a broken rule is logged on the run and skipped, the
-    person's edit still lands."""
+    person's edit still lands. `actor` is the person who made the change (a
+    created task is created as them); `budget` is shared by every row of one
+    bulk edit so the request as a whole stays under MAX_CREATES_PER_REQUEST.
+    A task an automation is creating runs nothing (_SUPPRESS)."""
     res = Result()
+    if _SUPPRESS.get():
+        return res
+    budget = budget if budget is not None else {}
+    actor = (actor or t.owner_email or t.created_by or "").strip().lower()
     today = today or business_today()
     rules = _enabled_rules(db)
     if not rules:
@@ -426,23 +1022,28 @@ def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
             continue
         if not _rule_reaches(db, rule, t, company_cache):
             continue
+        queued = len(res.after_commit)
         try:
             if not _matches_trigger(trigger, event, before, after, completing=completing, today=today):
                 continue
             if not conditions_ok(rule.conditions if isinstance(rule.conditions, list) else [], after):
                 continue
+            run = _RunCtx(rule=rule, actor=actor, ref={}, budget=budget)
             lines = []
             for action in (rule.actions or []):
                 line = _apply_action(db, t, action, res, today=today, gate=gate,
-                                     prev_status=before["status"], prev_completed=before["completed"])
+                                     prev_status=before["status"], prev_completed=before["completed"],
+                                     run=run, company_cache=company_cache)
                 if line:
                     lines.append(line)
             if not lines:
                 continue
-            _record(db, rule, t, event=event, lines=lines)
+            run.ref["id"] = _record(db, rule, t, event=event, lines=lines)
             res.applied.extend(f"{rule.name}: {ln}" for ln in lines)
             res.rule_ids.append(rule.id)
         except Exception as e:   # a rule must never break the edit that triggered it
+            # ...nor leave half of itself to run after the commit.
+            del res.after_commit[queued:]
             db.add(models.TaskAutomationRun(
                 id=gen_id(), rule_id=rule.id, rule_name=rule.name or "", task_id=t.id,
                 task_code=t.code or "", task_title=t.title or "",
@@ -508,13 +1109,19 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                 continue
             res = Result()
             lines = []
+            # Nobody made this change: a task the rule creates is created as
+            # the task's owner (as the next occurrence below is).
+            run = _RunCtx(rule=rule, actor=(t.owner_email or t.created_by or "").strip().lower(),
+                          ref={}, budget={})
+            company_cache: dict = {}
             try:
                 # The dependency gate applies here as it does to a person: the
                 # clock does not get to start or close a task its blocker holds.
                 for action in (rule.actions or []):
                     line = _apply_action(db, t, action, res, today=today,
                                          gate=functools.partial(_check_dependency_gate, db, t),
-                                         prev_status=before["status"], prev_completed=before["completed"])
+                                         prev_status=before["status"], prev_completed=before["completed"],
+                                         run=run, company_cache=company_cache)
                     if line:
                         lines.append(line)
                 # Keep status and the completed flag in step - through the same
@@ -564,7 +1171,8 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                                                spawn_as={"email": owner})
                 # Logged even when nothing changed, so the dedupe holds and the
                 # Runs panel shows the rule looked.
-                _record(db, rule, t, event="scheduled", lines=lines or ["nothing to change"], dedupe_key=key)
+                run.ref["id"] = _record(db, rule, t, event="scheduled", lines=lines or ["nothing to change"],
+                                        dedupe_key=key)
                 db.commit()
                 run_after_commit(db, res)
                 if lines:

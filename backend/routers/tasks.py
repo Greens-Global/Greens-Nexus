@@ -2444,7 +2444,7 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     # this same row before anyone is told about it, so a rule that assigns or
     # re-dates the task notifies exactly as a person doing it would.
     auto_before = task_automation.snapshot(t)
-    auto = task_automation.run_for_change(db, t, event="created", before=auto_before)
+    auto = task_automation.run_for_change(db, t, event="created", before=auto_before, actor=user["email"])
     if "status" in auto.changed:
         # Same rule as update_task: a rule that sets Completed closes the task,
         # one that sets anything else on a task created as Completed reopens it.
@@ -2590,7 +2590,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # person a rule assigns is told the same way as one a colleague assigns.
     auto = task_automation.run_for_change(
         db, t, event="updated", before=auto_before, completed=new_completed,
-        gate=lambda ps, pc, ns, nc: _check_dependency_gate(db, t, ps, pc, ns, nc))
+        gate=lambda ps, pc, ns, nc: _check_dependency_gate(db, t, ps, pc, ns, nc), actor=user["email"])
     auto_moved_due = "due_on" in auto.changed
     if auto.changed:
         data.update(auto.changed)
@@ -3542,6 +3542,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     auto_before = {t.id: task_automation.snapshot(t) for t in rows}
     auto_results: list = []
     auto_changed: dict[str, dict] = {}   # task id -> fields the rules wrote on that row
+    auto_budget: dict = {}   # create_task caps for the whole batch (task_automation.MAX_CREATES_PER_REQUEST)
     for t in rows:
         prev_status, prev_completed, _ = before[t.id]
         # Decided BEFORE the loop writes anything, from the payload and the
@@ -3590,7 +3591,8 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         # changes to X" fires whether twenty cards were dragged or one.
         auto = task_automation.run_for_change(
             db, t, event="bulk", before=auto_before[t.id], completed=new_completed,
-            gate=lambda ps, pc, ns, nc, _t=t: _check_dependency_gate(db, _t, ps, pc, ns, nc))
+            gate=lambda ps, pc, ns, nc, _t=t: _check_dependency_gate(db, _t, ps, pc, ns, nc),
+            actor=user["email"], budget=auto_budget)
         if auto.changed:
             auto_changed[t.id] = auto.changed
             new_completed = _resolve_completed({**patch, **auto.changed}, prev_completed)

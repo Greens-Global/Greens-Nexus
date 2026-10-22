@@ -21,6 +21,7 @@ import { Avatar, EmptyState, Modal, SearchSelect, ChipMultiSelect, PersonSelect,
 import {
   TRIGGER_TYPES, ACTION_TYPES, CONDITION_FIELDS, CONDITION_OPS, MAX_CONDITIONS, MAX_ACTIONS,
   COMMENT_PLACEHOLDERS, ruleDraft, ruleProblem, defaultActionValue, describeRule,
+  defaultTriggerValue, rulePayload, fieldOptions, EMAIL_TO, MAX_TITLE, MAX_SUBJECT, MAX_BODY,
 } from './automationRules';
 import { taskStats, topLevel, fmtDateTime, teamProjectIds, todayISO } from './lib';
 import TasksWorkspace from './TasksWorkspace';
@@ -254,16 +255,24 @@ function TeamsTab({ store }) {
 
 /** Option lists every value picker in the rule editor draws from. */
 function useRuleContext() {
-  const { statusOrder, statusMeta, projects, teams, nameOf } = useTasks();
+  const { statusOrder, statusMeta, projects, teams, nameOf, customFields, sections } = useTasks();
   const people = usePeople();
-  return useMemo(() => ({
-    statusOrder, statusMeta, projects: projects || [], teams: teams || [], people,
-    statusLabel: (id) => statusMeta[id]?.label || id,
-    priorityLabel: (k) => PRIORITY_META[k]?.label || k,
-    projectName: (id) => (projects || []).find((p) => p.id === id)?.name || id,
-    teamName: (id) => (teams || []).find((t) => t.id === id)?.name || id,
-    personName: (email) => nameOf(email) || email,
-  }), [statusOrder, statusMeta, projects, teams, people, nameOf]);
+  return useMemo(() => {
+    const fields = customFields || [];
+    const fieldById = (id) => fields.find((f) => f.id === id);
+    return {
+      statusOrder, statusMeta, projects: projects || [], teams: teams || [], people,
+      customFields: fields, sections: sections || [],
+      statusLabel: (id) => statusMeta[id]?.label || id,
+      priorityLabel: (k) => PRIORITY_META[k]?.label || k,
+      projectName: (id) => (projects || []).find((p) => p.id === id)?.name || id,
+      teamName: (id) => (teams || []).find((t) => t.id === id)?.name || id,
+      personName: (email) => nameOf(email) || email,
+      fieldName: (id) => fieldById(id)?.name || id,
+      fieldOptionLabel: (fieldId, v) => fieldOptions(fieldById(fieldId)).find((o) => o.id === v)?.label || v,
+      sectionName: (id) => (sections || []).find((s) => s.id === id)?.name || id,
+    };
+  }, [statusOrder, statusMeta, projects, teams, people, nameOf, customFields, sections]);
 }
 
 function RulesTab({ store }) {
@@ -397,7 +406,225 @@ function RuleValueInput({ kind, value, onChange, ctx, anyLabel }) {
   return <input value={value ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={kind === 'text' ? 'Tag' : ''} style={{ ...inputStyle, flex: 1, minWidth: 0 }} />;
 }
 
-function RuleModal({ rule, ctx, onClose, onSave }) {
+// ── Custom field, create task, move and email editors (Oct 22 2026) ──────────
+const miniLabel = { fontSize: 11.5, fontWeight: 600, color: NX.dim, minWidth: 92, flexShrink: 0 };
+const editorBox = { flexBasis: '100%', display: 'flex', flexDirection: 'column', gap: 8, padding: 10, borderRadius: 10, background: NX.hover };
+const editorRow = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' };
+const placeholderHint = (extra) => (
+  <div style={{ fontSize: 11.5, color: NX.faint }}>Fill-ins: {COMMENT_PLACEHOLDERS.join(' ')}.{extra ? ` ${extra}` : ''}</div>
+);
+
+/** The custom fields this company can see (the store is already company-filtered). */
+function CustomFieldPicker({ value, onChange, ctx, writable = false }) {
+  const rows = ctx.customFields.filter((f) => !writable || !f.readOnly);
+  return (
+    <div style={{ flex: 1, minWidth: 160 }}>
+      <SearchSelect options={rows.map((f) => ({ id: f.id, label: f.name }))} value={value || ''}
+        onPick={(o) => onChange(o.id)} placeholder="Choose a custom field" emptyText="No custom fields yet."
+        buttonStyle={{ width: '100%' }} />
+    </div>
+  );
+}
+
+/** One custom field value, shaped by the field's type. `anyLabel` adds a blank choice. */
+function CustomFieldValueInput({ field, value, onChange, ctx, anyLabel }) {
+  const style = { ...selectStyle, flex: 1, minWidth: 140 };
+  if (!field) return <span style={{ flex: 1, fontSize: 12, color: NX.faint }}>Pick a field first.</span>;
+  const type = field.type || 'text';
+  if (type === 'select' || type === 'multiselect') {
+    return (
+      <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={style}>
+        {anyLabel ? <option value="">{anyLabel}</option> : <option value="" disabled>Choose an option</option>}
+        {fieldOptions(field).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+      </select>
+    );
+  }
+  if (type === 'checkbox') {
+    const v = value === true ? 'checked' : value === false ? 'unchecked' : (value ?? '');
+    return (
+      <select value={v} onChange={(e) => onChange(e.target.value)} style={style}>
+        {anyLabel ? <option value="">{anyLabel}</option> : <option value="" disabled>Choose</option>}
+        <option value="checked">Checked</option>
+        <option value="unchecked">Unchecked</option>
+      </select>
+    );
+  }
+  if (type === 'people') {
+    return (
+      <div style={{ flex: 1, minWidth: 140 }}>
+        <PersonSelect value={value || ''} onChange={(email) => onChange(email || '')} people={ctx.people}
+          placeholder={anyLabel || 'Choose a person'} />
+      </div>
+    );
+  }
+  if (type === 'date') {
+    return (
+      <DateField value={value || ''} onChange={(v) => onChange(v || '')} placeholder={anyLabel || 'Pick a date'}
+        title={field.name} style={{ ...inputStyle, cursor: 'pointer', flex: 1, minWidth: 140 }} />
+    );
+  }
+  return (
+    <input type={type === 'number' ? 'number' : 'text'} value={value ?? ''} onChange={(e) => onChange(e.target.value)}
+      placeholder={anyLabel || 'Value'} style={{ ...inputStyle, flex: 1, minWidth: 140 }} />
+  );
+}
+
+/** Trigger value for "When a custom field changes": the field, then what it changes to. */
+function FieldChangeInput({ value, onChange, ctx }) {
+  const v = value && typeof value === 'object' ? value : { fieldId: '', to: '' };
+  const field = ctx.customFields.find((f) => f.id === v.fieldId);
+  return (
+    <div style={{ ...editorRow, flex: 1, minWidth: 0 }}>
+      <CustomFieldPicker value={v.fieldId} ctx={ctx} onChange={(id) => onChange({ fieldId: id, to: '' })} />
+      {field && (
+        <CustomFieldValueInput field={field} value={v.to} ctx={ctx} onChange={(to) => onChange({ ...v, to })}
+          anyLabel={field.type === 'multiselect' ? 'Any change' : 'Any value'} />
+      )}
+    </div>
+  );
+}
+
+function CreateTaskEditor({ value, onChange, ctx }) {
+  const v = value && typeof value === 'object' ? value : {};
+  const set = (patch) => onChange({ ...v, ...patch });
+  // "A specific person" before one is picked has no email to store yet, so
+  // the choice is held here.
+  const [who, setWho] = useState(() => (v.assignee === '{assignee}' ? 'same' : v.assignee ? 'person' : 'none'));
+  const pickWho = (w) => { setWho(w); set({ assignee: w === 'same' ? '{assignee}' : '' }); };
+  return (
+    <div style={editorBox}>
+      <div style={editorRow}>
+        <span style={miniLabel}>Title</span>
+        <input value={v.title ?? ''} maxLength={MAX_TITLE} onChange={(e) => set({ title: e.target.value })}
+          placeholder="e.g. Follow up: {title}" style={{ ...inputStyle, flex: 1, minWidth: 160 }} />
+      </div>
+      <label style={{ ...editorRow, fontSize: 12.5, color: NX.ink, cursor: 'pointer' }}>
+        <input type="checkbox" checked={!!v.asSubtask} onChange={(e) => set({ asSubtask: e.target.checked })} />
+        Create it as a subtask of the task that triggered the rule
+      </label>
+      {!v.asSubtask && (
+        <div style={editorRow}>
+          <span style={miniLabel}>Project</span>
+          <RuleValueInput kind="project" value={v.projectId || ''} ctx={ctx} anyLabel="Same Project"
+            onChange={(id) => set({ projectId: id })} />
+        </div>
+      )}
+      <div style={editorRow}>
+        <span style={miniLabel}>Assignee</span>
+        <select value={who} onChange={(e) => pickWho(e.target.value)} style={{ ...selectStyle, width: 190, flexShrink: 0 }}>
+          <option value="none">Nobody</option>
+          <option value="same">The Same Assignees</option>
+          <option value="person">A Specific Person</option>
+        </select>
+        {who === 'person' && (
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <PersonSelect value={v.assignee || ''} onChange={(email) => set({ assignee: email || '' })} people={ctx.people}
+              placeholder="Choose a person" />
+          </div>
+        )}
+      </div>
+      <div style={editorRow}>
+        <span style={miniLabel}>Due</span>
+        <input type="number" step={1} value={v.dueInDays ?? ''} placeholder="-"
+          onChange={(e) => set({ dueInDays: e.target.value === '' ? '' : Number(e.target.value) })}
+          style={{ ...inputStyle, width: 80, flexShrink: 0 }} />
+        <span style={{ fontSize: 12, color: NX.dim }}>days from the day it is created (blank = no due date)</span>
+      </div>
+      <div style={editorRow}>
+        <span style={miniLabel}>Priority</span>
+        <select value={v.priority || ''} onChange={(e) => set({ priority: e.target.value })} style={{ ...selectStyle, width: 190, flexShrink: 0 }}>
+          <option value="">Default (Medium)</option>
+          {PRIORITY_KEYS.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
+        </select>
+      </div>
+      {placeholderHint('Created as the person whose change fired the rule, so it follows their access. A task a rule creates never triggers other rules.')}
+    </div>
+  );
+}
+
+function MoveEditor({ value, onChange, ctx }) {
+  const v = value && typeof value === 'object' ? value : {};
+  const sections = ctx.sections.filter((s) => s.projectId === v.projectId);
+  return (
+    <div style={editorBox}>
+      <div style={editorRow}>
+        <span style={miniLabel}>Project</span>
+        <RuleValueInput kind="project" value={v.projectId || ''} ctx={ctx} onChange={(id) => onChange({ projectId: id, sectionId: '' })} />
+      </div>
+      {!!sections.length && (
+        <div style={editorRow}>
+          <span style={miniLabel}>Section</span>
+          <select value={v.sectionId || ''} onChange={(e) => onChange({ ...v, sectionId: e.target.value })} style={{ ...selectStyle, flex: 1, minWidth: 140 }}>
+            <option value="">No Section</option>
+            {sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+      )}
+      <div style={{ fontSize: 11.5, color: NX.faint }}>Subtasks move with the task. A move made by a rule does not trigger other rules.</div>
+    </div>
+  );
+}
+
+function EmailEditor({ value, onChange, ctx }) {
+  const v = value && typeof value === 'object' ? value : {};
+  const set = (patch) => onChange({ ...v, ...patch });
+  const preset = EMAIL_TO.some((x) => x.value === v.to && x.value !== 'person');
+  const [person, setPerson] = useState(() => !preset && !!v.to);
+  const choice = preset ? v.to : (person || v.to ? 'person' : 'assignees');
+  return (
+    <div style={editorBox}>
+      <div style={editorRow}>
+        <span style={miniLabel}>To</span>
+        <select value={choice} onChange={(e) => { const to = e.target.value; setPerson(to === 'person'); set({ to: to === 'person' ? '' : to }); }}
+          style={{ ...selectStyle, width: 190, flexShrink: 0 }}>
+          {EMAIL_TO.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+        </select>
+        {choice === 'person' && (
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <PersonSelect value={v.to || ''} onChange={(email) => set({ to: email || '' })} people={ctx.people}
+              placeholder="Choose a person" />
+          </div>
+        )}
+      </div>
+      <div style={editorRow}>
+        <span style={miniLabel}>Subject</span>
+        <input value={v.subject ?? ''} maxLength={MAX_SUBJECT} onChange={(e) => set({ subject: e.target.value })}
+          placeholder="e.g. {title} is over budget" style={{ ...inputStyle, flex: 1, minWidth: 160 }} />
+      </div>
+      <div style={{ ...editorRow, alignItems: 'flex-start' }}>
+        <span style={{ ...miniLabel, paddingTop: 8 }}>Message</span>
+        <textarea value={v.body ?? ''} maxLength={MAX_BODY} rows={4} onChange={(e) => set({ body: e.target.value })}
+          placeholder="e.g. {assignee}, {title} in {project} needs a look before {due}."
+          style={{ ...inputStyle, flex: 1, minWidth: 160, height: 'auto', resize: 'vertical', fontFamily: FONT }} />
+      </div>
+      {placeholderHint('Sent with the regular task emails (batched, and respecting mutes), only to Nexus people who can see the task.')}
+    </div>
+  );
+}
+
+function FieldSetEditor({ value, onChange, ctx }) {
+  const v = value && typeof value === 'object' ? value : {};
+  const field = ctx.customFields.find((f) => f.id === v.fieldId);
+  return (
+    <div style={editorBox}>
+      <div style={editorRow}>
+        <span style={miniLabel}>Field</span>
+        <CustomFieldPicker value={v.fieldId} ctx={ctx} writable onChange={(id) => onChange({ fieldId: id, value: '' })} />
+      </div>
+      {field && (
+        <div style={editorRow}>
+          <span style={miniLabel}>Value</span>
+          <CustomFieldValueInput field={field} value={v.value} ctx={ctx} onChange={(val) => onChange({ ...v, value: val })}
+            anyLabel="Clear the Field" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+const OBJECT_EDITORS = { create_task: CreateTaskEditor, move: MoveEditor, email: EmailEditor, field_set: FieldSetEditor };
+
+export function RuleModal({ rule, ctx, onClose, onSave }) {
   const [draft, setDraft] = useState(() => ruleDraft(rule));
   const initial = useMemo(() => JSON.stringify(ruleDraft(rule)), [rule]);
   const dirty = JSON.stringify(draft) !== initial;
@@ -406,23 +633,14 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
   const [tried, setTried] = useState(false);
 
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
-  const setTrigger = (type) => set({ trigger: { type, value: type === 'due_date_arrives' ? 0 : '' } });
+  const setTrigger = (type) => set({ trigger: { type, value: defaultTriggerValue(type) } });
   const setCond = (i, patch) => set({ conditions: draft.conditions.map((c, idx) => (idx === i ? { ...c, ...patch } : c)) });
   const setAction = (i, patch) => set({ actions: draft.actions.map((a, idx) => (idx === i ? { ...a, ...patch } : a)) });
 
   const save = () => {
     setTried(true);
     if (problem) return;
-    onSave({
-      name: draft.name.trim(),
-      enabled: draft.enabled,
-      trigger: { type: draft.trigger.type, value: triggerDef.valueKind === 'none' ? '' : draft.trigger.value },
-      conditions: draft.conditions.map((c) => ({ field: c.field, op: c.op, value: c.value })),
-      actions: draft.actions.map((a) => {
-        const kind = ACTION_TYPES.find((x) => x.value === a.type)?.valueKind;
-        return { type: a.type, value: kind === 'none' ? '' : kind === 'days' ? Number(a.value) : a.value };
-      }),
-    });
+    onSave(rulePayload(draft));
   };
 
   const rowStyle = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' };
@@ -453,6 +671,8 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
         </select>
         {triggerDef.valueKind === 'days' ? (
           <DaysOffsetInput value={draft.trigger.value} onChange={(v) => set({ trigger: { ...draft.trigger, value: v } })} />
+        ) : triggerDef.valueKind === 'field_change' ? (
+          <FieldChangeInput value={draft.trigger.value} ctx={ctx} onChange={(v) => set({ trigger: { ...draft.trigger, value: v } })} />
         ) : (
           <RuleValueInput kind={triggerDef.valueKind} value={draft.trigger.value} ctx={ctx} anyLabel={anyLabel}
             onChange={(v) => set({ trigger: { ...draft.trigger, value: v } })} />
@@ -461,7 +681,9 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
       <div style={{ fontSize: 12, color: NX.faint, marginBottom: 14 }}>
         {draft.trigger.type === 'due_date_arrives'
           ? 'Checked hourly. Each open task is acted on once per date; a task whose date moves is checked again on its new date.'
-          : 'Runs when a person makes this change, including through a bulk edit. Changes made by other rules do not count.'}
+          : draft.trigger.type === 'custom_field_changed'
+            ? 'Runs when a person changes the field, including through a bulk edit. For a multi-select field, "changes to" means the option was added.'
+            : 'Runs when a person makes this change, including through a bulk edit. Changes made by other rules do not count.'}
       </div>
 
       <label style={fieldLabel}>Only if</label>
@@ -471,13 +693,21 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
           const f = CONDITION_FIELDS.find((x) => x.value === c.field) || CONDITION_FIELDS[0];
           return (
             <div key={i} style={rowStyle}>
-              <select value={c.field} onChange={(e) => setCond(i, { field: e.target.value, value: firstConditionValue(e.target.value, ctx) })} style={{ ...selectStyle, width: 130, flexShrink: 0 }}>
+              <select value={c.field} onChange={(e) => setCond(i, { field: e.target.value, value: firstConditionValue(e.target.value, ctx), fieldId: '' })} style={{ ...selectStyle, width: 130, flexShrink: 0 }}>
                 {CONDITION_FIELDS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
               </select>
+              {f.valueKind === 'field_value' && (
+                <CustomFieldPicker value={c.fieldId} ctx={ctx} onChange={(id) => setCond(i, { fieldId: id, value: '' })} />
+              )}
               <select value={c.op} onChange={(e) => setCond(i, { op: e.target.value })} style={{ ...selectStyle, width: 90, flexShrink: 0 }}>
                 {CONDITION_OPS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
               </select>
-              <RuleValueInput kind={f.valueKind} value={c.value} ctx={ctx} onChange={(v) => setCond(i, { value: v })} />
+              {f.valueKind === 'field_value' ? (
+                <CustomFieldValueInput field={ctx.customFields.find((x) => x.id === c.fieldId)} value={c.value} ctx={ctx}
+                  onChange={(v) => setCond(i, { value: v })} />
+              ) : (
+                <RuleValueInput kind={f.valueKind} value={c.value} ctx={ctx} onChange={(v) => setCond(i, { value: v })} />
+              )}
               <IconButton icon={X} title="Remove Condition" onClick={() => set({ conditions: draft.conditions.filter((_, idx) => idx !== i) })} />
             </div>
           );
@@ -494,13 +724,17 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {draft.actions.map((a, i) => {
           const def = ACTION_TYPES.find((x) => x.value === a.type) || ACTION_TYPES[0];
+          const Editor = OBJECT_EDITORS[def.valueKind];
           return (
             <div key={i} style={{ ...rowStyle, alignItems: def.valueKind === 'comment' ? 'flex-start' : 'center' }}>
               <select value={a.type} onChange={(e) => setAction(i, { type: e.target.value, value: defaultActionValue(e.target.value) })} style={{ ...selectStyle, width: 220, flexShrink: 0 }}>
                 {ACTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
-              <RuleValueInput kind={def.valueKind} value={a.value} ctx={ctx} onChange={(v) => setAction(i, { value: v })} />
+              {Editor ? <div style={{ flex: 1 }} /> : (
+                <RuleValueInput kind={def.valueKind} value={a.value} ctx={ctx} onChange={(v) => setAction(i, { value: v })} />
+              )}
               <IconButton icon={X} title="Remove Action" onClick={() => set({ actions: draft.actions.filter((_, idx) => idx !== i) })} />
+              {Editor && <Editor key={a.type} value={a.value} ctx={ctx} onChange={(v) => setAction(i, { value: v })} />}
               {def.valueKind === 'comment' && (
                 <div style={{ flexBasis: '100%', fontSize: 11.5, color: NX.faint, marginTop: -4 }}>
                   Fill-ins: {COMMENT_PLACEHOLDERS.join(' ')}. Posted by "Automation" and emailed like any comment.
@@ -566,7 +800,7 @@ function RuleRunsModal({ ruleId, rules, onClose }) {
           {rows.map((x) => (
             <div key={x.id} style={{ ...card, padding: '8px 12px', display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12.5 }}>
               <span style={{ ...iconBadge, width: 26, height: 26, color: x.status === 'error' ? NX.red : NX.amber }}>
-                {x.status === 'error' ? <AlertTriangle size={14} /> : <Zap size={14} />}
+                {x.status === 'error' || x.status === 'partial' ? <AlertTriangle size={14} /> : <Zap size={14} />}
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div>
@@ -575,7 +809,12 @@ function RuleRunsModal({ ruleId, rules, onClose }) {
                   <button type="button" onClick={() => openTask(x.taskId)} style={{ ...btn('ghost'), padding: 0, height: 'auto', fontWeight: 600, color: NX.blue }}>{x.taskTitle || 'a task'}</button>
                 </div>
                 <div style={{ color: x.status === 'error' ? NX.red : NX.dim, marginTop: 1 }}>
-                  {x.status === 'error' ? `Failed: ${x.detail}` : (x.actions || []).join('; ')}
+                  {x.status === 'error' ? `Failed: ${x.detail}` : (x.actions || []).map((ln, n) => (
+                    // A partial run: the lines that could not run read in red (task_automation._record).
+                    <span key={n} style={{ color: String(ln).startsWith('could not ') ? NX.red : undefined }}>
+                      {n ? '; ' : ''}{ln}
+                    </span>
+                  ))}
                 </div>
               </div>
               <div style={{ color: NX.faint, whiteSpace: 'nowrap', fontSize: 11.5 }}>{fmtDateTime(x.at)}<br />{x.event}</div>

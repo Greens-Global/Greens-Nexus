@@ -208,6 +208,12 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
         add(creator, "creator")
         for f in followers:
             add(f, "follower")
+    elif event_type == "automation":
+        # A rule's send_email action (task_automation, Oct 22 2026): exactly
+        # the people the engine resolved - directory people who can see the
+        # task (task_automation.recipient_can_see).
+        for who, role in extra.get("automation_to") or []:
+            add(who, role)
 
     return list(out.items())
 
@@ -364,6 +370,9 @@ def _render_event(db: Session, ctx: dict, event_type: str, recipient: str, role:
                                              update_kind=kw.get("update_kind", "Task updated"))
     elif event_type == "deleted":
         subject, html = tmpl.deleted_email(t=ctx, base_url=app_url(), logo_url=logo_url)
+    elif event_type == "automation":
+        subject, html = tmpl.automation_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+                                              subject=kw.get("auto_subject", ""), body=kw.get("auto_body", ""))
     else:
         return None
     html = _with_actions(db, html, event_type=event_type, ctx=ctx, recipient=recipient,
@@ -810,7 +819,8 @@ def _sends_now(t, event_type: str, cfg: dict) -> bool:
 
 # due_entry_at: the due_history entry a "modified" email reports, so an Undo
 # of that move (tasks.undo_due) drops exactly its email (Oct 22 2026).
-_PAYLOAD_KEYS = ("update_kind", "comment_body", "new_follower", "due_entry_at")
+_PAYLOAD_KEYS = ("update_kind", "comment_body", "new_follower", "due_entry_at",
+                 "auto_subject", "auto_body")   # auto_*: an automation rule's email (event "automation")
 
 
 def _enqueue(db: Session, *, recipient: str, role: str, task_id: str, event_type: str,
@@ -861,6 +871,12 @@ def _drop_reason(db: Session, q, t, p: dict) -> str:
         return "task already completed"
     if not prefs_mod.wants_event(p, q.event_type, t):
         return "turned off or muted"
+    if q.event_type == "automation":
+        # Sight is asked again at send time: a task made restricted (or a
+        # person moved out of its company) in the batch window is not mailed.
+        import task_automation   # lazy: task_automation imports this module lazily too
+        if not task_automation.recipient_can_see(db, who, t):
+            return "cannot see the task"
     return ""
 
 
@@ -883,6 +899,10 @@ def _event_line(q, actor_name: str) -> str:
         return f'{actor_name} commented: "{text}"' if text else f"{actor_name} commented"
     if q.event_type == "modified":
         return f"{actor_name} changed: {pl.get('update_kind') or 'task details'}"
+    if q.event_type == "automation":
+        text = mail_actions._plain(pl.get("auto_body") or "", 160)
+        subject = pl.get("auto_subject") or "Automated update"
+        return f"Automation: {subject}" + (f" - {text}" if text else "")
     return f"{actor_name} updated this task"
 
 
