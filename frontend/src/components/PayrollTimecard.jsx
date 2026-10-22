@@ -866,7 +866,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   async function unfinalize() {
     // HR / Global Admin only (Neil, Oct 22): only HR changes it until the employee signs it again.
     const reason = await dialog.prompt(`Why is ${nameFor(email)}'s time sheet for ${periodLabel} being unlocked? Only HR can change it while it is unlocked, and ${nameFor(email)} signs the corrected time sheet again. The reason is printed on it.`,
-      { title: 'Unlock Time Sheet', confirmText: 'Unlock', required: true, multiline: true });
+      { title: 'Unlock Time Sheet', confirmText: 'Unlock', required: true, multiline: true, minLength: 5,
+        placeholder: 'e.g. Wrong lunch on 06/08' });   // the server needs 5 characters too
     if (!reason?.trim()) return;
     setBusy(true);
     try { await api.timeUnfinalize({ email, start: perStart, end: perEnd, reason: reason.trim() }); toastOk?.('Unlocked - only HR can change it until it is signed again.'); load(); }
