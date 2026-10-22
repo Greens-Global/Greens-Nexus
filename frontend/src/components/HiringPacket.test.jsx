@@ -78,6 +78,7 @@ describe('PacketsModal', () => {
       roleIds: [], roleNames: [], workerType: 'employee', country: 'US', docTemplateIds: [], documents: ['Offer'], signers: [],
       flow: [{ key: 'employee', role: 'employee', action: 'sign' }], readiness: [], signOnce: [] }];
     render(<PacketsModal onClose={noop} toastOk={noop} toastErr={noop} />);
+    fireEvent.click(await screen.findByRole('button', { name: /^Hiring Packet/ }));     // the overview opens first
     await waitFor(() => expect(screen.getByText('CA Employee')).toBeTruthy());
     fireEvent.click(screen.getByTitle('Duplicate'));
     await waitFor(() => expect(screen.getByLabelText('Name').value).toBe('CA Employee (Copy)'));

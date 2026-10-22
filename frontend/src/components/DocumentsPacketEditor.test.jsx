@@ -99,12 +99,12 @@ describe('DocumentsPacketEditor', () => {
     const companies = [{ id: 'co', name: 'Greens India' }, { id: 'co-ca', name: 'Greens California' }];
     render(<DocumentsPacketEditor {...props} packet={null} companies={companies}
       catalog={{ ...catalog, settings: [src], events: [{ key: 'hire', label: 'Hiring Packet' }] }} />);
-    await waitFor(() => expect(screen.getByLabelText('Role')).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText('Only for this role')).toBeTruthy());
     const pick = screen.getByLabelText('Copy From');
     expect(screen.getByText('Greens California - Hiring Packet - CA Employee - Analyst - Employees - United States')).toBeTruthy();
     fireEvent.change(pick, { target: { value: 's-ca' } });
     expect(screen.getByLabelText('Name').value).toBe('CA Employee (Copy)');
-    expect(screen.getByLabelText('Role').value).toBe('');                      // Greens India has no Analyst role
+    expect(screen.getByLabelText('Only for this role').value).toBe('');        // Greens India has no Analyst role
     fireEvent.change(screen.getByLabelText('Hired As'), { target: { value: 'contractor' } });
     fireEvent.change(screen.getByLabelText('Company'), { target: { value: 'co-ca' } });
     fireEvent.click(screen.getByText('Continue'));
@@ -112,7 +112,8 @@ describe('DocumentsPacketEditor', () => {
     fireEvent.click(screen.getByText('Continue'));
     fireEvent.click(screen.getByText('Save Packet'));
     await waitFor(() => expect(save).toHaveBeenCalled());
-    expect(save.mock.calls[0][0]).toMatchObject({ id: '', entity_id: 'co-ca', name: 'CA Employee (Copy)', worker_type: 'contractor',
+    // Switching who it is for renames the copy from its place - never a stale "CA Employee (Copy)" on a contractor packet.
+    expect(save.mock.calls[0][0]).toMatchObject({ id: '', entity_id: 'co-ca', name: 'United States Contractor Hiring Packet', worker_type: 'contractor',
       country: 'US', doc_template_ids: ['t1'], verify_role: 'hr', egnyte_subfolder: 'Hiring',
       flow: [{ key: 'company', role: 'hr', action: 'sign', once: true }, { key: 'employee', role: 'employee', action: 'sign' }],
       details_form: [{ key: 'bank', label: 'Bank Name', type: 'text' }] });
