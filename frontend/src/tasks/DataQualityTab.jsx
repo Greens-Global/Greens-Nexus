@@ -14,7 +14,7 @@ import { Fragment, useMemo, useRef, useState, useEffect, useCallback } from 'rea
 import { AlertTriangle, CheckCircle2, Trash2, X } from 'lucide-react';
 import { NX, FONT, btn, chip, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar, DateField, EmptyState, SearchSelect, usePeople } from './components';
-import { teamInProject, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue } from './lib';
+import { teamInProject, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, deleteSelectedTasks } from './lib';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { PillSelect } from './views/richlist';
 import { useTableColumns, TableHead, ResetColumnsButton } from './tableCols';
@@ -178,7 +178,7 @@ function FilterChip({ label, active, color, tint, onClick }) {
 }
 
 export default function DataQualityTab({ store }) {
-  const { tasks, bulkUpdate, deleteTask } = store;
+  const { tasks, bulkUpdate } = store;
   const people = usePeople();
   const [openId, setOpenId] = useState(null);
   // null = every gap type (the default, "N tasks with gaps" chip). Set to a
@@ -357,9 +357,10 @@ export default function DataQualityTab({ store }) {
         const selStyle = { ...inputStyle, width: 'auto', padding: '5px 8px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 };
         const apply = (patch) => { bulkUpdate([...selected], patch); clearSel(); };
         const remove = () => {
-          if (!confirm(`Delete ${selected.size} task(s)? This can't be undone from here.`)) return;
-          [...selected].forEach(deleteTask);
+          if (!confirm(`Delete ${selected.size} task(s)? They go to the Recycle Bin, and Undo brings them back.`)) return;
+          const ids = [...selected];
           clearSel();
+          deleteSelectedTasks(store, ids).catch(() => {});
         };
         return (
           <div className="nx-scroll" style={{ position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)', background: NX.primary, color: '#fff', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.28)', zIndex: 30, maxWidth: 'min(96vw, 1180px)', overflowX: 'auto' }}>

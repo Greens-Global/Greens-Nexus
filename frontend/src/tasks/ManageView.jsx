@@ -22,7 +22,7 @@ import {
   TRIGGER_TYPES, ACTION_TYPES, CONDITION_FIELDS, CONDITION_OPS, MAX_CONDITIONS, MAX_ACTIONS,
   COMMENT_PLACEHOLDERS, ruleDraft, ruleProblem, defaultActionValue, describeRule,
 } from './automationRules';
-import { taskStats, topLevel, fmtDateTime, teamProjectIds } from './lib';
+import { taskStats, topLevel, fmtDateTime, teamProjectIds, todayISO } from './lib';
 import TasksWorkspace from './TasksWorkspace';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
@@ -1708,7 +1708,7 @@ function ReportingTab({ store }) {
       t.projectId ? (projectName(t.projectId) || '-') : '-',
       t.dueOn || '',
     ]);
-    downloadCSV(`task-report-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+    downloadCSV(`task-report-${todayISO()}.csv`, headers, rows);
   };
 
   const kpis = [

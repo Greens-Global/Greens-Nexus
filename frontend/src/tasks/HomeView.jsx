@@ -310,16 +310,16 @@ export default function HomeView({ onNavigate }) {
     const doneByDay = [];   // trailing 7 days, from completedAt
     for (let i = 6; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i);
-      const iso = d.toISOString().slice(0, 10);
+      const iso = localISO(d);
       doneByDay.push({
         iso, label: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2),
-        n: myTasks.filter((t) => t.completed && (t.completedAt || '').slice(0, 10) === iso).length,
+        n: myTasks.filter((t) => t.completed && completedOn(t) === iso).length,
       });
     }
     const dueByDay = [];    // next 7 days incl. today, from dueOn (open tasks)
     for (let i = 0; i < 7; i++) {
       const d = new Date(); d.setDate(d.getDate() + i);
-      const iso = d.toISOString().slice(0, 10);
+      const iso = localISO(d);
       dueByDay.push({
         iso, today: iso === today,
         day: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2),

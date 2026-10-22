@@ -13,7 +13,8 @@ import { fmtDate, isFieldRequiredIn, isBlankValue, fieldsForTask, requiredByProj
 import { ProjectCreateModal } from './ProjectsView';
 import { useFrequentCollaborators } from './frequentPeople';
 import { CustomFieldInput } from './TaskDetailDrawer';
-import { filesFromPaste, teamInProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages } from './lib';
+import { filesFromPaste, teamInProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages, uploadFilesToTask, notAttachedText } from './lib';
+import { dialog } from '../ui/dialog';
 import ProjectPicker from './ProjectPicker';
 import RichDescription from './RichDescription';
 import AnchoredMenu from '../components/AnchoredMenu';
@@ -208,7 +209,6 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   };
   const recurPreview = form.recurFreq !== 'none' && form.recurFreq !== 'periodic'
     ? upcomingDates(recurrence(), form.dueOn || localTodayISO(), 3) : [];
-  const uploadAttachment = (parentId, f) => uploadTaskAttachment(parentId, f).catch(() => {});
 
   // Required on CREATE: Task Name, Assignee, Due Date. Editing is NOT gated -
   // the rule is about what a new task must carry, and gating Save would
@@ -264,13 +264,16 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
         parentId = created.id;
       }
       for (const s of subtasks.filter((s) => !s.id)) await createTask({ title: s.title, parentTaskId: parentId, projectId: form.projectId || '', teamId: form.teamId || '', followerIds: form.followerIds, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
-      for (const f of attachments) await uploadAttachment(parentId, f);
+      const notAttached = await uploadFilesToTask(parentId, attachments);
       // Pictures pasted into the description are inline until the task exists;
       // now that it does, file them as attachments and point the description
       // at the stored copies (see externalizeInlineImages). The form showed
       // them inline all along, and the saved description still shows them.
       const desc = await externalizeInlineImages(core.description, (f) => uploadTaskAttachment(parentId, f));
       if (desc !== (core.description || '')) await updateTask(parentId, { description: desc }).catch(() => {});
+      // The task itself saved, so the form closes either way - but a file
+      // that did not attach is named, never dropped without a word.
+      if (notAttached.length) dialog.alert(notAttachedText(notAttached, isEdit ? 'saved' : 'created'), { title: 'Some Files Did Not Attach' });
       onClose(true);
     } catch (e) { alert(`Could not save task: ${e.message || e}`); setBusy(false); }
   };

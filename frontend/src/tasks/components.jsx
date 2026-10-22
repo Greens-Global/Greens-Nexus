@@ -1686,7 +1686,7 @@ export function ExportMenu({ title, subtitle, columns, rows, filenameBase, compa
       const base = filenameBase || String(title || 'export').toLowerCase().replace(/\s+/g, '-');
       await exportRows(format, {
         title, subtitle, columns, rows,
-        filename: `${base}-${new Date().toISOString().slice(0, 10)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`,
+        filename: `${base}-${localTodayISO()}.${format === 'pdf' ? 'pdf' : 'xlsx'}`,
       });
       setOpen(false);
     } catch (e) {

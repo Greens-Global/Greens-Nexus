@@ -207,7 +207,7 @@ export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace'
     for (let i = 13; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i);
       const iso = toISO(d);
-      out.push({ label: `${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`, n: tasks.filter((t) => t.completed && (t.completedAt || '').slice(0, 10) === iso).length });
+      out.push({ label: `${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`, n: tasks.filter((t) => t.completed && t.completedAt && toISO(new Date(t.completedAt)) === iso).length });
     }
     return out;
   }, [tasks]);

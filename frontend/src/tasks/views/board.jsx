@@ -15,7 +15,7 @@ import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
 import { statusesForProject } from '../TasksContext';
 import { Avatar, PriorityChip } from '../components';
-import { fmtDate } from '../lib';
+import { fmtDate, todayISO, wipStorageKey } from '../lib';
 import DueBadge from '../DueBadge';
 import AnchoredMenu from '../../components/AnchoredMenu';
 import { projectLook } from '../projectLook';
@@ -29,7 +29,7 @@ const PRIORITY_LANE_ORDER = ['urgent', 'high', 'medium', 'low'];
 
 const dueColor = (iso, completed) => {
   if (!iso || completed) return NX.faint;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   if (iso < today) return NX.red;
   if (iso === today) return NX.amber;
   return NX.dim;
@@ -44,6 +44,11 @@ const fmtDue = (iso) => fmtDate(iso);
 // drawn per column (headers/counts stay accurate) and show a "+N more" note -
 // same reasoning as the list view's render cap.
 const MAX_BOARD_CARDS = 100;
+
+// Per-board WIP limits - see wipStorageKey (lib.js).
+const readWip = (key) => {
+  try { const v = JSON.parse(localStorage.getItem(key) || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
+};
 function MoreCards({ n }) {
   return (
     <div style={{ padding: '6px 4px', fontSize: 12, color: NX.faint, fontFamily: FONT }}>
@@ -62,6 +67,8 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
   const [addIn, setAddIn] = useState(null);
   const [commentOpenId, setCommentOpenId] = useState(null);
   const [draft, setDraft] = useState('');
+  const [commentBusy, setCommentBusy] = useState(false);
+  const [commentError, setCommentError] = useState('');
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [swimlane, setSwimlane] = useState('none');
   // Select-type custom fields become swimlane choices too. Memoized because `lanes`
@@ -79,14 +86,17 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
   // Cards glide when a drop, a status change or a filter moves them.
   const flipRef = useRef(null);
   useFlip(flipRef);
-  const [wip, setWip] = useState(() => { try { return JSON.parse(localStorage.getItem('nexus.board.wip') || '{}'); } catch { return {}; } });
+  const wipKey = wipStorageKey(lockedProjectId, defaultAssigneeId);
+  const [wipState, setWipState] = useState(() => ({ key: wipKey, map: readWip(wipKey) }));
+  // Switching to another project's board reads that board's own limits.
+  const wip = wipState.key === wipKey ? wipState.map : readWip(wipKey);
 
-  const setLimit = (status, n) => setWip((prev) => {
-    const next = { ...prev };
+  const setLimit = (status, n) => {
+    const next = { ...wip };
     if (n == null || n <= 0) delete next[status]; else next[status] = n;
-    localStorage.setItem('nexus.board.wip', JSON.stringify(next));
-    return next;
-  });
+    try { localStorage.setItem(wipKey, JSON.stringify(next)); } catch { /* private mode: this session only */ }
+    setWipState({ key: wipKey, map: next });
+  };
 
   // Columns are the statuses THIS project uses (its own plus any global one) -
   // an unscoped list put a status invented for one project on every board.
@@ -104,10 +114,20 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
 
   const toggleCollapse = (s) => setCollapsed((prev) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
 
-  const postComment = (id) => {
-    if (!draft.trim()) return;
-    store.addComment(id, draft.trim()).catch(() => {});
-    setDraft(''); setCommentOpenId(null);
+  // The draft is cleared only once the comment has posted - a refused or
+  // dropped post keeps what was typed, with the reason under it.
+  const postComment = async (id) => {
+    const text = draft.trim();
+    if (!text || commentBusy) return;
+    setCommentBusy(true); setCommentError('');
+    try {
+      await store.addComment(id, text);
+      setDraft(''); setCommentOpenId(null);
+    } catch (e) {
+      setCommentError(e?.message || 'The comment did not post. Try again.');
+    } finally {
+      setCommentBusy(false);
+    }
   };
 
   // Creates a custom STATUS, which is what a board column is here. The control
@@ -247,7 +267,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <PriorityChip priority={t.priority} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={(e) => { e.stopPropagation(); setDraft(''); setCommentOpenId((id) => (id === t.id ? null : t.id)); }} onMouseDown={(e) => e.stopPropagation()}
+            <button onClick={(e) => { e.stopPropagation(); setDraft(''); setCommentError(''); setCommentOpenId((id) => (id === t.id ? null : t.id)); }} onMouseDown={(e) => e.stopPropagation()}
               style={{ ...btn('ghost'), padding: 2, gap: 2, fontSize: 11, color: commentOpenId === t.id ? NX.blue : NX.faint }}>
               <MessageSquare size={11} />{t.commentIds?.length > 0 ? t.commentIds.length : ''}
             </button>
@@ -273,9 +293,10 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
             <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(t.id); } }}
               placeholder="Add a comment…" rows={2} style={{ ...inputStyle, resize: 'none', fontSize: 12, fontFamily: FONT }} />
+            {commentError && <div role="alert" style={{ fontSize: 11.5, color: NX.red, marginTop: 4 }}>{commentError}</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
               <button onClick={() => setCommentOpenId(null)} style={{ ...btn('ghost'), fontSize: 11, padding: '4px 8px' }}>Cancel</button>
-              <button onClick={() => postComment(t.id)} disabled={!draft.trim()} style={{ ...btn('primary'), fontSize: 11, padding: '5px 10px', opacity: draft.trim() ? 1 : 0.4 }}>Post</button>
+              <button onClick={() => postComment(t.id)} disabled={!draft.trim() || commentBusy} style={{ ...btn('primary'), fontSize: 11, padding: '5px 10px', opacity: draft.trim() && !commentBusy ? 1 : 0.4 }}>{commentBusy ? 'Posting…' : 'Post'}</button>
             </div>
           </div>
         )}

@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, roleAtLeast } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, roleAtLeast, todayISO } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, UnassignedAvatar, ExportMenu } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -409,7 +409,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
 
 function TaskRow({ t, store, selected, toggleSel, onOpen, band = false }) {
   const { nameOf, toggleComplete, projectName } = store;
-  const overdue = t.dueOn && t.dueOn < new Date().toISOString().slice(0, 10) && !t.completed;
+  const overdue = t.dueOn && t.dueOn < todayISO() && !t.completed;
   const rowBg = selected.has(t.id) ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : NX.surface;
   return (
     <div onClick={() => onOpen(t.id)} data-task-row className="nx-row-hover" data-selected={selected.has(t.id) ? 'true' : undefined} style={{

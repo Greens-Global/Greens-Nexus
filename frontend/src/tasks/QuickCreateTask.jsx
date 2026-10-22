@@ -9,15 +9,13 @@ import { useTasks } from './TasksContext';
 import { usePeople, PersonMultiSelect, DateField } from './components';
 import { SearchSelect } from './components';
 import { BottomSheet } from './MobileTaskBar';
-import { filesFromPaste, uploadTaskAttachment, requiredFieldsFor, isBlankValue } from './lib';
+import { filesFromPaste, requiredFieldsFor, isBlankValue, uploadFilesToTask, notAttachedText } from './lib';
+import { dialog } from '../ui/dialog';
 import { CustomFieldInput } from './TaskDetailDrawer';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import AnchoredMenu from '../components/AnchoredMenu';
 
 const fieldLabel = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 };
-
-// Upload one file as a task attachment (real storage upload - shared path).
-const uploadAttachment = (taskId, f) => uploadTaskAttachment(taskId, f).catch(() => {});
 
 export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails }) {
   const store = useTasks();
@@ -84,7 +82,8 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
         priority: defaults.priority || 'medium', assigneeIds, ownerId: defaults.ownerId ?? myEmail ?? '', projectId, teamId: defaults.teamId || '', dueOn: dueOn || '',
         customFieldValues: cfValues,
       });
-      for (const it of files) await uploadAttachment(t.id, it.file);
+      const notAttached = await uploadFilesToTask(t.id, files.map((it) => it.file));
+      if (notAttached.length) dialog.alert(notAttachedText(notAttached), { title: 'Some Files Did Not Attach' });
       onClose();
     } catch (e) { alert(`Could not create task: ${e.message || e}`); setBusy(false); }
   };

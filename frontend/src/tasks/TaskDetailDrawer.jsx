@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
@@ -33,6 +33,7 @@ import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
 import { openNotificationTarget } from '../lib/openTarget';
 import { useRole } from '../contexts/RoleContext';
+import { dialog } from '../ui/dialog';
 import { ticketNo } from '../tickets/ticketMeta';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
@@ -45,6 +46,21 @@ export { CommitNumberInput } from './RecurrenceMenu';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
+const VIEW_ONLY_TITLE = 'You can view this task but not change it';
+
+/** The task's fields, read-only for someone below editor on its project: a
+ *  disabled fieldset turns every button, input and select inside it off at
+ *  once (they still read as the values they show), with no layout of its own.
+ *  Rich text is not a form control, so the description renders as text
+ *  separately (OverviewTab). */
+function FieldsLock({ readOnly, children, style }) {
+  if (!readOnly) return children;
+  return (
+    <fieldset disabled data-testid="fields-read-only" style={{ border: 0, padding: 0, margin: 0, minWidth: 0, ...style }}>
+      {children}
+    </fieldset>
+  );
+}
 // ── tiny inline primitives ───────────────────────────────────────────────────
 // The chevron used to be decorative - it pointed down on a section that could
 // not fold, which is the same "affordance that lies" the My Tasks title had.
@@ -163,7 +179,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const people = usePeople(true);
   // Where a ticket opens for this person: the desk's Tickets screen, or
   // Support (their own requests) - same rule as dashboard/teamWidgets.
-  const { can, myGrantedModules } = useRole() || {};
+  const { can, myGrantedModules, canAccessModule } = useRole() || {};
   const ticketView = (typeof can === 'function' && can('administrator')) || myGrantedModules?.has?.('tickets') ? 'tickets' : 'support';
 
   const [activeId, setActiveId] = useState(taskId);
@@ -186,6 +202,14 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
 
   const task = taskById[activeId];
   const parent = task?.parentTaskId ? taskById[task.parentTaskId] : null;
+  // What this person may do on THIS task (Oct 21 2026), the server's rule:
+  // viewer = read only; commenter = comment, attach, log time; editor and
+  // up = everything. Unknown (project not loaded) keeps every control, as
+  // before - the server stays the authority either way.
+  const taskManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'owner');
+  const myRole = taskRoleFor(task, { projects, teams, taskById, email: myEmail, isManager: taskManager });
+  const canEdit = myRole == null || roleAtLeast(myRole, 'editor');
+  const canComment = myRole == null || roleAtLeast(myRole, 'commenter');
   // Where leaving this task goes: the task stepped in from, else (a subtask
   // opened straight from a list) its parent, else nowhere - the drawer closes.
   const backTarget = (fromId = activeId) => {
@@ -289,15 +313,19 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   // Save click gets one for free. Reuses the same undo-toast plumbing
   // completing/deleting a task already offers (TasksContext.jsx): captures
   // each touched key's PRIOR value before the write, then a single Undo
-  // restores all of them together. Fires optimistically, matching how the
-  // edit itself already appears in the UI before the network round trip
-  // finishes - a failed save is surfaced separately by updateTask's own
-  // alert, so this doesn't also need to handle that case.
+  // restores all of them together. Shown once the save has RESOLVED - it
+  // used to fire before the round trip, so a refused save still said
+  // "Changes saved". A failed save is surfaced by updateTask's own alert and
+  // its fields put back there, so no toast at all in that case.
   const patch = (p) => {
     const prev = {};
     for (const k of Object.keys(p)) prev[k] = task[k];
-    const result = updateTask(activeId, p);
-    offerUndo('Changes saved', () => updateTask(activeId, prev).catch(() => {}));
+    const taskIdNow = activeId;
+    const result = updateTask(taskIdNow, p);
+    Promise.resolve(result).then(
+      () => offerUndo('Changes saved', () => updateTask(taskIdNow, prev).catch(() => {})),
+      () => {},
+    );
     return result;
   };
 
@@ -360,7 +388,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     switch (key) {
       case 'overview': return (
         <OverviewTab
-          task={task} patch={patch} people={people} projectName={projectName} teamName={teamName} teams={teams} projects={projects}
+          task={task} patch={patch} readOnly={!canEdit} canComment={canComment} people={people} projectName={projectName} teamName={teamName} teams={teams} projects={projects}
           blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
           setDependencyType={setDependencyType}
           subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={openSub}
@@ -369,12 +397,12 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           onOpenTicket={() => (onBackToTicket ? onBackToTicket() : openSourceTicket(task.sourceTicketId, onClose, ticketView))}
         />
       );
-      case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusHere} />;
+      case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment} />;
       case 'activity':     return <ActivityTab taskId={activeId} nameOf={nameOf} />;
-      case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} />;
+      case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} canAttach={canComment} canRemoveAny={canEdit} />;
       case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub} />;
-      case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} />;
-      case 'properties':   return <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} teamName={teamName} customFields={customFields} patch={patch} />;
+      case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} readOnly={!canEdit} />;
+      case 'properties':   return <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} teamName={teamName} customFields={customFields} patch={patch} readOnly={!canEdit} />;
       default:             return null;
     }
   };
@@ -392,15 +420,16 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {/* On a phone this collapses to its circle-check icon - the label is
                 the widest thing in the header and crowds out the actions. */}
-            <button onClick={markComplete} title={isMissed(task) ? MISSED_TITLE : task.completed ? 'Completed' : 'Mark Complete'}
-              style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: isMissed(task) ? NX.dim : task.completed ? NX.green : NX.dim }}>
+            <button onClick={markComplete} disabled={!canEdit}
+              title={!canEdit ? VIEW_ONLY_TITLE : isMissed(task) ? MISSED_TITLE : task.completed ? 'Completed' : 'Mark Complete'}
+              style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: isMissed(task) ? NX.dim : task.completed ? NX.green : NX.dim, ...(!canEdit ? { cursor: 'default', opacity: 0.6 } : null) }}>
               {isMissed(task) ? <XCircle size={15} /> : task.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
               {!isMobile && (isMissed(task) ? 'Missed' : task.completed ? 'Completed' : 'Mark Complete')}
             </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <MembersMenu task={task} people={people} nameOf={nameOf} patch={patch} />
-            <button onClick={() => setShareOpen(true)} title="Share" style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><Share2 size={14} /> Share</button>
+            {canEdit && <MembersMenu task={task} people={people} nameOf={nameOf} patch={patch} />}
+            {canEdit && <button onClick={() => setShareOpen(true)} title="Share" style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><Share2 size={14} /> Share</button>}
             {/* Who can see this task, in the slot the Like button used to hold.
                 An INDICATOR, not a control: visibility here is derived (a task
                 is shared the moment it has a project or a collaborator, the
@@ -421,16 +450,16 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
             <Pop width={210} trigger={(t) => <button onClick={t} title="More Actions" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><MoreHorizontal size={16} /></button>}>
               {(close) => (
                 <>
-                  {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit Task</MenuItem>}
+                  {onEdit && canEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit Task</MenuItem>}
                   {/* Filed as a task when it is really a request for a team
                       (Neil, 10/05: "employees ... may still do it as a task"). */}
-                  <MenuItem icon={<Copy size={14} />} onClick={() => { close(); setDuplicating(true); }}>Duplicate Task</MenuItem>
+                  {canEdit && <MenuItem icon={<Copy size={14} />} onClick={() => { close(); setDuplicating(true); }}>Duplicate Task</MenuItem>}
                   <MenuItem icon={<Ticket size={14} />} onClick={() => { setConverting(true); close(); }}>Convert to Ticket</MenuItem>
-                  <MenuItem icon={<LayoutTemplate size={14} />} onClick={() => { close(); setSavingTemplate(true); }}>Save as Template</MenuItem>
-                  <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
+                  {canEdit && <MenuItem icon={<LayoutTemplate size={14} />} onClick={() => { close(); setSavingTemplate(true); }}>Save as Template</MenuItem>}
+                  {canEdit && <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark milestone' : 'Mark as milestone'}
-                  </MenuItem>
-                  <MenuItem danger icon={<Trash2 size={14} />} onClick={() => {
+                  </MenuItem>}
+                  {canEdit && <MenuItem danger icon={<Trash2 size={14} />} onClick={() => {
                     close();
                     const sub = !!task.parentTaskId;
                     if (!window.confirm(sub ? `Delete subtask "${task.title}"?` : `Delete "${task.title}" and its subtasks?`)) return;
@@ -439,7 +468,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                     goBack(gone);
                   }}>
                     {task.parentTaskId ? 'Delete Subtask' : 'Delete Task'}
-                  </MenuItem>
+                  </MenuItem>}
                 </>
               )}
             </Pop>
@@ -455,8 +484,16 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
             {parent && (
               <button onClick={() => goBack()} title={`Back to ${parent.title}`} aria-label="Back to main task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><ArrowLeft size={18} /></button>
             )}
-            <TitleInput key={activeId} value={task.title} completed={task.completed} onCommit={(v) => v.trim() && v !== task.title && patch({ title: v.trim() })} />
+            <TitleInput key={activeId} value={task.title} completed={task.completed} readOnly={!canEdit} onCommit={(v) => v.trim() && v !== task.title && patch({ title: v.trim() })} />
           </div>
+          {!canEdit && (
+            <div data-testid="view-only-note" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '-4px 0 12px', fontSize: 12.5, color: NX.dim }}>
+              <Lock size={13} style={{ color: NX.faint, flexShrink: 0 }} />
+              {canComment
+                ? 'You can comment on this task, attach files and log time. Ask the project owner for edit access to change it.'
+                : 'You can view this task. Ask the project owner for access to change it or comment.'}
+            </div>
+          )}
           {/* Whose subtask this is, under the title (Sagar, Oct 13 2026) -
               and the way back to it. */}
           {task.parentTaskId && (
@@ -512,7 +549,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
               ))}
               <DiscussionPane
                 task={task} taskId={activeId} nameOf={nameOf} myEmail={myEmail}
-                getComments={getComments} addComment={addComment} focusComment={focusHere}
+                getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment}
               />
             </>
           ) : paneFor(tab)}
@@ -879,14 +916,14 @@ function ShareModal({ task, people, nameOf, patch, onClose }) {
 }
 
 // ── title (uncontrolled-ish, commits on blur/Enter) ─────────────────────────
-function TitleInput({ value, completed, onCommit }) {
+function TitleInput({ value, completed, onCommit, readOnly = false }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   return (
     <input
-      value={v}
+      value={v} readOnly={readOnly} aria-label="Task name"
       onChange={(e) => setV(e.target.value)}
-      onBlur={() => onCommit(v)}
+      onBlur={() => { if (!readOnly) onCommit(v); }}
       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
       className="nx-inline-edit"
       style={{ width: '100%', border: 'none', fontFamily: FONT, fontSize: 20, fontWeight: 700, color: completed ? NX.faint : NX.ink, textDecoration: completed ? 'line-through' : 'none' }}
@@ -1029,7 +1066,7 @@ function ProjectsField({ task, projects, teams, myEmail, projectName, patch }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
+function OverviewTab({ task, patch, readOnly = false, canComment = true, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
   const isMobile = useIsMobile();
   // Whether the folding sections below have anything in them.
   const hasApproval = !!task.approvalStatus && task.approvalStatus !== 'none';
@@ -1101,6 +1138,8 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       {task.sourceTicketId && (
         <Row label="From Ticket"><SourceTicketLink ticketId={task.sourceTicketId} onOpen={onOpenTicket} /></Row>
       )}
+      {/* Same column and gap as the tab body, so locking moves nothing. */}
+      <FieldsLock readOnly={readOnly} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <Row label="Assignee">
         <div style={{ minWidth: FIELD_W }}>
           {/* Several people can hold one task; any of them completing it
@@ -1241,11 +1280,18 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
           </Pop>
         </div>
       </Row>
+      </FieldsLock>
 
       {/* Description */}
       <Section title="Description">
-        <DescriptionInput task={task} value={task.description || ''} refresh={refresh}
-          onCommit={(v) => v !== (task.description || '') && patch({ description: v })} />
+        {readOnly ? (
+          task.description
+            ? <div className="nx-rich-view" data-testid="description-read-only" style={{ color: NX.ink }} dangerouslySetInnerHTML={{ __html: richBodyHtml(task.description, nameOf) }} />
+            : <div style={{ fontSize: 13, color: NX.faint }}>No description.</div>
+        ) : (
+          <DescriptionInput task={task} value={task.description || ''} refresh={refresh}
+            onCommit={(v) => v !== (task.description || '') && patch({ description: v })} />
+        )}
       </Section>
 
       {/* Checklist (Oct 2026) - open when it has lines, folded when empty so
@@ -1273,7 +1319,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
           task already has time on it (Oct 13 2026; see taskTracksTime). */}
       {taskTracksTime(task, projects, allTasks) && (
         <Section defaultOpen={false} title="Time Tracking">
-          <TimeTracking task={task} />
+          <TimeTracking task={task} canLog={canComment} />
         </Section>
       )}
 
@@ -1281,21 +1327,21 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
           something in them, folded when empty (Oct 13 2026). Keyed so the
           choice is made again for each task, and when content first appears. */}
       <Section key={`approval:${task.id}:${hasApproval}`} defaultOpen={hasApproval} title="Approval">
-        <Approval task={task} patch={patch} />
+        <FieldsLock readOnly={readOnly}><Approval task={task} patch={patch} /></FieldsLock>
       </Section>
 
       {/* Add comment - dropped on mobile: the Comments/All-activity block at the
           bottom of the stacked layout already has a composer. */}
-      {!isMobile && (
+      {!isMobile && (canComment || hasComments) && (
         <Section key={`comments:${task.id}:${hasComments}`} defaultOpen={hasComments} title="Comments">
           <QuickComment task={task} addComment={addComment} getComments={getComments}
-            nameOf={nameOf} myEmail={myEmail} onViewAll={onViewAllComments} />
+            nameOf={nameOf} myEmail={myEmail} onViewAll={onViewAllComments} canComment={canComment} />
         </Section>
       )}
 
       {/* Attachments */}
       <Section title="Attachments">
-        <AttachmentsTab task={task} refresh={refresh} />
+        <AttachmentsTab task={task} refresh={refresh} canAttach={canComment} canRemoveAny={!readOnly} />
       </Section>
     </div>
   );
@@ -1356,10 +1402,46 @@ function PendingAttachments({ files, setFiles }) {
   );
 }
 
-// Best-effort per file, run after the comment itself has already posted - one
-// failed upload must never look like the comment failed too.
-function uploadPendingAttachments(taskId, commentId, files) {
-  return Promise.all(files.map((f) => uploadTaskAttachment(taskId, f, { comment_id: commentId }).catch(() => {})));
+// Per file, run after the comment itself has already posted - one failed
+// upload must never look like the comment failed too. Resolves to the files
+// that did NOT attach ([{ file, error }]) so the composer can say so and offer
+// a retry onto the same comment, instead of dropping them silently.
+async function uploadPendingAttachments(taskId, commentId, files) {
+  const results = await Promise.allSettled(files.map((f) => uploadTaskAttachment(taskId, f, { comment_id: commentId })));
+  return results
+    .map((r, i) => (r.status === 'rejected' ? { file: files[i], error: r.reason?.message || 'Upload failed.' } : null))
+    .filter(Boolean);
+}
+
+// A comment composer's files that did not attach: kept on screen with what
+// went wrong, a Retry that sends them to the same comment, and a Dismiss.
+function useCommentUploads(taskId, reloadAttachments) {
+  // { taskId, commentId, items: [{ file, error }] } - kept with its task, so
+  // stepping to another task in the drawer does not carry the notice over.
+  const [state, setState] = useState(null);
+  const failed = state?.taskId === taskId ? state : null;
+  const upload = async (commentId, files) => {
+    const bad = await uploadPendingAttachments(taskId, commentId, files);
+    setState(bad.length ? { taskId, commentId, items: bad } : null);
+    reloadAttachments();
+  };
+  const retry = () => failed && upload(failed.commentId, failed.items.map((x) => x.file));
+  return { failed, upload, retry, dismiss: () => setState(null) };
+}
+
+function FailedUploads({ failed, onRetry, onDismiss }) {
+  if (!failed?.items?.length) return null;
+  const n = failed.items.length;
+  return (
+    <div role="alert" data-testid="comment-upload-failed" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 8, padding: '6px 10px', border: `1px solid ${NX.red}`, borderRadius: 8, fontSize: 12 }}>
+      <Paperclip size={13} style={{ color: NX.red, flexShrink: 0 }} />
+      <span style={{ color: NX.ink, minWidth: 0, flex: 1 }}>
+        The comment posted, but {n === 1 ? `"${failed.items[0].file.name}" did` : `${n} files did`} not attach: {failed.items[0].error}
+      </span>
+      <button type="button" onClick={onRetry} style={{ ...btn('outline'), padding: '3px 8px', fontSize: 11.5 }}>Retry</button>
+      <button type="button" onClick={onDismiss} title="Dismiss" aria-label="Dismiss" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
+    </div>
+  );
 }
 
 // Same CLAUDE.md Ctrl+V mandate every other upload widget follows
@@ -1378,13 +1460,14 @@ export function onPasteStage(e, setFiles) {
   if (files.length) { e.preventDefault(); setFiles((p) => [...p, ...files]); }
 }
 
-function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAll }) {
+function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAll, canComment = true }) {
   const [body, setBody] = useState('');
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState([]);
   const people = usePeople();
   const [attachments, reloadAttachments] = useCommentAttachments(task.id);
+  const uploads = useCommentUploads(task.id, reloadAttachments);
 
   const load = useCallback(() => {
     getComments?.(task.id).then((r) => setRows(r || [])).catch(() => setRows([]));
@@ -1400,9 +1483,9 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
       setBody('');
       setAssignTo('');
       if (pending.length) {
-        await uploadPendingAttachments(task.id, c.id, pending);
+        const files = pending;
         setPending([]);
-        reloadAttachments();
+        await uploads.upload(c.id, files);
       }
       load();
     } catch { /* surfaced by the store */ } finally { setBusy(false); }
@@ -1445,7 +1528,7 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
           </button>
         </div>
       )}
-      <div onPaste={(e) => onPasteStage(e, setPending)}>
+      {canComment && <div onPaste={(e) => onPasteStage(e, setPending)}>
         <RichDescription
           value={body}
           onChange={setBody}
@@ -1454,18 +1537,21 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
           minHeight={64}
           onStageFiles={(fs) => setPending((p) => [...p, ...fs])}
         />
-      </div>
+      </div>}
       <PendingAttachments files={pending} setFiles={setPending} />
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
-        <span style={{ fontSize: 11, color: NX.faint }}>
-          Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
-        </span>
-        <AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} />
-        <button onClick={submit} disabled={isEmptyDoc(body) || busy}
-          style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1, flexShrink: 0 }}>
-          {busy ? 'Posting…' : assignTo ? 'Assign Comment' : 'Comment'}
-        </button>
-      </div>
+      <FailedUploads failed={uploads.failed} onRetry={uploads.retry} onDismiss={uploads.dismiss} />
+      {canComment && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
+          <span style={{ fontSize: 11, color: NX.faint }}>
+            Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
+          </span>
+          <AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} />
+          <button onClick={submit} disabled={isEmptyDoc(body) || busy}
+            style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1, flexShrink: 0 }}>
+            {busy ? 'Posting…' : assignTo ? 'Assign Comment' : 'Comment'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1477,7 +1563,12 @@ function DescriptionInput({ task, value, onCommit, refresh }) {
   // "+ → Attach file" puts the file on the TASK (so it shows in Attachments and
   // syncs to Asana) and hands the stored URL back so the editor can embed it.
   const attach = async (file) => {
-    const row = await uploadTaskAttachment(task.id, file).catch(() => null);
+    const row = await uploadTaskAttachment(task.id, file).catch((e) => {
+      // Said out loud: the editor falls back to an inline copy (an image) or
+      // nothing (a file), which used to look like the attach had worked.
+      dialog.alert(`"${file.name}" did not attach to the task.${e?.message ? ` ${e.message}` : ''} Try again from Attachments.`, { title: 'File Not Attached' });
+      return null;
+    });
     refresh?.();
     return { url: row?.url || '', name: file.name };
   };
@@ -1515,7 +1606,7 @@ function Approval({ task, patch }) {
 // ── Comments + Activity, as one block (mobile) ───────────────────────────────
 // Mirrors the reference layout: a "Comments | All activity" switcher instead of
 // two separate stacked sections, since they're two views of the same thread.
-function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment, focusComment = null }) {
+function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment, focusComment = null, canComment = true }) {
   const [view, setView] = useState('comments');
   const tab = (key, label) => {
     const on = view === key;
@@ -1534,14 +1625,14 @@ function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment
         {tab('activity', 'All activity')}
       </div>
       {view === 'comments'
-        ? <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusComment} />
+        ? <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusComment} canComment={canComment} />
         : <ActivityTab taskId={taskId} nameOf={nameOf} />}
     </section>
   );
 }
 
 // ── Comments ────────────────────────────────────────────────────────────────
-function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComment = null }) {
+function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComment = null, canComment = true }) {
   const [comments, setComments] = useState(null);
   const listRef = useRef(null);
   const focused = useRef(null);
@@ -1564,6 +1655,7 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
   const [pending, setPending] = useState([]);
   const people = usePeople();
   const [attachments, reloadAttachments] = useCommentAttachments(task.id);
+  const uploads = useCommentUploads(task.id, reloadAttachments);
   const reload = () => getComments(task.id).then(setComments).catch(() => setComments([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
@@ -1574,9 +1666,9 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
     const c = await addComment(task.id, body, assignTo ? { assignee_email: assignTo } : {}).catch(() => null);
     setAssignTo('');
     if (c && pending.length) {
-      await uploadPendingAttachments(task.id, c.id, pending);
+      const files = pending;
       setPending([]);
-      reloadAttachments();
+      await uploads.upload(c.id, files);
     }
     reload();
   };
@@ -1588,11 +1680,12 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
 
   return (
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div onPaste={(e) => onPasteStage(e, setPending)}>
+      {canComment && <div onPaste={(e) => onPasteStage(e, setPending)}>
         <RichDescription value={body} onChange={setBody} onSubmit={submit}
           mentionPeople={people} minHeight={64}
           onStageFiles={(fs) => setPending((p) => [...p, ...fs])} />
         <PendingAttachments files={pending} setFiles={setPending} />
+        <FailedUploads failed={uploads.failed} onRetry={uploads.retry} onDismiss={uploads.dismiss} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
           <span style={{ fontSize: 11, color: NX.faint }}>
             Type <b>@</b> to mention someone - they'll get an email.
@@ -1601,7 +1694,7 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
           <button onClick={submit} disabled={isEmptyDoc(body)}
             style={{ ...btn('primary'), opacity: isEmptyDoc(body) ? 0.5 : 1 }}>{assignTo ? 'Assign Comment' : 'Send'}</button>
         </div>
-      </div>
+      </div>}
       {comments === null ? <LoadingState />
         : list.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No comments yet.</div>
           : <div ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1663,9 +1756,16 @@ function ActivityTab({ taskId, nameOf }) {
 }
 
 // ── Attachments ─────────────────────────────────────────────────────────────
-function AttachmentsTab({ task, refresh }) {
+// canAttach: may add files (commenter and up). canRemoveAny: may remove
+// files someone else added (editor and up) - your own you can always remove,
+// as the server allows (delete_attachment).
+function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }) {
+  const { myEmail } = useTasks();
   const [rows, setRows] = useState(null);
-  const [uploads, setUploads] = useState([]);   // in-flight files: {key, name, pct}
+  // In-flight files: {key, name, pct, file, error}. A failed one STAYS, with
+  // what went wrong and a Retry - it used to vanish without a word.
+  const [uploads, setUploads] = useState([]);
+  const [delError, setDelError] = useState('');
   const [view, setView] = useState(null);   // attachment open in the in-app viewer
   const [dragOver, setDragOver] = useState(false);
   const dragDepth = useRef(0);   // dragenter/dragleave fire on every child crossed, not just the panel edge
@@ -1673,19 +1773,35 @@ function AttachmentsTab({ task, refresh }) {
   const reload = () => api.getTaskAttachments(task.id).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
+  const uploadSeq = useRef(0);
   const sendFile = (f) => {
-    const key = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setUploads((u) => [...u, { key, name: f.name, pct: 0 }]);
+    uploadSeq.current += 1;
+    const key = `up-${uploadSeq.current}`;
+    setUploads((u) => [...u, { key, name: f.name, pct: 0, file: f, error: '' }]);
     return uploadTaskAttachment(task.id, f, {}, (pct) => {
       setUploads((u) => u.map((x) => (x.key === key ? { ...x, pct } : x)));
     })
-      .then(() => { reload(); refresh?.(); })
-      .catch(() => {})
-      .finally(() => setUploads((u) => u.filter((x) => x.key !== key)));
+      .then(() => { setUploads((u) => u.filter((x) => x.key !== key)); reload(); refresh?.(); })
+      .catch((e) => setUploads((u) => u.map((x) => (x.key === key ? { ...x, error: e?.message || 'Upload failed.' } : x))));
   };
+  const retryUpload = (u) => { setUploads((list) => list.filter((x) => x.key !== u.key)); sendFile(u.file); };
+  const dismissUpload = (u) => setUploads((list) => list.filter((x) => x.key !== u.key));
   const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) sendFile(f); };
-  const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
-  const del = async (a) => { await api.deleteTaskAttachment(a.id).catch(() => {}); reload(); refresh?.(); };
+  const onPaste = (e) => { if (!canAttach) return; const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
+  // Asks first (a removed file is gone from the task for everyone) and says
+  // so when the server refuses, instead of quietly re-reading the list.
+  const del = async (a) => {
+    const ok = await dialog.confirm(`Remove "${a.name}" from this task?`, { title: 'Remove Attachment', confirmText: 'Remove', danger: true });
+    if (!ok) return;
+    setDelError('');
+    try {
+      await api.deleteTaskAttachment(a.id);
+    } catch (e) {
+      setDelError(`Could not remove "${a.name}".${e?.message ? ` ${e.message}` : ''}`);
+    }
+    reload(); refresh?.();
+  };
+  const mayRemove = (a) => canRemoveAny || (!!a.addedBy && (a.addedBy || '').toLowerCase() === (myEmail || '').toLowerCase());
 
   // Drag-and-drop straight onto the tab, anywhere - not just onto the Attach
   // file button - matching Ctrl+V paste already working over the whole panel.
@@ -1696,7 +1812,7 @@ function AttachmentsTab({ task, refresh }) {
     e.preventDefault();
     dragDepth.current = 0;
     setDragOver(false);
-    Array.from(e.dataTransfer.files || []).forEach(sendFile);
+    if (canAttach) Array.from(e.dataTransfer.files || []).forEach(sendFile);
   };
 
   return (
@@ -1705,10 +1821,15 @@ function AttachmentsTab({ task, refresh }) {
         marginTop: 14, borderRadius: 10, transition: 'background-color .12s ease',
         ...(dragOver ? { background: NX.hover || NX.border2, boxShadow: `0 0 0 2px ${NX.primary} inset` } : {}),
       }}>
-      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
-      <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach file</button>
-      <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot</span>
-      {dragOver && (
+      {canAttach && (
+        <>
+          <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
+          <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach file</button>
+          <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot</span>
+        </>
+      )}
+      {delError && <div role="alert" style={{ fontSize: 12, color: NX.red, marginBottom: 10 }}>{delError}</div>}
+      {dragOver && canAttach && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '18px 12px', margin: '10px 0',
           border: `1.5px dashed ${NX.primary}`, borderRadius: 10, color: NX.primary, fontSize: 12.5, fontWeight: 600,
@@ -1721,7 +1842,15 @@ function AttachmentsTab({ task, refresh }) {
       )
           : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {uploads.map((u) => (
+              {uploads.map((u) => (u.error ? (
+                <div key={u.key} role="alert" data-testid="upload-failed" style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.red}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
+                  <Paperclip size={13} style={{ color: NX.red }} />
+                  <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.ink }}>{u.name}</span>
+                  <span style={{ color: NX.red, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={u.error}>Did not attach: {u.error}</span>
+                  <button type="button" onClick={() => retryUpload(u)} style={{ ...btn('outline'), padding: '3px 8px', fontSize: 11.5 }}>Retry</button>
+                  <button type="button" onClick={() => dismissUpload(u)} title="Dismiss" aria-label={`Dismiss ${u.name}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
+                </div>
+              ) : (
                 <div key={u.key} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
                   <Paperclip size={13} style={{ color: NX.dim }} />
                   <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.dim }}>{u.name}</span>
@@ -1730,7 +1859,7 @@ function AttachmentsTab({ task, refresh }) {
                   </span>
                   <span style={{ color: NX.faint, minWidth: 32, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Math.round(u.pct * 100)}%</span>
                 </div>
-              ))}
+              )))}
               {(rows || []).map((a) => {
                 const href = a.dataUrl || a.url;
                 const thumb = a.kind === 'image' && href
@@ -1755,7 +1884,7 @@ function AttachmentsTab({ task, refresh }) {
                     )}
                     <span style={{ color: NX.faint }}>{a.size}</span>
                     {href && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
-                    <button onClick={() => del(a)} title="Remove" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
+                    {mayRemove(a) && <button onClick={() => del(a)} title="Remove" aria-label={`Remove ${a.name}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>}
                   </div>
                 );
               })}
@@ -1978,7 +2107,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
 }
 
 // ── Dependencies ────────────────────────────────────────────────────────────
-function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
+function DependenciesTab({ blockedBy, blocking, task, removeDependency, readOnly = false }) {
   if (!blockedBy.length && !blocking.length) return <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No dependencies yet. Add one from the Overview tab.</div>;
   const line = (b, color, canRemove) => (
     <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 12, marginBottom: 6 }}>
@@ -1992,7 +2121,7 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
     <div style={{ marginTop: 14 }}>
       {blockedBy.length > 0 && <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>Blocked by</div>
-        {blockedBy.map((b) => line({ ...b, dependencyType: (task.dependencyTypes || {})[b.id] }, NX.red, true))}
+        {blockedBy.map((b) => line({ ...b, dependencyType: (task.dependencyTypes || {})[b.id] }, NX.red, !readOnly))}
       </div>}
       {blocking.length > 0 && <div>
         <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>Blocking</div>
@@ -2049,7 +2178,7 @@ export function TaskCustomFieldRows({ task, customFields, projectName, patch }) 
   });
 }
 
-function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patch }) {
+function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patch, readOnly = false }) {
   // The same fields the Overview shows (fieldsForTask) - not every field
   // defined anywhere in the workspace.
   const activeFields = fieldsForTask(customFields, task);
@@ -2094,7 +2223,7 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
         ))}
         <div style={{ display: 'flex', gap: 12, padding: '9px 12px', fontSize: 13, borderTop: `1px solid ${NX.border}` }}>
           <span style={{ width: 112, flexShrink: 0, color: NX.faint, paddingTop: 2 }}>Labels</span>
-          <LabelsEditor tags={task.tags || []} onChange={(tags) => patch({ tags })} />
+          <FieldsLock readOnly={readOnly}><LabelsEditor tags={task.tags || []} onChange={(tags) => patch({ tags })} /></FieldsLock>
         </div>
       </div>
 
@@ -2102,7 +2231,7 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Custom Fields</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <TaskCustomFieldRows task={task} customFields={customFields} projectName={projectName} patch={patch} />
+            <FieldsLock readOnly={readOnly}><TaskCustomFieldRows task={task} customFields={customFields} projectName={projectName} patch={patch} /></FieldsLock>
           </div>
         </div>
       )}

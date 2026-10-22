@@ -380,7 +380,18 @@ export function TasksProvider({ children }) {
     return created;
   }, []);
 
+  // The latest task list for the actions below, which need the row as it
+  // was BEFORE an optimistic change without re-creating themselves on every
+  // tasks change (updateTask's identity is a dependency all over the module).
+  const tasksRef = useRef(tasks);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+
   const updateTask = useCallback(async (id, patch) => {
+    // Snapshot the fields this patch touches, so a refused save can put them
+    // back. The delta refetch alone cannot: it only returns rows that CHANGED
+    // on the server, and a refused row did not - the optimistic value stuck.
+    const before = tasksRef.current.find((t) => t.id === id);
+    const keys = Object.keys(patch || {});
     patchLocalTask(id, patch);                     // optimistic
     try {
       const saved = await api.updateTask(id, toBody(patch));
@@ -388,10 +399,20 @@ export function TasksProvider({ children }) {
       announceHeld([saved], patch);
       return saved;
     } catch (e) {
+      if (before) {
+        // Only a field still showing THIS change goes back - a later edit to
+        // the same field (or a fresher server copy) is left alone.
+        setTasks((prev) => prev.map((t) => {
+          if (t.id !== id) return t;
+          const back = {};
+          for (const k of keys) if (t[k] === patch[k]) back[k] = before[k];
+          return { ...t, ...back };
+        }));
+      }
       refetchTasks().catch(() => {});
       // Surfaces things like a dependency-gate rejection (blocked by an
-      // unfinished FS/SS/FF/SF task) - the optimistic change above just got
-      // reverted by the refetch, so silence here would look like nothing happened.
+      // unfinished FS/SS/FF/SF task) - the optimistic change above was just
+      // put back, so silence here would look like nothing happened.
       if (e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
       throw e;
     }
@@ -441,24 +462,80 @@ export function TasksProvider({ children }) {
   }, [updateTask, offerUndo]);
   const setStatus = useCallback((id, status) => updateTask(id, { status }), [updateTask]);
 
-  const deleteTask = useCallback(async (id) => {
-    const gone = tasks.find((t) => t.id === id);
-    setTasks((prev) => prev.filter((t) => t.id !== id));   // optimistic
-    try { await api.deleteTask(id); } catch (e) { refetchTasks().catch(() => {}); throw e; }
-    // Undo recreates the task from its main fields (a fresh id - comments and
-    // subtask links don't survive a hard delete; the fields are the rescue).
-    if (gone) {
-      offerUndo(`Deleted "${(gone.title || '').slice(0, 40)}"`, () => createTask({
-        title: gone.title, type: gone.type || 'task', description: gone.description || '',
-        status: gone.status || 'not_started', priority: gone.priority || 'medium',
-        projectId: gone.projectId || '', teamId: gone.teamId || '',
-        assigneeId: gone.assigneeId || '', followerIds: gone.followerIds || [],
-        dueOn: gone.dueOn || '', startOn: gone.startOn || '', tags: gone.tags || [],
-        estimateHours: gone.estimateHours ?? null, isMilestone: !!gone.isMilestone,
-        customFieldValues: gone.customFieldValues || {},
-      }).catch(() => {}));
+  // Rows taken off screen optimistically go back if the server refuses the
+  // delete - the delta refetch never returns a row the server did not change.
+  const putBack = useCallback((rows) => {
+    if (!rows.length) return;
+    setTasks((prev) => {
+      const have = new Set(prev.map((t) => t.id));
+      const missing = rows.filter((r) => r && !have.has(r.id));
+      return missing.length ? [...missing, ...prev] : prev;
+    });
+  }, []);
+
+  // Undo of a delete. DELETE /tasks/{id} moves the task to Trash (task_trash.py),
+  // so undo RESTORES it - same id, comments, attachments, history and the
+  // subtasks trashed with it - instead of recreating a copy from its fields.
+  // The restored row goes straight back on screen; the delta refetch brings
+  // the subtasks. Returns { restored, failed } (counts).
+  const restoreTasks = useCallback(async (ids) => {
+    const results = await Promise.allSettled(ids.map((id) => api.restoreTask(id)));
+    const rows = results.filter((r) => r.status === 'fulfilled' && r.value?.id).map((r) => r.value);
+    if (rows.length) {
+      const map = Object.fromEntries(rows.map((r) => [r.id, r]));
+      setTasks((prev) => [...rows, ...prev.filter((t) => !map[t.id])]);
     }
-  }, [refetchTasks, tasks, offerUndo, createTask]);
+    refetchTasks().catch(() => {});
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length) {
+      const why = failed[0].reason?.message || 'Try again from the Recycle Bin.';
+      alert(failed.length === ids.length && ids.length === 1
+        ? `Could not restore this task. ${why}`
+        : `Could not restore ${failed.length} of ${ids.length} tasks. ${why}`);
+    }
+    return { restored: rows.length, failed: failed.length };
+  }, [refetchTasks]);
+
+  const deleteTask = useCallback(async (id) => {
+    const gone = tasksRef.current.find((t) => t.id === id);
+    setTasks((prev) => prev.filter((t) => t.id !== id));   // optimistic
+    try {
+      await api.deleteTask(id);
+    } catch (e) {
+      if (gone) putBack([gone]);
+      refetchTasks().catch(() => {});
+      throw e;
+    }
+    if (gone) offerUndo(`Deleted "${(gone.title || '').slice(0, 40)}"`, () => { restoreTasks([id]).catch(() => {}); });
+  }, [refetchTasks, offerUndo, putBack, restoreTasks]);
+
+  // Several tasks in one go (bulk bar, Data Quality): one batch, ONE toast,
+  // and its Undo restores every one that was deleted. A refused delete puts
+  // that row back and is counted, never silently dropped. There is no bulk
+  // delete endpoint, so it is one DELETE per task, all at once.
+  // Returns { deleted, failed, error } (counts; error = the first refusal).
+  const deleteTasks = useCallback(async (ids) => {
+    const list = [...new Set(ids)];
+    if (!list.length) return { deleted: 0, failed: 0, error: null };
+    const gone = Object.fromEntries(tasksRef.current.filter((t) => list.includes(t.id)).map((t) => [t.id, t]));
+    const drop = new Set(list);
+    setTasks((prev) => prev.filter((t) => !drop.has(t.id)));   // optimistic
+    const results = await Promise.allSettled(list.map((id) => api.deleteTask(id)));
+    const deletedIds = list.filter((_, i) => results[i].status === 'fulfilled');
+    const failedIds = list.filter((_, i) => results[i].status === 'rejected');
+    if (failedIds.length) {
+      putBack(failedIds.map((id) => gone[id]).filter(Boolean));
+      refetchTasks().catch(() => {});
+    }
+    if (deletedIds.length) {
+      const label = deletedIds.length === 1
+        ? `Deleted "${(gone[deletedIds[0]]?.title || '').slice(0, 40)}"`
+        : `Deleted ${deletedIds.length} tasks`;
+      offerUndo(label, () => { restoreTasks(deletedIds).catch(() => {}); });
+    }
+    const error = failedIds.length ? results[list.indexOf(failedIds[0])].reason : null;
+    return { deleted: deletedIds.length, failed: failedIds.length, error };
+  }, [refetchTasks, offerUndo, putBack, restoreTasks]);
 
   const bulkUpdate = useCallback(async (ids, patch) => {
     try {
@@ -724,7 +801,7 @@ export function TasksProvider({ children }) {
     sections,
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
-    createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,
+    createTask, updateTask, deleteTask, deleteTasks, restoreTasks, bulkUpdate, toggleComplete, setStatus,
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },

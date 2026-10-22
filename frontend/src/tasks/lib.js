@@ -5,6 +5,7 @@ import { api } from '../api';
 import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
 import { toViewUrl, isOwnImageUrl } from '../lib/storageView';
+import { dialog } from '../ui/dialog';
 
 export const EMPTY_FILTER = {
   // collaboratorIds = people in a task's follower list (Asana "collaborators").
@@ -27,8 +28,14 @@ export const cfKey = (fieldId) => `${CF_PREFIX}${fieldId}`;
 export const cfFieldId = (key) => (String(key || '').startsWith(CF_PREFIX) ? key.slice(CF_PREFIX.length) : '');
 export const taskFieldValue = (task, fieldId) => (task.customFieldValues || {})[fieldId];
 
-export const todayISO = () => new Date().toISOString().slice(0, 10);
-export const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+// Calendar dates (due / start dates, "today") are the viewer's LOCAL day.
+// toISOString().slice(0, 10) is the UTC day - on a US evening that is already
+// tomorrow (a task due today read as overdue) and in India before 5:30 AM it
+// is still yesterday. Timestamps sent to the server stay UTC; only calendar
+// days go through these.
+export const localISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export const todayISO = () => localISO(new Date());
+export const addDays = (iso, n) => { const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`); d.setDate(d.getDate() + n); return localISO(d); };
 
 function dueMatches(task, due, dueFrom, dueTo) {
   if (dueFrom && (!task.dueOn || task.dueOn < dueFrom)) return false;
@@ -40,8 +47,7 @@ function dueMatches(task, due, dueFrom, dueTo) {
   if (due === 'overdue') return task.dueOn < t && !task.completed;
   if (due === 'today') return task.dueOn === t;
   if (due === 'week') {
-    const wk = new Date(); wk.setDate(wk.getDate() + 7);
-    return task.dueOn >= t && task.dueOn <= wk.toISOString().slice(0, 10);
+    return task.dueOn >= t && task.dueOn <= addDays(t, 7);
   }
   return true;
 }
@@ -480,6 +486,50 @@ export function projectRoleOf(project, email, isManager = false) {
 const ROLE_RANK = { viewer: 1, commenter: 2, editor: 3, owner: 4 };
 export const roleAtLeast = (role, min) => (ROLE_RANK[role] || 0) >= (ROLE_RANK[min] || 0);
 
+/**
+ * The caller's role on ONE task, decided the way the server decides it
+ * (backend task_util.require_task_role + project_role_for), so the drawer can
+ * stop offering controls that can only come back 403. The server stays the
+ * authority; this only hides what it would refuse.
+ *   - A manager (or Tasks Owner) is 'owner' - they bypass the check.
+ *   - Anyone the task is assigned to counts as at least 'editor' on it.
+ *   - A task with no project anywhere up its parent chain is 'editor'.
+ *   - Otherwise the best of projectRoleOf and any APPROVED team on that
+ *     project the caller is in (team accessRole, default editor).
+ * null = cannot be told from what this browser has (the project or a parent
+ * is not loaded, or no grant is visible): callers keep today's controls.
+ */
+export function taskRoleFor(task, { projects = [], teams = [], taskById = null, email = '', isManager = false } = {}) {
+  if (!task) return null;
+  if (isManager) return 'owner';
+  const me = (email || '').toLowerCase();
+  if (!me) return null;
+  const assigned = taskAssignees(task).some((e) => (e || '').toLowerCase() === me);
+  const atLeast = (a, b) => ((ROLE_RANK[a] || 0) >= (ROLE_RANK[b] || 0) ? a : b);
+  // The project is the primary one of the top of the parent chain - the
+  // same walk as project_for_task.
+  let cur = task;
+  for (let depth = 0; cur && !cur.projectId && cur.parentTaskId && depth < 20; depth++) {
+    const parent = taskById?.[cur.parentTaskId];
+    if (!parent) return assigned ? 'editor' : null;
+    cur = parent;
+  }
+  const projectId = cur?.projectId || '';
+  if (!projectId) return 'editor';
+  const project = (projects || []).find((p) => p.id === projectId);
+  if (!project) return assigned ? 'editor' : null;
+  let role = projectRoleOf(project, me, false);
+  for (const tm of teams || []) {
+    if ((tm.approvalStatus || 'approved') !== 'approved') continue;
+    if (!teamProjectIds(tm).includes(projectId)) continue;
+    if (!(tm.memberIds || []).some((e) => (e || '').toLowerCase() === me)) continue;
+    role = role ? atLeast(role, tm.accessRole || 'editor') : (tm.accessRole || 'editor');
+  }
+  if (assigned) role = role ? atLeast(role, 'editor') : 'editor';
+  // A role name this file does not know is not guessed at.
+  return ROLE_RANK[role] ? role : null;
+}
+
 /** Which view and grouping a project opens with for this person (Oct 2026):
  *  their own choice IN this project, else the project's default, else how
  *  they look at task lists generally. */
@@ -855,6 +905,50 @@ export async function uploadTaskAttachment(taskId, file, extra = {}, onProgress)
     alert(`"${file.name}" couldn't be stored: ${e?.message || 'upload failed'}. Remove the attachment and try again.`);
   }
   return api.addTaskAttachment(taskId, { name: file.name, size, kind, url, ...extra });
+}
+
+/** Delete the selected tasks as ONE batch (store.deleteTasks): one "Deleted N
+ *  tasks" toast whose Undo restores them all, and a refusal is reported with
+ *  how many failed instead of vanishing. Shared with Data Quality. */
+export async function deleteSelectedTasks(store, ids) {
+  const r = await store.deleteTasks(ids);
+  if (r?.failed) {
+    const why = r.error?.message ? ` ${r.error.message}` : '';
+    await dialog.alert(
+      r.deleted
+        ? `Deleted ${r.deleted} of ${ids.length} tasks. ${r.failed} could not be deleted and ${r.failed === 1 ? 'is' : 'are'} back in the list.${why}`
+        : `${r.failed === 1 ? 'The task' : `The ${r.failed} tasks`} could not be deleted.${why}`,
+      { title: 'Some Tasks Were Not Deleted' },
+    );
+  }
+  return r;
+}
+
+// WIP limits are per BOARD (Oct 21 2026): one project's "In Progress: 3" used
+// to sit on every board, My Tasks included, because they shared one key.
+// Still this browser only - there is no server copy. The old shared key
+// ('nexus.board.wip') is left alone and no longer read: nobody can say which
+// board its numbers were meant for, so each board starts with no limit.
+export const wipStorageKey = (lockedProjectId, defaultAssigneeId) => (
+  `nexus.board.wip:${lockedProjectId ? `project:${lockedProjectId}` : defaultAssigneeId ? 'mine' : 'all'}`
+);
+
+/** Upload files onto a task one after another. Resolves to the ones that did
+ *  NOT attach ([{ name, error }]) - a create/save flow reports them rather
+ *  than swallowing the failure (they used to be .catch(() => {})). */
+export async function uploadFilesToTask(taskId, files) {
+  const failed = [];
+  for (const f of files || []) {
+    try { await uploadTaskAttachment(taskId, f); } catch (e) { failed.push({ name: f.name, error: e?.message || '' }); }
+  }
+  return failed;
+}
+
+/** What to tell someone whose task saved but some files did not attach. */
+export function notAttachedText(failed, verb = 'created') {
+  const names = failed.map((x) => `"${x.name}"`).join(', ');
+  const why = failed.find((x) => x.error)?.error;
+  return `The task was ${verb}, but ${failed.length === 1 ? 'this file' : `${failed.length} files`} did not attach: ${names}.${why ? ` ${why}` : ''} Open the task and add ${failed.length === 1 ? 'it' : 'them'} again from Attachments.`;
 }
 
 // ── Dates ────────────────────────────────────────────────────────────────────

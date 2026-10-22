@@ -7,14 +7,16 @@ import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, D
 import { api } from '../../api';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
 import { Avatar, EmptyState, AttachmentViewer } from '../components';
-import { fmtDate, taskAssignees } from '../lib';
+import { fmtDate, taskAssignees, localISO } from '../lib';
 import { toDownloadUrl } from '../../lib/storageView';
 import { useTasks } from '../TasksContext';
 import { daysFromPixels, dragModeAt, dragDates, describeMove, HANDLE_W } from '../timelineDrag';
 
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const toISO = (d) => d.toISOString().slice(0, 10);
+// LOCAL day: fromISO below is local midnight, so a UTC toISO would step back
+// a day east of UTC (India) on every addDays.
+const toISO = localISO;
 const fromISO = (s) => new Date(s + 'T00:00:00');
 const addDays = (iso, n) => { const d = fromISO(iso); d.setDate(d.getDate() + n); return toISO(d); };
 
