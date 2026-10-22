@@ -921,6 +921,18 @@ export async function uploadTaskAttachment(taskId, file, extra = {}, onProgress)
   return api.addTaskAttachment(taskId, { name: file.name, size, kind, url, ...extra });
 }
 
+/** Upload New Version (Oct 22 2026): stores `file` the same way, then makes
+ *  it the current version of attachment `attachmentId`'s file. Unlike a new
+ *  attachment, a file that could not be stored is NOT recorded - a blank
+ *  current version would hide the good one behind it - so it throws and the
+ *  caller says so. */
+export async function uploadTaskAttachmentVersion(attachmentId, file, onProgress) {
+  const size = `${Math.max(1, Math.round(file.size / 1024))} KB`;
+  const url = await storeTaskFile(file, onProgress);
+  if (!url) throw new Error('the file could not be stored');
+  return api.addTaskAttachmentVersion(attachmentId, { name: file.name, size, kind: attachmentKindOf(file), url });
+}
+
 /** Delete the selected tasks as ONE batch (store.deleteTasks): one "Deleted N
  *  tasks" toast whose Undo restores them all, and a refusal is reported with
  *  how many failed instead of vanishing. Shared with Data Quality. */

@@ -104,7 +104,13 @@ def status(user: dict = Depends(get_current_user)):
     """
     import egnyte_oauth
     from database import SessionLocal
+    import os
+    from urllib.parse import urlparse
+    dom_set =bool(os.getenv("EGNYTE_DOMAIN", "").strip())
     out = {"configured": svc.configured(),
+           # The company Egnyte's host, for "Paste Egnyte Link" (Tasks, Oct 22
+           # 2026) to say up front that only links there are taken.
+           "webHost": (urlparse(svc.base_url()).hostname or "").lower() if dom_set else "",
            "service": {"canRefresh": svc.can_refresh(), "expiresAt": svc.token_expires_at()},
            "oauth": {"enabled": egnyte_oauth.oauth_configured(), "connected": False,
                      "egnyteUsername": "", "mustConnect": False}}

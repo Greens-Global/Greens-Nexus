@@ -3280,6 +3280,20 @@ class TaskAttachment(Base):
     # from a dying asanausercontent.com/app.asana.com address: the pre-rescue
     # URL, kept for audit/rollback. Blank on every row the rescue never touched.
     original_asana_url = Column(String, default="")
+    # File versions (Neil, Oct 22 2026). "Upload New Version" adds a row that
+    # shares the first version's group: version_group = the FIRST version's id
+    # ("" on that first row itself and on every row older than this feature -
+    # a row is its own group until a second version arrives, no backfill) and
+    # version = 1, 2, 3... The highest version is the current file; the lists
+    # show only it. Old versions stay rows - nothing is overwritten.
+    version_group = Column(String, default="")
+    version       = Column(Integer, default=1)
+    # Egnyte links (Oct 22 2026): kind "egnyte" is a LINK to a file or folder
+    # in the company Egnyte, not an uploaded copy - `url` is its https Egnyte
+    # web address (company domain only, see tasks._check_egnyte_url), nothing
+    # is stored in Supabase, and Egnyte applies each viewer's own permissions.
+    egnyte_path   = Column(String, default="")   # /Shared/... when known
+    egnyte_kind   = Column(String, default="")   # file|folder
 
 
 class TaskActivity(Base):

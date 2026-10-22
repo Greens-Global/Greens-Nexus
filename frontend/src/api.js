@@ -491,6 +491,11 @@ export const api = {
   getTaskAttachments: (id) => req(`/tasks/${id}/attachments`),
   addTaskAttachment: (id, data) => req(`/tasks/${id}/attachments`, { method: "POST", body: JSON.stringify(data) }),
   deleteTaskAttachment: (aid) => req(`/tasks/attachments/${aid}`, { method: "DELETE" }),
+  // File versions + Egnyte links (Oct 22 2026) - routers/tasks.py.
+  getTaskAttachmentVersions: (aid) => req(`/tasks/attachments/${aid}/versions`),
+  addTaskAttachmentVersion: (aid, data) => req(`/tasks/attachments/${aid}/versions`, { method: "POST", body: JSON.stringify(data) }),
+  deleteTaskAttachmentVersions: (aid) => req(`/tasks/attachments/${aid}/versions`, { method: "DELETE" }),
+  addTaskEgnyteLink: (id, data) => req(`/tasks/${id}/egnyte-links`, { method: "POST", body: JSON.stringify(data) }),
   ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
   // Checklist inside a task (Oct 2026). Writes answer with the task's fresh
