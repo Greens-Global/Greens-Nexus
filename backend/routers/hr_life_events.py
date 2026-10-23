@@ -561,6 +561,8 @@ class IntakePreviewIn(BaseModel):
     doc_template_ids: Optional[list] = None
     extra_docs:       Optional[list] = None      # [{templateIds}] - the team / role documents
     details_form:     Optional[list] = None
+    entity_id:        Optional[str] = None       # the packet's company - its roles' own documents
+    role_ids:         Optional[list] = None      # the packet's roles, when it is for some only
 
 
 @router.post("/packets/intake-preview")
@@ -572,7 +574,8 @@ def packet_intake_preview(body: IntakePreviewIn, user: dict = Depends(require_hr
         if isinstance(r, dict):
             ids += [str(t) for t in (r.get("templateIds") or [])]
     try:
-        return hpd.intake_preview(db, ids, body.details_form or [])
+        return hpd.intake_preview(db, ids, body.details_form or [], entity_id=body.entity_id or "",
+                                  role_ids=[str(r) for r in (body.role_ids or []) if r])
     except hpd.PacketProblem as e:
         raise HTTPException(400, str(e))
 

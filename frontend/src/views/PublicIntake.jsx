@@ -64,7 +64,8 @@ export default function PublicIntake({ token, preview }) {
   const docForm = useMemo(() => (page?.form || []).map(f => (f.type === 'heading' ? f : {
     ...f, help: [f.help, f.sensitive ? 'Private - only the payroll team sees it.' : ''].filter(Boolean).join(' '),
   })), [page]);
-  const toAnswer = [...[...keys].filter(k => required.has(k)), ...docForm.filter(f => f.type !== 'heading' && f.required).map(f => `a:${f.key}`)];
+  // A permanent address the documents print is required; "same as current" answers it.
+  const toAnswer = [...[...keys].filter(k => required.has(k) && !(k === 'permanent_address' && sameAddress)), ...docForm.filter(f => f.type !== 'heading' && f.required).map(f => `a:${f.key}`)];
   const answered = toAnswer.filter(k => (k.startsWith('a:') ? String(v.answers?.[k.slice(2)] || '').trim() : String(v[k] || '').trim())).length;
 
   async function submit(e) {

@@ -479,5 +479,28 @@ class PacketDocsTests(unittest.TestCase):
         self.assertEqual(r.json()["signatoryEmail"], NEIL)
 
 
+
+class FillInBlankTests(unittest.TestCase):
+    """The Word import's blank patterns, run over a published template, so the
+    packet says what still prints empty (Neil, 10/22 56:42)."""
+
+    def test_lines_brackets_and_empty_labels_are_found(self):
+        c = _doc(_p("Name: ", "{{full_name}}"),                    # a chip fills it
+                 _p("Emergency Contact:"), _p("PAN Number: [      ]"),
+                 _p("Paid Rs. ______ per month."), _p("______"),     # a bare pen line is left alone
+                 _p("Witness: __________"))                          # notary / witness: filled on paper
+        self.assertEqual(hpd.fill_in_blanks(c), ["Emergency Contact", "PAN Number:", "Paid Rs."])
+
+    def test_lead_ins_headings_signatures_tables_and_headers(self):
+        lst = {"type": "bulletList", "content": [{"type": "listItem", "content": [_p("Duty one")]}]}
+        table = {"type": "table", "content": [{"type": "tableRow", "content": [
+            {"type": "tableCell", "content": [_p("Phone:")]}, {"type": "tableCell", "content": [_p("{{phone}}")]}]}]}
+        c = _doc(_p("Responsibilities:"), lst, _p("Benefits:"), _p("1. Health"), _p("COMPANY:"),
+                 _p("Employee Signature:"), _sig("employee"), _p("Date:"), table)
+        self.assertEqual(hpd.fill_in_blanks(c), [])
+        c["footer"] = {"type": "doc", "content": [_p("Initials: ____")]}
+        self.assertEqual(hpd.fill_in_blanks(c), ["Initials:"])
+
+
 if __name__ == "__main__":
     unittest.main()

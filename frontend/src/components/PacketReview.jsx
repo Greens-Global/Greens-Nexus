@@ -325,6 +325,7 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
         )}
 
         {(data.problems || []).map(p => <Problem key={p}>{p}</Problem>)}
+        {(data.warnings || []).map(w => <Problem key={w}>{w}</Problem>)}
 
         {inReview && data.isVerifier && (
           <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>

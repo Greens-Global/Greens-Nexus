@@ -38,11 +38,11 @@ class ReadyTests(ReviewCase):
     def test_a_complete_packet_is_ready(self):
         checks = _ready(self.client)
         self.assertTrue(all(c["ok"] for c in checks.values()), [c for c in checks.values() if not c["ok"]])
-        self.assertEqual(set(checks), {"documents", "signing", "role:hr", "payAccess", "payPrints", "variables"})
+        self.assertEqual(set(checks), {"documents", "signing", "role:hr", "payAccess", "payPrints", "variables", "blanks"})
         self.assertEqual(checks["role:hr"]["detail"], "Charmi Shah")
         # and the packet list carries it
         hire = next(s for s in self.client.get("/hr/packets").json()["settings"] if s["id"] == "s-hire")
-        self.assertEqual(len(hire["readiness"]), 6)
+        self.assertEqual(len(hire["readiness"]), 7)
 
     def test_a_company_with_no_hr_contact_is_flagged_with_its_fix(self):
         self._edit(lambda db: db.query(models.HrEntity).filter_by(id=CO).update({"hr_contact_email": ""}))
@@ -66,6 +66,15 @@ class ReadyTests(ReviewCase):
         c = _ready(self.client)["payPrints"]
         self.assertEqual((c["ok"], c["severity"]), (False, "warn"))
         self.assertEqual(c["fix"], {"kind": "template", "templateId": "t-offer"})
+
+    def test_fill_in_blanks_nothing_fills_are_a_warning_naming_the_document(self):
+        # Neil, 10/22 56:42: page 3 showed blanks "that should be stuff you fill in".
+        self._edit(lambda db: _publish(db, "t-nda", _doc(_p("Emergency Contact:"), _p("Bank: ______ branch [    ]"),
+                                                         _p("Notary Seal: ________"), _sig("employee"))))
+        c = _ready(self.client)["blanks"]
+        self.assertEqual((c["ok"], c["severity"]), (False, "warn"))
+        self.assertIn('"NDA" has 3 fill-in blanks nothing fills (Emergency Contact, Bank:, Bank: branch)', c["detail"])
+        self.assertEqual(c["fix"], {"kind": "template", "templateId": "t-nda"})
 
     def test_variables_nothing_fills_are_listed_until_the_form_asks_for_them(self):
         self._edit(lambda db: _publish(db, "t-nda", _doc(_p("PAN ", "{{pan_number}}", " bank ", "{{bank_name}}"), _sig("employee"))))

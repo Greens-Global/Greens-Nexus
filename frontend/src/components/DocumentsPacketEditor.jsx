@@ -540,7 +540,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
       )}
 
       {event === 'hire' && (
-        <PacketIntakePanel docIds={p.docIds} extraDocs={p.extraDocs} detailsForm={p.detailsForm} companyName={companyName}>
+        <PacketIntakePanel docIds={p.docIds} extraDocs={p.extraDocs} detailsForm={p.detailsForm} companyId={companyId} roleIds={p.roleIds} companyName={companyName}>
           {wanted.length > 0 && (
             <div style={{ border: '1.5px dashed var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 10, fontSize: 13 }}>
               Your documents print these, and nothing fills them yet:

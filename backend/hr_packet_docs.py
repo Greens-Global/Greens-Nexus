@@ -203,6 +203,63 @@ def content_tokens(content) -> set:
     return found
 
 
+# Fill-in blanks a template still prints as lines (Neil, 10/22 56:42: "this
+# stuff should be stuff you fill in ... that wiring is not yet done"): the
+# patterns of the Word import's blank finder (frontend lib/wordBlanks.js).
+_GAP_RE = re.compile(r"_{3,}|\[[\s ]*\]")
+_LABEL_LINE_RE = re.compile(r"^([^:\x01]{2,40}?):\s*$")
+_SECTION_HEAD_RE = re.compile(r"^(COMPANY|CONTRACTOR|EMPLOYEE|CLIENT|EMPLOYER)$")
+_LIST_LEAD_RE = re.compile(r"^\s*(?:[([•\-–]|\d+[.)])")
+# Filled by hand on the printed copy (a notary page), never by Nexus.
+_PAPER_RE = re.compile(r"notar|witness|\bseal\b|stamp|franking|e-stamp|registration number|place of|purchased by|"
+                       r"date of issue|state of issue|work e-?mail", re.I)
+_TABLE_NODES = ("table", "tableRow", "tableCell", "tableHeader")
+
+
+def _par_text(node) -> str:
+    """A paragraph's text; a {{variable}} chip counts as filled (\\x01)."""
+    out = []
+    for c in node.get("content") or []:
+        t = c.get("type") if isinstance(c, dict) else ""
+        out.append((c.get("text") or "") if t == "text" else "\n" if t == "hardBreak" else "\x01")
+    return "".join(out)
+
+
+def fill_in_blanks(content) -> list:
+    """The label of every fill-in blank nothing fills: "______" or "[   ]" in
+    a sentence, and a "Label:" line with nothing after it (not a list's
+    lead-in, not next to a signature block, not inside a table) - body,
+    header and footer."""
+    found = []
+
+    def walk(nodes, in_table):
+        nodes = [n for n in nodes if isinstance(n, dict)]
+        for i, n in enumerate(nodes):
+            if n.get("type") != "paragraph":
+                tbl = in_table or n.get("type") in _TABLE_NODES
+                for v in n.values():
+                    walk(v if isinstance(v, list) else [v], tbl)
+                continue
+            text = _par_text(n)
+            if _PAPER_RE.search(text) or not re.sub(r"[_\[\]\s .\-]", "", text):
+                continue        # a notary line, or a bare line drawn for a pen
+            for m in _GAP_RE.finditer(text):
+                found.append(" ".join(_GAP_RE.sub(" ", text[:m.start()]).replace("\x01", " ").split()[-4:]) or "Blank")
+            prev, nxt = (nodes[i - 1] if i else {}), (nodes[i + 1] if i + 1 < len(nodes) else {})
+            # shortcut: an empty table cell beside a label is not looked at; add the wizard's 'cell' rule if HR hits it.
+            if in_table or "signatureBlock" in (prev.get("type"), nxt.get("type")):
+                continue
+            nxt_text = _par_text(nxt) if nxt.get("type") == "paragraph" else ""
+            for line in text.split("\n"):
+                m = _LABEL_LINE_RE.match(line.strip())
+                if (m and not _SECTION_HEAD_RE.match(m.group(1).strip()) and "List" not in str(nxt.get("type"))
+                        and not _LIST_LEAD_RE.match(nxt_text)):
+                    found.append(m.group(1).strip())
+
+    walk([content] if isinstance(content, dict) else [], False)
+    return found
+
+
 class Snap:
     """One template of a packet, as its published version reads."""
 
@@ -1021,10 +1078,29 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
         problems.append("This packet must be verified by someone other than who started it.")
     if not can_see_pay and p["printsPay"]:
         problems.append("These documents show pay - only someone with Pay & Benefits access can verify and send them.")
+    # What the person left empty that a document prints (Neil, 10/22 56:42),
+    # named before Verify And Send: a standard detail stops the packet, an
+    # optional answer prints blank.
+    from services.merge_fields import BUILTIN_VARIABLES
+    labels = {t: lbl.title() for t, lbl, _ in BUILTIN_VARIABLES}
+    labels.update({f["key"]: f["label"] for f in form_fields(p["form"])})
+    first = (ev.subject_name or "").split(" ")[0] or "The person"
+
+    def them(n):
+        return "it" if n == 1 else "them"
     for d in docs:
-        if d["unresolved"]:
+        left = [t for t in d["unresolved"] if t in PERSON_KEYS]
+        if left:
+            problems.append(f'{first} left {", ".join(labels.get(t, t) for t in left)} empty, and "{d["title"]}" '
+                            f'prints {them(len(left))} - click Edit to fill {them(len(left))} in.')
+        rest = [t for t in d["unresolved"] if t not in left]
+        if rest:
             problems.append(f'"{d["title"]}" still has unfilled details: '
-                            + ", ".join(t.replace("_", " ") for t in d["unresolved"]) + ".")
+                            + ", ".join(t.replace("_", " ") for t in rest) + ".")
+    empty = {k for part in answer_values(p["form"], event_answers(ev)) for k, v in part.items() if v == ""}
+    blank = [f"{labels.get(t, t)} ({s.name})" for s in p["snaps"] for t in sorted(s.tokens & empty)]
+    warnings = ([f"Prints blank: {', '.join(blank)} - {first} left {them(len(blank))} empty. "
+                 f"Click Edit to fill {them(len(blank))} in, or send as is."] if blank else [])
     me = (user["email"] or "").lower()
     can_verify = (ev.status == "review" and bool(p["verifier"]["email"]) and p["verifier"]["email"] == me
                   and not problems and not any(stale.values()))
@@ -1043,7 +1119,7 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
     out = {"event": hle.ser_event(db, ev, show_pay=can_see_pay), "packetName": setting.name or "",
            "packetId": setting.id, "entityId": ev.entity_id or "", "companyName": entity.name if entity else "",
            "offer": offer, "documents": docs, "recipients": p["recipients"], "verifier": p["verifier"],
-           "printsPay": p["printsPay"], "problems": list(dict.fromkeys(problems)),
+           "printsPay": p["printsPay"], "problems": list(dict.fromkeys(problems)), "warnings": warnings,
            "outdated": any(stale.values()), "canVerify": can_verify,
            "isVerifier": p["verifier"]["email"] == me,
            "details": {k: v for k, v in (ev.intake or {}).items() if k != "answers"},
@@ -1332,6 +1408,7 @@ class FormView:
         derived = [f for f in template_form(snaps) if f["key"] not in keys]
         self.details_form = own + derived
         self.derived_keys = {f["key"] for f in derived}
+        self.tokens = {t for s in snaps for t in s.tokens}      # every variable the documents print
 
 
 def form_view(db: Session, setting: Optional[HrPacketSetting], template_ids: Optional[list] = None) -> FormView:
@@ -1343,23 +1420,44 @@ def form_view(db: Session, setting: Optional[HrPacketSetting], template_ids: Opt
     return FormView(setting, snaps)
 
 
-def intake_preview(db: Session, template_ids: list, details_form) -> dict:
+def intake_preview(db: Session, template_ids: list, details_form, entity_id: str = "",
+                   role_ids: Optional[list] = None) -> dict:
     """What the new hire will be asked, for a packet as its editor has it now
     (saved or not): the SAME FormView the intake page reads, each field with
-    the documents that print it, plus what HR answers at the offer. Raises
-    PacketProblem for a Details Form that would not save."""
+    the documents that print it, plus what HR answers at the offer - and what
+    each role's own hiring documents add for its hires (the packet's roles,
+    else every role of its company). Raises PacketProblem for a Details Form
+    that would not save."""
     import hr_life_events as hle
+    from models import NexusGroup
     own = clean_form(details_form)
-    snaps, problems = load_snaps(db, list(dict.fromkeys(t for t in template_ids or [] if t)))
+    ids = list(dict.fromkeys(t for t in template_ids or [] if t))
+    snaps, problems = load_snaps(db, ids)
     view = FormView(SimpleNamespace(details_form=own), snaps)
 
     def printed_in(token):
         return [s.name for s in snaps if token and token in s.tokens]
-    return {"standard": hle.intake_standard_fields(),
+    rq = db.query(NexusGroup).filter(NexusGroup.is_job_role == 1)
+    if role_ids:
+        rq = rq.filter(NexusGroup.id.in_(list(role_ids)))
+    elif entity_id:
+        rq = rq.filter(NexusGroup.company_id.in_(("", entity_id)))
+    asked, names, roles = {f.get("key") for f in view.details_form}, {s.tpl.id: s.name for s in snaps}, []
+    for r in sorted(rq.all(), key=lambda r: (r.name or "").lower()):
+        mine = with_role_docs(ids, r.hiring_docs or [])
+        added, _ = load_snaps(db, [t for t in mine if t not in ids])
+        if not added:
+            continue
+        role_view = FormView(SimpleNamespace(details_form=own), snaps + added)
+        roles.append({"id": r.id, "name": r.name or "", "documents": [s.name for s in added],
+                      "replaces": [names[t] for t in ids if t not in mine and t in names],
+                      "asks": [f["label"] for f in role_view.details_form
+                               if f.get("key") not in asked and f.get("type") != "heading"]})
+    return {"standard": hle.intake_standard_fields(view.tokens),
             "form": [{**f, "documents": printed_in(f.get("key")), "packetOnly": f.get("key") not in view.derived_keys}
                      for f in view.details_form],
             "hrAtOffer": [{**q, "documents": printed_in(q["token"])} for q in hr_questions(snaps)],
-            "problems": problems}
+            "roles": roles, "problems": problems}
 
 
 # ── building blocks (Oct 14) ────────────────────────────────────────────────
@@ -1789,4 +1887,13 @@ def readiness(db: Session, setting: HrPacketSetting) -> list:
                        " - in the template mark each one HR Answers, or give it a Default Value."),
                       fix={"kind": "addToForm" if setting.event == "hire" else "template", "variables": missing,
                            "templateId": missing[0]["templateId"] if missing else ""}))
+    # 8. No fill-in line is left that nothing fills - it would print empty.
+    blanks = [(s, b) for s in snaps for b in [fill_in_blanks(s.content)] if b]
+    out.append(_check("blanks", not blanks, "No Fill-In Blanks Left",
+                      "No ____ lines or empty Label: lines left in the documents" if not blanks else
+                      "; ".join(f'"{s.name}" has {len(b)} fill-in blank{"s" if len(b) != 1 else ""} nothing fills ('
+                                + ", ".join(b[:3]) + ("..." if len(b) > 3 else "") + ")" for s, b in blanks[:4]) +
+                      " - they print empty. In the template, replace each one with a variable (Ask The Person, "
+                      "HR Answers or a Nexus field).",
+                      severity="warn", fix={"kind": "template", "templateId": blanks[0][0].tpl.id} if blanks else None))
     return out

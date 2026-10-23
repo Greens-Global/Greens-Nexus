@@ -120,6 +120,42 @@ class SourceTests(ReviewCase):
         bare = self.client.post("/hr/packets/intake-preview", json={"doc_template_ids": ["t-offer", "t-nda"]}).json()
         self.assertEqual([f["key"] for f in bare["form"]], ["pan_number", "bank_name"])
 
+    def test_an_optional_answer_left_empty_is_named_before_send(self):
+        # Neil, 10/22 56:42 - the verifier sees what prints blank before Verify And Send.
+        r = self.client.post("/hr/candidates/cand-1/hiring-packet/start", json={
+            "inputs": {"job_title": "Analyst", "start_date": "2030-11-02", "offer_expires": "2030-10-28",
+                       "employment_type": "full_time", "merge": {"probation_period": "90 days"},
+                       "work_start": "09:00", "work_end": "17:30", "work_days": ["mon", "tue", "wed", "thu", "fri"]},
+            "pay": {"base": 85000, "payBasis": "salary", "frequency": "annual", "currency": "USD"},
+            "details": {"first_name": "Jane", "last_name": "Doe", "phone": "555-0100", "address": "12 Pine St",
+                        "answers": {"pan_number": "ABCDE1234F"}}})
+        self.assertEqual(r.status_code, 200, r.text)
+        review = self.client.get(f"/hr/life-events/{r.json()['id']}/review").json()
+        self.assertEqual(review["warnings"], ["Prints blank: Bank Name (NDA) - Jane left it empty. "
+                                              "Click Edit to fill it in, or send as is."])
+        self.assertTrue(review["canVerify"], review["problems"])        # a warning, never a block
+
+    def test_the_preview_lists_what_each_roles_own_documents_add(self):
+        db = database.SessionLocal()
+        content = _doc(_p("Safety card ", "{{safety_card}}", " for ", "{{full_name}}"), _sig("employee"))
+        db.add(models.DocTemplate(id="t-site", name="Site NDA", category="hr", status="active", version=1, content=content,
+                                  department="", published_version=1,
+                                  published_meta={"fieldDefs": _clean_field_defs([{"token": "safety_card", "label": "Safety Card",
+                                                                                   "type": "text", "source": "person"}])}))
+        db.add(models.DocTemplateVersion(id="v-site", template_id="t-site", version_no=1, content=content))
+        for gid, name, company, docs in (("r-site", "Site Associate", "co-review", [{"templateId": "t-site", "replaces": "t-nda"}]),
+                                         ("r-desk", "Desk Associate", "co-review", []),
+                                         ("r-away", "Away Associate", "co-other", [{"templateId": "t-site"}])):
+            db.add(models.NexusGroup(id=gid, name=name, is_job_role=1, company_id=company, hiring_docs=docs))
+        db.commit()
+        db.close()
+        body = {"doc_template_ids": ["t-offer", "t-nda"], "entity_id": "co-review"}
+        roles = self.client.post("/hr/packets/intake-preview", json=body).json()["roles"]
+        self.assertEqual(roles, [{"id": "r-site", "name": "Site Associate", "documents": ["Site NDA"],
+                                  "replaces": ["NDA"], "asks": ["Safety Card"]}])
+        only = self.client.post("/hr/packets/intake-preview", json={**body, "role_ids": ["r-desk"]}).json()["roles"]
+        self.assertEqual(only, [])
+
     def test_a_field_that_would_not_save_says_why(self):
         r = self.client.post("/hr/packets/intake-preview", json={"doc_template_ids": ["t-nda"],
                                                                  "details_form": [{"label": "Phone"}]})

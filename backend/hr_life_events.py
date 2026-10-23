@@ -1469,9 +1469,11 @@ def intake_by_token(db: Session, token: str, lock: bool = False) -> Optional[HrL
     return q.with_for_update().first() if lock else q.first()
 
 
-def intake_standard_fields() -> list:
-    """The details every intake form asks, whatever the packet."""
-    return [{"key": k, "required": k in INTAKE_REQUIRED} for k in INTAKE_FIELDS]
+def intake_standard_fields(prints=()) -> list:
+    """The details every intake form asks, whatever the packet. One the
+    packet's documents print is required too - left empty it would stop the
+    packet at review as an unfilled detail (Neil, 10/22 56:42)."""
+    return [{"key": k, "required": k in INTAKE_REQUIRED or k in prints} for k in INTAKE_FIELDS]
 
 
 def intake_public(db: Session, ev: HrLifeEvent) -> dict:
@@ -1485,9 +1487,10 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
     setting = hpd.event_setting(db, ev)
     # The packet's Details Form plus every Ask The Person variable of its
     # documents (Oct 14) - one form, each question once.
+    view = hpd.event_form(db, ev, setting)
     form = [{k: f.get(k) for k in ("key", "label", "type", "required", "options", "last4", "help", "sensitive",
                                    "fromTemplate")}
-            for f in hpd.event_form(db, ev, setting).details_form if isinstance(f, dict)]
+            for f in view.details_form if isinstance(f, dict)]
     # What is already known - from the offer, or an earlier round of this
     # form - so the person confirms instead of typing it again. Never an
     # answer to the packet's own questions (some are private).
@@ -1497,7 +1500,7 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
             "phone": (cand.phone if cand else "") or "", "role": (ev.inputs or {}).get("job_title", ""),
             "expiresOn": ev.intake_expires_on or "", "prefill": known,
             "afterOffer": bool((ev.inputs or {}).get("after_offer")),
-            "fields": intake_standard_fields(),
+            "fields": intake_standard_fields(view.tokens),
             # The packet's own Details Form (Oct 14) - any country, any field.
             "form": form}
 
@@ -1512,7 +1515,7 @@ def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
     if info["state"] != "open":
         raise PacketError("This link is no longer active - please contact HR.", 410)
     person = clean_intake(values)
-    missing = [k.replace("_", " ") for k in INTAKE_REQUIRED if not person.get(k)]
+    missing = [f["key"].replace("_", " ") for f in info["fields"] if f["required"] and not person.get(f["key"])]
     if missing:
         raise PacketError("Please fill in: " + ", ".join(missing) + ".")
     try:
