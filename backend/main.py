@@ -3631,22 +3631,6 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] checklist ID evidence backfill skipped: {e}")
-    # Hiring Setup (Oct 23 2026): the built-in Job Description page the "@jd"
-    # marker prints, and - once - a role's old description kept as its duties
-    # now that role_paperwork no longer falls back to it (hiring_setup.py).
-    try:
-        from database import SessionLocal
-        import hiring_setup
-        db = SessionLocal()
-        try:
-            hiring_setup.ensure_builtin_jd(db)
-            n = hiring_setup.copy_duties_once(db)
-            if n:
-                print(f"[startup] hiring setup: kept the description of {n} role(s) as their duties")
-        finally:
-            db.close()
-    except Exception as e:
-        print(f"[startup] hiring setup seed skipped: {e}")
 
 
 @asynccontextmanager
@@ -4595,7 +4579,5 @@ from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
 app.include_router(ops_customer_map_router.router)  # Operations > Customer Map: current customers around each facility, with rings (Neil, Oct 21 2026)
 from routers import contractor_invoices as contractor_invoices_router  # noqa: E402
 app.include_router(contractor_invoices_router.router)  # Contractor invoices: drafted at Time Sheet finalize, HR approves and sends the PDF (Pranshu + Neil, Oct 21 2026)
-from routers import hiring_setup as hiring_setup_router  # noqa: E402
-app.include_router(hiring_setup_router.router)  # Settings > Hiring > Hiring Setup: what each hire gets, per company (Oct 23 2026)
 from routers import task_labels as task_labels_router  # noqa: E402
 app.include_router(task_labels_router.router)      # Tasks: label colors, labels in use, Manage > Labels (Neil, Oct 22 2026)

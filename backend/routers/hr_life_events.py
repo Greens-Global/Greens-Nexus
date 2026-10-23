@@ -89,8 +89,6 @@ def _place_taken(db: Session, row: HrPacketSetting) -> None:
     for other in (db.query(HrPacketSetting)
                   .filter(HrPacketSetting.entity_id == (row.entity_id or ""), HrPacketSetting.event == row.event,
                           HrPacketSetting.id != row.id).all()):
-        if other.archived_at:
-            continue        # put aside by Use The Same - never sent (Oct 23 2026)
         if (not (other.role_ids or []) and (other.country or "") == (row.country or "")
                 and (other.region or "") == (row.region or "")
                 and (other.worker_type or "any") == (row.worker_type or "any")):
@@ -113,7 +111,7 @@ def _roles_taken(db: Session, row: HrPacketSetting) -> None:
                   .filter(HrPacketSetting.entity_id == (row.entity_id or ""), HrPacketSetting.event == row.event,
                           HrPacketSetting.id != row.id).all()):
         oc = (other.country or "").upper()
-        if other.archived_at or (other.worker_type or "any") != wt or (country and oc and oc != country):
+        if (other.worker_type or "any") != wt or (country and oc and oc != country):
             continue
         clash = mine & set(other.role_ids or [])
         if clash:
@@ -219,7 +217,8 @@ def packet_coverage(user: dict = Depends(require_hr_read), db: Session = Depends
 def list_packets(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     scope = hr_scope(user, db)
     rows = db.query(HrPacketSetting).all()
-    rows = [r for r in rows if (scope is None or not r.entity_id or r.entity_id in scope) and not r.archived_at]
+    # A row the retired Hiring Setup archived stays out of use and out of the list.
+    rows = [r for r in rows if not (r.archived_at or "") and (scope is None or not r.entity_id or r.entity_id in scope)]
     tpls = (db.query(HrSignTemplate).filter(HrSignTemplate.status == "active")
             .order_by(HrSignTemplate.name).all())
     tpls = [t for t in tpls if scope is None or not t.entity_id or t.entity_id in scope]
@@ -854,8 +853,7 @@ def start_hiring_packet(cid: str, body: StartPacketIn, background: BackgroundTas
 
 @router.get("/candidates/{cid}/offer/options")
 def offer_options(cid: str, worker_type: str = "", country: str = "", role_id: str = "", packet_id: str = "",
-                  new_role: str = "", department: str = "", region: str = "", hired_as: str = "",
-                  new_role_name: str = "",
+                  new_role: str = "", department: str = "", region: str = "",
                   user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """The Move To Offer form: which offer letter this hire gets (by employee
     or contractor, and where they work - country and state), the hiring packet
@@ -865,8 +863,7 @@ def offer_options(cid: str, worker_type: str = "", country: str = "", role_id: s
     except hle.PacketError as e:
         _raise(e)
     return hle.offer_options(db, cand, worker_type, country, role_id, packet_id,
-                             new_role=new_role in ("1", "true"), department=department, region=region,
-                             hired_as=hired_as, new_role_name=new_role_name)
+                             new_role=new_role in ("1", "true"), department=department, region=region)
 
 
 class OfferIn(BaseModel):
@@ -1137,24 +1134,6 @@ def send_promotion(eid: str, body: HirePacketIn, request: Request,
     return out
 
 
-@router.get("/employees/{eid}/promotion/options")
-def promotion_options(eid: str, role_id: str = "", user: dict = Depends(require_hr_write),
-                      db: Session = Depends(get_db)):
-    """The Promote form's What They Get card (Hiring Setup, Oct 23 2026) and
-    the new role's duties to prefill. An unknown role is not an error."""
-    import hiring_setup
-    from models import NexusGroup
-    try:
-        emp = hle._load_employee(db, eid, hr_scope(user, db))
-    except hle.PacketError as e:
-        _raise(e)
-    role = (db.query(NexusGroup).filter(NexusGroup.id == (role_id or "").strip(), NexusGroup.is_job_role == 1).first()
-            if (role_id or "").strip() else None)
-    if role is not None and (role.company_id or "") not in ("", emp.company or ""):
-        role = None
-    return hiring_setup.promotion_options(db, emp, role)
-
-
 class StartLetterIn(BaseModel):
     inputs:     Optional[dict] = None
     pay:        Optional[dict] = None
@@ -1320,18 +1299,6 @@ def cancel_role_change(rid: str, user: dict = Depends(get_current_user), db: Ses
 class SeparationIn(BaseModel):
     inputs:       Optional[dict] = None   # last_day, exit_type, reason, send_package, start_checklist, offboarding{}, merge{}
     excluded_ack: Optional[bool] = False
-
-
-@router.get("/employees/{eid}/offboard/options")
-def offboard_options(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """The Offboard form's What They Get card - whether a separation package
-    goes, and why not when none is set up (Oct 23 2026)."""
-    import hiring_setup
-    try:
-        emp = hle._load_employee(db, eid, hr_scope(user, db))
-    except hle.PacketError as e:
-        _raise(e)
-    return hiring_setup.offboard_options(db, emp)
 
 
 @router.post("/employees/{eid}/offboard/preview")

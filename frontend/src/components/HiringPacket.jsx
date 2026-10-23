@@ -27,7 +27,7 @@ import { REPORTS_TO } from './OfferModal';
 import { SignModal } from './ESign';
 import DetailsFormFields from './DetailsFormFields';
 import { PacketEditor, describeRoles } from './PacketTemplates';
-import HiringSetup from './hiring/HiringSetup';
+import PacketCoverage from './PacketCoverage';
 import { DocumentsPacketEditor, packetCopy } from './DocumentsPacketEditor';
 import { readinessSummary } from '../lib/packetFlow';
 import PacketReview from './PacketReview';
@@ -204,21 +204,18 @@ function PacketRow({ row, onEdit, onDuplicate, onRemoved, toastErr, companyName 
 }
 
 // `companyId` + `lockCompany` (Settings' scope picker, Oct 23): opened for
-// one company, with no company select of its own. `initialCompanyId` +
-// `focus`: the Hiring Setup tab opened on a company (a profile's Fix link).
-export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {}, initialCompanyId = null, focus = null,
-                              companyId: lockedCompany = '', lockCompany = false }) {
+// one company, with no company select of its own.
+export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {}, companyId: lockedCompany = '', lockCompany = false }) {
   const [data, setData] = useState(null);
   const [entities, setEntities] = useState([]);
   const [companyId, setCompanyId] = useState(lockedCompany || '');
-  // Hiring Setup first (Oct 23): the way in; the event tabs are Advanced.
+  // What Each Hire Gets first (Neil, Oct 22): the gaps before the lists.
   const [tab, setTab] = useState('overview');
   const [editing, setEditing] = useState(null);     // { event, row | null }
-  // A packet saved here reloads Hiring Setup too; the offer's focus is used once.
-  const [rev, setRev] = useState(0);
-  const [focusLeft, setFocusLeft] = useState(focus);
+  const [coverKey, setCoverKey] = useState(0);
   const load = () => {
-    return api.getPackets().then(d => { setData(d); setRev(r => r + 1); }).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
+    setCoverKey(k => k + 1);
+    return api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
   };
   useEffect(() => { load(); api.getEntities().then(setEntities).catch(() => {}); }, []);
   // A template written since this window opened shows up when a packet opens.
@@ -227,14 +224,15 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
 
   const events = (data?.events || []).filter(e => ENABLED_EVENTS.includes(e.key));
   const ev = tab === 'overview' ? null : (events.find(e => e.key === tab) || events[0]);
-  // Fetched fresh: Hiring Setup may have made the row since this window opened.
-  const openPacket = (id) => api.getPackets().then(d => {
-    setData(d);
-    const row = (d.settings || []).find(x => x.id === id);
-    const e = row && (d.events || []).find(x => x.key === row.event && ENABLED_EVENTS.includes(x.key));
+  const setUp = ({ event, workerType, country, region }) => {
+    const e = events.find(x => x.key === event);
+    if (e) setEditing({ event: e, row: null, seed: { workerType, country, region }, companyId: '' });
+  };
+  const openPacket = (s) => {
+    const row = (data?.settings || []).find(x => x.id === s.id);
+    const e = row && events.find(x => x.key === row.event);
     if (row && e) setEditing({ event: e, row });
-    else toastErr('That packet is not in use any more.');
-  }).catch(e => toastErr(e?.message || 'Could not open the packet.'));
+  };
   const entityName = (id) => (id ? (entities.find(e => e.id === id)?.name || 'Unknown company') : '');
   // "All companies" (no company picked) lists every packet with its company;
   // a company picked lists its own.
@@ -263,14 +261,14 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
           <div style={{ fontWeight: 800, fontSize: 15.5 }}>Hiring Documents</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>What goes out through Nexus Sign when someone is hired, promoted or leaves</div>
         </div>
-        {tab !== 'overview' && (lockCompany ? (
+        {lockCompany ? (
           <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{company}</span>
         ) : (
           <select className="form-input" style={{ width: 240, maxWidth: '100%' }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
             <option value="">All Companies</option>
             {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
-        ))}
+        )}
         <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
       </div>
       <div style={{ overflowY: 'auto', flex: 1, padding: '14px 22px 22px' }}>
@@ -281,7 +279,7 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
                 <button type="button" onClick={() => setTab('overview')}
                   style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
                     background: tab === 'overview' ? 'var(--card)' : 'transparent', color: 'var(--ink)', boxShadow: tab === 'overview' ? '0 1px 3px rgba(0,0,0,0.15)' : 'none' }}>
-                  Hiring Setup
+                  What Each Hire Gets
                 </button>
                 {events.map(e => (
                   <button key={e.key} type="button" onClick={() => setTab(e.key)}
@@ -300,8 +298,7 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
               )}
             </div>
             {tab === 'overview' && (
-              <HiringSetup toastOk={toastOk} toastErr={toastErr} initialCompanyId={initialCompanyId ?? (lockCompany ? lockedCompany : null)} focus={focusLeft} onFocusUsed={() => setFocusLeft(null)}
-                refreshKey={rev} onAdvanced={(settingId) => (settingId ? openPacket(settingId) : setTab('offer'))} />
+              <PacketCoverage refreshKey={coverKey} companyId={companyId} onSetUp={setUp} onOpen={openPacket} toastErr={toastErr} />
             )}
             {ev?.key === 'hire' && needing.length > 0 && (
               <div role="status" style={{ border: '1px solid rgba(180,83,9,0.35)', background: 'rgba(180,83,9,0.07)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>

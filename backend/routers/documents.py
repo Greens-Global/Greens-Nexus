@@ -64,10 +64,6 @@ _TEMPLATE_CATEGORIES = ("letterhead", "hr", "legal", "finance", "operations", "s
 # buys you, and requirement 20 asks for a plain "template inactive" error
 # rather than a document quietly produced from unfinished language.
 _TEMPLATE_STATUSES = ("draft", "active", "archived")
-# Hiring Setup's built-in Job Description page (hr_packet_docs.BUILTIN_JD_ID):
-# every "@jd" marker prints it, so it is never taken out of use.
-BUILTIN_JD_STAYS = ("The built-in Job Description page prints every role's duties where a packet asks for them - "
-                    "it can't be archived or deleted. Edit its wording instead.")
 _TEMPLATE_TYPES = ("document", "email")
 
 # Template Builder (Phase 13) - merge-field type registry. "Reserved" types
@@ -1328,9 +1324,6 @@ def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_cur
         # so a typo could silently take a template out of the library.
         if body.status not in _TEMPLATE_STATUSES:
             raise HTTPException(400, f"status must be one of {', '.join(_TEMPLATE_STATUSES)}")
-        from hr_packet_docs import BUILTIN_JD_ID
-        if tid == BUILTIN_JD_ID and body.status != "active":
-            raise HTTPException(400, BUILTIN_JD_STAYS)
         row.status = body.status
     if body.signerRoles is not None:
         row.signer_roles = _clean_signer_roles(body.signerRoles)
@@ -1452,9 +1445,6 @@ def get_template_version(tid: str, vid: str, user: dict = Depends(get_current_us
 def delete_template(tid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = _get_template(db, tid)
     _require_template_manager(db, user, row.department)
-    from hr_packet_docs import BUILTIN_JD_ID
-    if tid == BUILTIN_JD_ID:
-        raise HTTPException(400, BUILTIN_JD_STAYS)
     # A template can be deleted out from under documents already generated
     # from it (Document.template_id is a plain string, no FK constraint) -
     # block it instead of silently orphaning those documents.
