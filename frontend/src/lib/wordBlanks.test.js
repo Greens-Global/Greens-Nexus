@@ -194,8 +194,8 @@ describe('party signature lines', () => {
   });
 
   it('Hiring Setup reads who signs a company line from its words', () => {
-    expect(['Manager', 'Supervisor', 'HR', 'Human Resources', 'Company', ''].map(companySignerOf))
-      .toEqual(['manager', 'manager', 'hr', 'hr', 'signatory', 'signatory']);
+    expect(['Manager', 'Supervisor', 'HR', 'Human Resources', 'Company', '', 'HR Manager', 'Manager, Human Resources'].map(companySignerOf))
+      .toEqual(['manager', 'manager', 'hr', 'hr', 'signatory', 'signatory', 'hr', 'hr']);
   });
 
   it('a duties section ends at the signature line and at a closing paragraph', () => {
@@ -204,6 +204,15 @@ describe('party signature lines', () => {
     expect(findSection(doc)).toMatchObject({ at: [0, 1] });
     const noClosing = { type: 'doc', content: [h('Responsibilities'), p('Lead the monthly close.'), p('Employee: ______   Date: ____')] };
     expect(findSection(noClosing)).toMatchObject({ at: [0, 1] });
+  });
+
+  it('a duty that starts with "Contact" / "Questions" / "Welcome" stays in the duties section', () => {
+    const h = (text) => ({ type: 'heading', attrs: { level: 2 }, content: [t(text)] });
+    const doc = { type: 'doc', content: [h('Responsibilities'), p('Prepare monthly reports.'), p('Contact vendors to resolve invoice disputes.'),
+      p('Questions from staff about benefits are routed to you.'), p('Reconcile bank accounts.'), p('Sincerely,')] };
+    expect(findSection(doc)).toMatchObject({ at: [0, 4] });
+    const list = { type: 'bulletList', content: [{ type: 'listItem', content: [p('Welcome and onboard new hires.')] }] };
+    expect(findSection({ type: 'doc', content: [h('Duties'), list, p('Welcome to the team!')] })).toMatchObject({ at: [0, 1] });
   });
 
   it('with no line of the person\'s, applyBlanks adds one at the end (before a countersign)', () => {

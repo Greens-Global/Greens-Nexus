@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findSamples, existingTokens, existingBlank, whoOf, whoLabels, setWho, HIRE_TOKENS } from './wordSamples';
+import { findSamples, existingTokens, existingBlank, whoOf, whoLabels, setWho, HIRE_TOKENS, personLineFor } from './wordSamples';
 import { applyBlanks, tokensFor, findBlanks } from './wordBlanks';
 
 // Automatic variables on upload (Oct 23): a filled-in sample letter becomes a
@@ -363,5 +363,34 @@ describe('findSamples - the e2e sample letters', () => {
     expect(byToken(findSamples({ type: 'doc', content: [p('Your employment ends due to retirement.')] }, E2E, 'separation'), 'separation_type')).toMatchObject({ match: 'retirement' });
     expect(byToken(findSamples({ type: 'doc', content: [p('You served as Accountant with the team.')] }, E2E, 'promotion'), 'old_title')).toMatchObject({ match: 'Accountant' });
     expect(findSamples({ type: 'doc', content: [p('We part as Friends.')] }, E2E, 'separation').some(b => b.token === 'job_title')).toBe(false);
+  });
+
+  it('on a promotion "as Senior Accountant" after the new role is never the old title', () => {
+    const one = findSamples({ type: 'doc', content: [p('Congratulations on your promotion to Senior Accountant at Greens Global, effective 11/01/2026. You will report to Kim Lee as Senior Accountant from that date.')] }, E2E, 'promotion');
+    expect(byToken(one, 'old_title')).toBeUndefined();
+    const two = findSamples({ type: 'doc', content: [p('We are pleased to promote you to Senior Accountant, effective 11/01/2026.'), p('As Senior Accountant, you will lead the close.')] }, E2E, 'promotion');
+    expect(byToken(two, 'old_title')).toBeUndefined();
+    expect(byToken(findSamples({ type: 'doc', content: [p('In your current role as Accountant you closed the books.')] }, E2E, 'promotion'), 'old_title')).toMatchObject({ match: 'Accountant' });
+  });
+
+  it('a separation: a coverage end date is not the last day', () => {
+    const doc = { type: 'doc', content: [p('Dear Jane Smith,'), p('Hello.'), p('Your last day of employment will be 11/15/2026. As part of your separation, your health insurance coverage will end on 11/30/2026.'),
+      p('Following your resignation, your COBRA coverage is effective 12/01/2026.')] };
+    const found = findSamples(doc, E2E, 'separation');
+    expect(found.filter(b => b.token === 'last_day')).toHaveLength(1);
+    expect(byToken(found, 'last_day')).toMatchObject({ match: '11/15/2026' });
+    expect(byToken(found, 'last_day').places).toHaveLength(1);
+    expect(found.find(b => b.match === '11/30/2026')).toMatchObject({ fill: 'hr' });
+    expect(found.find(b => b.match === '12/01/2026')).toMatchObject({ fill: 'hr' });
+  });
+
+  it('"please report to Human Resources" / "Main Reception" is a place, not the manager', () => {
+    for (const line of ['On your first day, please report to Human Resources at 9:00 AM.', 'Please report to Main Reception on your start date.']) {
+      expect(byToken(findSamples({ type: 'doc', content: [p(line)] }, E2E, 'offer'), 'manager')).toBeUndefined();
+    }
+  });
+
+  it('Nexus adds the person\'s line only on a letter, never on a packet document or job description', () => {
+    expect(['offer', 'promotion', 'separation', 'hire', 'jd', ''].map(personLineFor)).toEqual([true, true, true, false, false, false]);
   });
 });

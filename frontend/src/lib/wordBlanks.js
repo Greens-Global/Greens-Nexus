@@ -173,8 +173,9 @@ const PARTY = /^(employee|contractor|consultant|candidate|employer|company|manag
 const partyLine = (t) => { const m = clean(t).match(PARTY); return m && (/(?:\bby|signatory)$/i.test(m[1]) || m[3]) ? m : null; };
 /** A signature line: "... Signature:", "By: ____" or a party line. */
 export const isSignatureLine = (t) => (SIGNATURE.test(t) && t.length < 80) || BY_LINE.test(t) || !!partyLine(t);
-/** Hiring Setup: who signs a company line, from its words - their manager, HR, else the authorized signatory. */
-export const companySignerOf = (label) => (/manager|supervisor/i.test(label) ? 'manager' : /\bhr\b|human resources/i.test(label) ? 'hr' : 'signatory');
+/** Hiring Setup: who signs a company line, from its words - HR, their manager, else the authorized signatory.
+ *  HR first: "HR Manager" / "Manager, Human Resources" is HR's line. */
+export const companySignerOf = (label) => (/\bhr\b|human resources/i.test(label) ? 'hr' : /manager|supervisor/i.test(label) ? 'manager' : 'signatory');
 const ABSORB = /^(date|name|printed name|signature date)\s*:?\s*[[\]\s_]*$/i;
 const LINE_LABEL = /^([^:]{2,80}?):\s*(?:\[[\s\u00a0]*\]|[_\s\u00a0]*)$/;
 const BRACKET = /\[[\s\u00a0]*\]/g;
@@ -511,8 +512,9 @@ export function findText(doc, query) {
 // responsibilities, job description or scope of work, through the block
 // before the next heading. {kind:'section', at:[start, end], label} or null.
 const DUTIES = /duties|responsibilit|job description|scope of work/i;
-// "Please sign below to accept." / "Sincerely," / "If you have questions..." closes the letter - never the duties
-const CLOSING = /^(?:please|kindly|sincerely|regards|best regards|kind regards|warm regards|congratulat|welcome|if you have|questions|contact|feel free|do not hesitate|by signing)|\bsign (?:below|and return|this)\b|\bto accept\b/i;
+// "Please sign below to accept." / "Sincerely," / "If you have questions..." closes the letter - never the duties.
+// Real closings only ("Contact vendors..." / "Welcome new hires." are duties), and only on plain paragraphs, never a list.
+const CLOSING = /^(?:(?:sincerely|regards|best regards|kind regards|warm regards)[,.]?$|please (?:sign|return|review and sign|contact|let us know)|if you have (?:any )?questions|congratulations\b|welcome (?:to|aboard)\b|do not hesitate|by signing)|\bsign (?:below|and return)\b|\bto accept\b/i;
 const NUMBERED = /^(\d+(\.\d+)*[.)]?|[IVX]+\.|[A-Z][.)])\s+\S/;
 const allBold = (b) => {
   const runs = (b.content || []).filter(r => r.type === 'text' && r.text?.trim());
@@ -533,7 +535,7 @@ export function findSection(doc) {
     for (let j = i + 1; j < blocks.length; j++) {
       const b = blocks[j];
       const bt = clean(textOf(b));
-      if (b.type === 'pageBreak' || headingLike(b) || isSignatureLine(bt) || CLOSING.test(bt)) break;
+      if (b.type === 'pageBreak' || headingLike(b) || isSignatureLine(bt) || (b.type === 'paragraph' && CLOSING.test(bt))) break;
       end = j;
     }
     while (end > i && !clean(textOf(blocks[end]))) end -= 1;   // trailing empty lines stay
