@@ -361,8 +361,8 @@ export const IMPL_PHASES = [
       { title: 'California staff', where: 'People > the person > Pay & Benefits', view: 'hr', sub: 'hr-people', items: [
         'For hourly staff on the California rule who waive meal periods: Send Waiver to Sign. California Review on People > Time > Payroll then checks each period.',
       ]},
-      { title: 'Time off', where: 'Settings > Shifts & Scheduling > Shift Settings', view: 'admin-console', sub: 'shifts:shift-settings', items: [
-        'With the Company picker on All Companies (Default), add the time-off reasons the client uses - one list for every company. Requests route to the person’s manager; approved time off is not punched in automatically.',
+      { title: 'Time off', where: 'Settings > Time & Pay > Time-Off Reasons', view: 'admin-console', sub: 'pay:time-off-reasons', items: [
+        'With the Scope box on Every company, add the time-off reasons the client uses - the default list; a company that needs its own gets it with that company picked. Requests route to the person’s manager; approved time off is not punched in automatically.',
       ]},
       { title: 'Monitoring computers', where: 'Workforce Analytics', view: 'employee-tracking', items: [
         'If monitoring is on: enroll each company computer (desktop agent), or have people share their screen in Chrome when clocking in.',
