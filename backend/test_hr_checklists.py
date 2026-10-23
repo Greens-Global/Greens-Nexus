@@ -152,6 +152,57 @@ class ChecklistTests(unittest.TestCase):
         self.assertIn("ON-26", ik)
         self.assertNotIn("ON-18", ik)
 
+    # --- Picture ID for everyone (Neil, Oct 22, 27:29 - the Colin case: "This
+    # checklist is supposed to be there to confirm that we have everything on
+    # everyone").
+
+    def test_an_india_contractor_gets_the_picture_id_step_and_an_id_ticks_it(self):
+        eid = self._person("emp-in-c", company=CO_IN, etype="contractor")
+        cl = self._start(eid)
+        keys = {i["key"] for i in cl["items"]}
+        self.assertNotIn("ON-23", keys)                 # I-9 is US employees only
+        step = self._row(cl, "ON-34")
+        self.assertEqual((step["title"], step["status"]), ("Picture ID On File", "open"))
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrDocument(id="doc-in-id", employee_id=eid, kind="id", file_name="pan.pdf", storage_path="x"))
+            db.commit()
+        finally:
+            db.close()
+        cl = self.client.get(f"/hr/checklists/employee/{eid}").json()["checklists"][0]
+        step = self._row(cl, "ON-34")
+        self.assertEqual((step["status"], step["doneBy"]), ("done", "Nexus"))
+        self.assertIn("ID document", step["doneReason"])
+
+    def test_old_templates_get_the_id_evidence_once(self):
+        import hr_checklist_seed as seed
+        old = [{**r, "signal": ""} if r["key"] in ("ON-23", "ON-24") else dict(r)
+               for r in seed.ONBOARDING if r["key"] != "ON-34"]
+        db = database.SessionLocal()
+        try:
+            for tid, ent, role in (("tpl-lib", "", ""), ("tpl-b", CO_B, ""), ("tpl-role", "", "role-x")):
+                db.add(models.HrChecklistTemplate(id=tid, kind="onboarding", entity_id=ent, role_id=role,
+                                                  name="Onboarding", items=old))
+            db.commit()
+            self.assertEqual(hc.backfill_id_evidence(db), 2)     # library + company, never the role
+            self.assertEqual(hc.backfill_id_evidence(db), 0)     # marked: a no-op
+            db.query(models.NexusSetting).filter_by(key=hc.EVIDENCE_MARK).delete()
+            db.commit()
+            self.assertEqual(hc.backfill_id_evidence(db), 0)     # nothing left to add either
+            db.expire_all()
+            for tid in ("tpl-lib", "tpl-b"):
+                items = db.get(models.HrChecklistTemplate, tid).items
+                by = {r["key"]: r for r in items}
+                self.assertEqual((by["ON-23"]["signal"], by["ON-24"]["signal"]), ("id_on_file", "work_auth_verified"))
+                keys = [r["key"] for r in items]
+                self.assertEqual(keys.count("ON-34"), 1)
+                self.assertEqual(keys.index("ON-34"), keys.index("ON-11") + 1)   # after the last Offer Accepted step
+            role = {r["key"]: r for r in db.get(models.HrChecklistTemplate, "tpl-role").items}
+            self.assertEqual(role["ON-23"]["signal"], "")
+            self.assertNotIn("ON-34", role)
+        finally:
+            db.close()
+
     def test_only_one_open_checklist_per_kind(self):
         eid = self._person()
         self._start(eid)
@@ -955,6 +1006,10 @@ class ChecklistTests(unittest.TestCase):
                   if t["kind"] == "onboarding")
         self.assertEqual((on["baseline"]["source"], [i["title"] for i in on["baseline"]["items"]]),
                          ("company", ["Site Induction"]))
+        # the role audit's Baseline Only counts: each company's baseline, '' = the library
+        bl = self.client.get("/hr/checklists/role-templates").json()["baselines"]
+        self.assertEqual((bl[CO_A]["onboarding"], bl[""]["onboarding"], bl[CO_B]["onboarding"]),
+                         (1, len(lib["items"]), len(lib["items"])))
 
     def test_copy_a_roles_steps_into_another_role(self):
         src = self._role()
@@ -1211,6 +1266,7 @@ class ChecklistTests(unittest.TestCase):
             self.assertEqual((ids["ON-23"]["status"], ids["ON-23"]["doneBy"]), ("done", "Nexus"))
             self.assertIn("ID document", ids["ON-23"]["doneReason"])
             self.assertFalse(self._step(ids["ON-23"]["id"]).task_id)      # on file: never a task
+            self.assertEqual(ids["ON-34"]["status"], "done")              # the everyone Picture ID step too
             self.assertTrue(self._step(ids["ON-09"]["id"]).task_id)       # missing: a task for its owner
             # one email per person for the lot, not one per checklist
             self.assertEqual(len(calls), 1)

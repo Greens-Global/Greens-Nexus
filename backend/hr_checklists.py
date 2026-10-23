@@ -141,6 +141,44 @@ def get_template(db, kind: str, entity_id: str = "") -> HrChecklistTemplate:
     return row
 
 
+# Templates seeded before Oct 22 (Neil, Oct 22 - the Colin case: a full
+# packet, no picture ID on file): I-9 Section 2 and right-to-work were plain
+# ticks, and only US employees had an ID step at all.
+EVIDENCE_MARK = "hr_checklists.id_evidence_backfill"
+EVIDENCE_SIGNALS = {"ON-23": "id_on_file", "ON-24": "work_auth_verified"}
+
+
+def backfill_id_evidence(db) -> int:
+    """Once, from main._startup_seeds: the Checklist Library and every
+    company's own onboarding template (never a role's) - ON-23 / ON-24 take
+    their evidence condition where they have none, and Picture ID On File
+    (ON-34, everyone) goes in after the last Offer Accepted step where that
+    key is missing. The nexus_settings mark makes later boots a no-op, so a
+    step or condition HR removes afterwards stays removed. Open checklists
+    take it in the daily reconcile. Commits; returns templates changed."""
+    if db.get(NexusSetting, EVIDENCE_MARK):
+        return 0
+    step = next(r for r in hr_checklist_seed.ONBOARDING if r["key"] == "ON-34")
+    n = 0
+    for tpl in _base(db).filter(HrChecklistTemplate.kind == "onboarding").all():
+        items = [dict(r) for r in (tpl.items or []) if isinstance(r, dict)]
+        changed = False
+        for r in items:
+            sig = EVIDENCE_SIGNALS.get(r.get("key"))
+            if sig and not r.get("signal"):
+                r["signal"], changed = sig, True
+        if not any(r.get("key") == step["key"] for r in items):
+            at = max((i + 1 for i, r in enumerate(items) if r.get("phase") == step["phase"]), default=0)
+            items.insert(at, dict(step))
+            changed = True
+        if changed:
+            tpl.items, tpl.updated_by, tpl.updated_at = items, "system", _now()
+            n += 1
+    db.add(NexusSetting(key=EVIDENCE_MARK, value=_now(), updated_by="startup", updated_at=_now()))
+    db.commit()
+    return n
+
+
 def role_template(db, kind: str, role_id: str):
     """A job role's extra steps for `kind` - None when it has none."""
     if not role_id:

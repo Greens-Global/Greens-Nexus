@@ -191,6 +191,16 @@ describe('Checklists by company and role', () => {
     expect(await screen.findByText(/steps yet. Until you add some/)).toBeInTheDocument();      // opens on the first one missing
   });
 
+  it('a role with no steps of its own reads Baseline Only and counts as built', async () => {
+    api.getRoleChecklistRoles.mockResolvedValueOnce({ isHr: true, baselines: { '': { onboarding: 34, promotion: 10, offboarding: 28, inactive: 9 } }, roles: [
+      { roleId: 'r-acct', roleName: 'Accounting Associate', department: 'Accounting', companyId: 'co-a', companyName: 'Greens',
+        counts: { onboarding: 1, promotion: 0, offboarding: 0, inactive: 0 } }] });
+    render(<ChecklistSettings entityId="co-a" entities={[{ id: 'co-a', name: 'Greens' }]} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('1 of 1')).toBeInTheDocument();
+    expect(screen.getByText('Baseline Only (10 steps)')).toBeInTheDocument();
+    expect(screen.queryByText('Missing')).not.toBeInTheDocument();
+  });
+
   it("the role editor lists the head's roles and the role's steps", async () => {
     render(<RoleChecklists toastOk={() => {}} toastErr={() => {}} />);
     expect(await screen.findByText('Intacct Training')).toBeInTheDocument();
