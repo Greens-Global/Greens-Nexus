@@ -35,7 +35,7 @@ from routers.task_util import (
     extract_mentions,
     assert_task_wall, require_project_access, wall_rows, wall_teams,
     config_admits, config_company_for_new, assert_config_editable,
-    task_visible_to, assert_person_assignable, project_role_for, PROJECT_ROLE_RANK, row_company,
+    task_visible_to, assert_person_assignable, project_role_for, PROJECT_ROLE_RANK, row_company, ParentSight,
     split_people, note_dropped_people,
 )
 from task_notify import notify_task_event
@@ -495,15 +495,17 @@ def validate_task_payload(db: Session, data: dict, task_id: str = "") -> dict:
     # the same avatar repeatedly.
     # Labels (Oct 22 2026) are merged by their key, as every label screen
     # and route reads them (task_labels.label_key: "Q4  launch" is "Q4
-    # launch"), and a label NEW to the task keeps the label rules (length,
-    # how many) - one rule with Manage > Labels and the batch bar.
+    # launch"), and a label new to the task AND not in use anywhere keeps the
+    # label rules (length, how many) - one rule with Manage > Labels and the
+    # batch bar (task_labels.check_new_tags); judged against the task's own
+    # labels by `task_id` (bulk_update checks each of its rows itself).
     if "tags" in data and isinstance(data["tags"], list):
         import task_labels
         current = ()
         if task_id:
             row = db.query(models.Task.tags).filter(models.Task.id == task_id).first()
             current = (row[0] or []) if row else ()
-        data["tags"] = task_labels.check_new_tags(data["tags"], current)
+        data["tags"] = task_labels.check_new_tags(data["tags"], current, db)
 
     # assignee_emails rides the same normaliser as the collaborator lists: an
     # assignee is a person too, and a non-address there is worse than a bad
@@ -1016,6 +1018,65 @@ def _narrow_to_parent(level, parent) -> str:
     mine = level or "org"
     theirs = (getattr(parent, "access_level", None) or "org") if parent is not None else "org"
     return theirs if (mine == "org" and theirs != "org") else mine
+
+
+def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str) -> list:
+    """What `t`'s own level change does to the tasks under it (Oct 22 2026).
+
+    Made private (org -> restricted): every org-wide row of its subtree goes
+    private too - a subtask is never more visible than its parent
+    (_narrow_to_parent) - and remembers that `t` did it (narrowed_by). The
+    people who see `t` still see them (task_util.ParentSight).
+    Opened again (restricted -> org): exactly the rows `t` made private come
+    back, top down, unless one was set by hand since (that clears
+    narrowed_by) or the task right above it is still private.
+    The subtree is row-locked in id order with `t` first (_lock_task_rows)
+    and re-read under the lock, so a concurrent edit of one of them is seen,
+    never overwritten. One activity row on `t` says how many went. Returns
+    the ids changed (the caller fires one realtime event for them)."""
+    now_level = t.access_level or "org"
+    if prev_level == now_level or "org" not in (prev_level, now_level):
+        return []
+    ids = [r.id for r in _subtree_rows(db, t.id)[0]]
+    if not ids:
+        return []
+    _lock_task_rows(db, [t.id, *ids])
+    rows = (db.query(models.Task).execution_options(include_deleted=True)
+            .filter(models.Task.id.in_(ids)).populate_existing().all())
+    by_id = {r.id: r for r in rows}
+    stamp = now_iso()
+    changed = []
+    if now_level != "org":
+        for r in rows:
+            if (r.access_level or "org") == "org":
+                r.access_level, r.narrowed_by = now_level, t.id
+                changed.append(r)
+        what = "made private too"
+    else:
+        level = {t.id: "org"}
+        for rid in ids:                       # _subtree_rows is top down
+            r = by_id.get(rid)
+            if r is None:
+                continue
+            above = level.get(r.parent_task_id or "", by_id[r.parent_task_id].access_level
+                              if r.parent_task_id in by_id else "restricted")
+            if ((r.narrowed_by or "") == t.id and (r.access_level or "org") != "org"
+                    and (above or "org") == "org"):
+                r.access_level, r.narrowed_by = "org", ""
+                changed.append(r)
+            level[r.id] = r.access_level or "org"
+        what = "opened to everyone again"
+    if not changed:
+        return []
+    for r in changed:
+        if not r.deleted_at:
+            r.modified_at = stamp
+    n = len(changed)
+    t.activity_ids = list(t.activity_ids or []) + [log_activity(
+        db, type="subtasks_access", actor_email=user["email"], entity_id=t.id, entity_code=t.code,
+        entity_title=t.title, detail=f"{n} subtask{'s' if n != 1 else ''} {what}",
+        change={"subtaskIds": [r.id for r in changed], "to": "org" if now_level == "org" else now_level})]
+    return [r.id for r in changed]
 
 
 def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
@@ -2088,7 +2149,10 @@ def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get
     # Pass the USER dict, not just the email: the helpers scope external
     # (B2B guest) callers to explicit participation only (Aug 17).
     visible_projects = visible_project_ids(db, user)
-    return _with_previews(db, [t for t in rows if task_is_visible(t, user, visible_projects)], user)
+    # A private subtask is seen by whoever sees its private parent
+    # (task_util.ParentSight): the parents come from these same rows.
+    parents = ParentSight(db, rows)
+    return _with_previews(db, [t for t in rows if task_is_visible(t, user, visible_projects, parents)], user)
 
 
 def _csv_set(value: str) -> set:
@@ -2140,7 +2204,8 @@ def export_tasks_excel(
     rows = wall_tasks(db, user, db.query(models.Task).all())   # company wall first
     if not is_manager(user):
         visible = visible_project_ids(db, user)
-        rows = [t for t in rows if task_is_visible(t, user, visible)]
+        parents = ParentSight(db, rows)
+        rows = [t for t in rows if task_is_visible(t, user, visible, parents)]
 
     # -- Filters (empty = no constraint; several values = match ANY) ----------
     want_projects = _csv_set(project_id)
@@ -2356,10 +2421,12 @@ def search_everything(q: str = "", limit: int = 6,
     manager = is_manager(user)
     visible = None if manager else visible_project_ids(db, user)
 
-    tasks = [t for t in wall_tasks(db, user, db.query(models.Task).all())
+    walled = wall_tasks(db, user, db.query(models.Task).all())
+    parents = None if manager else ParentSight(db, walled)
+    tasks = [t for t in walled
              if (term in (t.title or "").lower() or term in (t.code or "").lower())
              and not t.completed
-             and (manager or task_is_visible(t, user, visible))]
+             and (manager or task_is_visible(t, user, visible, parents))]
     # The company wall applies to every group, not only tasks (Oct 21 2026):
     # a project, portfolio or team name - and the people list - from another
     # company is as much a leak as a task title. Walled before the per-group
@@ -2418,7 +2485,7 @@ def search_everything(q: str = "", limit: int = 6,
                 # Only a parent the caller may see is named (Oct 22 2026): a
                 # subtask can sit under a private task its viewer cannot open.
                 "parentTitle": (parent.title if parent is not None
-                                and (manager or task_visible_to(db, user, parent, visible)) else "")}
+                                and (manager or task_visible_to(db, user, parent, visible, parents)) else "")}
 
     return {
         "tasks": [shape_task(t) for t in top(tasks, lambda t: t.title)],
@@ -2475,8 +2542,9 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
 
     manager = is_manager(user)
     visible = None if manager else visible_project_ids(db, user)
-    rows = [t for t in wall_tasks(db, user, db.query(models.Task).all())
-            if manager or task_is_visible(t, user, visible)]
+    walled = wall_tasks(db, user, db.query(models.Task).all())
+    parents = None if manager else ParentSight(db, walled)
+    rows = [t for t in walled if manager or task_is_visible(t, user, visible, parents)]
     walled_projects = wall_rows(db, user, db.query(models.TaskProject).all())
     project_names = {p.id: p.name for p in walled_projects}
 
@@ -2584,7 +2652,10 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
     rows = wall_tasks(db, user, live)   # company wall first
     if not is_manager(user):
         visible_projects = visible_project_ids(db, user)
-        rows = [t for t in rows if task_is_visible(t, user, visible_projects)]
+        # The changed rows' private parents in one batch (ParentSight), not
+        # one read per row.
+        parents = ParentSight(db, rows)
+        rows = [t for t in rows if task_is_visible(t, user, visible_projects, parents)]
     kept = {t.id for t in rows}
     gone: list[str] = []
     if since:
@@ -2981,16 +3052,13 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         if child is not None:
             child.activity_ids = list(child.activity_ids or []) + [
                 _apply_move(db, user, child, plan, now_iso(), place=False, history_self=True)]
-    # Made private (Oct 22 2026): its org-wide subtasks go private with it -
-    # a subtask is never more visible than its parent (_narrow_to_parent). A
-    # subtask already private keeps its own level; nothing is ever widened.
-    if prev_level == "org" and (t.access_level or "org") != "org":
-        stamp = now_iso()
-        for row in _subtree_rows(db, t.id)[0]:
-            if (row.access_level or "org") == "org":
-                row.access_level = t.access_level
-                if not row.deleted_at:
-                    row.modified_at = stamp
+    # A level set by hand is the person's own: a later "open again" of the
+    # task that once made it private (_cascade_level) leaves it alone.
+    if "access_level" in data:
+        t.narrowed_by = ""
+    # Made private / opened again (Oct 22 2026): the subtree follows - see
+    # _cascade_level.
+    cascaded = _cascade_level(db, user, t, prev_level)
 
     # APPROVAL BEFORE AUTOMATION (Oct 22 2026, automation gaps review). The
     # person's own due-date move is decided HERE, before the rules run: the
@@ -3129,6 +3197,8 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     db.commit()
     db.refresh(t)
     fire_task_event(t.id, "updated")
+    if cascaded:
+        fire_task_event("", "bulk")   # the subtasks it took along, as other multi-row writes do
     if spawned is not None:
         fire_task_event(spawned.id, "created")
     task_automation.run_after_commit(db, auto, background_tasks.add_task)
@@ -3908,8 +3978,20 @@ def _blockers_first(rows: list, completing) -> list:
 def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     patch = {k: v for k, v in (body.patch or {}).items() if k in _BULK_ALLOWED}
     # Same validation update_task applies. Without it bulk was a way around it:
-    # an arbitrary status set here still created a phantom board column.
-    validate_task_payload(db, patch)
+    # an arbitrary status set here still created a phantom board column. A
+    # labels replace is judged against what EACH row carries now, with the
+    # labels in use read once (task_labels.check_new_tags / known_keys).
+    if isinstance(patch.get("tags"), list) and body.ids:
+        import task_labels
+        tags = task_labels.merge_tags(patch["tags"])
+        known = task_labels.known_keys(db, tags) if any(
+            len(x) > task_labels.MAX_NAME for x in tags) or len(tags) > task_labels.MAX_PER_TASK else set()
+        for (row_tags,) in db.query(models.Task.tags).filter(models.Task.id.in_(body.ids)).all():
+            task_labels.check_new_tags(tags, row_tags or [], db, known)
+        rest = {k: v for k, v in patch.items() if k != "tags"}
+        patch.update(validate_task_payload(db, rest), tags=tags)
+    else:
+        validate_task_payload(db, patch)
     dates = body.dates
     locked: set = set()
     if dates is not None:

@@ -1277,6 +1277,8 @@ def _run_migrations():
             "ALTER TABLE task_saved_views ADD COLUMN board_columns VARCHAR DEFAULT ''",
             # My Day (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE task_table_prefs ADD COLUMN my_day JSON",
+            # A subtask made private with its parent (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN narrowed_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2938,6 +2940,10 @@ def _run_migrations():
         # task_table_prefs row, models.TaskTablePref.my_day. Additive; NULL =
         # nothing planned.
         "ALTER TABLE task_table_prefs ADD COLUMN IF NOT EXISTS my_day JSONB",
+        # A subtask made private with its parent (Oct 22 2026): models.Task.
+        # narrowed_by - the task whose "make private" took it along, so opening
+        # that task again opens it again. "" = its own level. Additive only.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS narrowed_by VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

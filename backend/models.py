@@ -138,6 +138,10 @@ class Task(Base):
     # or "image:<attachment id>" - one of this task's own image files. See
     # task_card_preview.py.
     card_preview      = Column(String, default="")
+    # The task whose "make private" took this one private with it (Oct 22
+    # 2026, routers/tasks._cascade_level): opening that task again opens this
+    # one again - unless its level was set by hand since, which clears it.
+    narrowed_by       = Column(String, default="")
 
 
 class PurchaseRequest(Base):

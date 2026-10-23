@@ -498,6 +498,58 @@ class WritePathTests(Base):
         self.assertEqual(self.tags(c), [])
 
 
+class InUseLabelTests(Base):
+    """Integration review (Oct 22 2026): a label already in use (on a task or
+    a task template) counts as existing - an old long label, or a task that
+    already carries more than MAX_PER_TASK, never breaks a copy, a bulk
+    replace or a board lane's drop / Add."""
+    LONG = WritePathTests.LONG
+    patch = WritePathTests.patch
+
+    def create(self, **kw):
+        from fastapi import BackgroundTasks
+        return T.create_task(T.TaskCreate(title=kw.pop("title", "Copy"), **kw), BackgroundTasks(), user=AMGR, db=self.db)
+
+    def test_duplicate_and_lane_add_carry_an_old_long_label(self):
+        self.task(tags=[self.LONG])
+        self.assertEqual(self.create(tags=[self.LONG, "Fresh"])["tags"], [self.LONG, "Fresh"])
+        # A long label nobody uses is still refused.
+        self.assertEqual(self.code(lambda: self.create(tags=["n" * 61])), 422)
+
+    def test_a_lane_drop_adds_an_old_long_label_to_another_task(self):
+        self.task(tags=[self.LONG])
+        other = self.task(tags=["Keep"])
+        self.assertEqual(self.patch(other, ["Keep", self.LONG])["tags"], ["Keep", self.LONG])
+
+    def test_a_copy_of_a_task_with_more_than_the_cap(self):
+        many = [f"legacy {i}" for i in range(35)]
+        self.task(tags=many)
+        self.assertEqual(len(self.create(tags=many)["tags"]), 35)
+        self.assertEqual(self.code(lambda: self.create(tags=many + ["brand new"])), 422)
+
+    def test_bulk_replace_is_judged_against_each_row(self):
+        many = [f"legacy {i}" for i in range(35)]
+        a, b = self.task(tags=[self.LONG]), self.task(tags=many)
+        T.bulk_update(T.BulkUpdate(ids=[a.id], patch={"tags": [self.LONG, "New"]}), user=AMGR, db=self.db)
+        self.assertEqual(self.tags(a), [self.LONG, "New"])
+        T.bulk_update(T.BulkUpdate(ids=[b.id], patch={"tags": many[:34]}), user=AMGR, db=self.db)
+        self.assertEqual(len(self.tags(b)), 34)
+        self.assertEqual(self.code(lambda: T.bulk_update(
+            T.BulkUpdate(ids=[a.id, b.id], patch={"tags": many + ["brand new"]}), user=AMGR, db=self.db)), 422)
+        self.assertEqual(self.code(lambda: T.bulk_update(
+            T.BulkUpdate(ids=[a.id], patch={"tags": ["z" * 61]}), user=AMGR, db=self.db)), 422)
+
+    def test_create_from_template_carries_its_old_long_label(self):
+        from fastapi import BackgroundTasks
+        tpl = models.TaskTemplate(id=gen_id(), name="Close", patch={"tags": [self.LONG]}, subtask_titles=[],
+                                  created_at=now_iso())
+        self.db.add(tpl)
+        self.db.commit()
+        out = C.use_template(tpl.id, C.UseTemplateBody(), BackgroundTasks(), user=AMGR, db=self.db)
+        task = out.get("task", out) if isinstance(out, dict) else out
+        self.assertEqual(task["tags"], [self.LONG])
+
+
 class ViewTests(Base):
     def test_a_saved_view_keeps_the_labels_filter_and_the_label_grouping(self):
         C.create_saved_view(C.SavedViewBody(name="Hot", view="list", group="label",

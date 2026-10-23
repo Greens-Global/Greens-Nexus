@@ -44,6 +44,7 @@ import { dialog } from '../ui/dialog';
 import { VersionChip, VersionsModal, EgnyteLinkRow, EgnyteLinkPicker, WebLinkRow, WebLinkModal } from './attachmentParts';
 import { currentVersionsOf, isEgnyteLink, canVersion } from './egnyteLinks';
 import { isWebLink } from './webLinks';
+import { shareRules } from './shareRules';
 import { ticketNo } from '../tickets/ticketMeta';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
@@ -920,9 +921,12 @@ function MembersMenu({ task, people, nameOf, patch }) {
 }
 
 // ── Share modal ──────────────────────────────────────────────────────────────
-function ShareModal({ task, people, nameOf, patch, onClose }) {
+export function ShareModal({ task, people, nameOf, patch, onClose }) {
   const level = task.accessLevel || 'org';
   const followers = task.followerIds || [];
+  const { tasks = [], taskById = {} } = useTasks();
+  const { underPrivate, openBelow } = shareRules(task, tasks, taskById);
+  const orgLocked = underPrivate && level !== 'org';
   const [copied, setCopied] = useState(false);
   // A phone gets the full-screen sheet; elsewhere the 60% popup (.nx-popup).
   const isMobile = useIsMobile();
@@ -945,16 +949,32 @@ function ShareModal({ task, people, nameOf, patch, onClose }) {
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Who Has Access</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {OPTS.map((o) => (
-                <button key={o.key} onClick={() => patch({ accessLevel: o.key })} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 12, borderRadius: 10, border: `1px solid ${level === o.key ? NX.blue : NX.border}`, background: level === o.key ? 'rgba(37,99,235,0.10)' : NX.surface, cursor: 'pointer', fontFamily: FONT }}>
-                  <o.icon size={16} style={{ color: NX.dim, marginTop: 2 }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{o.label}</div>
-                    <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{o.desc}</div>
-                  </div>
-                  {level === o.key && <Check size={15} style={{ color: NX.blue }} />}
-                </button>
-              ))}
+              {OPTS.map((o) => {
+                const locked = o.key === 'org' && orgLocked;
+                const warn = o.key === 'restricted' && level === 'org' && openBelow > 0;
+                return (
+                  <button key={o.key} disabled={locked} aria-disabled={locked || undefined}
+                    onClick={() => { if (!locked) patch({ accessLevel: o.key }); }}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 12, borderRadius: 10, border: `1px solid ${level === o.key ? NX.blue : NX.border}`, background: level === o.key ? 'rgba(37,99,235,0.10)' : NX.surface, cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.55 : 1, fontFamily: FONT }}>
+                    <o.icon size={16} style={{ color: NX.dim, marginTop: 2 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{o.label}</div>
+                      <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{o.desc}</div>
+                      {locked && (
+                        <div data-testid="share-org-locked" style={{ fontSize: 12, color: NX.dim, marginTop: 4 }}>
+                          Not available for this subtask while the task it is under is private - share that task first.
+                        </div>
+                      )}
+                      {warn && (
+                        <div data-testid="share-subtasks-warning" role="note" style={{ fontSize: 12, color: NX.amber, marginTop: 4 }}>
+                          {openBelow === 1 ? 'Its 1 subtask that everyone can see becomes private too.' : `Its ${openBelow} subtasks that everyone can see become private too.`}
+                        </div>
+                      )}
+                    </div>
+                    {level === o.key && <Check size={15} style={{ color: NX.blue }} />}
+                  </button>
+                );
+              })}
             </div>
           </div>
           {followers.length > 0 && (

@@ -46,7 +46,7 @@ from auth import company_scope, get_current_user, module_owner_acts_as, require_
 from database import get_db
 from routers.task_util import (
     _emp_company_map, gen_id, is_manager, now_iso, task_assignees, task_company, task_is_visible,
-    task_visible_to, visible_project_ids,
+    task_visible_to, visible_project_ids, ParentSight,
 )
 
 # The Tasks router's own gate: the same three dependencies, so My Day is
@@ -171,6 +171,9 @@ class _Sight:
         self.manager = is_manager(user)
         self._emp = None
         self._visible = None
+        # Private parents for a private subtask's sight (task_util.ParentSight),
+        # primed in one batch with the rows _gather read.
+        self.parents = ParentSight(db)
 
     def walled_in(self, t) -> bool:
         if self.scope is None:
@@ -186,7 +189,7 @@ class _Sight:
             return True
         if self._visible is None:
             self._visible = visible_project_ids(self.db, self.user)
-        return task_visible_to(self.db, self.user, t, self._visible)
+        return task_visible_to(self.db, self.user, t, self._visible, self.parents)
 
 
 def _gather(db: Session, sight: _Sight, me: str, day: str, added: list) -> dict:
@@ -205,6 +208,7 @@ def _gather(db: Session, sight: _Sight, me: str, day: str, added: list) -> dict:
         # Live rows only - the default query leaves the bin out.
         for t in db.query(models.Task).filter(models.Task.id.in_(want)).all():
             by_id[t.id] = t
+    sight.parents.prime(by_id.values())
     return {"mine": mine, "by_id": by_id, "seen": {i for i, t in by_id.items() if sight(t)}}
 
 

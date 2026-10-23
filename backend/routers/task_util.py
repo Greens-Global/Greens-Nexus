@@ -313,12 +313,98 @@ def team_project_ids(t: TaskTeam) -> list:
     return ids
 
 
-def task_is_visible(t: Task, user_or_email, visible_proj_ids: set[str]) -> bool:
+# ── Sight through a private parent (Oct 22 2026) ────────────────────────────
+# A subtask is never wider than its parent (routers/tasks._narrow_to_parent),
+# so a subtask under a PRIVATE task is private too - and must stay in sight of
+# the people who see that parent: its owner, its assignees, its project's
+# people. The rule, in ONE place (task_is_visible / task_visible_to): a
+# restricted subtask whose parent is ALSO restricted is visible to anyone who
+# can see that parent, up the parent chain (bounded, cycle-safe). A
+# restricted subtask under an ORG-WIDE parent keeps its own rule - an org
+# parent is seen by everyone, and that never opens a private child.
+PARENT_SIGHT_DEPTH = 8
+_PARENT_CHUNK = 500
+
+
+def _restricted(t) -> bool:
+    return (getattr(t, "access_level", None) or "org") != "org"
+
+
+class ParentSight:
+    """Parents for the rule above, for one request: the rows a list already
+    loaded, plus the restricted parents it did not, read in batches - one
+    query per level of the chain (almost always one), never one per task.
+    `get` falls back to a single read for a parent nobody primed (one-task
+    checks). A trashed parent is not found, and so confers nothing."""
+    def __init__(self, db: Session, rows=()):
+        self.db = db
+        self.by_id = {}
+        self.missing: set = set()
+        self.prime(rows)
+
+    def prime(self, rows) -> "ParentSight":
+        rows = [r for r in rows or () if getattr(r, "id", None)]
+        for r in rows:
+            self.by_id.setdefault(r.id, r)
+        need = {r.parent_task_id for r in rows
+                if _restricted(r) and r.parent_task_id and r.parent_task_id not in self.by_id}
+        depth = 0
+        while need and depth < PARENT_SIGHT_DEPTH:
+            ids = sorted(need)
+            got = []
+            for i in range(0, len(ids), _PARENT_CHUNK):
+                got += self.db.query(Task).filter(Task.id.in_(ids[i:i + _PARENT_CHUNK])).all()
+            for p in got:
+                self.by_id[p.id] = p
+            self.missing |= need - {p.id for p in got}
+            need = {p.parent_task_id for p in got
+                    if _restricted(p) and p.parent_task_id
+                    and p.parent_task_id not in self.by_id and p.parent_task_id not in self.missing}
+            depth += 1
+        return self
+
+    def get(self, pid: str):
+        if not pid or pid in self.missing:
+            return None
+        if pid not in self.by_id:
+            p = self.db.query(Task).filter(Task.id == pid).first()
+            if p is None:
+                self.missing.add(pid)
+                return None
+            self.by_id[pid] = p
+        return self.by_id[pid]
+
+
+def task_is_visible(t: Task, user_or_email, visible_proj_ids: set[str], parents: "ParentSight | None" = None) -> bool:
     """A task is visible if it's independently 'org', the viewer is its
     assignee/owner/creator/a follower, or it sits in a project the viewer can
     already see (org-wide, owned, or via team/assignee collaboration).
     EXTERNAL callers (pass the user dict) never get the 'org' default - only
-    explicit participation or a project they explicitly belong to (Aug 17)."""
+    explicit participation or a project they explicitly belong to (Aug 17).
+    With `parents` (a ParentSight), a restricted subtask under a restricted
+    parent is also visible to whoever can see that parent (see above);
+    without it, only the task's own grants count."""
+    if _own_sight(t, user_or_email, visible_proj_ids):
+        return True
+    if parents is None or not _restricted(t) or not t.parent_task_id:
+        return False
+    seen, cur = {t.id}, t
+    for _ in range(PARENT_SIGHT_DEPTH):
+        pid = cur.parent_task_id
+        if not pid or pid in seen:
+            return False
+        p = parents.get(pid)
+        if p is None or not _restricted(p):
+            return False   # an org-wide parent never opens a private child
+        if _own_sight(p, user_or_email, visible_proj_ids):
+            return True
+        seen.add(pid)
+        cur = p
+    return False
+
+
+def _own_sight(t: Task, user_or_email, visible_proj_ids: set[str]) -> bool:
+    """task_is_visible on the task's own grants alone."""
     email, external = _email_and_external(user_or_email)
     if (t.access_level or "org") == "org" and not external:
         return True
@@ -810,7 +896,7 @@ def assert_person_on_task(db: Session, task, email: str) -> str:
         raise HTTPException(422, "That person is in another company.")
     if auth.level_in_module(who, "tasks", 3, db) >= 3:   # managers (and Tasks Owners) open every task
         return who
-    if not task_is_visible(task, who, visible_project_ids(db, who)):
+    if not task_is_visible(task, who, visible_project_ids(db, who), ParentSight(db)):
         raise HTTPException(422, "That person cannot see this task. Add them to the task or its project first.")
     return who
 
@@ -881,7 +967,8 @@ def require_task_role(db: Session, user: dict, task, min_role: str, scope=_UNSET
             raise HTTPException(404, "Task not found")
 
 
-def task_visible_to(db: Session, user: dict, task, visible: set | None = None) -> bool:
+def task_visible_to(db: Session, user: dict, task, visible: set | None = None,
+                    parents: "ParentSight | None" = None) -> bool:
     """Whether `user` can see `task`: THE per-task visibility rule, shared by
     require_task_role and routers/tasks._wall_task. Managers see everything
     inside their company wall (the wall is checked separately); everybody
@@ -889,18 +976,25 @@ def task_visible_to(db: Session, user: dict, task, visible: set | None = None) -
     also admitted through its top-level ancestor's project. `visible` is the
     caller's visible_project_ids when already worked out; it is only built
     when the cheap checks (org task, owner / creator / assignee / follower)
-    have not already answered."""
+    have not already answered. A restricted subtask under a restricted
+    parent is also visible to whoever can see that parent (ParentSight -
+    `parents` when the caller loaded a list, else read here)."""
     if is_manager(user):
         return True
     if task_is_visible(task, user, set()):
         return True
+    inherits = _restricted(task) and bool(task.parent_task_id)
+    if inherits and parents is None:
+        parents = ParentSight(db)
     extras = [p for p in (task.project_ids or []) if p]
     proj = project_for_task(db, task) if (not task.project_id and task.parent_task_id) else None
-    if not (task.project_id or extras or proj):
+    if not (task.project_id or extras or proj or inherits):
         return False   # no project anywhere: nothing but the checks above can admit it
+    if inherits and task_is_visible(task, user, set(), parents):
+        return True    # a parent's own owner / assignee / follower - no project scan needed
     if visible is None:
         visible = visible_project_ids(db, user)
-    if task_is_visible(task, user, visible):
+    if task_is_visible(task, user, visible, parents if inherits else None):
         return True
     return bool(proj and proj.id in visible)
 

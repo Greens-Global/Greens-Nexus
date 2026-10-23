@@ -46,7 +46,7 @@ import json
 from typing import Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import String, cast, or_
+from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session, load_only
 
 import models
@@ -107,18 +107,57 @@ def existing_name(name) -> str:
     return v
 
 
-def check_new_tags(tags, current=()) -> list:
+def known_keys(db: Session, names) -> set:
+    """The keys among `names` that some live task (or task template) already
+    carries - a label "in use", which a copy (Duplicate, Create From Template, a board lane's
+    Add) or a bulk replace may carry whatever its length. One query for all
+    of them (a LIKE per name narrows it, the key confirms it); a label stored
+    in a spelling the LIKE misses reads as unknown, which only refuses."""
+    want = {label_key(n): clean_name(n).lower() for n in names or () if label_key(n)}
+    if not want:
+        return set()
+    def esc(v):
+        return v.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like = [func.lower(cast(models.Task.tags, String)).like(f"%{esc(v)}%", escape="\\") for v in want.values()]
+    found = set()
+    for (tags,) in db.query(models.Task.tags).filter(or_(*like)).all():
+        for x in tags or []:
+            k = label_key(x)
+            if k in want:
+                found.add(k)
+    if found != set(want):
+        # A task template's labels are labels in use too: Create From Template
+        # carries them, whatever their length.
+        tlike = [func.lower(cast(models.TaskTemplate.patch, String)).like(f"%{esc(v)}%", escape="\\")
+                 for k, v in want.items() if k not in found]
+        for (patch,) in db.query(models.TaskTemplate.patch).filter(or_(*tlike)).all():
+            for x in ((patch or {}).get("tags") or []) if isinstance(patch, dict) else []:
+                k = label_key(x)
+                if k in want:
+                    found.add(k)
+    return found
+
+
+def check_new_tags(tags, current=(), db: Session | None = None, known: set | None = None) -> list:
     """A task's labels as a save stores them (create, PATCH, bulk replace,
     import): merged by key (merge_tags - spacing and case variants are one
-    label), each label NEW to the task at most MAX_NAME characters, and no
-    more than MAX_PER_TASK labels unless the task already had more. Labels
-    the task already carries are kept as they are, whatever their length."""
+    label). A label NEW to the task and not already in use on some task
+    (known_keys, read only when a rule would refuse) is held to MAX_NAME
+    characters, and such a label cannot take a task past MAX_PER_TASK (or
+    past what it already carries). Labels the task or the company already
+    has pass as they are, so an old long label never blocks a copy."""
     out = merge_tags(tags)
     have = {label_key(x) for x in current or ()}
-    for tag in out:
-        if label_key(tag) not in have and len(tag) > MAX_NAME:
-            raise HTTPException(422, f"A label can be at most {MAX_NAME} characters.")
-    if len(out) > MAX_PER_TASK and len(out) > len(have):
+    fresh = [x for x in out if label_key(x) not in have]
+    long = [x for x in fresh if len(x) > MAX_NAME]
+    over = len(out) > max(MAX_PER_TASK, len(have))
+    if not (long or (over and fresh)):
+        return out
+    if known is None:   # `known`: worked out once by a caller checking many rows
+        known = known_keys(db, fresh) if db is not None else set()
+    if any(label_key(x) not in known for x in long):
+        raise HTTPException(422, f"A label can be at most {MAX_NAME} characters.")
+    if over and any(label_key(x) not in known for x in fresh):
         raise HTTPException(422, f"A task can carry at most {MAX_PER_TASK} labels.")
     return out
 
@@ -293,7 +332,7 @@ def in_company(db: Session, company: str):
 
 # ── Labels in use ─────────────────────────────────────────────────────────
 _SCAN_COLS = ("id", "tags", "company_id", "owner_email", "created_by", "access_level", "assignee_email",
-              "assignee_emails", "follower_emails", "project_id", "project_ids")
+              "assignee_emails", "follower_emails", "project_id", "project_ids", "parent_task_id")
 
 
 def _scan(db: Session, company: str = "", include_deleted: bool = False):
@@ -363,7 +402,7 @@ def visible_keys(db: Session, user: dict, company: str, wanted) -> set:
     wanted = {k for k in wanted or () if k}
     if not wanted:
         return set()
-    from routers.task_util import is_manager, task_is_visible, visible_project_ids, wall_tasks
+    from routers.task_util import ParentSight, is_manager, task_is_visible, visible_project_ids, wall_tasks
     rows = [r for r in _tagged_rows(db, company) if r.keys & wanted]
     if not rows:
         return set()
@@ -381,16 +420,18 @@ def visible_keys(db: Session, user: dict, company: str, wanted) -> set:
             found |= new
             if found == wanted:
                 return found
-        elif r.project_id or r.project_ids:
+        elif r.project_id or r.project_ids or r.parent_task_id:
             later.append(r)
     # Pass 2, only for keys still unfound: sight through a project, which
-    # needs the caller's visible projects (a scan of its own) - once.
+    # needs the caller's visible projects (a scan of its own) - once - or
+    # through a private parent (task_util.ParentSight, read in one batch).
     later = [r for r in later if (r.keys & wanted) - found]
     if later:
         projects = visible_project_ids(db, user)
+        parents = ParentSight(db, later)
         for r in later:
             new = (r.keys & wanted) - found
-            if new and task_is_visible(r, user, projects):
+            if new and task_is_visible(r, user, projects, parents):
                 found |= new
                 if found == wanted:
                     break
