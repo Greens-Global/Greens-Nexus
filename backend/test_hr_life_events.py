@@ -627,14 +627,14 @@ class PromotionTests(LifeEventCase):
 
     def _promote(self, user=HR_ONLY, **kw):
         inputs = {"change_type": "promotion", "role_id": "jr-2", "effective_date": "2026-09-01",
-                  "responsibilities": "Own the release pipeline"}
+                  "responsibilities": "Own the release pipeline", "reason": "Exceeded targets"}
         inputs.update(kw.pop("inputs", {}))
         pay = kw.pop("pay", {"base": 40, "payBasis": "hourly", "currency": "USD"})
         return hle.send_promotion(self.db, user, "id-erin", inputs, pay, None, excluded_ack=True)
 
     def test_employee_then_manager_sign_then_role_pay_and_flags_apply(self):
         plan = hle.plan_promotion(self.db, HR_ONLY, "id-erin",
-                                  {"role_id": "jr-2", "effective_date": "2026-09-01"},
+                                  {"role_id": "jr-2", "effective_date": "2026-09-01", "reason": "Exceeded targets"},
                                   {"base": 40, "payBasis": "hourly"}, None)
         self.assertEqual([p.email for p in plan["parties"]], [ERIN, MGR])
         self.assertEqual(plan["flags"][0]["label"], "09/06/2026 - 09/19/2026")      # previewed before sending
@@ -675,6 +675,14 @@ class PromotionTests(LifeEventCase):
         with self.assertRaises(hle.PacketError) as e:
             self._promote()
         self.assertIn("manager", str(e.exception))
+
+    # "There should not just be changing role up and changing role down without
+    # some sort of a log of like why" (Neil, Oct 22) - no letter without it.
+    def test_the_reason_is_required(self):
+        with self.assertRaises(hle.PacketError) as e:
+            self._promote(inputs={"reason": "  "})
+        self.assertIn("Add the reason", str(e.exception))
+        self.assertEqual(self.db.query(models.HrLifeEvent).filter_by(kind="promotion").count(), 0)
 
     def test_nothing_changing_is_refused(self):
         with self.assertRaises(hle.PacketError):

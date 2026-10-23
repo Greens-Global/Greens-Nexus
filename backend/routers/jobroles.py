@@ -25,7 +25,8 @@ holding a company-scoped group places a person inside that company's wall
 assigning someone from another company is refused, and so is moving a role
 into a company while any member belongs elsewhere.
 """
-from datetime import datetime
+import json
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -33,7 +34,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db
-from models import NexusGroup, NexusGroupMember, NexusRole, NexusEmployee, HrEntity
+from models import NexusGroup, NexusGroupMember, NexusRole, NexusEmployee, HrEntity, AuditLog
 from auth import get_current_user, require_administrator, invalidate_role_cache, company_scope, _MODULE_LEVEL_RANK
 from routers.roles import VALID_ROLES, ROLE_LEVEL, _get_role
 from routers.groups import ModuleGrant, _parse_modules, _modules_csv
@@ -205,7 +206,7 @@ class JobRoleUpdate(BaseModel):
 
 class AssignBody(BaseModel):
     email: str
-    reason: Optional[str] = ""   # required when it swaps an employee's role (assign_job_role)
+    reason: Optional[str] = ""   # required when it swaps an employee's role (assign_job_role) and on unassign
 
 class ApplyManagerBody(BaseModel):
     manager_email: str
@@ -553,13 +554,25 @@ def unassign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_cur
     _guard_can_assign_tier(user, _clean_tier(jr.tier or "employee"))
     if user["role"] != "owner" and ROLE_LEVEL.get(_get_role(email, db), 1) >= ROLE_LEVEL["administrator"]:
         raise HTTPException(status_code=403, detail="Only a Global Admin can change another admin's access")
+    # Taking a role away is a role change too - same reason and log as a swap
+    # (Neil, Oct 22), so the Role tab history shows it.
+    reason = (body.reason or "").strip()[:1000]
+    if not reason:
+        raise HTTPException(status_code=400, detail="Add the reason - it is kept in their role history.")
 
-    db.query(NexusGroupMember).filter(
+    removed = db.query(NexusGroupMember).filter(
         NexusGroupMember.group_id == jr_id, NexusGroupMember.email == email).delete(synchronize_session=False)
     row = db.query(NexusRole).filter(NexusRole.email == email).first()
     if row:
         row.role = "employee"
         row.assigned_by = user["email"]
+    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == email).first()
+    if removed:
+        db.add(AuditLog(timestamp=datetime.now(timezone.utc).isoformat(), user_email=user["email"].lower(), user_role=str(user.get("role") or ""),
+                        action="Changed role", resource_type="employee" if emp else "user",
+                        resource_id=emp.id if emp else email,
+                        details=json.dumps({"employee": email, "from": (emp.job_title if emp else "") or jr.name,
+                                            "to": "No role", "reason": reason, "via": "access"})[:4000]))
     invalidate_role_cache(email)
     db.commit()
     return {"unassigned": email}

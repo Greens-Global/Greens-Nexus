@@ -33,6 +33,8 @@ describe('PromoteModal', () => {
     render(<PromoteModal employee={erin} canSeePay onClose={() => {}} onSent={onSent} toastErr={() => {}} />);
     await waitFor(() => expect(screen.getByText(/IT Dev Associate II - IT/)).toBeTruthy());
     fireEvent.change(screen.getByDisplayValue('- pick a role -'), { target: { value: 'jr-2' } });
+    expect(screen.getByText('Review Letter').closest('button')).toBeDisabled();   // the reason is required (Neil, Oct 22)
+    fireEvent.change(screen.getByPlaceholderText(/Annual review/), { target: { value: 'Exceeded targets' } });
     fireEvent.click(screen.getByText('Review Letter'));
     await waitFor(() => expect(screen.getByText('Promotion Letter - Erin Lee')).toBeTruthy());
     expect(screen.getByText(/2\. Max \(manager\)/)).toBeTruthy();

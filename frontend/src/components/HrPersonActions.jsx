@@ -224,7 +224,8 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
             <>{input('Pay As Written In The Letter', 'salary_text', { placeholder: 'e.g. $95,000 per year, or "unchanged"' })}
               <div style={hint}>Pay & Benefits access is needed to change their payroll rate.</div></>
           )}
-          {input('Reason (kept on the record)', 'reason', { placeholder: 'e.g. Annual review - exceeded targets' })}
+          {input('Reason *', 'reason', { placeholder: 'e.g. Annual review - exceeded targets' })}
+          <div style={hint}>Required - kept in their role history.</div>
 
           {preview && docsMode && (
             <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
@@ -295,15 +296,15 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
           {!preview ? (
-            <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || !f.effective_date} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || !f.effective_date || !f.reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review Letter
             </button>
           ) : docsMode ? (
-            <button className="primary-btn" onClick={start} disabled={!!busy || (preview.problems || []).length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button className="primary-btn" onClick={start} disabled={!!busy || !f.reason.trim() || (preview.problems || []).length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'send' ? <Spinner size={14} /> : <FileSignature size={14} />} Generate Letter
             </button>
           ) : (
-            <button className="primary-btn" onClick={send} disabled={!!busy || !ack || missing.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button className="primary-btn" onClick={send} disabled={!!busy || !ack || !f.reason.trim() || missing.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'send' ? <Spinner size={14} /> : <Send size={14} />} Send For Signature
             </button>
           )}

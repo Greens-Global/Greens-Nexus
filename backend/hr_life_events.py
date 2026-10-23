@@ -2133,6 +2133,10 @@ def _promotion_details(db: Session, user: dict, emp: NexusEmployee, inputs: dict
         datetime.strptime(eff, "%Y-%m-%d")
     except ValueError:
         raise PacketError("Enter the date the change takes effect.")
+    # No role moves up or down without the why (Neil, Oct 22) - role_history shows it.
+    reason = (inputs.get("reason") or "").strip()[:1000]
+    if not reason:
+        raise PacketError("Add the reason - it is kept in their role history.")
     cur = current_job_role(db, emp.work_email)
     return {
         "change_type": change, "role_id": jr.id, "role_name": jr.name,
@@ -2142,7 +2146,7 @@ def _promotion_details(db: Session, user: dict, emp: NexusEmployee, inputs: dict
         "old_title": emp.job_title or (cur.name if cur else ""),
         "effective_date": eff,
         "responsibilities": (inputs.get("responsibilities") or "").strip()[:4000],
-        "reason": (inputs.get("reason") or "").strip()[:1000],
+        "reason": reason,
         "salary_text": (inputs.get("salary_text") or "").strip(),
         "merge": {k: str(v).strip() for k, v in (inputs.get("merge") or {}).items()
                   if re.fullmatch(r"[a-z0-9_]+", str(k)) and str(v).strip()},

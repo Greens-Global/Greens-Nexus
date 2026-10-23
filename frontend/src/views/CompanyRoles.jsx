@@ -111,7 +111,11 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
   }
   async function removeMember(email) {
     if (!selected) return;
-    try { await api.unassignJobRole(selected.id, email); toastOk(`Removed ${nameOf(email)} from “${selected.name}”.`); load(); }
+    // Taking a role away needs the why, like any role change (Neil, Oct 22).
+    const reason = await dialog.prompt(`Why is ${nameOf(email)} leaving "${selected.name}"? Kept in their role history.`,
+      { title: 'Remove From Role', confirmText: 'Remove', required: true, multiline: true, danger: true });
+    if (!reason) return;
+    try { await api.unassignJobRole(selected.id, email, reason); toastOk(`Removed ${nameOf(email)} from “${selected.name}”.`); load(); }
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
 
