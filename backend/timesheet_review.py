@@ -230,12 +230,8 @@ def fingerprint(db: Session, email: str, start: str, end: str) -> str:
     prem = ca_breaks.premium_rows(db, email, start, end)
     if prem:
         body += sorted(["prem", p.id, p.local_date, p.kind] for p in prem)
-    # Bonuses change the pay the employee signs for (Oct 22) - only a card
-    # that has one adds them, so every other fingerprint is unchanged.
-    from routers.timeclock import _bonus_rows
-    bonuses = _bonus_rows(db, email, start, end)
-    if bonuses:
-        body += sorted(["bonus", b.id, b.amount] for b in bonuses)
+    # Bonuses are NOT part of it (Neil, Oct 23): one added after an approval or
+    # a signature never makes either go stale.
     return hashlib.sha256(json.dumps(body).encode()).hexdigest()
 
 
