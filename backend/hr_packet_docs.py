@@ -559,8 +559,8 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
     if JD_MARKER in (setting.doc_template_ids or []):
         if setting.event == "offer":
             out.append("An offer letter never carries the job description - it goes in the hiring packet.")
-        elif setting.event in ("promotion", "separation"):
-            out.append("Only a hiring packet carries the job description - take it out of this one.")
+        elif setting.event == "separation":
+            out.append("A separation package never carries the job description - take it out of this one.")
     out += list(snap_problems or [])
     flow = clean_flow(setting.flow)
     for step in flow:
@@ -787,7 +787,9 @@ def event_values(db: Session, kind: str, d: dict) -> dict:
                     "job_title": d.get("job_title", ""), "old_role": d.get("old_role_name") or d.get("old_title", ""),
                     "new_role": d.get("role_name", ""), "department": d.get("department", ""),
                     "effective_date": d.get("effective_date", ""),
-                    "responsibilities": d.get("responsibilities", "")})
+                    "responsibilities": d.get("responsibilities", ""),
+                    # The built-in Job Description page (the "@jd" marker) prints these.
+                    "role_description": d.get("role_description") or d.get("responsibilities", "")})
         if d.get("manager_email"):
             out["manager"] = name_of(db, d["manager_email"])
     elif kind == "separation":
@@ -949,7 +951,7 @@ def event_plan(db: Session, ev, setting: HrPacketSetting, *, sender: str, can_se
     p["restrictedHash"] = values_hash(answer_values(form, event_answers(ev))[1])
     p["form"] = form
     extra = []
-    missing = missing_answers(form, event_answers(ev)) if ev.kind in ("hire", "offer") else []
+    missing = missing_answers(form, event_answers(ev))
     if missing:
         extra.append("Still needed on the Details Form: " + ", ".join(missing) + ".")
     for s in p["signOnce"]:
@@ -1574,6 +1576,8 @@ def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str
     if kind == "offer":
         return [t for t in ids if t != JD_MARKER]
     role_docs = d.get("role_docs") or []
+    if kind == "promotion":   # only the role's formatted JD, only into the marker
+        role_docs = [r for r in role_docs if isinstance(r, dict) and r.get("replaces") == JD_MARKER] if JD_MARKER in ids else []
     is_jd = [isinstance(r, dict) and r.get("replaces") == JD_MARKER for r in role_docs]
     if any(is_jd) and JD_MARKER not in ids and _prints_inside(setting, ids):
         role_docs = [r for r, j in zip(role_docs, is_jd) if not j]   # the duties print inside - never twice
@@ -1588,10 +1592,12 @@ def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str
     return ids
 
 
-def prints_duties(snaps: list) -> bool:
-    """A document prints the role's duties itself ({{role_description}}) - no
-    separate job description page is needed."""
-    return any("role_description" in s.tokens for s in snaps)
+def prints_duties(snaps: list, event: str = "hire") -> bool:
+    """A document prints the role's duties itself ({{role_description}}, or
+    a promotion letter's {{responsibilities}}) - no separate job description
+    page is needed."""
+    tokens = {"role_description"} | ({"responsibilities"} if event == "promotion" else set())
+    return any(tokens & s.tokens for s in snaps)
 
 
 def _prints_inside(setting: Optional[HrPacketSetting], ids: list) -> bool:
@@ -1600,7 +1606,7 @@ def _prints_inside(setting: Optional[HrPacketSetting], ids: list) -> bool:
     signature; a setting with no session counts as not printing them."""
     from sqlalchemy.orm import object_session
     db = object_session(setting) if setting is not None else None
-    return bool(db is not None and prints_duties(load_snaps(db, ids)[0]))
+    return bool(db is not None and prints_duties(load_snaps(db, ids)[0], setting.event or "hire"))
 
 
 def event_template_ids(ev, setting: Optional[HrPacketSetting]) -> list:
@@ -1937,9 +1943,9 @@ def readiness(db: Session, setting: HrPacketSetting, entity: Optional[HrEntity] 
                       "Nothing fills " + ", ".join(m["label"] for m in missing[:6]) + ("..." if len(missing) > 6 else "") +
                       (" - in the template mark each one Ask The Person or HR Answers, give it a Default Value, "
                        "or add it to the Details Form."
-                       if setting.event == "hire" else
+                       if setting.event != "offer" else
                        " - in the template mark each one HR Answers, or give it a Default Value."),
-                      fix={"kind": "addToForm" if setting.event == "hire" else "template", "variables": missing,
+                      fix={"kind": "addToForm" if setting.event != "offer" else "template", "variables": missing,
                            "templateId": missing[0]["templateId"] if missing else ""}))
     # 8. No fill-in line is left that nothing fills - it would print empty.
     blanks = [(s, b) for s in snaps for b in [fill_in_blanks(s.content)] if b]

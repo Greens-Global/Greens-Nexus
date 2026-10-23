@@ -16,6 +16,13 @@ something the send would not do:
   or on their own page where the "@jd" marker sits in doc_template_ids
   (hr_packet_docs.template_ids_for).
 
+Round 2 (Oct 23 2026): the same grid, Use The Same and Make A Different
+One for every event - one screen per company with three sections (SECTIONS):
+Hiring (offer letter, hiring packet, job description), Promotion (promotion
+letter, the new role's job description - the SAME duties) and Offboarding
+(separation package). A missing promotion letter or separation package never
+blocks: Change Role Now and offboarding without documents still run.
+
 Nothing here deletes a row: archived letters and duty versions stay.
 routers/hiring_setup.py is the API; this file is the engine.
 """
@@ -39,7 +46,20 @@ HIRED_WORDS = {"": "Everyone", "employee": "Employees", "full_time": "Full-Time 
                "part_time": "Part-Time Employees", "contractor": "Contractors"}
 _SHORT = {"employee": "Employees", "full_time": "Full-Time", "part_time": "Part-Time", "contractor": "Contractors"}
 _RANK = {"": 0, "employee": 1, "contractor": 1, "full_time": 2, "part_time": 2}
-EVENT_NAMES = {"offer": "Offer Letter", "hire": "Hiring Packet"}
+EVENT_NAMES = {"offer": "Offer Letter", "hire": "Hiring Packet",
+               "promotion": "Promotion Letter", "separation": "Separation Package"}
+# section -> [(column key, event)]; "jd" (event '') is the role's duties.
+SECTIONS = {"hiring":      [("offer", "offer"), ("packet", "hire"), ("jd", "")],
+            "promotion":   [("letter", "promotion"), ("jd", "")],
+            "offboarding": [("package", "separation")]}
+SECTION_LABELS = {"hiring": "Hiring", "promotion": "Promotion", "offboarding": "Offboarding"}
+MAIN = {"hiring": "packet", "promotion": "letter", "offboarding": "package"}   # its placement, its Advanced
+READY = {"hiring": "Ready To Hire", "promotion": "Ready To Promote", "offboarding": "Ready To Offboard"}
+JD_LABELS = {"hiring": "Job Description", "promotion": "New Role's Job Description"}
+SUBJECT_WORD = {"offer": "The New Hire", "hire": "The New Hire", "promotion": "The Employee",
+                "separation": "The Employee"}
+_IN_USE = {"offer": ("hire", "hires"), "hire": ("hire", "hires"), "promotion": ("promotion", "promotions"),
+           "separation": ("offboarding", "offboardings")}
 PLACES_KEY = "hr_setup_places:"            # + entity id ('' = the shared screen) -> [{country, region}]
 COPIED_KEY = "hr_setup_duties_copied"
 SHARED_WRITE = "Only HR with access to every company can change the default packet."
@@ -211,6 +231,10 @@ def has_duties(role, ctxs: list, placement: str) -> bool:
 
 # ── labels ───────────────────────────────────────────────────────────────────
 
+def columns(section: str) -> list:
+    return [{"key": k, "event": e, "label": EVENT_NAMES[e] if e else JD_LABELS[section]} for k, e in SECTIONS[section]]
+
+
 def kind(worker_type: str, country: str, region: str = "") -> str:
     return f"{'Employees' if worker_type == 'employee' else 'Contractors'} In {hle.place_words(country, region) or 'Anywhere'}"
 
@@ -219,10 +243,14 @@ def row_key(worker_type: str, country: str, region: str) -> str:
     return f"{worker_type}:{country}:{region}"
 
 
-def source(db: Session, row: Optional[HrPacketSetting], viewing_entity: str, cell: tuple) -> tuple:
+def source(db: Session, row: Optional[HrPacketSetting], viewing_entity: str, cell: tuple, event: str = "hire") -> tuple:
     """(label, tone) under a grid cell: where the letter or packet comes from."""
     wt, country, region = cell
     if row is None:
+        if event == "promotion":
+            return ("Promote is off here - Change Role Now still works", "missing")
+        if event == "separation":
+            return ("Offboarding runs without documents here", "missing")
         return (f"{'An employee' if wt == 'employee' else 'A contractor'} hire here would be blocked", "missing")
     if row.role_ids:
         names = [g.name for g in db.query(NexusGroup).filter(NexusGroup.id.in_(list(row.role_ids))).all()]
@@ -261,7 +289,7 @@ def stored_places(db: Session, entity_id: str) -> list:
 
 def _own_rows(db: Session, entity_id: str) -> list:
     return [r for r in db.query(HrPacketSetting).filter(HrPacketSetting.entity_id == (entity_id or ""),
-                                                        HrPacketSetting.event.in_(("offer", "hire"))).all()
+                                                        HrPacketSetting.event.in_(tuple(EVENT_NAMES))).all()
             if not r.archived_at]
 
 
@@ -335,8 +363,11 @@ class View:
     from resolve_setting / resolve_duties only. A pure read."""
 
     def __init__(self, db: Session, entity_id: str, role_id: str = "", scope=None, *, grid: bool = True,
-                 light: bool = False, role=None):
+                 light: bool = False, role=None, section: str = "hiring"):
         self.db, self.scope, self.light = db, scope, light
+        self.section, self.main = section, MAIN[section]
+        self.cols = [(k, e) for k, e in SECTIONS[section] if e]       # the letter / packet columns
+        self.subject = SUBJECT_WORD[self.cols[0][1]]
         self.eid = (entity_id or "").strip()
         self.entity = _entity_or_404(db, self.eid, scope)
         self.shared = not self.eid
@@ -378,7 +409,7 @@ class View:
 
     def signer_name(self, role: str) -> str:
         if role == hpd.SUBJECT_ROLE:
-            return "The New Hire"
+            return self.subject
         if role == "manager":
             return "Their Manager"
         email = hpd.resolve_role(self.db, role, self.ctx()) if self.entity is not None else ""
@@ -391,6 +422,22 @@ class View:
         keys = s.signature_roles
         return ", then ".join(self.signer_name(step["role"]) for step in hpd.signing_flow(setting)
                               if step["action"] == "sign" and step["key"] in keys)
+
+    def signers(self, s: HrPacketSetting) -> list:
+        """The roles that sign, in order, the person first. An uploaded-PDF
+        letter signs by its template's roles (_parties_for): the manager
+        role is their manager, any other is whoever sends it."""
+        if hle.is_documents(s) or not s.template_id:
+            return [x["role"] for x in hpd.signing_flow(s) if x["action"] == "sign"]
+        from models import HrSignTemplate
+        tpl = self.db.query(HrSignTemplate).filter(HrSignTemplate.id == s.template_id).first()
+        keys, subj = ([r["key"] for r in hle.template_roles(tpl)] if tpl else []), s.subject_role or "employee"
+        return [hpd.SUBJECT_ROLE] * (subj in keys) + ["manager" if k == "manager" else "sender" for k in keys if k != subj]
+
+    def countersign(self, s: Optional[HrPacketSetting]) -> str:
+        """Who signs a promotion letter after the employee ('' = nobody)."""
+        return ", then ".join(self.signer_name(x) for x in (self.signers(s) if s is not None else [])
+                              if x != hpd.SUBJECT_ROLE)
 
     def resolve(self, event: str, wt: str, c: str, r: str, skip=()) -> Optional[HrPacketSetting]:
         return hle.resolve_setting(self.db, self.eid, event, wt, self.role.id if self.role else "", c,
@@ -411,20 +458,25 @@ class View:
         n = sum(1 for ids in self._home[event].values() if sid in ids)
         return f"used by {_plural(n, 'company', 'companies')}"
 
-    def placement(self, setting: Optional[HrPacketSetting]) -> tuple:
+    def placement(self, setting: Optional[HrPacketSetting], event: str = "hire") -> tuple:
+        """Where a hiring packet or promotion letter prints the duties."""
+        event = setting.event if setting is not None else event
+        none = ("none", "Not In This Letter" if event == "promotion" else "Not In This Packet")
         if setting is None:
-            return ("none", "Not In This Packet")
+            return none
+        if event == "promotion" and not hle.is_documents(setting):
+            return ("none", "Uploaded Letter - Prints What You Type")
         ids = list(setting.doc_template_ids or [])
         if hpd.JD_MARKER in ids:
             i = ids.index(hpd.JD_MARKER)
             return ("page", f"Its Own Page, After {self.name(ids[i - 1])}" if i else "Its Own Page, First")
         own = ids + [t for t in hpd.all_block_ids(setting) if t not in ids]
-        first = next((s for s in (self.snap(t) for t in own) if s is not None and "role_description" in s.tokens), None)
+        first = next((s for s in (self.snap(t) for t in own) if s is not None and hpd.prints_duties([s], event)), None)
         if first is not None:
             return ("inside", f"Printed Inside {first.name}")
-        if self.role is not None and role_jd_doc(self.role):
-            return ("end", "Its Own Page, At The End")
-        return ("none", "Not In This Packet")
+        if event == "hire" and self.role is not None and role_jd_doc(self.role):
+            return ("end", "Its Own Page, At The End")      # a promotion prints a role's JD only at the marker
+        return none
 
     # ── cells
     def _docs(self, setting: HrPacketSetting, event: str, ctx: dict) -> list:
@@ -432,7 +484,7 @@ class View:
             out = []
             for tid in setting.doc_template_ids or []:
                 if tid == hpd.JD_MARKER:
-                    if event == "hire":
+                    if event in ("hire", "promotion"):
                         out.append({"id": hpd.JD_MARKER, "name": "Job Description - Goes Here", "marker": True,
                                     "signedBy": ""})
                     continue
@@ -446,10 +498,10 @@ class View:
         jd, role_docs = role_jd_doc(role), {d["templateId"]: d["replaces"] for d in pw["role_docs"]}
         out = []
         for tid in ids:
-            if event == "hire" and tid in (hpd.BUILTIN_JD_ID, jd):
+            if event in ("hire", "promotion") and tid in (hpd.BUILTIN_JD_ID, jd):
                 out.append({"id": tid, "name": f"Job Description - {role.name}", "jd": True, "marker": False,
                             "signedBy": ""})
-            elif event == "hire" and tid in role_docs:
+            elif event in ("hire", "promotion") and tid in role_docs:
                 rep = role_docs[tid]
                 out.append({"id": tid, "name": self.name(tid), "marker": False, "roleDoc": True,
                             "replacesName": ("Job Description" if rep == hpd.JD_MARKER else self.name(rep)) if rep else "",
@@ -460,7 +512,7 @@ class View:
 
     def _cell(self, event: str, wt: str, c: str, r: str) -> dict:
         s = self.resolve(event, wt, c, r)
-        label, tone = source(self.db, s, self.eid, (wt, c, r))
+        label, tone = source(self.db, s, self.eid, (wt, c, r), event)
         fallback, archived = None, []
         if not self.light:              # the company list needs only the tones
             if self.shared:
@@ -472,7 +524,7 @@ class View:
             fb = self.resolve(event, wt, c, r, skip=tuple(skip))
             if fb is not None:
                 fallback = {"settingId": fb.id, "name": fb.name or "Unnamed",
-                            "sourceLabel": source(self.db, fb, self.eid, (wt, c, r))[0],
+                            "sourceLabel": source(self.db, fb, self.eid, (wt, c, r), event)[0],
                             "usedByText": self.used_by(event, fb.id)}
             archived = sorted([x for x in self.db.query(HrPacketSetting)
                                .filter(HrPacketSetting.entity_id == self.eid, HrPacketSetting.event == event).all()
@@ -483,8 +535,10 @@ class View:
                "tone": tone, "settingId": s.id if s is not None else "", "engine": (s.engine or "pdf") if s is not None else "",
                "archivedOwnId": archived[0].id if archived else "", "fallback": fallback,
                "documents": self._docs(s, event, duty_ctx(self.eid, wt, c, r)) if s is not None else []}
-        if event == "hire":
-            out["placement"], out["placementLabel"] = self.placement(s)
+        if event in ("hire", "promotion"):
+            out["placement"], out["placementLabel"] = self.placement(s, event)
+        if event == "promotion":
+            out["countersign"] = self.countersign(s)
         out["_setting"] = s
         return out
 
@@ -507,15 +561,21 @@ class View:
                 "versionId": v["id"] if v else "", "roleId": role.id}
 
     def _row(self, c: str, r: str, wt: str) -> dict:
-        offer, packet = self._cell("offer", wt, c, r), self._cell("hire", wt, c, r)
-        return {"key": row_key(wt, c, r), "kind": kind(wt, c, r),
-                "sub": "Full-time and part-time" if wt == "employee" else "Independent contractors",
-                "workerType": wt, "country": c, "region": r, "home": False, "removable": False,
-                "notHired": wt in self.not_hired, "offer": offer, "packet": packet,
-                "jd": self._jd_cell(wt, c, r, packet["placement"], packet["placementLabel"])}
+        row = {"key": row_key(wt, c, r), "kind": kind(wt, c, r),
+               "sub": "Full-time and part-time" if wt == "employee" else "Independent contractors",
+               "workerType": wt, "country": c, "region": r, "home": False, "removable": False,
+               "notHired": wt in self.not_hired}
+        for key, event in self.cols:
+            row[key] = self._cell(event, wt, c, r)
+        if self.section in JD_LABELS:
+            main = row[self.main]
+            row["jd"] = self._jd_cell(wt, c, r, main["placement"], main["placementLabel"])
+        return row
 
     # ── the rest of the screen
-    def jd_table(self) -> dict:
+    def jd_table(self) -> Optional[dict]:
+        if self.section not in JD_LABELS:
+            return None
         cols = [row for row in self.rows if not row["notHired"]]
         out = []
         for g in self.roles:
@@ -523,7 +583,7 @@ class View:
             for row in cols:
                 ctxs = duty_ctxs(self.eid, row["workerType"], row["country"], row["region"])
                 v = next((x for x in (resolve_duties(g, ctx)[1] for ctx in ctxs) if x is not None), None)
-                if not has_duties(g, ctxs, row["packet"]["placement"]):
+                if not has_duties(g, ctxs, row[self.main]["placement"]):
                     cells[row["key"]] = {"label": "Not Written Yet", "tone": "missing", "versionId": ""}
                 elif v is not None:
                     cells[row["key"]] = {"label": "Own Version", "tone": "own", "versionId": v["id"]}
@@ -536,7 +596,7 @@ class View:
         """Every distinct letter and packet the grid resolves to."""
         out = {}
         for row in self.rows:
-            for col in ("offer", "packet"):
+            for col, _ in self.cols:
                 s = row[col]["_setting"]
                 if s is not None:
                     out.setdefault(s.id, s)
@@ -606,26 +666,27 @@ class View:
             legal = (e.legal_name or "").strip()
             out.append({"key": "legalAndAddress", "label": "Legal Name And Address",
                         "value": ", ".join(x for x in (legal, addr) if x), "hint": "Printed in the documents.",
-                        "empty": not (legal and addr)})
+                        "empty": not (legal and addr), "legalName": legal, "address": addr})
         return out
 
     def advanced(self) -> list:
         home = next((row for row in self.rows if row["home"] and row["workerType"] == "employee"), None)
-        s = (home or {}).get("packet", {}).get("_setting") or next(
-            (row["packet"]["_setting"] for row in self.rows if row["packet"]["_setting"] is not None), None)
+        s = (home or {}).get(self.main, {}).get("_setting") or next(
+            (row[self.main]["_setting"] for row in self.rows if row[self.main]["_setting"] is not None), None)
         if s is None:
             return []
         steps = [x for x in hpd.signing_flow(s) if x["action"] == "sign"]
+        signing = ", then ".join(self.signer_name(x) for x in self.signers(s))
         lh = ""
         if s.letterhead_id:
             from models import DocLetterhead
             got = self.db.query(DocLetterhead).filter(DocLetterhead.id == s.letterhead_id).first()
             lh = got.name if got else ""
         pay = {"": "By event (the standard setting)", "always": "Always", "auto": "Only where a document prints it"}
-        return [{"label": "Signing Order", "value": ", then ".join(self.signer_name(x["role"]) for x in steps) or "None"},
+        return [{"label": "Signing Order", "value": signing or "None"},
                 {"label": "Checked By", "value": hpd.role_label(s.verify_role or "hr")},
                 {"label": "Signs Once", "value": "On" if any(x.get("once") for x in steps) else "Off"},
-                {"label": "Extra Questions For The New Hire",
+                {"label": f"Extra Questions For {self.subject}",
                  "value": _plural(len(s.details_form or []), "question") if s.details_form else "None"},
                 {"label": "Letterhead", "value": lh or "None"},
                 {"label": "Who Can Open Pay", "value": pay.get(s.pay_mode or "", s.pay_mode or "")},
@@ -666,11 +727,38 @@ def _check_fix(sid: str, chk: dict) -> tuple:
     return ("Open The Packet", "advanced", {"settingId": sid})
 
 
+def _promotion_or_offboarding_items(view: View, row: dict) -> list:
+    key, event = view.cols[0]
+    if row[key]["_setting"] is not None:
+        return []
+    text = (f"No promotion letter for {row['kind']} yet - Promote is off there, Change Role Now still works."
+            if event == "promotion" else
+            f"No separation package for {row['kind']} yet - offboarding still runs, without documents.")
+    return [{"key": f"missing:{row['key']}", "text": text, "button": "Set It Up", "action": "setUp",
+             "target": {"section": view.section, "rowKey": row["key"], "column": key}}]
+
+
 def items(db: Session, view: View) -> list:
-    """Things To Finish: each a sentence with its fix."""
+    """Things To Finish: each a sentence with its fix. Outside Hiring a target
+    names its section (a hiring one infers it from the column, as in round 1)."""
     out = []
+    hiring = view.section == "hiring"
+
+    def tgt(**kw):
+        return kw if hiring else {"section": view.section, **kw}
     for row in view.rows:
         if row["notHired"]:
+            continue
+        if not hiring:
+            out += _promotion_or_offboarding_items(view, row)
+            placement = row[view.main].get("placement")
+            if not view.shared and placement in ("inside", "page"):
+                ctxs = duty_ctxs(view.eid, row["workerType"], row["country"], row["region"])
+                for g in ([view.role] if view.role is not None else view.roles):
+                    if not has_duties(g, ctxs, placement):
+                        out.append({"key": f"duties:{g.id}", "text": f"{g.name} has no duties written, and the "
+                                                                     f"promotion letter prints them.",
+                                    "button": "Add Duties", "action": "addDuties", "target": tgt(roleId=g.id)})
             continue
         o, p = row["offer"]["_setting"] is None, row["packet"]["_setting"] is None
         old = row["offer"]["_setting"]
@@ -700,10 +788,13 @@ def items(db: Session, view: View) -> list:
                     out.append({"key": f"duties:{g.id}", "text": f"{g.name} has no duties written, and the hiring packet prints them.",
                                 "button": "Add Duties", "action": "addDuties", "target": {"roleId": g.id}})
     for s in view.settings():
+        if not hiring and not hle.is_documents(s):
+            continue                      # an uploaded-PDF promotion letter or package still sends
         for chk in hpd.readiness(db, s, entity=view.entity):
             if chk.get("severity") != "block":
                 continue
             button, action, target = _check_fix(s.id, chk)
+            target = target if action == "navigate" else tgt(**target)
             out.append({"key": f"check:{s.id}:{chk['key']}", "text": chk.get("detail") or chk.get("label") or "",
                         "button": button, "action": action, "target": target})
     seen, uniq = set(), []
@@ -718,7 +809,7 @@ def status_of(view: View, its: list) -> tuple:
     if view.entity is not None and not (view.entity.country or "").strip():
         return ("notStarted", "Not Started")
     if not its:
-        return ("ready", "Ready To Hire")
+        return ("ready", READY[view.section])
     return ("left", f"{_plural(len(its), 'Thing')} Left")
 
 
@@ -763,12 +854,28 @@ def summary(view: View) -> str:
 
 
 def _ser_row(row: dict) -> dict:
-    return {**row, "offer": {k: v for k, v in row["offer"].items() if k != "_setting"},
-            "packet": {k: v for k, v in row["packet"].items() if k != "_setting"}}
+    return {k: ({a: b for a, b in v.items() if a != "_setting"} if isinstance(v, dict) else v) for k, v in row.items()}
 
 
-def company_view(db: Session, entity_id: str, role_id: str, scope) -> dict:
-    v = View(db, entity_id, role_id, scope)
+def sections_of(db: Session, entity_id: str, scope, role_id: str = "", known: Optional[dict] = None) -> list:
+    """Each section's chip, from a light View of it - so the list, the
+    segmented control and the section itself never disagree."""
+    out = []
+    for key in SECTIONS:
+        if known and key in known:
+            status, chip = known[key]
+        else:
+            v = View(db, entity_id, role_id, scope, light=True, section=key)
+            status, chip = status_of(v, items(db, v))
+        out.append({"key": key, "label": SECTION_LABELS[key], "status": status, "chip": chip})
+    return out
+
+
+def company_view(db: Session, entity_id: str, role_id: str, scope, section: str = "hiring") -> dict:
+    section = section or "hiring"
+    if section not in SECTIONS:
+        raise HTTPException(400, "Unknown section")
+    v = View(db, entity_id, role_id, scope, section=section)
     its = items(db, v)
     status, chip = status_of(v, its)
     e = v.entity
@@ -779,7 +886,8 @@ def company_view(db: Session, entity_id: str, role_id: str, scope) -> dict:
             "roles": [{"id": g.id, "name": g.name, "department": g.department or "", "shared": not (g.company_id or "")}
                       for g in v.roles],
             "rows": [_ser_row(r) for r in v.rows], "jobDescriptions": v.jd_table(), "advanced": v.advanced(),
-            "uploadContext": v.upload_context()}
+            "uploadContext": v.upload_context(), "section": section,
+            "sections": sections_of(db, v.eid, scope, role_id, {section: (status, chip)}), "columns": columns(section)}
 
 
 def company_list(db: Session, scope) -> dict:
@@ -794,7 +902,8 @@ def company_list(db: Session, scope) -> dict:
                           "place": hle.place_words(hle.country_of(db, e.id), hle.region_of(db, e.id)) or "No place set",
                           "status": status, "chip": chip,
                           "summary": ("Pick where its people work and it starts with the shared documents"
-                                      if status == "notStarted" else summary(v))})
+                                      if status == "notStarted" else summary(v)),
+                          "sections": sections_of(db, e.id, scope, known={"hiring": (status, chip)})})
     shared = [s for s in _own_rows(db, "")]
     offers = sum(1 for s in shared if s.event == "offer")
     hires = sum(1 for s in shared if s.event == "hire")
@@ -827,7 +936,8 @@ def use_same(db: Session, user: dict, scope, sid: str) -> dict:
     n = sum(1 for ev in db.query(HrLifeEvent).filter(HrLifeEvent.status.in_(hle.OPEN)).all()
             if ev.setting_id == sid or (ev.inputs or {}).get("hire_packet_id") == sid)
     if n:
-        raise HTTPException(409, f"{'1 hire is' if n == 1 else f'{n} hires are'} using this one right now. "
+        one, many = _IN_USE.get(row.event, _IN_USE["hire"])
+        raise HTTPException(409, f"{f'1 {one} is' if n == 1 else f'{n} {many} are'} using this one right now. "
                                  f"Try again once they finish.")
     row.archived_at, row.archived_by = _now(), user["email"].lower()
     db.commit()
@@ -872,8 +982,8 @@ def _signature_keys(snaps: list) -> list:
 
 def _flow_for(event: str, snaps: list, old: Optional[list] = None) -> list:
     """The signing order Nexus works out from the documents' signature lines:
-    the new hire first; on a hiring packet each company signer whose line was
-    found, in document order. An existing flow keeps its approve and copy
+    the person first; on anything but an offer letter each company signer
+    whose line was found, in document order. An existing flow keeps its approve and copy
     steps and its people; a sign step whose line is gone is dropped."""
     keys = _signature_keys(snaps)
     prints_sig = any("signatory" in s.tokens for s in snaps)
@@ -882,18 +992,18 @@ def _flow_for(event: str, snaps: list, old: Optional[list] = None) -> list:
         subject = next((k for k in keys if hpd.default_role(k) == hpd.SUBJECT_ROLE), "employee")
         flow.insert(0, {"key": subject, "role": hpd.SUBJECT_ROLE, "action": "sign"})
     flow = [x for x in flow if x["role"] == hpd.SUBJECT_ROLE or x["action"] != "sign" or x["key"] in keys]
-    if event == "hire":
+    if event != "offer":
         have = {x["key"] for x in flow}
         flow += [{"key": k, "role": hpd.default_role(k, prints_sig), "action": "sign"} for k in keys
                  if k not in have and hpd.default_role(k) != hpd.SUBJECT_ROLE]
     return flow
 
 
-def _clean_ids(db: Session, ids) -> list:
+def _clean_ids(db: Session, ids, event: str = "hire") -> list:
     out = list(dict.fromkeys(str(t).strip() for t in (ids or []) if str(t).strip()))
     if hpd.JD_MARKER in out:
         snaps, _ = hpd.load_snaps(db, out)
-        if hpd.prints_duties(snaps):
+        if hpd.prints_duties(snaps, event):
             out.remove(hpd.JD_MARKER)        # the duties are printed inside - never twice
     return out
 
@@ -970,7 +1080,7 @@ def _make_one(db, user, entity, eid, event, wt, c, r, start, doc_ids, src) -> Hr
             setattr(row, f, getattr(src, f))
         row.letterhead_id = (src.letterhead_id or "") if eid else ""
     else:
-        ids = _clean_ids(db, doc_ids)
+        ids = _clean_ids(db, doc_ids, event)
         snaps, _ = hpd.load_snaps(db, ids)
         if existing is not None:
             existing.doc_template_ids = ids
@@ -995,9 +1105,11 @@ def set_documents(db: Session, user: dict, scope, sid: str, doc_ids) -> dict:
     row = _locked_setting(db, sid, scope)
     if row.archived_at:
         raise HTTPException(400, "This one is not in use - use it again first.")
-    ids = _clean_ids(db, doc_ids)
+    ids = _clean_ids(db, doc_ids, row.event)
     if row.event == "offer" and hpd.JD_MARKER in ids:
         raise HTTPException(400, "An offer letter never carries the job description - it goes in the hiring packet.")
+    if row.event == "separation" and hpd.JD_MARKER in ids:
+        raise HTTPException(400, "A separation package never carries the job description - take it out of this one.")
     snaps, _ = hpd.load_snaps(db, ids + [t for t in hpd.all_block_ids(row) if t not in ids])
     row.doc_template_ids = ids
     row.flow = _flow_for(row.event, snaps, row.flow)
@@ -1241,3 +1353,106 @@ def what_they_get(db: Session, cand, wt: str, et: str, country: str, region: str
     lines.append({"key": "signs", "label": "Signs", "name": " - ".join(parts), "sourceLabel": "", "tone": "same",
                   "blocks": False, "fix": None})
     return lines, ("Fix the amber item before sending." if any(x["blocks"] for x in lines) else "")
+
+
+# ── promotion and offboarding: What They Get (round 2) ──────────────────────
+
+def _line(key: str, label: str, name: str, source_label: str, tone: str, blocks: bool = False, fix=None) -> dict:
+    return {"key": key, "label": label, "name": name, "sourceLabel": source_label, "tone": tone, "blocks": blocks,
+            "fix": fix}
+
+
+def _setting_line(db: Session, key: str, s: HrPacketSetting, eid: str, cell: tuple) -> dict:
+    src, tone = source(db, s, eid, cell, s.event)
+    return _line(key, EVENT_NAMES[s.event], s.name or "Unnamed", src, tone)
+
+
+def _signs_line(view: View, s: HrPacketSetting) -> dict:
+    return _line("signs", "Signs", ", then ".join(view.signer_name(x) for x in view.signers(s)), "", "same")
+
+
+def promotion_options(db: Session, emp, role) -> dict:
+    """The Promote form's What They Get card and the new role's duties to
+    prefill - from the same resolvers plan_promotion uses. Nothing here
+    blocks Change Role Now; the duties line never blocks (HR can type them
+    for this one letter)."""
+    eid = emp.company or ""
+    c, r = hle.employee_place(db, emp)
+    wt, et = hle.worker_type_of(emp.employment_type), emp.employment_type or ""
+    rk, what = row_key(wt, c, r), kind(wt, c, r)
+    letter = hle.resolve_for_employee(db, emp, "promotion", role.id if role is not None else "")
+    view = View(db, eid, grid=False, role=role, section="promotion")
+    lines = []
+    if letter is None:
+        lines.append(_line("letter", "Promotion Letter", f"Nothing Yet For {what}",
+                           "Set it up to promote with a letter - Change Role Now still works", "missing", True,
+                           {"action": "setUp", "target": {"entityId": eid, "section": "promotion", "rowKey": rk,
+                                                          "column": "letter"}}))
+    else:
+        lines.append(_setting_line(db, "letter", letter, eid, (wt, c, r)))
+    duties, questions = None, []
+    if role is not None:
+        text, v = resolve_duties(role, duty_ctx(eid, wt, c, r, et))
+        placement = view.placement(letter, "promotion")[0]
+        jd = role_jd_doc(role) if placement == "page" else ""
+        fix = None
+        if letter is not None and not hle.is_documents(letter):
+            line = (f"{role.name} - What You Type Below", "Printed Where The Letter Asks For It", "same")
+        elif letter is not None and placement == "none":
+            line = ("Not In This Letter", "This Promotion Letter Does Not Print Them", "same")
+        elif jd:
+            line = (f"{role.name} - {view.name(jd)}", "Its Own Page", "own")
+        elif v is not None and text.strip():
+            line = (f"{role.name} - {_version_short(db, v)} Version", f"Only For {_version_for(db, v)}", "own")
+        elif text.strip():
+            line = (f"{role.name} - Standard", "Same For Everyone", "same")
+        else:
+            line = (f"{role.name} - no duties written", "Add them to the role, or type them below for this letter",
+                    "missing")
+            fix = {"action": "addDuties", "target": {"entityId": eid, "section": "promotion", "roleId": role.id}}
+        lines.append(_line("jd", "New Role's Job Description", *line, False, fix))
+        duties = {"roleId": role.id, "text": text, "versionId": v["id"] if v else "",
+                  "versionLabel": version_label(db, v) if v else "", "placement": placement}
+    if letter is not None:
+        lines.append(_signs_line(view, letter))
+        if hle.is_documents(letter):
+            pw = hle.role_paperwork(role)
+            ids = hpd.template_ids_for(letter, {"role_id": role.id if role is not None else "",
+                                                "department": (role.department if role is not None else "") or emp.department or "",
+                                                "role_docs": pw["role_docs"], "role_description": (duties or {}).get("text", "")},
+                                       "promotion")
+            questions = hpd.hr_questions(hpd.load_snaps(db, ids)[0])
+    return {"rowKey": rk, "kind": what,
+            "letter": {"settingId": letter.id, "name": letter.name or "", "engine": letter.engine or "pdf"} if letter else None,
+            "whatTheyGet": lines,
+            "blocked": "" if letter is not None else "Set up a promotion letter first, or use Change Role Now.",
+            "duties": duties, "hrQuestions": questions}
+
+
+def offboard_options(db: Session, emp) -> dict:
+    """The Offboard form's What They Get card. Nothing blocks: without a
+    separation package the offboarding runs, without documents."""
+    eid = emp.company or ""
+    c, r = hle.employee_place(db, emp)
+    wt = hle.worker_type_of(emp.employment_type)
+    rk, what = row_key(wt, c, r), kind(wt, c, r)
+    package = hle.resolve_for_employee(db, emp, "separation", hle.role_id_for_employee(db, emp))
+    if package is None:
+        return {"rowKey": rk, "kind": what, "package": None, "canSendPackage": False,
+                "noPackageText": f"No separation package is set up for {what} yet - the offboarding still runs, "
+                                 f"without documents.",
+                "whatTheyGet": [_line("package", "Separation Package", f"Nothing Yet For {what}",
+                                      "The offboarding still runs, without documents", "missing", False,
+                                      {"action": "setUp", "target": {"entityId": eid, "section": "offboarding",
+                                                                     "rowKey": rk, "column": "package"}})],
+                "hrQuestions": []}
+    view = View(db, eid, grid=False, section="offboarding")
+    questions = []
+    if hle.is_documents(package):
+        ids = hpd.template_ids_for(package, {"department": emp.department or ""}, "separation")
+        questions = [q for q in hpd.hr_questions(hpd.load_snaps(db, ids)[0]) if not q["pay"]]
+    return {"rowKey": rk, "kind": what,
+            "package": {"settingId": package.id, "name": package.name or "", "engine": package.engine or "pdf"},
+            "canSendPackage": True, "noPackageText": "",
+            "whatTheyGet": [_setting_line(db, "package", package, eid, (wt, c, r)), _signs_line(view, package)],
+            "hrQuestions": questions}

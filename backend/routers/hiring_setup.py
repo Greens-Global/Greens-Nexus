@@ -61,9 +61,9 @@ def company_list(user: dict = Depends(require_hr_read), db: Session = Depends(ge
 
 
 @router.get("/company")
-def company(entity_id: str = "", role_id: str = "", user: dict = Depends(require_hr_read),
+def company(entity_id: str = "", role_id: str = "", section: str = "hiring", user: dict = Depends(require_hr_read),
             db: Session = Depends(get_db)):
-    return hs.company_view(db, entity_id, role_id, hr_scope(user, db))
+    return hs.company_view(db, entity_id, role_id, hr_scope(user, db), section)
 
 
 @router.post("/use-same")

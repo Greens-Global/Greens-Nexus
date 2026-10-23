@@ -289,6 +289,28 @@ def region_of(db: Session, entity_id: str) -> str:
     return re.sub(r"[^A-Za-z]", "", (getattr(e, "region", "") if e else "") or "").upper()[:3]
 
 
+def employee_place(db: Session, emp: NexusEmployee) -> tuple:
+    """(country, region) an employee works in: their own country when it is a
+    code, else the company's; the company's state only at home in the US."""
+    home = country_of(db, emp.company or "")
+    own = (emp.country or "").strip()
+    c = own.upper() if re.fullmatch(r"[A-Za-z]{2}", own) else home
+    r = region_of(db, emp.company or "") if (c == home and c == "US") else ""
+    return c, r
+
+
+def resolve_for_employee(db: Session, emp: NexusEmployee, event: str, role_id: str) -> Optional[HrPacketSetting]:
+    """The promotion letter or separation package for this employee - the one
+    Hiring Setup's grid shows for where they work. Nothing for their own
+    country = the company's home lookup, as before (Oct 23 2026)."""
+    c, r = employee_place(db, emp)
+    wt = worker_type_of(emp.employment_type)
+    s = resolve_setting(db, emp.company or "", event, wt, role_id, c, region=r)
+    if s is None and c != country_of(db, emp.company or ""):
+        s = resolve_setting(db, emp.company or "", event, wt, role_id)
+    return s
+
+
 WORKER_LABELS = {"employee": "Employee", "contractor": "Contractor"}
 
 
@@ -1532,6 +1554,8 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
     """What the candidate's page shows: no pay, nothing beyond the role."""
     entity = db.query(HrEntity).filter(HrEntity.id == ev.entity_id).first() if ev.entity_id else None
     cand = db.query(HrCandidate).filter(HrCandidate.id == ev.candidate_id).first() if ev.candidate_id else None
+    if ev.kind not in CANDIDATE_KINDS:     # a promotion / separation: the employee answers
+        cand = db.query(NexusEmployee).filter(NexusEmployee.id == ev.employee_id).first() if ev.employee_id else None
     expired = bool(ev.intake_expires_on) and ev.intake_expires_on < _today()
     state = ("submitted" if ev.intake_submitted_at else "closed" if ev.status != "intake"
              else "expired" if expired else "open")
@@ -1551,8 +1575,9 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
             "firstName": (cand.first_name if cand else "") or "", "lastName": (cand.last_name if cand else "") or "",
             "phone": (cand.phone if cand else "") or "", "role": (ev.inputs or {}).get("job_title", ""),
             "expiresOn": ev.intake_expires_on or "", "prefill": known,
-            "afterOffer": bool((ev.inputs or {}).get("after_offer")),
-            "fields": intake_standard_fields(view.tokens),
+            "afterOffer": bool((ev.inputs or {}).get("after_offer")), "kind": ev.kind,
+            # An employee's name and address are on People already - only the documents' questions.
+            "fields": intake_standard_fields(view.tokens) if ev.kind in CANDIDATE_KINDS else [],
             # The packet's own Details Form (Oct 14) - any country, any field.
             "form": form}
 
@@ -1578,12 +1603,19 @@ def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
     if answers:
         person["answers"] = answers
     ev.intake = person
-    ev.subject_name = f"{person['first_name']} {person['last_name']}".strip()
+    employee = ev.kind not in CANDIDATE_KINDS
+    if not employee:
+        ev.subject_name = f"{person['first_name']} {person['last_name']}".strip()
     ev.intake_submitted_at = ev.updated_at = _now()
     ev.status = "review"
     card_from_intake(db, ev)
-    _stage_note(db, ev, f"{ev.subject_name} sent their details - documents generated", by="candidate")
+    _stage_note(db, ev, f"{ev.subject_name} sent their details - documents generated",
+                by="employee" if employee else "candidate")
     setting = hpd.event_setting(db, ev)
+    if employee:
+        emp = db.query(NexusEmployee).filter(NexusEmployee.id == ev.employee_id).with_for_update().first()
+        if emp is not None:
+            _apply_employee_answers(db, ev, emp)
     db.flush()
     if setting is not None:
         try:
@@ -2046,6 +2078,27 @@ def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> Non
     ev.flags = flags
 
 
+def _apply_employee_answers(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> None:
+    """What an employee typed on a promotion's or separation's details link
+    lands on their record: date of birth, gender, ID, bank, PAN (as on a
+    hire), a forwarding email as their personal email, a forwarding address
+    as their current address."""
+    import hr_packet_docs as hpd
+    fields = hpd.form_fields(hpd.event_form(db, ev, hpd.event_setting(db, ev)))
+    answers = hpd.event_answers(ev)
+    personal, bank, compliance = dict(emp.personal or {}), [dict(b) for b in (emp.bank or [])], dict(emp.compliance or {})
+    _profile_from_answers(fields, answers, personal, bank, ev.subject_name or "", compliance)
+    named = _named(fields, answers, set())
+    email = (named.get("forwarding_email") or "").strip().lower()
+    if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        emp.personal_email = email
+    address = (named.get("forwarding_address") or "").strip()
+    if address:
+        personal["currentAddress"] = address[:300]
+    emp.personal, emp.bank, emp.compliance = personal, bank, compliance
+    emp.updated_at = _now()
+
+
 def _apply_offer(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
     """The candidate signed the offer letter (its only signer): they are hired
     (the same path Mark Hired uses), and the hiring packet starts by itself. A packet
@@ -2201,6 +2254,13 @@ def _promotion_details(db: Session, user: dict, emp: NexusEmployee, inputs: dict
     if not reason:
         raise PacketError("Add the reason - it is kept in their role history.")
     cur = current_job_role(db, emp.work_email)
+    # The new role's duties as HR sent them (edited or not) - the version they
+    # came from is worked out here, never taken from the client.
+    import hiring_setup
+    c, r = employee_place(db, emp)
+    pw = role_paperwork(jr, hiring_setup.duty_ctx(emp.company or "", worker_type_of(emp.employment_type), c, r,
+                                                  emp.employment_type or ""))
+    duties = (inputs.get("responsibilities") or "").strip()[:20000]
     return {
         "change_type": change, "role_id": jr.id, "role_name": jr.name,
         "department": jr.department or emp.department or "",
@@ -2208,7 +2268,8 @@ def _promotion_details(db: Session, user: dict, emp: NexusEmployee, inputs: dict
         "old_role_id": cur.id if cur else "", "old_role_name": cur.name if cur else "",
         "old_title": emp.job_title or (cur.name if cur else ""),
         "effective_date": eff,
-        "responsibilities": (inputs.get("responsibilities") or "").strip()[:4000],
+        "responsibilities": duties, "role_description": duties, "role_docs": pw["role_docs"],
+        "duty_version_id": pw["duty_version_id"], "duty_version_label": pw["duty_version_label"],
         "reason": reason,
         "salary_text": (inputs.get("salary_text") or "").strip(),
         "merge": {k: str(v).strip() for k, v in (inputs.get("merge") or {}).items()
@@ -2235,8 +2296,7 @@ def plan_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
         raise PacketError("Nothing changes - pick a new role, title or pay.")
     entity = db.query(HrEntity).filter(HrEntity.id == emp.company).first()
     company = entity.name if entity else "this company"
-    setting = resolve_setting(db, emp.company or "", "promotion", worker_type_of(emp.employment_type),
-                              details["role_id"] or role_id_for_employee(db, emp))
+    setting = resolve_for_employee(db, emp, "promotion", details["role_id"] or role_id_for_employee(db, emp))
     if not setting:
         raise PacketError(f"No promotion letter is set up for {company} yet - add one under "
                           f"Settings > Hiring > Hiring Documents.", 409)
@@ -2250,8 +2310,9 @@ def plan_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
                "sender": user["email"].lower(), "subject_email": emp.work_email.lower(),
                "subject_emails": [emp.work_email, emp.personal_email], "subject_name": name,
                "subject_kind": "internal", "manager_email": details["manager_email"]}
-        dp = hpd.plan(db, setting, ctx=ctx, overrides=hpd.event_values(db, "promotion", details), pay=clean,
-                      can_see_pay=bool(clean), employee_id=emp.id, entity_id=emp.company or "")
+        dp = hpd.plan(db, setting, ctx=ctx, overrides={**hpd.event_values(db, "promotion", details), **details["merge"]},
+                      pay=clean, can_see_pay=bool(clean), employee_id=emp.id, entity_id=emp.company or "",
+                      extra_template_ids=hpd.template_ids_for(setting, details, "promotion"))
         return {"employee": emp, "details": details, "pay": clean, "setting": setting, "template": None,
                 "docplan": dp, "merge": {}, "unresolved": [], "parties": [], "subjectName": name,
                 "title": f"{CHANGE_TYPES[details['change_type']]} Letter - {name}", "company": company,
@@ -2399,11 +2460,27 @@ def start_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Option
                      created_by=user["email"].lower(), created_at=now, updated_at=now)
     db.add(ev)
     db.flush()
-    p = hpd.event_plan(db, ev, setting, sender=user["email"], can_see_pay=True)
-    hpd.sync_documents(db, ev, setting, p, user["email"].lower())
-    _ask_verifier(db, ev, p)
+    if not _ask_employee(db, ev, setting):
+        p = hpd.event_plan(db, ev, setting, sender=user["email"], can_see_pay=True)
+        hpd.sync_documents(db, ev, setting, p, user["email"].lower())
+        _ask_verifier(db, ev, p)
     db.commit()
     return ev
+
+
+def _ask_employee(db: Session, ev: HrLifeEvent, setting: HrPacketSetting) -> bool:
+    """The Employee Fills It (Oct 23 2026): when a promotion letter or a
+    separation package asks the employee something (a forwarding address...),
+    they get the details link first - the documents are made when they send
+    it (submit_intake). False = nothing to ask; the caller generates now."""
+    import hr_packet_docs as hpd
+    if not hpd.form_fields(hpd.event_form(db, ev, setting)):
+        return False
+    due = (datetime.strptime(_today(), "%Y-%m-%d") + timedelta(days=14)).strftime("%Y-%m-%d")
+    ev.inputs = {**dict(ev.inputs or {}), "due_on": due}
+    ev.status = "intake"
+    mail_intake_after_commit(db, ev, new_intake_token(ev))
+    return True
 
 
 def _apply_promotion(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
@@ -2552,8 +2629,7 @@ def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock
         to, kind_of, why = work, "internal", "they still have their work email until their last day"
     else:
         to, kind_of, why = personal, "external", "they have no work email, so it goes to their personal email"
-    setting = resolve_setting(db, emp.company or "", "separation", worker_type_of(emp.employment_type),
-                              role_id_for_employee(db, emp))
+    setting = resolve_for_employee(db, emp, "separation", role_id_for_employee(db, emp))
     tpl = (db.query(HrSignTemplate).filter(HrSignTemplate.id == setting.template_id).first()
            if setting else None)
     problems = setting_problems(db, setting) if setting else []
@@ -2572,8 +2648,9 @@ def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock
         ctx = {"entity": entity, "owners": hc.role_owners(db, emp.company or ""), "sender": user["email"].lower(),
                "subject_email": to, "subject_emails": [emp.work_email, emp.personal_email], "subject_name": name,
                "subject_kind": kind_of, "manager_email": (emp.manager_email or "").strip().lower()}
-        docplan = hpd.plan(db, setting, ctx=ctx, overrides=hpd.event_values(db, "separation", d), pay=None,
-                           can_see_pay=False, employee_id=emp.id, entity_id=emp.company or "")
+        docplan = hpd.plan(db, setting, ctx=ctx, overrides={**hpd.event_values(db, "separation", d), **d["merge"]},
+                           pay=None, can_see_pay=False, employee_id=emp.id, entity_id=emp.company or "",
+                           extra_template_ids=hpd.template_ids_for(setting, d, "separation"))
         package = True
     elif d["send_package"]:
         if not setting:
@@ -2609,7 +2686,8 @@ def separation_preview_out(plan: dict) -> dict:
                 "immediate": d["immediate"], "sendTo": plan["to"], "why": plan["why"], "package": True,
                 "packetName": plan["setting"].name or "", "documents": [x["name"] for x in dp["documents"]],
                 "recipients": dp["recipients"], "verifier": dp["verifier"], "problems": dp["problems"],
-                "unresolved": [], "entityId": plan["employee"].company or "",
+                "unresolved": sorted({t for x in dp["documents"] for t in x["unresolved"]}),
+                "entityId": plan["employee"].company or "",
                 "egnyteSubfolder": plan["subfolder"]}
     return {
         "title": plan["title"], "company": plan["company"], "lastDay": d["last_day"],
@@ -2748,9 +2826,10 @@ def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, e
         ev.inputs = {**dict(d), "verifier_role": plan["setting"].verify_role or "hr", "engine": "documents",
                      "extra": dict(d.get("merge") or {})}
         db.flush()
-        p = hpd.event_plan(db, ev, plan["setting"], sender=user["email"], can_see_pay=False)
-        hpd.sync_documents(db, ev, plan["setting"], p, user["email"].lower())
-        _ask_verifier(db, ev, p)
+        if not _ask_employee(db, ev, plan["setting"]):
+            p = hpd.event_plan(db, ev, plan["setting"], sender=user["email"], can_see_pay=False)
+            hpd.sync_documents(db, ev, plan["setting"], p, user["email"].lower())
+            _ask_verifier(db, ev, p)
     elif plan["package"]:
         ev.status, ev.completed_at = "awaiting_sender", ""
         first = plan["parties"][0] if plan["parties"] else None

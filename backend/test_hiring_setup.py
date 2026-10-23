@@ -341,7 +341,7 @@ class UseTheSameTests(SetupCase):
         r = self.make_own(event="hire", country="")
         self.assertIn("Works In", r.json()["detail"])
         self.assertEqual(self.make_own(worker_type="any").json()["detail"], "Pick Employees or Contractors.")
-        self.assertEqual(self.make_own(event="promotion").json()["detail"], "Unknown event")
+        self.assertEqual(self.make_own(event="bogus").json()["detail"], "Unknown event")   # promotion is one now (round 2)
 
 
 class LabelTests(SetupCase):
@@ -570,6 +570,310 @@ class ReviewFixTests(SetupCase):
         from types import SimpleNamespace
         snap = SimpleNamespace(content=_doc(_sig("employee"), _sig("signatory"), _sig("hr")))
         self.assertEqual(hs._signature_keys([snap]), ["employee", "signatory", "hr"])
+
+
+# ── round 2: promotion and offboarding (Oct 23 2026) ─────────────────────────
+
+EMP = "erin.emp@greensglobal.com"
+TXEMP = "tex.emp@greensglobal.com"
+PROMO = _doc(_p("Dear ", "{{first_name}}", ", from ", "{{effective_date}}", " you are ", "{{new_title}}", "."),
+             _sig("employee"), _sig("manager"))
+PROMO_RESP = _doc(_p("Your new duties: ", "{{responsibilities}}"), _sig("employee"), _sig("manager"))
+SEP = _doc(_p("Your last day is ", "{{last_day}}", " (", "{{separation_type}}", ")."), _sig("employee"))
+SEP_FWD = _doc(_p("Send your papers to ", "{{forwarding_address}}", " or ", "{{forwarding_email}}", "."), _sig("employee"))
+PROMO_FLOW = EMP_FLOW + [{"key": "manager", "role": "manager", "action": "sign"}]
+
+
+class SectionCase(SetupCase):
+    def setUp(self):
+        super().setUp()
+        db = self.db
+        db.add(models.NexusRole(email=HR, role="owner"))        # may assign any role, manages templates
+        for eid, email, company in (("e-erin", EMP, CO), ("e-tex", TXEMP, GS)):
+            db.add(models.NexusEmployee(id=eid, work_email=email, first_name=eid[2:].title(), last_name="Test",
+                                        company=company, status="active", job_title="Accountant", country="",
+                                        employment_type="full_time", manager_email=MGR,
+                                        personal_email=f"{eid}@home.example"))
+        for tid, name, content in (("t-promo", "Promotion Letter", PROMO), ("t-promo-resp", "Duties Letter", PROMO_RESP),
+                                   ("t-sep", "Separation Letter", SEP)):
+            _tpl(db, tid, name, content)
+        db.add(models.NexusGroup(id="jr-sr", name="Senior Accountant", department="Accounting", is_job_role=1,
+                                 tier="employee", job_description="Review the books.",
+                                 duty_versions=[{"id": "dv-ft", "hiredAs": "full_time", "country": "", "region": "",
+                                                 "entityId": "", "text": "Lead the monthly close.",
+                                                 "createdAt": "2026-10-01", "updatedAt": "2026-10-01", "archivedAt": ""}]))
+        _setting(db, "s-ca-promo", "promotion", ["t-promo", "@jd"], country="US", region="CA", flow=PROMO_FLOW)
+        _setting(db, "s-ca-sep", "separation", ["t-sep"], country="US", region="CA", flow=EMP_FLOW)
+        db.commit()
+        cache_clear()
+        self.tokens = []
+        self._mail = hle.mail_intake_after_commit
+        hle.mail_intake_after_commit = lambda db, ev, token: self.tokens.append(token) or ""
+
+    def tearDown(self):
+        hle.mail_intake_after_commit = self._mail
+        super().tearDown()
+
+    def sview(self, section, entity=CO, role=""):
+        r = self.client.get("/hr/hiring-setup/company", params={"entity_id": entity, "role_id": role, "section": section})
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def ev(self, eid):
+        self.db.expire_all()
+        return self.db.get(models.HrLifeEvent, eid)
+
+
+def cache_clear():
+    import auth
+    import cache
+    cache.module_grants.invalidate()
+    auth._role_cache.clear()
+
+
+class SectionGridTests(SectionCase):
+    def test_ggcon_india_every_section(self):
+        _setting(self.db, "s-any-promo", "promotion", ["t-promo"], flow=PROMO_FLOW)
+        _setting(self.db, "s-any-sep", "separation", ["t-sep"], flow=EMP_FLOW)
+        self.db.commit()
+        for section, col, event, sid in (("promotion", "letter", "promotion", "s-any-promo"),
+                                         ("offboarding", "package", "separation", "s-any-sep")):
+            v = self.sview(section, GGC)
+            self.assertEqual(v["section"], section)
+            self.assertEqual([r["key"] for r in v["rows"]], ["employee:IN:", "contractor:IN:"])
+            for r in v["rows"]:
+                self.assertEqual((r[col]["settingId"], r[col]["sourceLabel"]), (sid, "Same As All Companies"))
+                self.assertNotIn("offer", r)
+            r = self.make_own(entity_id=GGC, event=event, worker_type="contractor", country="IN", region="")
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertTrue(r.json()["settings"][0]["name"].endswith(f"Contractors In India {hs.EVENT_NAMES[event]}"))
+            v = self.sview(section, GGC)
+            self.assertEqual(self.row(v, "contractor:IN:")[col]["sourceLabel"], "Only Here")
+            self.assertEqual(self.row(v, "employee:IN:")[col]["settingId"], sid)
+        self.assertEqual([c["label"] for c in self.sview("promotion", GGC)["columns"]],
+                         ["Promotion Letter", "New Role's Job Description"])
+        self.assertEqual(self.sview("offboarding", GGC)["columns"],
+                         [{"key": "package", "event": "separation", "label": "Separation Package"}])
+        self.assertIsNone(self.sview("offboarding", GGC)["jobDescriptions"])
+        hiring = self.view(GGC)
+        self.assertEqual((hiring["section"], [c["key"] for c in hiring["columns"]]), ("hiring", ["offer", "packet", "jd"]))
+        self.assertEqual(set(self.row(hiring, "employee:IN:")) & {"letter", "package"}, set())
+        self.assertEqual(self.client.get("/hr/hiring-setup/company", params={"entity_id": GGC, "section": "x"}).json()["detail"],
+                         "Unknown section")
+
+    def test_the_promotion_section_shows_who_countersigns_and_the_new_roles_duties(self):
+        v = self.sview("promotion")
+        letter = self.row(v, "employee:US:CA")["letter"]
+        self.assertEqual((letter["settingId"], letter["countersign"], letter["placement"]), ("s-ca-promo", "Their Manager", "page"))
+        self.assertEqual(letter["placementLabel"], "Its Own Page, After Promotion Letter")
+        self.assertEqual([d["signedBy"] for d in letter["documents"]], ["The Employee, then Their Manager", ""])
+        self.assertIn({"label": "Extra Questions For The Employee", "value": "None"}, v["advanced"])
+        self.assertEqual(self.row(v, "employee:US:CA")["jd"]["sourceLabel"], "2 Of 4 Roles Ready")
+        texts = [i["text"] for i in v["items"]]
+        self.assertIn("Admin Associate has no duties written, and the promotion letter prints them.", texts)
+        it = next(i for i in v["items"] if i["key"] == "duties:jr-admin")
+        self.assertEqual(it["target"], {"section": "promotion", "roleId": "jr-admin"})
+        self.assertEqual({s["key"]: s["chip"] for s in v["sections"]}["promotion"], v["chip"])
+        # The countersign rule is the existing one - nobody after the employee is a check item.
+        own = self.make_own(event="promotion", start="templates", doc_template_ids=["t-i9"])
+        self.assertEqual(own.status_code, 400)
+        self.assertIn("A promotion letter is countersigned", own.json()["detail"])
+
+    def test_the_list_shows_each_section(self):
+        by_id = {c["id"]: c for c in self.client.get("/hr/hiring-setup").json()["companies"]}
+        self.assertEqual([s["key"] for s in by_id[CO]["sections"]], ["hiring", "promotion", "offboarding"])
+        self.assertEqual(by_id[CO]["sections"][0]["chip"], by_id[CO]["chip"])
+        self.assertEqual({s["chip"] for s in by_id[NEW]["sections"]}, {"Not Started"})
+        gs = {s["key"]: s for s in by_id[GS]["sections"]}
+        self.assertEqual((gs["offboarding"]["status"], gs["offboarding"]["chip"]), ("left", "2 Things Left"))
+
+    def test_legal_name_and_address_come_apart(self):
+        about = next(a for a in self.view()["about"] if a["key"] == "legalAndAddress")
+        self.assertEqual((about["legalName"], about["address"]), ("Greens Test, LLC", "123 Main St, Fresno, CA 93721"))
+        self.assertEqual(about["value"], "Greens Test, LLC, 123 Main St, Fresno, CA 93721")
+
+
+class PromotionTests(SectionCase):
+    def _start(self, text, **kw):
+        body = {"inputs": {"change_type": "promotion", "role_id": "jr-sr", "effective_date": "2030-11-02",
+                           "reason": "Ran the close", "responsibilities": text, **kw}}
+        return self.client.post("/hr/employees/e-erin/promotion/start", json=body)
+
+    def test_accountant_to_senior_accountant(self):
+        r = self.client.get("/hr/employees/e-erin/promotion/options", params={"role_id": "jr-sr"})
+        self.assertEqual(r.status_code, 200, r.text)
+        o = r.json()
+        self.assertEqual((o["rowKey"], o["kind"]), ("employee:US:CA", "Employees In California"))
+        self.assertEqual(o["letter"], {"settingId": "s-ca-promo", "name": "s-ca-promo", "engine": "documents"})
+        lines = {x["key"]: x for x in o["whatTheyGet"]}
+        self.assertEqual((lines["jd"]["name"], lines["jd"]["sourceLabel"], lines["jd"]["tone"]),
+                         ("Senior Accountant - Full-Time Version", "Only For Full-Time Employees", "own"))
+        self.assertEqual(lines["signs"]["name"], "The Employee, then Their Manager")
+        self.assertEqual(o["duties"], {"roleId": "jr-sr", "text": "Lead the monthly close.", "versionId": "dv-ft",
+                                       "versionLabel": "Full-Time Employees - Anywhere", "placement": "page"})
+        self.assertEqual((o["blocked"], o["hrQuestions"]), ("", []))
+        r = self._start(o["duties"]["text"])
+        self.assertEqual(r.status_code, 200, r.text)
+        ev = self.ev(r.json()["id"])
+        self.assertEqual(ev.status, "review")                         # nothing for the employee to fill
+        self.assertEqual((ev.inputs["duty_version_id"], ev.inputs["role_description"]), ("dv-ft", "Lead the monthly close."))
+        self.assertEqual([d["templateId"] for d in ev.documents], ["t-promo", hpd.BUILTIN_JD_ID])
+        p = hpd.event_plan(self.db, ev, self.setting("s-ca-promo"), sender=HR, can_see_pay=True)
+        self.assertEqual([x["email"] for x in p["recipients"] if x["action"] == "sign"], [EMP, MGR])
+        # Edited for this letter only: printed as edited, the same version.
+        self.client.post(f"/hr/life-events/{ev.id}/void")
+        r = self._start("Lead the close and train two juniors.")
+        ev = self.ev(r.json()["id"])
+        self.assertEqual(ev.inputs["duty_version_id"], "dv-ft")
+        jd = self.db.query(models.Document).filter_by(life_event_id=ev.id, template_id=hpd.BUILTIN_JD_ID).first()
+        self.assertEqual(jd.merge_overrides["role_description"], "Lead the close and train two juniors.")
+        self.assertEqual(self.db.get(models.NexusGroup, "jr-sr").duty_versions[0]["text"], "Lead the monthly close.")
+        preview = self.client.post("/hr/employees/e-erin/promotion/preview", json={"inputs": {
+            "change_type": "promotion", "role_id": "jr-sr", "effective_date": "2030-11-02", "reason": "x",
+            "responsibilities": "Close."}}).json()
+        self.assertEqual(preview["documents"], ["Promotion Letter", "Job Description"])
+
+    def test_no_promotion_letter_never_blocks_change_role_now(self):
+        before = self.view(GS)["chip"]
+        o = self.client.get("/hr/employees/e-tex/promotion/options", params={"role_id": "jr-sr"}).json()
+        self.assertIsNone(o["letter"])
+        line = {x["key"]: x for x in o["whatTheyGet"]}["letter"]
+        self.assertEqual((line["name"], line["blocks"]), ("Nothing Yet For Employees In Texas", True))
+        self.assertEqual(line["fix"], {"action": "setUp", "target": {"entityId": GS, "section": "promotion",
+                                                                     "rowKey": "employee:US:TX", "column": "letter"}})
+        self.assertEqual(o["blocked"], "Set up a promotion letter first, or use Change Role Now.")
+        self.assertNotIn("signs", [x["key"] for x in o["whatTheyGet"]])
+        r = self.client.post("/hr/employees/e-tex/role", json={"role_id": "jr-sr", "reason": "Reorg"})
+        self.assertEqual(r.status_code, 200, r.text)
+        v = self.sview("promotion", GS)
+        self.assertIn("No promotion letter for Employees In Texas yet - Promote is off there, Change Role Now still works.",
+                      [i["text"] for i in v["items"]])
+        self.assertEqual(self.row(v, "employee:US:TX")["letter"]["sourceLabel"],
+                         "Promote is off here - Change Role Now still works")
+        self.assertEqual(self.view(GS)["chip"], before)                      # P5: hiring counts hiring only
+        self.assertFalse([i for i in self.view(GS)["items"] if "promotion" in i["text"]])
+        r = self.client.get("/hr/employees/e-tex/promotion/options", params={"role_id": "nope"}).json()
+        self.assertIsNone(r["duties"])
+        self.assertNotIn("jd", [x["key"] for x in r["whatTheyGet"]])
+        self.assertEqual(self.client.get("/hr/employees/nobody/promotion/options").status_code, 404)
+
+    def test_markers_on_promotion_and_separation(self):
+        r = self.client.put("/hr/hiring-setup/settings/s-ca-promo/documents", json={"doc_template_ids": ["@jd", "t-promo"]})
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self.client.put("/hr/hiring-setup/settings/s-ca-sep/documents", json={"doc_template_ids": ["t-sep", "@jd"]})
+        self.assertEqual((r.status_code, r.json()["detail"]),
+                         (400, "A separation package never carries the job description - take it out of this one."))
+        r = self.make_own(event="promotion", start="templates", doc_template_ids=["t-promo-resp", "@jd"])
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["settings"][0]["docTemplateIds"], ["t-promo-resp"])     # prints them inside
+        self.assertEqual([x["key"] for x in self.setting(r.json()["settingIds"][0]).flow], ["employee", "manager"])
+        old = models.HrPacketSetting(id="x", event="promotion", doc_template_ids=["t-promo"], extra_docs=[])
+        docs = [{"templateId": "t-jd-acct", "replaces": "@jd"}, {"templateId": "t-i9", "replaces": ""}]
+        self.assertEqual(hpd.template_ids_for(old, {"role_docs": docs, "role_description": "x"}, "promotion"), ["t-promo"])
+        self.assertEqual(hpd.template_ids_for(self.setting("s-ca-promo"), {"role_docs": docs, "role_description": "x"},
+                                              "promotion"), ["t-jd-acct", "t-promo"])
+        self.assertEqual(hpd.template_ids_for(self.setting("s-ca-sep"), {"department": "IT"}, "separation"), ["t-sep"])
+        self.assertEqual(hpd.event_values(self.db, "promotion", {"responsibilities": "Old."})["role_description"], "Old.")
+
+    def test_old_lookups_are_unchanged(self):
+        emp = self.db.get(models.NexusEmployee, "e-erin")
+        for event in ("promotion", "separation"):
+            self.assertEqual(hle.resolve_for_employee(self.db, emp, event, "jr-sr").id,
+                             hle.resolve_setting(self.db, CO, event, "employee", "jr-sr").id)
+        emp.country = "US"
+        self.assertEqual(hle.employee_place(self.db, emp), ("US", "CA"))
+        emp.country = "IN"            # works in India, the company only has a California letter
+        self.assertEqual(hle.employee_place(self.db, emp), ("IN", ""))
+        self.assertEqual(hle.resolve_for_employee(self.db, emp, "promotion", "").id, "s-ca-promo")
+        _setting(self.db, "s-in-promo", "promotion", ["t-promo"], country="IN", flow=PROMO_FLOW)
+        self.db.flush()
+        self.assertEqual(hle.resolve_for_employee(self.db, emp, "promotion", "").id, "s-in-promo")
+        self.db.rollback()
+
+    def test_use_the_same_names_promotions(self):
+        own = self.make_own(event="promotion").json()["settingIds"][0]
+        self.db.add(models.HrLifeEvent(id="ev-p", kind="promotion", status="review", entity_id=CO, setting_id=own,
+                                       created_at="2026-10-23"))
+        self.db.commit()
+        r = self.client.post("/hr/hiring-setup/use-same", json={"setting_id": own})
+        self.assertEqual(r.json()["detail"], "1 promotion is using this one right now. Try again once they finish.")
+        sep = self.make_own(event="separation").json()["settingIds"][0]
+        for i in (1, 2):
+            self.db.add(models.HrLifeEvent(id=f"ev-s{i}", kind="separation", status="review", entity_id=CO,
+                                           setting_id=sep, created_at="2026-10-23"))
+        self.db.commit()
+        r = self.client.post("/hr/hiring-setup/use-same", json={"setting_id": sep})
+        self.assertEqual(r.json()["detail"], "2 offboardings are using this one right now. Try again once they finish.")
+
+
+class OffboardingTests(SectionCase):
+    def _offboard(self, eid, send_package):
+        return self.client.post(f"/hr/employees/{eid}/offboard", json={
+            "inputs": {"last_day": "2030-06-30", "exit_type": "resignation", "send_package": send_package,
+                       "offboarding": {"mailboxAction": "remove"}}, "excluded_ack": True})
+
+    def test_with_and_without_a_package(self):
+        o = self.client.get("/hr/employees/e-erin/offboard/options").json()
+        self.assertEqual((o["canSendPackage"], o["package"]["settingId"], o["noPackageText"]), (True, "s-ca-sep", ""))
+        self.assertEqual({x["key"]: x["name"] for x in o["whatTheyGet"]}["signs"], "The Employee")
+        r = self._offboard("e-erin", True)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["status"], "review")
+        o = self.client.get("/hr/employees/e-tex/offboard/options").json()
+        self.assertEqual((o["canSendPackage"], o["package"]), (False, None))
+        self.assertEqual(o["noPackageText"], "No separation package is set up for Employees In Texas yet - the "
+                                             "offboarding still runs, without documents.")
+        line = o["whatTheyGet"][0]
+        self.assertEqual((line["tone"], line["blocks"], line["fix"]["target"]["column"]), ("missing", False, "package"))
+        r = self._offboard("e-tex", True)
+        self.assertEqual(r.status_code, 409)
+        r = self._offboard("e-tex", False)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.ev(r.json()["id"]).apply_status, "scheduled")
+        v = self.sview("offboarding", GS)
+        self.assertIn("No separation package for Employees In Texas yet - offboarding still runs, without documents.",
+                      [i["text"] for i in v["items"]])
+        self.assertEqual(self.row(v, "employee:US:TX")["package"]["sourceLabel"], "Offboarding runs without documents here")
+
+    def test_the_employee_fills_their_forwarding_details(self):
+        defs = [{"token": "forwarding_address", "source": "person", "label": "Forwarding Address", "type": "address"},
+                {"token": "forwarding_email", "source": "person", "label": "Forwarding Email", "type": "email",
+                 "required": True}]
+        meta = {"fieldDefs": defs, "signerRoles": [], "mergeOverrides": {}, "letterheadId": "", "requiresLetterhead": False}
+        self.db.add(models.DocTemplate(id="t-fwd", name="Forwarding", category="hr", status="active", version=1,
+                                       content=SEP_FWD, department="", published_version=1, published_meta=meta))
+        self.db.add(models.DocTemplateVersion(id="v-t-fwd", template_id="t-fwd", version_no=1, content=SEP_FWD))
+        self.db.query(models.HrPacketSetting).filter_by(id="s-ca-sep").update({"doc_template_ids": ["t-sep", "t-fwd"]})
+        self.db.commit()
+        r = self._offboard("e-erin", True)
+        self.assertEqual(r.status_code, 200, r.text)
+        ev = self.ev(r.json()["id"])
+        self.assertEqual((ev.status, ev.documents, len(self.tokens)), ("intake", [], 1))
+        import hr_life_email
+        self.assertEqual(hr_life_email.intake_email(self.db, ev, "x")[0],
+                         "A Few Details For Your Separation Package - Greens Test, LLC")
+        page = self.client.get(f"/hr/intake/public/{self.tokens[0]}").json()
+        self.assertEqual((page["fields"], page["kind"], page["afterOffer"], page["firstName"]), ([], "separation", False, "Erin"))
+        self.assertEqual([f["key"] for f in page["form"]], ["forwarding_address", "forwarding_email"])
+        r = self.client.post(f"/hr/intake/public/{self.tokens[0]}", json={"values": {"answers": {
+            "forwarding_address": "9 Elm St, Austin, TX 78701", "forwarding_email": "Erin.New@Example.com"}}})
+        self.assertEqual(r.status_code, 200, r.text)
+        ev = self.ev(ev.id)
+        emp = self.db.get(models.NexusEmployee, "e-erin")
+        self.assertEqual((emp.personal_email, emp.personal["currentAddress"]), ("erin.new@example.com", "9 Elm St, Austin, TX 78701"))
+        self.assertEqual((ev.status, ev.subject_name), ("review", "Erin Test"))
+        self.assertEqual([d["templateId"] for d in ev.documents], ["t-sep", "t-fwd"])
+
+
+class BuiltinJdTests(SectionCase):
+    def test_the_built_in_job_description_stays(self):
+        r = self.client.delete(f"/documents/templates/{hpd.BUILTIN_JD_ID}")
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("can't be archived or deleted", r.json()["detail"])
+        r = self.client.patch(f"/documents/templates/{hpd.BUILTIN_JD_ID}", json={"status": "archived"})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.DocTemplate, hpd.BUILTIN_JD_ID).status, "active")
 
 
 if __name__ == "__main__":

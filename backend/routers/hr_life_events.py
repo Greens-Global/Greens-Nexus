@@ -1137,6 +1137,24 @@ def send_promotion(eid: str, body: HirePacketIn, request: Request,
     return out
 
 
+@router.get("/employees/{eid}/promotion/options")
+def promotion_options(eid: str, role_id: str = "", user: dict = Depends(require_hr_write),
+                      db: Session = Depends(get_db)):
+    """The Promote form's What They Get card (Hiring Setup, Oct 23 2026) and
+    the new role's duties to prefill. An unknown role is not an error."""
+    import hiring_setup
+    from models import NexusGroup
+    try:
+        emp = hle._load_employee(db, eid, hr_scope(user, db))
+    except hle.PacketError as e:
+        _raise(e)
+    role = (db.query(NexusGroup).filter(NexusGroup.id == (role_id or "").strip(), NexusGroup.is_job_role == 1).first()
+            if (role_id or "").strip() else None)
+    if role is not None and (role.company_id or "") not in ("", emp.company or ""):
+        role = None
+    return hiring_setup.promotion_options(db, emp, role)
+
+
 class StartLetterIn(BaseModel):
     inputs:     Optional[dict] = None
     pay:        Optional[dict] = None
@@ -1302,6 +1320,18 @@ def cancel_role_change(rid: str, user: dict = Depends(get_current_user), db: Ses
 class SeparationIn(BaseModel):
     inputs:       Optional[dict] = None   # last_day, exit_type, reason, send_package, start_checklist, offboarding{}, merge{}
     excluded_ack: Optional[bool] = False
+
+
+@router.get("/employees/{eid}/offboard/options")
+def offboard_options(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """The Offboard form's What They Get card - whether a separation package
+    goes, and why not when none is set up (Oct 23 2026)."""
+    import hiring_setup
+    try:
+        emp = hle._load_employee(db, eid, hr_scope(user, db))
+    except hle.PacketError as e:
+        _raise(e)
+    return hiring_setup.offboard_options(db, emp)
 
 
 @router.post("/employees/{eid}/offboard/preview")
