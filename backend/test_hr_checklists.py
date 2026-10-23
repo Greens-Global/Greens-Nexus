@@ -95,7 +95,7 @@ class ChecklistTests(unittest.TestCase):
             for i, em in enumerate((HR, SCOPED, MANAGER, IT, HRC)):
                 db.add(models.NexusEmployee(id=f"staff-{i}", first_name="Staff", last_name=str(i),
                                             work_email=em, status="active", company=CO_A, deleted_at=""))
-            db.add(models.NexusSetting(key=hc.OWNERS_KEY, value='{"it": "%s"}' % IT))
+            db.add(models.HrDepartment(id="d-it-a", company_id=CO_A, name="IT", lead_email=IT))   # IT steps' owner
             db.commit()
         finally:
             db.close()
@@ -130,6 +130,22 @@ class ChecklistTests(unittest.TestCase):
 
     def _row(self, cl, key):
         return next(i for i in cl["items"] if i["key"] == key)
+
+    def _dept(self, did, name, lead="", backup="", company=CO_A):
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrDepartment(id=did, company_id=company, name=name, lead_email=lead, backup_email=backup))
+            db.commit()
+        finally:
+            db.close()
+
+    def _set_dept(self, did, **fields):
+        db = database.SessionLocal()
+        try:
+            db.query(models.HrDepartment).filter_by(id=did).update(fields)
+            db.commit()
+        finally:
+            db.close()
 
     def test_us_employee_rows_and_owners(self):
         cl = self._start(self._person())
@@ -383,7 +399,7 @@ class ChecklistTests(unittest.TestCase):
         on = self._start(eid)
         self.assertIn("ACC-ON", [i["key"] for i in on["items"]])
 
-    def test_old_owners_read_as_accounting_and_it(self):
+    def test_old_roles_read_as_accounting_and_it_and_old_owner_lists_are_retired(self):
         db = database.SessionLocal()
         try:
             db.add(models.HrChecklistTemplate(id="t-old", kind="onboarding", entity_id=CO_B, role_id="", name="Old",
@@ -396,9 +412,19 @@ class ChecklistTests(unittest.TestCase):
         tpl = next(t for t in self.client.get(f"/hr/checklists/templates?entity_id={CO_B}").json()["templates"]
                    if t["kind"] == "onboarding")
         self.assertEqual([i["owner"] for i in tpl["items"]], ["accounting", "it"])
-        self.assertEqual(self.client.get(f"/hr/checklists/owners?entity_id={CO_B}").json()["effective"]["accounting"], [HRC])
+        # Neil, Oct 22 4:41-5:42: no people list inside checklists - the old one is kept, never read.
+        got = self.client.get(f"/hr/checklists/owners?entity_id={CO_B}").json()
+        self.assertNotIn("accounting", got["effective"])
+        self.assertFalse({"owners", "legacy"} & set(got))
         cl = self._start(self._person("emp-b", company=CO_B))
-        self.assertEqual((self._row(cl, "O-1")["ownerRole"], self._row(cl, "O-1")["ownerEmail"]), ("accounting", HRC))
+        self.assertEqual((self._row(cl, "O-1")["ownerRole"], self._row(cl, "O-1")["ownerEmail"]), ("accounting", ""))
+        r = self.client.put(f"/hr/checklists/owners?entity_id={CO_B}", json={"owners": {"accounting": HRC}})
+        self.assertEqual(r.status_code, 410)
+        db = database.SessionLocal()
+        try:
+            self.assertIsNotNone(db.query(models.NexusSetting).filter_by(key=hc.OWNERS_KEY + CO_B).first())
+        finally:
+            db.close()
         self.assertEqual(self._row(cl, "O-2")["ownerRoleLabel"], "IT")
         meta = self.client.get("/hr/checklists/meta").json()
         self.assertEqual([r["value"] for r in meta["roles"]], ["hr", "manager", "employee", "it", "accounting"])
@@ -487,7 +513,8 @@ class ChecklistTests(unittest.TestCase):
         cl = self._start(self._person("emp-late", company=CO_B))      # CO_B has no Accounting owner yet
         blank = [i for i in cl["items"] if i["ownerRole"] == "accounting"]
         self.assertTrue(blank and not any(i["ownerEmail"] for i in blank))
-        r = self.client.put(f"/hr/checklists/owners?entity_id={CO_B}", json={"owners": {"accounting": HRC}})
+        self._dept("d-acc-b", "Bookkeeping", lead=HRC, company=CO_B)
+        r = self.client.put(f"/hr/checklists/owner-departments?entity_id={CO_B}", json={"departments": {"accounting": "d-acc-b"}})
         self.assertEqual(r.status_code, 200, r.text)
         rows, subs, parents = self._tasks_of(cl["id"], HRC)
         self.assertEqual(len(rows), len(blank))
@@ -572,9 +599,7 @@ class ChecklistTests(unittest.TestCase):
             db.close()
 
     def test_several_owners_share_one_task_and_any_of_them_closes_the_step(self):
-        r = self.client.put(f"/hr/checklists/owners?entity_id={CO_A}", json={"owners": {"it": [IT, HRC]}})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["owners"]["it"], [IT, HRC])
+        self._set_dept("d-it-a", backup_email=HRC)            # the IT head and their backup
         cl = self._start(self._person())
         it_rows = [i for i in cl["items"] if i["ownerRole"] == "it"]
         self.assertTrue(it_rows)
@@ -599,7 +624,7 @@ class ChecklistTests(unittest.TestCase):
         _as(HR)
         manual = it_rows[1]["id"]                              # one HR handed to the manager by hand
         self.client.patch(f"/hr/checklists/items/{manual}", json={"owner_email": MANAGER})
-        r = self.client.put(f"/hr/checklists/owners?entity_id={CO_A}", json={"owners": {"it": [HRC]}})
+        r = self.client.patch(f"/hr/entities/{CO_A}/departments/d-it-a", json={"lead_email": HRC})   # a new IT head
         self.assertEqual(r.status_code, 200, r.text)
         moved = [self._step(i["id"]) for i in it_rows[2:]]
         self.assertTrue(moved and all(m.owner_email == HRC for m in moved))
@@ -1067,6 +1092,7 @@ class ChecklistTests(unittest.TestCase):
 
     def test_a_template_edit_reaches_open_checklists_and_their_tasks(self):
         url = f"/hr/checklists/templates/onboarding?entity_id={CO_B}"
+        self._dept("d-it-b", "IT", lead=IT, company=CO_B)
         row = lambda k, t, **x: {"key": k, "title": t, "owner": "manager", "anchor": "S", "offset": 0, **x}  # noqa: E731
         self.client.put(url, json={"items": [row("A", "Desk Ready"), row("B", "Buddy Named"), row("C", "Parking Pass")]})
         cl = self._start(self._person("emp-live", company=CO_B))
@@ -1337,14 +1363,8 @@ class DepartmentOwnerTests(unittest.TestCase):
     _person = ChecklistTests._person
     _start = ChecklistTests._start
     _row = ChecklistTests._row
-
-    def _dept(self, did, name, lead="", backup="", company=CO_A):
-        db = database.SessionLocal()
-        try:
-            db.add(models.HrDepartment(id=did, company_id=company, name=name, lead_email=lead, backup_email=backup))
-            db.commit()
-        finally:
-            db.close()
+    _dept = ChecklistTests._dept
+    _set_dept = ChecklistTests._set_dept
 
     def _owners(self, row):
         return sorted(e.strip() for e in (row.get("ownerEmails") or row["ownerEmail"]).split(",") if e.strip()) \
@@ -1352,10 +1372,23 @@ class DepartmentOwnerTests(unittest.TestCase):
 
     def test_head_and_backup_own_department_steps(self):
         self._dept("d-hr", "Human Resources", lead=HR, backup=SCOPED)
-        self._dept("d-it", "IT", lead=MANAGER)
+        self._set_dept("d-it-a", lead_email=MANAGER)
         cl = self._start(self._person())
         self.assertEqual(self._owners(self._row(cl, "ON-20")), sorted([HR, SCOPED]))   # beats the HR contact
-        self.assertEqual(self._owners(self._row(cl, "ON-12")), [MANAGER])               # beats the old IT owner list
+        self.assertEqual(self._owners(self._row(cl, "ON-12")), [MANAGER])
+        # the packet signer for "HR" is the HR head too, then its backup, then the HR contact
+        db = database.SessionLocal()
+        try:
+            ent = db.query(models.HrEntity).filter_by(id=CO_A).one()
+            self.assertEqual(hc.resolve_owner(db, "hr", None, hc.role_owners(db, CO_A), ent), HR)
+            db.query(models.NexusEmployee).filter_by(work_email=HR).update({"status": "offboarded"})
+            db.commit()
+            self.assertEqual(hc.resolve_owner(db, "hr", None, hc.role_owners(db, CO_A), ent), SCOPED)
+            db.query(models.NexusEmployee).filter_by(work_email=SCOPED).update({"status": "offboarded"})
+            db.commit()
+            self.assertEqual(hc.resolve_owner(db, "hr", None, hc.role_owners(db, CO_A), ent), HRC)
+        finally:
+            db.close()
 
     def test_nobody_set_goes_to_the_global_admins(self):
         db = database.SessionLocal()

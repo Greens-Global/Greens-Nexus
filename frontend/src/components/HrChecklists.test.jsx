@@ -57,7 +57,7 @@ vi.mock('../api', () => ({
       projects: [{ id: 'p-hr', name: '#General - Human Resources', sections: [] }, { id: 'p-new', name: 'People Ops', sections: [{ id: 's-1', name: 'New Hires' }] }] })),
     saveChecklistTaskPlace: vi.fn((entityId, d) => Promise.resolve({ place: d.place, auto: null, effective: {}, openTasks: [], projects: [], moved: 2 })),
     getChecklistBoard: vi.fn(() => Promise.resolve({ rows: BOARD })),
-    getChecklistOwners: vi.fn(() => Promise.resolve({ owners: { it: 'it@greensglobal.com' }, effective: { it: 'it@greensglobal.com' }, hrContact: '' })),
+    getChecklistOwners: vi.fn(() => Promise.resolve({ effective: { it: ['it@greensglobal.com'] }, hrContact: '' })),
     copyChecklistTemplates: vi.fn(() => Promise.resolve({ copied: 1, kinds: ['onboarding'], companies: ['co-a'] })),
     saveChecklistTemplate: vi.fn((kind, entityId, d) => Promise.resolve({ id: 't1', kind, kindLabel: 'Onboarding', name: 'Onboarding', entityId, inherited: false, updatedAt: 'z', items: d.items, openUpdated: 2 })),
     copyRoleChecklist: vi.fn(() => Promise.resolve({ roleId: 'r-acct', roleName: 'Accounting Associate', companyName: 'Greens', copied: 2, templates: [
@@ -239,7 +239,7 @@ describe('ChecklistChip', () => {
 describe('Who does each step', () => {
   it('shows each department head and backup, and warns where nobody covers', async () => {
     api.getChecklistOwners.mockResolvedValueOnce({
-      owners: {}, effective: { hr: ['head@greensglobal.com'] }, hrContact: '', legacy: {},
+      effective: { hr: ['head@greensglobal.com'] }, hrContact: '',
       globalAdmins: ['owner@greensglobal.com'],
       departmentChoices: [{ id: 'd-hr', name: 'Human Resources' }, { id: 'd-it', name: 'IT' }],
       departments: {

@@ -82,7 +82,8 @@ class PacketDocsTests(unittest.TestCase):
         db = database.SessionLocal()
         for m in (models.HrPacketSetting, models.DocTemplate, models.DocTemplateVersion, models.Document,
                   models.HrCandidate, models.NexusEmployee, models.HrEntity, models.NexusRole, models.NexusGroup,
-                  models.NexusGroupMember, models.NexusSetting, models.HrLifeEvent, models.HrSignRequest):
+                  models.NexusGroupMember, models.NexusSetting, models.HrLifeEvent, models.HrSignRequest,
+                  models.HrDepartment):
             db.query(m).delete()
         db.add(models.HrEntity(id=CO, name="Greens Test", legal_name="Greens Test, LLC", hr_contact_email=HR, country="US",
                                signatory="Neil Owner, CEO", signatory_email=NEIL))
@@ -273,7 +274,7 @@ class PacketDocsTests(unittest.TestCase):
     def test_roles_resolve_like_the_checklists(self):
         db = database.SessionLocal()
         try:
-            db.add(models.NexusSetting(key=hc.OWNERS_KEY + CO, value='{"payroll": "pat.people@greensglobal.com"}'))
+            db.add(models.HrDepartment(id="d-acct", company_id=CO, name="Accounting", lead_email=PLAIN))
             db.commit()
             emp = db.query(models.NexusEmployee).filter_by(work_email=MGR).first()
             emp.manager_email = HR

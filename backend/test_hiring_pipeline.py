@@ -737,6 +737,28 @@ class DecisionTests(PipelineCase):
         hr.update_candidate(self.cid, hr.CandidateUpdate(stage="rejected"), user=HR_USER, db=self.db)
         self.assertTrue(self._task().completed)
 
+    def test_the_backup_then_the_global_admins_decide_when_the_head_is_gone(self):
+        # Neil, Oct 22 6:52: department head + backup, a Global Admin as the stop gap.
+        import hiring_decision as hd
+        import hiring_screening as hs
+        backup = "backup@greensglobal.com"
+        self.db.add(models.NexusEmployee(id="e-bk", work_email=backup, first_name="Bea", last_name="Kup",
+                                         company=ENT, status="active"))
+        self.db.query(models.HrDepartment).filter_by(id="d-acct").update({"backup_email": backup})
+        self.db.query(models.NexusEmployee).filter_by(id="e-head").update({"status": "offboarded"})
+        self.db.commit()
+        cand = self._stage(self.cid)
+        self.assertEqual((hs.department_head(self.db, cand), hd.decider(self.db, cand)), (backup, backup))
+        self.db.query(models.NexusEmployee).filter_by(id="e-bk").update({"status": "offboarded"})
+        self.db.add(models.NexusRole(email=NEIL, role="owner"))
+        self.db.commit()
+        try:
+            self.assertEqual(hs.department_head(self.db, cand), "")
+            self.assertEqual(hd.decider(self.db, cand), NEIL)          # never nobody
+        finally:
+            self.db.query(models.NexusRole).delete()
+            self.db.commit()
+
     def test_parse_vote(self):
         from hiring_decision import parse_vote
         for text, want in (("Yes - great", "yes"), ("yes.", "yes"), ("Hire", "yes"), ("\U0001F44D", "yes"),

@@ -45,8 +45,10 @@ def _person(db: Session, email: str) -> Optional[models.NexusEmployee]:
 
 def department_head(db: Session, cand: models.HrCandidate) -> str:
     """Who runs the department the role belongs to: the department's lead for
-    the hiring company (Company Settings > Departments), else the role's
-    default manager."""
+    the hiring company (Company Settings > Departments), else its backup, else
+    the role's default manager - the same head -> backup order as checklist
+    steps (Neil, Oct 22 6:52)."""
+    import hr_checklists as hc
     dept = (cand.department or "").strip().lower()
     role = (db.query(models.NexusGroup).filter(models.NexusGroup.id == cand.role_id).first()
             if cand.role_id else None)
@@ -54,8 +56,9 @@ def department_head(db: Session, cand: models.HrCandidate) -> str:
         dept = role.department.strip().lower()
     if dept and cand.company:
         for d in db.query(models.HrDepartment).filter(models.HrDepartment.company_id == cand.company).all():
-            if (d.name or "").strip().lower() == dept and _person(db, d.lead_email):
-                return d.lead_email.strip().lower()
+            people = hc.active_people(db, [d.lead_email, d.backup_email]) if (d.name or "").strip().lower() == dept else []
+            if people:
+                return people[0]
     if role is not None and _person(db, role.default_manager_email):
         return role.default_manager_email.strip().lower()
     return ""

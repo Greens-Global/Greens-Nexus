@@ -786,26 +786,23 @@ def save_task_place(body: PlaceIn, entity_id: str = "", user: dict = Depends(req
 @router.get("/owners")
 def get_owners(entity_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """Who owns HR / IT / Accounting steps at a company, and why: the
-    department playing each part (its head and backup), what Nexus falls back
-    to when that department has nobody active, and the Global Admins at the end
-    of the line (Neil, Oct 22)."""
+    department playing each part (its head and backup), the HR contact and the
+    Global Admins at the end of the line (Neil, Oct 22)."""
     scope = hr_scope(user, db)
     if entity_id and scope is not None and entity_id not in scope:
         raise HTTPException(404, "Company not found")
-    own = hc.owners_setting(hc._setting_json(db, hc.OWNERS_KEY + (entity_id or "")))
     ent = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
     depts = hc.owner_departments(db, entity_id)
     picked = hc._setting_json(db, hc.DEPTS_KEY + entity_id) if entity_id else {}
     choices = (db.query(HrDepartment).filter(HrDepartment.company_id == entity_id)
                .order_by(HrDepartment.sort_order, HrDepartment.name).all() if entity_id else [])
-    return {"owners": own, "effective": hc.role_owners(db, entity_id),
+    return {"effective": hc.role_owners(db, entity_id),
             "hrContact": (ent.hr_contact_email if ent else "") or "",
             "departments": {r: {"id": d.id, "name": d.name, "leadEmail": d.lead_email or "",
                                 "backupEmail": d.backup_email or "", "picked": picked.get(r) == d.id,
                                 "active": hc.active_people(db, [d.lead_email, d.backup_email])}
                             for r, d in depts.items()},
             "departmentChoices": [{"id": d.id, "name": d.name} for d in choices],
-            "legacy": hc.legacy_owners(db, entity_id),
             "globalAdmins": hc.global_admins(db)}
 
 
@@ -843,41 +840,13 @@ def save_owner_departments(body: OwnerDeptsIn, entity_id: str = "",
     return get_owners(entity_id, user, db)
 
 
-class OwnersIn(BaseModel):
-    owners: dict
-
-
 @router.put("/owners")
-def save_owners(body: OwnersIn, entity_id: str = "", background: BackgroundTasks = None,
-                user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    entity_id = _entity_for_settings(db, entity_id, user)
-    clean = {}
-    for role, emails in (body.owners or {}).items():
-        if role not in ("hr", "it", "accounting"):
-            raise HTTPException(400, f"{role} is set per person, not per company")
-        found = [_directory_email(db, em) for em in hc.email_list(emails)]   # several per role (Oct 20)
-        if found:
-            clean[role] = list(dict.fromkeys(found))
-    key = hc.OWNERS_KEY + entity_id
-    row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
-    if row is None:
-        row = NexusSetting(key=key)
-        db.add(row)
-    row.value, row.updated_by, row.updated_at = json.dumps(clean), user["email"], hc._now()
-    db.flush()
-    # Open checklists waiting on an owner get them now, and their tasks, rather
-    # than at the overnight pass (Pranshu, Oct 20). '' = the default, every company.
-    q = db.query(HrChecklist).filter(HrChecklist.status == "open")
-    if entity_id:
-        q = q.filter(HrChecklist.company == entity_id)
-    created = []
-    for cl in q.all():
-        if hc.sync(db, cl):
-            db.flush()
-            created += hc.sync_tasks(db, cl, by=user["email"])
-    db.commit()
-    _send_task_emails(background, created, user["email"])
-    return {"owners": clean, "effective": hc.role_owners(db, entity_id)}
+def save_owners(user: dict = Depends(require_hr_write)):
+    """Retired Oct 23: no people list is kept inside checklists any more (Neil,
+    Oct 22 4:41-5:42) - steps go to the department head and backup. The old
+    lists stay in nexus_settings; nothing reads them."""
+    raise HTTPException(410, "Step owners are now each department's head and backup - "
+                             "set them in Company Settings > Departments.")
 
 
 # --- A job role's own steps (Neil, Oct 19) -----------------------------------

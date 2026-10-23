@@ -103,6 +103,8 @@ function openTask(taskId) {
 }
 // A step's automatic conditions, joined by "|" (hr_checklists.SIG_SEP) - any one ticks it.
 const sigList = s => (s || '').split('|').map(x => x.trim()).filter(Boolean);
+// A backup co-owner owns the step too (ownerEmails), not only the first owner.
+const ownsStep = (s, me) => (s.ownerEmails || [s.ownerEmail]).includes(me);
 function ownerText(s) {
   if (s.ownerEmail) return s.ownerName || s.ownerEmail;
   return null;
@@ -368,10 +370,10 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
     return out;
   }, [cl.items]);
   const currentIdx = phasesAll.findIndex(p => p.steps.some(s => !isClosed(s)));
-  const match = s => filter === 'all' ? true : filter === 'open' ? !isClosed(s) : filter === 'overdue' ? s.overdue : (me && s.ownerEmail === me && !isClosed(s));
+  const match = s => filter === 'all' ? true : filter === 'open' ? !isClosed(s) : filter === 'overdue' ? s.overdue : (me && ownsStep(s, me) && !isClosed(s));
   const phases = phasesAll.map(p => ({ ...p, steps: p.steps.filter(match) })).filter(p => p.steps.length);
   const weekDue = cl.items.filter(s => { const d = daysFromToday(s.dueDate); return !isClosed(s) && !s.overdue && d !== null && d <= 7; }).length;
-  const mine = me ? cl.items.filter(s => s.ownerEmail === me && !isClosed(s)).length : 0;
+  const mine = me ? cl.items.filter(s => ownsStep(s, me) && !isClosed(s)).length : 0;
   const anchorDays = daysFromToday(cl.anchorDate);
 
   function onStepChanged(item, checklistStatus, okMsg) {
@@ -489,7 +491,7 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
                 renderStep={s => (
                   <StepRow key={s.id} step={s} canEdit={canEdit && cl.status !== 'cancelled'} people={people}
                     roleOwners={cl.roleOwners?.[s.ownerRole] || []}
-                    canAct={cl.status !== 'cancelled' && (canEdit || (!!me && (s.ownerEmails || [s.ownerEmail]).includes(me)))}
+                    canAct={cl.status !== 'cancelled' && (canEdit || (!!me && ownsStep(s, me)))}
                     onChanged={onStepChanged} toastErr={toastErr} />
                 )} />
             );
@@ -951,8 +953,8 @@ function SaveBar({ label, busy, onDiscard, onSave, saveText }) {
 // Neil, Oct 22: "integrate role owners with department heads in departments in
 // settings" - one company setup, applied everywhere. HR / IT / Accounting
 // steps go to the head AND backup of the department playing that part; with
-// nobody active there, to the old owner list, the HR contact, then the Global
-// Admins. This card says who that is right now and what is missing.
+// nobody active there, HR steps to the HR contact, then everything to the
+// Global Admins. This card says who that is right now and what is missing.
 function DepartmentOwnersCard({ entityId, people, onOpenDepartments, toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState('');
@@ -988,8 +990,7 @@ function DepartmentOwnersCard({ entityId, people, onOpenDepartments, toastOk, to
           const look = ROLE_LOOK[role];
           const d = data.departments?.[role];
           const active = d?.active || [];
-          const effective = [].concat(data.effective?.[role] || []);
-          const fallback = effective.length ? effective : role === 'hr' && data.hrContact ? [data.hrContact] : [];
+          const fallback = role === 'hr' && data.hrContact ? [data.hrContact] : [];
           const warn = !d ? `No ${look.label} department` : !d.leadEmail ? 'No department head'
             : !active.length ? 'Head and backup are not active' : !d.backupEmail ? 'No backup' : '';
           return (

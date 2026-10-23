@@ -60,7 +60,7 @@ ROLE_LABELS = {"hr": "HR", "manager": "Manager", "employee": "Employee", "it": "
 LEGACY_ROLES = {"payroll": "accounting", "finance": "accounting", "equipment": "it"}
 KIND_LABELS = {"onboarding": "Onboarding", "promotion": "Promotion", "offboarding": "Offboarding",
                "inactive": "Leave or Suspension"}
-OWNERS_KEY = "hr_checklist_owners:"   # + entity id ('' = default) -> {"it": email, ...}
+OWNERS_KEY = "hr_checklist_owners:"   # pre-Oct 22 Role Owners lists: retired Oct 23, the rows stay, nothing reads them
 # Neil, Oct 22: "integrate role owners with department heads in departments in
 # settings... when you set up your company for the very first time, you are
 # saying who is the head of each... there needs to be a backup also", and "if
@@ -288,17 +288,6 @@ def email_list(v) -> list:
     return list(dict.fromkeys(e.strip().lower() for e in vals if e and str(e).strip()))
 
 
-def owners_setting(raw: dict) -> dict:
-    """A saved owners setting in today's roles, each role a LIST of people
-    (several owners per role, Pranshu Oct 20): a pre-Oct 19 Payroll / Finance
-    person owns Accounting, an Equipment person IT - unless that is set."""
-    out = {k: email_list(v) for k, v in (raw or {}).items() if email_list(v) and k not in LEGACY_ROLES}
-    for old, new in LEGACY_ROLES.items():
-        if email_list((raw or {}).get(old)) and not out.get(new):
-            out[new] = email_list(raw[old])
-    return out
-
-
 def _setting_json(db, key: str) -> dict:
     row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
     try:
@@ -338,25 +327,13 @@ def owner_departments(db, entity_id: str) -> dict:
     return out
 
 
-def legacy_owners(db, entity_id: str) -> dict:
-    """{role: [emails]} from the pre-Oct 22 Role Owners lists (the default,
-    then the company's) - only a fallback now, for a company whose department
-    has nobody active at its head."""
-    out = {}
-    for key in (OWNERS_KEY, OWNERS_KEY + (entity_id or "")):
-        raw = _setting_json(db, key)
-        if raw:
-            out.update(owners_setting(raw))
-        if not entity_id:
-            break
-    return out
-
-
 def role_owners(db, entity_id: str) -> dict:
     """{role: [emails]} for HR / IT / Accounting at this company: the
-    department's head and backup (whoever of them is active), else the old
-    Role Owners list. Empty roles fall back further in resolve_owners."""
-    out = legacy_owners(db, entity_id)
+    department's head and backup (whoever of them is active). ONE setup, no
+    people list kept inside checklists (Neil, Oct 22 4:41-5:42, 35:07): an
+    empty role falls back in resolve_owners to the HR contact, then the
+    Global Admins."""
+    out = {}
     for role, d in owner_departments(db, entity_id).items():
         people = active_people(db, [d.lead_email, d.backup_email])
         if people:
@@ -372,15 +349,16 @@ def global_admins(db) -> list:
 
 def resolve_owner(db, role: str, emp: NexusEmployee, owners: dict, entity: HrEntity) -> str:
     """ONE person for a role - the packet signing flows' signer. HR is the
-    company's HR contact first."""
+    HR department's head (else its backup), then the company's HR contact."""
     role = norm_role(role)
     if role == "employee":
         return (emp.work_email or "").lower()
     if role == "manager":
         return (emp.manager_email or "").lower()
-    if role == "hr" and entity is not None and entity.hr_contact_email:
-        return entity.hr_contact_email.lower()
-    return next(iter(email_list(owners.get(role))), "")
+    found = email_list(owners.get(role))
+    if not found and role == "hr" and entity is not None:
+        found = email_list(entity.hr_contact_email)
+    return next(iter(found), "")
 
 
 def resolve_owners(db, role: str, emp: NexusEmployee, owners: dict, entity: HrEntity) -> list:
