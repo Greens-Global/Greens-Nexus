@@ -85,6 +85,11 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(self.b(status="recurring", due_on="2026-11-01"), "recurring")
         self.assertEqual(self.b(recurrence={}, due_on="2026-11-01"), "focus")   # no freq = one-off
 
+    def test_a_malformed_recurrence_is_no_rule_not_a_crash(self):
+        # A crash here would be caught by safe() and read as a believable 0.
+        self.assertEqual(self.b(recurrence="weekly", due_on="2026-11-01"), "focus")
+        self.assertEqual(self.b(recurrence=["weekly"], due_on=""), "undated")
+
 
 class EndpointTests(unittest.TestCase):
     def setUp(self):

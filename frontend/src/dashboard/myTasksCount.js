@@ -2,11 +2,13 @@
 // in the next 30 days - backend my_work.task_focus_bucket, Neil Oct 23 2026);
 // the line under it names what was left out: "+12 with no due date,
 // +8 recurring". Null when nothing was, so the tile keeps its usual hint.
-export function myTasksFootnote(kpis) {
+// `short` is the narrow-tile wording ("+12 undated, +8 recurring"), so a
+// phone's half-width tile does not cut the recurring part off.
+export function myTasksFootnote(kpis, short = false) {
   const parts = [];
   const undated = Number(kpis?.my_open_tasks_undated) || 0;
   const recurring = Number(kpis?.my_open_tasks_recurring) || 0;
-  if (undated > 0) parts.push(`+${undated} with no due date`);
+  if (undated > 0) parts.push(short ? `+${undated} undated` : `+${undated} with no due date`);
   if (recurring > 0) parts.push(`+${recurring} recurring`);
   return parts.length ? parts.join(', ') : null;
 }

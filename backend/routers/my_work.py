@@ -137,7 +137,10 @@ FOCUS_DAYS = 30
 
 def is_recurring(t) -> bool:
     """A repeating task's open occurrence - the daily briefing's test."""
-    return t.status == "recurring" or bool((t.recurrence or {}).get("freq"))
+    # A malformed recurrence (a string or list from an import) is no rule -
+    # never an AttributeError that safe() would turn into a believable 0.
+    rec = t.recurrence if isinstance(t.recurrence, dict) else {}
+    return t.status == "recurring" or bool(rec.get("freq"))
 
 
 def task_focus_bucket(t, today: str) -> str:

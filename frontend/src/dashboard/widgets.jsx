@@ -76,7 +76,7 @@ const C = (name) => `hsl(var(--color-${name}))`;
 // Every KPI the /dashboards/kpis endpoint can return, with how to present it.
 export const KPI_CATALOG = {
   open_tasks:           { label: 'Open Tasks',              color: 'blue',   Icon: ListTodo,      hint: 'Across your team',     nav: { view: 'tasks' } },
-  my_open_tasks:        { label: 'My Open Tasks',           color: 'blue',   Icon: ListTodo,      hint: 'Due in the next 30 days', nav: { view: 'tasks' } },
+  my_open_tasks:        { label: 'My Open Tasks',           color: 'blue',   Icon: ListTodo,      hint: 'Due soon or in progress', nav: { view: 'tasks' } },
   pending_requisitions: { label: 'Requisitions to Approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'myhr', sub: 'purchase' } },
   pending_inventory:    { label: 'Inventory Requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'inventory', sub: 'checkouts' } },
   open_purchases:       { label: 'Open Purchases',          color: 'purple', Icon: Package,       hint: 'In progress',          nav: { view: 'myhr', sub: 'purchase' } },
@@ -140,7 +140,7 @@ export function DashCard({ title, sub, action, children, onClick, style }) {
 // Stat tile - the DeskHome dk-stat anatomy (tinted icon chip top-left, hover
 // arrow top-right, big tabular numeral) so Home and the custom grid read as
 // ONE design world. The old corner watercolor blob is gone on purpose.
-function StatCard({ label, value, color, Icon, nav, hint, hero, onClick, tip, noted }) {
+function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onClick, tip, noted }) {
   const go = onClick || (() => nav && navigate(nav.view, nav.sub));
   const clickable = !!(onClick || nav);
   const I = Icon || BarChart3;
@@ -156,7 +156,9 @@ function StatCard({ label, value, color, Icon, nav, hint, hero, onClick, tip, no
       </span>
       <span className="dk-stat-num">{value}</span>
       <span className="dk-stat-label">{label}</span>
-      {hint && <span className="dk-stat-sub">{hint}</span>}
+      {hint && <span className="dk-stat-sub">{hintShort
+        ? <><span className="dk-sub-long">{hint}</span><span className="dk-sub-short">{hintShort}</span></>
+        : hint}</span>}
     </div>
   );
 }
@@ -168,7 +170,7 @@ function KpiWidget({ config, kpis }) {
   const meta = KPI_CATALOG[config?.metric] || { label: 'Metric', color: 'blue', Icon: BarChart3 };
   const onClick = config?.metric === 'unread_notifications' ? openPanel : undefined;
   const note = config?.metric === 'my_open_tasks' ? myTasksFootnote(kpis) : null;
-  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={note || meta.hint} hero={!!config?.hero} onClick={onClick}
+  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={note || meta.hint} hintShort={note ? myTasksFootnote(kpis, true) : undefined} hero={!!config?.hero} onClick={onClick}
     tip={config?.metric === 'my_open_tasks' ? `${meta.label} - ${MY_TASKS_RULE}${note ? `. ${note}` : ''}` : undefined} noted={!!note} />;
 }
 
@@ -1171,7 +1173,7 @@ export const WIDGETS = {
   // "Unknown widget" card, never a crash.
   // Shown as "Action Required" since Oct 23 2026 (Neil): Tasks has its own
   // My Day list now. The key stays 'my-day' - saved boards point at it.
-  'my-day':        { title: 'Action Required', cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyDayWidget },
+  'my-day':        { title: 'Action Required', aka: ['My Day'], cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyDayWidget },
   'my-work':       { title: 'My Work',       cat: 'Workday', icon: Briefcase,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyWorkWidget },
   // My Time (Oct 8, Neil): the simple punch tile - status, Punch In / Out /
   // Start Break / End Break, today's hours; the card opens Workday for the

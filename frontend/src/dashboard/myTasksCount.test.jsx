@@ -25,6 +25,9 @@ describe('myTasksFootnote', () => {
     expect(myTasksFootnote({ my_open_tasks_undated: 3 })).toBe('+3 with no due date');
     expect(myTasksFootnote({ my_open_tasks_recurring: 1 })).toBe('+1 recurring');
   });
+  it('has a short form for a narrow tile', () => {
+    expect(myTasksFootnote({ my_open_tasks_undated: 112, my_open_tasks_recurring: 18 }, true)).toBe('+112 undated, +18 recurring');
+  });
   it('is null when nothing was left out, or the server is older', () => {
     expect(myTasksFootnote({ my_open_tasks_undated: 0, my_open_tasks_recurring: 0 })).toBeNull();
     expect(myTasksFootnote({})).toBeNull();
@@ -45,11 +48,12 @@ describe('My Open Tasks on the grid', () => {
     const tile = document.querySelector('.dk-stat');
     expect(tile.classList.contains('dk-stat--noted')).toBe(true);
     expect(tile.getAttribute('title')).toBe(`My Open Tasks - ${MY_TASKS_RULE}. +12 with no due date, +8 recurring`);
+    expect(tile.querySelector('.dk-sub-short').textContent).toBe('+12 undated, +8 recurring');
   });
 
   it('keeps the plain hint when nothing was left out', () => {
     mount({ my_open_tasks: 2 });
-    expect(screen.getByText('Due in the next 30 days')).toBeTruthy();
+    expect(screen.getByText('Due soon or in progress')).toBeTruthy();
     expect(document.querySelector('.dk-stat').classList.contains('dk-stat--noted')).toBe(false);
   });
 
@@ -69,12 +73,13 @@ describe('Open Tasks on Home', () => {
   });
   it('says what the number covers when nothing was left out', async () => {
     render(<DeskHome kpis={{ my_open_tasks: 3 }} notifications={[]} />);
-    expect(await screen.findByText('Due in the next 30 days')).toBeTruthy();
+    expect(await screen.findByText('Due soon or in progress')).toBeTruthy();
   });
 });
 
 describe('Action Required tile', () => {
   it('is the old My Day widget under its new name, same key', () => {
     expect(WIDGETS['my-day'].title).toBe('Action Required');
+    expect(WIDGETS['my-day'].aka).toContain('My Day');   // the gallery search still finds it
   });
 });

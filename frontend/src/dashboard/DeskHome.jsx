@@ -264,7 +264,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
     : <>You're all caught up.</>;
 
   const stats = [
-    { label: 'Open Tasks', value: kpis.my_open_tasks, sub: myTasksFootnote(kpis) || 'Due in the next 30 days', tip: `Open Tasks - ${MY_TASKS_RULE}${myTasksFootnote(kpis) ? `. ${myTasksFootnote(kpis)}` : ''}`, chip: 'blue', Icon: CheckSquare, go: () => navTo('tasks'), hero: true },
+    { label: 'Open Tasks', value: kpis.my_open_tasks, sub: myTasksFootnote(kpis) || 'Due soon or in progress', tip: `Open Tasks - ${MY_TASKS_RULE}${myTasksFootnote(kpis) ? `. ${myTasksFootnote(kpis)}` : ''}`, chip: 'blue', Icon: CheckSquare, go: () => navTo('tasks'), hero: true },
     { label: 'Checked-Out Items', value: kpis.my_checkouts, sub: 'With you right now', chip: 'orange', Icon: Package, go: () => navTo('inventory', 'checkouts') },
     { label: 'My Equipment', value: kpis.my_assignments, sub: 'Permanently assigned', chip: 'brand', Icon: Users, go: () => navTo('inventory') },
     { label: 'Signatures Needed', value: pendingSigs, sub: 'Waiting on you', chip: 'green', Icon: PenLine, go: () => navTo('myhr') },

@@ -4971,6 +4971,11 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .dk-stat--noted .dk-stat-num { margin-top: 4px; font-size: 26px; }
   .dk-stat--noted .dk-stat-label { margin-top: 1px; }
 }
+.dk-sub-short { display: none; }
+@container dkstat (max-width: 220px) {
+  .dk-sub-long { display: none; }
+  .dk-sub-short { display: inline; }
+}
 
 .dash-grid .sc-tile { container-type: size; container-name: sctile; gap: 9px; }
 .sc-tile-chip { width: 44px; height: 44px; border-radius: 12px; }
