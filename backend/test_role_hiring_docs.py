@@ -73,7 +73,14 @@ class RoleDocsTests(unittest.TestCase):
         con = hle.role_paperwork(self.db.get(models.NexusGroup, "jr-con"))
         self.assertEqual(con["role_description"], "Frames walls; reads plans; keeps the site safe.")
         acct = hle.role_paperwork(self.db.get(models.NexusGroup, "jr-acct"))
-        self.assertEqual(acct["role_description"], "Keeps the books.")          # falls back to the role's description
+        self.assertEqual(acct["role_description"], "")             # the plain description is never printed as duties
+        import hiring_setup
+        self.db.query(models.NexusSetting).filter_by(key=hiring_setup.COPIED_KEY).delete()
+        self.db.commit()
+        self.assertEqual(hiring_setup.copy_duties_once(self.db), 1)      # ...it is kept as the duties once
+        self.db.expire_all()
+        acct = hle.role_paperwork(self.db.get(models.NexusGroup, "jr-acct"))
+        self.assertEqual(acct["role_description"], "Keeps the books.")
         vals = hpd.event_values(self.db, "hire", {"job_title": "Construction Associate", **con})
         self.assertEqual(vals["role_description"], "Frames walls; reads plans; keeps the site safe.")
         from services.merge_fields import BUILTIN_VARIABLES

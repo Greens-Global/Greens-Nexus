@@ -726,6 +726,11 @@ class NexusGroup(Base):
     # packet the hire gets: [{templateId, replaces}] ('' = added).
     job_description = Column(Text, default="")
     hiring_docs     = Column(JSON, default=list)
+    # Versions of the duties (Hiring Setup, Oct 23 2026): job_description is
+    # the Standard; each version is for a kind of hire, a place and/or one
+    # company - [{id, hiredAs, country, region, entityId, text, createdBy,
+    # createdAt, updatedAt, archivedAt}]. hiring_setup.resolve_duties picks one.
+    duty_versions   = Column(JSON, default=list)
 
 
 class NexusGroupMember(Base):
@@ -6155,6 +6160,11 @@ class HrPacketSetting(Base):
     # hiring packet that applies to California... when we open Texas we'll add
     # one for Texas". A US state code (CA, TX), '' = anywhere in the country.
     region           = Column(String, default="")
+    # Use The Same (Hiring Setup, Oct 23 2026): an archived row is this level's
+    # own letter or packet put aside so the level above applies again - never
+    # sent, never deleted, restorable. '' = live.
+    archived_at      = Column(String, default="")
+    archived_by      = Column(String, default="")
 
 
 class HrLifeEvent(Base):

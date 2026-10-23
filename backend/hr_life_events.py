@@ -214,9 +214,11 @@ def compensation_from_pay(pay: dict, effective: str) -> dict:
 
 def _sendable():
     """A packet row that can go out: an uploaded-PDF packet with its template,
-    or a packet built from Documents (Oct 14)."""
-    from sqlalchemy import or_
-    return or_(HrPacketSetting.template_id != "", HrPacketSetting.engine == "documents")
+    or a packet built from Documents (Oct 14). An archived row (Use The Same,
+    Oct 23 2026) never goes."""
+    from sqlalchemy import and_, or_
+    return and_(or_(HrPacketSetting.template_id != "", HrPacketSetting.engine == "documents"),
+                or_(HrPacketSetting.archived_at == "", HrPacketSetting.archived_at.is_(None)))
 
 
 def is_documents(s: Optional[HrPacketSetting]) -> bool:
@@ -225,7 +227,7 @@ def is_documents(s: Optional[HrPacketSetting]) -> bool:
 
 def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
                     role_id: str = "", country: str = "", documents_only: bool = False,
-                    region: str = "") -> Optional[HrPacketSetting]:
+                    region: str = "", skip_ids=()) -> Optional[HrPacketSetting]:
     """The letter or packet that goes out for an event - PLACE FIRST (Neil,
     Oct 22): "there is a hiring packet that applies to California... an
     independent contractor packet that applies to India... When we open Texas
@@ -241,7 +243,8 @@ def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
     company's, when the person works in the company's country. A row without
     a template does not count. documents_only: the packet that follows a
     signed offer starts by itself, which an uploaded-PDF packet cannot - those
-    are skipped."""
+    are skipped. skip_ids: rows to leave out - what applies once a company's
+    own rows are put aside (Hiring Setup's fallback)."""
     role_id = (role_id or "").strip()
     home = country_of(db, entity_id)
     country = re.sub(r"[^A-Za-z]", "", country or "").upper()[:2] or home
@@ -253,7 +256,7 @@ def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
                     _sendable()).all())
     best, best_key = None, None
     for r in rows:
-        if documents_only and not is_documents(r):
+        if (documents_only and not is_documents(r)) or r.id in skip_ids:
             continue
         rc, rr = (r.country or "").upper(), (r.region or "").upper()
         wt, roles = (r.worker_type or "any"), (r.role_ids or [])
@@ -425,7 +428,8 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
                 if s.entity_id else [],
                 # Ready To Send (Oct 14): every check a hire needs, with its fix.
                 "readiness": hpd.readiness(db, s),
-                "problems": setting_problems(db, s), "updatedBy": s.updated_by or "", "updatedAt": s.updated_at or ""}
+                "problems": setting_problems(db, s), "updatedBy": s.updated_by or "", "updatedAt": s.updated_at or "",
+                "archivedAt": s.archived_at or ""}
     tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == s.template_id).first() if s.template_id else None
     return {"id": s.id, "engine": "pdf", "entityId": s.entity_id or "", "event": s.event, "workerType": s.worker_type,
             "templateId": s.template_id or "", "templateName": tpl.name if tpl else "",
@@ -439,7 +443,7 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
             "egnyteSubfolder": s.egnyte_subfolder or "",
             "effectiveSubfolder": (s.egnyte_subfolder or "").strip() or DEFAULT_SUBFOLDERS.get(s.event, ""),
             "problems": setting_problems(db, s), "updatedBy": s.updated_by or "",
-            "updatedAt": s.updated_at or ""}
+            "updatedAt": s.updated_at or "", "archivedAt": s.archived_at or ""}
 
 
 # ── serialization ────────────────────────────────────────────────────────────
@@ -510,15 +514,26 @@ def _role_named(db: Session, company: str, name: str):
     return None
 
 
-def role_paperwork(role) -> dict:
-    """{role_description, role_docs} - the duties a white-label Job Description
-    prints and the role's own documents, frozen into an offer's details."""
+def role_paperwork(role, ctx: Optional[dict] = None) -> dict:
+    """{role_description, role_docs, duty_version_id, duty_version_label} - the
+    duties a white-label Job Description prints and the role's own documents,
+    frozen into an offer's details. ctx {entity_id, worker_type,
+    employment_type, country, region} picks the role's version of the duties
+    for that hire (hiring_setup.resolve_duties); no ctx = the Standard. The
+    role's plain description is never printed as duties (Oct 23 2026)."""
     if role is None:
-        return {"role_description": "", "role_docs": []}
+        return {"role_description": "", "role_docs": [], "duty_version_id": "", "duty_version_label": ""}
     docs = [{"templateId": str(r.get("templateId") or ""), "replaces": str(r.get("replaces") or "")}
             for r in (getattr(role, "hiring_docs", None) or []) if isinstance(r, dict) and r.get("templateId")]
-    return {"role_description": (getattr(role, "job_description", "") or role.description or "").strip(),
-            "role_docs": docs}
+    text, version, label = getattr(role, "job_description", "") or "", None, ""
+    if ctx is not None:
+        import hiring_setup
+        from sqlalchemy.orm import object_session
+        text, version = hiring_setup.resolve_duties(role, ctx)
+        if version is not None:
+            label = hiring_setup.version_label(object_session(role), version)
+    return {"role_description": (text or "").strip(), "role_docs": docs,
+            "duty_version_id": version["id"] if version else "", "duty_version_label": label}
 
 
 def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
@@ -760,6 +775,11 @@ def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
                               f"as {former.status} with this email - this is not a new hire. Edit their record instead.", 409)
         details["rehire_employee_id"] = former.id
     wt = worker_type_of(details["employment_type"])
+    if details["role_id"]:
+        # The role's duties for this hire (Hiring Setup, Oct 23 2026).
+        details.update(role_paperwork(_company_role(db, cand.company, details["role_id"]), {
+            "entity_id": cand.company or "", "worker_type": wt, "employment_type": details["employment_type"],
+            "country": country_of(db, cand.company), "region": region_of(db, cand.company)}))
     entity = db.query(HrEntity).filter(HrEntity.id == cand.company).first()
     company = entity.name if entity else "this company"
     if details["packet_id"]:
@@ -1069,6 +1089,7 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
 # by both = hired, and the hiring packet starts by itself.
 
 OFFER_STAGES = ("applied", "screening", "interview", "decision", "offer")
+HIRED_AS = ("full_time", "part_time", "intern", "contractor")
 # What an offer letter can print from the offer form beyond the role, start
 # and pay - the form asks for one only when the letter prints it.
 OFFER_PRINTS = ("address", "permanent_address", "preferred_name", "phone", "work_location", "work_schedule",
@@ -1078,7 +1099,14 @@ OFFER_PRINTS = ("address", "permanent_address", "preferred_name", "phone", "work
 def offer_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
     """The offer HR entered, validated. Employee or contractor is HR's answer,
     never a guess (Neil: "we could have an accounting associate who is an
-    employee. We could have an accounting associate who is a contractor")."""
+    employee. We could have an accounting associate who is a contractor").
+    Hired As (Oct 23 2026) is one pick for both: contractor, or an employee
+    who is full-time, part-time or an intern."""
+    ha = str(inputs.get("hired_as") or "").strip().lower()
+    if ha:
+        if ha not in HIRED_AS:
+            raise PacketError("Choose how they are hired - Full-Time Employee, Part-Time Employee, Intern or Contractor.")
+        inputs = {**inputs, "worker_type": "contractor" if ha == "contractor" else "employee", "employment_type": ha}
     wt = str(inputs.get("worker_type") or "").strip().lower()
     if wt not in WORKER_LABELS:
         raise PacketError("Choose whether they are hired as an Employee or a Contractor - it decides which "
@@ -1095,8 +1123,13 @@ def offer_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
     region = re.sub(r"[^A-Za-z]", "", str(inputs.get("region") or "")).upper()[:3]
     if not region and country == country_of(db, cand.company):
         region = region_of(db, cand.company)
-    d.update({"worker_type": wt, "country": country, "region": region,
+    d.update({"worker_type": wt, "country": country, "region": region, "hired_as": ha or et,
               "work_location": re.sub(r"[\x00-\x1f\x7f]", "", str(inputs.get("work_location") or "")).strip()[:200]})
+    if d["role_id"]:
+        # The duties for this kind of hire and place, frozen into the offer.
+        d.update(role_paperwork(_company_role(db, cand.company, d["role_id"]), {
+            "entity_id": cand.company or "", "worker_type": wt, "employment_type": et,
+            "country": country, "region": region}))
     frm = "department_head" if inputs.get("offer_from") == "department_head" else "hr"
     email = offer_from_people(db, cand.company, d["department"])[frm]
     if frm == "department_head" and not email:
@@ -1113,8 +1146,12 @@ def offer_from_people(db: Session, company: str, department: str) -> dict:
     head of the role's department}. '' = nobody set up (or no longer here)."""
     from models import HrDepartment
     from hiring_screening import _person
+    import hr_checklists as hc
     want = (department or "").strip().lower()
-    hr = head = ""
+    # HR is the company's HR department as Checklists picks it - its head,
+    # else its backup (the same person Handles Hiring shows, Oct 23 2026).
+    hr = next(iter(hc.role_owners(db, company or "").get("hr") or []), "") if company else ""
+    head = ""
     for row in db.query(HrDepartment).filter(HrDepartment.company_id == (company or "")).all():
         name, lead = (row.name or "").strip().lower(), (row.lead_email or "").strip().lower()
         if not _person(db, lead):
@@ -1149,12 +1186,18 @@ def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", r
 
 
 def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str, role_id: str,
-                  chosen: str = "", new_role: bool = False, department: str = "", region: str = "") -> dict:
+                  chosen: str = "", new_role: bool = False, department: str = "", region: str = "",
+                  hired_as: str = "", new_role_name: str = "") -> dict:
     """The Move To Offer form: which offer letter this kind of hire gets, the
     hiring packet that follows it, and everything either asks of HR - so HR
     answers once, at the offer (Neil: "the time to do it is right at sending
-    an offer")."""
+    an offer"). Hired As (Oct 23 2026) sets both the kind of hire and the
+    employment type; whatTheyGet is the offer screen's card."""
     wt = (worker_type or "").strip().lower()
+    ha = (hired_as or "").strip().lower()
+    if ha in HIRED_AS:
+        wt = "contractor" if ha == "contractor" else "employee"
+    et = ha if ha in HIRED_AS else ("contractor" if wt == "contractor" else "full_time")
     company_country = country_of(db, cand.company)
     country = re.sub(r"[^A-Za-z]", "", country or "").upper()[:2] or company_country
     company_region = region_of(db, cand.company)
@@ -1166,7 +1209,8 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
     choices = [{"id": r.id, "name": r.name or "Unnamed", "workerType": r.worker_type or "any", "country": r.country or ""}
                for r in packet_choices(db, cand.company, "offer")]
     out = {"country": country, "companyCountry": company_country, "region": region, "companyRegion": company_region,
-           "choices": choices, "offerLetter": None, "hiringPacket": None, "missing": "", "missingPacket": ""}
+           "choices": choices, "offerLetter": None, "hiringPacket": None, "missing": "", "missingPacket": "",
+           "hiredAs": ha if ha in HIRED_AS else "", "whatTheyGet": [], "blocked": ""}
     if wt not in WORKER_LABELS:
         return out
     letter = packet_choice(db, cand.company, "offer", chosen) if chosen else None
@@ -1178,6 +1222,9 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
     out["offerLetter"] = _describe(db, letter, department, role_id)
     out["hiringPacket"] = _describe(db, packet, department, role_id, kind="hire",
                                     role_docs=role_paperwork(role)["role_docs"])
+    import hiring_setup
+    out["whatTheyGet"], out["blocked"] = hiring_setup.what_they_get(
+        db, cand, wt, et, country, region, role, letter, packet, new_role_name=(new_role_name or "").strip() if new_role else None)
     from hr_packet_docs import name_of
     out["offerFrom"] = {k: {"email": e, "name": name_of(db, e) if e else ""}
                         for k, e in offer_from_people(db, cand.company, department).items()}

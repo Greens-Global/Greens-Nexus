@@ -110,7 +110,9 @@ def _ser_hiring_docs(db: Session, rows: list) -> list:
     ids = {x for r in rows if isinstance(r, dict) for x in (r.get("templateId"), r.get("replaces")) if x}
     names = {t.id: t.name for t in db.query(DocTemplate).filter(DocTemplate.id.in_(ids))} if ids else {}
     return [{"templateId": r.get("templateId", ""), "templateName": names.get(r.get("templateId", ""), "A template that no longer exists"),
-             "replaces": r.get("replaces", "") or "", "replacesName": names.get(r.get("replaces", ""), "") if r.get("replaces") else ""}
+             "replaces": r.get("replaces", "") or "",
+             "replacesName": ("Job Description" if r.get("replaces") == "@jd" else names.get(r.get("replaces", ""), ""))
+             if r.get("replaces") else ""}
             for r in rows if isinstance(r, dict) and r.get("templateId")]
 
 
@@ -125,7 +127,8 @@ def _clean_hiring_docs(db: Session, rows) -> list:
         tid, rep = str(r.get("templateId") or "").strip(), str(r.get("replaces") or "").strip()
         if not tid or tid in seen:
             continue
-        for x in (tid, rep):
+        # replaces "@jd" = takes the job description page's place (Hiring Setup, Oct 23 2026).
+        for x in (tid, "" if rep == "@jd" else rep):
             if x and not db.query(DocTemplate.id).filter(DocTemplate.id == x).first():
                 raise HTTPException(status_code=400, detail="A role document points at a template that no longer exists - pick it again.")
         if rep == tid:

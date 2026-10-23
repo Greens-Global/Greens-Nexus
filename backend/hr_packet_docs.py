@@ -74,6 +74,12 @@ PAY_MODES = ("", "always", "auto")
 EVENT_NOUN = {"offer": "offer letter", "hire": "hiring packet", "promotion": "promotion letter",
               "separation": "separation package"}
 CANDIDATE_KINDS = ("offer", "hire")
+# Where a hiring packet's job description page goes (Hiring Setup, Oct 23
+# 2026): this id in doc_template_ids is filled at the event with the role's
+# formatted Job Description, else the built-in one when there are duties to
+# print, else dropped. Never a template.
+JD_MARKER = "@jd"
+BUILTIN_JD_ID = "builtin-job-description"
 
 
 class PacketProblem(ValueError):
@@ -289,6 +295,8 @@ def load_snaps(db: Session, template_ids: list) -> tuple:
     from routers.documents import TemplateNotPublished, published_snapshot
     snaps, problems = [], []
     for tid in template_ids or []:
+        if tid == JD_MARKER:
+            continue
         tpl = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
         if not tpl:
             problems.append("A document in this packet no longer exists in Documents - remove it from the packet.")
@@ -546,8 +554,13 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
     out = []
     if not (setting.name or "").strip():
         out.append("Give the packet a name.")
-    if not (setting.doc_template_ids or []):
+    if not [t for t in (setting.doc_template_ids or []) if t != JD_MARKER]:
         out.append("Add at least one document from Documents > Templates.")
+    if JD_MARKER in (setting.doc_template_ids or []):
+        if setting.event == "offer":
+            out.append("An offer letter never carries the job description - it goes in the hiring packet.")
+        elif setting.event in ("promotion", "separation"):
+            out.append("Only a hiring packet carries the job description - take it out of this one.")
     out += list(snap_problems or [])
     flow = clean_flow(setting.flow)
     for step in flow:
@@ -726,6 +739,10 @@ def ser_flow(db: Session, setting: HrPacketSetting) -> list:
 def ser_documents(db: Session, setting: HrPacketSetting) -> list:
     out = []
     for tid in setting.doc_template_ids or []:
+        if tid == JD_MARKER:
+            out.append({"id": JD_MARKER, "name": "Job Description - Goes Here", "marker": True, "status": "active",
+                        "publishedVersion": 1, "hasUnpublishedChanges": False, "signs": []})
+            continue
         tpl = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
         if not tpl:
             out.append({"id": tid, "name": "A template that no longer exists", "missing": True})
@@ -796,9 +813,11 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
          extra_template_ids: Optional[list] = None) -> dict:
     """The packet as it would go out: its documents (with what is still
     unfilled in each), the signing order with real names, the verifier, and
-    every problem. Writes nothing."""
-    ids = list(setting.doc_template_ids or [])
-    ids += [t for t in (extra_template_ids or []) if t and t not in ids]
+    every problem. Writes nothing. An event's resolved order (extra_template_ids,
+    from template_ids_for) is the order its documents are generated in - the
+    job description page where the marker put it, a role's document in the
+    place of the one it replaces."""
+    ids = list(extra_template_ids) if extra_template_ids else list(setting.doc_template_ids or [])
     snaps, snap_problems = load_snaps(db, ids)
     snaps = signed_snaps(setting, snaps)
     problems = config_problems(db, setting, snaps, snap_problems)
@@ -1546,16 +1565,29 @@ def with_role_docs(ids: list, role_docs) -> list:
 def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str) -> list:
     """Every template a packet prints for one person: its own documents, the
     ones for their team and role, then (not on an offer) their job
-    description."""
+    description - where the packet's JD_MARKER puts it (the role's formatted
+    one, else the built-in page when there are duties), else at the end as
+    before (a legacy jd_template_id)."""
     d = inputs or {}
     ids = list((setting.doc_template_ids or []) if setting is not None else [])
     ids += [t for t in block_ids(setting, d.get("department", ""), d.get("role_id", "")) if t not in ids]
-    if kind != "offer":
-        ids = with_role_docs(ids, d.get("role_docs"))
-    jd = d.get("jd_template_id") or "" if kind != "offer" else ""
-    if jd and jd not in ids:
-        ids.append(jd)
+    if kind == "offer":
+        return [t for t in ids if t != JD_MARKER]
+    ids = with_role_docs(ids, d.get("role_docs"))      # a role doc replacing "@jd" takes the marker's place
+    legacy = d.get("jd_template_id") or ""
+    if JD_MARKER in ids:
+        fill = (legacy if legacy and legacy not in ids
+                else BUILTIN_JD_ID if (d.get("role_description") or "").strip() and BUILTIN_JD_ID not in ids else "")
+        ids = [fill if t == JD_MARKER else t for t in ids if t != JD_MARKER or fill]
+    elif legacy and legacy not in ids:
+        ids.append(legacy)                             # today's behavior, untouched
     return ids
+
+
+def prints_duties(snaps: list) -> bool:
+    """A document prints the role's duties itself ({{role_description}}) - no
+    separate job description page is needed."""
+    return any("role_description" in s.tokens for s in snaps)
 
 
 def event_template_ids(ev, setting: Optional[HrPacketSetting]) -> list:
@@ -1810,7 +1842,7 @@ def unfilled_variables(setting: HrPacketSetting, snaps: list) -> list:
     return out
 
 
-def readiness(db: Session, setting: HrPacketSetting) -> list:
+def readiness(db: Session, setting: HrPacketSetting, entity: Optional[HrEntity] = None) -> list:
     """The packet's Ready To Send checklist: what is fine, what stops a hire
     from going out (block) and what would come out wrong (warn) - each with
     the fix the screen offers. A team's or role's documents are checked too."""
@@ -1831,7 +1863,9 @@ def readiness(db: Session, setting: HrPacketSetting) -> list:
     out.append(_check("signing", not order, "Signing Order", order[0] if order else "Every signature block has a signer"))
     # 3. The company holds every role the packet needs (a company's packet;
     #    a packet for every company is checked per company when it starts).
-    entity = db.query(HrEntity).filter(HrEntity.id == setting.entity_id).first() if setting.entity_id else None
+    # entity given (Hiring Setup): a shared row is checked for that company too.
+    if entity is None:
+        entity = db.query(HrEntity).filter(HrEntity.id == setting.entity_id).first() if setting.entity_id else None
     verify = setting.verify_role or "hr"
     if entity is not None:
         ctx = {"entity": entity, "owners": hc.role_owners(db, entity.id)}
