@@ -642,6 +642,20 @@ export function TasksProvider({ children }) {
     }
   }, []);
 
+  // The batch bar's Add Label / Remove Label (Oct 22 2026): merged into each
+  // task's own labels on the server, under its row locks - the answer lands.
+  const bulkLabels = useCallback(async (ids, change) => {
+    try {
+      const rows = await api.bulkTaskLabels(ids, change);
+      const map = Object.fromEntries((rows || []).map((r) => [r.id, r]));
+      setTasks((prev) => prev.map((t) => map[t.id] || t));
+      return rows;
+    } catch (e) {
+      if (e?.status && e.status !== 401) alert(e.message || 'Could not change the labels.');
+      throw e;
+    }
+  }, []);
+
   // Comments (loaded on demand, cached)
   const getComments = useCallback(async (taskId) => {
     const rows = await api.getTaskComments(taskId).catch(() => []);
@@ -943,7 +957,7 @@ export function TasksProvider({ children }) {
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, deleteTasks, restoreTasks, bulkUpdate, toggleComplete, setStatus,
     moveTask,
-    bulkDates, undoDueChange,
+    bulkDates, undoDueChange, bulkLabels,
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },

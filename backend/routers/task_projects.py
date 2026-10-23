@@ -259,7 +259,7 @@ class ProjectBody(BaseModel):
 
 
 VIEW_KINDS = ("list", "board", "calendar", "timeline", "dashboard", "workload", "files")
-GROUP_KINDS = ("status", "priority", "assignee", "project", "none", "due")
+GROUP_KINDS = ("status", "priority", "assignee", "project", "none", "due", "label")
 MAX_SHARED_CHARTS = 24
 MAX_CHART_BYTES = 4 * 1024
 

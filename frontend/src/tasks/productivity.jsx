@@ -17,6 +17,7 @@ import { requiredFieldsFor, isBlankValue } from './lib';
 import { recurrenceLabel } from './recurrence';
 import { CustomFieldInput } from './TaskDetailDrawer';
 import { FORMULA_FILTERS } from './formula';
+import { LabelPill, labelKey, labelsInUse, mergeLabelLists, useLabelColors } from './labels';
 
 const SORT_OPTIONS = [
   { key: 'manual', label: 'Manual' }, { key: 'dueOn', label: 'Due Date' },
@@ -97,7 +98,7 @@ function SelectedChips({ items, onRemove }) {
 // ── Category bodies - shared by the desktop popovers and the mobile drill-in sheet ──
 function FiltersBody({ filters, setFilters, people, projects, teams = [], lockedProjectId, hideAssignee, statusOrder = STATUS_ORDER, statusMeta = STATUS_META, customFields = [] }) {
   const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (filters.fromTicket ? 1 : 0) + (lockedProjectId ? 0 : filters.projectIds.length)
-    + (filters.teamIds || []).length
+    + (filters.teamIds || []).length + (filters.tags || []).length
     + Object.values(filters.customFields || {}).reduce((n, v) => n + (v?.length || 0), 0);
   // Only select fields are filterable - a bounded option list is what makes a
   // checkbox list possible at all. Text and number fields would need operators.
@@ -239,6 +240,7 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
           </div>
         </div>
       )}
+      <LabelsFilter filters={filters} setFilters={setFilters} />
       <p style={{ margin: 0, fontSize: 11, color: NX.faint }}>Applies to this tab. Switching to Board, Calendar or any other tab clears these filters.</p>
       {filterFields.map((f) => (
         <div key={f.id}>
@@ -262,8 +264,51 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
       ))}
 
       {activeFilterCount > 0 && (
-        <button onClick={() => setFilters({ ...filters, assigneeIds: [], collaboratorIds: [], statuses: [], priorities: [], projectIds: [], teamIds: [], customFields: {}, fromTicket: false })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear Filters</button>
+        <button onClick={() => setFilters({ ...filters, assigneeIds: [], collaboratorIds: [], statuses: [], priorities: [], projectIds: [], teamIds: [], tags: [], customFields: {}, fromTicket: false })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear Filters</button>
       )}
+    </div>
+  );
+}
+
+// Labels (Oct 22 2026): any of the picked labels. The list is the labels in
+// use on tasks this person can open (the server's list, plus anything on the
+// tasks loaded since), each drawn as its pill. The filter keeps label KEYS,
+// so "Urgent" and "urgent" are one choice (lib.matchesFilter).
+function LabelsFilter({ filters, setFilters }) {
+  const { tasks } = useTasks();
+  const { inUse } = useLabelColors();
+  const [q, setQ] = useState('');
+  const picked = (filters.tags || []).map(labelKey);
+  const all = mergeLabelLists(inUse, labelsInUse(tasks));
+  const byKey = Object.fromEntries(all.map((r) => [r.key, r]));
+  const key = labelKey(q);
+  const shown = all.filter((r) => !key || r.key.includes(key));
+  const flip = (k) => setFilters({ ...filters, tags: picked.includes(k) ? picked.filter((x) => x !== k) : [...picked, k] });
+  const nav = useListNav(shown, { open: !!q.trim(), query: q, onPick: (r) => flip(r.key) });
+  if (!all.length && !picked.length) return null;
+  return (
+    <div>
+      <div style={groupHead}>Labels</div>
+      {picked.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+          {picked.map((k) => <LabelPill key={k} name={byKey[k]?.name || k} size="sm" onRemove={() => flip(k)} />)}
+        </div>
+      )}
+      {all.length > 6 && (
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search labels…"
+          {...nav.inputProps} onKeyDown={nav.onKeyDown}
+          style={{ ...inputStyle, padding: '6px 9px', fontSize: 12.5, marginBottom: 6 }} />
+      )}
+      <div style={{ maxHeight: 132, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
+        {shown.map((r, i) => (
+          <label key={r.key} {...nav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={picked.includes(r.key)} onChange={() => flip(r.key)} />
+            <LabelPill name={r.name} size="sm" />
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: NX.faint }}>{r.count}</span>
+          </label>
+        ))}
+        {shown.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No matches</div>}
+      </div>
     </div>
   );
 }
@@ -342,7 +387,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
   const isMobile = useIsMobile();
 
   const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (filters.fromTicket ? 1 : 0)
-    + (lockedProjectId ? 0 : filters.projectIds.length) + (filters.teamIds || []).length;
+    + (lockedProjectId ? 0 : filters.projectIds.length) + (filters.teamIds || []).length + (filters.tags || []).length;
   const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
 
   const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -402,7 +447,7 @@ export function MobileFilters({ filters, setFilters, sort, setSort, group, setGr
   const [cat, setCat] = useState(null);
 
   const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (filters.fromTicket ? 1 : 0) + (lockedProjectId ? 0 : filters.projectIds.length)
-    + (filters.teamIds || []).length
+    + (filters.teamIds || []).length + (filters.tags || []).length
     + Object.values(filters.customFields || {}).reduce((n, v) => n + (v?.length || 0), 0);
   const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
   const hasGroup = groupOptions && setGroup;

@@ -255,6 +255,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     ...GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g === 'section' ? 'Custom' : g[0].toUpperCase() + g.slice(1) })),
     ...groupableFields.map((f) => ({ key: cfKey(f.id), label: f.name })),
   ];
+  // Group by Label (Oct 22 2026) is the List's: a task with two labels is
+  // listed twice there, which a Board cannot do (a card is in one column), so
+  // the Board shows a label grouping as Status.
+  const listGroupOptions = groupOptions.flatMap((o) => (o.key === 'none' ? [{ key: 'label', label: 'Label' }, o] : [o]));
+  const viewGroupOptions = view === 'list' ? listGroupOptions : view === 'board' ? groupOptions : null;
+  const boardGroup = group === 'label' ? 'status' : group;
   const sortFieldOptions = activeFields
     .filter((f) => ['select', 'number', 'date', 'text', 'checkbox', 'formula'].includes(f.type))
     .map((f) => ({ key: cfKey(f.id), label: f.name }));
@@ -358,7 +364,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             lockedProjectId={lockedProjectId} current={{ view, group }} onApplyView={applyView} onOpenTask={setOpenId}
             group={group} setGroup={setGroup}
             customFields={activeFields} sortFieldOptions={sortFieldOptions}
-            groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
+            groupOptions={viewGroupOptions}
           />
           {/* Column controls belong to the List view only - they'd have nothing
               to act on in Board/Calendar/Timeline. */}
@@ -430,7 +436,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         ) : (view === 'board' ? boardTasks : view === 'timeline' ? timelineTasks : visible).length === 0 ? (
           <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (
-          <BoardView visible={boardTasks} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate}
+          <BoardView visible={boardTasks} group={boardGroup} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate}
             showSubtasks={showBoardSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('board')} />
         ) : view === 'calendar' ? (
           <CalendarView tasks={visible} store={store} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
@@ -497,7 +503,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
               group={group} setGroup={setGroup}
               customFields={activeFields} sortFieldOptions={sortFieldOptions}
-              groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
+              groupOptions={viewGroupOptions}
               current={{ view, group }} onApplyView={applyView}
               search={search} setSearch={setSearch}
               lockedProjectId={lockedProjectId}

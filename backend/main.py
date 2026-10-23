@@ -4482,3 +4482,5 @@ from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
 app.include_router(ops_customer_map_router.router)  # Operations > Customer Map: current customers around each facility, with rings (Neil, Oct 21 2026)
 from routers import contractor_invoices as contractor_invoices_router  # noqa: E402
 app.include_router(contractor_invoices_router.router)  # Contractor invoices: drafted at Time Sheet finalize, HR approves and sends the PDF (Pranshu + Neil, Oct 21 2026)
+from routers import task_labels as task_labels_router  # noqa: E402
+app.include_router(task_labels_router.router)      # Tasks: label colors, labels in use, Manage > Labels (Neil, Oct 22 2026)

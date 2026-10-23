@@ -20,6 +20,7 @@ import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, field
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey, isMissed, MISSED_TITLE } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
+import { LabelPill, LabelStrip, useLabelColors } from '../labels';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar, localTodayISO, useIsMobile } from '../components';
 import { FormulaValue, FormulaFieldModal } from '../FormulaColumn';
 import { formulaEngineFor, fieldNameProblem } from '../formula';
@@ -379,6 +380,9 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
               <ListChecks size={12} />{t.checklistDone || 0}/{t.checklistTotal}
             </span>
           )}
+          {/* Labels (Oct 22 2026): the first two as pills, "+N" for the rest,
+              every name in the tooltip. */}
+          <LabelStrip tags={t.tags} max={2} />
           {/* A subtask only appears as its own row in a person-scoped list (My
               Tasks mode / assignee filter). Say whose subtask it is, and let the
               parent open on click - otherwise it reads as a stray task. */}
@@ -1083,6 +1087,7 @@ function AddTaskInline({ store, defaults, lockedProjectId, onFullCreate }) {
       projectId,
       teamId: defaults.teamId || soleTeamId(store, projectId),
       dueOn: defaults.dueOn || '', assigneeIds: defaults.assigneeIds || (defaults.assigneeId ? [defaults.assigneeId] : []),
+      ...(defaults.tags?.length ? { tags: defaults.tags } : {}),
     };
     // A project with required custom fields (Oct 13 2026) cannot take a
     // title-only task - the server refuses it - so the full Create form
@@ -1282,6 +1287,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     // Creating inside an assignee group assigns to that one person.
     if (effGroup === 'assignee') return { assigneeIds: key === '-' ? [] : [key] };
     if (effGroup === 'section') return customSections ? { section: key } : null;
+    // A task listed under several labels has no one label to move FROM, so a
+    // drag between label groups only reorders (Oct 22 2026).
+    if (effGroup === 'label') return null;
     const d = groupAddDefaults(effGroup, key);
     return Object.keys(d).length ? d : null;
   };
@@ -1363,12 +1371,13 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   // purpose: a task carries its status id wherever it is rendered (My Tasks,
   // search, a portfolio rollup) and a missed meta lookup would draw a raw uuid.
   const scopedStatusOrder = store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder;
+  const { map: labelMap } = useLabelColors();
   const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: scopedStatusOrder, customFields: allCustomFields,
-    sections: customSections?.sections, sectionOf: customSections?.sectionOf };
+    sections: customSections?.sections, sectionOf: customSections?.sectionOf, labelMap };
   // Empty groups are dropped - except a Custom section, which someone made on
   // purpose and has to stay on screen to have tasks dragged into it.
   const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0 || g.section),
-    [visible, effGroup, ctx, store.statusMeta, scopedStatusOrder, customSections?.sections, customSections?.sectionOf]);
+    [visible, effGroup, ctx, store.statusMeta, scopedStatusOrder, customSections?.sections, customSections?.sectionOf, labelMap]);
   // Incremental rendering. Every task used to mount a full row on first paint -
   // ~80 DOM nodes each, so the real workspace (2,400 tasks) built ~190k nodes
   // synchronously and the tab went "page isn't responding". Rows are handed out
@@ -1397,7 +1406,10 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     io.observe(el);
     return () => io.disconnect();
   }, [renderBudget, totalRows]);
-  const visibleIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
+  // Once each, in the order first shown: grouped by label (or assignee) a task
+  // is listed under several groups, and a range or arrow step must not count
+  // it twice.
+  const visibleIds = [...new Set(groups.flatMap((g) => g.tasks.map((t) => t.id)))];
   // Where a range is measured from, and the end that last moved. Kept here
   // rather than with the selection itself because they are meaningless without
   // the row ORDER, and the order is this component's business - it is what
@@ -1679,7 +1691,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
               <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
                 <ChevronDown size={17} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: gc, flexShrink: 0 }} />
-                <span style={{ fontSize: 16, fontWeight: 700, color: NX.ink, letterSpacing: -0.2 }}>{g.label}</span>
+                {g.labelName
+                  ? <LabelPill name={g.labelName} style={{ fontSize: 13.5, lineHeight: '20px', padding: '1px 10px' }} />
+                  : <span style={{ fontSize: 16, fontWeight: 700, color: NX.ink, letterSpacing: -0.2 }}>{g.label}</span>}
                 <span style={{ fontSize: 12.5, color: NX.faint, fontWeight: 500, marginLeft: 4 }}>{total} item{total !== 1 ? 's' : ''}</span>
                 {/* collapsed: the status mix stays visible on the header line */}
                 {isCol && total > 0 && <span style={{ display: 'inline-flex', width: 130, marginLeft: 10 }}>{statusBar(12)}</span>}
@@ -1703,7 +1717,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                       dropEdge={manualSort && dropRow?.taskId === t.id ? dropRow.edge : null} formula={formula} />
                   ))}
                   {showTotals && anyTotal && groups.length > 1 && totalsRow(g.tasks, false)}
-                  <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={effGroup === 'section' && customSections?.personal ? {} : groupAddDefaults(effGroup, g.key)} onFullCreate={onFullCreate} />
+                  <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={effGroup === 'section' && customSections?.personal ? {} : groupAddDefaults(effGroup, g.key, g)} onFullCreate={onFullCreate} />
                 </div>
               )}
             </div>

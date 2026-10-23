@@ -8,7 +8,7 @@ import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
   Circle, Palette, Users, List, ChevronDown, Check, AlertTriangle, RotateCcw,
-  FolderKanban, Briefcase, LayoutTemplate,
+  FolderKanban, Briefcase, LayoutTemplate, Tag,
 } from 'lucide-react';
 import DataQualityTab from './DataQualityTab';
 import { useTasks } from './TasksContext';
@@ -30,6 +30,7 @@ import { checkFormula, normalizeFormat, formulaContext, previewRows, fieldNamePr
 import { groupFieldChanges, foldBulkChanges } from './fieldHistory';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
+import LabelsManageTab from './LabelsManageTab';
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -90,6 +91,8 @@ const SUBTABS = [
   { key: 'rules', label: 'Automation Rules', icon: Zap },
   { key: 'fields', label: 'Custom Fields', icon: ListChecks },
   { key: 'statuses', label: 'Custom Statuses', icon: Palette },
+  // Labels (Oct 22 2026): recolor, rename, merge, delete - company-wide.
+  { key: 'labels', label: 'Labels', icon: Tag },
   { key: 'templates', label: 'Templates', icon: FileText },
   // Intake Forms removed from the strip (Neil, Sept 8). The tab, its store
   // actions and the backend endpoints are all still here - this is one line,
@@ -154,6 +157,7 @@ export default function ManageView({ onExit }) {
             {tab === 'rules' && <RulesTab store={store} />}
             {tab === 'fields' && <FieldsTab store={store} />}
             {tab === 'statuses' && <StatusesTab store={store} />}
+            {tab === 'labels' && <LabelsManageTab />}
             {tab === 'templates' && <TemplatesTab store={store} />}
             {/* {tab === 'intake' && <IntakeTab store={store} />}  - see the tab list */}
             {tab === 'trash' && <DeletedTasksTab store={store} />}
