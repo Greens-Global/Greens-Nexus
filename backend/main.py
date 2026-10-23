@@ -1279,6 +1279,9 @@ def _run_migrations():
             "ALTER TABLE task_table_prefs ADD COLUMN my_day JSON",
             # A subtask made private with its parent (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE tasks ADD COLUMN narrowed_by VARCHAR DEFAULT ''",
+            # Feature requests are tickets (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE changelog_feedback ADD COLUMN ticket_id VARCHAR DEFAULT ''",
+            "ALTER TABLE ticket_teams_message ADD COLUMN kind VARCHAR DEFAULT 'dm'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2944,6 +2947,13 @@ def _run_migrations():
         # narrowed_by - the task whose "make private" took it along, so opening
         # that task again opens it again. "" = its own level. Additive only.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS narrowed_by VARCHAR DEFAULT ''",
+        # Feature requests are tickets (Oct 23 2026, feature_requests.py): a
+        # What's New request links its Feature Request ticket (one thread),
+        # and the ticket Teams queue also carries the post to the Nexus -
+        # Feedback and Bugs chat (kind 'feedback_chat'; 'dm' = the requester
+        # DM it always held). Additive only.
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
+        "ALTER TABLE ticket_teams_message ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'dm'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
