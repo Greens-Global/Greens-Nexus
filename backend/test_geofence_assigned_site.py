@@ -199,6 +199,15 @@ class PunchLocationTest(unittest.TestCase):
         self.assertEqual(self.where(C, work_site_ids="[]", work_site_id=""), "Other")
         self.assertEqual(self.where(A, work_remote=1), "Remote")
         self.assertEqual(self.where(None), "Remote")
+        # Hybrid (Neil, Oct 22): the site when inside one, else Remote
+        self.assertEqual(self.where(A, work_remote=2), "Menifee")
+        self.assertEqual(self.where(C), "Other")
+        self.assertEqual(self.where(FAR), "Remote")
+        self.assertEqual(self.where(None), "Remote")
+
+    def test_hybrid_is_remote_away_from_sites_and_at_the_site_inside_one(self):
+        self.assertEqual(self.judge(FAR, work_remote=2)["geo_status"], "remote")
+        self.assertEqual((self.judge(B)["geo_status"], self.judge(B)["work_site_id"]), ("in_fence", self.b))
 
     def test_timecard_rejudges_old_stamps_and_keeps_manager_sites(self):
         db = database.SessionLocal()

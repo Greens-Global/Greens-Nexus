@@ -203,19 +203,22 @@ export function DialogHost() {
 
         {isPrompt && (
           item.multiline ? (
-            <textarea
-              ref={inputRef}
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder={item.placeholder || ''}
-              rows={3}
-              style={{
-                width: '100%', marginTop: 14, padding: '10px 12px', borderRadius: 9,
-                border: '1px solid var(--line, #e6e8e2)', background: 'var(--paper, #fff)',
-                color: 'var(--ink, #17211c)', fontSize: 14, fontFamily: 'Inter, sans-serif',
-                resize: 'vertical', boxSizing: 'border-box',
-              }}
-            />
+            // nx-fill: the note grows into the popup's 60% height (CLAUDE.md).
+            <div className="nx-fill" style={{ marginTop: 14 }}>
+              <textarea
+                ref={inputRef}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder={item.placeholder || ''}
+                rows={3}
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: 9,
+                  border: '1px solid var(--line, #e6e8e2)', background: 'var(--paper, #fff)',
+                  color: 'var(--ink, #17211c)', fontSize: 14, fontFamily: 'Inter, sans-serif',
+                  resize: 'vertical', boxSizing: 'border-box',
+                }}
+              />
+            </div>
           ) : (
             <input
               ref={inputRef}

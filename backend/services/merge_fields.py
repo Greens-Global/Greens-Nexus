@@ -116,6 +116,9 @@ BUILTIN_VARIABLES = [
     ("new_role", "New role", "HR Packet"),
     ("change_type", "Change type", "HR Packet"),
     ("responsibilities", "Responsibilities", "HR Packet"),
+    # The role's duties, written once on the role (Neil, Oct 22) - one Job
+    # Description document serves every role.
+    ("role_description", "Role description (duties, from the role)", "HR Packet"),
     ("last_day", "Last day", "HR Packet"),
     ("separation_type", "Separation type", "HR Packet"),
     # The offer (Neil, Oct 14): what HR answers when they make it - whether
@@ -138,6 +141,26 @@ BUILTIN_VARIABLES = [
     ("template.last_updated", "Template last updated", "Template"),
     ("template.owner_department", "Template owner department", "Template"),
 ]
+
+
+# WHEN each built-in gets its value, which is what a template author needs to
+# know ("does HR have to type the hire's first name?" - no). Keyed by the
+# BUILTIN_VARIABLES group, with the HR Packet group split by the moment that
+# fills it. Tokens are unchanged; this is display only.
+_WHEN_BY_GROUP = {"Person": "person", "Company": "company", "Document": "document",
+                  "Template": "document", "Signers": "signers", "HR Packet": "offer"}
+_WHEN_BY_TOKEN = {
+    "emergency_name": "person", "emergency_relationship": "person", "emergency_phone": "person",
+    "effective_date": "promotion", "old_title": "promotion", "new_title": "promotion",
+    "old_role": "promotion", "new_role": "promotion", "change_type": "promotion",
+    "responsibilities": "promotion",
+    "last_day": "separation", "separation_type": "separation",
+}
+
+
+def builtin_when(token: str, group: str) -> str:
+    """person | company | offer | promotion | separation | signers | document."""
+    return _WHEN_BY_TOKEN.get(token) or _WHEN_BY_GROUP.get(group, "document")
 
 
 def resolve_merge_data(db: Session, employee_id: str = "", candidate_id: str = "",
@@ -169,7 +192,9 @@ def resolve_merge_data(db: Session, employee_id: str = "", candidate_id: str = "
             data.update({
                 "first_name": c.first_name, "last_name": c.last_name,
                 "full_name": f"{c.first_name} {c.last_name}".strip(),
-                "email": c.email, "phone": c.phone, "job_title": c.role_title,
+                # A candidate's email is their personal one (Oct 23: a "Personal
+                # Email" blank never prints a work email - empty stays unfilled).
+                "email": c.email, "personal_email": c.email, "phone": c.phone, "job_title": c.role_title,
                 "department": c.department, "start_date": c.expected_start,
             })
     if entity_id:

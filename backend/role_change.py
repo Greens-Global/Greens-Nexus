@@ -1,28 +1,21 @@
-"""Role change without a promotion (Pranshu, Oct 13-14 2026).
+"""Role change without a promotion (Pranshu, Oct 13-14 2026; Neil, Oct 22).
 
-From PEOPLE (Change Role > Role Change Without Promotion) HR changes the role
-directly - change_now. From SETTINGS > ACCESS an admin only ASKS, with a
-reason - request_change. Nothing changes yet: the employee's manager and their company's HR contact
-(hr_entities.hr_contact_email) each get a bell (priority - the yellow bar)
-and an email with the reason, and EITHER of them approves or declines -
-from the bell / email (both open the decision dialog in People) or from the
-person's Access tab. Only on approval does the role change: the same
-apply_job_role a signed promotion runs (access, tier, title), plus the
-role's department and an audit row.
+Neil, Oct 22: "It should be 100% with HR and Global Admins only" - the jailer,
+not the police. Who may change a job role (can_change_roles): HR editors who
+are not team-limited, IT Admins (administrator tier) and Global Admins.
+Managers do not - "Manager calls HR." Whoever may, changes it directly
+(change_now, from People or Settings > Access) with a REQUIRED reason, kept
+in the audit row that role_history reads, so no role moves without a why.
 
-  - The person asking never approves their own request; if that leaves
-    nobody (no manager, no HR contact), the request is refused up front.
-  - One pending request per person - cancel it before asking for another.
-  - The permission check (check_can_assign, HR path) runs against the person
-    ASKING, when they ask: the approver confirms the change, they do not need
-    the right to grant that role themselves.
-  - A promotion is not this: it is a letter signed through Nexus Sign
-    (hr_life_events.py).
+There is no approval request any more: POST /hr/role-change-requests answers
+410. Requests still pending from before (HrRoleChangeRequest) are not
+stranded - the same people approve (decide) or cancel them, and HR can
+cancel too. A promotion is not this: it is a letter signed through Nexus
+Sign (hr_life_events.py).
 
 Emails go out after the response (BackgroundTasks) - see send_emails.
 """
 import json
-import uuid
 from datetime import datetime, timezone
 from html import escape
 
@@ -40,6 +33,13 @@ class RoleChangeError(ValueError):
     def __init__(self, message: str, status: int = 400):
         super().__init__(message)
         self.status = status
+
+
+def can_change_roles(db: Session, user: dict) -> bool:
+    """HR editors who are not team-limited, IT Admins and Global Admins - the
+    same people who start checklists (hr_checklists._is_hr_editor)."""
+    from routers.hr_checklists import _is_hr_editor
+    return _is_hr_editor(user, db)
 
 
 def _now() -> str:
@@ -83,8 +83,9 @@ def _allowed(db: Session, req: models.HrRoleChangeRequest, emp) -> set:
 
 
 def ser(db: Session, req: models.HrRoleChangeRequest, viewer: str = "", can_manage: bool = False) -> dict:
+    """can_manage = can_change_roles for the viewer: they decide or cancel
+    (Neil, Oct 22); whoever asked may still cancel their own."""
     viewer = (viewer or "").lower()
-    emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.id == req.employee_id).first()
     pending = req.status == PENDING
     return {
         "id": req.id, "employeeId": req.employee_id, "employeeEmail": req.employee_email,
@@ -94,7 +95,7 @@ def ser(db: Session, req: models.HrRoleChangeRequest, viewer: str = "", can_mana
         "requestedBy": req.requested_by, "requestedByName": req.requested_by_name, "createdAt": req.created_at,
         "decidedBy": req.decided_by, "decidedByName": _name(db, req.decided_by), "decidedAt": req.decided_at,
         "decisionNote": req.decision_note,
-        "canDecide": pending and viewer in _allowed(db, req, emp),
+        "canDecide": pending and can_manage,
         "canCancel": pending and (viewer == (req.requested_by or "").lower() or can_manage),
     }
 
@@ -202,62 +203,24 @@ def _pending_for(db: Session, emp_id: str):
             .filter(models.HrRoleChangeRequest.employee_id == emp_id, models.HrRoleChangeRequest.status == PENDING))
 
 
-def request_change(db: Session, user: dict, emp: models.NexusEmployee, role_id: str, reason: str) -> tuple:
-    """Settings > Access: record the request and tell the approvers. Not
-    committed. Returns (request, warning, emails)."""
-    reason = (reason or "").strip()
-    if not reason:
-        raise RoleChangeError("Add the reason - their manager and HR read it before they approve.")
-    emp, email, jr, cur, warning = _checked(db, user, emp, role_id)
-    open_req = _pending_for(db, emp.id).first()
-    if open_req:
-        raise RoleChangeError(f"A role change to {open_req.to_role_name} is already waiting for approval - "
-                              f"cancel it on their Access tab first.", 409)
-    approvers = approvers_for(db, emp, user["email"])
-    if not approvers:
-        raise RoleChangeError(f"Nobody can approve this: {emp.first_name} needs a manager, or their company an HR "
-                              f"contact (Company Settings), other than you.", 409)
-    me = user["email"].lower()
-    name = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
-    req = models.HrRoleChangeRequest(
-        id=str(uuid.uuid4()), employee_id=emp.id, employee_email=email, employee_name=name, company=emp.company or "",
-        from_role_id=cur.id if cur else "", from_title=emp.job_title or (cur.name if cur else ""),
-        to_role_id=jr.id, to_role_name=jr.name, reason=reason[:1000], status=PENDING, approvers=approvers,
-        requested_by=me, requested_by_name=_name(db, me), created_at=_now())
-    db.add(req)
-    db.flush()
-    change = f"{req.from_title or 'No role'} -> {jr.name}"
-    url = f"{app_url()}/hr/{deep_link_sub(req.id)}"
-    emails = []
-    for a in approvers:
-        _bell(db, a["email"], f"Approve Role Change - {name}",
-              f"{req.requested_by_name} asks to change {name}'s role: {change}.\nReason: {req.reason}",
-              req, me, priority=1, button=REVIEW)
-        emails.append((a["email"], f"Approve Role Change - {name}", _email(
-            "Role Change Waiting For You",
-            f"{req.requested_by_name} asks to change {name}'s role. It changes only when you or "
-            f"{'HR' if a['as'] == 'manager' else 'their manager'} approves.",
-            [("Employee", name), ("Current role", req.from_title or "No role"), ("New role", jr.name),
-             ("Reason", req.reason), ("Asked by", req.requested_by_name)],
-            "Review And Approve", url,
-            "You get this email because you are their manager or their company's HR contact in Nexus.")))
-    return req, warning, emails
-
-
 def change_now(db: Session, user: dict, emp: models.NexusEmployee, role_id: str, reason: str = "") -> tuple:
-    """People: HR changes the role directly - no approval. A request still
-    waiting on this person is overtaken: canceled, its approvers told. Not
-    committed. Returns (role, warning)."""
+    """HR / IT Admin / Global Admin changes the role directly, with a reason.
+    A request still waiting on this person is overtaken: canceled, its
+    approvers told. Not committed. Returns (role, warning)."""
     from routers.hr import _hr_notify
     from routers.jobroles import apply_job_role
+    if not can_change_roles(db, user):
+        raise RoleChangeError("Only HR, an IT Admin or a Global Admin can change someone's role.", 403)
     emp, email, jr, cur, warning = _checked(db, user, emp, role_id)
+    reason = (reason or "").strip()[:1000]
+    if not reason:
+        raise RoleChangeError("Add the reason - it is kept in their role history.")
     me = user["email"].lower()
     # A People editor below administrator may hand out up to the Manager tier
     # (check_can_assign, hr_path) - to others. Their own role is somebody
-    # else's call: the request path asks their manager and HR, never them.
+    # else's call.
     if email == me:
-        raise RoleChangeError("Your own role change needs your manager or HR - ask for it from Settings > Access.", 403)
-    reason = (reason or "").strip()[:1000]
+        raise RoleChangeError("Someone else in HR, or a Global Admin, changes your own role.", 403)
     from_title = emp.job_title or (cur.name if cur else "")
     apply_job_role(db, jr, email, me)
     if jr.department:
@@ -281,8 +244,7 @@ def change_now(db: Session, user: dict, emp: models.NexusEmployee, role_id: str,
     manager = (emp.manager_email or "").strip().lower()
     if manager and manager not in (me, email):
         _hr_notify(db, manager, f"Role Changed - {name}",
-                   f"{who} changed {name}'s role: {from_title or 'No role'} -> {jr.name}."
-                   + (f"\nReason: {reason}" if reason else ""),
+                   f"{who} changed {name}'s role: {from_title or 'No role'} -> {jr.name}.\nReason: {reason}",
                    ref_id=emp.id, requested_by=me, action={"view": "hr", "sub": "hr-people", "label": "Open People"})
     return jr, warning
 
@@ -311,10 +273,13 @@ def decide(db: Session, user: dict, req_id: str, approve: bool, note: str = "") 
     me = user["email"].lower()
     emp = (db.query(models.NexusEmployee).filter(models.NexusEmployee.id == req.employee_id)
            .with_for_update().first())
-    if me not in _allowed(db, req, emp):
-        raise RoleChangeError(f"Only {req.employee_name}'s manager or HR can decide this request.", 403)
+    # Approving changes the role, so it is the role changers' call now (Neil,
+    # Oct 22) - not the manager named on the request.
+    if not can_change_roles(db, user):
+        raise RoleChangeError("Only HR, an IT Admin or a Global Admin can decide this request.", 403)
     note = (note or "").strip()[:1000]
     if approve:
+        from routers.jobroles import check_can_assign
         if not emp or emp.status not in ("active", "onboarding") or not emp.work_email:
             raise RoleChangeError(f"{req.employee_name} is no longer a current employee - cancel this request.", 409)
         jr = db.query(models.NexusGroup).filter(models.NexusGroup.id == req.to_role_id,
@@ -322,6 +287,12 @@ def decide(db: Session, user: dict, req_id: str, approve: bool, note: str = "") 
         if not jr:
             raise RoleChangeError(f"The {req.to_role_name} role was deleted - decline this request.", 409)
         email = emp.work_email.lower()
+        if email == me:
+            raise RoleChangeError("Someone else in HR, or a Global Admin, changes your own role.", 403)
+        try:   # the decider is the one changing it now - their tier limits apply
+            check_can_assign(db, user, jr, email, hr_path=True)
+        except HTTPException as e:
+            raise RoleChangeError(str(e.detail), e.status_code)
         cur = current_job_role(db, email)
         if not cur or cur.id != jr.id:
             apply_job_role(db, jr, email, req.requested_by)
@@ -404,7 +375,7 @@ def role_history(db: Session, emp: models.NexusEmployee) -> list:
             d = json.loads(a.details or "{}")
         except ValueError:
             d = {}
-        out.append({"id": f"audit-{a.id}", "kind": "direct", "status": "changed", "statusLabel": "Changed In People",
+        out.append({"id": f"audit-{a.id}", "kind": "direct", "status": "changed", "statusLabel": "Changed Directly",
                     "at": a.timestamp, "from": d.get("from", ""), "to": d.get("to", ""), "reason": d.get("reason", ""),
                     "raisedBy": a.user_email, "raisedByName": _name(db, a.user_email), "raisedAt": a.timestamp,
                     "decidedBy": "", "decidedByName": "", "note": "", "signers": [], "effectiveDate": ""})

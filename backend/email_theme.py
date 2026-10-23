@@ -1,6 +1,6 @@
 """One look for every Nexus email (Sep 26, 2026).
 
-Settings > Global Settings > Branding & Policies > Email Appearance stores a
+Settings > Branding & Policies > Email Appearance stores a
 single theme in NexusSetting key "email_theme_config":
 
     {"logoUrl": "", "accentColor": "#0f3d2e", "footerText": "", "companyAddressLine": ""}

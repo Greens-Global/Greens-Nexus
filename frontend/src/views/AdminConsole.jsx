@@ -356,11 +356,11 @@ const GROUPS = [
     keywords: 'questions interview questionnaire role character competence availability' },
   // Neil, Oct 19: "copy from company or have a common library".
   { id: 'checklist-library', subject: 'hiring', face: 'org', scope: 'layered', icon: ListChecks, title: 'Checklist Library',
-    sub: 'The steps every new onboarding, promotion, offboarding and leave checklist starts with, whatever the role, and the default role owners. Each company adds its own with the company picked, and each role its own (People & Access > the company > Roles > a role > Checklists).',
+    sub: 'The steps every new onboarding, promotion, offboarding and leave checklist starts with, whatever the role, and who does each step (the head and backup of the HR, IT and Accounting departments). Each company adds its own with the company picked, and each role its own (People & Access > the company > Roles > a role > Checklists).',
     keywords: 'checklist onboarding promotion offboarding leave steps template library owners copy standardize' },
   { id: 'company-checklists', subject: 'hiring', face: 'company', scope: 'company', icon: ListChecks, title: 'Checklists',
-    sub: 'This company\'s role owners and the steps its onboarding, promotion, offboarding and leave checklists add to the library\'s, role by role.',
-    keywords: 'company checklists onboarding promotion offboarding leave steps owners roles missing' },
+    sub: 'This company\'s baseline steps, which departments own steps, and the steps its onboarding, promotion, offboarding and leave checklists add, role by role.',
+    keywords: 'company checklists baseline onboarding promotion offboarding leave steps departments owners roles missing' },
   // Items & Equipment
   { id: 'item-types', subject: 'items', face: 'org', scope: 'org', icon: Tag, title: 'Item Types & Custom Fields',
     sub: 'The item types and extra fields available to everyone when adding or editing items.',
@@ -775,7 +775,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
   return (
     <Group {...GROUP_META['email-signature']} {...chrome}>
       {entities.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies yet. Add one under Company Settings first.' : 'Loading…'}</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies yet. Add one under Settings > Companies first.' : 'Loading…'}</div>
       ) : (
         <>
           {!company && (

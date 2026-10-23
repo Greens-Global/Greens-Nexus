@@ -308,8 +308,8 @@ export const IMPL_PHASES = [
       { title: 'Complete every record', where: 'People > a person > Edit', view: 'hr', sub: 'hr-people', items: [
         'Company and department, employment type, start date, Reports To.',
         'Office & Contact: office, mobile and office phone, street address, city, state, ZIP and country. Saved changes update Microsoft 365; changes made there come back within 15 minutes or with Sync Now.',
-        'Access tab: give the job role. Their modules, tier, exemptions and Teams destination follow.',
-        'Work Mode tab: on-site, remote, or the usual locations they punch in at.',
+        'Role tab: give the job role. Their modules, tier, exemptions and Teams destination follow.',
+        'Work Mode tab: On-Site, Remote or Hybrid (both - remote allowed, plus the usual locations they punch in at).',
       ]},
       { title: 'Add people who are not in the directory yet', where: 'People > Add Person', view: 'hr', sub: 'hr-people', items: [
         'Add Employee or Add Independent Contractor (scope, SOW and rate live on the same record).',
@@ -317,7 +317,7 @@ export const IMPL_PHASES = [
       ]},
       { title: 'Invite externals', where: 'People > Add Person > Add External', view: 'hr', sub: 'hr-people', items: [
         'Email, name and partner company. They sign in with a code sent by email (or text once their phone is verified).',
-        'Limit what they see on their Access tab (for example one company), and set an expiry if the engagement ends.',
+        'Limit what they see on their Role tab (for example one company), and set an expiry if the engagement ends.',
       ]},
       { title: 'Pay and benefits', where: 'People > a person > Pay & Benefits', view: 'hr', sub: 'hr-people', items: [
         'Pay basis, base amount, frequency, currency and effective date; the overtime rule (California, Federal or None). Needs the People - Compensation grant.',
@@ -452,7 +452,7 @@ export const IMPL_PHASES = [
         'Set the default owner for each kind of step (HR, IT, Accounting).',
       ]},
       { title: 'Each company', where: 'Settings > Hiring & Onboarding > pick the company > Checklists', view: 'admin-console', sub: 'hiring', items: [
-        'Set the Role Owners (HR, IT, Accounting), then read the Role Checklists audit: every role should have its onboarding, promotion, offboarding and leave steps built. Click Build on any role with something Missing.',
+        'Set a head and a backup for the HR, IT and Accounting departments (Settings > Companies > the company > Departments), then read the Role Checklists audit: every role should have its onboarding, promotion, offboarding and leave steps built. Click Build on any role with something Missing.',
       ]},
       { title: 'Each role', where: 'Team > Role Checklists', view: 'shifts', sub: 'role-checklists', items: [
         'The head of each department adds the extra steps its roles need - their training and tools. Set department heads under Companies > the company > Departments first.',

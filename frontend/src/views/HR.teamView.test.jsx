@@ -4,7 +4,7 @@ import { render, screen, fireEvent, cleanup, within } from '@testing-library/rea
 // Managers see their own team in People (Pranshu, 10/06): the Manager tier
 // with the People grant sees People and Time only - no
 // Hiring / Org Chart / Leave / Checklists, no Add Person - and each person's
-// profile has five read-only tabs (Overview, Assets, Work Mode, Access, Work
+// profile has five read-only tabs (Overview, Role, Assets, Work Mode, Work
 // Logs): no Pay & Benefits, Compliance, Documents or Checklist, no Edit. The
 // server enforces all of it; this is the matching screen.
 
@@ -77,16 +77,16 @@ describe('People limited to my team', () => {
     expect(screen.queryByRole('button', { name: /^Edit$/ })).toBeNull();
   }, 20000);
 
-  it('opens a profile with five read-only tabs and the Access tab as a list', async () => {
+  it('opens a profile with five read-only tabs and the Role tab as a list', async () => {
     await renderPeople();
     fireEvent.click(screen.getAllByText('Leo Low')[0]);
-    const tabNames = ['Overview', 'Assets', 'Work Mode', 'Access', 'Work Logs'];
+    const tabNames = ['Overview', 'Role', 'Assets', 'Work Mode', 'Work Logs'];
     for (const t of tabNames) expect(screen.getByRole('button', { name: t })).toBeTruthy();
-    for (const t of ['Pay & Benefits', 'Compliance', 'Documents', 'Checklist']) {
+    for (const t of ['Pay & Benefits', 'Reimbursements', 'Compliance', 'Documents', 'Checklist', 'Interviews']) {
       expect(screen.queryByRole('button', { name: t })).toBeNull();
     }
     expect(screen.queryByRole('button', { name: /^Edit$/ })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Access' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Role' }));
     const table = await screen.findByRole('table');
     expect(within(table).getByText('Time Clock')).toBeTruthy();
     expect(within(table).getByText('Viewer')).toBeTruthy();

@@ -254,12 +254,26 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
     collaborators: (
       <CollaboratorPicker value={t.followerIds || []} people={people} onChange={(v) => store.updateTask(t.id, { followerIds: v })} />
     ),
+    // Two plain lines (Neil, Oct 22 - "subtasks have a project but the main
+    // one doesn't" was the parent's title read as a project): the project it
+    // really sits in (its parent's), then "Subtask of: <parent>".
     project: parent ? (
-      <button onClick={(e) => { e.stopPropagation(); onOpen(parent.id); }} title={`Subtask of "${parent.title}"${projectId ? ` in ${store.projectName(projectId)}` : ''}`}
-        style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 12.5, color: NX.dim, minWidth: 0, maxWidth: '100%', justifyContent: 'flex-start' }}>
-        <CornerDownRight size={12} style={{ flexShrink: 0 }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{parent.title}{projectId ? ` · ${store.projectName(projectId)}` : ''}</span>
+      <button onClick={(e) => { e.stopPropagation(); onOpen(parent.id); }} title={`Subtask of "${parent.title}"${projectId ? ` in ${store.projectName(projectId)}` : ''} - open the parent task`}
+        style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 12.5, color: NX.dim, minWidth: 0, maxWidth: '100%', justifyContent: 'flex-start', textAlign: 'left' }}>
+        <span style={{ display: 'grid', minWidth: 0, lineHeight: 1.3 }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: projectId ? NX.ink : NX.faint }}>{projectId ? store.projectName(projectId) : 'No Project'}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, fontSize: 11.5, color: NX.faint }}>
+            <CornerDownRight size={11} style={{ flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Subtask of: {parent.title}</span>
+          </span>
+        </span>
       </button>
+    ) : t.parentTaskId ? (
+      // A subtask whose parent is not shared with this person: its project is
+      // the parent's, so no picker that would try to re-home it.
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 4px', fontSize: 12, color: NX.faint }} title="A subtask - its parent task is not shared with you">
+        <CornerDownRight size={11} style={{ flexShrink: 0 }} /> Subtask
+      </span>
     ) : (
       // The cell is an inline editor sitting inside a clickable row, so the
       // picker swallows its own clicks - opening it must not open the task.

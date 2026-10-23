@@ -209,6 +209,15 @@ keep the diff minimal.
   `/my-timecard/sign` returns 410; never add a signing path around this.
   `test_timesheet_review_matrix` drives every state x actor x action - keep it
   passing so nobody gets stuck.
+- HR signing order (Neil, Oct 22 2026): the company NEVER signs before the
+  employee - no pre-signed or countersigned document is ever sent out. An
+  offer letter is signed by the candidate only (no company signer, no Signs
+  Once; HR's Verify And Send is a review, not a signature); hiring packets,
+  separation packages and every other HR packet are signed by the person
+  FIRST and countersigned by the company after (a Signs Once signature goes
+  on only when its turn comes after the person, never at send).
+  `hr_packet_docs.signing_flow` applies this to every packet, old saved
+  configs included - never add an order around it.
 - Accounting dashboard (Sep 22): the Accounting view's Overview / Cash /
   Performance / Close / Data tabs are the Nexus face of the finance dashboard
   in Nexus Accounting. Figures come ONLY through `backend/routers/

@@ -60,9 +60,9 @@ export default function EgnytePersonFolder({ email, personName = '' }) {
 
   if (state.loading) return <Loading label="Finding the Egnyte folder…" />;
 
-  // 503 = Egnyte not connected on this environment - show nothing rather than
-  // an error inside an HR card that is otherwise fine.
-  if (state.status === 503) return null;
+  // 503 = Egnyte not connected on this environment - say so in one line, so
+  // the Documents tab does not look empty for no reason (Neil, Oct 22 23:48).
+  if (state.status === 503) return <Notice tone="warn">Egnyte is not connected here - files cannot be listed or filed right now.</Notice>;
 
   if (state.error) {
     return (

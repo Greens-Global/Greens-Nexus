@@ -773,17 +773,13 @@ TEAM_ALLOWED_HR_ROUTES = frozenset({
     ("PATCH", "/hr/checklists/items/{iid}"),        # ticking one of their own steps (owner-checked)
     ("GET", "/hr-reminder-settings"),               # reminder SETTINGS, no one's records - opened by
     ("PUT", "/hr-reminder-settings"),               # tier long before this; its own gates still apply
-    # Role change approvals (Oct 13 release review): the employee's manager is
-    # the first approver and usually holds this tier. Each handler decides who
-    # may see or act (role_change.can_see / _allowed; role_history checks the
-    # manager); the list drops the HR-wide read for this tier so it only
-    # returns requests the caller may decide. Asking for a change and changing
-    # one directly stay off the list - those are People editors' routes.
+    # Role changes are HR's, IT's and Global Admins' only (Neil, Oct 22 -
+    # "Manager calls HR"): this tier may READ a pending request it was named
+    # on and its team's role history, but never change, approve, decline or
+    # cancel one. Each handler still decides who may see what
+    # (role_change.can_see; role_history checks the manager).
     ("GET", "/hr/role-change-requests"),
     ("GET", "/hr/role-change-requests/{rid}"),
-    ("POST", "/hr/role-change-requests/{rid}/approve"),
-    ("POST", "/hr/role-change-requests/{rid}/decline"),
-    ("POST", "/hr/role-change-requests/{rid}/cancel"),
     ("GET", "/hr/role-history"),
 })
 

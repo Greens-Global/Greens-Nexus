@@ -601,7 +601,62 @@ def waiting_on(db: Session, reviewer: str) -> list:
                  .filter(TimesheetReview.status == "with_manager",
                          TimesheetReview.employee_email.in_(sorted(mine))).all() if r.id not in seen]
     rows = [r for r in rows if r.employee_email != me]          # never their own
+    # ...and never one that can no longer be decided (stale_reason) - the sweep
+    # retires it, but the list must not wait for the sweep (Oct 22).
+    rows = [r for r in rows if not stale_reason(db, r, launch=False)]
     return sorted(rows, key=lambda r: (r.updated_at or "", r.period_start))
+
+
+# A review in review (with the manager or back with the employee) that nobody
+# can finish any more is RETIRED, with the reason logged as a round (Neil, Oct
+# 22 2026: Sagar's September time sheet, submitted 09/28 under the old rules,
+# sat on Time Sheets to Review for weeks - Approve blocked by 11 missing
+# punches on a period that predates the review launch, and no way to clear
+# it). Only waiting_on listed it - not_reviewed already skipped those periods.
+# A retired review is out of ACTIVE, so it no longer locks the period either
+# (review_covering / guard_edit). Nothing is deleted.
+RETIRED = "retired"
+
+
+def stale_reason(db: Session, r: TimesheetReview, *, launch: bool = True) -> str:
+    """Why this review can never be decided, in plain words; '' while it can.
+    `launch`: also retire one whose period ended before REVIEW_LAUNCH (signed
+    off the old way) - the sweep does, waiting_on does not need to."""
+    if r.status not in ("with_manager", "with_employee"):
+        return ""
+    email = r.employee_email
+    if launch and (r.period_end or "") < REVIEW_LAUNCH:
+        return (f"Submitted before time sheet review began on {us_date(REVIEW_LAUNCH)} - "
+                "periods before then were signed off the old way.")
+    if _tc()._finalized_row(db, email, r.period_start, r.period_end):
+        return "The pay period was finalized on the payroll screen."
+    from routers.timeclock import is_time_tracking_exempt
+    if is_time_tracking_exempt(db, email):
+        return f"{display_name(db, email)} is exempt from time tracking now."
+    # The pay type changed (salaried month <-> hourly two weeks): the period
+    # is no longer on their time sheet, so its panel can never be opened and
+    # a resubmit lands on a different period.
+    start, _end, pay_type = period_for(db, email, r.period_start)
+    if start != r.period_start or (r.pay_type and pay_type != r.pay_type):
+        return (f"{display_name(db, email)}'s pay schedule changed, so {_label(r)} is no longer "
+                "one of their pay periods.")
+    return ""
+
+
+def retire_stale(db: Session) -> int:
+    """Retire every review stale_reason gives a reason for (from
+    timesheet_alerts' period-close tick). Returns how many; the caller commits."""
+    done = 0
+    for r in (db.query(TimesheetReview)
+              .filter(TimesheetReview.status.in_(("with_manager", "with_employee")))
+              .with_for_update().all()):
+        why = stale_reason(db, r)
+        if not why:
+            continue
+        r.status = RETIRED
+        _round(db, r, by="nexus", action=RETIRED, note=why)
+        done += 1
+    return done
 
 
 def can_view_envelope(db: Session, req, user: dict) -> bool:

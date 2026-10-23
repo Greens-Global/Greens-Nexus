@@ -1272,6 +1272,26 @@ def _run_migrations():
             "ALTER TABLE task_custom_fields ADD COLUMN formula_format JSON DEFAULT '{}'",
             # Tasks conditional row colors (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
+            # Skip Interview (Neil, Oct 22) - see the Postgres list.
+            "ALTER TABLE hr_candidates ADD COLUMN interview_skipped_by VARCHAR DEFAULT ''",
+            # Hiring documents by place (Neil, Oct 22) - see the Postgres list.
+            "ALTER TABLE hr_packet_settings ADD COLUMN region VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN region VARCHAR DEFAULT ''",
+            # A role's own hiring paperwork (Neil, Oct 22) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN job_description TEXT DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN hiring_docs JSON DEFAULT '[]'",
+            # Checklist steps ticked by Nexus say why (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklist_items ADD COLUMN done_reason VARCHAR DEFAULT ''",
+            # A checklist remembers its job role (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklists ADD COLUMN role_id VARCHAR",
+            # One task per checklist (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklists ADD COLUMN task_id VARCHAR DEFAULT ''",
+            # Onboarding audits (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_checklists ADD COLUMN audit BOOLEAN DEFAULT 0",
+            # Hiring Setup (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE hr_packet_settings ADD COLUMN archived_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_packet_settings ADD COLUMN archived_by VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN duty_versions JSON DEFAULT '[]'",
             # Board card previews + a saved Board view's columns (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE tasks ADD COLUMN card_preview VARCHAR DEFAULT ''",
             "ALTER TABLE task_saved_views ADD COLUMN board_columns VARCHAR DEFAULT ''",
@@ -2934,6 +2954,36 @@ def _run_migrations():
         # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
         # the _enable_rls_everywhere sweep. models.TimecardBonus.
         "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
+        # Skip Interview (Neil, Oct 22): who moved the candidate to Decision
+        # without an interview. models.HrCandidate.interview_skipped_by.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS interview_skipped_by VARCHAR DEFAULT ''",
+        # Hiring documents by place (Neil, Oct 22): a packet's state inside its
+        # country, and the state a company's people work in. Additive; '' = any.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS region VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS region VARCHAR DEFAULT ''",
+        # A role's own hiring paperwork (Neil, Oct 22): its duties text and its
+        # documents. models.NexusGroup.job_description / hiring_docs. Additive.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS job_description TEXT DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS hiring_docs JSONB DEFAULT '[]'::jsonb",
+        # Checklist steps ticked by Nexus say which condition did it (Neil, Oct
+        # 22: several conditions per step). models.HrChecklistItem.done_reason.
+        "ALTER TABLE hr_checklist_items ADD COLUMN IF NOT EXISTS done_reason VARCHAR DEFAULT ''",
+        # A checklist remembers its job role so a role's template change reaches
+        # it (Oct 23 2026). No default on purpose: NULL = started before this,
+        # filled lazily by hr_checklists.reconcile. models.HrChecklist.role_id.
+        "ALTER TABLE hr_checklists ADD COLUMN IF NOT EXISTS role_id VARCHAR",
+        # One task per checklist in the company's HR project (Neil, Oct 22),
+        # the steps' subtasks under it. models.HrChecklist.task_id.
+        "ALTER TABLE hr_checklists ADD COLUMN IF NOT EXISTS task_id VARCHAR DEFAULT ''",
+        # An onboarding checklist run as an audit of someone already here (Neil,
+        # Oct 22). models.HrChecklist.audit.
+        "ALTER TABLE hr_checklists ADD COLUMN IF NOT EXISTS audit BOOLEAN DEFAULT false",
+        # Hiring Setup (Oct 23 2026): Use The Same archives a level's own letter
+        # or packet; a role's duties get versions. models.HrPacketSetting.
+        # archived_at / archived_by, models.NexusGroup.duty_versions. Additive.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS archived_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS archived_by VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS duty_versions JSONB DEFAULT '[]'::jsonb",
         # Board card previews (Oct 22 2026): models.Task.card_preview - what a
         # board card shows ("" = Automatic). A saved Board view's columns:
         # models.TaskSavedView.board_columns ("" = Status). Additive only.
@@ -3566,6 +3616,37 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] department head adoption skipped: {e}")
+    # Checklist evidence (Oct 22 2026, the Colin case): onboarding templates
+    # seeded earlier get the ID / right-to-work conditions and the Picture ID
+    # step, once (hr_checklists.backfill_id_evidence).
+    try:
+        from database import SessionLocal
+        import hr_checklists
+        db = SessionLocal()
+        try:
+            n = hr_checklists.backfill_id_evidence(db)
+            if n:
+                print(f"[startup] checklist ID evidence added to {n} onboarding template(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] checklist ID evidence backfill skipped: {e}")
+    # Hiring Setup (Oct 23 2026): the built-in Job Description page the "@jd"
+    # marker prints, and - once - a role's old description kept as its duties
+    # now that role_paperwork no longer falls back to it (hiring_setup.py).
+    try:
+        from database import SessionLocal
+        import hiring_setup
+        db = SessionLocal()
+        try:
+            hiring_setup.ensure_builtin_jd(db)
+            n = hiring_setup.copy_duties_once(db)
+            if n:
+                print(f"[startup] hiring setup: kept the description of {n} role(s) as their duties")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] hiring setup seed skipped: {e}")
 
 
 @asynccontextmanager
@@ -4514,5 +4595,7 @@ from routers import ops_customer_map as ops_customer_map_router  # noqa: E402
 app.include_router(ops_customer_map_router.router)  # Operations > Customer Map: current customers around each facility, with rings (Neil, Oct 21 2026)
 from routers import contractor_invoices as contractor_invoices_router  # noqa: E402
 app.include_router(contractor_invoices_router.router)  # Contractor invoices: drafted at Time Sheet finalize, HR approves and sends the PDF (Pranshu + Neil, Oct 21 2026)
+from routers import hiring_setup as hiring_setup_router  # noqa: E402
+app.include_router(hiring_setup_router.router)  # Settings > Hiring > Hiring Setup: what each hire gets, per company (Oct 23 2026)
 from routers import task_labels as task_labels_router  # noqa: E402
 app.include_router(task_labels_router.router)      # Tasks: label colors, labels in use, Manage > Labels (Neil, Oct 22 2026)

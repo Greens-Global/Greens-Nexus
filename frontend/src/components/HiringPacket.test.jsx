@@ -13,6 +13,7 @@ const preview = {
   recipients: [{ order: 1, role: 'company', name: 'Hana', email: 'hana@x.com', isSubject: false },
                { order: 2, role: 'employee', name: 'Jane Doe', email: 'jane@gmail.com', isSubject: true }],
 };
+let packetSettings = [];
 const sendPacket = vi.fn(() => Promise.resolve({ id: 'ev1', senderPartyId: 'p1', subjectEmail: 'jane@gmail.com' }));
 const previewPacket = vi.fn(() => Promise.resolve(preview));
 const events = [{
@@ -22,8 +23,14 @@ const events = [{
 }];
 vi.mock('../api', () => ({
   api: {
+    // Hiring Setup (Oct 23) is the first tab.
+    getHiringSetup: () => Promise.resolve({ shared: { summary: 'What every company uses unless it has its own.', canEdit: true },
+      companies: [{ id: 'e1', name: 'Oversite', place: 'California', status: 'ready', chip: 'Ready To Hire', summary: 'Uses the shared offer letter and hiring packet' }] }),
+    getHiringSetupCompany: () => Promise.resolve({ entity: { id: 'e1', name: 'Greens Test Co', shared: false, canEdit: true, country: 'US', region: 'CA' },
+      status: 'left', chip: '1 Thing Left', about: [], roles: [], rows: [], jobDescriptions: { columns: [], rows: [] }, advanced: [],
+      items: [{ key: 'check:s-new:once', text: 'Raj has not signed once.', button: 'Open The Packet', action: 'advanced', target: { settingId: 's-new' } }] }),
     getPackets: () => Promise.resolve({
-      settings: [], workerTypes: ['any', 'employee', 'contractor'],
+      settings: packetSettings, workerTypes: ['any', 'employee', 'contractor'],
       templates: [{ id: 't1', name: 'Offer Packet', entityId: '', documents: 2,
                     roles: [{ key: 'company', label: 'Company', order: 1 }, { key: 'employee', label: 'Employee', order: 2 }] }],
       events: [{ key: 'hire', label: 'Hiring Packet', defaultSubfolder: 'Hiring Documents' },
@@ -36,11 +43,12 @@ vi.mock('../api', () => ({
     sendHiringPacket: (...a) => sendPacket(...a),
     getLifeEvents: () => Promise.resolve(events),
     getPeopleDirectory: () => Promise.resolve([{ email: 'max@x.com', name: 'Max' }]),
-    hiringOptions: () => Promise.resolve({ roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting' }], departments: ['Accounting', 'IT'] }),
+    hiringOptions: () => Promise.resolve({ roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting' }], departments: ['Accounting', 'IT'], departmentLeads: { it: ['max@x.com'] } }),
     // Packets built from Documents (Oct 14).
     getDocTemplates: () => Promise.resolve([{ id: 'jd1', name: 'JD - Analyst', publishedVersion: 1 }]),
     packetRoleHolders: () => Promise.resolve({ hr: { email: 'hana@x.com', name: 'Hana' } }),
     getDocLetterheads: () => Promise.resolve([]),
+    signOnceStatus: () => Promise.resolve({}),
     startHiringPacket: (...a) => startPacket(...a),
   },
 }));
@@ -54,14 +62,51 @@ const noop = () => {};
 describe('PacketsModal', () => {
   it('sets up the hiring packet and the promotion letter, starting empty', async () => {
     render(<PacketsModal onClose={noop} toastOk={noop} toastErr={noop} />);
-    await waitFor(() => expect(screen.getByText('Hiring Packet')).toBeTruthy());
-    expect(screen.getByText('Promotion Letter')).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Hiring Packet/ })).toBeTruthy());
+    // Hiring Setup opens first (Oct 23): every company with what is left; no company box on it.
+    expect(await screen.findByText('All Companies (Shared)')).toBeTruthy();
+    expect(screen.getByText('Ready To Hire')).toBeTruthy();
+    expect(screen.queryByLabelText('Company')).toBeNull();
+    fireEvent.click(screen.getByText('Advanced: All Packets And Signing Orders'));    // -> the event tabs
+    expect(screen.getByLabelText('Company')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Hiring Packet/ }));
+    expect(screen.getByRole('button', { name: /^Promotion Letter/ })).toBeTruthy();
     expect(screen.getByText('No hiring packet for Every company yet')).toBeTruthy();
-    fireEvent.click(screen.getByText('Promotion Letter'));
+    fireEvent.click(screen.getByRole('button', { name: /^Promotion Letter/ }));
     expect(screen.getByText('No promotion letter for Every company yet')).toBeTruthy();
     fireEvent.click(screen.getAllByText('Add Packet')[0]);
-    await waitFor(() => expect(screen.getByLabelText('Role')).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText('Works In')).toBeTruthy());
+    expect(screen.getByLabelText('Only for this role')).toBeTruthy();
     expect(screen.getByLabelText('Name')).toBeTruthy();
+  });
+
+  it('Duplicate opens a new packet that starts as a copy, in the same company', async () => {
+    packetSettings = [{ id: 's1', engine: 'documents', entityId: 'e1', event: 'hire', name: 'CA Employee', templateName: 'CA Employee',
+      roleIds: [], roleNames: [], workerType: 'employee', country: 'US', docTemplateIds: [], documents: ['Offer'], signers: [],
+      flow: [{ key: 'employee', role: 'employee', action: 'sign' }], readiness: [], signOnce: [] }];
+    render(<PacketsModal onClose={noop} toastOk={noop} toastErr={noop} />);
+    fireEvent.click(await screen.findByRole('button', { name: /^Hiring Packet/ }));     // the overview opens first
+    await waitFor(() => expect(screen.getByText('CA Employee')).toBeTruthy());
+    fireEvent.click(screen.getByTitle('Duplicate'));
+    await waitFor(() => expect(screen.getByLabelText('Name').value).toBe('CA Employee (Copy)'));
+    expect(screen.getByText('New Hiring Packet')).toBeTruthy();
+    expect(document.getElementById('pk-company').value).toBe('e1');                // the editor's own Company box
+    expect(screen.getByLabelText('Hired As').value).toBe('employee');
+    packetSettings = [];
+  });
+});
+
+describe('PacketsModal from Hiring Setup', () => {
+  it('Open The Packet finds a row made since the window opened', async () => {
+    render(<PacketsModal onClose={noop} toastOk={noop} toastErr={noop} initialCompanyId="e1" />);
+    expect(await screen.findByText('Open The Packet')).toBeTruthy();
+    // Made by Hiring Setup after the window loaded its list:
+    packetSettings = [{ id: 's-new', engine: 'documents', entityId: 'e1', event: 'hire', name: 'Contractor Packet', templateName: 'Contractor Packet',
+      roleIds: [], roleNames: [], workerType: 'contractor', country: 'US', docTemplateIds: [], documents: [], signers: [],
+      flow: [{ key: 'employee', role: 'employee', action: 'sign' }], readiness: [], signOnce: [] }];
+    fireEvent.click(screen.getByText('Open The Packet'));
+    expect((await screen.findAllByText(/Contractor Packet/)).length).toBeGreaterThan(0);   // the editor opened on it
+    packetSettings = [];
   });
 });
 
@@ -78,6 +123,16 @@ describe('SendHiringPacketModal', () => {
     expect(screen.getByText('Review Packet').closest('button')).toBeDisabled();  // name + department first
   });
 
+  // Neil, Oct 22: the supervisor is the department head, and the label says Reports To.
+  it('a new role in a department defaults the supervisor to its head', async () => {
+    render(<SendHiringPacketModal candidate={cand} canSeePay onClose={noop} onSent={noop} toastErr={noop} />);
+    await waitFor(() => expect(screen.getByText('Analyst - Accounting')).toBeTruthy());
+    expect(screen.getByText(/Reports To - the person this hire reports to/)).toBeTruthy();
+    fireEvent.change(screen.getByDisplayValue('Analyst - Accounting'), { target: { value: '__other__' } });
+    fireEvent.change(screen.getByDisplayValue('- pick a department -'), { target: { value: 'IT' } });
+    expect(screen.getByText('Max')).toBeTruthy();
+  });
+
   it('reviews, asks for what the template still needs, and sends only once confirmed', async () => {
     const onSent = vi.fn();
     render(<SendHiringPacketModal candidate={cand} canSeePay onClose={noop} onSent={onSent} toastErr={noop} />);
@@ -85,7 +140,7 @@ describe('SendHiringPacketModal', () => {
     await waitFor(() => expect(screen.getByText('Hiring Packet - Jane Doe')).toBeTruthy());
     expect(screen.getByText(/11\/02\/2026/)).toBeTruthy();                       // US date, no timezone shift
     expect(screen.getByText(/Human Resources > Employees > Jane Doe > Hiring Documents/)).toBeTruthy();
-    const send = screen.getByText('Review And Sign').closest('button');
+    const send = screen.getByText('Send Packet').closest('button');
     expect(send).toBeDisabled();                                                  // missing field + no confirmation
     fireEvent.change(screen.getByText('signing bonus').parentElement.querySelector('input'), { target: { value: '$2,000' } });
     fireEvent.click(screen.getByRole('checkbox'));

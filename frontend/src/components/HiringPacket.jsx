@@ -14,7 +14,7 @@
 // folder My HR > My Documents already shows them.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock, AlertTriangle, Plus, Trash2 } from 'lucide-react';
+import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock, AlertTriangle, Plus, Trash2, Copy, Info } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
@@ -22,12 +22,16 @@ import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
+import { leadsFor } from './HiringSchedule';
+import { REPORTS_TO } from './OfferModal';
 import { SignModal } from './ESign';
 import DetailsFormFields from './DetailsFormFields';
 import { PacketEditor, describeRoles } from './PacketTemplates';
-import { DocumentsPacketEditor } from './DocumentsPacketEditor';
+import HiringSetup from './hiring/HiringSetup';
+import { DocumentsPacketEditor, packetCopy } from './DocumentsPacketEditor';
 import { readinessSummary } from '../lib/packetFlow';
 import PacketReview from './PacketReview';
+import FolderPickModal from '../egnyte/EgnyteFolderPick';
 
 const ENABLED_EVENTS = ['offer', 'hire', 'promotion', 'separation'];
 const OTHER_ROLE = '__other__';
@@ -69,7 +73,6 @@ export function EmailPreviewModal({ event, entityId = '', templateId = '', note 
     </div>
   );
 }
-const WORKER_LABEL = { any: 'Everyone', employee: 'Employees Only', contractor: 'Contractors Only' };
 const EMPLOYMENT_TYPES = [['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['contractor', 'Contractor'], ['intern', 'Intern']];
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
 
@@ -147,7 +150,7 @@ const IconBtn = ({ title, onClick, disabled, danger, children }) => (
   </button>
 );
 
-function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
+function PacketRow({ row, onEdit, onDuplicate, onRemoved, toastErr, companyName }) {
   const [busy, setBusy] = useState(false);
   const [mail, setMail] = useState(null);
   const docs = [...(row.documents || []), ...(row.hasLetter ? ['Typed letter'] : [])];
@@ -178,8 +181,10 @@ function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
           {(row.problems || []).map(p => <div key={p} style={{ color: 'hsl(var(--color-orange))', fontSize: 11.5, marginTop: 3 }}>{p}</div>)}
         </td>
         <td style={TD}>
-          <StatusChip label={describeRoles(row.roleNames)} tone={row.roleNames?.length ? 'green' : 'gray'} />
-          {row.workerType && row.workerType !== 'any' && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{WORKER_LABEL[row.workerType]}</div>}
+          {/* Place first (Neil, Oct 22) - "Employees in CA, US"; a role only when the packet is limited to one. */}
+          <StatusChip label={row.place || describeRoles(row.roleNames)} tone={row.country ? 'green' : 'orange'} />
+          {!row.country && <div style={{ fontSize: 11, color: 'hsl(var(--color-orange))', marginTop: 4 }}>No place set - pick Works In so it never reaches the wrong country</div>}
+          {row.roleNames?.length > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Only {describeRoles(row.roleNames)}</div>}
         </td>
         <td style={TD}>{docs.length ? docs.map(d => <div key={d}>{d}</div>) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
         <td style={TD}>{(row.signers || []).map((x, i) => <div key={i}>{i + 1}. {x}</div>)}</td>
@@ -188,6 +193,7 @@ function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
           <span style={{ display: 'inline-flex', gap: 6 }}>
             <IconBtn title="Preview Email" onClick={() => setMail({ event: row.event, entityId: row.entityId, templateId: row.templateId, note: row.emailMessage })}><Send size={13} /></IconBtn>
             <IconBtn title="Edit" onClick={onEdit}><FileSignature size={13} /></IconBtn>
+            {row.engine === 'documents' && <IconBtn title="Duplicate" onClick={onDuplicate}><Copy size={13} /></IconBtn>}
             <IconBtn title="Remove" onClick={remove} disabled={busy} danger><Trash2 size={13} /></IconBtn>
           </span>
         </td>
@@ -198,18 +204,37 @@ function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
 }
 
 // `companyId` + `lockCompany` (Settings' scope picker, Oct 23): opened for
-// one company, with no company select of its own.
-export function PacketsModal({ onClose, toastOk, toastErr, companyId: initialCompany = '', lockCompany = false }) {
+// one company, with no company select of its own. `initialCompanyId` +
+// `focus`: the Hiring Setup tab opened on a company (a profile's Fix link).
+export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {}, initialCompanyId = null, focus = null,
+                              companyId: lockedCompany = '', lockCompany = false }) {
   const [data, setData] = useState(null);
   const [entities, setEntities] = useState([]);
-  const [companyId, setCompanyId] = useState(initialCompany);
-  const [tab, setTab] = useState('hire');
+  const [companyId, setCompanyId] = useState(lockedCompany || '');
+  // Hiring Setup first (Oct 23): the way in; the event tabs are Advanced.
+  const [tab, setTab] = useState('overview');
   const [editing, setEditing] = useState(null);     // { event, row | null }
-  const load = () => api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
+  // A packet saved here reloads Hiring Setup too; the offer's focus is used once.
+  const [rev, setRev] = useState(0);
+  const [focusLeft, setFocusLeft] = useState(focus);
+  const load = () => {
+    return api.getPackets().then(d => { setData(d); setRev(r => r + 1); }).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
+  };
   useEffect(() => { load(); api.getEntities().then(setEntities).catch(() => {}); }, []);
+  // A template written since this window opened shows up when a packet opens.
+  const refreshCatalog = () => api.getPackets().then(setData).catch(() => {});
+  useEffect(() => { if (editing) refreshCatalog(); }, [!!editing]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const events = (data?.events || []).filter(e => ENABLED_EVENTS.includes(e.key));
-  const ev = events.find(e => e.key === tab) || events[0];
+  const ev = tab === 'overview' ? null : (events.find(e => e.key === tab) || events[0]);
+  // Fetched fresh: Hiring Setup may have made the row since this window opened.
+  const openPacket = (id) => api.getPackets().then(d => {
+    setData(d);
+    const row = (d.settings || []).find(x => x.id === id);
+    const e = row && (d.events || []).find(x => x.key === row.event && ENABLED_EVENTS.includes(x.key));
+    if (row && e) setEditing({ event: e, row });
+    else toastErr('That packet is not in use any more.');
+  }).catch(e => toastErr(e?.message || 'Could not open the packet.'));
   const entityName = (id) => (id ? (entities.find(e => e.id === id)?.name || 'Unknown company') : '');
   // "All companies" (no company picked) lists every packet with its company;
   // a company picked lists its own.
@@ -219,7 +244,6 @@ export function PacketsModal({ onClose, toastOk, toastErr, companyId: initialCom
     .sort((a, b) => (entityName(a.entityId) || '').localeCompare(entityName(b.entityId) || '')
       || (a.roleIds?.length ? 1 : 0) - (b.roleIds?.length ? 1 : 0) || (a.templateName || '').localeCompare(b.templateName || '')) : [];
   const inherited = ev && companyId ? (data?.settings || []).filter(s => !s.entityId && s.event === ev.key) : [];
-  const hasGeneral = rows.some(r => !(r.roleIds || []).length && (all ? !r.entityId : true));
   const company = companyId ? (entities.find(e => e.id === companyId)?.name || 'This company') : 'Every company';
   // Roles born from Add Candidate's "Other" with no hiring packet yet (Neil,
   // Oct 12) - listed on the Hire tab with a one-click Add that opens the editor
@@ -234,26 +258,31 @@ export function PacketsModal({ onClose, toastOk, toastErr, companyId: initialCom
 
   return (
     <Overlay onClose={onClose} wide>
-      <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: '8px 14px', flexShrink: 0, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 220px', minWidth: 0 }}>
           <div style={{ fontWeight: 800, fontSize: 15.5 }}>Hiring Documents</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>What goes out through Nexus Sign when someone is hired, promoted or leaves</div>
         </div>
-        {lockCompany ? (
+        {tab !== 'overview' && (lockCompany ? (
           <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{company}</span>
         ) : (
-          <select className="form-input" style={{ width: 240 }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
+          <select className="form-input" style={{ width: 240, maxWidth: '100%' }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
             <option value="">All Companies</option>
             {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
-        )}
+        ))}
         <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
       </div>
       <div style={{ overflowY: 'auto', flex: 1, padding: '14px 22px 22px' }}>
         {!data ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="section" /></div> : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <div className="scroll-tabs" style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3 }}>
+              <div className="scroll-tabs" style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3, maxWidth: '100%' }}>
+                <button type="button" onClick={() => setTab('overview')}
+                  style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
+                    background: tab === 'overview' ? 'var(--card)' : 'transparent', color: 'var(--ink)', boxShadow: tab === 'overview' ? '0 1px 3px rgba(0,0,0,0.15)' : 'none' }}>
+                  Hiring Setup
+                </button>
                 {events.map(e => (
                   <button key={e.key} type="button" onClick={() => setTab(e.key)}
                     style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
@@ -270,6 +299,10 @@ export function PacketsModal({ onClose, toastOk, toastErr, companyId: initialCom
                 </button>
               )}
             </div>
+            {tab === 'overview' && (
+              <HiringSetup toastOk={toastOk} toastErr={toastErr} initialCompanyId={initialCompanyId ?? (lockCompany ? lockedCompany : null)} focus={focusLeft} onFocusUsed={() => setFocusLeft(null)}
+                refreshKey={rev} onAdvanced={(settingId) => (settingId ? openPacket(settingId) : setTab('offer'))} />
+            )}
             {ev?.key === 'hire' && needing.length > 0 && (
               <div role="status" style={{ border: '1px solid rgba(180,83,9,0.35)', background: 'rgba(180,83,9,0.07)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#b45309' }}>
@@ -308,12 +341,13 @@ export function PacketsModal({ onClose, toastOk, toastErr, companyId: initialCom
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {all && <th style={TH}>Company</th>}<th style={TH}>Packet</th><th style={TH}>For Role</th><th style={TH}>Documents</th><th style={TH}>Signs</th><th style={TH}>Filed In</th><th style={TH} />
+                    {all && <th style={TH}>Company</th>}<th style={TH}>Packet</th><th style={TH}>For</th><th style={TH}>Documents</th><th style={TH}>Signs</th><th style={TH}>Filed In</th><th style={TH} />
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map(r => (
                     <PacketRow key={r.id} row={r} toastErr={toastErr} onEdit={() => setEditing({ event: ev, row: r })}
+                      onDuplicate={() => setEditing({ event: ev, row: null, seed: packetCopy(r), companyId: r.entityId || '' })}
                       companyName={all ? entityName(r.entityId) : undefined}
                       onRemoved={() => { load(); toastOk('Packet removed.'); }} />
                   ))}
@@ -322,8 +356,9 @@ export function PacketsModal({ onClose, toastOk, toastErr, companyId: initialCom
             )}
             {ev && rows.length > 0 && (
               <div style={hint}>
-                A role with its own packet gets that one - the company's, else the one for every company; every other role gets the Every role packet{companyId ? ', the company\'s or the one for every company' : ''}.
-                {!hasGeneral && ` Roles without a packet of their own have nothing to fall back on here - add a packet for Every role to cover the rest.`}
+                Each hire gets the one for where they work and how they are hired: a state&apos;s before the country&apos;s, employees or contractors
+                before both, this company&apos;s before the one for every company - and one limited to a role only wins among those for the same place.
+                One for another country or state is never sent.
               </div>
             )}
           </>
@@ -331,7 +366,7 @@ export function PacketsModal({ onClose, toastOk, toastErr, companyId: initialCom
       </div>
       {editing && (editing.row ? editing.row.engine === 'documents' : true) && (
         <DocumentsPacketEditor packet={editing.row || editing.seed || null} event={editing.event.key} eventLabel={editing.event.label}
-          catalog={data}
+          catalog={data} companies={entities} onRefreshCatalog={refreshCatalog}
           companyId={editing.row ? (editing.row.entityId || '') : (editing.companyId ?? companyId)}
           companyName={editing.row ? (entityName(editing.row.entityId) || 'Every company') : (editing.companyId ? (entityName(editing.companyId) || 'This company') : company)}
           defaultSubfolder={editing.event.defaultSubfolder} toastErr={toastErr}
@@ -364,7 +399,8 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
     offer_expires: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
     manager_email: '', employment_type: 'full_time', salary_text: '', packet_id: '',
   });
-  const [opts, setOpts] = useState({ roles: [], departments: [] });
+  const [opts, setOpts] = useState({ roles: [], departments: [], leads: {} });
+  const autoMgr = useRef('');                          // the supervisor Nexus filled in, not HR
   // The packet Nexus picks for the company and role, and the others HR may
   // send instead. Re-picked when the role or employment type changes until
   // HR chooses one by hand.
@@ -402,17 +438,25 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
   useEffect(() => {
     if (!c.company) return;
     api.hiringOptions(c.company).then(o => {
-      setOpts({ roles: o.roles || [], departments: o.departments || [] });
+      setOpts({ roles: o.roles || [], departments: o.departments || [], leads: o.departmentLeads || {} });
       const r = (o.roles || []).find(x => x.id === c.roleId);
-      if (r?.defaultManagerEmail) setF(p => (p.manager_email ? p : { ...p, manager_email: r.defaultManagerEmail }));
+      const d = r ? r.defaultManagerEmail : leadsFor(o.departmentLeads, c.roleId ? '' : c.department)[0];
+      autoMgr.current = d || '';
+      if (d) setF(p => (p.manager_email ? p : { ...p, manager_email: d }));
     }).catch(() => {});
   }, [c.roleId, c.company]);
   const isOther = f.role_id === OTHER_ROLE;
   const role = opts.roles.find(r => r.id === f.role_id);
+  // Same rule as the offer: one Nexus filled in follows the role or department; HR's own pick is kept.
+  const withMgr = (next, email) => {
+    const keep = f.manager_email && f.manager_email !== autoMgr.current;
+    autoMgr.current = email || '';
+    return keep ? next : { ...next, manager_email: email || '' };
+  };
   const pickRole = (id) => {
     const r = opts.roles.find(x => x.id === id);
-    setF(p => ({ ...p, role_id: id, department: r ? (r.department || p.department) : p.department,
-                 manager_email: p.manager_email || r?.defaultManagerEmail || '' }));
+    const department = r ? (r.department || f.department) : f.department;
+    setF(withMgr({ ...f, role_id: id, department }, r ? r.defaultManagerEmail : id === OTHER_ROLE ? leadsFor(opts.leads, department)[0] : ''));
     setPreview(null);
   };
   const setP = (k, v) => { setPay(p => ({ ...p, [k]: v })); setPreview(null); };
@@ -467,7 +511,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
     <Overlay onClose={onClose} wide>
       <Head title={docsMode ? `Start Hiring Packet - ${name}` : `Send Hiring Packet - ${name}`}
         sub={docsMode ? `Pick the four options and enter ${c.firstName || 'their'} details - the documents are generated at once, and HR checks them before anything goes to ${c.email || 'them'}.`
-          : `Goes to ${c.email || 'their personal email'}. You sign first, then ${c.firstName || 'they'} signs.`} onClose={onClose} />
+          : `Goes to ${c.email || 'their personal email'}. ${c.firstName || 'They'} signs first, then you countersign for the company.`} onClose={onClose} />
       <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 14px' }}>
           <div><label style={lbl}>Job Title *</label>
@@ -480,7 +524,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             <>
               {input('New Role Name *', 'new_role_name', { placeholder: 'e.g. Leasing Coordinator' })}
               <div><label style={lbl}>Department *</label>
-                <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
+                <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => { setF(withMgr({ ...f, department: e.target.value }, leadsFor(opts.leads, e.target.value)[0])); setPreview(null); }}>
                   <option value="">- pick a department -</option>
                   {opts.departments.map(d => <option key={d} value={d}>{d}</option>)}
                 </select></div>
@@ -520,7 +564,10 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
               <Problem>"{f.new_role_name.trim() || 'The new role'}" is not one of this company's roles yet. Sending adds it to the company's roles with NO access - you and the administrators get a reminder to set its access in Settings &gt; Access.</Problem>
             </div>
           )}
-          <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Supervisor</label>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={{ ...lbl, display: 'flex', alignItems: 'center', gap: 6 }} title={REPORTS_TO}>
+              Supervisor <Info size={13} aria-label={REPORTS_TO} style={{ color: 'var(--muted)', cursor: 'help' }} />
+            </label>
             {manager ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{manager.name || manager.email}</span>
@@ -529,6 +576,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             ) : (
               <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people }]} onPick={v => set('manager_email', v)} />
             )}
+            <div style={hint}>{REPORTS_TO}</div>
           </div>
         </div>
         {canSeePay ? (
@@ -661,7 +709,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             {preview.salaryText && preview.payInLetter === false && <Problem>This packet's letter does not show pay - {preview.salaryText} will be set as their pay when they sign, but they will not read it in the documents. Add {'{{salary}}'} to the template under Documents &gt; Nexus Sign &gt; Templates, or leave pay blank.</Problem>}
             {preview.newRole && <Problem>New role "{preview.newRole}" will be added to {preview.company}'s roles with no access - set its access in Settings &gt; Access after sending.</Problem>}
             <div style={{ fontSize: 12.5, marginTop: 10, padding: '8px 11px', borderRadius: 10, background: 'var(--mist)' }}>
-              <b>Nothing goes to {name} yet.</b> Review And Sign opens the finished packet - your PDFs with this offer's pay and dates printed in - for you to read and sign for the company. The welcome email goes out only after you sign; if something is wrong, decline on that screen and send a corrected packet.
+              <b>Nothing goes to {name} until you click Send Packet.</b> {name} signs the finished packet first - your PDFs with this offer's pay and dates printed in - and you countersign for the company after them, never before. If something is wrong, void it and send a corrected packet.
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
               <span style={{ fontSize: 12.5 }}>{name} then gets the welcome email with a link to sign.</span>
@@ -707,7 +755,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
           <button className="primary-btn" onClick={send} disabled={!!busy || !ack || missing.length > 0}
             title={missing.length ? 'Fill in the missing details first' : !ack ? 'Confirm the document type first' : ''}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy === 'send' ? <Spinner size={14} /> : <Send size={14} />} Review And Sign
+            {busy === 'send' ? <Spinner size={14} /> : <Send size={14} />} Send Packet
           </button>
         )}
       </div>
@@ -724,8 +772,11 @@ export const noPaperwork = ev => ev.status === 'completed' && !ev.signRequestId 
 
 // One life event (hiring packet, promotion letter, separation package): who
 // has signed, Sign Now for HR's own turn, Void, and where it was filed.
-export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hideSign = false }) {
+// `compact`: one line for a signed one on the Documents tab; `filing={false}`
+// leaves the Egnyte line to that row (Neil, Oct 22 1:01:35).
+export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hideSign = false, egnyteEmail = '', compact = false, filing = true }) {
   const [busy, setBusy] = useState('');
+  const [picking, setPicking] = useState(null);      // File Manually: the folder the picker opens at
   const [reviewOpen, setReviewOpen] = useState(false);
   const docs = ev.engine === 'documents';
   const bare = noPaperwork(ev);
@@ -744,20 +795,32 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
       if (kind === 'void') { await api.voidLifeEvent(ev.id); toastOk?.(`${what} voided.`); }
       else if (kind === 'cancel') { await api.cancelOffboarding(ev.id); toastOk?.('Offboarding canceled.'); }
       else if (kind === 'apply') { await api.retryLifeEventApply(ev.id); toastOk?.('Applied.'); }
-      else if (kind === 'manual') {
-        // File Manually (Pranshu, Oct 15 2026): automatic filing cannot find
-        // or make the folder - HR names one that exists in Egnyte. Every
-        // signed, unfiled document of this person goes there together.
-        const folder = await dialog.prompt(
-          `Paste the Egnyte folder to file ${ev.subjectName || 'their'} signed documents into - for example /Shared/#Entities/(company)/Human Resources/Employees/(their name). It must already exist in Egnyte. The offer letter and hiring packet are filed there together, and these cards leave the profile.`,
-          { title: 'File Manually In Egnyte', confirmText: 'File Here', required: true, placeholder: '/Shared/...' });
-        if (!folder) { setBusy(''); return; }
-        const out = await api.fileLifeEventManually(ev.id, folder.trim());
-        const filed = (out.events || []).filter(e => e.filingStatus === 'filed').length;
-        const left = (out.events || []).length - filed;
-        toastOk?.(left ? `Filed ${filed} - ${left} could not be filed, see the reason on it.` : `Filed in Egnyte: ${folder.trim()}`);
-      }
       else { const out = await api.retryLifeEventFiling(ev.id); toastOk?.(out.filingStatus === 'filed' ? 'Filed in Egnyte.' : 'Still not filed - see the reason below.'); }
+      onChanged?.();
+    } catch (e) { toastErr?.(e?.message || 'That did not work.'); }
+    setBusy('');
+  }
+  // File Manually (Pranshu, Oct 15 2026): automatic filing cannot find or
+  // make the folder - HR picks one that exists in Egnyte, and every signed,
+  // unfiled document of this person goes there together. Picked with the
+  // Egnyte folder picker (Neil, Oct 22: "you click on Browse and you can add
+  // it. You don't add the URL"), opened at the person's folder when Nexus
+  // knows it; a pasted path or link still works through its Go To Folder.
+  async function openPicker() {
+    setBusy('manual');
+    const known = egnyteEmail ? await api.egnytePersonDocs(egnyteEmail).catch(() => null) : null;
+    setBusy('');
+    setPicking(known?.folder || '');
+  }
+  async function fileInto(folder) {
+    setPicking(null);
+    if (!folder) return;
+    setBusy('manual');
+    try {
+      const out = await api.fileLifeEventManually(ev.id, folder);
+      const filed = (out.events || []).filter(e => e.filingStatus === 'filed').length;
+      const left = (out.events || []).length - filed;
+      toastOk?.(left ? `Filed ${filed} - ${left} could not be filed, see the reason on it.` : `Filed in Egnyte: ${folder}`);
       onChanged?.();
     } catch (e) { toastErr?.(e?.message || 'That did not work.'); }
     setBusy('');
@@ -778,6 +841,53 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
     } catch (e) { toastErr?.(e?.message || 'Could not start the hiring packet.'); }
     setBusy('');
   }
+  const unfiled = ev.status === 'completed' && !bare && ev.filingStatus !== 'filed';
+  const filingColor = ev.filingStatus === 'filed' ? 'hsl(var(--color-green))' : ev.filingStatus === 'failed' ? 'hsl(var(--color-red))' : 'var(--muted)';
+  const filingText = ev.filingStatus === 'filed' ? `Filed in Egnyte: ${ev.filingPath}`
+    : ev.filingStatus === 'failed' ? `Not filed in Egnyte: ${ev.filingError}`
+      : `Filing in Egnyte${ev.filingError ? ` - try ${ev.filingAttempts || 1} did not work: ${ev.filingError.replace(/\.+$/, '')}. Nexus tries again by itself` : '...'}`;
+  const filingButtons = unfiled && (
+    <>
+      <button className="secondary-btn" onClick={() => act('retry')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        {busy === 'retry' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry Filing
+      </button>
+      {/* Pending after a failed try too, not only once it gives up. */}
+      {(ev.filingError || ev.filingAttempts > 0) && (
+        <button className="secondary-btn" onClick={openPicker} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          {busy === 'manual' ? <Spinner size={12} /> : <FolderOpen size={12} />} File Manually
+        </button>
+      )}
+    </>
+  );
+  const modals = (
+    <>
+      {picking !== null && (
+        <FolderPickModal startPath={picking} title="File Manually In Egnyte"
+          hint={`Browse to the Egnyte folder to file into (it must already exist), or paste its path or Egnyte link, then press "Use This Folder". The offer letter and hiring packet are filed there together.`}
+          onPick={fileInto} onClose={() => setPicking(null)} />
+      )}
+      {reviewOpen && (
+        <PacketReview eventId={ev.id} onClose={() => setReviewOpen(false)} onChanged={onChanged}
+          onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} />
+      )}
+    </>
+  );
+  if (compact) return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 0', borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+      <FileSignature size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+      <b>{what}</b>
+      <StatusChip label={label} tone={tone} />
+      {ev.completedAt && <span style={{ color: 'var(--muted)' }}>Signed {formatDateTime(ev.completedAt)}</span>}
+      <span title={filingText} style={{ flex: 1, minWidth: 160, color: filingColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filingText}</span>
+      {docs && (
+        <button className="secondary-btn" onClick={() => setReviewOpen(true)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <FileSignature size={12} /> Documents
+        </button>
+      )}
+      {filingButtons}
+      {modals}
+    </div>
+  );
   return (
     <div style={{ marginTop: 14, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -825,13 +935,10 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
           <span>No separation package was sent, so there is nothing to sign or file in Egnyte.</span>
         </div>
       )}
-      {ev.status === 'completed' && !bare && (
-        <div style={{ marginTop: 8, fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start',
-          color: ev.filingStatus === 'filed' ? 'hsl(var(--color-green))' : ev.filingStatus === 'failed' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
+      {filing && ev.status === 'completed' && !bare && (
+        <div style={{ marginTop: 8, fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start', color: filingColor }}>
           <FolderOpen size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>{ev.filingStatus === 'filed' ? `Filed in Egnyte: ${ev.filingPath}`
-            : ev.filingStatus === 'failed' ? `Not filed in Egnyte: ${ev.filingError}`
-              : `Filing in Egnyte${ev.filingError ? ` - try ${ev.filingAttempts || 1} did not work: ${ev.filingError}. Nexus tries again by itself` : '...'}`}</span>
+          <span>{filingText}</span>
         </div>
       )}
       {['intake', 'review'].includes(ev.status) && (
@@ -872,21 +979,9 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
             {busy === 'apply' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry
           </button>
         )}
-        {ev.status === 'completed' && !bare && ev.filingStatus !== 'filed' && (
-          <button className="secondary-btn" onClick={() => act('retry')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {busy === 'retry' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry Filing
-          </button>
-        )}
-        {ev.status === 'completed' && !bare && ev.filingStatus !== 'filed' && ev.filingError && (
-          <button className="secondary-btn" onClick={() => act('manual')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {busy === 'manual' ? <Spinner size={12} /> : <FolderOpen size={12} />} File Manually
-          </button>
-        )}
+        {filing && filingButtons}
       </div>
-      {reviewOpen && (
-        <PacketReview eventId={ev.id} onClose={() => setReviewOpen(false)} onChanged={onChanged}
-          onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} />
-      )}
+      {modals}
     </div>
   );
 }
@@ -936,20 +1031,22 @@ export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChang
   );
 }
 
-// The letters on a person (People > profile): anything still out for
-// signature, plus the latest finished one while it is recent or not filed.
-export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, onChanged, toastOk, toastErr }) {
+// The letters on a person (People > profile). Above the tabs: only what HR
+// still acts on - out for details or signature, a scheduled last day, a
+// packet that did not start, a failed apply, a recent decline. Signed ones
+// (`signed`) are one line each on the Documents tab, their Egnyte filing
+// with them - so an Egnyte outage never pins a card to the header (Neil,
+// Oct 22 1:01:35: "how do I get these two things off of here?").
+export function PersonLifeEvents({ employeeId, workEmail = '', refreshKey, onSignNow, onChanged, toastOk, toastErr, signed = false }) {
   const [events, setEvents] = useState([]);
   const load = () => api.getLifeEvents({ employeeId }).then(setEvents).catch(() => setEvents([]));
   useEffect(() => { load(); }, [employeeId, refreshKey]);
   const recent = Date.now() - 14 * 86400000;
-  const shown = events.filter(e => ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status) || e.applyStatus === 'scheduled'
-    || (e.kind === 'offer' && (e.flags || []).some(f => f.code === 'packet_not_started'))
-    // Filed by hand (Oct 15 2026): HR has dealt with it - off the profile at once.
-    || (e.status === 'completed' && ((e.filingStatus !== 'filed' && !noPaperwork(e))
-      || (new Date(e.completedAt).getTime() > recent && !(e.flags || []).some(f => f.code === 'filed_by_hand'))))
-    || (e.flags || []).some(f => f.code === 'apply_failed')
-    || (['declined', 'expired'].includes(e.status) && new Date(e.createdAt).getTime() > recent));
+  const shown = signed ? events.filter(e => e.status === 'completed' && !noPaperwork(e))
+    : events.filter(e => ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status) || e.applyStatus === 'scheduled'
+      || (e.kind === 'offer' && (e.flags || []).some(f => f.code === 'packet_not_started'))
+      || (e.flags || []).some(f => f.code === 'apply_failed')
+      || (['declined', 'expired'].includes(e.status) && new Date(e.createdAt).getTime() > recent));
   // A signed packet waiting for its Egnyte filing: the server files it within
   // a minute or two (then retries with backoff), so re-read this card while
   // one is pending - it used to sit on "Filing in Egnyte..." until a reload.
@@ -964,7 +1061,15 @@ export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, onChanged,
   }, [filingPending, events]);   // eslint-disable-line react-hooks/exhaustive-deps
   if (!shown.length) return null;
   // A cancel or void changes the person too (People re-reads - Oct 20 2026).
-  return <div>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} onChanged={() => { load(); onChanged?.(); }} toastOk={toastOk} toastErr={toastErr} />)}</div>;
+  const cards = shown.map(ev => <LifeEventCard key={ev.id} ev={ev} egnyteEmail={workEmail} compact={signed} filing={signed}
+    onSignNow={onSignNow} onChanged={() => { load(); onChanged?.(); }} toastOk={toastOk} toastErr={toastErr} />);
+  if (!signed) return <div>{cards}</div>;
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>Signed Paperwork</div>
+      {cards}
+    </div>
+  );
 }
 
 // Right to work compliance (Neil, Oct 14): "they can't receive their first
@@ -993,11 +1098,13 @@ export function paperworkState(events) {
   if (stuck) return { done: false, ev: offer, why: `the hiring packet has not started - ${stuck.message}` };
   return null;          // hired before offers and packets, or not hired through Nexus
 }
-export function PaperworkStatus({ employeeId, refreshKey }) {
+// `pendingOnly` (the profile header): gone once signed - Compliance keeps the
+// done line (Neil, Oct 22 19:20: the Overview "has gotten so messy").
+export function PaperworkStatus({ employeeId, refreshKey, pendingOnly = false }) {
   const [events, setEvents] = useState(null);
   useEffect(() => { api.getLifeEvents({ employeeId }).then(setEvents).catch(() => setEvents([])); }, [employeeId, refreshKey]);
   const st = paperworkState(events);
-  if (!st) return null;
+  if (!st || (pendingOnly && st.done)) return null;
   const tone = st.done ? 'green' : ['declined', 'expired'].includes(st.ev?.status) ? 'red' : 'orange';
   return (
     <div role="status" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', borderRadius: 12, padding: '10px 14px', margin: '10px 0',

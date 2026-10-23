@@ -256,6 +256,9 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // 13712 KB (a clean local build reads ~13505 - CI's clean install runs about
 // 200 KB higher, see above). No new dependency: the heat map and hexes are
 // drawn by hand. Deliberate (Visesh).
+// Oct 23, 2026: Hiring Setup (offer upload, Make An Offer on
+// one screen, offboarding packages) fits under the cap below: 13996 KB on a
+// clean local build with the planner batch. App code only, no new dependency.
 // Oct 22 2026: 13950 -> 14250. Planner parity batch (PR #765) measured
 // 14033 KB on CI: the Board's Group / Columns / label lanes / card previews,
 // the Calendar's Unscheduled pane, colored labels with Manage > Labels, web

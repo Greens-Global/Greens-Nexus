@@ -451,7 +451,9 @@ def _geo_context(db: Session, email: str = "") -> dict:
         if missing:
             sites += db.query(HrWorkSite).filter(HrWorkSite.id.in_(missing)).all()
     return {"sites": [s for s in sites if _has_fence(s)], "mine": mine,
-            "remote": bool(emp and (emp.work_remote or 0))}
+            "remote": bool(emp and (emp.work_remote or 0)),
+            # Hybrid (work_remote 2): remote allowed, but at a site the BOD/EOD tag names it.
+            "hybrid": bool(emp and int(emp.work_remote or 0) == 2)}
 
 
 def _judge(plat: float, plng: float, accuracy_m: int, ctx: dict) -> dict:
@@ -5961,7 +5963,8 @@ def geofence_punches(email: str = "", start: str = "", end: str = "",
             "source": p.source or "", "note": p.note or "",
         })
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else target
-    return {"email": target, "name": name, "remote": bool(emp and (emp.work_remote or 0)), "assignedSiteId": assigned,
+    return {"email": target, "name": name, "remote": bool(emp and (emp.work_remote or 0)),
+            "hybrid": bool(emp and int(emp.work_remote or 0) == 2), "assignedSiteId": assigned,
             "allowedSiteIds": sorted(allowed),
             "start": start, "end": end, "sites": sites, "punches": rows,
             "outOfFence": sum(1 for r in rows if r["geoStatus"] == "out_of_fence")}
@@ -11053,13 +11056,16 @@ _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 
 def _where_label(geo: dict, ctx: dict) -> str:
     """Where-from tag beside the time in a BOD/EOD post (Pranshu, 10/14).
-    Remote people read Remote wherever they are. Otherwise it is the site
+    Remote people read Remote wherever they are; Hybrid people read the site
+    when they are inside one, else Remote (Neil, Oct 22). Otherwise it is the site
     only when it is one of the person's allowed sites ([] = any company
     site), else Off-Site Punch - stricter than the timecard on purpose.
     No fix / too rough to judge = no tag rather than a guess."""
+    s = geo.get("geo_status")
+    if ctx.get("hybrid"):
+        return (geo.get("work_site_name") or "Remote") if s == "in_fence" else "Remote"
     if ctx.get("remote"):
         return "Remote"
-    s = geo.get("geo_status")
     mine = ctx.get("mine") or set()
     if s == "in_fence" and (not mine or geo.get("work_site_id") in mine):
         return geo.get("work_site_name") or ""

@@ -25,7 +25,8 @@ holding a company-scoped group places a person inside that company's wall
 assigning someone from another company is refused, and so is moving a role
 into a company while any member belongs elsewhere.
 """
-from datetime import datetime
+import json
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -33,7 +34,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db
-from models import NexusGroup, NexusGroupMember, NexusRole, NexusEmployee, HrEntity
+from models import NexusGroup, NexusGroupMember, NexusRole, NexusEmployee, HrEntity, AuditLog
 from auth import get_current_user, require_administrator, invalidate_role_cache, company_scope, _MODULE_LEVEL_RANK
 from routers.roles import VALID_ROLES, ROLE_LEVEL, _get_role
 from routers.groups import ModuleGrant, _parse_modules, _modules_csv
@@ -95,11 +96,46 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
         "bod_exempt": bool(getattr(jr, "bod_exempt", False)),
         "time_tracking_exempt": bool(getattr(jr, "time_tracking_exempt", False)),
         "default_manager_email": (getattr(jr, "default_manager_email", "") or ""),
+        "job_description": getattr(jr, "job_description", "") or "",
+        "hiring_docs": _ser_hiring_docs(db, getattr(jr, "hiring_docs", None) or []),
         "teams": _teams_target(jr),
         "company_id": (jr.company_id or ""),
         "created_by": jr.created_by,
         "created_at": jr.created_at,
     }
+
+
+def _ser_hiring_docs(db: Session, rows: list) -> list:
+    from models import DocTemplate
+    ids = {x for r in rows if isinstance(r, dict) for x in (r.get("templateId"), r.get("replaces")) if x}
+    names = {t.id: t.name for t in db.query(DocTemplate).filter(DocTemplate.id.in_(ids))} if ids else {}
+    return [{"templateId": r.get("templateId", ""), "templateName": names.get(r.get("templateId", ""), "A template that no longer exists"),
+             "replaces": r.get("replaces", "") or "",
+             "replacesName": ("Job Description" if r.get("replaces") == "@jd" else names.get(r.get("replaces", ""), ""))
+             if r.get("replaces") else ""}
+            for r in rows if isinstance(r, dict) and r.get("templateId")]
+
+
+def _clean_hiring_docs(db: Session, rows) -> list:
+    """A role's own hiring documents (Neil, Oct 22): each a Documents template
+    that exists, once, optionally replacing one of a packet's documents."""
+    from models import DocTemplate
+    out, seen = [], set()
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        tid, rep = str(r.get("templateId") or "").strip(), str(r.get("replaces") or "").strip()
+        if not tid or tid in seen:
+            continue
+        # replaces "@jd" = takes the job description page's place (Hiring Setup, Oct 23 2026).
+        for x in (tid, "" if rep == "@jd" else rep):
+            if x and not db.query(DocTemplate.id).filter(DocTemplate.id == x).first():
+                raise HTTPException(status_code=400, detail="A role document points at a template that no longer exists - pick it again.")
+        if rep == tid:
+            rep = ""
+        seen.add(tid)
+        out.append({"templateId": tid, "replaces": rep})
+    return out[:20]
 
 
 def _teams_target(jr: NexusGroup) -> dict:
@@ -151,6 +187,8 @@ class JobRoleBody(BaseModel):
     bod_exempt: Optional[bool] = False
     time_tracking_exempt: Optional[bool] = False
     default_manager_email: Optional[str] = ""
+    job_description: Optional[str] = ""       # duties, printed by {{role_description}} (Oct 22)
+    hiring_docs: Optional[list] = None        # [{templateId, replaces}] - the role's own paperwork
     company_id: Optional[str] = ""            # HrEntity.id, or '' = shared across companies
     teams: Optional[TeamsTarget] = None       # BOD/EOD destination (Oct 7)
 
@@ -164,11 +202,14 @@ class JobRoleUpdate(BaseModel):
     bod_exempt: Optional[bool] = None
     time_tracking_exempt: Optional[bool] = None
     default_manager_email: Optional[str] = None
+    job_description: Optional[str] = None
+    hiring_docs: Optional[list] = None
     company_id: Optional[str] = None
     teams: Optional[TeamsTarget] = None       # BOD/EOD destination; {id: ''} clears it
 
 class AssignBody(BaseModel):
     email: str
+    reason: Optional[str] = ""   # required when it swaps an employee's role (assign_job_role) and on unassign
 
 class ApplyManagerBody(BaseModel):
     manager_email: str
@@ -267,6 +308,8 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
         bod_exempt=1 if body.bod_exempt else 0,
         time_tracking_exempt=1 if body.time_tracking_exempt else 0,
         default_manager_email=(body.default_manager_email or "").lower().strip(),
+        job_description=(body.job_description or "").strip()[:20000],
+        hiring_docs=_clean_hiring_docs(db, body.hiring_docs),
         company_id=company_id,
         created_by=user["email"],
         created_at=now,
@@ -303,6 +346,10 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         jr.time_tracking_exempt = 1 if body.time_tracking_exempt else 0
     if body.default_manager_email is not None:
         jr.default_manager_email = body.default_manager_email.lower().strip()
+    if body.job_description is not None:
+        jr.job_description = body.job_description.strip()[:20000]
+    if body.hiring_docs is not None:
+        jr.hiring_docs = _clean_hiring_docs(db, body.hiring_docs)
     if body.teams is not None:
         _apply_teams(jr, body.teams)
 
@@ -471,19 +518,27 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
     email = body.email.lower().strip()
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
+    # Swapping an employee's role is HR's, IT's or a Global Admin's, with a
+    # reason, and is logged (Neil, Oct 22 - role_change.change_now does all
+    # three, and runs check_can_assign on the HR path, so an HR editor below
+    # IT Admin may swap here as in People). A first role, re-applying the same
+    # role (reset to the role's tier) and external users are unchanged.
+    from hr_life_events import current_job_role
+    cur = current_job_role(db, email)
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+    if cur and cur.id != jr.id and emp and (emp.identity_type or "internal") == "internal":
+        import role_change as rc
+        if not rc.can_change_roles(db, user):
+            raise HTTPException(status_code=403, detail="Only HR, an IT Admin or a Global Admin can change someone's role.")
+        try:
+            jr, warning = rc.change_now(db, user, emp, jr.id, body.reason)
+        except rc.RoleChangeError as e:
+            db.rollback()
+            raise HTTPException(status_code=e.status, detail=str(e))
+        db.commit()
+        return {"assigned": email, "job_role": jr.name, "tier": _clean_tier(jr.tier or "employee"),
+                "company_id": (jr.company_id or "").strip(), "warning": warning}
     warning = check_can_assign(db, user, jr, email)
-    # Swapping an employee's role needs their manager's or HR's approval
-    # (Pranshu, Oct 13 - role_change.py); only a Global Admin may still do it
-    # directly. A first role, re-applying the same role (reset to the role's
-    # tier) and external users are unchanged.
-    if user["role"] != "owner":
-        from hr_life_events import current_job_role
-        cur = current_job_role(db, email)
-        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
-        if cur and cur.id != jr.id and emp and (emp.identity_type or "internal") == "internal":
-            raise HTTPException(status_code=409, detail=(
-                "Changing someone's role needs their manager's or HR's approval - use Change Role "
-                "on their People profile or in Settings > Access."))
     tier = apply_job_role(db, jr, email, user["email"])
     db.commit()
     return {"assigned": email, "job_role": jr.name, "tier": tier,
@@ -502,13 +557,25 @@ def unassign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_cur
     _guard_can_assign_tier(user, _clean_tier(jr.tier or "employee"))
     if user["role"] != "owner" and ROLE_LEVEL.get(_get_role(email, db), 1) >= ROLE_LEVEL["administrator"]:
         raise HTTPException(status_code=403, detail="Only a Global Admin can change another admin's access")
+    # Taking a role away is a role change too - same reason and log as a swap
+    # (Neil, Oct 22), so the Role tab history shows it.
+    reason = (body.reason or "").strip()[:1000]
+    if not reason:
+        raise HTTPException(status_code=400, detail="Add the reason - it is kept in their role history.")
 
-    db.query(NexusGroupMember).filter(
+    removed = db.query(NexusGroupMember).filter(
         NexusGroupMember.group_id == jr_id, NexusGroupMember.email == email).delete(synchronize_session=False)
     row = db.query(NexusRole).filter(NexusRole.email == email).first()
     if row:
         row.role = "employee"
         row.assigned_by = user["email"]
+    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == email).first()
+    if removed:
+        db.add(AuditLog(timestamp=datetime.now(timezone.utc).isoformat(), user_email=user["email"].lower(), user_role=str(user.get("role") or ""),
+                        action="Changed role", resource_type="employee" if emp else "user",
+                        resource_id=emp.id if emp else email,
+                        details=json.dumps({"employee": email, "from": (emp.job_title if emp else "") or jr.name,
+                                            "to": "No role", "reason": reason, "via": "access"})[:4000]))
     invalidate_role_cache(email)
     db.commit()
     return {"unassigned": email}

@@ -13,14 +13,14 @@ import { AttachmentPlacer, MERGE_FIELDS } from './ESign';
 
 const MERGE_LABEL = Object.fromEntries(MERGE_FIELDS);
 const DEFAULT_SIGNERS = {
-  hire: [{ key: 'company', label: 'Company Representative' }, { key: 'employee', label: 'Employee / Candidate' }],
+  hire: [{ key: 'employee', label: 'Employee / Candidate' }, { key: 'company', label: 'Company Representative' }],
   promotion: [{ key: 'employee', label: 'Employee' }, { key: 'manager', label: 'Manager' }],
-  separation: [{ key: 'company', label: 'Company Representative' }, { key: 'employee', label: 'Employee' }],
+  separation: [{ key: 'employee', label: 'Employee' }, { key: 'company', label: 'Company Representative' }],
 };
 const SIGNER_HINT = {
-  hire: 'The new hire signs last; you sign every other role when you send.',
+  hire: 'The new hire signs first; you countersign every other role after them - the company never signs first.',
   promotion: 'The employee signs first, then their manager.',
-  separation: 'The person leaving signs last; you sign for the company when you send.',
+  separation: 'The person leaving signs first; you countersign for the company after them.',
 };
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
 const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };

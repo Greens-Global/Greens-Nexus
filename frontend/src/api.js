@@ -1004,8 +1004,8 @@ export const api = {
   createJobRole:     (body)              => req('/jobroles', { method: 'POST', body: JSON.stringify(body) }),
   updateJobRole:     (id, body)          => req(`/jobroles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteJobRole:     (id)                => req(`/jobroles/${id}`, { method: 'DELETE' }),
-  assignJobRole:     (id, email)         => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
-  unassignJobRole:   (id, email)         => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email }) }),
+  assignJobRole:     (id, email, reason) => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email, reason }) }),
+  unassignJobRole:   (id, email, reason) => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email, reason }) }),
   getEffectiveAccess: (email)            => req(`/jobroles/effective/${encodeURIComponent(email)}`),
   applyJobRoleManager: (id, manager_email) => req(`/jobroles/${id}/apply-manager`, { method: 'POST', body: JSON.stringify({ manager_email }) }),
   // One company's job roles plus the shared ones (Company Settings > Roles).
@@ -1431,6 +1431,22 @@ export const api = {
 
   // HR - life events through Nexus Sign (hiring packet, Oct 2026)
   getPackets:          ()         => req('/hr/packets'),
+  getPacketCoverage:   ()         => req('/hr/packets/coverage'),
+  setPacketHired:      (entityId, workerType, hired) => req('/hr/packets/coverage/hired', { method: 'PUT', body: JSON.stringify({ entity_id: entityId, worker_type: workerType, hired }) }),
+  // Hiring Setup (Oct 23)
+  getHiringSetup:          ()                          => req('/hr/hiring-setup'),
+  getHiringSetupCompany:   (entityId = '', roleId = '', section = 'hiring') => req(`/hr/hiring-setup/company?${new URLSearchParams({ entity_id: entityId || '', role_id: roleId || '', section })}`),
+  hiringSetupUseSame:      (settingId)                 => req('/hr/hiring-setup/use-same', { method: 'POST', body: JSON.stringify({ setting_id: settingId }) }),
+  hiringSetupRestore:      (settingId)                 => req('/hr/hiring-setup/restore', { method: 'POST', body: JSON.stringify({ setting_id: settingId }) }),
+  hiringSetupMakeOwn:      (data)                      => req('/hr/hiring-setup/make-own', { method: 'POST', body: JSON.stringify(data) }),
+  hiringSetupSetDocuments: (settingId, docTemplateIds) => req(`/hr/hiring-setup/settings/${settingId}/documents`, { method: 'PUT', body: JSON.stringify({ doc_template_ids: docTemplateIds }) }),
+  hiringSetupOwnCopy:      (settingId, templateId, entityId = '') => req(`/hr/hiring-setup/settings/${settingId}/documents/${encodeURIComponent(templateId)}/own-copy?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'POST' }),
+  hiringSetupPlace:        (entityId, country, region = '', remove = false) => req('/hr/hiring-setup/places', { method: 'PUT', body: JSON.stringify({ entity_id: entityId, country, region, remove }) }),
+  getRoleDuties:           (roleId, entityId = '')     => req(`/hr/hiring-setup/roles/${roleId}/duties?entity_id=${encodeURIComponent(entityId || '')}`),
+  addRoleDuty:             (roleId, data)              => req(`/hr/hiring-setup/roles/${roleId}/duties`, { method: 'POST', body: JSON.stringify(data) }),
+  updateRoleDuty:          (roleId, versionId, text)   => req(`/hr/hiring-setup/roles/${roleId}/duties/${versionId}`, { method: 'PATCH', body: JSON.stringify({ text }) }),
+  removeRoleDuty:          (roleId, versionId)         => req(`/hr/hiring-setup/roles/${roleId}/duties/${versionId}`, { method: 'DELETE' }),
+  setRoleHiringDocs:       (roleId, hiringDocs)        => req(`/hr/hiring-setup/roles/${roleId}/documents`, { method: 'PUT', body: JSON.stringify({ hiring_docs: hiringDocs }) }),
   savePacket:          (data)     => req('/hr/packets', { method: 'PUT', body: JSON.stringify(data) }),
   savePacketWhole:     (data)     => req('/hr/packets/whole', { method: 'PUT', body: JSON.stringify(data) }),
   deletePacket:        (id)       => req(`/hr/packets/${id}`, { method: 'DELETE' }),
@@ -1446,7 +1462,6 @@ export const api = {
   previewPromotion:    (eid, data) => req(`/hr/employees/${eid}/promotion/preview`, { method: 'POST', body: JSON.stringify(data) }),
   sendPromotion:       (eid, data) => req(`/hr/employees/${eid}/promotion`, { method: 'POST', body: JSON.stringify(data) }),
   // Role change without a promotion: asks the manager / HR, who approve (Pranshu, Oct 13).
-  requestRoleChange:   (data)      => req('/hr/role-change-requests', { method: 'POST', body: JSON.stringify(data) }),
   getRoleChangeRequests: ({ employeeId = '', email = '' } = {}) =>
     req(`/hr/role-change-requests?employee_id=${encodeURIComponent(employeeId)}&email=${encodeURIComponent(email)}`),
   getRoleChangeRequest: (id)       => req(`/hr/role-change-requests/${id}`),
@@ -2181,7 +2196,8 @@ export const api = {
   // People > onboarding / offboarding / leave checklists (hr_checklists.py).
   // The owner of a step (manager, IT, the new hire) ticks it from My HR via
   // getMyChecklistSteps + updateChecklistItem without an hr grant.
-  getChecklistMeta:       ()          => req('/hr/checklists/meta'),
+  getChecklistMeta:       ({ entityId = '', roleId = '' } = {}) => req(`/hr/checklists/meta?entity_id=${encodeURIComponent(entityId)}&role_id=${encodeURIComponent(roleId)}`),
+  saveChecklistStepDepartments: (entityId, departmentIds) => req(`/hr/checklists/step-departments?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ department_ids: departmentIds }) }),
   getEmployeeChecklists:  (empId)     => req(`/hr/checklists/employee/${empId}`),
   startChecklist:         (empId, d)  => req(`/hr/checklists/employee/${empId}`, { method: 'POST', body: JSON.stringify(d) }),
   cancelChecklist:        (id)        => req(`/hr/checklists/${id}/cancel`, { method: 'POST' }),
@@ -2201,6 +2217,15 @@ export const api = {
   getRoleChecklistRoles:  ()          => req('/hr/checklists/role-templates'),
   getRoleChecklist:       (roleId)    => req(`/hr/checklists/role-templates/${roleId}`),
   saveRoleChecklist:      (roleId, kind, items) => req(`/hr/checklists/role-templates/${roleId}/${kind}`, { method: 'PUT', body: JSON.stringify({ items }) }),
+  // Copy another role's steps into this one (Neil, Oct 22): { from_role_id, kinds, mode: append | replace }.
+  copyRoleChecklist:      (roleId, d) => req(`/hr/checklists/role-templates/${roleId}/copy`, { method: 'POST', body: JSON.stringify(d) }),
+  // Where a company's checklist tasks go (Neil, Oct 22): { place: { default | kind: { projectId, sectionId } }, move }.
+  getChecklistTaskPlace:  (entityId) => req(`/hr/checklists/task-place?entity_id=${encodeURIComponent(entityId || '')}`),
+  saveChecklistTaskPlace: (entityId, d) => req(`/hr/checklists/task-place?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify(d) }),
+  // Onboarding Audit of people already here (Neil, Oct 22): who has no record, start (at most 50 per call), the CSV record.
+  getChecklistAuditCandidates: (entityId) => req(`/hr/checklists/audit/candidates?entity_id=${encodeURIComponent(entityId || '')}`),
+  startOnboardingAudits:  (employeeIds) => req('/hr/checklists/audit', { method: 'POST', body: JSON.stringify({ employee_ids: employeeIds }) }),
+  downloadChecklistRecord: (id)      => reqBlob(`/hr/checklists/${id}/record.csv`),
   // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
   // loan (built or the bank's file) and saved rate stress scenarios
   // (routers/accounting_loan_plans.py).
@@ -2547,6 +2572,8 @@ export const api = {
   // sent to the verifier; after-offer: start the packet when it could not start itself.
   offerOptions:        (cid, params = {}) => req(`/hr/candidates/${cid}/offer/options?${new URLSearchParams(params)}`),
   startOffer:          (cid, data) => req(`/hr/candidates/${cid}/offer/start`, { method: 'POST', body: JSON.stringify(data) }),
+  promotionOptions:    (eid, roleId = '') => req(`/hr/employees/${eid}/promotion/options?role_id=${encodeURIComponent(roleId || '')}`),
+  offboardOptions:     (eid)              => req(`/hr/employees/${eid}/offboard/options`),
   startPacketAfterOffer: (cid) => req(`/hr/candidates/${cid}/hiring-packet/after-offer`, { method: 'POST' }),
   // File Manually (Oct 15 2026): automatic Egnyte filing failed - HR names the folder.
   fileLifeEventManually: (eid, folder) => req(`/hr/life-events/${eid}/file-manually`, { method: 'POST', body: JSON.stringify({ folder }) }),
@@ -2871,6 +2898,10 @@ export const api = {
     service: "", tags: (d.tags || []).join(","), body: { purpose: d.summary || "" }, content_text: d.summary || "",
   }))),
   kbCorpusCourses: () => req("/kb/courses").then((rows) => (rows || []).map((c) => ({ ...c, course_code: c.code, overview: [] }))),
+  // What The New Hire Will Be Asked - the packet editor's unsaved documents and form
+  packetIntakePreview: (data) => req('/hr/packets/intake-preview', { method: 'POST', body: JSON.stringify(data) }),
+  // People > Records Audit - missing details and expired documents (hr_record_audit.py)
+  getRecordsAudit: () => req('/hr/checklists/records-audit'),
 
   // Task labels (Oct 22 2026): the company's label colors, for labels on
   // tasks the caller can open (tasks/labels.js). `all` = Manage's view: the

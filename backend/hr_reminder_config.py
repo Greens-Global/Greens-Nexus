@@ -47,6 +47,9 @@ DEFAULTS = {
     # many days with no contact (each nudge restarts the count), at most this
     # many automatic nudges per signer.
     "esignChase":     {"enabled": True, "firstNudgeAfterDays": 3, "maxNudges": 3},
+    # Records Audit (hr_record_audit.py): missing details and expired documents,
+    # one bell per company to HR every morning that something is open.
+    "recordAudit":    {"enabled": True},
 }
 
 # Which list fields each type accepts.
@@ -65,6 +68,7 @@ _LABELS = {
     "documentExpiry": "HR document expiry",
     "esignExpiring": "Signature request expiring",
     "esignChase": "Signature chase",
+    "recordAudit": "Records audit",
 }
 
 

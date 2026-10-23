@@ -726,6 +726,20 @@ class NexusGroup(Base):
     created_from    = Column(String, default="")
     bod_team_id     = Column(String, default="")
     bod_team_name   = Column(String, default="")
+    # The role fills itself into the hiring paperwork (Neil, Oct 22: "the role
+    # gets filled into the hiring packet... the only thing that changes is a
+    # different confidentiality agreement and a different job description
+    # based on roles"). job_description is the duties text a white-label Job
+    # Description document prints as {{role_description}}; hiring_docs are the
+    # role's own documents, each added to - or replacing one of - whatever
+    # packet the hire gets: [{templateId, replaces}] ('' = added).
+    job_description = Column(Text, default="")
+    hiring_docs     = Column(JSON, default=list)
+    # Versions of the duties (Hiring Setup, Oct 23 2026): job_description is
+    # the Standard; each version is for a kind of hire, a place and/or one
+    # company - [{id, hiredAs, country, region, entityId, text, createdBy,
+    # createdAt, updatedAt, archivedAt}]. hiring_setup.resolve_duties picks one.
+    duty_versions   = Column(JSON, default=list)
 
 
 class NexusGroupMember(Base):
@@ -1020,6 +1034,8 @@ class HrCandidate(Base):
     decision_by    = Column(String, default="")
     decision_at    = Column(String, default="")
     decision_note  = Column(String, default="")
+    # Skip Interview (Neil, Oct 22): who moved them to Decision without one.
+    interview_skipped_by = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
@@ -1457,6 +1473,7 @@ class HrEntity(Base):
     name               = Column(String, nullable=False)     # short display name (e.g. "Greens India")
     legal_name         = Column(String, default="")         # full registered legal name
     country            = Column(String, default="")         # US | IN | ...
+    region             = Column(String, default="")         # US state (CA, TX) - picks the hiring documents for the place
     tax_id             = Column(String, default="")         # EIN (US) / GSTIN (IN)
     registered_address = Column(String, default="")
     signatory          = Column(String, default="")         # authorized signatory name/title
@@ -5459,6 +5476,17 @@ class HrChecklist(Base):
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
     closed_at   = Column(String, default="")
+    # The job role whose steps it carries (Oct 23 2026), so a role's template
+    # change reaches it (hr_checklists.reconcile). '' = no role; NULL = started
+    # before the column - filled from the role the person holds on first use.
+    role_id     = Column(String, nullable=True)
+    # Its ONE task (Neil, Oct 22: "Onboarding - <name>" in the HR project,
+    # assigned to the head of HR); each step's subtask hangs under it.
+    task_id     = Column(String, default="")
+    # An Onboarding Audit of someone already working here (Neil, Oct 22: "if
+    # the person is an existing employee, we can have an option to do an
+    # audit"): dated from the audit, never moved by their old start date.
+    audit       = Column(Boolean, default=False)
 
 
 class HrChecklistItem(Base):
@@ -5495,6 +5523,9 @@ class HrChecklistItem(Base):
     # Comments made while the step had no subtask; the rest live on the subtask
     # as task comments, so both sides show the same thread (hr_checklists.comments_for).
     comments     = Column(JSON, default=list)
+    # Which condition ticked it when done_by is "Nexus" (Oct 23 2026), e.g.
+    # "An ID document is on file" - the proof of what was on record and when.
+    done_reason  = Column(String, default="")
 
 
 class AccountingLoanSchedule(Base):
@@ -6099,7 +6130,8 @@ class HrPacketSetting(Base):
     is the default every company falls back to, worker_type 'any' covers both
     employees and contractors. The template carries the merged PDFs and the
     signer roles; `subject_role` is the role the person signs as - every other
-    role is signed by the HR sender, who signs at send so the person signs last.
+    role is signed by the HR sender, who countersigns after the person (the
+    person signs first - Neil, Oct 22 2026).
     New table - RLS per CLAUDE.md (main.py list + the startup sweep)."""
     __tablename__ = "hr_packet_settings"
     id               = Column(String, primary_key=True)           # uuid
@@ -6152,6 +6184,15 @@ class HrPacketSetting(Base):
     # of doc_template_ids - "there's a different confidentiality agreement for
     # each team" (Neil). [{match: department | role, value, templateIds: []}]
     extra_docs       = Column(JSON, default=list)
+    # Where the person works, inside the country (Neil, Oct 22): "there is a
+    # hiring packet that applies to California... when we open Texas we'll add
+    # one for Texas". A US state code (CA, TX), '' = anywhere in the country.
+    region           = Column(String, default="")
+    # Use The Same (Hiring Setup, Oct 23 2026): an archived row is this level's
+    # own letter or packet put aside so the level above applies again - never
+    # sent, never deleted, restorable. '' = live.
+    archived_at      = Column(String, default="")
+    archived_by      = Column(String, default="")
 
 
 class HrLifeEvent(Base):

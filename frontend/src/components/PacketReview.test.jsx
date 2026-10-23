@@ -15,13 +15,13 @@ const base = {
   documents: [{ documentId: 'd1', title: 'Offer Letter - Jane Doe', templateName: 'Offer Letter', templateVersion: 3,
                 version: 1, publishedAt: '2026-10-14T15:12:00Z', publishedBy: 'charmi@x.com', printsPay: true,
                 canOpen: true, outdated: false, unresolved: [] }],
-  recipients: [{ order: 1, name: 'Charmi Shah', email: 'charmi@x.com', roleLabel: 'HR', actionLabel: 'Signs', isSubject: false },
-               { order: 2, name: 'Jane Doe', email: 'jane@gmail.com', roleLabel: 'The Person', actionLabel: 'Signs', isSubject: true }],
+  recipients: [{ order: 1, name: 'Jane Doe', email: 'jane@gmail.com', roleLabel: 'The Person', actionLabel: 'Signs', isSubject: true },
+               { order: 2, name: 'Charmi Shah', email: 'charmi@x.com', roleLabel: 'HR', actionLabel: 'Signs', isSubject: false }],
   verifier: { role: 'hr', roleLabel: 'HR', email: 'charmi@x.com', name: 'Charmi Shah' },
   problems: [], outdated: false, seen: { d1: 1 },
 };
 let review = base;
-const verify = vi.fn(() => Promise.resolve({ id: 'ev1', status: 'awaiting_sender', senderPartyId: 'p1' }));
+const verify = vi.fn(() => Promise.resolve({ id: 'ev1', status: 'sent', senderPartyId: '' }));
 vi.mock('../api', () => ({
   api: {
     getPacketReview: () => Promise.resolve(review),
@@ -37,10 +37,11 @@ const { default: PacketReview } = await import('./PacketReview');
 const noop = () => {};
 
 describe('PacketReview', () => {
-  it('the verifier checks, confirms and sends; then signs for the company', async () => {
+  it('the verifier checks, confirms and sends; the person signs first, nobody signs at send', async () => {
     review = { ...base, canVerify: true, isVerifier: true, pay: { base: 85000 }, payText: '$85,000.00 per year' };
     const onSignNow = vi.fn();
-    render(<PacketReview eventId="ev1" onClose={noop} onChanged={noop} onSignNow={onSignNow} toastOk={noop} toastErr={noop} />);
+    const ok = vi.fn();
+    render(<PacketReview eventId="ev1" onClose={noop} onChanged={noop} onSignNow={onSignNow} toastOk={ok} toastErr={noop} />);
     await waitFor(() => expect(screen.getByText('Offer Letter - Jane Doe')).toBeTruthy());
     expect(screen.getByText('$85,000.00 per year')).toBeTruthy();
     expect(screen.getByText('11/02/2026')).toBeTruthy();
@@ -50,7 +51,8 @@ describe('PacketReview', () => {
     fireEvent.click(screen.getByText(/not a record that cannot be signed/));
     expect(send.disabled).toBe(false);
     fireEvent.click(send);
-    await waitFor(() => expect(onSignNow).toHaveBeenCalledWith('p1'));
+    await waitFor(() => expect(ok).toHaveBeenCalledWith('Sent - Jane Doe has been emailed the documents to sign.'));
+    expect(onSignNow).not.toHaveBeenCalled();
     expect(verify.mock.calls[0][1]).toEqual({ excluded_ack: true, seen: { d1: 1 } });
   });
 

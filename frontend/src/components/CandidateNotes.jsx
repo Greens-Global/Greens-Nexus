@@ -16,7 +16,7 @@ import { api } from '../api';
 import { formatDate, formatTime } from '../lib/datetime';
 import { Spinner } from './AsyncState';
 
-const LABEL = { applied: 'Applied', screening: 'Screening', interview: 'Interview', offer: 'Offer', hired: 'Hired', rejected: 'Rejected' };
+const LABEL = { applied: 'Applied', screening: 'Screening', interview: 'Interview', decision: 'Decision', offer: 'Offer', hired: 'Hired', rejected: 'Rejected' };
 const initials = (name) => (name || '?').split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 const hue = (name) => { let h = 0; for (const ch of name || '') h = (h * 31 + ch.charCodeAt(0)) % 360; return `${h},45%,45%`; };
 
@@ -114,8 +114,9 @@ export default function CandidateNotes({ candidateId, refreshKey, draft, onDraft
                     <Icon size={13} style={{ flexShrink: 0, marginTop: 2 }} />
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{head}</span>
-                      {e.note && e.note !== 'Candidate added' && <span> - {e.note}</span>}
-                      <span>{e.byName ? ` · ${e.byName}` : ''}{when ? ` · ${when}` : ''}</span>
+                      {e.note && e.note !== 'Candidate added' && <span>{head ? ' - ' : ''}{e.note}</span>}
+                      {/* "Verified and sent by Charmi Desai" already names them */}
+                      <span>{e.byName && !(e.note || '').includes(e.byName) ? ` · ${e.byName}` : ''}{when ? ` · ${when}` : ''}</span>
                     </span>
                   </div>
                 );

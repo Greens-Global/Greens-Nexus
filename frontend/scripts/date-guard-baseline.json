@@ -78,9 +78,6 @@
   "components/GeofencePunchModal.jsx": {
     "toLocaleDateString(": 1
   },
-  "components/HrPersonActions.jsx": {
-    "type=\"date\"": 1
-  },
   "components/ImageLightbox.jsx": {
     "toLocaleTimeString(": 1
   },

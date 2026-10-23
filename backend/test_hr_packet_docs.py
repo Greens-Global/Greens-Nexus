@@ -82,9 +82,10 @@ class PacketDocsTests(unittest.TestCase):
         db = database.SessionLocal()
         for m in (models.HrPacketSetting, models.DocTemplate, models.DocTemplateVersion, models.Document,
                   models.HrCandidate, models.NexusEmployee, models.HrEntity, models.NexusRole, models.NexusGroup,
-                  models.NexusGroupMember, models.NexusSetting, models.HrLifeEvent, models.HrSignRequest):
+                  models.NexusGroupMember, models.NexusSetting, models.HrLifeEvent, models.HrSignRequest,
+                  models.HrDepartment):
             db.query(m).delete()
-        db.add(models.HrEntity(id=CO, name="Greens Test", legal_name="Greens Test, LLC", hr_contact_email=HR,
+        db.add(models.HrEntity(id=CO, name="Greens Test", legal_name="Greens Test, LLC", hr_contact_email=HR, country="US",
                                signatory="Neil Owner, CEO", signatory_email=NEIL))
         for email, first, last, status in ((HR, "Charmi", "Shah", "active"), (NEIL, "Neil", "Owner", "active"),
                                            (MGR, "Max", "Mgr", "active"), (PLAIN, "Pat", "People", "active"),
@@ -142,11 +143,29 @@ class PacketDocsTests(unittest.TestCase):
         return ctx
 
     def _save(self, **kw):
-        body = dict(entity_id=CO, event="hire", name="IT Dev Associate", doc_template_ids=["t-offer", "t-nda"],
+        body = dict(entity_id=CO, event="hire", name="IT Dev Associate", doc_template_ids=["t-offer", "t-nda"], country="US",
                     flow=[{"key": "company", "role": "hr", "action": "sign"},
                           {"key": "employee", "role": "employee", "action": "sign"}])
         body.update(kw)
         return self.client.put("/hr/packets/documents", json=body)
+
+    def test_a_copied_role_packet_may_change_who_it_is_for_but_not_clash(self):
+        """Copy From (Neil, Oct 22): the same role as employee and as contractor,
+        or in another country, are two packets; the same hires twice is refused."""
+        db = database.SessionLocal()
+        db.add(models.NexusGroup(id="jr-acct", name="Accounting Associate", is_job_role=1, tier="employee", company_id=CO))
+        db.commit()
+        db.close()
+        r = self._save(name="Acct - Employee", role_ids=["jr-acct"], worker_type="employee", country="US")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._save(name="Acct - Contractor", role_ids=["jr-acct"], worker_type="contractor",
+                                    country="US").status_code, 200)
+        self.assertEqual(self._save(name="Acct - India", role_ids=["jr-acct"], worker_type="employee",
+                                    country="IN").status_code, 200)
+        # A hiring packet always names its place now (Neil, Oct 22) - the clash is the same role, place and hire.
+        r = self._save(name="Acct - Employee (Copy)", role_ids=["jr-acct"], worker_type="employee", country="US")
+        self.assertEqual(r.status_code, 400)
+        self.assertRegex(r.json()["detail"], r"^Accounting Associate already has a packet \(Acct - Employee\) for the same hires")
 
     # ── configuration problems ─────────────────────────────────────────────
     def test_a_good_packet_has_no_problems(self):
@@ -160,12 +179,75 @@ class PacketDocsTests(unittest.TestCase):
                                   {"key": "employee", "role": "employee", "action": "sign"}])
         self.assertEqual(ok, [])
 
-    def test_the_person_signs_last_and_exactly_once(self):
-        p = self._problems(flow=[{"key": "employee", "role": "employee", "action": "sign"},
-                                 {"key": "company", "role": "hr", "action": "sign"}])
-        self.assertTrue(any("signs last" in x for x in p), p)
+    def test_the_person_signs_exactly_once_in_either_saved_order(self):
+        # Neil, Oct 22 2026: the person signs first. An order saved either way
+        # is fine - signing_flow reorders it, it is never refused.
+        self.assertEqual(self._problems(flow=[{"key": "employee", "role": "employee", "action": "sign"},
+                                              {"key": "company", "role": "hr", "action": "sign"}]), [])
+        self.assertEqual(self._problems(), [])        # company first, as saved before Oct 22
         p = self._problems(flow=[{"key": "company", "role": "hr", "action": "sign"}])
         self.assertTrue(any("Exactly one step must be The Person" in x for x in p), p)
+
+    def test_the_company_never_signs_before_the_person(self):
+        """Neil, Oct 22 2026: "The company never signs prior to the employee,
+        ever." An old company-first config - Signs Once included - comes out
+        person first, the company countersigning after."""
+        db = database.SessionLocal()
+        try:
+            for event in ("hire", "separation", "promotion"):
+                s = self._setting(event=event, flow=[{"key": "company", "role": "hr", "action": "sign", "once": True},
+                                                     {"key": "employee", "role": "employee", "action": "sign"}])
+                self.assertEqual([x["key"] for x in hpd.signing_flow(s)], ["employee", "company"], event)
+                parties, _remap, problems = hpd.build_parties(db, s, self._ctx(db))
+                self.assertEqual(problems, [])
+                self.assertEqual([(x["key"], x["ordinal"]) for x in parties], [("employee", 1), ("company", 2)])
+                self.assertEqual([x["key"] for x in hpd.ser_flow(db, s)], ["employee", "company"])
+        finally:
+            db.close()
+
+    def test_a_promotion_letter_is_countersigned(self):
+        """Pranshu, Oct 23 2026: someone signs after the person on a promotion
+        letter - a person-only flow is a problem, a company step clears it."""
+        p = self._problems(event="promotion", flow=[{"key": "employee", "role": "employee", "action": "sign"},
+                                                    {"key": "company", "role": "hr", "action": "copy"}])
+        self.assertTrue(any("promotion letter is countersigned" in x for x in p), p)
+        self.assertFalse(any("countersigned" in x for x in self._problems(event="promotion")))
+        self.assertFalse(any("countersigned" in x for x in self._problems(
+            event="hire", flow=[{"key": "employee", "role": "employee", "action": "sign"}])))
+
+    def test_an_offer_has_one_signer_the_person(self):
+        """"Offer is just saying, do you accept?" - no company signer, no
+        Signs Once, and the template's company block prints nothing rather
+        than blocking the offer."""
+        db = database.SessionLocal()
+        try:
+            s = self._setting(event="offer", doc_template_ids=["t-offer"],
+                              flow=[{"key": "company", "role": "hr", "action": "sign", "once": True},
+                                    {"key": "employee", "role": "employee", "action": "sign"},
+                                    {"key": "boss", "role": "hr", "action": "copy"}])
+            self.assertEqual([x["key"] for x in hpd.signing_flow(s)], ["employee", "boss"])
+            self.assertEqual(hpd.config_problems(db, s), [])
+            out = hpd.plan(db, s, ctx=self._ctx(db), overrides={"job_title": "Analyst", "start_date": "2026-11-02"},
+                           pay={"base": 85000, "payBasis": "salary", "frequency": "annual", "currency": "USD"},
+                           can_see_pay=True, candidate_id="cand-1", entity_id=CO)
+            self.assertEqual(out["problems"], [])
+            signers = [x for x in out["parties"] if x["partyRole"] != "cc"]
+            self.assertEqual([x["email"] for x in signers], ["jane.doe@gmail.com"])
+            self.assertEqual(out["signOnce"], [])                     # nothing saved to apply
+            self.assertFalse(any(x.get("saved") for x in out["parties"]))
+            snap = out["snaps"][0]
+            self.assertEqual(snap.signature_roles, {"employee"})
+            merge = hpd.full_merge(db, snap, candidate_id="cand-1", entity_id=CO, overrides=out["values"],
+                                   pay=hpd.pay_merge({"base": 85000, "payBasis": "salary", "frequency": "annual",
+                                                      "currency": "USD"}, {}))
+            anchors = []
+            pdf = hpd.render(db, snap, title="Offer", merge=merge, entity_id=CO, letterhead_id="", anchors=anchors)
+            text = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
+            self.assertIn("Sincerely, Charmi Shah", text)             # the name prints - as text
+            self.assertNotIn("For Greens Test, LLC", text)           # the company block prints nothing
+            self.assertEqual({a["role"] for a in anchors}, {"employee"})
+        finally:
+            db.close()
 
     def test_blocks_and_steps_must_match(self):
         p = self._problems(flow=[{"key": "employee", "role": "employee", "action": "sign"}])
@@ -202,7 +284,7 @@ class PacketDocsTests(unittest.TestCase):
     def test_roles_resolve_like_the_checklists(self):
         db = database.SessionLocal()
         try:
-            db.add(models.NexusSetting(key=hc.OWNERS_KEY + CO, value='{"payroll": "pat.people@greensglobal.com"}'))
+            db.add(models.HrDepartment(id="d-acct", company_id=CO, name="Accounting", lead_email=PLAIN))
             db.commit()
             emp = db.query(models.NexusEmployee).filter_by(work_email=MGR).first()
             emp.manager_email = HR
@@ -259,13 +341,14 @@ class PacketDocsTests(unittest.TestCase):
                                     {"key": "witness", "role": "hr", "action": "sign"},
                                     {"key": "employee", "role": "employee", "action": "sign"}])
             parties, remap, _ = hpd.build_parties(db, s, self._ctx(db))
-            self.assertEqual([p["key"] for p in parties], ["company", "employee"])
+            self.assertEqual([p["key"] for p in parties], ["employee", "company"])     # the person first
             self.assertEqual(remap, {"witness": "company"})
             s.flow = [{"key": "company", "role": "hr", "action": "sign"},
+                      {"key": "late", "role": "signatory", "action": "sign"},
                       {"key": "employee", "role": "employee", "action": "sign"},
-                      {"key": "late", "role": "hr", "action": "sign"}]
+                      {"key": "again", "role": "hr", "action": "sign"}]
             parties, remap, _ = hpd.build_parties(db, s, self._ctx(db))
-            self.assertEqual([p["key"] for p in parties], ["company", "employee", "late"])
+            self.assertEqual([p["key"] for p in parties], ["employee", "company", "late", "again"])
             self.assertEqual(remap, {})
         finally:
             db.close()
@@ -324,7 +407,7 @@ class PacketDocsTests(unittest.TestCase):
             self.assertEqual(out["problems"], [])
             offer = out["documents"][0]
             self.assertEqual(offer["unresolved"], [])
-            self.assertEqual([r["name"] for r in out["recipients"]], ["Charmi Shah", "Jane Doe"])
+            self.assertEqual([r["name"] for r in out["recipients"]], ["Jane Doe", "Charmi Shah"])
             self.assertEqual(out["verifier"]["email"], HR)
             snap = out["snaps"][0]
             merge = hpd.full_merge(db, snap, candidate_id="cand-1", entity_id=CO, overrides=out["values"],
@@ -405,6 +488,29 @@ class PacketDocsTests(unittest.TestCase):
         r = self.client.patch(f"/hr/entities/{CO}", json={"signatory_email": NEIL.upper()})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["signatoryEmail"], NEIL)
+
+
+
+class FillInBlankTests(unittest.TestCase):
+    """The Word import's blank patterns, run over a published template, so the
+    packet says what still prints empty (Neil, 10/22 56:42)."""
+
+    def test_lines_brackets_and_empty_labels_are_found(self):
+        c = _doc(_p("Name: ", "{{full_name}}"),                    # a chip fills it
+                 _p("Emergency Contact:"), _p("PAN Number: [      ]"),
+                 _p("Paid Rs. ______ per month."), _p("______"),     # a bare pen line is left alone
+                 _p("Witness: __________"))                          # notary / witness: filled on paper
+        self.assertEqual(hpd.fill_in_blanks(c), ["Emergency Contact", "PAN Number:", "Paid Rs."])
+
+    def test_lead_ins_headings_signatures_tables_and_headers(self):
+        lst = {"type": "bulletList", "content": [{"type": "listItem", "content": [_p("Duty one")]}]}
+        table = {"type": "table", "content": [{"type": "tableRow", "content": [
+            {"type": "tableCell", "content": [_p("Phone:")]}, {"type": "tableCell", "content": [_p("{{phone}}")]}]}]}
+        c = _doc(_p("Responsibilities:"), lst, _p("Benefits:"), _p("1. Health"), _p("COMPANY:"),
+                 _p("Employee Signature:"), _sig("employee"), _p("Date:"), table)
+        self.assertEqual(hpd.fill_in_blanks(c), [])
+        c["footer"] = {"type": "doc", "content": [_p("Initials: ____")]}
+        self.assertEqual(hpd.fill_in_blanks(c), ["Initials:"])
 
 
 if __name__ == "__main__":

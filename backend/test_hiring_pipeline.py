@@ -122,6 +122,15 @@ class IntakeTests(PipelineCase):
         self.assertIn("Accounting", out["departments"])
         self.assertIn("LinkedIn", out["sources"])
 
+    def test_role_supervisor_defaults_to_the_department_head_however_it_is_spelled(self):
+        # Neil, Oct 22 (34:45): "Supervisor should be the department head" - the role says
+        # "Accounting", the department list says "accounting ".
+        self.db.add(models.HrDepartment(id="d-acct", company_id=ENT, name="accounting ", lead_email="Head@greensglobal.com"))
+        self.db.commit()
+        out = hr.hiring_options(company_id=ENT, user=HR_USER, db=self.db)
+        mgr = {r["name"]: r["defaultManagerEmail"] for r in out["roles"]}
+        self.assertEqual(mgr, {"Senior Analyst": "head@greensglobal.com", "IT Support Associate": ""})
+
     def test_all_roles_for_questionnaire_links(self):
         out = hr.hiring_options(all_roles=True, user=HR_USER, db=self.db)
         self.assertEqual(len(out["roles"]), 3)
@@ -197,6 +206,25 @@ class StageTests(PipelineCase):
             self._move(cid, "hired")
         self.assertEqual(self._move(cid, "rejected")["stage"], "rejected")
         self.assertEqual(self._move(cid, "applied")["stage"], "applied")     # reopen
+
+    def test_skip_interview_goes_to_decision_only_on_purpose_and_says_who_and_why(self):
+        # Neil, Oct 22: "it could be the interview has already happened".
+        cid = self._cand("screening")
+        with self.assertRaises(HTTPException):          # no flag: still refused
+            self._move(cid, "decision")
+        out = hr.update_candidate(cid, hr.CandidateUpdate(stage="decision", skip_interview=True,
+                                                          stage_note="Met in person last week"),
+                                  user=HR_USER, db=self.db)
+        self.assertEqual((out["stage"], out["interviewSkippedBy"]), ("decision", HR_USER["email"]))
+        moves = [r for r in hr.candidate_history(cid, user=HR_USER, db=self.db) if r["toStage"] == "decision"]
+        self.assertEqual(moves[-1]["note"], "Interview skipped - Met in person last week")
+        self.assertEqual(moves[-1]["byEmail"], HR_USER["email"])
+        with self.assertRaises(HTTPException):          # the flag never opens any other move
+            hr.update_candidate(self._cand("interview"), hr.CandidateUpdate(stage="decision", skip_interview=True),
+                                user=HR_USER, db=self.db)
+        self.assertEqual(self._move(cid, "screening")["interviewSkippedBy"], "")   # back: the interview is owed again
+        self.db.query(models.Task).delete()
+        self.db.commit()
 
     def test_scheduling_invites_candidate_and_interviewers_and_moves_to_interview(self):
         cid = self._cand("screening", role_id="role-analyst")
@@ -717,6 +745,29 @@ class DecisionTests(PipelineCase):
         self.assertTrue(self._task())
         hr.update_candidate(self.cid, hr.CandidateUpdate(stage="rejected"), user=HR_USER, db=self.db)
         self.assertTrue(self._task().completed)
+
+    def test_the_backup_then_the_global_admins_decide_when_the_head_is_gone(self):
+        # Neil, Oct 22 6:52: department head + backup, a Global Admin as the stop gap.
+        import hiring_decision as hd
+        import hiring_screening as hs
+        backup = "backup@greensglobal.com"
+        self.db.add(models.NexusEmployee(id="e-bk", work_email=backup, first_name="Bea", last_name="Kup",
+                                         company=ENT, status="active"))
+        self.db.query(models.HrDepartment).filter_by(id="d-acct").update({"backup_email": backup})
+        self.db.query(models.NexusEmployee).filter_by(id="e-head").update({"status": "offboarded"})
+        self.db.commit()
+        cand = self._stage(self.cid)
+        self.assertEqual((hs.department_head(self.db, cand), hd.decider(self.db, cand)), (backup, backup))
+        self.db.query(models.NexusEmployee).filter_by(id="e-bk").update({"status": "offboarded"})
+        self.db.add(models.NexusRole(email=NEIL, role="owner"))
+        self.db.commit()
+        try:
+            self.assertEqual(hs.department_head(self.db, cand), "")
+            self.assertEqual(hd.decider(self.db, cand), NEIL)          # never nobody
+            self.assertEqual(hs.screeners(self.db, cand), [NEIL])      # screening too
+        finally:
+            self.db.query(models.NexusRole).delete()
+            self.db.commit()
 
     def test_parse_vote(self):
         from hiring_decision import parse_vote
