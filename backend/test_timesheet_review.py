@@ -449,6 +449,46 @@ class SigningTests(ReviewCase):
         self.assertIn(tsr.BREAK_STATEMENT, text())
 
 
+class PaperPrintTests(ReviewCase):
+    """Neil, Oct 23 2026: HR / Global Admin print a time sheet to sign on
+    paper, not Nexus Sign - any period, finalized or not; it changes nothing."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(auth.invalidate_role_cache)   # is_hr looks people's levels up; later tests set roles
+
+    def _text(self, pdf):
+        import io
+        from pypdf import PdfReader
+        return " ".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
+
+    def test_hr_prints_any_period_with_every_note_and_nobody_else_can(self):
+        self.db.add(models.TimecardNote(id="n-1", employee_email=EMP, date=self.start, note="Lunch fixed by hand",
+                                        updated_by=MGR, employee_note="Doctor visit"))
+        self.db.commit()
+        self.addCleanup(lambda: (self.db.query(models.TimecardNote).filter_by(id="n-1").delete(), self.db.commit()))
+        pdf, name = tsr.paper_pdf(self.db, EMP, ANCHOR, HR)
+        text = self._text(pdf)
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertIn("to be signed on paper", text)
+        self.assertIn("Doctor visit", text)
+        self.assertIn("Lunch fixed by hand", text)            # HR's copy carries the manager's note too
+        self.assertTrue(name.endswith(".pdf"))
+        self.assertIsNone(self._r())                          # printing starts no review
+        for who in (MGR, EMP):
+            with self.assertRaises(HTTPException) as e:
+                tsr.paper_pdf(self.db, EMP, ANCHOR, who)
+            self.assertEqual(e.exception.status_code, 403)
+
+    def test_a_finalized_time_sheet_still_prints_and_stays_as_it_was(self):
+        r = self._to_signing()
+        self._sign(self._parties(r.sign_request_id)["employee"])
+        before = self._r().status
+        pdf, _ = tsr.paper_pdf(self.db, EMP, ANCHOR, HR)
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertEqual(self._r().status, before)
+
+
 class StateTests(ReviewCase):
     def test_what_each_viewer_may_do(self):
         self.assertEqual(tsr.state_for(self.db, EMP, self.start, EMP, False)["status"], "not_submitted")

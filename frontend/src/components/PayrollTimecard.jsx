@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock, Printer } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone, useEmployeeZone } from '../lib/displayTz';
@@ -892,6 +892,25 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     try { localStorage.setItem('nexus.payroll.intacct', JSON.stringify(next)); } catch { /* per-viewer convenience only */ }
     return next;
   });
+  // Print Time Sheet (Neil, Oct 23 2026): HR / Global Admin print the period
+  // to be signed on paper, not through Nexus Sign - any period, in review,
+  // finalized or locked, any kind of employee. The tab opens before the fetch
+  // so the browser does not treat it as a pop-up.
+  const [printing, setPrinting] = useState(false);
+  async function printSheet() {
+    const tab = window.open('', '_blank');
+    setPrinting(true);
+    try {
+      const res = await api.printTimeSheet(email, perStart);
+      const url = URL.createObjectURL(res.blob);
+      if (tab) tab.location.href = url;
+      else downloadBlob(res.filename || 'Time Sheet.pdf', res.blob);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      tab?.close();
+      toastErr?.(e?.message || 'Could not print the time sheet.');
+    } finally { setPrinting(false); }
+  }
   async function exportFile(fetcher, label, range = [perStart, perEnd]) {
     const up = await ensureStepUp();
     if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; }
@@ -1781,7 +1800,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {/* Summary + acknowledgment */}
       {T && (
         <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <div data-tour="pr-summary" style={{ flex: 1, minWidth: 300, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
+          <div data-tour="pr-summary" style={{ flex: '0 1 620px', minWidth: 300, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
             {(() => {
               // SwipeClock shows both clock time and decimal - "58:30 (58.50)" -
               // so payroll can be keyed either way without converting by hand.
@@ -1861,6 +1880,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 title="CA rest-break credit - these break minutes stayed on the clock as paid time.">
                 <span>Paid breaks</span><span style={{ fontWeight: 700, color: 'hsl(var(--color-green))' }}>+{T.paidBreakMin}m</span>
               </div>
+            )}
+            {!self && data?.review?.isHr && (
+              <button className="secondary-btn" disabled={printing} onClick={printSheet}
+                title="A PDF of this period to print and sign on paper, not through Nexus Sign. HR and Global Admins only."
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 10 }}>
+                {printing ? <Spinner size={13} /> : <Printer size={13} />} Print Time Sheet
+              </button>
             )}
             {!self && showPay && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>

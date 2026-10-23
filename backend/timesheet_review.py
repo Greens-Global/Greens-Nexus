@@ -1312,12 +1312,14 @@ def punch_pairs(seg: dict) -> list:
     return items
 
 
-def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tuple[bytes, dict]:
+def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None, paper_by: str = "") -> tuple[bytes, dict]:
     """The agreed timesheet as a PDF (timesheet_pdf, landscape): page 1 the
     Time Sheet screen's grid and totals, page 2 the attestation, the
     employee's signature and the Approval History. Returns (bytes, spot) -
     where the signature landed, for _sig_fields.
-    `card`: the computed card to print (_send_envelope freezes its totals)."""
+    `card`: the computed card to print (_send_envelope freezes its totals).
+    `paper_by`: HR printing it to be signed on paper (paper_pdf) - every
+    note on the card prints, the manager / HR day notes included."""
     if card is None:
         card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
     emp = _employee(db, r.employee_email)
@@ -1362,7 +1364,9 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tupl
         "kind": "Salaried (monthly)" if r.pay_type == "fixed" else "Hourly (bi-weekly)",
         "generated": us_datetime(_now(), offset),
         # The employee is the signer: their own note only, never the manager / HR one.
-        "notes": _tc()._timecard_notes(db, r.employee_email, r.period_start, r.period_end, own=True),
+        "notes": _tc()._timecard_notes(db, r.employee_email, r.period_start, r.period_end, own=not paper_by),
+        "paper_note": (f"Printed by {display_name(db, paper_by)} on {us_datetime(_now(), offset)} "
+                       "to be signed on paper - not through Nexus Sign.") if paper_by else "",
         "punch_meta": card.get("punchMeta") or {}, "time": local_time, "us_date": us_date,
         "names_in": lambda s: _re.sub(r"[\w.+-]+@[\w-]+(\.[\w-]+)+", lambda m: display_name(db, m.group(0)), s),
         # CA-rule staff (Neil, Oct 18 2026): no separate question - the meal and
@@ -1377,6 +1381,22 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tupl
         # whole history - employee, manager, HR - in one place).
         "approval_history": approval_history(db, r, offset),
     })
+
+
+def paper_pdf(db: Session, employee_email: str, anchor: str, actor: str) -> tuple[bytes, str]:
+    """HR prints a period's time sheet to be signed on PAPER, not through
+    Nexus Sign (Neil, Oct 23 2026: a stopgap for someone hired on a Friday who
+    must be paid that Friday before their intake is finished). Any period, in
+    review, finalized or locked, for any kind of employee; it changes nothing.
+    is_hr is the gate. Returns (pdf, filename)."""
+    email = (employee_email or "").strip().lower()
+    if not is_hr(db, actor, email):
+        raise HTTPException(403, "Only HR or a Global Admin can print a time sheet to sign on paper.")
+    start, end, pay_type = period_for(db, email, anchor)
+    r = active_review(db, email, start) or TimesheetReview(
+        employee_email=email, period_start=start, period_end=end, pay_type=pay_type, rounds=[], status="paper")
+    pdf, _ = build_pdf(db, r, paper_by=actor)
+    return pdf, f"Time Sheet - {display_name(db, email)} - {start} to {end}.pdf"
 
 
 # What each review round reads as in the PDF's Approval History.
