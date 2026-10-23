@@ -121,6 +121,7 @@ class IntakeTests(unittest.TestCase):
         db.close()
         out, token = self._start()
         page = self.client.get(f"/hr/intake/public/{token}").json()
+        self.assertEqual(page["kind"], "hire")            # the page words itself for the event
         req = {f["key"] for f in page["fields"] if f["required"]}
         self.assertEqual(req, {"first_name", "last_name", "phone", "address", "emergency_phone"})
         r = self.client.post(f"/hr/intake/public/{token}", json=self._values())

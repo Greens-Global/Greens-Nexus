@@ -1505,6 +1505,7 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
             "phone": (cand.phone if cand else "") or "", "role": (ev.inputs or {}).get("job_title", ""),
             "expiresOn": ev.intake_expires_on or "", "prefill": known,
             "afterOffer": bool((ev.inputs or {}).get("after_offer")),
+            "kind": ev.kind or "",
             "fields": intake_standard_fields(view.tokens),
             # The packet's own Details Form (Oct 14) - any country, any field.
             "form": form}

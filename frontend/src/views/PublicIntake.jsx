@@ -30,6 +30,8 @@ export const SECTIONS = [
   ['Emergency Contact', HeartPulse, ['emergency_name', 'emergency_relationship', 'emergency_phone']],
 ];
 const WIDE = ['address', 'permanent_address'];
+// A promotion or separation details page (Oct 23) names its own documents.
+const DOCS_FOR = { promotion: 'your promotion letter', separation: 'your separation documents' };
 const AUTO = { first_name: 'given-name', last_name: 'family-name', phone: 'tel', address: 'street-address', emergency_phone: 'tel' };
 const ink = 'var(--ink, #111827)';
 const muted = 'var(--muted, #6b7280)';
@@ -138,7 +140,7 @@ export default function PublicIntake({ token, preview }) {
       <div style={{ fontSize: 14, color: muted, marginTop: 6, lineHeight: 1.6 }}>
         {page.afterOffer
           ? <>Welcome aboard{page.role ? <> as <b>{page.role}</b></> : null}! Answer once - every onboarding document fills itself in from what you enter here. You sign them next, in a separate email.</>
-          : <>HR uses these to prepare your hiring documents{page.role ? <> for <b>{page.role}</b></> : null}. You will sign them in a separate email.</>}
+          : <>HR uses these to prepare {DOCS_FOR[page.kind] || 'your hiring documents'}{page.role ? <> for <b>{page.role}</b></> : null}. You will sign {page.kind === 'promotion' ? 'it' : 'them'} in a separate email.</>}
         {page.expiresOn ? ` This link works through ${formatDate(page.expiresOn)}.` : ''}
       </div>
       {toAnswer.length > 0 && (
