@@ -680,6 +680,12 @@ async def reminders_loop():
             await asyncio.to_thread(hr_checklists.run_daily)
         except Exception as e:
             print(f"[reminders] checklist loop error: {e}")
+        # Records Audit: missing details / expired documents, one bell per company.
+        try:
+            import hr_record_audit
+            await asyncio.to_thread(hr_record_audit.run_daily)
+        except Exception as e:
+            print(f"[reminders] records audit loop error: {e}")
         # Recurring property maintenance: 15-day reminders, and a ticket for
         # any service that came due with none opened (maintenance_services.py).
         try:
