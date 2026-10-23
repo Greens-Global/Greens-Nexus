@@ -66,8 +66,13 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
   const [Noun, noun] = NOUN[column];
   const shared = !!view.entity.shared;
   const company = view.entity.name;
-  const own = cell.tone === 'own';
-  const editable = own && !!cell.settingId && cell.engine === 'documents' && !row.jd?.roleId;
+  // Show For Role and a screen this HR cannot change are read-only: a role's
+  // row ("Only For Accountant") may be shared by every company, so it is never
+  // archived from here.
+  const roleMode = !!row.jd?.roleId;
+  const readOnly = roleMode || view.entity.canEdit === false;
+  const own = cell.tone === 'own' && !readOnly;
+  const editable = own && !!cell.settingId && cell.engine === 'documents';
   const [choice, setChoice] = useState(own || !cell.fallback ? 'different' : 'same');
   const [err, setErr] = useState('');
   const [saved, setSaved] = useState('');
@@ -106,7 +111,8 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
     return setDocs(replace ? base.flatMap(t => (t === replace ? add : [t])) : [...base, ...add]);
   }
   async function applySame() {
-    if (own && !await dialog.confirm(`${shared ? 'This place' : company}'s own ${noun} will stop being used. It stays in Documents, and you can switch back.`,
+    const blocked = cell.fallback ? '' : ` Nothing is shared for ${row.kind} - a hire here would be blocked.`;
+    if (own && !await dialog.confirm(`${shared ? 'This place' : company}'s own ${noun} will stop being used. It stays in Documents, and you can switch back.${blocked}`,
       { title: 'Use The Same', confirmText: 'Use The Same' })) return;
     if (await run(() => api.hiringSetupUseSame(cell.settingId))) onClose();
   }
@@ -123,9 +129,16 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
   const move = (id, to) => {
     const rest = ids.filter(x => x !== id);
     rest.splice(Math.max(0, Math.min(rest.length, to)), 0, id);
-    setDocs(rest);
+    if (rest.some((x, k) => x !== ids[k])) setDocs(rest);
   };
-  const dropOn = (target) => { if (drag && drag !== target) move(drag, ids.filter(x => x !== drag).indexOf(target)); setDrag(''); };
+  // Dropped on a row: moving down lands after it, moving up lands before it.
+  const dropOn = (target) => {
+    if (drag && drag !== target) {
+      const to = ids.filter(x => x !== drag).indexOf(target);
+      move(drag, ids.indexOf(drag) < ids.indexOf(target) ? to + 1 : to);
+    }
+    setDrag('');
+  };
 
   if (adding?.how === 'upload') {
     return (
@@ -146,13 +159,17 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
     </div>
   );
   const docRow = (d, i) => d.marker ? (
-    <div key={d.id} draggable onDragStart={() => setDrag(d.id)} onDragOver={e => e.preventDefault()} onDrop={() => dropOn(d.id)} data-testid="doc-row"
+    <div key={d.id} draggable={editable} onDragStart={() => setDrag(d.id)} onDragOver={e => e.preventDefault()} onDrop={() => dropOn(d.id)} data-testid="doc-row"
       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, border: '1px dashed var(--line)', background: 'var(--mist)', color: 'var(--muted)' }}>
-      <GripVertical size={14} style={{ cursor: 'grab', flexShrink: 0 }} />
+      {editable && <GripVertical size={14} style={{ cursor: 'grab', flexShrink: 0 }} />}
       <span style={{ flex: 1, fontSize: 13, fontWeight: 700 }}>Job Description - Goes Here</span>
-      <button type="button" style={iconBtn} aria-label="Move Up" onClick={() => move(d.id, i - 1)} disabled={i === 0}><ArrowUp size={13} /></button>
-      <button type="button" style={iconBtn} aria-label="Move Down" onClick={() => move(d.id, i + 1)} disabled={i === docs.length - 1}><ArrowDown size={13} /></button>
-      <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setDocs(ids.filter(t => t !== JD))}>Leave It Out</button>
+      {editable && (
+        <>
+          <button type="button" style={iconBtn} aria-label="Move Up" onClick={() => move(d.id, i - 1)} disabled={i === 0}><ArrowUp size={13} /></button>
+          <button type="button" style={iconBtn} aria-label="Move Down" onClick={() => move(d.id, i + 1)} disabled={i === docs.length - 1}><ArrowDown size={13} /></button>
+          <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setDocs(ids.filter(t => t !== JD))}>Leave It Out</button>
+        </>
+      )}
     </div>
   ) : (
     <div key={d.id} draggable={editable} onDragStart={() => setDrag(d.id)} onDragOver={e => e.preventDefault()} onDrop={() => dropOn(d.id)} data-testid="doc-row"
@@ -173,6 +190,42 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
       )}
     </div>
   );
+
+  const docList = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Documents In This {Noun}</div>
+      {docs.map(docRow)}
+      {event === 'hire' && cell.placement === 'inside' && (
+        <div style={{ fontSize: 13, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--line)', color: 'var(--muted)' }}>Job Description - {cell.placementLabel}</div>
+      )}
+      {editable && event === 'hire' && cell.placement !== 'inside' && !ids.includes(JD) && (
+        <div><button type="button" className="secondary-btn" onClick={() => setDocs([...ids, JD])} style={{ fontSize: 12.5 }}>+ Add The Job Description Page</button></div>
+      )}
+      {editable && (adding ? (adding.how === 'pick' ? null : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          {adding.replace && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Replace {docs.find(d => d.id === adding.replace)?.name} with:</span>}
+          {chooser}
+          <button type="button" className="secondary-btn" onClick={() => setAdding(null)}>Cancel</button>
+        </div>
+      )) : (
+        <div><button type="button" className="secondary-btn" onClick={() => setAdding({ how: '', replace: '' })} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add A Document</button></div>
+      ))}
+    </div>
+  );
+
+  if (readOnly) {
+    return (
+      <Modal title={`${Noun} - ${row.kind}`} onClose={onClose}
+        footer={<><span style={{ flex: 1 }} /><button type="button" className="primary-btn" onClick={onClose}>Close</button></>}>
+        <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>
+          {roleMode ? 'Showing what one role gets. Pick All Roles above the grid to change the documents.'
+            : 'Only HR with access to every company can change the shared documents.'}
+        </p>
+        <div style={{ marginBottom: 10, fontSize: 13.5 }}><b>{cell.name}</b> <span style={{ color: 'var(--muted)' }}>({cell.sourceLabel})</span></div>
+        <div className="nx-fill" style={{ gap: 8 }}>{docList}</div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal title={`${Noun} - ${row.kind}`} onClose={onClose}
@@ -213,12 +266,14 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
         {choice === 'different' && (
           <div style={{ marginLeft: 26, display: 'flex', flexDirection: 'column', gap: 12 }}>
             {cell.engine === 'pdf' && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))' }}>This one is an old uploaded PDF and can&apos;t start by itself - upload a Word file to rebuild it.</div>}
-            {!editable && !row.jd?.roleId && (
+            {!editable && (
               <>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <button type="button" className="secondary-btn" disabled={busy} onClick={() => makeOwn('copy')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <Copy size={13} /> Start From A Copy
-                  </button>
+                  {!own && cell.settingId && (
+                    <button type="button" className="secondary-btn" disabled={busy} onClick={() => makeOwn('copy')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Copy size={13} /> Start From A Copy
+                    </button>
+                  )}
                   {chooser}
                 </div>
                 {others.length > 0 && (
@@ -235,28 +290,7 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>Uploaded files are kept in Documents too, marked &quot;Used In Hiring&quot;.</div>
               </>
             )}
-            {row.jd?.roleId && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Showing what one role gets. Pick All Roles above the grid to change the documents.</div>}
-            {(editable || row.jd?.roleId) && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Documents In This {Noun}</div>
-                {docs.map(docRow)}
-                {event === 'hire' && cell.placement === 'inside' && (
-                  <div style={{ fontSize: 13, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--line)', color: 'var(--muted)' }}>Job Description - {cell.placementLabel}</div>
-                )}
-                {editable && event === 'hire' && cell.placement !== 'inside' && !ids.includes(JD) && (
-                  <div><button type="button" className="secondary-btn" onClick={() => setDocs([...ids, JD])} style={{ fontSize: 12.5 }}>+ Add The Job Description Page</button></div>
-                )}
-                {editable && (adding ? (adding.how === 'pick' ? null : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                    {adding.replace && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Replace {docs.find(d => d.id === adding.replace)?.name} with:</span>}
-                    {chooser}
-                    <button type="button" className="secondary-btn" onClick={() => setAdding(null)}>Cancel</button>
-                  </div>
-                )) : (
-                  <div><button type="button" className="secondary-btn" onClick={() => setAdding({ how: '', replace: '' })} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add A Document</button></div>
-                ))}
-              </div>
-            )}
+            {editable && docList}
             {adding?.how === 'pick' && <PickTemplate column={column} exclude={ids} onPick={(t) => addDoc(t)} onCancel={() => setAdding(null)} />}
           </div>
         )}

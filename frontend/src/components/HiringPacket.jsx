@@ -210,8 +210,11 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
   // Hiring Setup first (Oct 23): the way in; the event tabs are Advanced.
   const [tab, setTab] = useState('overview');
   const [editing, setEditing] = useState(null);     // { event, row | null }
+  // A packet saved here reloads Hiring Setup too; the offer's focus is used once.
+  const [rev, setRev] = useState(0);
+  const [focusLeft, setFocusLeft] = useState(focus);
   const load = () => {
-    return api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
+    return api.getPackets().then(d => { setData(d); setRev(r => r + 1); }).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
   };
   useEffect(() => { load(); api.getEntities().then(setEntities).catch(() => {}); }, []);
   // A template written since this window opened shows up when a packet opens.
@@ -220,11 +223,14 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
 
   const events = (data?.events || []).filter(e => ENABLED_EVENTS.includes(e.key));
   const ev = tab === 'overview' ? null : (events.find(e => e.key === tab) || events[0]);
-  const openPacket = (s) => {
-    const row = (data?.settings || []).find(x => x.id === s.id);
-    const e = row && events.find(x => x.key === row.event);
+  // Fetched fresh: Hiring Setup may have made the row since this window opened.
+  const openPacket = (id) => api.getPackets().then(d => {
+    setData(d);
+    const row = (d.settings || []).find(x => x.id === id);
+    const e = row && (d.events || []).find(x => x.key === row.event && ENABLED_EVENTS.includes(x.key));
     if (row && e) setEditing({ event: e, row });
-  };
+    else toastErr('That packet is not in use any more.');
+  }).catch(e => toastErr(e?.message || 'Could not open the packet.'));
   const entityName = (id) => (id ? (entities.find(e => e.id === id)?.name || 'Unknown company') : '');
   // "All companies" (no company picked) lists every packet with its company;
   // a company picked lists its own.
@@ -288,8 +294,8 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
               )}
             </div>
             {tab === 'overview' && (
-              <HiringSetup toastOk={toastOk} toastErr={toastErr} initialCompanyId={initialCompanyId} focus={focus}
-                onAdvanced={(settingId) => (settingId ? openPacket({ id: settingId }) : setTab('offer'))} />
+              <HiringSetup toastOk={toastOk} toastErr={toastErr} initialCompanyId={initialCompanyId} focus={focusLeft} onFocusUsed={() => setFocusLeft(null)}
+                refreshKey={rev} onAdvanced={(settingId) => (settingId ? openPacket(settingId) : setTab('offer'))} />
             )}
             {ev?.key === 'hire' && needing.length > 0 && (
               <div role="status" style={{ border: '1px solid rgba(180,83,9,0.35)', background: 'rgba(180,83,9,0.07)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>

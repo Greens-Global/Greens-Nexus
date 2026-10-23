@@ -50,6 +50,8 @@ function AboutEdit({ item, entityId, onSaved, onCancel, toastErr }) {
     signatory: item.key === 'signsForCompany' ? item.value || '' : '', legal: '', address: '' }));
   const [busy, setBusy] = useState(false);
   const person = people.find(p => p.email === f.email);
+  // shortcut: the view sends legal name and address as one line, so the boxes start empty; Save waits for one of them.
+  const nothing = item.key === 'legalAndAddress' && !f.legal.trim() && !f.address.trim();
   async function save() {
     const body = item.key === 'worksIn' ? { country: f.country, region: f.region }
       : item.key === 'handlesHiring' ? { hr_contact_email: f.email }
@@ -81,7 +83,7 @@ function AboutEdit({ item, entityId, onSaved, onCancel, toastErr }) {
         </>
       )}
       <div style={{ display: 'flex', gap: 6 }}>
-        <button type="button" className="primary-btn" disabled={busy} onClick={save} style={{ fontSize: 12.5 }}>Save</button>
+        <button type="button" className="primary-btn" disabled={busy || nothing} onClick={save} style={{ fontSize: 12.5 }}>Save</button>
         <button type="button" className="secondary-btn" onClick={onCancel} style={{ fontSize: 12.5 }}>Cancel</button>
       </div>
     </div>
@@ -96,7 +98,7 @@ function RowMenu({ row, view, onHired, onRemove }) {
     ...(!view.entity.shared ? [[row.notHired ? `We Hire ${who} Here` : `We Don't Hire ${who} Here`, () => onHired(row.workerType, row.notHired)]] : []),
     ...(row.removable ? [['Remove This Place', () => onRemove(row)]] : []),
   ];
-  if (!items.length) return null;
+  if (!items.length || view.entity.canEdit === false) return null;
   return (
     <>
       <button ref={ref} type="button" aria-label={`More for ${row.kind}`} onClick={() => setOpen(o => !o)}
@@ -114,7 +116,7 @@ function RowMenu({ row, view, onHired, onRemove }) {
   );
 }
 
-export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, focus = null, toastOk, toastErr }) {
+export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, focus = null, onFocusUsed, refreshKey = 0, toastOk, toastErr }) {
   const [view, setView] = useState(null);
   const [err, setErr] = useState('');
   const [roleId, setRoleId] = useState('');
@@ -128,17 +130,20 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
   const load = () => api.getHiringSetupCompany(entityId, roleId)
     .then(v => { setView(v); setErr(''); return v; })
     .catch(e => setErr(e?.message || 'Could not load the hiring setup.'));
-  useEffect(() => { load(); }, [entityId, roleId]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [entityId, roleId, refreshKey]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!view || focusDone.current || !focus) return;
     focusDone.current = true;
+    onFocusUsed?.();
     if (focus.roleId) setPopup({ b: { roleId: focus.roleId, rowKey: '' } });
     else if (focus.rowKey) setPopup({ a: { rowKey: focus.rowKey, column: focus.column || 'offer' } });
-  }, [view, focus]);
+  }, [view, focus]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (err && !view) return <ErrorBanner message={err} onRetry={load} />;
   if (!view) return <LoadingState label="Loading the hiring setup" />;
   const shared = !!view.entity.shared;
+  const canEdit = view.entity.canEdit !== false;
+  const notStarted = view.status === 'notStarted';
   const title = shared ? 'All Companies (Shared)' : view.entity.name;
 
   function act(it) {
@@ -171,12 +176,20 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Set Up Hiring - {title}</h1>
           <StatusChip status={view.status} chip={view.chip} />
         </div>
-        {!shared && <button type="button" className="primary-btn" onClick={() => go({ view: 'hr', sub: 'hr-hiring' })}>Make An Offer</button>}
+        {!shared && !notStarted && <button type="button" className="primary-btn" onClick={() => go({ view: 'hr', sub: 'hr-hiring' })}>Make An Offer</button>}
       </div>
       {shared && (
         <div role="status" style={{ borderRadius: 12, padding: '10px 14px', fontSize: 13, background: 'hsla(var(--color-blue),0.08)', border: '1px solid hsla(var(--color-blue),0.3)' }}>
-          You are changing what every company uses unless it has its own.
+          {canEdit ? 'You are changing what every company uses unless it has its own.'
+            : 'Only HR with access to every company can change the shared documents - this is what every company uses unless it has its own.'}
         </div>
+      )}
+      {notStarted && (
+        <section style={{ ...card, background: 'rgba(245,158,11,0.07)', borderColor: 'rgba(217,119,6,0.45)', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+          <span style={{ flex: '1 1 360px', fontSize: 13.5, color: '#92400e', fontWeight: 600 }}>Pick where this company&apos;s people work to start.</span>
+          <button type="button" className="secondary-btn" style={{ borderColor: '#d97706', color: '#92400e', fontWeight: 700 }}
+            onClick={() => { setEditing('worksIn'); aboutRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }); }}>Pick Where They Work</button>
+        </section>
       )}
 
       {view.items.length > 0 ? (
@@ -191,7 +204,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
             </div>
           ))}
         </section>
-      ) : (
+      ) : !notStarted && (
         <div role="status" style={{ fontSize: 13.5, color: 'hsl(var(--color-green))', fontWeight: 600 }}>Everything is set. You can make an offer.</div>
       )}
 
@@ -216,7 +229,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
         </section>
       )}
 
-      <section style={{ ...card, gap: 14 }}>
+      {!(notStarted && view.rows.length === 0) && <section style={{ ...card, gap: 14 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
           <div>
             <h2 style={h2}>What Each Hire Gets</h2>
@@ -261,7 +274,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
             ])}
           </div>
         </div>
-        {placing ? (
+        {!canEdit ? null : placing ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
             <div style={{ flex: '0 1 280px' }}><PlaceSelect label="New Place" country={placing.country} region={placing.region} onChange={(c, rg) => setPlacing({ country: c, region: rg })} /></div>
             <button type="button" className="primary-btn" disabled={!placing.country} onClick={addPlace}>Add</button>
@@ -278,7 +291,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
           <span><b style={{ color: 'hsl(var(--color-blue))' }}>Only Here</b> {shared ? "this place's own" : "this company's own"}</span>
           <span><b style={{ color: '#b45309' }}>Nothing Yet</b> a hire here would be blocked</span>
         </div>
-      </section>
+      </section>}
 
       <section ref={jdRef} style={card}>
         <div>
@@ -324,7 +337,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
           onClose={() => setPopup(null)} onChanged={load} />
       )}
       {popup?.b && (
-        <RoleDutiesModal roleId={popup.b.roleId} entityId={view.entity.id} rowKey={popup.b.rowKey} companyName={shared ? '' : view.entity.name}
+        <RoleDutiesModal roleId={popup.b.roleId} entityId={view.entity.id} canEdit={canEdit} rowKey={popup.b.rowKey} companyName={shared ? '' : view.entity.name}
           toastErr={toastErr} onClose={() => { setPopup(null); load(); }} />
       )}
     </div>

@@ -120,9 +120,16 @@ describe('Screen 1: Hiring Setup', () => {
     expect(await screen.findByText('All Companies (Shared)')).toBeTruthy();
   });
 
-  it('a focus from the offer opens the company and its popup', async () => {
-    render(<HiringSetup toastOk={noop} toastErr={noop} onAdvanced={noop} focus={{ entityId: 'e-gg', rowKey: 'contractor:US:CA', column: 'packet' }} />);
+  it('a focus from the offer opens the company and its popup, once', async () => {
+    const onFocusUsed = vi.fn();
+    render(<HiringSetup toastOk={noop} toastErr={noop} onAdvanced={noop} onFocusUsed={onFocusUsed} focus={{ entityId: 'e-gg', rowKey: 'contractor:US:CA', column: 'packet' }} />);
     expect(await screen.findByText('Hiring Packet - Contractors In California')).toBeTruthy();
+    expect(onFocusUsed).toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Cancel'));
+    fireEvent.click(screen.getByText('< Hiring Setup'));
+    fireEvent.click(await screen.findByLabelText('Set Up Hiring - Greens Global'));
+    expect(await screen.findByText('Set Up Hiring - Greens Global')).toBeTruthy();
+    expect(screen.queryByText('Hiring Packet - Contractors In California')).toBeNull();   // not popped again
   });
 });
 
@@ -155,6 +162,41 @@ describe('Screen 2: Set Up Hiring', () => {
     company();
     expect(await screen.findByText('Everything is set. You can make an offer.')).toBeTruthy();
     expect(screen.getByText('Ready To Hire')).toBeTruthy();
+  });
+
+  it('a company with no place asks for Works In, not "Everything is set"', async () => {
+    companyView = ggView({ items: [], status: 'notStarted', chip: 'Not Started', rows: [],
+      about: [{ key: 'worksIn', label: 'Works In', value: '', hint: 'From the company address.', empty: true, country: '', region: '' }] });
+    company();
+    expect(await screen.findByText("Pick where this company's people work to start.")).toBeTruthy();
+    expect(screen.queryByText('Everything is set. You can make an offer.')).toBeNull();
+    expect(screen.queryByText('Make An Offer')).toBeNull();
+    expect(screen.queryByText('What Each Hire Gets')).toBeNull();
+    fireEvent.click(screen.getByText('Pick Where They Work'));
+    expect(screen.getByText('Save')).toBeTruthy();                           // the Works In editor opened
+  });
+
+  it('Legal Name And Address waits for a value before it saves', async () => {
+    companyView = ggView({ about: [{ key: 'legalAndAddress', label: 'Legal Name And Address', value: '', hint: 'Printed in the documents.', empty: true }] });
+    company();
+    fireEvent.click(await screen.findByLabelText('Edit Legal Name And Address'));
+    expect(screen.getByText('Save').disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Address'), { target: { value: '123 Main St' } });
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(m.updateEntity).toHaveBeenCalledWith('e-gg', { physical_address: '123 Main St' }));
+  });
+
+  it('All Companies for HR without every company is read-only', async () => {
+    companyView = ggView({ entity: { id: '', name: 'All Companies', shared: true, canEdit: false, country: '', region: '' }, about: [],
+      rows: [row('employee', 'US', 'CA', 'Employees In California', { removable: true })] });
+    company({ entityId: '' });
+    expect(await screen.findByText(/Only HR with access to every company can change the shared documents/)).toBeTruthy();
+    expect(screen.queryByText('+ Add A Place')).toBeNull();
+    expect(screen.queryByLabelText('More for Employees In California')).toBeNull();
+    fireEvent.click(screen.getByText('US Employee Offer Letter'));
+    expect(await screen.findByText('Offer Letter - Employees In California')).toBeTruthy();
+    expect(screen.queryByText('Use This')).toBeNull();
+    expect(screen.queryByText('Start From A Copy')).toBeNull();
   });
 
   it('grid tones follow the server, and Show For Role refetches', async () => {
@@ -197,6 +239,37 @@ describe('Popup A: Choose What They Get', () => {
     expect(await screen.findByText('1 hire is using this one right now. Try again once they finish.')).toBeTruthy();
     expect(confirm.mock.calls[0][0]).toMatch(/Greens Global's own offer letter will stop being used/);
     expect(m.hiringSetupUseSame).toHaveBeenCalledWith('s-gg-offer');
+  });
+
+  it('under Show For Role a role-only row is shown, never archived', async () => {
+    companyView = ggView({ rows: [row('employee', 'US', 'CA', 'Employees In California', {
+      packet: cell({ name: 'Accountant Packet', sourceLabel: 'Only For Accountant', tone: 'own', settingId: 's-acct' }), jd: jd({ roleId: 'jr-acct' }) })] });
+    company();
+    fireEvent.click(await screen.findByText('Accountant Packet'));
+    expect(await screen.findByText(/Showing what one role gets/)).toBeTruthy();
+    expect(screen.queryByText('Use The Same As All Companies')).toBeNull();
+    expect(screen.queryByText('Use This')).toBeNull();
+    expect(within(screen.getByRole('dialog')).getByText('US Employee Offer Letter')).toBeTruthy();   // the documents, read-only
+    expect(m.hiringSetupUseSame).not.toHaveBeenCalled();
+  });
+
+  it('Use The Same with nothing shared warns that hires will be blocked', async () => {
+    companyView = ggView({ rows: [row('contractor', 'IN', '', 'Contractors In India', {
+      offer: cell({ name: 'GG Con Offer', sourceLabel: 'Only Here', tone: 'own', settingId: 's-own', fallback: null }) })] });
+    company();
+    fireEvent.click(await screen.findByText('GG Con Offer'));
+    fireEvent.click(screen.getByText('Use The Same As All Companies'));
+    fireEvent.click(screen.getByText('Use This'));
+    await waitFor(() => expect(confirm.mock.calls[0][0]).toMatch(/Nothing is shared for Contractors In India - a hire here would be blocked/));
+  });
+
+  it('Start From A Copy is offered only when there is a shared one to copy', async () => {
+    companyView = ggView({ rows: [row('employee', 'US', 'CA', 'Employees In California', {
+      packet: cell({ name: 'Old PDF Packet', sourceLabel: 'Only Here', tone: 'own', settingId: 's-pdf', engine: 'pdf' }) })] });
+    company();
+    fireEvent.click(await screen.findByText('Old PDF Packet'));
+    expect(await screen.findByText('Upload A Word File')).toBeTruthy();
+    expect(screen.queryByText('Start From A Copy')).toBeNull();
   });
 
   it("Use Greens Global's Own Again restores the archived row", async () => {
@@ -247,6 +320,23 @@ describe('Packet documents', () => {
     expect(await screen.findByText('Saved')).toBeTruthy();
   });
 
+  it('a document dragged down lands after the target; a drop that changes nothing saves nothing', async () => {
+    companyView = ownPacket({ placement: 'page', documents: [
+      { id: 'A', name: 'Employment Agreement', marker: false, signedBy: '' },
+      { id: 'B', name: 'I-9 Acknowledgment', marker: false, signedBy: '' },
+      { id: '@jd', name: 'Job Description - Goes Here', marker: true, signedBy: '' }] });
+    company();
+    fireEvent.click(await screen.findByText('GG Packet'));
+    const rows = await screen.findAllByTestId('doc-row');
+    fireEvent.dragStart(rows[0]);
+    fireEvent.drop(rows[2]);
+    await waitFor(() => expect(m.hiringSetupSetDocuments).toHaveBeenCalledWith('s-gg-hire', ['B', '@jd', 'A']));
+    m.hiringSetupSetDocuments.mockClear();
+    fireEvent.dragStart(rows[0]);
+    fireEvent.drop(rows[1]);
+    await waitFor(() => expect(m.hiringSetupSetDocuments).toHaveBeenCalledWith('s-gg-hire', ['B', 'A', '@jd']));
+  });
+
   it('printed inside a document: a fixed line and no draggable row; Edit Wording makes a copy', async () => {
     companyView = ownPacket({ placement: 'inside', placementLabel: 'Printed Inside Employment Agreement',
       documents: [{ id: 'A', name: 'Employment Agreement', marker: false, signedBy: 'The New Hire' }] });
@@ -286,6 +376,40 @@ describe('Popup B: Job Description', () => {
     expect(await screen.findByText(/Duties - Part-Time Employees - Anywhere/)).toBeTruthy();
     fireEvent.click(screen.getByText('Use The Standard Instead'));
     await waitFor(() => expect(m.removeRoleDuty).toHaveBeenCalledWith('jr-acct', 'dv-2'));
+  });
+
+  it('saves run one after another, so an older text never lands last', async () => {
+    let release;
+    m.updateRoleDuty.mockImplementationOnce(() => new Promise(r => { release = r; }));
+    render(<RoleDutiesModal roleId="jr-acct" entityId="e-gg" onClose={noop} toastErr={noop} />);
+    const box = await screen.findByLabelText(/Duties - Standard - Everyone/);
+    fireEvent.change(box, { target: { value: 'one' } });
+    await waitFor(() => expect(m.updateRoleDuty).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    fireEvent.change(box, { target: { value: 'two' } });
+    await new Promise(r => setTimeout(r, 1000));
+    expect(m.updateRoleDuty).toHaveBeenCalledTimes(1);                       // waits for the first
+    release({});
+    await waitFor(() => expect(m.updateRoleDuty).toHaveBeenLastCalledWith('jr-acct', 'standard', 'two'));
+  });
+
+  it('a 403 on a shared Standard makes it read-only instead of toasting each pause', async () => {
+    const toastErr = vi.fn();
+    const e = Object.assign(new Error('Only HR with access to every company can change the standard duties - make a version for this company instead.'), { status: 403 });
+    m.updateRoleDuty.mockImplementationOnce(() => Promise.reject(e));
+    render(<RoleDutiesModal roleId="jr-acct" entityId="e-gg" onClose={noop} toastErr={toastErr} />);
+    const box = await screen.findByLabelText(/Duties - Standard - Everyone/);
+    fireEvent.change(box, { target: { value: 'changed' } });
+    expect(await screen.findByText(/make a version for this company instead/, {}, { timeout: 2000 })).toBeTruthy();
+    expect(box.readOnly).toBe(true);
+    expect(box.value).toBe('Keep the books.');
+    expect(toastErr).not.toHaveBeenCalled();
+  });
+
+  it('read-only when this HR cannot change the shared screen', async () => {
+    render(<RoleDutiesModal roleId="jr-acct" entityId="" canEdit={false} onClose={noop} toastErr={noop} />);
+    const box = await screen.findByLabelText(/Duties - Standard - Everyone/);
+    expect(box.readOnly).toBe(true);
+    expect(screen.queryByText('Make A Different One For...')).toBeNull();
   });
 
   it('a version that already exists says so inside the popup', async () => {

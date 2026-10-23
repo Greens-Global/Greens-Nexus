@@ -51,7 +51,7 @@ function htmlToText(html) {
   return (lines.length ? lines : [doc.body.textContent.trim()]).join('\n');
 }
 
-export default function RoleDutiesModal({ roleId, entityId = '', rowKey = '', companyName = '', onClose, onChanged, toastErr }) {
+export default function RoleDutiesModal({ roleId, entityId = '', rowKey = '', companyName = '', canEdit = true, onClose, onChanged, toastErr }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [vid, setVid] = useState('');
@@ -62,7 +62,13 @@ export default function RoleDutiesModal({ roleId, entityId = '', rowKey = '', co
   const [wizard, setWizard] = useState(false);
   const timer = useRef(null);
   const pending = useRef(null);                          // { vid, text } not sent yet
+  const inflight = useRef(Promise.resolve());            // saves run one after another, so an older text never lands last
+  const [locked, setLocked] = useState({});              // vid -> why this HR cannot change it (a 403)
   const kind = kindOf(rowKey);
+  const vidRef = useRef('');
+  vidRef.current = vid;
+  const dataRef = useRef(null);
+  dataRef.current = data;
 
   const take = (d, pick) => {
     setData(d);
@@ -75,17 +81,28 @@ export default function RoleDutiesModal({ roleId, entityId = '', rowKey = '', co
     api.getRoleDuties(roleId, entityId).then(d => take(d)).catch(e => setErr(e?.message || 'Could not load the job description.'));
   }, [roleId, entityId]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function flush() {
+  function flush() {
     clearTimeout(timer.current);
     const p = pending.current;
-    if (!p) return;
+    if (!p) return inflight.current;
     pending.current = null;
-    try {
-      await api.updateRoleDuty(roleId, p.vid, p.text);
-      setData(d => d && ({ ...d, versions: d.versions.map(v => (v.id === p.vid ? { ...v, text: p.text } : v)) }));
-      setSaved('Saved');
-      onChanged?.();
-    } catch (e) { setSaved(''); toastErr?.(e?.message || 'Could not save the duties.'); }
+    inflight.current = inflight.current.then(async () => {
+      try {
+        await api.updateRoleDuty(roleId, p.vid, p.text);
+        setData(d => d && ({ ...d, versions: d.versions.map(v => (v.id === p.vid ? { ...v, text: p.text } : v)) }));
+        setSaved('Saved');
+        onChanged?.();
+      } catch (e) {
+        setSaved('');
+        if (e?.status === 403) {
+          // Not this HR's to change: stop saving it and show the stored text again.
+          setLocked(l => ({ ...l, [p.vid]: e.message }));
+          const v = dataRef.current?.versions.find(x => x.id === p.vid);
+          if (v && vidRef.current === p.vid) setText(v.text || '');
+        } else toastErr?.(e?.message || 'Could not save the duties.');
+      }
+    });
+    return inflight.current;
   }
   useEffect(() => () => { flush(); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
   const type = (t) => {
@@ -138,10 +155,11 @@ export default function RoleDutiesModal({ roleId, entityId = '', rowKey = '', co
   const role = data?.role;
   const cur = data?.versions.find(v => v.id === vid);
   const extra = (data?.hiringDocs || []).filter(d => d.replaces !== '@jd');
+  const lockedWhy = !canEdit ? 'Only HR with access to every company can change the shared job descriptions.' : locked[vid] || '';
   return (
     <Modal title={`Job Description - ${role?.name || ''}`} onClose={async () => { await flush(); onClose(); }}
       footer={<>
-        <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>{saved || 'Changes save as you type.'}</span>
+        <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>{lockedWhy ? 'Read only.' : saved || 'Changes save as you type.'}</span>
         <button type="button" className="primary-btn" onClick={async () => { await flush(); onClose(); }}>Close</button>
       </>}>
       {err ? <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{err}</div>
@@ -162,8 +180,8 @@ export default function RoleDutiesModal({ roleId, entityId = '', rowKey = '', co
                     <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{v.who}</span>
                   </button>
                 ))}
-                <button type="button" className="secondary-btn" onClick={() => { setAddErr(''); setAdding(a => (a ? null : { hired_as: 'contractor', country: '', region: '', entity_id: '' })); }}
-                  style={{ borderStyle: 'dashed', textAlign: 'left', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Make A Different One For...</button>
+                {canEdit && <button type="button" className="secondary-btn" onClick={() => { setAddErr(''); setAdding(a => (a ? null : { hired_as: 'contractor', country: '', region: '', entity_id: '' })); }}
+                  style={{ borderStyle: 'dashed', textAlign: 'left', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Make A Different One For...</button>}
                 {adding && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, border: '1px solid var(--line)', borderRadius: 10, padding: 10 }}>
                     <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Hired As
@@ -190,17 +208,20 @@ export default function RoleDutiesModal({ roleId, entityId = '', rowKey = '', co
               </div>
               <div style={{ flex: '999 1 360px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <label htmlFor={`duties-${roleId}`} style={cap}>Duties - {cur?.label}</label>
+                {lockedWhy && <div role="status" style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))' }}>{lockedWhy}</div>}
                 <div className="nx-fill">
-                  <textarea id={`duties-${roleId}`} className="form-input" value={text} onChange={e => type(e.target.value)}
+                  <textarea id={`duties-${roleId}`} className="form-input" value={text} onChange={e => type(e.target.value)} readOnly={!!lockedWhy}
                     placeholder="Type this role's duties, one per line." style={{ width: '100%', minHeight: 220, fontFamily: 'inherit', lineHeight: 1.55 }} />
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', fontSize: 12.5, color: 'var(--muted)' }}>
                   <span style={{ flex: 1 }}>Used By: {(cur?.usedBy || []).join(', ') || 'No kind of hire here right now'}</span>
-                  <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12.5 }}>
-                    <Upload size={13} /> Fill From A Word File
-                    <input type="file" accept=".docx,.txt" hidden onChange={e => { fromFile(e.target.files?.[0]); e.target.value = ''; }} />
-                  </label>
-                  {vid !== 'standard' && <button type="button" className="secondary-btn" onClick={useStandard} style={{ fontSize: 12.5 }}>Use The Standard Instead</button>}
+                  {!lockedWhy && (
+                    <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12.5 }}>
+                      <Upload size={13} /> Fill From A Word File
+                      <input type="file" accept=".docx,.txt" hidden onChange={e => { fromFile(e.target.files?.[0]); e.target.value = ''; }} />
+                    </label>
+                  )}
+                  {canEdit && vid !== 'standard' && <button type="button" className="secondary-btn" onClick={useStandard} style={{ fontSize: 12.5 }}>Use The Standard Instead</button>}
                 </div>
                 <details style={{ fontSize: 13, color: 'var(--muted)' }}>
                   <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--ink)' }}>Keep The Word File&apos;s Own Layout</summary>
@@ -208,12 +229,12 @@ export default function RoleDutiesModal({ roleId, entityId = '', rowKey = '', co
                     {data.formattedJd ? (
                       <>
                         <span><b style={{ color: 'var(--ink)' }}>{data.formattedJd.name}</b> - Use Instead Of: Job Description</span>
-                        <button type="button" className="secondary-btn" onClick={() => setFormatted('')} style={{ fontSize: 12 }}>Remove</button>
+                        {canEdit && <button type="button" className="secondary-btn" onClick={() => setFormatted('')} style={{ fontSize: 12 }}>Remove</button>}
                       </>
                     ) : (
                       <>
                         <span>For a job description whose tables and bold must stay as they are. It goes out instead of the typed duties.</span>
-                        <button type="button" className="secondary-btn" onClick={() => setWizard(true)} style={{ fontSize: 12 }}>Add A Formatted Job Description</button>
+                        {canEdit && <button type="button" className="secondary-btn" onClick={() => setWizard(true)} style={{ fontSize: 12 }}>Add A Formatted Job Description</button>}
                       </>
                     )}
                   </div>

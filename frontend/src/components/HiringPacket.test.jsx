@@ -26,6 +26,9 @@ vi.mock('../api', () => ({
     // Hiring Setup (Oct 23) is the first tab.
     getHiringSetup: () => Promise.resolve({ shared: { summary: 'What every company uses unless it has its own.', canEdit: true },
       companies: [{ id: 'e1', name: 'Oversite', place: 'California', status: 'ready', chip: 'Ready To Hire', summary: 'Uses the shared offer letter and hiring packet' }] }),
+    getHiringSetupCompany: () => Promise.resolve({ entity: { id: 'e1', name: 'Greens Test Co', shared: false, canEdit: true, country: 'US', region: 'CA' },
+      status: 'left', chip: '1 Thing Left', about: [], roles: [], rows: [], jobDescriptions: { columns: [], rows: [] }, advanced: [],
+      items: [{ key: 'check:s-new:once', text: 'Raj has not signed once.', button: 'Open The Packet', action: 'advanced', target: { settingId: 's-new' } }] }),
     getPackets: () => Promise.resolve({
       settings: packetSettings, workerTypes: ['any', 'employee', 'contractor'],
       templates: [{ id: 't1', name: 'Offer Packet', entityId: '', documents: 2,
@@ -45,6 +48,7 @@ vi.mock('../api', () => ({
     getDocTemplates: () => Promise.resolve([{ id: 'jd1', name: 'JD - Analyst', publishedVersion: 1 }]),
     packetRoleHolders: () => Promise.resolve({ hr: { email: 'hana@x.com', name: 'Hana' } }),
     getDocLetterheads: () => Promise.resolve([]),
+    signOnceStatus: () => Promise.resolve({}),
     startHiringPacket: (...a) => startPacket(...a),
   },
 }));
@@ -88,6 +92,20 @@ describe('PacketsModal', () => {
     expect(screen.getByText('New Hiring Packet')).toBeTruthy();
     expect(document.getElementById('pk-company').value).toBe('e1');                // the editor's own Company box
     expect(screen.getByLabelText('Hired As').value).toBe('employee');
+    packetSettings = [];
+  });
+});
+
+describe('PacketsModal from Hiring Setup', () => {
+  it('Open The Packet finds a row made since the window opened', async () => {
+    render(<PacketsModal onClose={noop} toastOk={noop} toastErr={noop} initialCompanyId="e1" />);
+    expect(await screen.findByText('Open The Packet')).toBeTruthy();
+    // Made by Hiring Setup after the window loaded its list:
+    packetSettings = [{ id: 's-new', engine: 'documents', entityId: 'e1', event: 'hire', name: 'Contractor Packet', templateName: 'Contractor Packet',
+      roleIds: [], roleNames: [], workerType: 'contractor', country: 'US', docTemplateIds: [], documents: [], signers: [],
+      flow: [{ key: 'employee', role: 'employee', action: 'sign' }], readiness: [], signOnce: [] }];
+    fireEvent.click(screen.getByText('Open The Packet'));
+    expect((await screen.findAllByText(/Contractor Packet/)).length).toBeGreaterThan(0);   // the editor opened on it
     packetSettings = [];
   });
 });

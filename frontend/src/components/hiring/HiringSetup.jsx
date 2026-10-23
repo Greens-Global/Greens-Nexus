@@ -9,17 +9,20 @@ import HiringSetupCompany, { StatusChip } from './HiringSetupCompany';
 
 const btn = { display: 'inline-flex', alignItems: 'center', minHeight: 38 };
 
-export default function HiringSetup({ toastOk, toastErr, initialCompanyId = null, focus = null, onAdvanced }) {
+export default function HiringSetup({ toastOk, toastErr, initialCompanyId = null, focus = null, onFocusUsed, refreshKey = 0, onAdvanced }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   // null = the list; '' = All Companies; an id = that company.
   const [open, setOpen] = useState(() => (focus?.entityId ?? initialCompanyId ?? null));
   const load = () => api.getHiringSetup().then(d => { setData(d); setErr(''); }).catch(e => setErr(e?.message || 'Could not load the hiring setup.'));
-  useEffect(() => { if (open === null) load(); }, [open]);
+  // The offer's focus opens its popup once: Back and reopening the company must not pop it again.
+  const [left, setLeft] = useState(focus);
+  const used = () => { setLeft(null); onFocusUsed?.(); };
+  useEffect(() => { if (open === null) load(); }, [open, refreshKey]);
 
   if (open !== null) {
     return (
-      <HiringSetupCompany key={open} entityId={open} focus={focus && (focus.entityId ?? null) === open ? focus : null}
+      <HiringSetupCompany key={open} entityId={open} focus={left && (left.entityId ?? null) === open ? left : null} onFocusUsed={used} refreshKey={refreshKey}
         onBack={() => setOpen(null)} onAdvanced={onAdvanced} toastOk={toastOk} toastErr={toastErr} />
     );
   }
