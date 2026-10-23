@@ -1665,7 +1665,7 @@ export const api = {
   dashUpdateView: (id, body)   => req(`/dashboards/views/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   dashSetDefault: (id)         => req(`/dashboards/views/${id}/default`, { method: 'PUT' }),
   dashDeleteView: (id)         => req(`/dashboards/views/${id}`, { method: 'DELETE' }),
-  dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}`),
+  dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}&tz_offset_min=${new Date().getTimezoneOffset()}`),
   dashInsights:   ()               => req('/dashboards/insights'),
   dashInsightsDrilldown: (module, metric) => req(`/dashboards/insights/drilldown?module=${encodeURIComponent(module)}&metric=${encodeURIComponent(metric)}`),
   // The caller's own Outlook agenda (M365 staff only - {available:false} otherwise)

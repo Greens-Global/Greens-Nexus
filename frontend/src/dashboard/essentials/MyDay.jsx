@@ -1,4 +1,5 @@
-// My Day (Essentials, Oct 7) - "what needs me right now?" for everyone.
+// Action Required (Essentials, Oct 7; called My Day until Oct 23 2026, when
+// Tasks got its own My Day list) - "what needs me right now?" for everyone.
 // Registered as 'my-day' in widgets.jsx, its own lazy chunk so it loads only
 // when the tile is on the board.
 //
@@ -261,7 +262,7 @@ export default function MyDay({ phone }) {
   const nextDue = n === 0 ? nextDueOf(data) : null;
 
   return (
-    <DashCard title="My Day" sub={sub}>
+    <DashCard title="Action Required" sub={sub}>
       {!data && !failed ? (
         <LoadingState compact />
       ) : failed && !data ? (

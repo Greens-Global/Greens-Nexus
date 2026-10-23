@@ -4962,6 +4962,20 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 @container dkstat (max-width: 150px) {
   .dk-stat-num { font-size: 24px; }
 }
+/* A tile whose line under the label is information, not a hint - My Open
+   Tasks' "+12 with no due date, +8 recurring" (Oct 23 2026) - keeps that line
+   on a two-row tile: the chip and the numeral tighten to make room. */
+@container dkstat (max-height: 160px) {
+  .dk-stat--noted .dk-stat-sub { display: block; }
+  .dk-stat--noted .dk-chip { width: 26px; height: 26px; }
+  .dk-stat--noted .dk-stat-num { margin-top: 4px; font-size: 26px; }
+  .dk-stat--noted .dk-stat-label { margin-top: 1px; }
+}
+.dk-sub-short { display: none; }
+@container dkstat (max-width: 220px) {
+  .dk-sub-long { display: none; }
+  .dk-sub-short { display: inline; }
+}
 
 .dash-grid .sc-tile { container-type: size; container-name: sctile; gap: 9px; }
 .sc-tile-chip { width: 44px; height: 44px; border-radius: 12px; }

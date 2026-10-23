@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 import cache
 import models
 from database import get_db
-from routers.task_util import task_assignees
+from routers import my_work
 import auth
 from auth import get_current_user
 
@@ -192,12 +192,15 @@ def _clear_defaults(db: Session, owner_email: str, target: str):
 # ── KPI aggregate ─────────────────────────────────────────────────────────────
 
 @router.get("/kpis")
-def kpis(scope: str = "self", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def kpis(scope: str = "self", tz_offset_min: int = 0, user: dict = Depends(get_current_user),
+         db: Session = Depends(get_db)):
     """Every KPI a widget might show, each computed defensively (0 on any error)
     so one broken metric never fails the whole dashboard. scope 'team' unlocks
-    manager metrics for level>=2."""
+    manager metrics for level>=2. tz_offset_min is the browser's
+    Date.getTimezoneOffset(), for my_open_tasks' "today" (my_work.local_today)."""
     email = user["email"]
     team = scope == "team" and user["level"] >= 2
+    today = my_work.local_today(tz_offset_min)
 
     # A dozen COUNT queries per call; cached per (email, team) for a short TTL so
     # a dashboard full of widgets (and its poll) doesn't recompute every load, and
@@ -242,9 +245,19 @@ def kpis(scope: str = "self", user: dict = Depends(get_current_user), db: Sessio
         # people and assignee_emails is a JSON list - see the daily-briefing
         # note for why there is no portable SQL containment predicate here. The
         # completed filter keeps the row set to open work only.
-        safe("my_open_tasks", lambda: sum(
-            1 for t in db.query(M.Task).filter(M.Task.completed == False).all()  # noqa: E712
-            if email in task_assignees(t)))
+        # Oct 23 2026 (Neil): the number is the work that is live now - in
+        # progress, overdue, or due in the next 30 days, and a repeating task
+        # once its date has come - not every open task (Charmi read about
+        # 200, most of them months out or repeating). The tile names the
+        # rest under it: my_open_tasks_undated ("+x with no due date") and
+        # my_open_tasks_recurring ("+y recurring"). The rule is
+        # my_work.task_focus_bucket, the same rows My Work lists.
+        def my_tasks():
+            c = my_work.task_focus_counts(db, user, (email or "").strip().lower(), today)
+            out["my_open_tasks_undated"] = c["undated"]
+            out["my_open_tasks_recurring"] = c["recurring"]
+            return c["focus"]
+        safe("my_open_tasks", my_tasks)
         safe("unread_notifications", lambda: db.query(M.NexusNotification).filter(
             M.NexusNotification.recipient == email).count())
         # Company-wide, same as pending_requisitions/open_purchases above (not
@@ -275,7 +288,7 @@ def kpis(scope: str = "self", user: dict = Depends(get_current_user), db: Sessio
             safe("time_off_pending", lambda: _time_off_pending(db, user, email))
         return out
 
-    out = cache.dashboard_kpis.get_or_load((email, team), _compute)
+    out = cache.dashboard_kpis.get_or_load((email, team, today), _compute)
     return {"kpis": out, "at": _now()}
 
 
