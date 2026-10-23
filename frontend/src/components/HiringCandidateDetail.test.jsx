@@ -86,6 +86,11 @@ describe('CandidateDetailModal', () => {
     expect(screen.getByText('Mark Hired By Hand')).toBeTruthy();
   });
 
+  it('a skipped interview reads Skipped on the stage bar (Oct 22)', () => {
+    render(<CandidateDetailModal {...props} candidate={{ ...base, stage: 'decision', interviewSkippedBy: 'hr@greensglobal.com' }} />);
+    expect(screen.getByText('Interview (Skipped)')).toBeTruthy();
+  });
+
   it('Rejected: reopen', () => {
     const onStage = vi.fn();
     render(<CandidateDetailModal {...props} onStage={onStage} candidate={{ ...base, stage: 'rejected' }} />);
