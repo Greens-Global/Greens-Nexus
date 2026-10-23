@@ -70,7 +70,8 @@ export default function NoticesAdmin({ toastOk, toastErr }) {
       {section === 'sites' && <Sites toastOk={toastOk} toastErr={toastErr} />}
       {section === 'calendar' && <CalendarView onOpen={setOpenId} />}
       {section === 'review' && <AnnualReview onOpen={setOpenId} toastOk={toastOk} toastErr={toastErr} />}
-      {openId && <NoticeDetail id={openId} canApprove={data.canApprove} onClose={() => { setOpenId(''); load(); }} onChanged={load}
+      {openId && <NoticeDetail id={openId} canApprove={data.canApprove} onClose={() => { setOpenId(''); load(); }}
+        onChanged={() => api.noticesLibrary().then(setData).catch(() => {})}   // quiet: a failed refresh must not unmount the open popup
         toastOk={toastOk} toastErr={toastErr} />}
     </div>
   );
@@ -671,7 +672,7 @@ function Coverage({ toastErr }) {
                 {p.owed.map(o => `${o.title} ${o.overdue ? 'overdue since' : 'due'} ${day(o.due)}`).join('; ')}
                 {p.notGiven.length > 0 && `${p.owed.length ? ' - ' : ''}Not given: ${p.notGiven.join(', ')}`}
                 {p.emergency === 'open' && `${p.owed.length || p.notGiven.length ? ' - ' : ''}Emergency contact question open`}
-                {!p.owed.length && !p.notGiven.length && p.emergency !== 'open' && (p.state || p.country === 'IN') && 'Complete'}
+                {!open(p) && 'Complete'}
               </span>
             </span>
             <button className="secondary-btn" onClick={() => download(api.exportNoticePerson(p.email), `workplace-notices-${p.email.split('@')[0]}.csv`, toastErr)} style={{ fontSize: 12 }}>Export Record</button>

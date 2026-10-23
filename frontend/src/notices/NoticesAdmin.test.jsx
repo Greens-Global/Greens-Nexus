@@ -8,6 +8,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 const library = vi.fn();
 const detail = vi.fn();
 const review = vi.fn();
+const coverage = vi.fn();
 vi.mock('../api', () => ({
   api: {
     noticesLibrary: (...a) => library(...a),
@@ -15,6 +16,7 @@ vi.mock('../api', () => ({
     reviewNoticeVersion: (...a) => review(...a),
     noticeEvents: vi.fn().mockResolvedValue([]),
     noticeFile: vi.fn(),
+    noticeCoverage: (...a) => coverage(...a),
   },
 }));
 
@@ -72,6 +74,30 @@ describe('NoticesAdmin', () => {
     expect(screen.getByRole('button', { name: /Approve/ })).toBeDisabled();
     finish({ ...notice({ state: 'scheduled', pending: [] }), versions: [ver({ status: 'approved' })], events: [] });
     await waitFor(() => expect(screen.queryByRole('button', { name: /Approve/ })).toBeNull());
+  });
+
+  it('a failed refresh behind the popup keeps the popup open', async () => {
+    render(<NoticesAdmin toastOk={vi.fn()} toastErr={vi.fn()} />);
+    fireEvent.click(await screen.findByText('California Minimum Wage'));
+    library.mockRejectedValueOnce(new Error('Could not load the notices.'));
+    fireEvent.click(await screen.findByRole('button', { name: /Approve/ }));
+    await waitFor(() => expect(library).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(detail).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('Could not load the notices.')).toBeNull();
+    expect(await screen.findByRole('button', { name: /Approve/ })).toBeInTheDocument();   // the popup is still up
+  });
+
+  it('Coverage says Complete on every row the headline counts as complete', async () => {
+    const person = (over) => ({ email: 'a@x.com', name: 'A', country: 'US', state: '', workerType: 'employee', owed: [], notGiven: [], emergency: 'done', ...over });
+    coverage.mockResolvedValue({ totals: { people: 2, allDone: 1 }, people: [
+      person({ email: 'c@x.com', name: 'Contractor Person', workerType: 'contractor' }),   // US, no state, owes nothing
+      person({ email: 'e@x.com', name: 'Unplaced Employee' }),                             // US employee, no state: not complete
+    ] });
+    render(<NoticesAdmin toastOk={vi.fn()} toastErr={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Coverage/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Everyone' }));
+    expect(screen.getAllByText('Complete')).toHaveLength(1);
+    expect(screen.getByText('Contractor Person').closest('span').parentElement.textContent).toContain('Complete');
   });
 
   it('shows the review queue', async () => {
