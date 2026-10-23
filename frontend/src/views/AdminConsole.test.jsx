@@ -13,10 +13,19 @@ vi.mock('../api', () => ({
       : k === 'getEntitySignatureTemplates' ? () => Promise.resolve({ templates: [], template: 'classic' })
         : vi.fn(() => Promise.resolve([]))) }),
 }));
-const roleState = { admin: true };
+// Who is looking: an IT Admin by default. `grants` = Access Group grants by
+// module ({ hr: 'editor' }); `hrScope` = the companies their People access is
+// limited to (null = company-wide); `hrTeam` = the manager tier (own team).
+const LEVELS = { employee: 1, supervisor: 2, manager: 3, administrator: 4, owner: 5 };
+const RANKS = { viewer: 1, editor: 2, full: 3, owner: 4 };
+const roleState = { role: 'administrator', grants: {}, hrScope: null, hrTeam: false };
+const asRole = (role, extra = {}) => Object.assign(roleState, { role, grants: {}, hrScope: null, hrTeam: false }, extra);
 vi.mock('../contexts/RoleContext', () => ({
   useRole: () => ({
-    can: (min) => (min === 'administrator' ? roleState.admin : true),
+    can: (min) => LEVELS[roleState.role] >= (LEVELS[min] ?? 1),
+    canAccessModule: (m, minRole, lvl = 'viewer') => LEVELS[roleState.role] >= (LEVELS[minRole] ?? 1)
+      || (RANKS[roleState.grants[m]] ?? 0) >= (RANKS[lvl] ?? 1),
+    hrScope: roleState.hrScope, hrTeam: roleState.hrTeam,
     myGrantedModules: new Set(), actingAs: null,
     startActAs: vi.fn(), stopActAs: vi.fn(),
   }),
@@ -74,7 +83,7 @@ vi.mock('./SettingsPanels', () => ({
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); roleState.admin = true; });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); asRole('administrator'); });
 
 const rail = () => screen.getByRole('navigation', { name: 'Settings subjects' });
 // Lazy panels on a slow machine: give a find a little longer than the default second.
@@ -162,13 +171,55 @@ describe('AdminConsole', () => {
     expect(await find('Access panel')).toBeInTheDocument();
     cleanup();
 
-    roleState.admin = false;
+    // The manager tier (own team, no grants): the groups a manager may save -
+    // task emails, the ticket desk, item types, app ratings, unit rules - and
+    // nothing that is a People route or an administrator's.
+    asRole('manager', { hrTeam: true, hrScope: [] });
     render(<AdminConsole activeSub="access" onSubChange={() => {}} />);
-    for (const name of ['People & Access', 'Security', 'Branding & Email', 'Time & Pay']) {
+    for (const name of ['People & Access', 'Security', 'Branding & Email', 'Time & Pay', 'Companies', 'Locations', 'Hiring & Onboarding', 'Shifts & Scheduling']) {
       expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
     }
-    // Falls back to the first subject it can show.
-    expect(screen.getByRole('heading', { name: 'Companies' })).toBeInTheDocument();
+    for (const name of ['Emails & Reminders', 'Tickets', 'Items & Equipment', 'Workforce Analytics', 'Operations']) {
+      expect(within(rail()).getByRole('button', { name })).toBeInTheDocument();
+    }
+    // Falls back to the first subject it can show, with only its open group
+    // (a lone group renders bare under the subject heading).
+    expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
+    expect(await find('Task notify panel')).toBeInTheDocument();
+    expect(screen.queryByText('Daily Briefing')).not.toBeInTheDocument();
+  });
+
+  it('opens each group for exactly who its save route lets in (the registry gates, Oct 23)', async () => {
+    // A supervisor with a People (hr) editor grant limited to Greens Global:
+    // Companies, Locations, Shifts and Hiring are theirs - with their company
+    // picked. At Every company the library, the shared records and the
+    // tenant defaults are not, so the page says to pick the company.
+    asRole('supervisor', { grants: { hr: 'editor' }, hrScope: ['c1'] });
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    // (Branding & Email stays: the company's Email Signature is a People route.)
+    for (const name of ['Companies', 'Locations', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Branding & Email']) {
+      expect(within(rail()).getByRole('button', { name })).toBeInTheDocument();
+    }
+    for (const name of ['People & Access', 'Security', 'Tickets', 'Items & Equipment', 'Operations']) {
+      expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(screen.getByText(/set per company for you - pick one in the Scope box/)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Shift Types' })).not.toBeInTheDocument();
+    cleanup();
+    render(<AdminConsole activeSub="shifts@c1" onSubChange={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Shift Types' })).toBeInTheDocument();
+    expect(await find('Shift settings panel c1')).toBeInTheDocument();
+    // Weather Alerts are set for every company at once: company-wide access only.
+    expect(screen.queryByRole('region', { name: 'Weather Alerts' })).not.toBeInTheDocument();
+    cleanup();
+
+    // An Operations editor grant (any tier) opens Unit Rules, not Push to Cubby.
+    asRole('employee', { grants: { operations: 'editor' } });
+    render(<AdminConsole activeSub="operations" onSubChange={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Operations' })).toBeInTheDocument();
+    expect(await find('Unit rules panel')).toBeInTheDocument();
+    expect(screen.queryByText('Push to Cubby')).not.toBeInTheDocument();
+    expect(within(rail()).queryByRole('button', { name: 'Tickets' })).not.toBeInTheDocument();
   });
 
   it('has Shifts & Scheduling with the settings, shift types, groups and weather, all open (Charmi, 09/30)', async () => {

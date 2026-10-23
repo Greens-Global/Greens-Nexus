@@ -327,8 +327,11 @@ keep the diff minimal.
   sub is `<subject>[:<group>][@<companyId>]`; every pre-merge key
   (`global`, `global-<category>`, `company`, `access`, `actas`) still lands
   (`resolveSub`). A new setting = one `GROUPS` entry (subject, face, scope,
-  keywords) + one `renderGroup` case; the panel stays the component its
-  module owns - never a second copy. Settings holds what defines the shape
+  keywords, and `needs` - who may open it, exactly what its save route
+  demands: the role tier, an Access Group grant, `people` for an /hr route;
+  `mayOpen` is the ONE visibility rule, so never hide a group from inside
+  its panel instead) + one `renderGroup` case; the panel stays the
+  component its module owns - never a second copy. Settings holds what defines the shape
   of a module or a company and is changed rarely by an administrator; a
   module keeps what its managers maintain daily (Tasks > Manage, KB
   collections, Accounting's own tools stay put). Copy says "Settings >

@@ -1933,7 +1933,7 @@ export const DOCS = [
     id: 'settings', name: 'Settings', group: 'System', icon: 'Settings', view: 'admin-console',
     tagline: 'Every setting for the organization or for one company, by subject, who can access what, and the audit trail.',
     where: 'Left menu > Settings',
-    access: 'IT Admin and Global Admin, or anyone given the Settings grant',
+    access: 'IT Admin and Global Admin, or anyone given the Settings grant. Each person sees only the subjects and groups they may change: a manager the ticket desk, task emails, item types, app ratings and unit rules; someone whose People access covers some companies, those companies with one picked in the Scope box.',
     purpose: 'Settings is where admins shape Nexus. One Settings tab, a list of subjects on the left (Companies, Locations, People & Access, Security, Branding & Email, Emails & Reminders, Tickets, Time & Pay, Workforce Analytics, Shifts & Scheduling, Hiring & Onboarding, Items & Equipment, Operations) and a Scope box at the top: Every company shows what applies to all, picking a company shows that company\'s own profile, departments, holiday calendar, locations, job roles, checklists and workforce analytics policy. Every setting is on the page, open - nothing to expand. Tools holds actions rather than settings, such as Act As and the Microsoft 365 sync, and Logs record every change.',
     gains: [
       'Change a setting once for the whole organization, or for just one company.',
