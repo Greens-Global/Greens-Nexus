@@ -3906,7 +3906,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         )}
         {mode !== 'new' && tab === 'checklists' && (
           editingEntity
-            ? <ChecklistSettings entityId={editingEntity.id} entities={entities} onOpenDepartments={() => setTab('departments')} toastOk={toastOk} toastErr={toastErr} />
+            ? <ChecklistSettings entityId={editingEntity.id} entities={entities} onOpenDepartments={() => setTab('departments')} toastOk={toastOk} toastErr={toastErr} embedded={tabs != null} />
             : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
         )}
         {mode !== 'new' && tab === 'roles' && can('administrator') && (
