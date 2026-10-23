@@ -2765,6 +2765,13 @@ html { overflow-x: hidden; }
 .modal-content.acct-entry { resize: both; overflow: auto; min-width: min(720px, 96vw); min-height: 240px; }
 .acct-entry-lines td { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; }
 .acct-entry-lines .acct-grand td { position: static; }
+/* Leasing Income Roll (Viral, 10/22): "Received - N sources" stays pinned at
+   the bottom of the box, above the rows and the pinned property column that
+   scroll under it, and solid in both themes (the dark hover tint is
+   see-through). Its first cell stays on the left, above the month totals
+   sliding under it, so no text draws over another's. */
+.acct-lines.acct-roll tbody tr.acct-grand td { position: sticky; bottom: 0; z-index: 3; background: var(--bg-secondary); }
+.acct-lines.acct-roll tbody tr.acct-grand td.acct-roll-label { left: 0; z-index: 4; }
 /* The statement takes the same banding and whole-row hover. */
 .acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%); }
 .acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td { background: var(--wk-brand-tint, #e8ecfd); }
