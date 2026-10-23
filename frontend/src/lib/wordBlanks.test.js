@@ -154,7 +154,7 @@ describe('applyBlanks', () => {
   });
 
   it('guesses by label', () => {
-    expect(guessFill('Personal Email Address')).toMatchObject({ token: 'email' });
+    expect(guessFill('Personal Email Address')).toMatchObject({ token: 'personal_email' });
     expect(guessFill('Bank Account Number').fill).toBe('ask');
     expect(guessFill('Client(s) Name').fill).toBe('same');
     expect(guessFill('Notary Seal / Stamp').fill).toBe('leave');

@@ -192,7 +192,9 @@ def resolve_merge_data(db: Session, employee_id: str = "", candidate_id: str = "
             data.update({
                 "first_name": c.first_name, "last_name": c.last_name,
                 "full_name": f"{c.first_name} {c.last_name}".strip(),
-                "email": c.email, "phone": c.phone, "job_title": c.role_title,
+                # A candidate's email is their personal one (Oct 23: a "Personal
+                # Email" blank never prints a work email - empty stays unfilled).
+                "email": c.email, "personal_email": c.email, "phone": c.phone, "job_title": c.role_title,
                 "department": c.department, "start_date": c.expected_start,
             })
     if entity_id:
