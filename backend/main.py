@@ -4599,3 +4599,5 @@ from routers import hiring_setup as hiring_setup_router  # noqa: E402
 app.include_router(hiring_setup_router.router)  # Settings > Hiring > Hiring Setup: what each hire gets, per company (Oct 23 2026)
 from routers import task_labels as task_labels_router  # noqa: E402
 app.include_router(task_labels_router.router)      # Tasks: label colors, labels in use, Manage > Labels (Neil, Oct 22 2026)
+from routers import meeting_files as meeting_files_router  # noqa: E402
+app.include_router(meeting_files_router.router)    # Meeting files: Teams transcript/recording of a meeting you were in, whoever recorded it - for Nexus Bots (Visesh, Oct 24 2026)
