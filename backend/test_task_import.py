@@ -407,6 +407,17 @@ class ValueTests(Base):
         warn = " ".join(x for e in r.get("errors", []) for x in e["errors"])
         self.assertEqual(warn, "")
 
+    def test_long_labels_are_cut_with_a_warning_and_a_collision_is_told(self):
+        stem = "Phase two site work for the north parcel and the access road"   # 60 characters
+        self.assertEqual(len(stem), 60)
+        a, b = stem + " east", stem + " west"
+        dry = self.run_import([{"row": 2, "title": "a", "tags": f"{a}, {b}, Short"}], dry=True)
+        warns = dry["rows"][0]["warnings"]
+        self.assertEqual(sum("was cut to 60 characters" in w for w in warns), 2)
+        self.assertTrue(any("are the same once cut" in w and "east" in w and "west" in w for w in warns))
+        self.run_import([{"row": 2, "title": "a", "tags": f"{a}, {b}, Short"}])
+        self.assertEqual(self.by_title()["a"].tags, [stem, "Short"])
+
     def test_select_options_unknown_left_empty_unless_a_manager_adds_them(self):
         f = models.TaskCustomField(id=gen_id(), name="Phase", type="select", project_ids=[self.p.id],
                                    options=[{"id": "o1", "label": "Design"}])

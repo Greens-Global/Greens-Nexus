@@ -2,7 +2,7 @@
 // CreateTaskModal): Title, Description, Project, Assignee, Priority, Status,
 // Due date, Estimated hours, Recurrence, Labels, Subtasks, Attachments - wired
 // to the TasksContext (subtasks + attachments created after the parent).
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Plus, X, Paperclip, ListChecks, CircleCheck, Save, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
@@ -18,6 +18,8 @@ import { dialog } from '../ui/dialog';
 import ProjectPicker from './ProjectPicker';
 import RichDescription from './RichDescription';
 import AnchoredMenu from '../components/AnchoredMenu';
+import LabelsEditor from './LabelsEditor';
+import { labelsInUse } from './labels';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -125,11 +127,12 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     recurEnd: editing?.recurrence?.until ? 'on' : editing?.recurrence?.count ? 'after' : 'never',
     recurUntil: editing?.recurrence?.until ?? '', recurCount: editing?.recurrence?.count != null ? String(editing.recurrence.count) : '',
     followerIds: editing?.followerIds ?? defaults.followerIds ?? [],
-    labels: editing?.tags ?? [],
+    // A label group's inline add hands its label over (Oct 22 2026).
+    labels: editing?.tags ?? defaults.tags ?? [],
     // Quick create's Full Details carries over what it already had.
     customFieldValues: editing?.customFieldValues ?? defaults.customFieldValues ?? {},
   }));
-  const [labelInput, setLabelInput] = useState('');
+  const knownLabels = useMemo(() => labelsInUse(tasks), [tasks]);
   const [subtaskInput, setSubtaskInput] = useState('');
   const [subtasks, setSubtasks] = useState(() => editing ? tasks.filter((t) => t.parentTaskId === editing.id).map((t) => ({ id: t.id, title: t.title })) : []);
   const [attachments, setAttachments] = useState([]);   // new files only (File objects)
@@ -145,7 +148,6 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     || JSON.stringify(subtasks) !== JSON.stringify(initialSubtasks)
     || attachments.length > 0;
 
-  const addLabel = () => { const v = labelInput.trim(); if (v && !form.labels.includes(v)) set('labels', [...form.labels, v]); setLabelInput(''); };
   const addSubtask = () => { const v = subtaskInput.trim(); if (v) setSubtasks((s) => [...s, { title: v }]); setSubtaskInput(''); };
   // Copy the files out NOW, not inside the state updater. Every caller clears
   // the input (`e.target.value = ''`) straight after calling this, and an
@@ -568,13 +570,11 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
 
         <div style={field}>
           <label style={label}>Labels</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-            {form.labels.map((l) => (
-              <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: NX.border2, color: NX.dim, borderRadius: 6, padding: '3px 8px', fontSize: 12, fontWeight: 600 }}>
-                {l}<button onClick={() => set('labels', form.labels.filter((x) => x !== l))} aria-label={`Remove label ${l}`} title="Remove Label" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 0 }}><X size={12} /></button>
-              </span>
-            ))}
-            <input value={labelInput} onChange={(e) => setLabelInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addLabel(); } }} placeholder="Add label + Enter" style={{ ...input, width: 160, padding: '5px 9px', fontSize: 13 }} />
+          {/* The drawer's labels box: suggestions from the labels in use,
+              Enter or comma adds, Backspace removes the last. */}
+          <div style={{ ...input, display: 'flex', alignItems: 'center', minHeight: 36, padding: '4px 9px' }}>
+            <LabelsEditor tags={form.labels} onChange={(next) => set('labels', next)} known={knownLabels}
+              placeholder="Add label + Enter" inputStyle={{ fontSize: 13, width: 160 }} />
           </div>
         </div>
 

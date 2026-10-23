@@ -39,6 +39,7 @@ from typing import Optional, List
 import httpx
 
 import sentdm
+import company_time
 from services.sign_otp import mask_phone
 from database import get_db
 from auth import get_current_user
@@ -4289,8 +4290,10 @@ def _build_template_pdf(req: HrSignRequest, parties: List[HrSignParty]) -> bytes
             if not p:
                 continue
             sig = _sig_flowable(p)
-            t = Table([[sig], [Paragraph(f"{_pesc(p.name)} - signed {_us_date(p.signed_at or '')}"
-                                         f"{(p.signed_at or '')[10:19].replace('T', ' ')} UTC",
+            # Pacific, UTC in brackets (Oct 23 2026, company_time.py); a
+            # document's own copy, so MM/DD/YYYY like every date stamped on it.
+            signed = company_time.pacific_with_utc(p.signed_at, _us_date_slash) or "-"
+            t = Table([[sig], [Paragraph(f"{_pesc(p.name)} - signed {_pesc(signed)}",
                                          cap_style)]], colWidths=[75 * mm])
             t.setStyle(TableStyle([("LINEBELOW", (0, 0), (0, 0), 0.7, colors.black),
                                    ("TOPPADDING", (0, 1), (0, 1), 2),
@@ -4695,6 +4698,10 @@ def _certificate_pdf(snapshot: dict) -> bytes:
 
     env, sysd, integ = snapshot["envelope"], snapshot["system"], snapshot["integrity"]
     signers, docs = snapshot["signers"], snapshot["documents"]
+    # Pacific with the UTC in brackets when the snapshot says so (Oct 23 2026,
+    # company_time.py) - the same switch the HTML certificate reads, so the
+    # two renderings of one envelope always print a time the same way.
+    pacific = snapshot.get("time_style") == company_time.TIME_STYLE
 
     INK, MUTED, LINE, MIST, PINE = (colors.HexColor(c) for c in
                                     ("#111827", "#6b7280", "#e5e7eb", "#f6f7f9", "#166534"))
@@ -4714,7 +4721,18 @@ def _certificate_pdf(snapshot: dict) -> bytes:
         v = (v or "").strip()
         if not v:
             return "-"
+        if pacific:
+            return escape(company_time.pacific_with_utc(v, _us_date)) or "-"
         return escape(_us_date(v) + "  " + v[11:19]) + " UTC"
+
+    def _otp_time(v):          # plain text - certificate_otp_note escapes the whole line
+        if pacific:
+            return company_time.pacific_with_utc(v, _us_date, seconds=False) or "-"
+        return _us_date(v) + ' ' + (v or '')[11:16] + ' UTC'
+
+    _gen = snapshot['generated_at'] or ''
+    _generated = (escape(company_time.pacific_with_utc(_gen, _us_date)) if pacific
+                  else escape(_us_date(_gen) + ' ' + _gen[11:19]) + " UTC")
 
     P, PM, PH = (lambda s: Paragraph(s, cell)), (lambda s: Paragraph(s, cellm)), (lambda s: Paragraph(s, head))
 
@@ -4800,7 +4818,9 @@ def _certificate_pdf(snapshot: dict) -> bytes:
 
     flow.append(Paragraph("2&nbsp;&nbsp;Signers, authentication and consent", h))
     flow.append(Paragraph("Attribution evidence under UETA &sect; 9 and 15 U.S.C. &sect; 7001(c). "
-                          "Times are UTC as recorded by the application clock.", tiny))
+                          + ("Times are Pacific (PDT or PST), with the UTC time recorded by the application "
+                             "clock in brackets." if pacific else
+                             "Times are UTC as recorded by the application clock."), tiny))
     rows = [[PH("Signer"), PH("Authentication"), PH("Consent to transact"),
              PH("Executed"), PH("Signature")]]
     for s in signers:
@@ -4847,7 +4867,7 @@ def _certificate_pdf(snapshot: dict) -> bytes:
         # certificate so the two renderings of one signing cannot disagree.
         auth = escape(s["auth_method"])
         auth += (f"<br/><font color='#6b7280'>"
-                 f"{escape(certificate_otp_note(s, lambda v: _us_date(v) + ' ' + (v or '')[11:16] + ' UTC'))}"
+                 f"{escape(certificate_otp_note(s, _otp_time))}"
                  f"</font>")
         rows.append([P(who), P(auth), P(consent_cell), P(executed), P(sig)])
     t = Table(rows, colWidths=[42 * mm, 42 * mm, 34 * mm, 34 * mm, 30 * mm], repeatRows=1)
@@ -4965,7 +4985,7 @@ def _certificate_pdf(snapshot: dict) -> bytes:
         "shown in any manner, including by the efficacy of the security procedure described here. "
         "An electronic record may not be denied admissibility solely because it is in electronic "
         "form. This certificate is not legal advice and is not itself the agreement between the "
-        f"parties. Generated {escape(_us_date(snapshot['generated_at'] or '') + ' ' + (snapshot['generated_at'] or '')[11:19])} UTC.",
+        f"parties. Generated {_generated}.",
         tiny))
 
     def _page_furniture(canvas, doc):

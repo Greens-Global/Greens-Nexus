@@ -503,6 +503,9 @@ export const api = {
   addTaskAttachmentVersion: (aid, data) => req(`/tasks/attachments/${aid}/versions`, { method: "POST", body: JSON.stringify(data) }),
   deleteTaskAttachmentVersions: (aid) => req(`/tasks/attachments/${aid}/versions`, { method: "DELETE" }),
   addTaskEgnyteLink: (id, data) => req(`/tasks/${id}/egnyte-links`, { method: "POST", body: JSON.stringify(data) }),
+  // Web links (Oct 22 2026): {url, name} - kind "link" rows, never fetched by the server.
+  addTaskLink: (id, data) => req(`/tasks/${id}/links`, { method: "POST", body: JSON.stringify(data) }),
+  updateTaskLink: (aid, data) => req(`/tasks/attachments/${aid}/link`, { method: "PATCH", body: JSON.stringify(data) }),
   ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
   // Field history (Oct 22 2026): {items, more}, newest first. `field` = a core
@@ -516,6 +519,8 @@ export const api = {
   updateTaskChecklistItem: (itemId, data) => req(`/tasks/checklist/${itemId}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskChecklistItem: (itemId) => req(`/tasks/checklist/${itemId}`, { method: "DELETE" }),
   reorderTaskChecklist: (taskId, ids) => req(`/tasks/${taskId}/checklist/order`, { method: "PUT", body: JSON.stringify({ ids }) }),
+  // Convert to Subtask (Oct 22 2026): {subtask, task} - the line is gone, the subtask made.
+  convertTaskChecklistItem: (itemId) => req(`/tasks/checklist/${itemId}/convert`, { method: "POST" }),
   getGlobalTaskActivity: () => req("/tasks/activity"),
   // Due-date negotiation (Sep 24) - the assignee confirms or proposes, the
   // requester answers. Each returns the updated task.
@@ -525,6 +530,14 @@ export const api = {
   withdrawTaskDue: (id) => req(`/tasks/${id}/due/withdraw`, { method: "POST" }),
   // Undo the caller's own just-made due-date move (Oct 22 2026): `at` names its history entry.
   undoTaskDue: (id, at) => req(`/tasks/${id}/due/undo`, { method: "POST", body: JSON.stringify({ at }) }),
+  // My Day (Oct 22 2026, routers/task_my_day.py): the person's own list for
+  // `day` (their local date, tasks/lib.js todayISO). Each answers with the
+  // whole list and its suggestions.
+  getMyDay: (day) => req(`/tasks/my-day?day=${encodeURIComponent(day)}`),
+  // pick=false: only un-dismiss (Undo of a due-today task's removal).
+  addToMyDay: (day, taskId, pick = true) => req("/tasks/my-day/add", { method: "POST", body: JSON.stringify({ day, task_id: taskId, pick }) }),
+  removeFromMyDay: (day, taskId) => req("/tasks/my-day/remove", { method: "POST", body: JSON.stringify({ day, task_id: taskId }) }),
+  reorderMyDay: (day, taskIds) => req("/tasks/my-day/order", { method: "PUT", body: JSON.stringify({ day, task_ids: taskIds }) }),
   // Sections & custom statuses (board columns)
   getTaskSections: () => req("/tasks/meta/sections"),
   createTaskSection: (data) => req("/tasks/meta/sections", { method: "POST", body: JSON.stringify(data) }),
@@ -765,6 +778,9 @@ export const api = {
   getMyChangelogRequests: () => req("/task-changelog/my-requests"),
   raiseChangelogRequest: (data) => req("/task-changelog/requests", { method: "POST", body: JSON.stringify(data) }),
   setChangelogRequestStatus: (id, data) => req(`/task-changelog-admin/requests/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // A request is a Feature Request ticket (Oct 23 2026): its thread is the ticket's.
+  getChangelogRequestComments: (id) => req(`/task-changelog/requests/${encodeURIComponent(id)}/comments`),
+  addChangelogRequestComment: (id, body) => req(`/task-changelog/requests/${encodeURIComponent(id)}/comments`, { method: "POST", body: JSON.stringify({ body }) }),
   raiseChangelogIssue: (id, data) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue`, { method: "POST", body: JSON.stringify(data) }),
   resolveChangelogIssue: (id, data) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue/resolve`, { method: "POST", body: JSON.stringify(data) }),
   clearChangelogIssue: (id) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue`, { method: "DELETE" }),
@@ -2881,6 +2897,18 @@ export const api = {
   // People > Records Audit - missing details and expired documents (hr_record_audit.py)
   getRecordsAudit: () => req('/hr/checklists/records-audit'),
 
+  // Task labels (Oct 22 2026): the company's label colors, for labels on
+  // tasks the caller can open (tasks/labels.js). `all` = Manage's view: the
+  // whole map and every label in use with counts (managers). Changes name
+  // the company only when someone in several companies picks one.
+  getTaskLabels: ({ company = "", all = false } = {}) => req(`/task-labels?${new URLSearchParams({ ...(company ? { company } : {}), ...(all ? { all: "true" } : {}) }).toString()}`),
+  // What a rename / delete would change (rules, row colors, saved views, templates).
+  getTaskLabelImpact: (name, company = "") => req(`/task-labels/impact?${new URLSearchParams({ name, ...(company ? { company } : {}) }).toString()}`),
+  setTaskLabelColor: (name, color, company = "") => req("/task-labels/color", { method: "PUT", body: JSON.stringify({ name, color, company }) }),
+  renameTaskLabel: (name, to, company = "") => req("/task-labels/rename", { method: "POST", body: JSON.stringify({ name, to, company }) }),
+  deleteTaskLabel: (name, company = "") => req("/task-labels/delete", { method: "POST", body: JSON.stringify({ name, company }) }),
+  // The batch bar's Add Label / Remove Label: merged into each task's labels.
+  bulkTaskLabels: (ids, { add = [], remove = [] } = {}) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, tags_add: add, tags_remove: remove }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

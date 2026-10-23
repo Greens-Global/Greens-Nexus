@@ -10,9 +10,10 @@ import {
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma, MoveRight,
-  History, Upload, HardDrive,
+  History, Upload, HardDrive, Image as ImageIcon,
 } from 'lucide-react';
 import MoveTaskModal from './MoveTaskModal';
+import MyDayToggle from './MyDayToggle';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { formulaEngineFor } from './formula';
@@ -32,14 +33,18 @@ import { myProjectIds } from './ProjectPicker';
 import DueBadge from './DueBadge';
 import DueNegotiation from './DueNegotiation';
 import Checklist from './Checklist';
+import { ShowOnCardSelect } from './CardPreview';
+import { IMAGE_MODE, isCoverCandidate } from './boardLayout';
 import CommentThread from './CommentThread';
 import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
 import { openNotificationTarget } from '../lib/openTarget';
 import { useRole } from '../contexts/RoleContext';
 import { dialog } from '../ui/dialog';
-import { VersionChip, VersionsModal, EgnyteLinkRow, EgnyteLinkPicker } from './attachmentParts';
+import { VersionChip, VersionsModal, EgnyteLinkRow, EgnyteLinkPicker, WebLinkRow, WebLinkModal } from './attachmentParts';
 import { currentVersionsOf, isEgnyteLink, canVersion } from './egnyteLinks';
+import { isWebLink } from './webLinks';
+import { shareRules } from './shareRules';
 import { ticketNo } from '../tickets/ticketMeta';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
@@ -51,6 +56,8 @@ import { RecurrenceMenu, RecurrenceEnds, repeatOption, repeatSummary } from './R
 export { CommitNumberInput } from './RecurrenceMenu';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 import { FieldHistoryButton, HistoryChange } from './FieldHistoryPopover';
+import LabelsEditor from './LabelsEditor';
+import { labelsInUse } from './labels';
 import { FieldHistoryContext, useHistoryCtx } from './fieldHistoryContext';
 import { groupFieldChanges, historyFieldName } from './fieldHistory';
 
@@ -439,7 +446,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
       );
       case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment} canPin={canEditProject} />;
       case 'activity':     return <ActivityTab taskId={activeId} nameOf={nameOf} />;
-      case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} canAttach={canComment} canRemoveAny={canEditProject} />;
+      case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} canAttach={canComment} canRemoveAny={canEditProject} onShowOnCard={canEdit ? (v) => patch({ cardPreviewMode: v }) : null} />;
       case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub} onMoveSub={setMoving}
         canAdd={canEditProject} canEditParent={canEdit} canEditTask={canEditTask} />;
       case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} readOnly={!canEdit} />;
@@ -482,6 +489,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
               style={{ ...btn('ghost'), padding: 7, color: shared ? NX.green : NX.dim, cursor: 'default' }}>
               {shared ? <Globe size={16} /> : <Lock size={16} />}
             </span>
+            {/* My Day (Oct 22 2026): the person's own list - any task they can see. */}
+            <MyDayToggle task={task} />
             <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); }} title="Copy Task Link" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><Link2 size={16} /></button>
             {!isMobile && (
               <button onClick={toggleExpand} title={expanded ? 'Collapse' : 'Expand'} style={{ ...btn('ghost'), padding: 7, color: NX.faint }}>
@@ -912,9 +921,12 @@ function MembersMenu({ task, people, nameOf, patch }) {
 }
 
 // ── Share modal ──────────────────────────────────────────────────────────────
-function ShareModal({ task, people, nameOf, patch, onClose }) {
+export function ShareModal({ task, people, nameOf, patch, onClose }) {
   const level = task.accessLevel || 'org';
   const followers = task.followerIds || [];
+  const { tasks = [], taskById = {} } = useTasks();
+  const { underPrivate, openBelow, reopenBelow } = shareRules(task, tasks, taskById);
+  const orgLocked = underPrivate && level !== 'org';
   const [copied, setCopied] = useState(false);
   // A phone gets the full-screen sheet; elsewhere the 60% popup (.nx-popup).
   const isMobile = useIsMobile();
@@ -937,16 +949,38 @@ function ShareModal({ task, people, nameOf, patch, onClose }) {
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Who Has Access</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {OPTS.map((o) => (
-                <button key={o.key} onClick={() => patch({ accessLevel: o.key })} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 12, borderRadius: 10, border: `1px solid ${level === o.key ? NX.blue : NX.border}`, background: level === o.key ? 'rgba(37,99,235,0.10)' : NX.surface, cursor: 'pointer', fontFamily: FONT }}>
-                  <o.icon size={16} style={{ color: NX.dim, marginTop: 2 }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{o.label}</div>
-                    <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{o.desc}</div>
-                  </div>
-                  {level === o.key && <Check size={15} style={{ color: NX.blue }} />}
-                </button>
-              ))}
+              {OPTS.map((o) => {
+                const locked = o.key === 'org' && orgLocked;
+                const warn = o.key === 'restricted' && level === 'org' && openBelow > 0;
+                const reopen = o.key === 'org' && !locked && level !== 'org' && reopenBelow > 0;
+                return (
+                  <button key={o.key} disabled={locked} aria-disabled={locked || undefined}
+                    onClick={() => { if (!locked) patch({ accessLevel: o.key }); }}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 12, borderRadius: 10, border: `1px solid ${level === o.key ? NX.blue : NX.border}`, background: level === o.key ? 'rgba(37,99,235,0.10)' : NX.surface, cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.55 : 1, fontFamily: FONT }}>
+                    <o.icon size={16} style={{ color: NX.dim, marginTop: 2 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{o.label}</div>
+                      <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{o.desc}</div>
+                      {locked && (
+                        <div data-testid="share-org-locked" style={{ fontSize: 12, color: NX.dim, marginTop: 4 }}>
+                          Not available for this subtask while the task it is under is private - share that task first.
+                        </div>
+                      )}
+                      {reopen && (
+                        <div data-testid="share-subtasks-reopen" role="note" style={{ fontSize: 12, color: NX.amber, marginTop: 4 }}>
+                          {reopenBelow === 1 ? 'Its 1 subtask made private with it opens to everyone again.' : `Its ${reopenBelow} subtasks made private with it open to everyone again.`}
+                        </div>
+                      )}
+                      {warn && (
+                        <div data-testid="share-subtasks-warning" role="note" style={{ fontSize: 12, color: NX.amber, marginTop: 4 }}>
+                          {openBelow === 1 ? 'Its 1 subtask that everyone can see becomes private too.' : `Its ${openBelow} subtasks that everyone can see become private too.`}
+                        </div>
+                      )}
+                    </div>
+                    {level === o.key && <Check size={15} style={{ color: NX.blue }} />}
+                  </button>
+                );
+              })}
             </div>
           </div>
           {followers.length > 0 && (
@@ -1300,6 +1334,13 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {/* Which of the project's Custom sections it is filed under. */}
       <TaskSectionRow task={task} patch={patch} />
 
+      {/* Show On Card (Oct 22 2026): what the task's board card shows under
+          its title - Planner's card preview. Editors only. */}
+      <Row label="Show On Card">
+        <ShowOnCardSelect task={task} disabled={readOnly} onChange={(v) => patch({ cardPreviewMode: v })}
+          style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '5px 8px', fontSize: 13 }} />
+      </Row>
+
       {/* The project's custom columns, right here on the task (Oct 13 2026) -
           they used to live only on the Properties tab, which most people
           never opened and phones do not show. */}
@@ -1362,7 +1403,11 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
           Quick steps for this task. Use Subtasks for work that needs its own date or owner.
         </span>
       </>}>
-        <Checklist task={task} people={people} />
+        {/* Read-only roles see the lines (and tick their own); Convert to
+            Subtask takes the Add Subtask right too - never on an HR checklist
+            task, whose subtasks are the checklist's steps (Oct 22 2026). */}
+        <Checklist task={task} people={people} canEdit={!readOnly}
+          canConvert={canEditProject && !task.hrChecklist} onOpenTask={onOpenSub} />
       </Section>
 
       {/* Subtasks (inline) */}
@@ -1400,7 +1445,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
 
       {/* Attachments */}
       <Section title="Attachments">
-        <AttachmentsTab task={task} refresh={refresh} canAttach={canComment} canRemoveAny={canEditProject} />
+        <AttachmentsTab task={task} refresh={refresh} canAttach={canComment} canRemoveAny={canEditProject} onShowOnCard={readOnly ? null : (v) => patch({ cardPreviewMode: v })} />
       </Section>
     </div>
   );
@@ -1867,11 +1912,18 @@ export function ActivityTab({ taskId, nameOf }) {
 // version (a soft "V3" when it has more), with Upload New Version (or drop a
 // file onto it) and a Versions panel; Add From Egnyte links a file or folder
 // in Egnyte instead of uploading a copy. See attachmentParts.jsx.
-function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }) {
+// onShowOnCard (Oct 22 2026): an editor's "Show On Card" on each image file -
+// it becomes the task's board card cover ('' puts the card back on Automatic).
+// Web links (Oct 22 2026): Add Web Link attaches any web page as a link (a new
+// tab, never the in-app viewer, never versioned); the person who added it
+// or an editor edits or removes it.
+function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, onShowOnCard = null }) {
   const { myEmail, nameOf } = useTasks();
   const [rows, setRows] = useState(null);
   const [versionsOf, setVersionsOf] = useState(null);     // the file whose Versions panel is open
   const [egnyteOpen, setEgnyteOpen] = useState(false);
+  // Add Web Link: {} for a new link, the row for Edit Web Link, null when closed.
+  const [linkEdit, setLinkEdit] = useState(null);
   // New versions in flight, by the attachment they replace: {pct, error}.
   const [verUploads, setVerUploads] = useState({});
   const [dropRow, setDropRow] = useState('');
@@ -1979,6 +2031,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
           <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach File</button>
           <button type="button" onClick={() => setEgnyteOpen(true)} style={{ ...btn('outline'), fontSize: 12, marginBottom: 12, marginLeft: 8 }}><HardDrive size={13} /> Add From Egnyte</button>
+          <button type="button" onClick={() => setLinkEdit({})} style={{ ...btn('outline'), fontSize: 12, marginBottom: 12, marginLeft: 8 }}><Link2 size={13} /> Add Web Link</button>
           <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot. Drop a file onto a file to upload a new version.</span>
           <input ref={versionRef} type="file" data-testid="version-input" style={{ display: 'none' }} onChange={onVersionFile} />
         </>
@@ -2019,6 +2072,10 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
                 if (isEgnyteLink(a)) {
                   return <EgnyteLinkRow key={a.id} a={a} onRemove={mayRemove(a) ? () => del(a) : null} />;
                 }
+                if (isWebLink(a)) {
+                  return <WebLinkRow key={a.id} a={a} onEdit={canAttach && mayRemove(a) ? () => setLinkEdit(a) : null}
+                    onRemove={mayRemove(a) ? () => del(a) : null} />;
+                }
                 const href = a.dataUrl || a.url;
                 const thumb = a.kind === 'image' && href
                   ? <img src={href} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
@@ -2058,6 +2115,18 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
                       <button type="button" onClick={() => pickVersion(a)} disabled={!!up && !up.error} title="Upload New Version" aria-label={`Upload new version of ${a.name}`}
                         style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Upload size={13} /></button>
                     )}
+                    {onShowOnCard && isCoverCandidate(a) && (() => {
+                      // Any version of the picked file counts - the card shows its newest.
+                      const onCard = [a.id, a.versionGroup].filter(Boolean).some((id) => task.cardPreviewMode === `${IMAGE_MODE}${id}`);
+                      return (
+                        <button type="button" onClick={() => onShowOnCard(onCard ? '' : `${IMAGE_MODE}${a.id}`)} aria-pressed={onCard}
+                          title={onCard ? 'Shown on the board card - click to go back to Automatic' : 'Show On Card'}
+                          aria-label={onCard ? `Stop showing ${a.name} on the card` : `Show ${a.name} on the card`}
+                          style={{ ...btn('ghost'), padding: '3px 6px', fontSize: 11.5, color: onCard ? NX.blue : NX.dim }}>
+                          <ImageIcon size={13} /> {onCard ? 'On Card' : 'Show On Card'}
+                        </button>
+                      );
+                    })()}
                     {mayRemove(a) && <button onClick={() => del(a)} title="Remove" aria-label={`Remove ${a.name}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>}
                     {up && !up.error && <span style={{ color: NX.faint, fontVariantNumeric: 'tabular-nums' }}>Uploading new version {Math.round(up.pct * 100)}%</span>}
                     {up?.error && (
@@ -2079,6 +2148,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
           canRemoveAny={canRemoveAny} myEmail={myEmail} nameOf={nameOf || ((e) => e)} />
       )}
       {egnyteOpen && <EgnyteLinkPicker taskId={task.id} onClose={() => setEgnyteOpen(false)} onAdded={() => { reload(); refresh?.(); }} />}
+      {linkEdit && <WebLinkModal taskId={task.id} link={linkEdit.id ? linkEdit : null} onClose={() => setLinkEdit(null)} onSaved={() => { reload(); refresh?.(); }} />}
     </>
   );
 }
@@ -2411,6 +2481,9 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
   const activeFields = fieldsForTask(customFields, task);
   const { statusMeta, projects = [], tasks: allTasks = [] } = useTasks();
   const tracksTime = taskTracksTime(task, projects, allTasks);
+  // Labels on the tasks already loaded (all ones this person can open), so a
+  // label made since the page loaded is offered too.
+  const knownLabels = useMemo(() => labelsInUse(allTasks), [allTasks]);
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const rows = [
@@ -2455,7 +2528,7 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
           <span style={{ width: 112, flexShrink: 0, color: NX.faint, paddingTop: 2, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
             Labels <FieldHistoryButton field="tags" label="Labels" />
           </span>
-          <FieldsLock readOnly={readOnly}><LabelsEditor tags={task.tags || []} onChange={(tags) => patch({ tags })} /></FieldsLock>
+          <FieldsLock readOnly={readOnly}><LabelsEditor tags={task.tags || []} onChange={(tags) => patch({ tags })} readOnly={readOnly} known={knownLabels} /></FieldsLock>
         </div>
       </div>
 
@@ -2468,27 +2541,6 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
         </div>
       )}
     </div>
-  );
-}
-
-function LabelsEditor({ tags, onChange }) {
-  const [input, setInput] = useState('');
-  const add = () => {
-    const v = input.trim();
-    if (v && !tags.includes(v)) onChange([...tags, v]);
-    setInput('');
-  };
-  return (
-    <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, flex: 1 }}>
-      {tags.map((t) => (
-        <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: NX.dim, background: NX.border2 }}>
-          {t}
-          <button onClick={() => onChange(tags.filter((x) => x !== t))} aria-label={`Remove label ${t}`} title="Remove Label" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={11} /></button>
-        </span>
-      ))}
-      <input className="nx-inline-edit" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} onBlur={add}
-        placeholder="Add label…" style={{ border: 'none', fontFamily: FONT, fontSize: 12, width: 100, color: NX.ink }} />
-    </span>
   );
 }
 

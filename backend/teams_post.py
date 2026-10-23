@@ -232,6 +232,11 @@ def deliver_ticket_row(db, row) -> bool:
     from models import TicketTeamsMessage
     if not _claim(db, TicketTeamsMessage, row):
         return False
+    if (getattr(row, "kind", "") or "") == "feedback_chat":
+        # A new Feature Request for the Nexus - Feedback and Bugs group chat,
+        # not a DM: feature_requests.deliver picks who posts it.
+        import feature_requests
+        return feature_requests.deliver(db, row)
     try:
         tok = bff_session.graph_token_for_email(db, row.agent_email)
         if not tok:

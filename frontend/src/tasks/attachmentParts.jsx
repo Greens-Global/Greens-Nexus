@@ -1,10 +1,12 @@
 // Task attachments: the Versions panel, Egnyte link rows and the Add From
-// Egnyte picker (Neil, Oct 22 2026). Used by the drawer's AttachmentsTab.
-// The rules live in egnyteLinks.js and on the server (routers/tasks.py):
-// a version is a new file in the same group; an Egnyte link is a link, never
-// a copy, and opens in Egnyte under each viewer's own Egnyte permissions.
+// Egnyte picker, web link rows and Add Web Link (Neil, Oct 22 2026). Used by the
+// drawer's AttachmentsTab. The rules live in egnyteLinks.js / webLinks.js and
+// on the server (routers/tasks.py): a version is a new file in the same
+// group; an Egnyte link is a link, never a copy, and opens in Egnyte under
+// each viewer's own Egnyte permissions; a web link opens the page in a new
+// tab and is never fetched, previewed or versioned.
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Download, ExternalLink, File, Folder, HardDrive, Link2, Search, X } from 'lucide-react';
+import { ArrowLeft, Download, ExternalLink, File, Folder, HardDrive, Link2, Pencil, Search, X } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { toDownloadUrl } from '../lib/storageView';
@@ -15,6 +17,7 @@ import { NX, btn, input as inputStyle } from './theme';
 import { Modal, AttachmentViewer } from './components';
 import { fmtDateTime } from './lib';
 import { egnyteLinkProblem, egnyteLinkInfo, egnyteCrumbs, safeEgnyteHref } from './egnyteLinks';
+import { webLinkProblem, safeLinkHref, linkHost, linkLabel, linkCustomName } from './webLinks';
 
 const ELLIPSIS = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 };
 const SLATE = '#64748b';
@@ -290,6 +293,112 @@ export function EgnyteLinkPicker({ taskId, onClose, onAdded }) {
           </div>
         </div>
       )}
+    </Modal>
+  );
+}
+
+// ── A web link in the Attachments list ───────────────────────────────────────
+// The link icon, the display name (or the address), the website in small
+// type. Opens in a new tab, never the in-app viewer: it is not our file.
+// onEdit / onRemove are given only to the people the server lets change it
+// (the person who added it, or an editor - never a viewer).
+export function WebLinkRow({ a, onEdit, onRemove }) {
+  const href = safeLinkHref(a);
+  const label = linkLabel(a);
+  const host = linkHost(a.url);
+  const text = (
+    <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <span style={{ ...ELLIPSIS, maxWidth: 220, color: href ? NX.ink : NX.faint }}>{label}</span>
+      {host && <span data-testid="link-host" style={{ ...ELLIPSIS, maxWidth: 220, fontSize: 10.5, color: NX.faint }}>{host}</span>}
+    </span>
+  );
+  return (
+    <div data-testid="web-link" style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12, maxWidth: '100%' }}>
+      <Link2 size={14} style={{ color: NX.blue, flexShrink: 0 }} aria-label="Web link" />
+      {href ? (
+        <a href={href} target="_blank" rel="noopener noreferrer" title={`Open ${a.url} in a new tab`}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, color: 'inherit', textDecoration: 'none' }}>
+          {text}
+          <ExternalLink size={12} style={{ color: NX.blue, flexShrink: 0 }} />
+        </a>
+      ) : text}
+      {onEdit && <button type="button" onClick={onEdit} title="Edit Web Link" aria-label={`Edit link ${label}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Pencil size={12} /></button>}
+      {onRemove && <button type="button" onClick={onRemove} title="Remove" aria-label={`Remove ${label}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>}
+    </div>
+  );
+}
+
+// ── Add Web Link / Edit Web Link ─────────────────────────────────────────────────────
+// The address and an optional display name. `link` = the row being edited
+// (absent = a new link on `taskId`). What is wrong with the address is said
+// as it is typed (webLinkProblem); the server has the last word and its
+// answer is shown as it comes.
+export function WebLinkModal({ taskId, link = null, onClose, onSaved }) {
+  const editing = !!link;
+  const [url, setUrl] = useState(link?.url || '');
+  const [name, setName] = useState(linkCustomName(link));
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const problem = url.trim() ? webLinkProblem(url) : '';
+  const changed = !editing || url.trim() !== (link.url || '') || name.trim() !== linkCustomName(link);
+  const canSave = !busy && !!url.trim() && !problem && changed;
+  const save = async (e) => {
+    e?.preventDefault();
+    const why = webLinkProblem(url);
+    if (why) { setError(why); return; }
+    setBusy(true); setError('');
+    try {
+      const body = { url: url.trim(), name: name.trim() };
+      const saved = editing ? await api.updateTaskLink(link.id, body) : await api.addTaskLink(taskId, body);
+      onSaved?.(saved);
+      onClose();
+    } catch (err) {
+      setError(err?.message || 'Could not save the link.');
+    } finally { setBusy(false); }
+  };
+  const previewHost = !problem && url.trim() ? linkHost(/^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`) : '';
+  const footer = (
+    <>
+      <button type="button" onClick={onClose} style={btn('outline')}>Cancel</button>
+      <button type="submit" form="nx-web-link-form" disabled={!canSave}
+        style={{ ...btn('primary'), opacity: canSave ? 1 : 0.6 }}>
+        <Link2 size={13} /> {editing ? 'Save Link' : 'Add Web Link'}
+      </button>
+    </>
+  );
+  return (
+    <Modal title={editing ? 'Edit Web Link' : 'Add Web Link'} onClose={onClose} footer={footer} isDirty={changed && !!url.trim()} onSave={save}>
+      <form id="nx-web-link-form" onSubmit={save} className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ fontSize: 12.5, color: NX.dim }}>
+          Links a web page to this task - a SharePoint or OneDrive file, a vendor portal, a listing. It opens in a new tab; nothing is copied into Nexus.
+        </div>
+        {error && <div role="alert" style={{ fontSize: 12.5, color: NX.red }}>{error}</div>}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, fontWeight: 600, color: NX.ink }}>
+          Web Address
+          <input aria-label="Web address" autoFocus value={url} onChange={(e) => { setUrl(e.target.value); setError(''); }}
+            placeholder="https://..." inputMode="url" autoComplete="off" spellCheck={false}
+            style={{ ...inputStyle, fontSize: 13, fontWeight: 400 }} />
+        </label>
+        {problem && <div data-testid="link-problem" style={{ fontSize: 12, color: NX.red, marginTop: -6 }}>{problem}</div>}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, fontWeight: 600, color: NX.ink }}>
+          Display Name
+          <input aria-label="Display name" value={name} onChange={(e) => setName(e.target.value)} maxLength={250}
+            placeholder="Optional - the address shows when this is blank"
+            style={{ ...inputStyle, fontSize: 13, fontWeight: 400 }} />
+        </label>
+        {previewHost && (
+          <div data-testid="link-preview" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+            <span style={{ fontSize: 11.5, color: NX.faint }}>How it shows on the task</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12, maxWidth: '100%', alignSelf: 'flex-start' }}>
+              <Link2 size={14} style={{ color: NX.blue, flexShrink: 0 }} />
+              <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ ...ELLIPSIS, maxWidth: 260, color: NX.ink }}>{name.trim() || url.trim()}</span>
+                <span style={{ ...ELLIPSIS, maxWidth: 260, fontSize: 10.5, color: NX.faint }}>{previewHost}</span>
+              </span>
+            </div>
+          </div>
+        )}
+      </form>
     </Modal>
   );
 }

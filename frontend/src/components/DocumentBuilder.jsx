@@ -33,6 +33,7 @@ import TemplateFieldsPanel from './TemplateFieldsPanel';
 import VariableLibrary from './VariableLibrary';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
+import { formatPacificDateTime } from '../lib/datetime';
 
 const FONT_GROUPS = {
   'Sans-serif': ['Inter', 'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Roboto', 'Open Sans', 'Lato', 'Montserrat'],
@@ -2830,7 +2831,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                 <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px', borderBottom: '1px solid var(--line)' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12.5, fontWeight: 700 }}>Version {v.versionNo}{i === 0 && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, color: 'hsl(var(--color-green))' }}>CURRENT</span>}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{v.editedBy} · {(v.editedAt || '').slice(0, 16).replace('T', ' ')}{v.note ? ` · ${v.note}` : ''}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{v.editedBy} · {formatPacificDateTime(v.editedAt, '-')}{v.note ? ` · ${v.note}` : ''}</div>
                   </div>
                   {i !== 0 && (
                     <button onClick={() => restoreVersion(v)} disabled={!!restoringId}

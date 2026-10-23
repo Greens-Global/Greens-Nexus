@@ -15,11 +15,13 @@ import {
 } from 'lucide-react';
 import AnchoredMenu from '../../components/AnchoredMenu';
 import MoveTaskModal from '../MoveTaskModal';
+import { MyDayMenuItem } from '../MyDayToggle';
 import { useCanEditTask } from '../canEditTask';
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees, requiredFieldsFor, projectTracksTime, taskTracksTime, todayISO, withTaskFields } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey, isMissed, MISSED_TITLE } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
+import { LabelPill, LabelStrip, labelKey, mergeLabels, useLabelColors } from '../labels';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar, localTodayISO, useIsMobile } from '../components';
 import { FormulaValue, FormulaFieldModal } from '../FormulaColumn';
 import { formulaEngineFor, fieldNameProblem } from '../formula';
@@ -379,6 +381,9 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
               <ListChecks size={12} />{t.checklistDone || 0}/{t.checklistTotal}
             </span>
           )}
+          {/* Labels (Oct 22 2026): the first two as pills, "+N" for the rest,
+              every name in the tooltip. */}
+          <LabelStrip tags={t.tags} max={2} />
           {/* A subtask only appears as its own row in a person-scoped list (My
               Tasks mode / assignee filter). Say whose subtask it is, and let the
               parent open on click - otherwise it reads as a stray task. */}
@@ -394,7 +399,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
               that opened the drawer/file-picker regardless of whether the
               task had anything to show. */}
           <TaskCountBadges t={t} store={store} />
-          {onMove && <RowMenu t={t} onOpen={onOpen} onMove={onMove} />}
+          <RowMenu t={t} onOpen={onOpen} onMove={onMove} />
         </div>
         ),
         // assignee - monday Person cell: avatar + follower stack, spread to
@@ -1083,6 +1088,7 @@ function AddTaskInline({ store, defaults, lockedProjectId, onFullCreate }) {
       projectId,
       teamId: defaults.teamId || soleTeamId(store, projectId),
       dueOn: defaults.dueOn || '', assigneeIds: defaults.assigneeIds || (defaults.assigneeId ? [defaults.assigneeId] : []),
+      ...(defaults.tags?.length ? { tags: defaults.tags } : {}),
     };
     // A project with required custom fields (Oct 13 2026) cannot take a
     // title-only task - the server refuses it - so the full Create form
@@ -1277,11 +1283,29 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
 
   // Drag a row onto another group to move it there (status/priority/project/…).
   const [dragId, setDragId] = useState(null);
+  const [dragFrom, setDragFrom] = useState(null);   // the group the dragged row was picked up in
   const [dropKey, setDropKey] = useState(null);
-  const dropPatch = (key) => {
+  const dropPatch = (key, g = null) => {
     // Creating inside an assignee group assigns to that one person.
     if (effGroup === 'assignee') return { assigneeIds: key === '-' ? [] : [key] };
     if (effGroup === 'section') return customSections ? { section: key } : null;
+    // A label MOVE (Oct 22 2026), as between a board's label lanes: the
+    // label of the group the row was picked up in comes off, the label of
+    // the group it lands in goes on - any other labels stay. Into No Label
+    // takes just the one off; out of it, adds one. Within its own group a
+    // drag only reorders.
+    if (effGroup === 'label') {
+      const t = draggedTask(dragId);
+      if (!t || !dragFrom || key === dragFrom) return null;
+      // The label the row came from, as the task spells it; the one it lands
+      // in, as its group shows it ('-' is No Label: neither).
+      const fromKey = dragFrom.startsWith('label:') ? dragFrom.slice(6) : '';
+      const from = (t.tags || []).find((x) => fromKey && labelKey(x) === fromKey) || '';
+      const to = g?.labelName || '';
+      const next = mergeLabels(t.tags, to ? [to] : [], from ? [from] : []);
+      const same = next.map(labelKey).join('\n') === mergeLabels(t.tags).map(labelKey).join('\n');
+      return same ? null : { tags: next };
+    }
     const d = groupAddDefaults(effGroup, key);
     return Object.keys(d).length ? d : null;
   };
@@ -1295,25 +1319,27 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   // hovered target row + which half of it the cursor is over.
   const manualSort = (sort?.key || 'manual') === 'manual';
   const [dropRow, setDropRow] = useState(null);
-  const rowDragOver = (t) => (e) => {
+  // Keyed by group too: a task listed under two labels (or two assignees) is
+  // two rows, and only the one under the cursor shows the drop line.
+  const rowDragOver = (g, t) => (e) => {
     if (!dragId || dragId === t.id) return;
     e.preventDefault(); e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
     const rect = e.currentTarget.getBoundingClientRect();
     const edge = (e.clientY - rect.top) < rect.height / 2 ? 'above' : 'below';
-    setDropRow((r) => (r && r.taskId === t.id && r.edge === edge ? r : { taskId: t.id, edge }));
+    setDropRow((r) => (r && r.taskId === t.id && r.groupKey === g.key && r.edge === edge ? r : { taskId: t.id, groupKey: g.key, edge }));
   };
-  const rowDragLeave = (t) => (e) => {
+  const rowDragLeave = (g, t) => (e) => {
     if (e.currentTarget.contains(e.relatedTarget)) return;
     e.stopPropagation();
-    setDropRow((r) => (r?.taskId === t.id ? null : r));
+    setDropRow((r) => (r?.taskId === t.id && r.groupKey === g.key ? null : r));
   };
   const rowDrop = (g, t) => (e) => {
     if (!dragId || dragId === t.id) return;
     e.preventDefault(); e.stopPropagation();
     const list = g.tasks.filter((x) => x.id !== dragId);
     const idx = list.findIndex((x) => x.id === t.id);
-    const edge = dropRow?.taskId === t.id ? dropRow.edge : 'below';
+    const edge = dropRow?.taskId === t.id && dropRow.groupKey === g.key ? dropRow.edge : 'below';
     const before = edge === 'above' ? list[idx - 1] : list[idx];
     const after = edge === 'above' ? list[idx] : list[idx + 1];
     const beforePos = before ? (before.position ?? 0) : null;
@@ -1326,9 +1352,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     // Dropping into a DIFFERENT group also re-homes the task onto that group's
     // value (same rule the group-header drop already applies), so a manual
     // drag can move and reorder in one gesture.
-    const groupPatch = dropPatch(g.key);
+    const groupPatch = dropPatch(g.key, g);
     store.updateTask(dragId, withTaskFields(draggedTask(dragId), { ...(groupPatch || {}), position: newPos })).catch(() => {});
-    setDragId(null); setDropKey(null); setDropRow(null);
+    setDragId(null); setDragFrom(null); setDropKey(null); setDropRow(null);
   };
 
   // Widths/resize come from the shared column kit (tableCols.jsx) - the same
@@ -1363,12 +1389,13 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   // purpose: a task carries its status id wherever it is rendered (My Tasks,
   // search, a portfolio rollup) and a missed meta lookup would draw a raw uuid.
   const scopedStatusOrder = store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder;
+  const { map: labelMap } = useLabelColors();
   const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: scopedStatusOrder, customFields: allCustomFields,
-    sections: customSections?.sections, sectionOf: customSections?.sectionOf };
+    sections: customSections?.sections, sectionOf: customSections?.sectionOf, labelMap };
   // Empty groups are dropped - except a Custom section, which someone made on
   // purpose and has to stay on screen to have tasks dragged into it.
   const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0 || g.section),
-    [visible, effGroup, ctx, store.statusMeta, scopedStatusOrder, customSections?.sections, customSections?.sectionOf]);
+    [visible, effGroup, ctx, store.statusMeta, scopedStatusOrder, customSections?.sections, customSections?.sectionOf, labelMap]);
   // Incremental rendering. Every task used to mount a full row on first paint -
   // ~80 DOM nodes each, so the real workspace (2,400 tasks) built ~190k nodes
   // synchronously and the tab went "page isn't responding". Rows are handed out
@@ -1397,7 +1424,10 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     io.observe(el);
     return () => io.disconnect();
   }, [renderBudget, totalRows]);
-  const visibleIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
+  // Once each, in the order first shown: grouped by label (or assignee) a task
+  // is listed under several groups, and a range or arrow step must not count
+  // it twice.
+  const visibleIds = [...new Set(groups.flatMap((g) => g.tasks.map((t) => t.id)))];
   // Where a range is measured from, and the end that last moved. Kept here
   // rather than with the selection itself because they are meaningless without
   // the row ORDER, and the order is this component's business - it is what
@@ -1663,23 +1693,25 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
               ))}
             </div>
           );
-          const isDropTarget = dragId && dropKey === g.key && dropPatch(g.key);
+          const isDropTarget = dragId && dropKey === g.key && dropPatch(g.key, g);
           return (
             <div key={g.key} style={{ marginTop: 22 }}
-              onDragOver={(e) => { if (dragId && dropPatch(g.key)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropKey !== g.key) setDropKey(g.key); } }}
+              onDragOver={(e) => { if (dragId && dropPatch(g.key, g)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropKey !== g.key) setDropKey(g.key); } }}
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropKey((k) => (k === g.key ? null : k)); }}
               onDrop={(e) => {
                 e.preventDefault();
-                const patch = dropPatch(g.key);
+                const patch = dropPatch(g.key, g);
                 if (dragId && patch?.section !== undefined) customSections.move([dragId], patch.section).catch(() => {});
                 else if (dragId && patch) store.updateTask(dragId, withTaskFields(draggedTask(dragId), patch)).catch(() => {});
-                setDragId(null); setDropKey(null);
+                setDragId(null); setDragFrom(null); setDropKey(null);
               }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
                 <ChevronDown size={17} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: gc, flexShrink: 0 }} />
-                <span style={{ fontSize: 16, fontWeight: 700, color: NX.ink, letterSpacing: -0.2 }}>{g.label}</span>
+                {g.labelName
+                  ? <LabelPill name={g.labelName} style={{ fontSize: 13.5, lineHeight: '20px', padding: '1px 10px' }} />
+                  : <span style={{ fontSize: 16, fontWeight: 700, color: NX.ink, letterSpacing: -0.2 }}>{g.label}</span>}
                 <span style={{ fontSize: 12.5, color: NX.faint, fontWeight: 500, marginLeft: 4 }}>{total} item{total !== 1 ? 's' : ''}</span>
                 {/* collapsed: the status mix stays visible on the header line */}
                 {isCol && total > 0 && <span style={{ display: 'inline-flex', width: 130, marginLeft: 10 }}>{statusBar(12)}</span>}
@@ -1696,14 +1728,14 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                   {g.tasks.slice(0, groupBudgets[gi] ?? g.tasks.length).map((t, ri) => (
                     <TaskRow key={t.id} t={t} band={ri % 2 === 1} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onPick={pickRow} onOpen={onOpen}
                       onMove={store.moveTask && !t.hrChecklist && canEditTask(t) ? setMoving : null}
-                      personWidth={personWidth} groupColor={gc} projectOptions={projectOptions} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); setDropRow(null); }}
-                      onRowDragOver={manualSort ? rowDragOver(t) : undefined}
+                      personWidth={personWidth} groupColor={gc} projectOptions={projectOptions} onDragStartRow={(id) => { setDragId(id); setDragFrom(g.key); }} onDragEndRow={() => { setDragId(null); setDragFrom(null); setDropKey(null); setDropRow(null); }}
+                      onRowDragOver={manualSort ? rowDragOver(g, t) : undefined}
                       onRowDrop={manualSort ? rowDrop(g, t) : undefined}
-                      onRowDragLeave={manualSort ? rowDragLeave(t) : undefined}
-                      dropEdge={manualSort && dropRow?.taskId === t.id ? dropRow.edge : null} formula={formula} />
+                      onRowDragLeave={manualSort ? rowDragLeave(g, t) : undefined}
+                      dropEdge={manualSort && dropRow?.taskId === t.id && dropRow.groupKey === g.key ? dropRow.edge : null} formula={formula} />
                   ))}
                   {showTotals && anyTotal && groups.length > 1 && totalsRow(g.tasks, false)}
-                  <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={effGroup === 'section' && customSections?.personal ? {} : groupAddDefaults(effGroup, g.key)} onFullCreate={onFullCreate} />
+                  <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={effGroup === 'section' && customSections?.personal ? {} : groupAddDefaults(effGroup, g.key, g)} onFullCreate={onFullCreate} />
                 </div>
               )}
             </div>
@@ -1740,9 +1772,10 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   );
 }
 
-/** A row's own menu (Oct 22 2026): Open Task and Move To... - the move a
- *  drag cannot make (under another task, or out to the top). Rendered only
- *  for a row the person can edit. */
+/** A row's own menu (Oct 22 2026): Open Task, Add To / Remove From My Day
+ *  (any task you can see - it is your own list), and Move To... - the move a
+ *  drag cannot make (under another task, or out to the top) - only on a row
+ *  the person can edit (`onMove`). */
 function RowMenu({ t, onOpen, onMove }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -1760,9 +1793,12 @@ function RowMenu({ t, onOpen, onMove }) {
         <button type="button" role="menuitem" onClick={() => { setOpen(false); onOpen(t.id); }} style={item}>
           <Maximize2 size={13} style={{ color: NX.faint }} />Open Task
         </button>
-        <button type="button" role="menuitem" onClick={() => { setOpen(false); onMove(t.id); }} style={item}>
-          <MoveRight size={13} style={{ color: NX.faint }} />Move To...
-        </button>
+        <MyDayMenuItem task={t} style={item} onDone={() => setOpen(false)} />
+        {onMove && (
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onMove(t.id); }} style={item}>
+            <MoveRight size={13} style={{ color: NX.faint }} />Move To...
+          </button>
+        )}
       </AnchoredMenu>
     </span>
   );

@@ -17,6 +17,7 @@ vi.mock('../api', () => ({
     getMyChangelogRequests: vi.fn(), raiseChangelogRequest: vi.fn(), setChangelogRequestStatus: vi.fn(),
     raiseChangelogIssue: vi.fn(), resolveChangelogIssue: vi.fn(), clearChangelogIssue: vi.fn(),
     getChangelogTour: vi.fn(), finishChangelogTour: vi.fn(), checkChangelogProduction: vi.fn(),
+    getChangelogRequestComments: vi.fn(), addChangelogRequestComment: vi.fn(),
   },
 }));
 vi.mock('../contexts/RoleContext', () => ({
@@ -124,6 +125,25 @@ describe('Feature requests', () => {
     fireEvent.change(within(dialog).getByLabelText('What would you like?'), { target: { value: 'Bulk edit' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Send Request' }));
     await waitFor(() => expect(api.raiseChangelogRequest).toHaveBeenCalledWith({ note: 'Bulk edit', module: '' }));
+  });
+
+  it('a request is a ticket: its thread reads and writes the ticket comments', async () => {
+    api.getMyChangelogRequests.mockResolvedValue([
+      { id: 'r9', note: 'Bulk edit', status: 'New', at: at(9), ticketId: 'tk9', ticketCode: 'TKT-000009', commentCount: 1 },
+    ]);
+    api.getChangelogRequestComments.mockResolvedValue([
+      { id: 'c1', authorId: 'admin@greensglobal.com', text: 'On our list', createdAt: at(10) },
+    ]);
+    api.addChangelogRequestComment.mockResolvedValue({ id: 'c2' });
+    render(<Changelog />);
+    fireEvent.click(await screen.findByRole('button', { name: /Feature Request/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByRole('button', { name: /TKT-000009/ })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /1 Comment/ }));
+    expect(await within(dialog).findByText('On our list')).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText('Comment on this request'), { target: { value: 'Thanks' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Post comment' }));
+    await waitFor(() => expect(api.addChangelogRequestComment).toHaveBeenCalledWith('r9', 'Thanks'));
   });
 
   it('Manage marks a request shipped in an update', async () => {

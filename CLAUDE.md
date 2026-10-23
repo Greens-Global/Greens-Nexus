@@ -228,6 +228,21 @@ keep the diff minimal.
   with tsc (see the accounting repo's CLAUDE.md), never edit the .js by hand.
   Writes carry the caller's name; each tab shows one section at a time.
 
+- **Feature requests are tickets** (Oct 23 2026, `feature_requests.py`): a
+  request from What's New is filed as a `feature_request` ticket through
+  `tickets.file_ticket`, and every such ticket (whatever door) gets a What's
+  New status card (`changelog_feedback.ticket_id`). The card's comments ARE
+  the ticket thread (`/task-changelog/requests/{id}/comments` ->
+  `post_ticket_comment`) - never store request comments anywhere else. Each
+  new request is posted to the "Nexus - Feedback and Bugs" Teams chat via the
+  ticket Teams queue (`kind='feedback_chat'`), as the requester if they are in
+  the chat, else the assignee, else `NEXUS_FEEDBACK_CHAT_POSTERS`.
+  ONE status story: the request status (What's New Manage) leads and
+  `push_status_to_ticket` moves the ticket (Shipped = Resolved, Declined =
+  Closed, the rest Open / In Progress; no ticket email for it - the What's
+  New bell is the notice); a ticket resolved / closed / reopened by ANY path
+  moves the request via the before_flush hook in `feature_request_sync.py`
+  (wired in `database.py`) - do not add per-route sync calls.
 - Accounting entity access (Neil, Sep 25): the Accounting grant opens the
   screen; WHICH entities a person reads is `nexus_access_scopes` rows with
   module `accounting` (Accounting > Access tab, Full level). No rows = every

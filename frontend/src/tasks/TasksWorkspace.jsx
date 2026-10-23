@@ -2,12 +2,12 @@
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { lazy, Suspense, useMemo, useState } from 'react';
-import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin, Palette, Upload } from 'lucide-react';
+import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin, Palette, Upload } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, projectRoleWithTeams, roleAtLeast, todayISO, withSubtasks, topLevel, taskInProject, importedSubtaskFilter } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, projectRoleWithTeams, roleAtLeast, withSubtasks, topLevel, taskInProject, importedSubtaskFilter } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
-import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, UnassignedAvatar, ExportMenu } from './components';
+import { EmptyState, usePeople, useIsMobile, ProjectAccessButton, ExportMenu } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
 import MobileTaskBar from './MobileTaskBar';
@@ -21,6 +21,7 @@ import { formulaHelpers, customFieldExportColumns } from './formula';
 // that is the only order a hand-arranged sequence can be stored against.
 const WS_DEFAULT_SORT = { key: 'title', dir: 'asc' };
 import { CalendarView, DashboardView } from './views/extras';
+import { dueFilterHidesUndated } from './calendarMove';
 import { TimelineView, FilesView, WorkloadView } from './views/more';
 import { ProductivityBar, MobileFilters } from './productivity';
 import RichListView, { useHiddenCols, ListColumnControls } from './views/richlist';
@@ -29,8 +30,8 @@ import BoardView from './views/board';
 import { SaveTemplateModal, DuplicateProjectModal } from './TemplatesView';
 import BulkActionBar from './BulkActionBar';
 import { useCustomSections } from './customSections';
-import { formatDate } from '../lib/datetime';
 import ProjectIcon from './ProjectIcon';
+import { boardSetup, boardHasSections, boardPrefs, effectiveLanes } from './boardLayout';
 import { RowColorsProvider, useRowColorScope, useRuleContext } from './rowColorState';
 import { RowColorLegend } from './RowColors';
 import ColorRulesEditor from './ColorRulesEditor';
@@ -96,13 +97,38 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     const next = { ...subsPref, [kind]: !subsPref[kind] };
     if (lockedProjectId) rememberInProject({ showSubtasks: next }); else setGlobalSubs(next);
   };
+  // The Board's layout (Oct 22 2026): its swimlanes (the toolbar's Group on
+  // Board - the List keeps its own grouping), its Columns and the Card
+  // Previews switch. Remembered per person - per project inside one, like
+  // the view itself - with a project's default Board in between
+  // (boardLayout.boardPrefs). A stored value the board does not offer here
+  // shows as None / Status and is left as it was.
+  const [globalBoard, setGlobalBoard] = useTableValue('richlist', 'board', {});
+  const myProjectBoard = lockedProjectId ? (projViews || {})[lockedProjectId]?.board : null;
+  const boardPref = lockedProjectId
+    ? boardPrefs(myProjectBoard, lockedProjectForView?.defaultView, globalBoard)
+    : boardPrefs(globalBoard, null, null);
+  const setBoardPref = (patch) => (lockedProjectId
+    ? rememberInProject({ board: { ...(myProjectBoard || {}), ...patch } })
+    : setGlobalBoard({ ...(globalBoard || {}), ...patch }));
+  const sec = useCustomSections(lockedProjectId || '');
+  const board = boardSetup({
+    lanes: boardPref.lanes, columns: boardPref.columns, lockedProjectId: lockedProjectId || '',
+    fields: fieldsForProject(store.customFields || [], lockedProjectId), hasSections: boardHasSections(lockedProjectId, sec),
+  });
+  const onBoard = view === 'board';
   const canSetDefault = !!lockedProjectForView && roleAtLeast(projectRoleOf(lockedProjectForView, myEmail, canManage), 'owner');
-  const isProjectDefault = !!lockedProjectForView?.defaultView && lockedProjectForView.defaultView.view === view
-    && (!lockedProjectForView.defaultView.group || lockedProjectForView.defaultView.group === group);
+  const projDefault = lockedProjectForView?.defaultView;
+  const isProjectDefault = !!projDefault && projDefault.view === view && (onBoard
+    ? effectiveLanes(projDefault.lanes, board.laneOpts) === board.lanes && (projDefault.columns || 'status') === board.columns
+    : (!projDefault.group || projDefault.group === group));
   const [defaultSaving, setDefaultSaving] = useState(false);
   const makeDefault = async () => {
     setDefaultSaving(true);
-    try { await store.updateProject(lockedProjectId, { defaultView: { view, group } }); } catch { /* the toolbar shows the old state */ } finally { setDefaultSaving(false); }
+    // A default Board also has its swimlanes and columns; `group` stays the
+    // List's grouping, as it always was.
+    const dv = onBoard ? { view, group, lanes: board.lanes, columns: board.columns } : { view, group };
+    try { await store.updateProject(lockedProjectId, { defaultView: dv }); } catch { /* the toolbar shows the old state */ } finally { setDefaultSaving(false); }
   };
   const [search, setSearch] = useState(initialSearch || '');
   // Seeded, not forced: header search opens "everything assigned to X" through
@@ -132,9 +158,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [templating, setTemplating] = useState(false);   // Save as Template dialog
   const [duplicating, setDuplicating] = useState(false);  // Duplicate Project dialog
   const [openId, setOpenId] = useState(taskIdFromUrl);
-  // The Custom grouping's sections: this project's own, shared by everyone on
-  // it (customSections.js).
-  const sec = useCustomSections(lockedProjectId || '');
+  // The Custom grouping's sections (sec, above): this project's own, shared
+  // by everyone on it (customSections.js) - the Board's Section columns too.
   const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
   const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
   // Mobile → lightweight quick-add sheet; desktop → the full form. Same context defaults either way.
@@ -192,10 +217,28 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const applyView = (v) => {
     if (v.filters) setFilters({ ...EMPTY_FILTER, ...v.filters });
     if (v.sort) setSort(v.sort);
-    if (v.group) setGroup(v.group);
-    // setView, not switchView: a saved view carries its own filters and must
-    // not have them wiped by the tab change it asks for.
-    if (v.view) setView(v.view);
+    // A Board view's `group` is its swimlanes (and it may carry its columns);
+    // any other view's is the List's grouping. setView, not switchView: a
+    // saved view carries its own filters and must not have them wiped by the
+    // tab change it asks for. Inside a project it is ONE write - two would
+    // each start from the same stored copy, and the second would drop the
+    // first.
+    const toBoard = (v.view || view) === 'board';
+    const boardPatch = toBoard ? {
+      ...(v.group ? { lanes: v.group } : {}),
+      ...(v.boardColumns ? { columns: v.boardColumns } : {}),
+    } : null;
+    if (lockedProjectId) {
+      rememberInProject({
+        ...(v.view ? { view: v.view } : {}),
+        ...(!toBoard && v.group ? { group: v.group } : {}),
+        ...(boardPatch && Object.keys(boardPatch).length ? { board: { ...(myProjectBoard || {}), ...boardPatch } } : {}),
+      });
+      return;
+    }
+    if (boardPatch && Object.keys(boardPatch).length) setGlobalBoard({ ...(globalBoard || {}), ...boardPatch });
+    if (!toBoard && v.group) setGlobalGroup(v.group);
+    if (v.view) setGlobalView(v.view);
   };
 
   // Switching tabs starts clean. A filter set in List used to follow you into
@@ -255,6 +298,19 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     ...GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g === 'section' ? 'Custom' : g[0].toUpperCase() + g.slice(1) })),
     ...groupableFields.map((f) => ({ key: cfKey(f.id), label: f.name })),
   ];
+  // Group by Label (Oct 22 2026) on the List: a task with two labels is
+  // listed under each. On Board, labels are swimlanes (board.laneOpts).
+  const listGroupOptions = groupOptions.flatMap((o) => (o.key === 'none' ? [{ key: 'label', label: 'Label' }, o] : [o]));
+  // The toolbar's Group is the List's grouping on List and the swimlanes on
+  // Board (Oct 22 2026 - on Board it used to change nothing), where Columns
+  // joins it. Saved views record whichever the view in front of you uses.
+  const menuGroup = onBoard ? board.lanes : group;
+  const menuSetGroup = onBoard ? (k) => setBoardPref({ lanes: k }) : setGroup;
+  const menuGroupOptions = onBoard ? board.laneOpts : view === 'list' ? listGroupOptions : null;
+  const columnsMenu = onBoard
+    ? { columnOptions: board.columnOpts, columns: board.columns, setColumns: (k) => setBoardPref({ columns: k }) }
+    : {};
+  const currentView = onBoard ? { view, group: board.lanes, boardColumns: board.columns } : { view, group };
   const sortFieldOptions = activeFields
     .filter((f) => ['select', 'number', 'date', 'text', 'checkbox', 'formula'].includes(f.type))
     .map((f) => ({ key: cfKey(f.id), label: f.name }));
@@ -355,10 +411,10 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           </div>
           <ProductivityBar
             filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
-            lockedProjectId={lockedProjectId} current={{ view, group }} onApplyView={applyView} onOpenTask={setOpenId}
-            group={group} setGroup={setGroup}
+            lockedProjectId={lockedProjectId} current={currentView} onApplyView={applyView} onOpenTask={setOpenId}
+            group={menuGroup} setGroup={menuSetGroup} {...columnsMenu}
             customFields={activeFields} sortFieldOptions={sortFieldOptions}
-            groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
+            groupOptions={menuGroupOptions}
           />
           {/* Column controls belong to the List view only - they'd have nothing
               to act on in Board/Calendar/Timeline. */}
@@ -430,10 +486,11 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         ) : (view === 'board' ? boardTasks : view === 'timeline' ? timelineTasks : visible).length === 0 ? (
           <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (
-          <BoardView visible={boardTasks} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate}
-            showSubtasks={showBoardSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('board')} />
+          <BoardView visible={boardTasks} group={board.lanes} columns={board.columns} sections={sec} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate}
+            showSubtasks={showBoardSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('board')}
+            cardPreviews={boardPref.previews !== false} onToggleCardPreviews={() => setBoardPref({ previews: boardPref.previews === false })} />
         ) : view === 'calendar' ? (
-          <CalendarView tasks={visible} store={store} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
+          <CalendarView tasks={visible} store={store} lockedProjectId={lockedProjectId} dueFiltered={dueFilterHidesUndated(filter)} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
         ) : view === 'timeline' ? (
           <TimelineView tasks={timelineTasks} onOpen={setOpenId} nameOf={nameOf} taskById={store.taskById}
             showSubtasks={showTimelineSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('timeline')} />
@@ -495,10 +552,10 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           filterSheet={(onClose) => (
             <MobileFilters
               filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
-              group={group} setGroup={setGroup}
+              group={menuGroup} setGroup={menuSetGroup} {...columnsMenu}
               customFields={activeFields} sortFieldOptions={sortFieldOptions}
-              groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
-              current={{ view, group }} onApplyView={applyView}
+              groupOptions={menuGroupOptions}
+              current={currentView} onApplyView={applyView}
               search={search} setSearch={setSearch}
               lockedProjectId={lockedProjectId}
               rowColors={canEditColors ? () => setColorsOpen(true) : null}
@@ -530,98 +587,6 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             }} />
         </Suspense>
       )}
-    </div>
-  );
-}
-
-function TaskRow({ t, store, selected, toggleSel, onOpen, band = false }) {
-  const { nameOf, toggleComplete, projectName } = store;
-  const overdue = t.dueOn && t.dueOn < todayISO() && !t.completed;
-  const rowBg = selected.has(t.id) ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : NX.surface;
-  return (
-    <div onClick={() => onOpen(t.id)} data-task-row className="nx-row-hover" data-selected={selected.has(t.id) ? 'true' : undefined} style={{
-      display: 'grid', gridTemplateColumns: '26px 26px 1fr auto auto auto', alignItems: 'center', gap: 10,
-      padding: '9px 16px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: rowBg,
-    }}>
-      <input type="checkbox" checked={selected.has(t.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(t.id)} style={{ cursor: 'pointer' }} />
-      <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} title="Toggle Complete" style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>
-        {t.completed ? <CheckCircle2 size={19} /> : <Circle size={19} />}
-      </button>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 500, color: NX.ink, textDecoration: t.completed ? 'line-through' : 'none', opacity: t.completed ? 0.6 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
-        {t.projectId && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{projectName(t.projectId)}</div>}
-      </div>
-      {taskAssignees(t).length ? (
-        <span style={{ display: 'inline-flex' }}>
-          {taskAssignees(t).slice(0, 2).map((a, i) => (
-            <span key={a} style={{ display: 'inline-flex', marginLeft: i ? -8 : 0 }}>
-              <Avatar email={a} name={nameOf(a)} size={24} />
-            </span>
-          ))}
-        </span>
-      ) : <UnassignedAvatar size={24} />}
-      <PriorityChip priority={t.priority} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 600 : 400, minWidth: 74, textAlign: 'right' }}>{t.dueOn || '-'}</span>
-        <StatusChip status={t.status} />
-      </div>
-    </div>
-  );
-}
-
-function ListBody({ groups, store, selected, toggleSel, onOpen }) {
-  return (
-    <div>
-      {groups.map((g) => (
-        <div key={g.key}>
-          {g.label && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px 6px', fontSize: 13, fontWeight: 700, color: NX.dim }}>
-              {g.label} <span style={{ color: NX.faint, fontWeight: 600 }}>{g.tasks.length}</span>
-            </div>
-          )}
-          {g.tasks.map((t, i) => <TaskRow key={t.id} t={t} store={store} selected={selected} toggleSel={toggleSel} onOpen={onOpen} band={i % 2 === 1} />)}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function BoardBody({ visible, group, ctx, store, onOpen }) {
-  // Board always groups into columns; default to status when group is 'none'.
-  const cols = groupTasks(visible, group === 'none' ? 'status' : group, ctx);
-  const { nameOf, toggleComplete, projectName } = store;
-  return (
-    <div style={{ display: 'flex', gap: 14, padding: 16, alignItems: 'flex-start', minHeight: '100%' }}>
-      {cols.map((c) => (
-        <div key={c.key} style={{ width: 288, flexShrink: 0, background: NX.surface, borderRadius: 12, border: `1px solid ${NX.border}` }}>
-          <div style={{ padding: '11px 13px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
-            <span>{c.label || 'Tasks'}</span><span style={{ color: NX.faint }}>{c.tasks.length}</span>
-          </div>
-          <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 9, maxHeight: '68vh', overflowY: 'auto' }}>
-            {c.tasks.map((t) => (
-              <div key={t.id} onClick={() => onOpen(t.id)} data-task-row style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 11, cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} aria-label={t.completed ? 'Mark Incomplete' : 'Mark Complete'} title={t.completed ? 'Mark Incomplete' : 'Mark Complete'} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
-                  <div style={{ fontSize: 13.5, fontWeight: 500, flex: 1, textDecoration: t.completed ? 'line-through' : 'none', opacity: t.completed ? 0.6 : 1 }}>{t.title}</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9, flexWrap: 'wrap' }}>
-                  <PriorityChip priority={t.priority} />
-                  {t.dueOn && <span style={{ fontSize: 11.5, color: NX.dim }}>{formatDate(t.dueOn, t.dueOn)}</span>}
-                  {t.projectId && <span style={{ fontSize: 11.5, color: NX.faint }}>{projectName(t.projectId)}</span>}
-                  <div style={{ marginLeft: 'auto', display: 'flex' }}>
-                    {taskAssignees(t).length ? taskAssignees(t).slice(0, 2).map((a, i) => (
-                      <span key={a} style={{ display: 'inline-flex', marginLeft: i ? -7 : 0 }}>
-                        <Avatar email={a} name={nameOf(a)} size={22} />
-                      </span>
-                    )) : <UnassignedAvatar size={22} />}
-                  </div>
-                </div>
-              </div>
-            ))}
-            {c.tasks.length === 0 && <div style={{ fontSize: 12, color: NX.faint, textAlign: 'center', padding: 14 }}>Empty</div>}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

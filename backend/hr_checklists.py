@@ -1235,7 +1235,8 @@ def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus"
                     old = legacy.get(sub.parent_task_id)
                     if old is not None:
                         old.subtask_ids = [x for x in (old.subtask_ids or []) if x != sub.id]
-                    sub.parent_task_id, sub.modified_at = parent.id, now
+                    # A new parent: no longer private because of the old one.
+                    sub.parent_task_id, sub.narrowed_by, sub.modified_at = parent.id, "", now
             if (sub.due_on or "") != (it.due_date or ""):
                 sub.due_on, sub.modified_at = it.due_date or "", now
             if head and (sub.owner_email or "").lower() != head:

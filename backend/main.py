@@ -1292,6 +1292,16 @@ def _run_migrations():
             "ALTER TABLE hr_packet_settings ADD COLUMN archived_at VARCHAR DEFAULT ''",
             "ALTER TABLE hr_packet_settings ADD COLUMN archived_by VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN duty_versions JSON DEFAULT '[]'",
+            # Board card previews + a saved Board view's columns (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN card_preview VARCHAR DEFAULT ''",
+            "ALTER TABLE task_saved_views ADD COLUMN board_columns VARCHAR DEFAULT ''",
+            # My Day (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE task_table_prefs ADD COLUMN my_day JSON",
+            # A subtask made private with its parent (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN narrowed_by VARCHAR DEFAULT ''",
+            # Feature requests are tickets (Oct 23 2026) - see the Postgres list.
+            "ALTER TABLE changelog_feedback ADD COLUMN ticket_id VARCHAR DEFAULT ''",
+            "ALTER TABLE ticket_teams_message ADD COLUMN kind VARCHAR DEFAULT 'dm'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2974,6 +2984,26 @@ def _run_migrations():
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS archived_at VARCHAR DEFAULT ''",
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS archived_by VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS duty_versions JSONB DEFAULT '[]'::jsonb",
+        # Board card previews (Oct 22 2026): models.Task.card_preview - what a
+        # board card shows ("" = Automatic). A saved Board view's columns:
+        # models.TaskSavedView.board_columns ("" = Status). Additive only.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS card_preview VARCHAR DEFAULT ''",
+        "ALTER TABLE task_saved_views ADD COLUMN IF NOT EXISTS board_columns VARCHAR DEFAULT ''",
+        # My Day (Oct 22 2026): the person's list for today on their own
+        # task_table_prefs row, models.TaskTablePref.my_day. Additive; NULL =
+        # nothing planned.
+        "ALTER TABLE task_table_prefs ADD COLUMN IF NOT EXISTS my_day JSONB",
+        # A subtask made private with its parent (Oct 22 2026): models.Task.
+        # narrowed_by - the task whose "make private" took it along, so opening
+        # that task again opens it again. "" = its own level. Additive only.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS narrowed_by VARCHAR DEFAULT ''",
+        # Feature requests are tickets (Oct 23 2026, feature_requests.py): a
+        # What's New request links its Feature Request ticket (one thread),
+        # and the ticket Teams queue also carries the post to the Nexus -
+        # Feedback and Bugs chat (kind 'feedback_chat'; 'dm' = the requester
+        # DM it always held). Additive only.
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
+        "ALTER TABLE ticket_teams_message ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'dm'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4421,6 +4451,8 @@ app.include_router(files_router.router)   # Authenticated viewer for the private
 
 from routers import task_prefs             # noqa: E402
 app.include_router(task_prefs.router)     # Per-user column arrangement for the Task module's lists
+from routers import task_my_day            # noqa: E402
+app.include_router(task_my_day.router)    # Tasks > My Day: the person's own list for today (Oct 22 2026)
 
 from routers import user_tours             # noqa: E402
 app.include_router(user_tours.router)     # Per-user guided-tour "seen" state (server-side, follows the person not the browser)
@@ -4565,3 +4597,5 @@ from routers import contractor_invoices as contractor_invoices_router  # noqa: E
 app.include_router(contractor_invoices_router.router)  # Contractor invoices: drafted at Time Sheet finalize, HR approves and sends the PDF (Pranshu + Neil, Oct 21 2026)
 from routers import hiring_setup as hiring_setup_router  # noqa: E402
 app.include_router(hiring_setup_router.router)  # Settings > Hiring > Hiring Setup: what each hire gets, per company (Oct 23 2026)
+from routers import task_labels as task_labels_router  # noqa: E402
+app.include_router(task_labels_router.router)      # Tasks: label colors, labels in use, Manage > Labels (Neil, Oct 22 2026)

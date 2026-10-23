@@ -7,10 +7,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, CheckCircle2, Lightbulb, Paperclip, Download, Upload, X, Trash2, CalendarX, Compass,
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Plus, ArrowRight, ImageIcon,
+  MessageSquare, Send, Ticket as TicketIcon,
 } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, btn, card, chip, input as inputStyle } from './theme';
-import { Modal, useIsMobile } from './components';
+import { Avatar, Modal, useIsMobile } from './components';
+import { setPendingOpen } from '../lib/pendingOpen';
 import { LoadingState } from '../components/AsyncState';
 import { filesFromPaste, storeTaskFile } from './lib';
 import { toDownloadUrl } from '../lib/storageView';
@@ -48,7 +50,8 @@ export function RequestStatusEditor({ row, entries, onSaved, flash }) {
       const r = await api.setChangelogRequestStatus(row.id, { status, note, shippedEntryId: status === 'Shipped' ? shipped : '' });
       onSaved?.(r);
       flash?.(status === 'Shipped' && shipped && !r?.shippedReleased
-        ? 'Saved - the requester hears once that update is released.' : 'Saved - the requester was told.');
+        ? 'Saved - its ticket was updated, and the requester hears once that update is released.'
+        : (row.ticketId ? 'Saved - its ticket was updated and the requester was told.' : 'Saved - the requester was told.'));
     } catch (e) { flash?.(e?.message || 'Could not save the status.', true); } finally { setSaving(false); }
   };
   const options = (entries || []).filter((e) => e.id !== row.entryId);
@@ -70,8 +73,83 @@ export function RequestStatusEditor({ row, entries, onSaved, flash }) {
   );
 }
 
+// A request IS a Feature Request ticket (Oct 23 2026, backend
+// feature_requests.py): its conversation is the ticket's thread, read and
+// written here, so a reply in What's New and one in the ticket drawer are
+// the same reply. Internal desk notes never show here.
+export function openRequestTicket(ticketId) {
+  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'support' } }));
+  setPendingOpen('ticket', ticketId);
+  window.setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } })), 0);
+}
+
+export function RequestThread({ row, nameOf = (e) => e, onBeforeOpen }) {
+  const [open, setOpen] = useState(false);
+  const [comments, setComments] = useState(null);
+  const [count, setCount] = useState(row.commentCount || 0);
+  const [draft, setDraft] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState('');
+  const load = () => api.getChangelogRequestComments(row.id)
+    .then((r) => { setComments(r || []); setCount((r || []).length); })
+    .catch(() => setComments((c) => c || []));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open && row.ticketId) load(); }, [open, row.id]);
+  if (!row.ticketId) return null;
+  const post = async () => {
+    const text = draft.trim();
+    if (!text || posting) return;
+    setPosting(true); setError('');
+    try { await api.addChangelogRequestComment(row.id, text); setDraft(''); await load(); }
+    catch (e) { setError(e?.message || 'Could not post the comment.'); } finally { setPosting(false); }
+  };
+  const ready = draft.trim() && !posting;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
+        <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+          style={{ ...btn('ghost'), padding: 0, fontSize: 12.5, color: NX.dim }}>
+          <MessageSquare size={13} />{count} {count === 1 ? 'Comment' : 'Comments'}{open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+        </button>
+        {row.ticketCode && (
+          <button type="button" onClick={() => { onBeforeOpen?.(); openRequestTicket(row.ticketId); }} title="Open the ticket this request is"
+            style={{ ...btn('ghost'), padding: 0, fontSize: 12.5, color: NX.blue }}>
+            <TicketIcon size={13} />{row.ticketCode}<ArrowRight size={12} />
+          </button>
+        )}
+      </div>
+      {open && (
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {comments === null ? <LoadingState /> : comments.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: NX.dim }}>No comments yet. Replies from the Nexus team show here and on the ticket.</div>
+          ) : comments.map((c) => (
+            <div key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <Avatar email={c.authorId} name={nameOf(c.authorId)} size={22} />
+              <div style={{ minWidth: 0, flex: 1, borderRadius: 8, background: NX.surface2, padding: '6px 10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: NX.ink }}>{nameOf(c.authorId)}</span>
+                  {c.createdAt && <span style={{ fontSize: 11, color: NX.faint }}>{formatDateTime(c.createdAt)}</span>}
+                </div>
+                <div style={{ marginTop: 2, fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap' }}>{c.text}</div>
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={1} aria-label="Comment on this request"
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); post(); } }}
+              placeholder="Write a comment..." style={{ ...inputStyle, display: 'block', flex: 1, minHeight: 38, resize: 'vertical', fontFamily: FONT }} />
+            <button type="button" onClick={post} disabled={!ready} aria-label="Post comment"
+              style={{ ...btn('primary'), width: 38, height: 38, padding: 0, justifyContent: 'center', flexShrink: 0, opacity: ready ? 1 : 0.4 }}><Send size={15} /></button>
+          </div>
+          {error && <div role="alert" style={{ fontSize: 12, color: NX.red }}>{error}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Anyone: what happened to what I asked for, and a box to ask for more.
-export function MyRequestsDialog({ onClose, onOpenEntry }) {
+export function MyRequestsDialog({ onClose, onOpenEntry, nameOf }) {
   const [rows, setRows] = useState(null);
   const [note, setNote] = useState('');
   const [module, setModule] = useState('');
@@ -92,7 +170,7 @@ export function MyRequestsDialog({ onClose, onOpenEntry }) {
     <Modal title="Feature Request" onClose={onClose} isDirty={!!note.trim()}>
       <div style={{ ...card, padding: 14, marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: NX.ink }}><Lightbulb size={14} />Request a Feature</div>
-        <p style={{ margin: '4px 0 10px', fontSize: 12, color: NX.dim }}>Tell the Nexus team what would make your work easier. You will see its status here, and your bell rings when it changes.</p>
+        <p style={{ margin: '4px 0 10px', fontSize: 12, color: NX.dim }}>Tell the Nexus team what would make your work easier. It becomes a Feature Request ticket and is shared with the Nexus team on Teams. You will see its status and replies here, and your bell rings when it changes.</p>
         <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} aria-label="What would you like?"
           placeholder="What would you like Nexus to do?" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
         <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -124,6 +202,7 @@ export function MyRequestsDialog({ onClose, onOpenEntry }) {
                   </button>
                 ) : <div style={{ marginTop: 6, fontSize: 12.5, color: NX.dim }}>Goes out with &quot;{r.shippedTitle}&quot; soon.</div>
               )}
+              <RequestThread row={r} nameOf={nameOf} onBeforeOpen={onClose} />
             </div>
           ))}
         </div>

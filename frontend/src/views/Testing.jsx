@@ -18,7 +18,7 @@ import { popupRedirectUri } from '../authConfig';
 import { toViewUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner } from '../components/AsyncState';
-import { formatDate } from '../lib/datetime';
+import { formatDate, formatPacificDateTime } from '../lib/datetime';
 
 // ── Testing module - interactive QA runs over the audit test cases, bug
 // reports with recorded steps + AI conversion, assignments with due dates.
@@ -1075,7 +1075,7 @@ export default function Testing() {
                 {e.kind === 'result'
                   ? <><ResultPill result={e.result} /><span style={{ flex: 1, minWidth: 0 }}><b>{nameOf(e.by)}</b> ran “{e.case}”{e.run ? ` in ${e.run}` : ''}</span></>
                   : <><UserPlus size={14} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} /><span style={{ flex: 1, minWidth: 0 }}><b>{nameOf(e.by)}</b> assigned {e.count} case{e.count !== 1 ? 's' : ''} to <b>{nameOf(e.assignee)}</b>{e.due ? ` (due ${e.due})` : ''}{e.run ? ` in ${e.run}` : ''}</span></>}
-                <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{(e.at || '').slice(0, 16).replace('T', ' ')}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatPacificDateTime(e.at, '-')}</span>
               </div>
             ))}
           </div>

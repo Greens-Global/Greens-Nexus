@@ -133,6 +133,15 @@ class Task(Base):
     # taken from a payload; the task list reads it to hide Move To, and Move
     # To refuses these (routers/tasks._is_hr_checklist_task).
     hr_checklist      = Column(Boolean, default=False)
+    # What the task's board card shows under its title (Planner's "Show On
+    # Card", Oct 22 2026): "" Automatic, "checklist", "description", "none"
+    # or "image:<attachment id>" - one of this task's own image files. See
+    # task_card_preview.py.
+    card_preview      = Column(String, default="")
+    # The task whose "make private" took this one private with it (Oct 22
+    # 2026, routers/tasks._cascade_level): opening that task again opens this
+    # one again - unless its level was set by hand since, which clears it.
+    narrowed_by       = Column(String, default="")
 
 
 class PurchaseRequest(Base):
@@ -2375,6 +2384,9 @@ class TicketTeamsMessage(Base):
     attempts        = Column(Integer, default=0)
     last_try_at     = Column(String, default="")
     created_at      = Column(String, default="")
+    # 'dm' = the requester DM above; 'feedback_chat' = a new Feature Request
+    # posted to the Nexus - Feedback and Bugs group chat (feature_requests.py).
+    kind            = Column(String, default="dm")
 
 
 class AgentDevice(Base):
@@ -3328,6 +3340,11 @@ class TaskAttachment(Base):
     # is stored in Supabase, and Egnyte applies each viewer's own permissions.
     egnyte_path   = Column(String, default="")   # /Shared/... when known
     egnyte_kind   = Column(String, default="")   # file|folder
+    # Web links (Oct 22 2026): kind "link" is a LINK to any web page - `url`
+    # is its normalized http(s) address (tasks._check_web_link), `name` its
+    # display name (the address itself when none was given). Never stored in
+    # or served from Supabase, never fetched by the server, never versioned.
+    # No column of its own: `kind` says it, as "egnyte" does.
 
 
 class TaskActivity(Base):
@@ -3373,6 +3390,9 @@ class TaskSavedView(Base):
     group       = Column(String, default="none")
     scope       = Column(String, default="task")         # task|ticket - which module the view belongs to
     created_at  = Column(String, default="")
+    # A Board view's columns (Oct 22 2026): status|section|priority|due, ""
+    # = Status. `group` is then the board's swimlanes.
+    board_columns = Column(String, default="")
 
 
 class TaskAutomationRule(Base):
@@ -4819,6 +4839,14 @@ class TaskTablePref(Base):
     prefs       = Column(JSON, default=dict)
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+    # My Day (Oct 22 2026, routers/task_my_day.py): the person's own list for
+    # today - {"day": "YYYY-MM-DD" (their local date), "added": [task ids, in
+    # their order], "dismissed": [due-today task ids they took off]}. Its own
+    # column, not a key in `prefs`: "Restore all" resets prefs, every list
+    # fetches prefs on load, and a prefs save rewrites that whole document -
+    # none of which may touch today's list. A stored day that is not today
+    # reads as empty; nothing ever clears it on a schedule.
+    my_day      = Column(JSON, nullable=True)
 
 
 class UserTourState(Base):
@@ -7090,6 +7118,9 @@ class ChangelogFeedback(Base):
     shipped_entry_id = Column(String, default="")
     notified_status  = Column(String, default="")
     module           = Column(String, default="")
+    # The Feature Request ticket this request IS (Oct 23 2026,
+    # feature_requests.py): its comments are the request's one conversation.
+    ticket_id        = Column(String, default="", index=True)
 
 
 class ChangelogSubscription(Base):

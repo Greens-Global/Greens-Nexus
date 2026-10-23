@@ -33,7 +33,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -166,7 +166,28 @@ def request_dict(r, titles: dict) -> dict:
             "module": r.module or "", "email": r.email, "note": r.note or "", "at": r.created_at or "",
             "status": _status(r), "statusNote": r.status_note or "", "statusBy": r.status_by or "",
             "statusAt": r.status_at or "", "shippedEntryId": r.shipped_entry_id or "",
-            "shippedTitle": shipped[0] if shipped else "", "shippedReleased": bool(shipped and shipped[1])}
+            "shippedTitle": shipped[0] if shipped else "", "shippedReleased": bool(shipped and shipped[1]),
+            "ticketId": getattr(r, "ticket_id", "") or ""}
+
+
+def with_tickets(db: Session, out: list) -> list:
+    """The linked ticket's number, status and public comment count on each
+    request card (feature_requests.py: the ticket is the request)."""
+    ids = [d["ticketId"] for d in out if d.get("ticketId")]
+    if not ids:
+        return out
+    from sqlalchemy import func, or_
+    from ticket_code import ticket_no
+    T, C = models.TaskTicket, models.TaskComment
+    tickets = {t.id: t for t in db.query(T).filter(T.id.in_(ids)).all()}
+    counts = dict(db.query(C.task_id, func.count(C.id))
+                  .filter(C.task_id.in_(ids), or_(C.internal.is_(None), C.internal.is_(False)))
+                  .group_by(C.task_id).all())
+    for d in out:
+        t = tickets.get(d.get("ticketId"))
+        if t is not None:
+            d.update(ticketCode=ticket_no(t.code), ticketStatus=t.status or "", commentCount=int(counts.get(t.id, 0)))
+    return out
 
 
 _REQUEST_WORDS = {
@@ -220,7 +241,7 @@ def my_requests(user: dict = Depends(get_current_user), db: Session = Depends(ge
     F = models.ChangelogFeedback
     rows = db.query(F).filter(F.kind == "request", F.email == email).order_by(F.created_at.desc()).all()
     titles = _titles(db, [r.entry_id for r in rows] + [r.shipped_entry_id for r in rows])
-    return [request_dict(r, titles) for r in rows]
+    return with_tickets(db, [request_dict(r, titles) for r in rows])
 
 
 class NewRequestBody(BaseModel):
@@ -229,17 +250,70 @@ class NewRequestBody(BaseModel):
 
 
 @router.post("/task-changelog/requests", status_code=201)
-def raise_request(body: NewRequestBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """A request of its own, not raised from an update."""
+def raise_request(body: NewRequestBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+                  background_tasks: BackgroundTasks = None):
+    """A request of its own, not raised from an update. It is filed as a
+    Feature Request ticket (feature_requests.py) - the card returned here is
+    that ticket's What's New face."""
+    import feature_requests
     note = (body.note or "").strip()
     if not note:
         raise HTTPException(400, "Say what you would like")
-    r = models.ChangelogFeedback(id=gen_id(), entry_id="", email=(user["email"] or "").lower(), kind="request",
-                                 helpful=1, note=note[:2000], created_at=now_iso(), status="",
-                                 module=(body.module or "").strip()[:80])
-    db.add(r)
-    db.commit()
-    return request_dict(r, {})
+    r = feature_requests.file_from_whats_new(db, user, background_tasks or BackgroundTasks(), note, body.module or "")
+    if r is None:
+        raise HTTPException(500, "The request was filed as a ticket but its card could not be saved.")
+    return with_tickets(db, [request_dict(r, {})])[0]
+
+
+# -- A request's conversation: its ticket's thread --------------------------
+
+def _request_ticket(db: Session, request_id: str, user: dict, lock: bool = False):
+    """The request and its ticket, for the requester or a What's New manager
+    (level 3+, who sets its status). The thread is the ticket's, so a reply
+    here is a reply on the ticket - bells, email and Teams included."""
+    from routers import tickets
+    F = models.ChangelogFeedback
+    r = db.query(F).filter(F.id == request_id, F.kind == "request").first()
+    if r is None:
+        raise HTTPException(404, "Request not found")
+    me = (user.get("email") or "").lower()
+    if r.email != me and int(user.get("level") or 0) < 3:
+        raise HTTPException(403, "This is someone else's request")
+    if not r.ticket_id:
+        raise HTTPException(404, "This request has no ticket - it was raised before requests became tickets.")
+    return r, tickets._conversation_ticket_or_404(db, r.ticket_id, lock=lock)
+
+
+def _comment_dict(c) -> dict:
+    import feature_requests
+    return {"id": c.id, "authorId": (c.author_email or "").lower(),
+            "text": feature_requests.html_to_text(c.body or ""), "createdAt": c.created_at or ""}
+
+
+@router.get("/task-changelog/requests/{request_id}/comments")
+def request_comments(request_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _r, t = _request_ticket(db, request_id, user)
+    C = models.TaskComment
+    rows = db.query(C).filter(C.task_id == t.id).order_by(C.created_at).all()
+    return [_comment_dict(c) for c in rows if not getattr(c, "internal", False)]
+
+
+class RequestCommentBody(BaseModel):
+    body: str
+
+
+@router.post("/task-changelog/requests/{request_id}/comments", status_code=201)
+def add_request_comment(request_id: str, body: RequestCommentBody, user: dict = Depends(get_current_user),
+                        db: Session = Depends(get_db), background_tasks: BackgroundTasks = None):
+    import feature_requests
+    from routers import tickets
+    text = (body.body or "").strip()
+    if not text:
+        raise HTTPException(400, "Write something first")
+    _r, t = _request_ticket(db, request_id, user, lock=True)
+    c = tickets.post_ticket_comment(db, t, user, feature_requests.text_to_html(text[:5000]), False,
+                                    background_tasks or BackgroundTasks())
+    return _comment_dict(c)
 
 
 class RequestStatusBody(BaseModel):
@@ -269,8 +343,10 @@ def set_request_status(request_id: str, body: RequestStatusBody, user: dict = De
         if r.notified_status == body.status:
             r.notified_status = ""          # a new shipped-in update is news again
     notify_request(db, r)
+    import feature_requests          # the ticket follows the request (one status story)
+    feature_requests.push_status_to_ticket(db, r, (user["email"] or "").lower())
     db.commit()
-    return request_dict(r, _titles(db, [r.entry_id, r.shipped_entry_id]))
+    return with_tickets(db, [request_dict(r, _titles(db, [r.entry_id, r.shipped_entry_id]))])[0]
 
 
 # ── Known issues and rollbacks ─────────────────────────────────────────────

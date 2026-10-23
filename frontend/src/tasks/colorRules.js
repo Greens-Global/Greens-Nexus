@@ -24,6 +24,7 @@
 import { NX, PRIORITY_META } from './theme';
 import { addDays, taskAssignees, isBlankValue, todayISO } from './lib';
 import { formatDate } from '../lib/datetime';
+import { labelKey } from './labels';
 
 export const MAX_RULES = 20;
 export const MAX_CONDITIONS = 5;
@@ -346,10 +347,13 @@ export function compileCondition(c, ctx) {
     case 'assignee': return compilePeople(op, value, (t) => lowerList(taskAssignees(t)), ctx.me);
     case 'created_by': return compilePeople(op, value, (t) => lowerList([t.requesterId || t.ownerId]), ctx.me);
     case 'tags': {
-      const want = String(value || '').trim().toLowerCase();
-      if (op === 'is_empty') return (t) => lowerList(t.tags).length === 0;
-      if (op === 'is_not_empty') return (t) => lowerList(t.tags).length > 0;
-      return op === 'contains' ? (t) => lowerList(t.tags).includes(want) : (t) => !lowerList(t.tags).includes(want);
+      // By label key (labels.js): "Q4  Close" and "q4 close" are one label,
+      // as on every other screen and in the automation rules.
+      const want = labelKey(value);
+      const keys = (t) => (Array.isArray(t.tags) ? t.tags : []).map(labelKey).filter(Boolean);
+      if (op === 'is_empty') return (t) => keys(t).length === 0;
+      if (op === 'is_not_empty') return (t) => keys(t).length > 0;
+      return op === 'contains' ? (t) => keys(t).includes(want) : (t) => !keys(t).includes(want);
     }
     case 'section': {
       const sectionOf = sectionResolver(ctx);
