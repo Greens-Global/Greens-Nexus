@@ -1,6 +1,7 @@
 """HR life events API - packet settings per company, the hiring packet send,
 and the event list each person/candidate shows. The engine is
 hr_life_events.py; this file is permissions and shapes only."""
+import json
 import re
 import uuid
 from datetime import datetime, timezone
@@ -128,6 +129,48 @@ def _setting_in_scope(entity_id: str, scope, write: bool) -> None:
         raise HTTPException(404, "Company not found")
 
 
+_NOT_HIRED_KEY = "hr_not_hired:"     # + company id -> ["employee"] / ["contractor"]
+
+
+def _not_hired(db: Session, entity_id: str) -> list:
+    """The kinds of hire a company never makes (GGCon hires contractors only) -
+    What Each Hire Gets stops calling their missing paperwork a gap."""
+    from models import NexusSetting
+    row = db.query(NexusSetting).filter(NexusSetting.key == _NOT_HIRED_KEY + entity_id).first()
+    try:
+        val = json.loads(row.value) if row and row.value else []
+    except ValueError:
+        val = []
+    return [v for v in val if v in ("employee", "contractor")] if isinstance(val, list) else []
+
+
+class NotHiredIn(BaseModel):
+    entity_id: str
+    worker_type: str
+    hired: bool
+
+
+@router.put("/packets/coverage/hired")
+def set_hired(body: NotHiredIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Say a company does (or does not) hire employees / contractors."""
+    from models import NexusSetting
+    if body.worker_type not in ("employee", "contractor"):
+        raise HTTPException(400, "Employee or contractor")
+    scope = hr_scope(user, db)
+    if (scope is not None and body.entity_id not in scope) or not db.query(HrEntity).filter(HrEntity.id == body.entity_id).first():
+        raise HTTPException(404, "Company not found")
+    cur = set(_not_hired(db, body.entity_id))
+    cur.discard(body.worker_type) if body.hired else cur.add(body.worker_type)
+    key = _NOT_HIRED_KEY + body.entity_id
+    row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
+    if row is None:
+        row = NexusSetting(key=key)
+        db.add(row)
+    row.value, row.updated_by, row.updated_at = json.dumps(sorted(cur)), user["email"], _now()
+    db.commit()
+    return {"entityId": body.entity_id, "notHired": sorted(cur)}
+
+
 @router.get("/packets/coverage")
 def packet_coverage(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """What each hire gets, company by company (Neil, Oct 22: "let's see what
@@ -151,9 +194,10 @@ def packet_coverage(user: dict = Depends(require_hr_read), db: Session = Depends
     companies = []
     for e in ents:
         country, region = hle.country_of(db, e.id), hle.region_of(db, e.id)
+        not_hired = _not_hired(db, e.id)
         rows = []
         for wt in ("employee", "contractor"):
-            rows.append({"workerType": wt, **{ev: cell(hle.resolve_setting(
+            rows.append({"workerType": wt, "notHired": wt in not_hired, **{ev: cell(hle.resolve_setting(
                 db, e.id, ev, wt, "", country, documents_only=(ev == "hire"), region=region)) for ev in events}})
         companies.append({"id": e.id, "name": e.name, "country": country, "region": region, "rows": rows})
     unplaced = [{"id": s.id, "name": s.name or "Unnamed", "event": s.event, "entityId": s.entity_id or ""}

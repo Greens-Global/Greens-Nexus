@@ -288,7 +288,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
               )}
             </div>
             {tab === 'overview' && (
-              <PacketCoverage refreshKey={coverKey} companyId={companyId} onSetUp={setUp} onOpen={openPacket} />
+              <PacketCoverage refreshKey={coverKey} companyId={companyId} onSetUp={setUp} onOpen={openPacket} toastErr={toastErr} />
             )}
             {ev?.key === 'hire' && needing.length > 0 && (
               <div role="status" style={{ border: '1px solid rgba(180,83,9,0.35)', background: 'rgba(180,83,9,0.07)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>

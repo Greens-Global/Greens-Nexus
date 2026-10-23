@@ -16,9 +16,18 @@ const EVENTS = [
 const WHO = { employee: 'Employees', contractor: 'Contractors' };
 const COUNTRY_NAMES = { US: 'United States', IN: 'India', CA: 'Canada', GB: 'United Kingdom', AE: 'United Arab Emirates', PH: 'Philippines', MX: 'Mexico', AU: 'Australia' };
 
-export default function PacketCoverage({ refreshKey, companyId, onSetUp, onOpen }) {
+export default function PacketCoverage({ refreshKey, companyId, onSetUp, onOpen, toastErr }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
+  // A company that never hires one kind (GGCon: contractors only) says so once,
+  // and its row stops calling missing paperwork a gap.
+  async function setHired(entityId, workerType, hired) {
+    try {
+      const r = await api.setPacketHired(entityId, workerType, hired);
+      setData(d => ({ ...d, companies: d.companies.map(c => c.id !== entityId ? c
+        : { ...c, rows: c.rows.map(row => ({ ...row, notHired: (r.notHired || []).includes(row.workerType) })) }) }));
+    } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
+  }
   useEffect(() => {
     let alive = true;
     api.getPacketCoverage().then(d => alive && setData(d)).catch(e => alive && setErr(e?.message || 'Could not load.'));
@@ -51,9 +60,19 @@ export default function PacketCoverage({ refreshKey, companyId, onSetUp, onOpen 
                 <MapPin size={12} /> {where || 'No country set - set it in Company Settings so Nexus knows which paperwork applies'}
               </span>
             </div>
-            {c.rows.map(r => (
+            {c.rows.map(r => r.notHired ? (
+              <div key={r.workerType} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '10px 14px', borderTop: '1px solid var(--line)', alignItems: 'center', fontSize: 12.5, color: 'var(--muted)' }}>
+                <span style={{ flex: '0 0 110px', fontWeight: 700 }}>{WHO[r.workerType]}</span>
+                <span style={{ flex: 1 }}>{c.name} does not hire {WHO[r.workerType].toLowerCase()} - nothing to set up.</span>
+                <button type="button" onClick={() => setHired(c.id, r.workerType, true)} style={linkBtn}>Undo</button>
+              </div>
+            ) : (
               <div key={r.workerType} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '10px 14px', borderTop: '1px solid var(--line)', alignItems: 'stretch' }}>
-                <div style={{ flex: '0 0 110px', fontSize: 13, fontWeight: 700, paddingTop: 6 }}>{WHO[r.workerType]}</div>
+                <div style={{ flex: '0 0 110px', fontSize: 13, fontWeight: 700, paddingTop: 6 }}>
+                  {WHO[r.workerType]}
+                  <button type="button" onClick={() => setHired(c.id, r.workerType, false)} title={`${c.name} never hires ${WHO[r.workerType].toLowerCase()}`}
+                    style={{ ...linkBtn, display: 'block', fontSize: 11.5, fontWeight: 500, marginTop: 4, color: 'var(--muted)' }}>Not Hired Here</button>
+                </div>
                 {EVENTS.map(([key, label]) => {
                   const s = r[key];
                   const critical = !s && (key === 'offer' || key === 'hire');
