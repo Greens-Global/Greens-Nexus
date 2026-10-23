@@ -27,6 +27,7 @@ from datetime import datetime, timedelta, timezone, date
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import email_theme
 import models
 from database import SessionLocal
 import graph_mail
@@ -462,6 +463,7 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
             # tasks/projects, and at most one "Updated" email per task per N
             # minutes (task_notify_prefs). Assigned/mentioned always pass.
             p = prefs_mod.load(db, recipient)
+            logo_url = email_theme.logo_for(db, cfg.get("logoUrl") or "", recipient)
             if not prefs_mod.wants_event(p, event_type, t):
                 continue
             if role == "project_follower" and not p.get("followedProjects", True):
@@ -594,9 +596,9 @@ def _due_reminders_once(db: Session, now_utc: datetime | None = None) -> None:
             if sendable[who]:
                 by_person.setdefault(who, []).append(t)
 
-    logo_url = cfg.get("logoUrl") or ""
     for who, items in by_person.items():
         p = prefs_mod.load(db, who)
+        logo_url = email_theme.logo_for(db, cfg.get("logoUrl") or "", who)
         if not prefs_mod.reminders_due_now(p, now_utc):
             continue
         today = prefs_mod.local_now(p, now_utc).date()
@@ -700,7 +702,7 @@ def _recurrence_once(db: Session) -> None:
             if not prefs_mod.wants_event(prefs_mod.load(db, who), "recurring", nxt):
                 continue
             ctx = _task_context(db, nxt, who)
-            subject, html = tmpl.recurring_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+            subject, html = tmpl.recurring_email(t=ctx, base_url=app_url(), logo_url=email_theme.logo_for(db, logo_url, who),
                                                  due_today=(nxt.due_on or "")[:10] == today)
             html = _with_actions(db, html, event_type="recurring", ctx=ctx, recipient=who)
             _send_one(db, task_id=nxt.id, task_code=nxt.code, event_type="recurring",
@@ -1181,7 +1183,7 @@ def _flush_recipient(db: Session, recipient: str, cfg: dict, now: datetime) -> i
         q = kept[0]
         t = tasks[q.task_id]
         ctx = _task_context(db, t, q.actor_email)
-        rendered = _render_event(db, ctx, q.event_type, recipient, q.role, logo_url, q.payload or {},
+        rendered = _render_event(db, ctx, q.event_type, recipient, q.role, email_theme.logo_for(db, logo_url, recipient), q.payload or {},
                                  follow_project=follow["projects"].get(q.id))
         if rendered:
             subject, html = rendered

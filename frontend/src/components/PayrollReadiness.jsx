@@ -165,9 +165,10 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr }) 
 // Oct 23). `company` fixes the company - Settings' scope picker - and hides
 // the select; on its own it offers the default (to whoever may edit it) and
 // every company. The dialog below wraps it for the payroll screen.
-export function ReadinessThresholds({ company: scoped, onSaved, toastOk, toastErr }) {
+export function ReadinessThresholds({ company: scoped, onSaved, onOverride, toastOk, toastErr }) {
   const [company, setCompany] = useState(null);       // null = not loaded yet
   const [meta, setMeta] = useState(null);
+  useEffect(() => { if (meta && scoped) onOverride?.(!!meta.override); }, [meta, scoped, onOverride]);
   const [vals, setVals] = useState({});
   const [busy, setBusy] = useState(false);
   const [loadErr, setLoadErr] = useState('');

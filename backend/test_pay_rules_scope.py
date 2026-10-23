@@ -30,7 +30,7 @@ ADMIN, US_EMP, IN_EMP, LOOSE = ("ada.pr@greensglobal.com", "uma.pr@greensglobal.
 US, IN = "co-us", "co-in"
 
 
-class PayRulesScopeCase(unittest.TestCase):
+class _ScopeHarness(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         assert os.path.abspath(database.engine.url.database or "") == os.path.abspath(_tmp_db.name)
@@ -72,6 +72,8 @@ class PayRulesScopeCase(unittest.TestCase):
         auth.SKIP_AUTH = self._skip
         self.db.close()
 
+
+class PayRulesScopeCase(_ScopeHarness):
     # ── the layering itself ───────────────────────────────────────────────
     def test_a_company_with_no_override_reads_the_tenant_rule(self):
         scoped_settings.save(self.db, timeclock._ROUNDING_KEY, "", {"enabled": True, "nearestMin": 15}, "t")
@@ -152,6 +154,38 @@ class PayRulesScopeCase(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["custom"], ["Jury Duty"])
         self.assertFalse(r.json()["hasOverride"])
+
+
+class EmailLogoChainCase(_ScopeHarness):
+    def test_the_recipient_s_company_logo_wins_then_the_module_s(self):
+        import email_theme
+        ent = self.db.get(models.HrEntity, IN)
+        ent.logo_url = "https://x/india.png"
+        self.db.commit()
+        self.assertEqual(email_theme.logo_for(self.db, "https://x/module.png", IN_EMP), "https://x/india.png")
+        self.assertEqual(email_theme.logo_for(self.db, "https://x/module.png", US_EMP), "https://x/module.png")
+        self.assertEqual(email_theme.logo_for(self.db, "", LOOSE), "")
+        self.assertEqual(email_theme.logo_for(None, "https://x/module.png", IN_EMP), "https://x/module.png")
+
+
+class LeaveCutoverScopeCase(_ScopeHarness):
+    def test_a_company_s_own_start_date_wins(self):
+        import leave_balances as lb
+        lb.set_cutover(self.db, "2026-01-01", "t")
+        lb.set_cutover(self.db, "2026-04-01", "t", IN)
+        self.db.commit()
+        self.assertEqual(lb.cutover(self.db), "2026-01-01")
+        self.assertEqual(lb.cutover(self.db, US), "2026-01-01")
+        self.assertEqual(lb.cutover(self.db, IN), "2026-04-01")
+        self.assertEqual(lb.cutover_for(self.db, IN_EMP), "2026-04-01")
+        self.assertEqual(lb.cutover_for(self.db, LOOSE), "2026-01-01")
+        self.assertEqual(lb.company_cutovers(self.db), {IN: "2026-04-01"})
+        r = self.client.put("/leave-balances/cutover", json={"company": IN, "reset": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(lb.cutover(self.db, IN), "2026-01-01")
+        self.assertEqual([c["own"] for c in r.json()["companies"]], [False, False])
+        r = self.client.put("/leave-balances/cutover", json={"company": "nope", "date": "2026-02-01"})
+        self.assertEqual(r.status_code, 404)
 
 
 if __name__ == "__main__":

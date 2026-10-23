@@ -384,25 +384,30 @@ function groupMatches(g, needle) {
 }
 
 // What a group's scope chip says. `company` is the picked company's name
-// ('' at "Every company").
-function scopeLabel(scope, company) {
-  if (company) return company;
+// ('' at "Every company"); `override` is what a layered panel reported
+// (true: the company has its own; false: inherited; undefined: unknown).
+function scopeLabel(scope, company, override) {
+  if (company) {
+    if (override === true) return 'Overridden';
+    if (override === false) return 'Inherited';
+    return company;
+  }
   if (scope === 'company') return 'Per company';
   if (scope === 'layered') return 'Defaults, per company overrides';
   return 'Every company';
 }
 
-function ScopeChip({ scope, company }) {
-  const own = !!company;
+function ScopeChip({ scope, company, override }) {
+  const own = !!company && override !== false;
   return (
-    <span style={{
+    <span title={company && override === false ? `${company} follows the default for every company` : undefined} style={{
       fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', whiteSpace: 'nowrap',
       padding: '2px 7px', borderRadius: 4, border: '1px solid',
       borderColor: own ? 'hsl(var(--color-orange))' : 'var(--line)',
       color: own ? 'hsl(var(--color-orange))' : 'var(--muted)',
       background: own ? 'hsla(var(--color-orange),0.08)' : 'transparent',
     }}>
-      {scopeLabel(scope, company)}
+      {scopeLabel(scope, company, override)}
     </span>
   );
 }
@@ -411,7 +416,7 @@ function ScopeChip({ scope, company }) {
 // open (Neil, Oct 23: nothing behind a click). `bare` drops the card chrome
 // for a subject's lone group, since the subject heading already names it.
 // `highlight` marks the group a link pointed at (sub '<subject>:<group>').
-function Group({ id, icon: Icon, title, sub, scope, company, bare = false, highlight = false, children }) {
+function Group({ id, icon: Icon, title, sub, scope, company, override, bare = false, highlight = false, children }) {
   const ref = useRef(null);
   useEffect(() => {
     if (highlight) ref.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
@@ -430,7 +435,7 @@ function Group({ id, icon: Icon, title, sub, scope, company, bare = false, highl
           <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</h4>
           {sub && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>}
         </span>
-        <ScopeChip scope={scope} company={company} />
+        <ScopeChip scope={scope} company={company} override={override} />
       </div>
       <div style={{ padding: '0 18px 18px', borderTop: '1px solid var(--line)' }}><div style={{ paddingTop: 16 }}>{children}</div></div>
     </section>
@@ -628,11 +633,14 @@ function HiringSetupSection({ id, Modal, label, chrome, toastOk, toastErr, modal
 
 // ── A lazy panel inside the usual group card (Branding, Shifts, Checklists,
 // Operations...): its chunk loads when the subject is opened.
+// A layered panel reports whether the picked company has a value of its own
+// (`onOverride`), and the group's chip says Overridden / Inherited.
 function LazyPanelSection({ id, Panel, chrome, toastOk, toastErr, ...rest }) {
+  const [override, setOverride] = useState(undefined);
   return (
-    <Group {...GROUP_META[id]} {...chrome}>
+    <Group {...GROUP_META[id]} {...chrome} override={override}>
       <Suspense fallback={<SectionFallback />}>
-        <Panel toastOk={toastOk} toastErr={toastErr} {...rest} />
+        <Panel toastOk={toastOk} toastErr={toastErr} onOverride={setOverride} {...rest} />
       </Suspense>
     </Group>
   );
@@ -1304,11 +1312,7 @@ function SettingsBody({ subject, group, company, onNavigate, entities, refreshEn
           </Group>
         );
       case 'timeclock-policy':
-        return (
-          <Group key={key} {...g} {...chrome}>
-            <TimeClockPolicyPanel toastOk={toastOk} toastErr={toastErr} company={company} />
-          </Group>
-        );
+        return <PayRulesSection key={key} chrome={chrome} company={company} toastOk={toastOk} toastErr={toastErr} />;
       case 'hiring-documents':     return <HiringSetupSection key={key} id={id} Modal={PacketsModal} label="Open Hiring Documents" chrome={chrome} toastOk={toastOk} toastErr={toastErr} modalProps={company ? { companyId: company, lockCompany: true } : undefined} />;
       case 'payroll-export-codes': return <LazyPanelSection key={key} id={id} Panel={PayrollExportCodes} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'pay-premiums':         return <LazyPanelSection key={key} id={id} Panel={PayPremiums} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
@@ -1608,8 +1612,10 @@ function PolicyNumber({ label, value, onChange, min = 0, max = 999, unit = 'min'
 // `company` (Settings' scope picker, Oct 23): that company's own rules over
 // the defaults - each card says whether the company has one of its own and
 // offers the default back; '' edits the defaults for every company.
-function TimeClockPolicyPanel({ toastOk, toastErr, company = '' }) {
+function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   const [cfg, setCfg] = useState(null);     // { rounding, autoLunch, breakPolicy } | null while loading
+  // Any rule of the company's own = the group reads Overridden.
+  useEffect(() => { if (cfg && company) onOverride?.(['rounding', 'autoLunch', 'breakPolicy'].some(k => cfg[k]?.hasOverride)); }, [cfg, company, onOverride]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');     // which card is saving
   const load = useCallback(() => {
@@ -1684,6 +1690,15 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '' }) {
           onClick={() => save('breakPolicy', { enabled: true, paidBreakMin: num(breakPolicy.paidBreakMin, 10), restMaxMin: num(breakPolicy.restMaxMin, 20), longBreakMin: num(breakPolicy.longBreakMin, 75) }, 'CA paid breaks')}>Save</button>
       </PolicyCard>
     </div>
+  );
+}
+
+function PayRulesSection({ chrome, company, toastOk, toastErr }) {
+  const [override, setOverride] = useState(undefined);
+  return (
+    <Group {...GROUP_META['timeclock-policy']} {...chrome} override={override}>
+      <TimeClockPolicyPanel toastOk={toastOk} toastErr={toastErr} company={company} onOverride={setOverride} />
+    </Group>
   );
 }
 

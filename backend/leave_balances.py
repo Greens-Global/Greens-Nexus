@@ -104,9 +104,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def cutover(db: Session) -> str:
-    """The date balances start from ('' = not set up - nothing is shown)."""
-    v = _setting(db, CUTOVER_KEY).strip()[:10]
+def _cutover_key(company_id: str = "") -> str:
+    return f"{CUTOVER_KEY}:{company_id}" if company_id else CUTOVER_KEY
+
+
+def _valid_day(v: str) -> str:
+    v = (v or "").strip()[:10]
     try:
         date.fromisoformat(v)
         return v
@@ -114,9 +117,55 @@ def cutover(db: Session) -> str:
         return ""
 
 
-def set_cutover(db: Session, day: str, by: str) -> None:
+def cutover(db: Session, company_id: str = "") -> str:
+    """The date balances start from ('' = not set up - nothing is shown).
+    Per company since Oct 23 2026: a company's own date wins over the
+    organization's; a company with none follows the organization's."""
+    if company_id:
+        own = _valid_day(_setting(db, _cutover_key(company_id)))
+        if own:
+            return own
+    return _valid_day(_setting(db, CUTOVER_KEY))
+
+
+def cutover_for(db: Session, email: str, emp=None) -> str:
+    """The start date that applies to one person: their company's."""
+    if emp is None:
+        emp = employee(db, email)
+    return cutover(db, (getattr(emp, "company", "") or "") if emp else "")
+
+
+def company_cutovers(db: Session) -> dict:
+    """{company id: its own start date} - only the companies with one."""
+    rows = (db.query(models.NexusSetting)
+            .filter(models.NexusSetting.key.like(f"{CUTOVER_KEY}:%")).all())
+    out = {}
+    for r in rows:
+        co = r.key[len(CUTOVER_KEY) + 1:]
+        d = _valid_day(r.value or "")
+        if co and d:
+            out[co] = d
+    return out
+
+
+def any_cutover(db: Session) -> bool:
+    return bool(cutover(db)) or bool(company_cutovers(db))
+
+
+def set_cutover(db: Session, day: str, by: str, company_id: str = "") -> None:
     date.fromisoformat(day)          # raises on a bad date
-    _put_setting(db, CUTOVER_KEY, day, by)
+    _put_setting(db, _cutover_key(company_id), day, by)
+
+
+def clear_cutover(db: Session, company_id: str) -> bool:
+    """Drop a company's own start date so it follows the organization's."""
+    if not company_id:
+        return False
+    row = db.get(models.NexusSetting, _cutover_key(company_id))
+    if row is None:
+        return False
+    db.delete(row)
+    return True
 
 
 def policies(db: Session) -> dict:
@@ -313,9 +362,9 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
     """{live, cutover, policy, vacation: {...}, sick: {...}} for one person.
     Each bucket: available (hours, may be negative), plus how it was made."""
     email = (email or "").strip().lower()
-    cut = cutover(db)
     if emp is None:
         emp = employee(db, email)
+    cut = cutover_for(db, email, emp)
     pol = policy_for(db, email, emp, pols)
     out = {"live": bool(cut), "cutover": cut,
            "policy": {"id": pol["id"], "name": pol["name"], "unit": pol.get("unit", "hours"),
@@ -450,7 +499,7 @@ def add_entry(db: Session, email: str, bucket: str, hours: float, kind: str, day
 
 def set_opening(db: Session, email: str, vacation: float | None, sick: float | None, by: str) -> list:
     """The one-time import: each given bucket's opening row is replaced."""
-    cut = cutover(db)
+    cut = cutover_for(db, email)
     if not cut:
         raise ValueError("Set the start date first.")
     out = []
@@ -470,11 +519,11 @@ def period_entries(db: Session, email: str, start: str, end: str) -> list[dict]:
     and the sick / vacation hours it paid. Pure read - [] before the cutover."""
     import timesheet_review
     from routers import timeclock
-    cut = cutover(db)
     email = (email or "").strip().lower()
+    emp = employee(db, email)
+    cut = cutover_for(db, email, emp)
     if not cut or end < cut:
         return []
-    emp = employee(db, email)
     pol = policy_for(db, email, emp)
     start_d = _start(emp)
     pay_type = timeclock._pay_type(db, email)

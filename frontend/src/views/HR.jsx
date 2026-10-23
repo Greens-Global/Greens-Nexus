@@ -1460,6 +1460,13 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
 
   return (
     <div>
+      {/* The same access, with everyone else's beside it (Oct 23). */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button type="button" className="secondary-btn" style={{ fontSize: 12 }}
+          onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'access' } }))}>
+          Open in Settings
+        </button>
+      </div>
       <div className="acc-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <div style={_accBox}>
           <div style={_accLabel}>Job role</div>

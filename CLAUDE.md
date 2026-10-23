@@ -329,7 +329,11 @@ keep the diff minimal.
   Shift Settings and Payroll Readiness have the same shape of their own) -
   readers resolve by the EMPLOYEE's company (`_round_min(db, email)`,
   `_break_cfg_for`, `_compute_timecard`), so a company with no override
-  reads the tenant row exactly as before.
+  reads the tenant row exactly as before. The leave start date layers the
+  same way (`leave_balances.cutover(db, company_id)` / `cutover_for`). ONE
+  email logo chain (`email_theme.logo_for`): the recipient's company logo,
+  else the module's own logo setting, else Email Appearance, else the
+  wordmark - a mail with no recipient at hand keeps the theme's.
 
 ## Asana — removed (Sep 2026)
 

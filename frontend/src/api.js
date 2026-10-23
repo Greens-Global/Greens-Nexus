@@ -802,7 +802,8 @@ export const api = {
   leaveMyBalance:      ()           => req('/leave-balances/me'),
   leavePersonBalance:  (email)      => req(`/leave-balances/person/${encodeURIComponent(email)}`),
   leaveAdmin:          ()           => req('/leave-balances/admin'),
-  leaveSetCutover:     (date)       => req('/leave-balances/cutover', { method: 'PUT', body: JSON.stringify({ date }) }),
+  // `company` (Oct 23): that company's own start date; `reset` drops it so it follows the organization's.
+  leaveSetCutover:     (date, company = '', reset = false) => req('/leave-balances/cutover', { method: 'PUT', body: JSON.stringify({ date, company, reset }) }),
   leaveSavePolicies:   (policies)   => req('/leave-balances/policies', { method: 'PUT', body: JSON.stringify({ policies }) }),
   leaveImport:         (body)       => req('/leave-balances/import', { method: 'POST', body: JSON.stringify(body) }),
   leaveAdjust:         (body)       => req('/leave-balances/adjust', { method: 'POST', body: JSON.stringify(body) }),

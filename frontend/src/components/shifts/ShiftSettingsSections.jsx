@@ -146,10 +146,11 @@ const SWITCHES = [
   ['teamShiftDetails', "Staff can see the notes, activities and breaks on teammates' shifts"],
   ['teamTimeOffReasons', 'Staff can see why a teammate is off, and their note'],
 ];
-export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped }) {
+export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverride }) {
   const [company, setCompany] = useSettingsCompany(scoped);
   const locked = scoped !== undefined;
   const [cfg, setCfg] = useState(null);
+  useEffect(() => { if (locked && company && cfg) onOverride?.(!!cfg.hasOverride); }, [locked, company, cfg, onOverride]);
   const [error, setError] = useState(null);
   const [tick, setTick] = useState(0);
   // Sticky across reloads so the picker stays put while a company loads.
@@ -410,10 +411,11 @@ function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes
 // Shift Settings, where a company pick hid it).
 // `company` (Settings' scope picker): that company's own list, over the
 // default for every company; '' edits the default.
-export function TimeOffReasons({ toastOk, toastErr, company = '' }) {
+export function TimeOffReasons({ toastOk, toastErr, company = '', onOverride }) {
   const [list, setList] = useState(null);
   const [draft, setDraft] = useState('');
   const [own, setOwn] = useState(false);   // the company has a list of its own
+  useEffect(() => { if (list && company) onOverride?.(own); }, [list, own, company, onOverride]);
   useEffect(() => {
     let live = true;
     // 'default' = the list for every company (the server otherwise answers with the caller's own company's).

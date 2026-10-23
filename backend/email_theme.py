@@ -192,3 +192,29 @@ def current() -> Theme:
     """What a template should use right now: a preview override if one is
     active, otherwise the saved theme."""
     return _override.get() or get_saved()
+
+
+def company_logo(db, email: str) -> str:
+    """The logo of the company a person belongs to (hr_entities.logo_url),
+    '' for an untagged person or a company with no logo."""
+    if not db or not email:
+        return ""
+    try:
+        from sqlalchemy import func
+        import models
+        row = (db.query(models.HrEntity.logo_url)
+               .join(models.NexusEmployee, models.NexusEmployee.company == models.HrEntity.id)
+               .filter(func.lower(models.NexusEmployee.work_email) == (email or "").strip().lower()).first())
+        return ((row[0] if row else "") or "").strip()
+    except Exception:   # noqa: BLE001 - a logo lookup never fails a send
+        return ""
+
+
+def logo_for(db, module_logo: str, recipient: str) -> str:
+    """ONE logo chain for a person's mail (Oct 23 2026): their company's logo
+    (Settings > Companies), else the module's own "Company logo URL"
+    (Task / Ticket Notifications - kept for the tenants that set one), else
+    this theme's logo, else the wordmark - the last two are Theme.logo_block's
+    own fallback when this returns ''. Mail with no recipient at hand (the
+    shift and role-change notices) keeps the theme's logo."""
+    return company_logo(db, recipient) or (module_logo or "").strip()
