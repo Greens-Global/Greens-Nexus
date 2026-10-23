@@ -406,6 +406,33 @@ class UndoTests(Base):
         self.assertEqual(self.code(lambda: self.undo(t)), 409)
         self.assertEqual(self.fresh(t).due_on, "2026-10-28")
 
+    def test_undo_of_a_clear_puts_the_date_back(self):
+        # The Calendar's Unscheduled pane (Oct 22 2026): a chip dropped on it
+        # loses its due date; Undo brings the date and its agreement back.
+        t = self.task(start_on="2026-10-26", due_on="2026-10-30", created_by=BOSS["email"])
+        hist_before = len(t.due_history or [])
+        t = self.move(t, due_on="")
+        self.assertEqual((t.due_on or "", t.due_history[-1]["to"]), ("", ""))
+        out = self.undo(t)
+        t = self.fresh(t)
+        self.assertEqual((out["dueOn"], t.due_on, t.start_on), ("2026-10-30", "2026-10-30", "2026-10-26"))
+        self.assertEqual(t.due_agreement, "accepted")
+        self.assertEqual(len(t.due_history or []), hist_before)
+        self.assertEqual(self.bells(), 0)
+
+    def test_undo_of_a_first_date_leaves_it_unscheduled_again(self):
+        # A task scheduled from the pane (no date before, its later start
+        # pulled back to the day): Undo takes both back.
+        t = self.task(start_on="2026-11-05", created_by=BOSS["email"])
+        t = self.move(t, due_on="2026-10-30", start_on="2026-10-30")
+        self.assertEqual((t.due_history[-1]["from"], t.due_on), ("", "2026-10-30"))
+        self.assertEqual(t.due_extension_count or 0, 0)
+        self.undo(t)
+        t = self.fresh(t)
+        self.assertEqual((t.due_on or "", t.start_on), ("", "2026-11-05"))
+        self.assertEqual(t.due_history or [], [])
+        self.assertEqual(self.bells(), 0)
+
     def test_a_held_move_has_nothing_to_undo(self):
         t = self.task(due_on="2026-10-30", due_extension_count=2)
         t = self.move(t, due_on="2026-11-02")

@@ -21,6 +21,7 @@ import { formulaHelpers, customFieldExportColumns } from './formula';
 // that is the only order a hand-arranged sequence can be stored against.
 const WS_DEFAULT_SORT = { key: 'title', dir: 'asc' };
 import { CalendarView, DashboardView } from './views/extras';
+import { dueFilterHidesUndated } from './calendarMove';
 import { TimelineView, FilesView, WorkloadView } from './views/more';
 import { ProductivityBar, MobileFilters } from './productivity';
 import RichListView, { useHiddenCols, ListColumnControls } from './views/richlist';
@@ -433,7 +434,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           <BoardView visible={boardTasks} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate}
             showSubtasks={showBoardSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('board')} />
         ) : view === 'calendar' ? (
-          <CalendarView tasks={visible} store={store} lockedProjectId={lockedProjectId} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
+          <CalendarView tasks={visible} store={store} lockedProjectId={lockedProjectId} dueFiltered={dueFilterHidesUndated(filter)} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
         ) : view === 'timeline' ? (
           <TimelineView tasks={timelineTasks} onOpen={setOpenId} nameOf={nameOf} taskById={store.taskById}
             showSubtasks={showTimelineSubs} onToggleSubtasks={flatScope ? null : () => toggleSubtasks('timeline')} />

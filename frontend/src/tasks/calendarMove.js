@@ -11,7 +11,7 @@
 // (schedulePatch), and a dated one dropped on the pane loses its due date
 // (calendarDatePatch with an empty day). The approval hold, the held start
 // date and the Undo are the same for all three.
-import { addDays, fmtDate, roleAtLeast, taskRoleFor } from './lib';
+import { addDays, fmtDate } from './lib';
 
 const day = (iso) => String(iso || '').slice(0, 10);
 
@@ -110,19 +110,21 @@ export function undoEntryAt(saved, patch) {
   return last && last.undo && day(last.to) === day(patch?.dueOn) ? last.at || '' : '';
 }
 
-/** Whether this person may drag `task` on the calendar: an editor on it (the
- *  server's rule, taskRoleFor - unknown keeps the control, the server stays
- *  the authority), and not a completed task. */
-export function canMoveOnCalendar(task, ctx = {}) {
-  return !!task?.dueOn && canScheduleOnCalendar(task, ctx);
+/** A task whose FIRST due date is waiting for approval (Oct 22 2026): it has
+ *  no date yet, and the one asked for sits in dueProposal until the
+ *  requester or a manager decides (task_due.request_extension - a date set
+ *  after clearing one can need approval, see task_due.last_cleared). The
+ *  Unscheduled pane says so and offers no second request meanwhile. */
+export function awaitingFirstDate(task) {
+  return !!task && !day(task.dueOn) && task.dueAgreement === 'extension_requested' && !!day(task.dueProposal?.dueOn);
 }
 
-/** The same rule without the due date: whether this person may give `task`
- *  a date from the Unscheduled pane (or take its date away). */
-export function canScheduleOnCalendar(task, { projects, teams, taskById, email, isManager } = {}) {
-  if (!task || task.completed) return false;
-  const role = taskRoleFor(task, { projects, teams, taskById, email, isManager });
-  return role == null || roleAtLeast(role, 'editor');
+/** Whether a filter on the calendar's list hides every task with no due date
+ *  (Overdue / Today / This Week, or a date range) - the Unscheduled pane is
+ *  then empty for a reason other than "everything is scheduled". */
+export function dueFilterHidesUndated(filter) {
+  const due = filter?.due || 'any';
+  return (due !== 'any' && due !== 'none') || !!filter?.dueFrom || !!filter?.dueTo;
 }
 
 export const movedLabel = (patch) => `Moved to ${fmtDate(day(patch.dueOn))}`;

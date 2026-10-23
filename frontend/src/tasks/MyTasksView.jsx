@@ -15,6 +15,7 @@ import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { CalendarView, DashboardView } from './views/extras';
+import { dueFilterHidesUndated } from './calendarMove';
 import { FilesView } from './views/more';
 import TimeSheetView from './TimeSheetView';
 import BoardView from './views/board';
@@ -567,7 +568,7 @@ export default function MyTasksView({ onNavigate }) {
                 whoever creates it (CreateTaskModal). */}
           </div>
         ) : view === 'calendar' ? (
-          <CalendarView tasks={mine} store={store} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
+          <CalendarView tasks={mine} store={store} dueFiltered={dueFilterHidesUndated(filter)} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
         ) : view === 'files' ? (
           <FilesView tasks={allMine} onOpen={setOpenId} nameOf={nameOf} />
         ) : view === 'time' ? (

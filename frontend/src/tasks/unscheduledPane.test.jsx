@@ -7,10 +7,13 @@ import {
 import { EMPTY_FILTER, matchesFilter, personScoped } from './lib';
 import { CalendarView } from './views/extras';
 import { UNSCHEDULED_CAP } from './views/UnscheduledPane';
+import { projectLook } from './projectLook';
 
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ canAccessModule: () => false }) }));
 vi.mock('../components/PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../api', () => ({ api: { getPeopleDirectory: () => Promise.resolve([]) } }));
+// Spied, to count how often the pane's rows draw (each row calls it once).
+vi.mock('./projectLook', async (orig) => { const m = await orig(); return { ...m, projectLook: vi.fn(m.projectLook) }; });
 
 const ORIGINAL_TZ = process.env.TZ;
 const viewport = (phone) => {
@@ -34,18 +37,19 @@ const base = [
   { id: 'done', title: 'Already Done', projectId: 'p', dueOn: '', completed: true, status: 'completed' },
 ];
 
-function setup({ tasks = base, saved, lockedProjectId = null, notify = true } = {}) {
+function setup({ tasks = base, saved, lockedProjectId = null, notify = true, dueFiltered = false } = {}) {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(2026, 9, 15, 10, 0, 0));   // Oct 15 2026, local
   const store = {
     projects: [editorProject, viewerProject], teams: [], taskById: Object.fromEntries(tasks.map((t) => [t.id, t])),
     myEmail: 'me@x.com', nameOf: (e) => e,
+    projectById: (id) => [editorProject, viewerProject].find((p) => p.id === id),
     updateTask: vi.fn((id, patch) => Promise.resolve(saved ? saved(id, patch) : { ...tasks.find((t) => t.id === id), ...patch })),
     offerUndo: vi.fn(),
     ...(notify ? { notify: vi.fn() } : {}),
   };
   const onOpen = vi.fn();
-  const utils = render(<CalendarView tasks={tasks} store={store} onOpen={onOpen} lockedProjectId={lockedProjectId} />);
+  const utils = render(<CalendarView tasks={tasks} store={store} onOpen={onOpen} lockedProjectId={lockedProjectId} dueFiltered={dueFiltered} />);
   return { store, onOpen, ...utils };
 }
 const pane = () => screen.getByTestId('unscheduled-pane');
@@ -190,12 +194,19 @@ describe('Unscheduled pane on the calendar', () => {
     expect(store.updateTask).toHaveBeenLastCalledWith('a', { dueOn: '2026-10-14' });
   });
 
-  it('a repeating task dropped on the pane is refused with the server\'s words', async () => {
+  it('a repeating task is not offered the pane as a drop, and Move To Date\'s Clear is refused with the server\'s words', async () => {
     const tasks = [...base, { id: 'rep', title: 'Weekly Walkthrough', projectId: 'p', dueOn: '2026-10-14', recurrence: { freq: 'weekly' }, status: 'not_started' }];
     const { store } = setup({ tasks });
-    fireEvent.dragStart(screen.getByText('Weekly Walkthrough').closest('button'));
+    const chip = screen.getByText('Weekly Walkthrough').closest('button');
+    fireEvent.dragStart(chip);
+    expect(within(pane()).queryByText('Drop here to remove the due date')).toBeNull();
     fireEvent.dragOver(pane());
     await act(async () => { fireEvent.drop(pane()); });
+    fireEvent.dragEnd(chip);
+    expect(store.updateTask).not.toHaveBeenCalled();
+    fireEvent.keyDown(chip, { key: 'F10', shiftKey: true });
+    fireEvent.click(screen.getByTitle('Move To Date'));
+    await act(async () => { fireEvent.click(within(document.querySelector('[data-nx-calendar]')).getByText('Clear')); });
     expect(store.updateTask).not.toHaveBeenCalled();
     expect(store.notify).toHaveBeenCalledWith(SERIES_NEEDS_DUE);
   });
@@ -250,6 +261,66 @@ describe('Unscheduled pane on the calendar', () => {
   it('says so when every task has a due date', () => {
     setup({ tasks: [base[0]] });
     expect(within(pane()).getByText('Every task here has a due date.')).toBeTruthy();
+  });
+
+  it('says a due-date filter is why it is empty', () => {
+    setup({ tasks: [base[0]], dueFiltered: true });
+    expect(within(pane()).getByText('A due-date filter is hiding tasks with no due date.')).toBeTruthy();
+    expect(within(pane()).queryByText('Every task here has a due date.')).toBeNull();
+  });
+
+  it('a first date awaiting approval is labeled and cannot be dragged or scheduled again', async () => {
+    const tasks = [...base, { id: 'aw', title: 'Waiting On Boss', projectId: 'p', dueOn: '', status: 'not_started',
+      dueAgreement: 'extension_requested', dueProposal: { dueOn: '2026-10-30' } }];
+    const { store } = setup({ tasks });
+    const row = rowOf('Waiting On Boss');
+    expect(within(row).getByText('Awaiting Approval')).toBeTruthy();
+    expect(row.getAttribute('draggable')).toBeNull();
+    expect(within(row).queryByRole('button', { name: 'Schedule' })).toBeNull();
+    await dropOnDay(row, '2026-10-24');
+    expect(store.updateTask).not.toHaveBeenCalled();
+  });
+
+  it('hovering a day does not redraw the pane\'s rows', () => {
+    setup();
+    projectLook.mockClear();
+    fireEvent.mouseEnter(document.querySelector('[data-day="2026-10-20"]'));
+    fireEvent.mouseLeave(document.querySelector('[data-day="2026-10-20"]'));
+    fireEvent.mouseEnter(document.querySelector('[data-day="2026-10-21"]'));
+    expect(projectLook).not.toHaveBeenCalled();
+  });
+
+  it('starts collapsed on a narrow screen without changing the stored choice, and can still be opened', () => {
+    const observers = [];
+    vi.stubGlobal('ResizeObserver', class { constructor(cb) { this.cb = cb; observers.push(this); } observe() {} disconnect() {} });
+    try {
+      setup();
+      expect(pane()).toBeTruthy();
+      act(() => { observers.at(-1).cb([{ contentRect: { width: 820 } }]); });
+      expect(screen.queryByTestId('unscheduled-pane')).toBeNull();
+      expect(localStorage.getItem('nexus.calendarUnscheduled.me@x.com')).toBeNull();
+      fireEvent.click(screen.getByText('Unscheduled (4)'));
+      expect(pane()).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Hide Unscheduled' }));
+      expect(screen.queryByTestId('unscheduled-pane')).toBeNull();
+      expect(localStorage.getItem('nexus.calendarUnscheduled.me@x.com')).toBeNull();
+      // Wide again: the stored choice (open) is back.
+      act(() => { observers.at(-1).cb([{ contentRect: { width: 1400 } }]); });
+      expect(pane()).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reads the stored choice again once the person\'s email arrives', () => {
+    localStorage.setItem('nexus.calendarUnscheduled.me@x.com', '0');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 15, 10, 0, 0));
+    const store = { projects: [editorProject], teams: [], taskById: {}, myEmail: '', updateTask: vi.fn(), projectById: () => editorProject };
+    const { rerender } = render(<CalendarView tasks={base} store={store} onOpen={vi.fn()} />);
+    expect(pane()).toBeTruthy();
+    rerender(<CalendarView tasks={base} store={{ ...store, myEmail: 'me@x.com' }} onOpen={vi.fn()} />);
+    expect(screen.queryByTestId('unscheduled-pane')).toBeNull();
   });
 
   it('collapses, and remembers it per person', () => {

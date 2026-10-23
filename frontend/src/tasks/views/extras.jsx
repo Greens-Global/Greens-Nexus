@@ -1,7 +1,7 @@
 // Task Module - Calendar (month/week with event categories + Show filter) and
 // Dashboard (KPIs, status/dept/assignee bars, completion donut, time tracking,
 // custom charts). Ported 1:1 from the export's NexusCalendarView / NexusDashboard.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Diamond, Sliders, Check, CalendarDays, CalendarOff, Video, Rocket, PartyPopper, Plus, CheckCircle2, Clock, AlertTriangle, ListTodo } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
 import { taskStats } from '../lib';
@@ -10,13 +10,17 @@ import AnchoredMenu from '../../components/AnchoredMenu';
 import { useRowColorMap } from '../rowColorState';
 import { DateField, Modal, useIsMobile } from '../components';
 import { useCanEditTask } from '../canEditTask';
-import { calendarDatePatch, clearingStopsSeries, datesLabel, previousDates, readPaneOpen, SERIES_NEEDS_DUE, undoEntryAt, unscheduledTasks, wasSentForApproval, writePaneOpen } from '../calendarMove';
+import { awaitingFirstDate, calendarDatePatch, clearingStopsSeries, datesLabel, previousDates, readPaneOpen, SERIES_NEEDS_DUE, undoEntryAt, unscheduledTasks, wasSentForApproval, writePaneOpen } from '../calendarMove';
 import UnscheduledPane from './UnscheduledPane';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// Below this width the calendar's container starts with the Unscheduled pane
+// collapsed (desktop): the grid would be too cramped beside it.
+const NARROW_PANE_PX = 1000;
 
 const KIND_META = {
   due: { label: 'Due Dates', color: '#2563eb', Icon: CalendarDays },
@@ -63,9 +67,11 @@ function holidaysForYear(y, region) {
 // views/UnscheduledPane.jsx): the open tasks in `tasks` with no due date,
 // scheduled by a drop on a day (or the row's Schedule button), and a chip
 // dropped on the pane loses its due date. All of it runs through moveTask
-// below. `lockedProjectId` hides the project pill inside one project. The
-// Teams calendar (no store) stays read-only, without the pane.
-export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProjectId = null }) {
+// below. `lockedProjectId` hides the project pill inside one project;
+// `dueFiltered` (lib dueFilterHidesUndated) lets the pane say a due-date
+// filter is why it is empty. The Teams calendar (no store) stays read-only,
+// without the pane.
+export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProjectId = null, dueFiltered = false }) {
   // Conditional row colors (Oct 22 2026): a task chip carries its rule's
   // color as a thin bar on its left edge.
   const rowColors = useRowColorMap();
@@ -79,11 +85,15 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProj
   // Editor or better on the task (taskRoleFor, as the Board), and open.
   const canEditTask = useCanEditTask(store);
   const taskMap = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks]);
-  const canSchedule = (t) => !!store?.updateTask && !!t && !t.completed && canEditTask(t);
+  // Stable callbacks (useCallback): the memoized pane and its rows take
+  // them, and a new identity on every hover would redraw them all. A first
+  // date already waiting for approval is not asked for twice.
+  const canSchedule = useCallback((t) => !!store?.updateTask && !!t && !t.completed && !awaitingFirstDate(t) && canEditTask(t),
+    [store, canEditTask]);
   const canMove = (t) => !!t?.dueOn && canSchedule(t);
   // The one date path: a move between days, a task scheduled from the
   // Unscheduled pane, or (`iso` empty) a due date cleared on the pane.
-  const moveTask = async (id, iso) => {
+  const moveTask = useCallback(async (id, iso) => {
     const t = taskMap[id];
     if (!canSchedule(t)) return;
     const patch = calendarDatePatch(t, iso);
@@ -109,9 +119,9 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProj
     store.offerUndo?.(datesLabel(t, patch), () => (at && store.undoDueChange
       ? store.undoDueChange(id, at)
       : store.updateTask(id, back)).catch(() => {}));
-  };
+  }, [taskMap, store, canSchedule]);
   const openMove = (e, id) => setMoveAt({ id, el: e.currentTarget });
-  const endDrag = () => { setDragId(null); setOverIso(null); };
+  const endDrag = useCallback(() => { setDragId(null); setOverIso(null); }, []);
   const [cursor, setCursor] = useState(() => new Date());
   const [weekly, setWeekly] = useState(false);
   const [show, setShow] = useState({ due: true, meeting: true, release: true, holiday: true });
@@ -124,13 +134,45 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProj
   const isMobile = useIsMobile();
   const withPane = !!store;
   const unscheduledCount = useMemo(() => (withPane ? unscheduledTasks(tasks).all.length : 0), [withPane, tasks]);
-  const [paneOpen, setPaneOpen] = useState(() => readPaneOpen(store?.myEmail));
-  const togglePane = () => setPaneOpen((o) => { writePaneOpen(store?.myEmail, !o); return !o; });
+  // The person's stored choice, read again once their email is known (the
+  // store can arrive without it) - adjusted during render, React's pattern
+  // for state that follows a prop.
+  const prefEmail = store?.myEmail || '';
+  const [pref, setPref] = useState(() => ({ email: prefEmail, open: readPaneOpen(prefEmail) }));
+  if (pref.email !== prefEmail) setPref({ email: prefEmail, open: readPaneOpen(prefEmail) });
+  // Narrow desktop (under NARROW_PANE_PX across): the pane starts collapsed
+  // there without touching the stored choice; opening it there lasts until
+  // the space changes. measureRef watches the calendar's container.
+  const [narrow, setNarrow] = useState(false);
+  const [openWhileNarrow, setOpenWhileNarrow] = useState(false);
+  const observer = useRef(null);
+  const measureRef = useCallback((el) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    if (!el) return;
+    const apply = (w) => { if (w > 0) setNarrow(w < NARROW_PANE_PX); };
+    apply(el.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'function') {
+      observer.current = new ResizeObserver((entries) => apply(entries[0]?.contentRect?.width || 0));
+      observer.current.observe(el);
+    }
+  }, []);
+  useEffect(() => () => observer.current?.disconnect(), []);
+  const [wasNarrow, setWasNarrow] = useState(narrow);
+  if (wasNarrow !== narrow) { setWasNarrow(narrow); setOpenWhileNarrow(false); }
+  const paneOpen = narrow ? openWhileNarrow : pref.open;
+  const togglePane = useCallback(() => {
+    if (narrow) { setOpenWhileNarrow((o) => !o); return; }
+    setPref((p) => { writePaneOpen(p.email, !p.open); return { ...p, open: !p.open }; });
+  }, [narrow]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const paneShown = withPane && !isMobile && paneOpen;
-  // A chip being dragged that the pane may take (its due date cleared).
+  // A chip being dragged that the pane may take (its due date cleared) - not
+  // the live occurrence of a repeating series, which must keep its date.
   const dragTask = dragId ? taskMap[dragId] : null;
-  const clearTarget = !!dragTask && !!dragTask.dueOn && canMove(dragTask);
+  const clearTarget = !!dragTask && !!dragTask.dueOn && canMove(dragTask) && !clearingStopsSeries(dragTask);
+  const dropClear = useCallback(() => { const id = dragId; endDrag(); moveTask(id, ''); }, [dragId, endDrag, moveTask]);
+  const closeSheetAndOpen = useCallback((id) => { setSheetOpen(false); onOpen(id); }, [onOpen]);
 
   const days = useMemo(() => {
     if (weekly) {
@@ -180,7 +222,7 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProj
   const seg = (active) => ({ borderRadius: 7, padding: '5px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? NX.border : 'transparent'}`, background: active ? NX.surface : 'transparent', color: active ? NX.ink : NX.dim, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' });
 
   const calendar = (
-    <div style={{ margin: paneShown ? 0 : 16, flex: 1, minWidth: 0, borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, fontFamily: FONT }}>
+    <div style={{ margin: withPane ? 0 : 16, flex: 1, minWidth: 0, borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, fontFamily: FONT }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderBottom: `1px solid ${NX.border}`, padding: '12px 16px' }}>
         <button onClick={() => step(-1)} aria-label="Previous" title="Previous" style={{ ...btn('ghost'), padding: 4 }}><ChevronLeft size={18} /></button>
@@ -298,29 +340,28 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProj
     </div>
   );
   if (!withPane) return calendar;
-  const paneProps = {
-    tasks, store, onOpen, lockedProjectId, canSchedule, onSchedule: moveTask,
-  };
   return (
     <>
-      {paneShown ? (
-        <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, margin: 16 }}>
-          {calendar}
-          {/* The pane's content is out of the flow (absolute), so a long
-              list scrolls inside the calendar's height rather than
-              stretching the page. */}
+      <div ref={measureRef} data-testid="calendar-wrap" style={{ display: 'flex', alignItems: 'stretch', gap: 12, margin: 16 }}>
+        {calendar}
+        {/* The pane's content is out of the flow (absolute), so a long
+            list scrolls inside the calendar's height rather than
+            stretching the page. */}
+        {paneShown && (
           <div style={{ position: 'relative', width: 288, flexShrink: 0, minHeight: 360, borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface2 }}>
             <div style={{ position: 'absolute', inset: 0 }}>
-              <UnscheduledPane {...paneProps} dragId={dragId} onDragRow={setDragId} onDragEnd={endDrag}
-                clearTarget={clearTarget} onDropClear={() => { const id = dragId; endDrag(); moveTask(id, ''); }}
-                onCollapse={togglePane} />
+              <UnscheduledPane tasks={tasks} store={store} onOpen={onOpen} lockedProjectId={lockedProjectId}
+                canSchedule={canSchedule} onSchedule={moveTask} dueFiltered={dueFiltered}
+                dragId={dragId} onDragRow={setDragId} onDragEnd={endDrag}
+                clearTarget={clearTarget} onDropClear={dropClear} onCollapse={togglePane} />
             </div>
           </div>
-        </div>
-      ) : calendar}
-      {withPane && isMobile && sheetOpen && (
+        )}
+      </div>
+      {isMobile && sheetOpen && (
         <Modal title={`Unscheduled (${unscheduledCount})`} onClose={() => setSheetOpen(false)}>
-          <UnscheduledPane {...paneProps} sheet onOpen={(id) => { setSheetOpen(false); onOpen(id); }} />
+          <UnscheduledPane tasks={tasks} store={store} onOpen={closeSheetAndOpen} lockedProjectId={lockedProjectId}
+            canSchedule={canSchedule} onSchedule={moveTask} dueFiltered={dueFiltered} sheet />
         </Modal>
       )}
     </>
