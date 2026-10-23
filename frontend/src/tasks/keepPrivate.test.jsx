@@ -18,13 +18,13 @@ let state = {};
 vi.mock('./TasksContext', () => ({ useTasks: () => state }));
 
 const { ShareModal } = await import('./TaskDetailDrawer');
-const { shareRules } = await import('./shareRules');
+const { shareRules, mayOpenUp } = await import('./shareRules');
 
 const t = (id, accessLevel = 'org', parentTaskId = '', narrowedBy = '') => ({ id, title: id, accessLevel, parentTaskId, narrowedBy, followerIds: [] });
 const applyServerTask = vi.fn();
 const notify = vi.fn();
 const setTasks = (list) => { state = { tasks: list, taskById: Object.fromEntries(list.map((x) => [x.id, x])), applyServerTask, notify }; };
-const open = (task, patch = vi.fn()) => { render(<ShareModal task={task} people={[]} nameOf={(e) => e} patch={patch} onClose={() => {}} />); return patch; };
+const open = (task, patch = vi.fn(), canKeepPrivate = true) => { render(<ShareModal task={task} people={[]} nameOf={(e) => e} patch={patch} onClose={() => {}} canKeepPrivate={canKeepPrivate} />); return patch; };
 
 beforeEach(() => { keepTaskPrivate.mockReset(); applyServerTask.mockReset(); notify.mockReset(); });
 
@@ -35,6 +35,29 @@ describe('shareRules inherited', () => {
     expect(shareRules(t('k', 'org', 'p', 'p')).inherited).toBe(false);           // stale marker, open
     expect(shareRules(t('k', 'restricted', 'p', 'other')).inherited).toBe(false);
     expect(shareRules(t('top', 'restricted')).inherited).toBe(false);
+  });
+});
+
+describe('mayOpenUp (the server\'s _may_open_up)', () => {
+  const me = 'me@greensglobal.com';
+  const proj = (role) => ({ id: 'pr', accessLevel: 'restricted', ownerId: 'boss@greensglobal.com', memberIds: role ? [me] : [], memberRoles: role ? { [me]: role } : {} });
+  const top = { id: 'p', projectId: 'pr', parentTaskId: '' };
+  const kid = (extra = {}) => ({ id: 'k', projectId: '', parentTaskId: 'p', ownerId: 'o@greensglobal.com', createdBy: 'c@greensglobal.com', assigneeIds: [], ...extra });
+  const opts = (role, extra = {}) => ({ projects: [proj(role)], taskById: { p: top }, email: me, ...extra });
+
+  it('owner, creator, project editor and manager may; an assignee or viewer may not', () => {
+    expect(mayOpenUp(kid({ ownerId: me }), opts(null))).toBe(true);
+    expect(mayOpenUp(kid({ createdBy: me }), opts(null))).toBe(true);
+    expect(mayOpenUp(kid(), opts('editor'))).toBe(true);
+    expect(mayOpenUp(kid(), opts(null, { isManager: true }))).toBe(true);
+    expect(mayOpenUp(kid({ assigneeIds: [me], assigneeId: me }), opts(null))).toBe(false);
+    expect(mayOpenUp(kid(), opts('viewer'))).toBe(false);
+  });
+
+  it('no project means owner, creator or manager only; a guest never', () => {
+    const solo = { id: 'k', projectId: '', parentTaskId: 'q', ownerId: 'o@greensglobal.com', createdBy: '' };
+    expect(mayOpenUp(solo, { taskById: { q: { id: 'q', projectId: '', parentTaskId: '' } }, email: me })).toBe(false);
+    expect(mayOpenUp(kid({ ownerId: me }), opts('editor', { isExternal: true }))).toBe(false);
   });
 });
 
@@ -65,6 +88,13 @@ describe('Keep Private on a subtask', () => {
     expect(applyServerTask).not.toHaveBeenCalled();
   });
 
+  it('is not offered to someone below the open-up bar', () => {
+    const list = [t('p', 'restricted'), t('k', 'restricted', 'p', 'p')];
+    setTasks(list);
+    open(list[1], vi.fn(), false);
+    expect(screen.queryByTestId('share-inherited')).toBeNull();
+  });
+
   it('is not offered on a subtask private by hand or an open one', () => {
     const list = [t('p', 'restricted'), t('k', 'restricted', 'p'), t('o', 'org', 'p2')];
     setTasks(list);
@@ -83,10 +113,23 @@ describe('Sharing a private task again', () => {
     fireEvent.click(screen.getByText('Everyone in your organization').closest('button'));
     expect(patch).not.toHaveBeenCalled();
     const choice = screen.getByTestId('share-reopen-choice');
-    expect(choice.textContent).toMatch(/Its 2 subtasks made private with it:/);
+    expect(choice.textContent).toMatch(/2 subtasks were made private with it:/);
+    // Enter must never widen by accident: focus starts on Cancel.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
     fireEvent.click(screen.getByRole('button', { name: 'Open Subtasks Too' }));
     expect(patch).toHaveBeenCalledWith({ accessLevel: 'org' });
     expect(screen.queryByTestId('share-reopen-choice')).toBeNull();
+  });
+
+  it('one subtask reads in the singular, and focus goes back to Everyone after a choice', async () => {
+    const list = [t('top', 'restricted'), t('a', 'restricted', 'top', 'top')];
+    setTasks(list);
+    open(list[0]);
+    const everyone = screen.getByText('Everyone in your organization').closest('button');
+    fireEvent.click(everyone);
+    expect(screen.getByTestId('share-reopen-choice').textContent).toMatch(/1 subtask was made private with it:/);
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Them Private' }));
+    await waitFor(() => expect(document.activeElement).toBe(everyone));
   });
 
   it('Keep Them Private sends the flag', () => {
@@ -98,13 +141,14 @@ describe('Sharing a private task again', () => {
     expect(patch).toHaveBeenCalledWith({ accessLevel: 'org', keepSubtasksPrivate: true });
   });
 
-  it('Cancel changes nothing, and no subtasks to bring back means no question', () => {
+  it('Cancel changes nothing, and no subtasks to bring back means no question', async () => {
     const list = tree();
     setTasks(list);
     const patch = open(list[0]);
     fireEvent.click(screen.getByText('Everyone in your organization').closest('button'));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(patch).not.toHaveBeenCalled();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByText('Everyone in your organization').closest('button')));
     expect(screen.queryByTestId('share-reopen-choice')).toBeNull();
   });
 

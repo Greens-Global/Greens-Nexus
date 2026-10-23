@@ -1079,6 +1079,10 @@ def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str,
     now_level = t.access_level or "org"
     if prev_level == now_level or "org" not in (prev_level, now_level):
         return []
+    # Keeping them private is a choice about OPENING again only; sent with a
+    # make-private edit it is ignored (that edit narrows the subtree the
+    # usual way - ignoring the flag never widens anything).
+    keep_private = keep_private and now_level == "org"
     ids = [r.id for r in _subtree_rows(db, t.id)[0]]
     if not ids:
         return []
@@ -1108,6 +1112,11 @@ def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str,
                 continue
             pid = r.parent_task_id or ""
             above = level.get(pid) or ((by_id[pid].access_level or "org") if pid in by_id else "restricted")
+            if keep_private and r.deleted_at:
+                # A trashed row is left as it is - it follows the usual rules
+                # when restored - and so is everything under it.
+                level[r.id] = r.access_level or "org"
+                continue
             if inherits_privacy(r) and above == "org":
                 if keep_private:
                     r.narrowed_by = ""
@@ -1118,7 +1127,7 @@ def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str,
         what = "kept private" if keep_private else "opened to everyone again"
     if not changed:
         return []
-    joined = _pin_private(db, user, [r for r in changed if not r.deleted_at]) if keep_private else []
+    joined = _pin_private(db, user, changed) if keep_private else []
     for r in changed:
         if not r.deleted_at:
             r.modified_at = stamp
@@ -1140,7 +1149,8 @@ def _pin_private(db: Session, user: dict, rows: list) -> list:
     would no longer see a row by its own grants (task_is_visible - the rule
     the lists apply, never the project hop a single read allows) is added to
     its collaborators, so nobody locks themselves out of what they just
-    protected. A manager sees everything and is never added; nor is an
+    protected - never on a row over their company wall. A manager sees
+    everything and is never added; nor is an
     external, who never saw a row through the task above it (task_is_visible)
     and so loses nothing - adding one would hand a guest rows they never
     had. Returns the rows they were added to."""
@@ -1149,9 +1159,14 @@ def _pin_private(db: Session, user: dict, rows: list) -> list:
     me = (user.get("email") or "").strip().lower()
     if not me:
         return []
+    # Never across the company wall: a row the person's company scope does not
+    # admit is not theirs to join (wall_tasks; a no-op with the walls off).
+    inside = {r.id for r in wall_tasks(db, user, rows)}
     visible = None
     added = []
     for r in rows:
+        if r.id not in inside:
+            continue
         if task_is_visible(r, user, set()):
             continue
         if visible is None:
@@ -3056,11 +3071,17 @@ def keep_task_private(task_id: str, user: dict = Depends(get_current_user), db: 
     above it (task_util.inherits_privacy) becomes private by hand - it stays
     private when that task is shared with everyone again (_cascade_level
     leaves it), and the people who saw it only through that task no longer
-    do. The bar is the one for changing its level: editor on the subtask.
-    The person keeping it never loses it (_pin_private). Answers the task."""
+    do. It cuts people out, so the bar is the one for opening a task up
+    (_may_open_up): the subtask's owner or creator, an editor of its project
+    by the project's own roles, or a manager - never an assignee as such, and
+    never a guest. The person keeping it never loses it (_pin_private).
+    Answers the task."""
     t = _get_task(db, task_id)
     assert_task_wall(db, user, t)
     require_task_role(db, user, t, "editor")
+    if user.get("external") or not _may_open_up(db, user, t):
+        raise HTTPException(403, "Only the subtask's owner, its creator, a project editor or a manager can "
+                                 "keep it private.")
     _lock_task_rows(db, [t.id])
     db.refresh(t)
     if not inherits_privacy(t):

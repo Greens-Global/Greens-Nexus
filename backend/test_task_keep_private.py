@@ -5,18 +5,20 @@ task_util.inherits_privacy) opens to everyone again when that parent is
 shared again (tasks._cascade_level). Keep Private turns it into a subtask
 private BY HAND - the marker cleared, the level kept - so:
 
-- POST /tasks/{id}/keep-private: editor on the subtask (the bar for changing
-  its level); the parent's people lose the sight the marker gave them; the
-  person keeping it never does (added as a collaborator when they would
-  lose it; a manager never is); a reopen of the parent leaves it private;
-- an outsider and a guest who only follows the parent are refused (404);
-  a guest ON the subtask may keep it and is never added (they keep their own
-  sight); an org-wide subtask is refused (422); one private by hand already
-  is answered unchanged;
+- POST /tasks/{id}/keep-private: the bar for opening a task up
+  (tasks._may_open_up - the subtask's owner or creator, a project editor, a
+  manager); an assignee as such and a guest are refused (403), an outsider
+  and a guest who only follows the parent never find it (404); the parent's
+  people lose the sight the marker gave them; the person keeping it never
+  does (added as a collaborator when they would lose it; a manager never
+  is); a reopen of the parent leaves it private;
+- an org-wide subtask is refused (422); one private by hand already is
+  answered unchanged;
 - opening the parent with keep_subtasks_private keeps every row that would
   have come back private by hand (one activity row, the reopener added where
-  they would lose sight), the rows below them still following them; the flag
-  on any other edit changes nothing.
+  they would lose sight - never on a row over their company wall, never a
+  trashed row, which is left as it is), the rows below them still following
+  them; the flag on a make-private edit, or any other edit, changes nothing.
 
 Throwaway SQLite, no network.  python -m pytest test_task_keep_private.py
 """
@@ -169,16 +171,47 @@ class KeepPrivateTests(Base):
         self.patch(parent, access_level="org")
         self.assertEqual(self.row(kid.id).access_level, "restricted")
 
-    def test_someone_who_sees_it_only_through_the_parent_is_added_so_they_keep_it(self):
-        parent, kid = self.tree(top_level="restricted", kid_level="restricted", inherited=True,
-                                assignee_email=HELPER["email"], assignee_emails=[HELPER["email"]])
-        self.keep(kid, user=HELPER)
-        self.assertEqual(self.row(kid.id).follower_emails, [HELPER["email"]])
-        self.assertTrue(self.sees(HELPER, kid.id))
-        self.assertTrue(self.can_open(HELPER, kid.id))
-        self.assertFalse(self.sees(OWNER, kid.id))
+    def project(self, editor):
+        p = models.TaskProject(id=gen_id(), name="Secret", access_level="restricted", owner_email=OWNER["email"],
+                               member_emails=[editor["email"]], member_roles={editor["email"]: "editor"},
+                               created_at=now_iso(), company_id=COA)
+        self.db.add(p)
+        self.db.commit()
+        return p
+
+    def test_a_project_editor_who_sees_it_only_through_the_parent_is_added_so_they_keep_it(self):
+        proj = self.project(MEMBER)
+        _parent, kid = self.tree(top_level="restricted", kid_level="restricted", inherited=True,
+                                 project_id=proj.id)
+        self.keep(kid, user=MEMBER)
+        self.assertEqual(self.row(kid.id).follower_emails, [MEMBER["email"]])
+        self.assertTrue(self.sees(MEMBER, kid.id))
+        self.assertTrue(self.can_open(MEMBER, kid.id))
         self.assertEqual(self.acts(kid.id, "access_kept_private"),
                          ["kept this subtask private when its main task is shared and joined it as a collaborator"])
+
+    def test_an_assignee_as_such_and_a_guest_on_it_are_refused(self):
+        _parent, kid = self.tree(top_level="restricted", kid_level="restricted", inherited=True,
+                                 assignee_email=HELPER["email"], assignee_emails=[HELPER["email"]])
+        self.refused(kid, HELPER, 403)                  # the parent's assignee
+        k = self.row(kid.id)
+        k.assignee_email, k.assignee_emails = HELPER["email"], [HELPER["email"]]
+        self.db.commit()
+        self.refused(kid, HELPER, 403)                  # the subtask's own assignee
+        k = self.row(kid.id)
+        k.assignee_emails = [HELPER["email"], EXT["email"]]
+        k.owner_email = EXT["email"]                    # even a guest who owns it
+        self.db.commit()
+        self.refused(kid, EXT, 403)
+        self.assertEqual(self.row(kid.id).narrowed_by, _parent.id)
+
+    def test_its_creator_may_keep_it(self):
+        parent = self.task(title="Parent", access_level="restricted", owner_email=OWNER["email"])
+        kid = self.task(title="Kid", access_level="restricted", parent_task_id=parent.id,
+                        owner_email=OTHER["email"], created_by=HELPER["email"], narrowed_by=parent.id)
+        self.keep(kid, user=HELPER)
+        self.assertEqual(self.row(kid.id).narrowed_by, "")
+        self.assertTrue(self.sees(HELPER, kid.id))
 
     def test_a_manager_is_never_added(self):
         mgr = {"email": "boss@greensglobal.com", "level": 3}
@@ -205,15 +238,6 @@ class KeepPrivateTests(Base):
         self.refused(kid, OUTSIDER, 404)
         self.refused(kid, EXT, 404)
         self.assertEqual(self.row(kid.id).narrowed_by, _parent.id)   # nothing changed
-
-    def test_a_guest_on_the_subtask_may_keep_it_and_is_not_added(self):
-        _parent, kid = self.tree(top_level="restricted", kid_level="restricted", inherited=True)
-        kid.assignee_email, kid.assignee_emails = EXT["email"], [EXT["email"]]
-        self.db.commit()
-        self.keep(kid, user=EXT)
-        row = self.row(kid.id)
-        self.assertEqual((row.narrowed_by, row.follower_emails or []), ("", []))
-        self.assertTrue(task_visible_to(self.db, EXT, row))
 
     def test_an_org_wide_subtask_is_refused_and_a_hand_restricted_one_unchanged(self):
         _p, open_kid = self.tree()
@@ -261,6 +285,45 @@ class KeepPrivateTests(Base):
         self.patch(parent, title="Renamed", keep_subtasks_private=True)
         self.assertEqual((self.row(kid.id).narrowed_by, self.row(kid.id).follower_emails or []), (parent.id, []))
         self.assertEqual(self.row(parent.id).title, "Renamed")
+
+    def test_the_flag_on_a_make_private_edit_is_ignored(self):
+        parent, kid = self.tree(assignee_email=HELPER["email"], assignee_emails=[HELPER["email"]])
+        self.patch(parent, user=HELPER, access_level="restricted", keep_subtasks_private=True)
+        k = self.row(kid.id)
+        self.assertEqual((k.access_level, k.narrowed_by, k.follower_emails or []), ("restricted", parent.id, []))
+        self.assertEqual(self.acts(parent.id, "subtasks_access"), ["1 subtask made private too"])
+        self.assertTrue(self.sees(OWNER, kid.id))       # the hop still works
+
+    def test_a_trashed_subtask_is_left_as_it_is(self):
+        parent, kid = self.tree(top_level="restricted", kid_level="restricted", inherited=True)
+        live = self.task(title="Live", access_level="restricted", parent_task_id=parent.id,
+                         owner_email=OTHER["email"], created_by=OTHER["email"], narrowed_by=parent.id)
+        k = self.row(kid.id)
+        k.deleted_at = now_iso()
+        parent.subtask_ids = [kid.id, live.id]
+        self.db.commit()
+        self.patch(parent, access_level="org", keep_subtasks_private=True)
+        self.db.expire_all()
+        gone = self.db.query(models.Task).execution_options(include_deleted=True).filter_by(id=kid.id).one()
+        self.assertEqual((gone.access_level, gone.narrowed_by, gone.follower_emails or []),
+                         ("restricted", parent.id, []))
+        self.assertEqual(self.row(live.id).narrowed_by, "")
+        self.assertEqual(self.acts(parent.id, "subtasks_access"),
+                         ["1 subtask kept private, joined 1 as a collaborator"])
+
+    def test_never_joined_across_the_company_wall(self):
+        self.db.add(models.NexusSetting(key="company_walls", value="on"))
+        self.db.commit()
+        cache.settings_config.invalidate()
+        parent, kid = self.tree(top_level="restricted", kid_level="restricted", inherited=True)
+        far = self.task(title="Far", access_level="restricted", parent_task_id=parent.id, company_id=COB,
+                        owner_email=OTHERCO["email"], created_by=OTHERCO["email"], narrowed_by=parent.id)
+        parent.subtask_ids = [kid.id, far.id]
+        self.db.commit()
+        self.patch(parent, access_level="org", keep_subtasks_private=True)
+        self.assertEqual(self.row(kid.id).follower_emails, [OWNER["email"]])
+        self.assertEqual(self.row(far.id).follower_emails or [], [])
+        self.assertEqual(self.row(far.id).narrowed_by, "")
 
 
 if __name__ == "__main__":

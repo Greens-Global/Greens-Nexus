@@ -7,6 +7,25 @@
 // along both ways - tasks._cascade_level). Since Oct 23 2026 the person
 // opening it may keep them private instead, and a subtask private only
 // because of its parent may be kept private on its own (Keep Private).
+import { taskRoleFor, roleAtLeast } from './lib';
+
+// Keep Private cuts people out, so it takes the bar for opening a task up
+// (the server's tasks._may_open_up): a manager, the task's owner or creator,
+// or an editor of its project by the project's own roles - never an assignee
+// as such, never a guest. A task with no project has no project roles.
+export function mayOpenUp(task, { projects = [], teams = [], taskById = null, email = '', isManager = false, isExternal = false } = {}) {
+  if (!task || isExternal) return false;
+  if (isManager) return true;
+  const me = (email || '').toLowerCase();
+  if (!me) return false;
+  if ([task.ownerId, task.createdBy].some((e) => (e || '').toLowerCase() === me)) return true;
+  let cur = task;
+  for (let depth = 0; cur && !cur.projectId && cur.parentTaskId && depth < 20; depth++) cur = taskById?.[cur.parentTaskId];
+  if (!cur?.projectId) return false;
+  const role = taskRoleFor(task, { projects, teams, taskById, email, countAssignee: false });
+  return !!role && roleAtLeast(role, 'editor');
+}
+
 export function shareRules(task, tasks = [], taskById = {}) {
   const parent = task.parentTaskId ? taskById[task.parentTaskId] || tasks.find((x) => x.id === task.parentTaskId) : null;
   // A parent this person cannot see at all is a private one.
