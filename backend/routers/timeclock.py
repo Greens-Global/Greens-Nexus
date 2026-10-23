@@ -9370,6 +9370,9 @@ def _pay_rule_payload(db: Session, key: str, cfg: dict, company_id: str) -> dict
 
 
 def _save_pay_rule(db: Session, key: str, cfg: dict, company_id: str, reset: bool, user: dict) -> None:
+    # A company-limited administrator changes their own company's rule, never
+    # the default for every company (the same line the shift settings draw).
+    _require_company_manage(user, db, company_id, "pay rules")
     if reset and company_id:
         scoped_settings.reset(db, key, company_id)
     else:
