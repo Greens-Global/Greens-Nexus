@@ -13,6 +13,7 @@ import { linesFile } from './linesExport';
 import { clearParkedReport, peekParkedReport, takePendingDrill } from './drill';
 import { isBuilderConfig } from './builderModel';
 import { useAccountingPrefs } from './prefs';
+import { readRefresh, saveRefresh } from '../../lib/refreshState';
 import { TRIAL_BALANCE_DEFAULT_BOOK } from './assumptions';
 import { useColumnWidths, useCustomizePrefs } from './tableHooks';
 import Amount, { Figure } from './Amount';
@@ -111,7 +112,13 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // in drill.js and opens here as if picked from Saved Reports.
   const [parked] = useState(() => peekParkedReport(false));
   useEffect(() => { if (parked) clearParkedReport(parked); }, [parked]);
+  // Oct 23 (Charmi, item 17): a reload keeps the report, the period, the
+  // filters and the narrowed lines - kept per screen (the menu item's report,
+  // quick view and linked account) for this browser tab (lib/refreshState).
+  const screenKey = `acct.report.${report || ''}|${view || ''}|${link?.account ? JSON.stringify(link) : ''}`;
+  const [kept] = useState(() => (parked ? null : readRefresh(screenKey)));
   const [config, setConfig] = useState(() => (parked ? resolveConfig(parked.config)
+    : kept?.config ? resolveConfig(kept.config)
     : report ? resolveConfig({ ...defaultConfig(), report, ...openingBook(report), ...viewConfig(view), ...activityConfig(link) }) : defaultConfig()));
   const [entities, setEntities] = useState([]);
   const [limited, setLimited] = useState(false);
@@ -199,7 +206,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // Names behind the codes picked in Filters, for the chips under the title.
   const [dimNames, setDimNames] = useState({});
   const onNames = useCallback((kind, names) => setDimNames((m) => ({ ...m, [kind]: { ...(m[kind] || {}), ...names } })), []);
-  const [drill, setDrill] = useState(null);   // { account, accountName, from, to, book, entity?, department?, party? }
+  const [drill, setDrill] = useState(() => kept?.drill || null);   // { account, accountName, from, to, book, entity?, department?, party? }
   const [searchBusy, setSearchBusy] = useState(false);
   useEffect(() => {
     // Every search that starts runs to its end on the ledger, even when the
@@ -216,6 +223,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const waiting = (searchText.trim().length >= 2 && searchText.trim() !== term) || (searching && searchBusy);
   useEffect(() => { onWaiting?.(waiting); }, [waiting]); // eslint-disable-line react-hooks/exhaustive-deps
   const closeSearch = () => { setSearchText(''); setTerm(''); setDrill(null); };
+  useEffect(() => { saveRefresh(screenKey, { config: storable(config), drill }); }, [screenKey, config, drill]);
   const toTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
   // A drill-down asked for from another tab (see drill.js) lands here. So
@@ -769,8 +777,10 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             </div>
           )}
 
-          <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }} onCopy={copyRaw}>
-            <table className={`acct-report${shown.glLabel ? ' acct-gl' : ''}`} style={{ '--acct-row-py': DENSITIES.find((d) => d.key === density)?.py || '5px' }}>
+          <div className={`acct-report-wrap${full ? '' : ' acct-scroll-box'}`} data-testid="report-box" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }} onCopy={copyRaw}>
+            {/* Oct 23 (Viral, item 10): the whole heading block - names and filter
+                boxes - pins to the top of the box (acct-sticky-head, style.css). */}
+            <table className={`acct-report acct-sticky-head${shown.glLabel ? ' acct-gl' : ''}`} style={{ '--acct-row-py': DENSITIES.find((d) => d.key === density)?.py || '5px' }}>
               <colgroup>
                 {headCols.map((c) => <col key={c.key} style={widths.width(c.key) ? { width: widths.width(c.key), minWidth: widths.width(c.key) } : undefined} />)}
               </colgroup>
@@ -781,7 +791,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
                     const size = w ? { width: w, minWidth: w, maxWidth: w } : {};
                     return (
                       <th key={c.key} aria-label={c.label} title={c.hint || undefined} className={i === 0 ? 'acct-label acct-head' : c.type === 'date' || c.type === 'text' ? undefined : 'acct-num'}
-                        style={{ position: i === 0 ? 'sticky' : 'relative', ...size, ...(c.emphasis ? EMPHASIS : {}), ...(c.hint ? { cursor: 'help' } : {}) }}>
+                        style={{ ...size, ...(c.emphasis ? EMPHASIS : {}), ...(c.hint ? { cursor: 'help' } : {}) }}>
                         {c.label}
                         <ColumnResizer {...widths.resizer(c.key, c.label)} />
                       </th>

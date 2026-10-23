@@ -484,9 +484,11 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               {rows.length === 0 && <div style={{ padding: 16, fontSize: '0.84rem', color: 'var(--text-secondary)', textAlign: 'center' }}>No lines on this page.</div>}
             </div>
           ) : (
-          // No box of its own in a window: the page scrolls, and a tall monitor shows that many more lines (Charmi, 10/02).
-          <div className="acct-lines-wrap" ref={setWrap} style={{ opacity: loading ? 0.6 : 1, ...(full ? {} : { maxHeight: 'none' }) }}>
-            <table className="acct-lines" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
+          // Oct 23 (Viral, item 18): the lines scroll inside their own box, sized
+          // to the window (a tall monitor still shows more), with the headings
+          // pinned at its top - the page above them stays put.
+          <div className={`acct-lines-wrap${full ? '' : ' acct-scroll-box'}`} ref={setWrap} data-testid="ledger-lines-box" style={{ opacity: loading ? 0.6 : 1 }}>
+            <table className="acct-lines acct-sticky-head" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
               <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}<col style={{ width: ASK_WIDTH }} /></colgroup>
               <thead>
                 <tr>

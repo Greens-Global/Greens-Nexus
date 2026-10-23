@@ -116,14 +116,22 @@ describe('LedgerSearch grid', () => {
     expect(screen.getByText('Vendor: V00412 Home Depot')).toBeTruthy();
   });
 
-  it('scrolls with the page in a window and keeps its own scroller only in full screen (Charmi, 10/02)', async () => {
-    const { unmount } = render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+  it('scrolls inside its own box with the headings pinned, the page staying put (Viral, 10/22, item 18)', async () => {
+    const { unmount } = render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+      drill={{ account: '11261', accountName: 'Gr FLP- CNB - 6766', from: '2026-01-01', to: '2026-10-22', book: 'accrual' }} />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
-    expect(document.querySelector('.acct-lines-wrap').style.maxHeight).toBe('none');
+    const box = screen.getByTestId('ledger-lines-box');
+    // The box sized to the window (style.css acct-scroll-box), never "no limit".
+    expect(box.className).toContain('acct-scroll-box');
+    expect(box.style.maxHeight).toBe('');
+    // The headings and the filter boxes pin as one block at the top of the box.
+    expect(box.querySelector('table').className).toContain('acct-sticky-head');
+    expect(box.querySelector('thead .acct-filter-row')).toBeTruthy();
     unmount();
+    // Full screen keeps its own taller scroller.
     render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} full />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
-    expect(document.querySelector('.acct-lines-wrap').style.maxHeight).toBe('');
+    expect(screen.getByTestId('ledger-lines-box').className).not.toContain('acct-scroll-box');
   });
 
   it('a total drills with no account into every line of the period, and the Journals filter follows the lines', async () => {

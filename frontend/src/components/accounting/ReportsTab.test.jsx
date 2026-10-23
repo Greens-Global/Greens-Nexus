@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Render-smoke for Accounting -> Reports.
@@ -111,6 +113,7 @@ import ReportsTab from './ReportsTab';
 import { api } from '../../api';
 import { requestReportDrill, requestLedgerSearch } from './drill';
 import { resetAccountingPrefs } from './prefs';
+import { resetRefreshForTests } from '../../lib/refreshState';
 
 beforeEach(() => { localStorage.clear(); resetAccountingPrefs(); vi.clearAllMocks(); window.scrollTo = vi.fn(); });
 
@@ -793,5 +796,81 @@ describe('Credit Card Activity and Bank Activity', () => {
     const rows = [...document.querySelectorAll('tbody tr')];
     expect(rows.at(-2).textContent).toContain('1,200.00');
     expect(rows.at(-1).textContent).toMatch(/^Closing Balance.*1,200\.00/);
+  });
+});
+
+// Oct 23 (Viral, Charmi - items 10 and 18): the column headings and the filter
+// boxes under them stay at the top of the report's box while it scrolls, and
+// the box is sized to the window so the page above it does not move.
+describe('ReportsTab pinned headings (items 10 and 18)', () => {
+  it('pins every heading, not only the first, with the filter boxes as one block', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    const box = screen.getByTestId('report-box');
+    expect(box.className).toContain('acct-scroll-box');
+    const table = box.querySelector('table');
+    expect(table.className).toContain('acct-sticky-head');
+    // Before: every heading but the first carried an inline position: relative
+    // and scrolled away with the rows (change-19-a).
+    table.querySelectorAll('thead th').forEach((th) => expect(th.style.position).toBe(''));
+    expect(table.querySelector('thead .acct-filter-row')).toBeTruthy();
+  });
+
+  it('keeps the rules in style.css: the heading block pins, the box takes the window height', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', '..', 'style.css'), 'utf8');
+    expect(css).toMatch(/\.acct-sticky-head\.acct-sticky-head thead \{ position: sticky; top: 0; z-index: 3; \}/);
+    expect(css).toMatch(/\.acct-sticky-head\.acct-sticky-head thead td \{ position: relative; top: auto; \}/);
+    expect(css).toMatch(/\.acct-report-wrap\.acct-scroll-box \{ max-height: max\(300px, calc\(100vh - 340px\)\); \}/);
+  });
+});
+
+// Oct 23 (Charmi, item 17): "When you do refresh it should take you back to the
+// same screen" - the report, the period, the filters and the narrowed lines.
+describe('ReportsTab after a reload (item 17)', () => {
+  const KEY = 'nexus.refresh.acct.report.||';
+  beforeEach(() => { sessionStorage.clear(); resetRefreshForTests(); });
+
+  it('reopens on the period, book and entity that were set', async () => {
+    sessionStorage.setItem(KEY, JSON.stringify({ config: { report: 'pnl', preset: 'custom', from: '2026-08-01', to: '2026-08-31', book: 'cash', cols: 'total', entities: ['32000'] }, drill: null }));
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    expect(screen.getByLabelText('Period').value).toBe('custom');
+    expect(screen.getByLabelText('From').value).toBe('2026-08-01');
+    expect(screen.getByLabelText('To').value).toBe('2026-08-31');
+    expect(screen.getByLabelText('Book').value).toBe('cash');
+    const [from, to, location] = api.getAccountingPnl.mock.calls.at(-1);
+    expect([from, to, location]).toEqual(['2026-08-01', '2026-08-31', '32000']);
+  });
+
+  it('reopens the narrowed lines (Back to Report) that were on screen', async () => {
+    sessionStorage.setItem(KEY, JSON.stringify({ config: { report: 'pnl' }, drill: { account: '11261', accountName: 'Gr FLP- CNB - 6766', from: '2026-01-01', to: '2026-10-22', book: 'accrual' } }));
+    render(<ReportsTab />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill:11261:2026-10-22:accrual'));
+  });
+
+  it('keeps each change for the next reload, per screen', async () => {
+    render(<ReportsTab report="balance-sheet" />);
+    await waitFor(() => expect(screen.getByLabelText('Report').value).toBe('balance-sheet'));
+    fireEvent.change(screen.getByLabelText('Book'), { target: { value: 'cash' } });
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem('nexus.refresh.acct.report.balance-sheet||')).config).toMatchObject({ report: 'balance-sheet', book: 'cash' }));
+  });
+
+  it('opens fresh when you come back inside Nexus - only a reload restores', async () => {
+    const { unmount } = render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.change(screen.getByLabelText('Book'), { target: { value: 'cash' } });
+    unmount();
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    expect(screen.getByLabelText('Book').value).toBe('accrual');
+  });
+
+  it('a memorized report opened from the Report Center still wins over what was kept', async () => {
+    sessionStorage.setItem(KEY, JSON.stringify({ config: { report: 'pnl', book: 'cash' }, drill: null }));
+    const { parkSavedReport } = await import('./drill');
+    parkSavedReport({ id: 'r9', name: 'Lender', mine: true, config: { report: 'pnl', book: 'accrual' } });
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    expect(screen.getByLabelText('Book').value).toBe('accrual');
   });
 });

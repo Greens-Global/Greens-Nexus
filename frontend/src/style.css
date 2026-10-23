@@ -2768,6 +2768,24 @@ html { overflow-x: hidden; }
 /* The statement takes the same banding and whole-row hover. */
 .acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%); }
 .acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td { background: var(--wk-brand-tint, #e8ecfd); }
+/* Oct 23 (Viral, Charmi, item 10: "Header should not be hide when we scroll
+   down"): the header is the column headings. The whole heading block - the
+   names and the filter boxes under them - pins to the top of the table's box
+   as one piece, whatever height the names wrap to, so no row shows above the
+   boxes. Cells inside it only pin sideways (the first column). The class is
+   doubled to outrank the per-cell `top` rules above. */
+.acct-sticky-head.acct-sticky-head thead { position: sticky; top: 0; z-index: 3; }
+.acct-sticky-head.acct-sticky-head thead th,
+.acct-sticky-head.acct-sticky-head thead td { position: relative; top: auto; }
+.acct-sticky-head.acct-sticky-head thead .acct-head { position: sticky; left: 0; z-index: 4; }
+/* Item 18 (Viral: "Need Scroll within table in case of general ledgers"):
+   ledger lines scroll inside a box sized to the window, so the page header
+   and the report controls above it stay where they are. 300px is the floor
+   on a short window (the top bar, the report controls and the title take
+   about 340px; 1366 x 768 leaves a 428px box). The statements' own box
+   takes the same height. */
+.acct-lines-wrap.acct-scroll-box,
+.acct-report-wrap.acct-scroll-box { max-height: max(300px, calc(100vh - 340px)); }
 
 /* Phone: wide data tables (.req-table - PropertyAsset sections, requisition
    logs) scroll sideways inside their card instead of being cut off. */
