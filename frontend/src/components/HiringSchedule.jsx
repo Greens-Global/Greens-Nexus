@@ -133,7 +133,7 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
   async function skip() {
     if (busy) return;
     const why = await dialog.prompt(`Skip the interview and move ${name} to Decision? Add a note for why, for example "the interview already happened" (optional).`,
-      { title: 'Skip Interview', confirmText: 'Skip Interview', placeholder: 'Why it is skipped (optional)' });
+      { title: 'Skip Interview', confirmText: 'Skip Interview', placeholder: 'Why it is skipped (optional)', multiline: true });
     if (why === null) return;
     setBusy(true);
     try {
