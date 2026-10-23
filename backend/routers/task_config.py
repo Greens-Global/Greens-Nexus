@@ -25,6 +25,7 @@ from routers.task_util import (now_iso, gen_id, is_manager, require_project_acce
 from changelog_prs import known_developer
 import task_automation
 import task_formula
+import task_card_preview
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets")),
@@ -342,7 +343,6 @@ def save_task_as_template(task_id: str, body: SaveAsTemplateBody, user: dict = D
     if t.estimate_hours is not None:
         patch["estimateHours"] = t.estimate_hours
     # Show On Card (Oct 22 2026) - a picked image is not copied (its file isn't).
-    import task_card_preview
     if task_card_preview.copyable(getattr(t, "card_preview", "")):
         patch["cardPreview"] = task_card_preview.copyable(t.card_preview)
     if "description" in keep and t.description:
@@ -437,7 +437,7 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
         project_id=project_id, team_id=(p.get("teamId") or "") if project_id == (p.get("projectId") or "") else "",
         tags=list(p.get("tags") or []), custom_field_values=values, due_on=due,
         estimate_hours=p.get("estimateHours"), recurrence=rule,
-        card_preview=str(p.get("cardPreview") or ""),
+        card_preview=task_card_preview.copyable(p.get("cardPreview")),
     )
     subs = tpl.subtasks if isinstance(tpl.subtasks, list) and tpl.subtasks else [
         {"title": x} for x in (tpl.subtask_titles or []) if x]

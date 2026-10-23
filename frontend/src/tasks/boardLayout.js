@@ -48,15 +48,16 @@ export function effectiveLanes(value, options) {
 }
 
 /** The board's layout inside a project: the person's own choice there, then
- *  the project's default (when that default IS a board: its `lanes`, or -
- *  saved before boards had lanes - its `group`), then their general
- *  preference. A default's `group` stays the List's grouping. */
+ *  the project's default (when that default IS a board: its `lanes` - a
+ *  default's `group` is the List's grouping, and a default saved before
+ *  boards had lanes opens without any nobody chose), then their general
+ *  preference. */
 export function boardPrefs(mine, projectDefault, global) {
   const m = mine || {};
   const def = projectDefault?.view === 'board' ? projectDefault : {};
   const g = global || {};
   return {
-    lanes: m.lanes ?? def.lanes ?? def.group ?? g.lanes ?? 'none',
+    lanes: m.lanes ?? def.lanes ?? g.lanes ?? 'none',
     columns: m.columns ?? def.columns ?? g.columns ?? 'status',
     previews: m.previews ?? g.previews ?? true,
   };
@@ -102,6 +103,18 @@ export function dueColumns(today) {
     { key: 'none', label: 'No Date', from: null, to: null, first: '' },
   ];
   return cols.filter((c) => c.from === '' || c.from === null || c.to === '' || c.from <= c.to);
+}
+
+/** The Due Date board's columns: the date buckets, then Completed - a
+ *  finished task is in Completed whatever its date (never "Overdue"). It
+ *  takes no drops: completing is the card's own check box. */
+export function dueBoardColumns(today) {
+  return [...dueColumns(today), { key: 'completed', label: 'Completed', from: null, to: null, first: null }];
+}
+
+/** The Due Date board column `task` sits in on `today`. */
+export function dueColumnForTask(task, today) {
+  return task?.completed ? 'completed' : dueColumnOf(task?.dueOn, today);
 }
 
 /** Which due-date column `dueOn` sits in on `today`. */

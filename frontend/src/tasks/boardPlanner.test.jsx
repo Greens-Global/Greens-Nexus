@@ -5,13 +5,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent, act } from '@testing-library/react';
 
 const saveTaskTablePrefs = vi.fn(() => Promise.resolve({}));
+let serverPrefs = {};
 const updateTaskChecklistItem = vi.fn(() => Promise.resolve({ item: {}, task: { id: 't1', checklistDone: 1 } }));
 vi.mock('../api', () => ({
   api: new Proxy({}, { get: (_t, k) => (k === 'then' ? undefined
     : k === 'saveTaskTablePrefs' ? (...a) => saveTaskTablePrefs(...a)
       : k === 'updateTaskChecklistItem' ? (...a) => updateTaskChecklistItem(...a)
         : k === 'getTaskAttachments' ? () => Promise.resolve(ATTACHMENTS)
-          : () => Promise.resolve(k === 'getTaskTablePrefs' ? { prefs: {} } : [])) }),
+          : () => Promise.resolve(k === 'getTaskTablePrefs' ? { prefs: serverPrefs } : [])) }),
 }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ canAccessModule: () => false }) }));
 vi.mock('./TaskDetailDrawer', () => ({ default: () => null }));
@@ -47,6 +48,7 @@ const { __setTablePrefsCache } = await import('./tableCols');
 const { ShowOnCardSelect } = await import('./CardPreview');
 
 beforeEach(() => {
+  serverPrefs = {};
   __setTablePrefsCache({});
   saveTaskTablePrefs.mockClear();
   updateTaskChecklistItem.mockClear();
@@ -105,6 +107,13 @@ describe('the toolbar Group menu drives the board (it did nothing before)', () =
 
   it('a stored grouping the board cannot use falls back to None (a default Board saved as "status")', async () => {
     store = makeStore(tasks, { defaultView: { view: 'board', group: 'status' } });
+    render(<TasksWorkspace lockedProjectId="p1" />);
+    expect(screen.getByTestId('board-columns')).toBeInTheDocument();
+    expect(lanesShown()).toEqual([]);
+  });
+
+  it('a default Board saved before lanes existed opens with none (its group is the List\'s)', () => {
+    store = makeStore(tasks, { defaultView: { view: 'board', group: 'assignee' } });
     render(<TasksWorkspace lockedProjectId="p1" />);
     expect(screen.getByTestId('board-columns')).toBeInTheDocument();
     expect(lanesShown()).toEqual([]);
@@ -214,6 +223,31 @@ describe('Due Date columns use the Calendar day move', () => {
     expect(store.updateTask).not.toHaveBeenCalled();
     await dragTo('Weekly', '[data-board-column="later"]');
     expect(store.updateTask).toHaveBeenCalledWith('r', { dueOn: '2026-11-01' });
+  });
+
+  it('a completed card sits in Completed, not Overdue, and takes no day moves', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 20, 10, 0, 0));
+    const more = [{ ...base, id: 'd', title: 'Done Late', dueOn: '2026-10-01', completed: true, status: 'completed' }];
+    store = boardStore(more);
+    render(<BoardView visible={more} ctx={ctx} store={store} onOpen={() => {}} lockedProjectId="p1" group="none" columns="due" />);
+    expect(within(document.querySelector('[data-board-column="completed"]')).getByText('Done Late')).toBeInTheDocument();
+    expect(within(document.querySelector('[data-board-column="overdue"]')).queryByText('Done Late')).toBeNull();
+    await dragTo('Done Late', '[data-board-column="today"]');
+    expect(store.updateTask).not.toHaveBeenCalled();
+  });
+
+  it('the card\'s Move To menu offers the due-date columns from the keyboard, through the same day move', async () => {
+    setup();
+    fireEvent.click(screen.getByLabelText('Move Pour Footings to another column'));
+    const menu = await screen.findByRole('menu', { name: 'Move To' });
+    const due = within(within(menu).getByRole('group', { name: 'Due Date' })).getAllByRole('menuitem');
+    expect(due.map((b) => b.textContent)).toEqual(['Today', 'Tomorrow', 'This Week', 'Next Week', 'Later', 'No Date']);
+    expect(due.find((b) => b.textContent === 'Tomorrow').disabled).toBe(true);   // where it is now
+    expect(within(menu).getByRole('group', { name: 'Status' })).toBeInTheDocument();
+    await act(async () => { fireEvent.click(due.find((b) => b.textContent === 'Next Week')); });
+    expect(store.updateTask).toHaveBeenCalledWith('a', { dueOn: '2026-10-25', startOn: '2026-10-23' });
+    expect(store.offerUndo).toHaveBeenCalled();
   });
 
   it('Overdue takes no drops, and a move held for approval offers no Undo', async () => {
@@ -381,5 +415,39 @@ describe('Make Default View on Board', () => {
     render(<TasksWorkspace lockedProjectId="p1" />);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Make Default View/ })); });
     expect(store.updateProject).toHaveBeenCalledWith('p1', { defaultView: { view: 'board', group: 'priority', lanes: 'label', columns: 'due' } });
+  });
+});
+
+describe('off a project, the Board layout comes back from the profile', () => {
+  it('lanes, columns and Show Subtasks survive a fresh load of the saved settings', async () => {
+    const tasks = [
+      { ...base, id: 't1', title: 'Parent', projectId: '', assigneeIds: ['a@x.com'], priority: 'high', subtaskIds: ['k1'] },
+      { ...base, id: 'k1', title: 'Kid', projectId: '', parentTaskId: 't1', assigneeIds: ['a@x.com'], priority: 'low' },
+    ];
+    store = makeStore(tasks);
+    serverPrefs = { richlist: { view: 'board', board: { lanes: 'assignee', columns: 'priority', previews: false }, showSubtasks: { board: true } } };
+    try { localStorage.clear(); } catch { /* none */ }
+    __setTablePrefsCache(null);     // nothing cached: the page asks the server, as on a reload
+    await act(async () => { render(<TasksWorkspace />); });
+    expect(lanesShown()).toEqual(['a@x.com']);
+    const cols = [...document.querySelectorAll('[data-board-lane="a@x.com"] [data-board-zone]')].map((el) => el.getAttribute('data-board-zone'));
+    expect(cols).toEqual(['urgent', 'high', 'medium', 'low']);
+    expect(screen.getByRole('button', { name: /Show Subtasks/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: /Card Previews/ }).getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector('[data-subtask-card="k1"]')).toBeTruthy();
+  });
+});
+
+describe('Move To on Priority columns', () => {
+  it('sets the priority from the keyboard', async () => {
+    const tasks = [{ ...base, id: 't1', title: 'Pick Me', priority: 'low' }];
+    store = boardStore(tasks);
+    render(<BoardView visible={tasks} ctx={ctx} store={store} onOpen={() => {}} lockedProjectId="p1" group="none" columns="priority" />);
+    fireEvent.click(screen.getByLabelText('Move Pick Me to another column'));
+    const menu = await screen.findByRole('menu', { name: 'Move To' });
+    const items = within(within(menu).getByRole('group', { name: 'Priority' })).getAllByRole('menuitem');
+    expect(items.find((b) => b.textContent.includes('Low')).disabled).toBe(true);
+    await act(async () => { fireEvent.click(items.find((b) => b.textContent.includes('Urgent'))); });
+    expect(store.updateTask).toHaveBeenCalledWith('t1', { priority: 'urgent' });
   });
 });

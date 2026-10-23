@@ -120,7 +120,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const canSetDefault = !!lockedProjectForView && roleAtLeast(projectRoleOf(lockedProjectForView, myEmail, canManage), 'owner');
   const projDefault = lockedProjectForView?.defaultView;
   const isProjectDefault = !!projDefault && projDefault.view === view && (onBoard
-    ? effectiveLanes(projDefault.lanes ?? projDefault.group, board.laneOpts) === board.lanes && (projDefault.columns || 'status') === board.columns
+    ? effectiveLanes(projDefault.lanes, board.laneOpts) === board.lanes && (projDefault.columns || 'status') === board.columns
     : (!projDefault.group || projDefault.group === group));
   const [defaultSaving, setDefaultSaving] = useState(false);
   const makeDefault = async () => {

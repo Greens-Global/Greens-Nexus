@@ -33,14 +33,14 @@ import AnchoredMenu from '../../components/AnchoredMenu';
 import { useRowColorMap, rowColorAttrs, boldTitleStyle } from '../rowColorState';
 import { projectLook } from '../projectLook';
 import {
-  boardSetup, boardHasSections, PRIORITY_COLUMNS, dueColumns, dueColumnOf, labelLaneTags, assigneeLanePeople, laneAddDefaults,
+  boardSetup, boardHasSections, PRIORITY_COLUMNS, dueBoardColumns, dueColumnForTask, labelLaneTags, assigneeLanePeople, laneAddDefaults,
 } from '../boardLayout';
 import { awaitingFirstDate, clearingStopsSeries, moveTaskToDay } from '../calendarMove';
 import CardPreview from '../CardPreview';
 
 const SECTION_PALETTE = ['#4573fa', '#8b6bf0', '#14a76c', '#e8a33d', '#e0844e', '#e8384f', '#29a8ab', '#db2777'];
 const PRIORITY_LANE_ORDER = ['urgent', 'high', 'medium', 'low'];
-const DUE_COLORS = { overdue: NX.red, today: NX.amber, tomorrow: NX.blue, week: NX.purple, nextweek: NX.teal, later: NX.dim, none: NX.faint };
+const DUE_COLORS = { overdue: NX.red, today: NX.amber, tomorrow: NX.blue, week: NX.purple, nextweek: NX.teal, later: NX.dim, none: NX.faint, completed: NX.green };
 
 const dueColor = (iso, completed) => {
   if (!iso || completed) return NX.faint;
@@ -176,7 +176,7 @@ export default function BoardView({
       return PRIORITY_COLUMNS.map((p) => ({ key: p, label: PRIORITY_META[p]?.label || p, color: PRIORITY_META[p]?.color || NX.dim, match: (t) => (t.priority || 'medium') === p }));
     }
     if (colKind === 'due') {
-      return dueColumns(today).map((c) => ({ key: c.key, label: c.label, color: DUE_COLORS[c.key], first: c.first, noDrop: c.key === 'overdue', match: (t) => dueColumnOf(t.dueOn, today) === c.key }));
+      return dueBoardColumns(today).map((c) => ({ key: c.key, label: c.label, color: DUE_COLORS[c.key], first: c.first, noDrop: c.key === 'overdue' || c.key === 'completed', match: (t) => dueColumnForTask(t, today) === c.key }));
     }
     if (colKind === 'section') {
       const known = new Set((sectionList || []).map((x) => x.id));
@@ -342,13 +342,11 @@ export default function BoardView({
   // date - the server refuses it too).
   const refuses = (col, t) => !!col.noDrop || (colKind === 'due' && col.key === 'none' && !!t && clearingStopsSeries(t));
 
-  const drop = (col, lane) => {
-    const id = dragId;
-    const from = dragFrom;
-    setDragId(null); setDragOver(null); setDragFrom(null);
-    if (!id || !col || col.noDrop) return;
-    const t = taskOf(id);
-    if (!t || !canDrag(t) || refuses(col, t)) return;
+  // Card `t` into column `col` (and lane `lane`, coming from lane `from`) -
+  // a drop, or the card's Move To menu from the keyboard.
+  const moveCard = (t, col, from = null, lane = null) => {
+    if (!t || !col || col.noDrop || !canDrag(t) || refuses(col, t)) return;
+    const id = t.id;
     const patch = { ...columnPatch(t, col), ...lanePatch(t, from, lane) };
     const keys = Object.keys(patch);
     const moveDay = colKind === 'due' && !col.match(t);
@@ -361,6 +359,33 @@ export default function BoardView({
     Promise.resolve(save())
       .then(() => (moveDay ? moveTaskToDay(store, t, col.first || '') : null), () => null)
       .catch(() => {});
+  };
+
+  const drop = (col, lane) => {
+    const id = dragId;
+    const from = dragFrom;
+    setDragId(null); setDragOver(null); setDragFrom(null);
+    if (!id) return;
+    moveCard(taskOf(id), col, from, lane);
+  };
+
+  // The card's Move To menu (the keyboard path): the board's own columns
+  // first when they are not statuses (Priority / Section / Due Date - the
+  // ones this card may go to), then the statuses as before.
+  const moveGroups = (t) => {
+    const statusGroup = {
+      title: 'Status', current: t.status,
+      options: statuses.map((s) => { const m = statusMeta(s); return { key: s, label: m.label, color: m.color }; }),
+      onPick: (s) => { if (s !== t.status) Promise.resolve(store.setStatus(t.id, s)).catch(() => {}); },
+    };
+    if (colKind === 'status' || !canDrag(t) || (colKind === 'section' && t.parentTaskId)) return [statusGroup];
+    const here = cols.find((c) => c.match(t));
+    const columnGroup = {
+      title: setup.columnOpts.find((o) => o.key === colKind)?.label || 'Column', current: here?.key,
+      options: cols.filter((c) => !c.noDrop).map((c) => ({ key: c.key, label: c.label, color: c.color, disabled: refuses(c, t) })),
+      onPick: (k) => moveCard(t, cols.find((c) => c.key === k)),
+    };
+    return [columnGroup, statusGroup];
   };
 
   // A new card: the column's value, and the lane's (Oct 22 2026 - the lane's
@@ -420,8 +445,7 @@ export default function BoardView({
           {t.isMilestone && <Diamond size={11} style={{ color: NX.purple }} />}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
             {editable && (
-              <MoveToMenu current={t.status} statuses={statuses} statusMeta={statusMeta} title={t.title}
-                onPick={(status) => { if (status !== t.status) Promise.resolve(store.setStatus(t.id, status)).catch(() => {}); }} />
+              <MoveToMenu groups={moveGroups(t)} title={t.title} what={colKind === 'status' ? 'status' : 'column'} />
             )}
             <button onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} onMouseDown={(e) => e.stopPropagation()} title="More Actions" aria-label="More Actions" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><MoreHorizontal size={15} /></button>
             <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} onMouseDown={(e) => e.stopPropagation()}
@@ -685,10 +709,12 @@ function AddSectionColumn({ addingSection, setAddingSection, sectionName, setSec
   );
 }
 
-/** "Move To" on a board card: the status columns as a menu, so a card can
- *  change column from the keyboard (or a screen reader) without a drag.
- *  Arrow keys walk the list; Escape closes it back onto the button. */
-function MoveToMenu({ current, statuses, statusMeta, title, onPick }) {
+/** "Move To" on a board card: the board's columns (and the statuses) as a
+ *  menu, so a card can change column from the keyboard (or a screen reader)
+ *  without a drag. `groups`: [{ title, options: [{ key, label, color,
+ *  disabled }], current, onPick }]. Arrow keys walk the list; Escape closes
+ *  it back onto the button. */
+function MoveToMenu({ groups, title, what = 'status' }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const listKey = (e) => {
@@ -700,29 +726,41 @@ function MoveToMenu({ current, statuses, statusMeta, title, onPick }) {
     next?.focus();
   };
   const stop = (e) => e.stopPropagation();
+  // Focus lands on the first item the card can move to.
+  let first = null;
+  for (const g of groups) {
+    const o = g.options.find((x) => x.key !== g.current && !x.disabled);
+    if (o) { first = `${g.title}:${o.key}`; break; }
+  }
+  const several = groups.length > 1;
   return (
     <span onClick={stop} onMouseDown={stop} onKeyDown={stop} style={{ display: 'inline-flex' }}>
-      <button ref={ref} type="button" onClick={() => setOpen((o) => !o)} title="Move To" aria-label={`Move ${title} to another status`}
+      <button ref={ref} type="button" onClick={() => setOpen((o) => !o)} title="Move To" aria-label={`Move ${title} to another ${what}`}
         aria-haspopup="menu" aria-expanded={open} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}>
         <ArrowRightLeft size={14} />
       </button>
       <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} align="end" aria-label="Move To"
-        style={{ width: 200, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+        style={{ width: 200, maxHeight: '60vh', overflowY: 'auto', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
         <div onKeyDown={listKey}>
           <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, padding: '4px 8px' }}>Move To</div>
-          {statuses.map((s, i) => {
-            const m = statusMeta(s);
-            const here = s === current;
-            return (
-              <button key={s} type="button" role="menuitem" disabled={here} autoFocus={i === (statuses[0] === current ? 1 : 0)}
-                onClick={() => { setOpen(false); onPick(s); ref.current?.focus(); }}
-                style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12.5, color: NX.ink, opacity: here ? 0.55 : 1, cursor: here ? 'default' : 'pointer' }}>
-                <span style={{ width: 9, height: 9, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
-                <span style={{ flex: 1, textAlign: 'left' }}>{m.label}</span>
-                {here && <Check size={13} style={{ color: NX.faint }} />}
-              </button>
-            );
-          })}
+          {groups.map((g) => (
+            <div key={g.title} role="group" aria-label={g.title}>
+              {several && <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '6px 8px 2px' }}>{g.title}</div>}
+              {g.options.map((o) => {
+                const here = o.key === g.current;
+                const off = here || !!o.disabled;
+                return (
+                  <button key={o.key} type="button" role="menuitem" disabled={off} autoFocus={`${g.title}:${o.key}` === first}
+                    onClick={() => { setOpen(false); g.onPick(o.key); ref.current?.focus(); }}
+                    style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12.5, color: NX.ink, opacity: off ? 0.55 : 1, cursor: off ? 'default' : 'pointer' }}>
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: o.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, textAlign: 'left' }}>{o.label}</span>
+                    {here && <Check size={13} style={{ color: NX.faint }} />}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
       </AnchoredMenu>
     </span>

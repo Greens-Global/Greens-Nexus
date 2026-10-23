@@ -43,6 +43,13 @@ MAX_DOC_BYTES = 256 * 1024
 # columns show a total and how. "none" is never stored - it is the absence.
 MAX_TOTAL_SCOPES = 200
 TOTAL_AGGS = ("sum", "avg", "min", "max", "count", "filled")
+# The Board's layout off a project (Oct 22 2026; frontend/src/tasks/
+# boardLayout.js): its swimlanes, its columns and the Card Previews switch.
+BOARD_LANES = ("none", "assignee", "priority", "project", "label")
+BOARD_COLUMNS = ("status", "section", "priority", "due")
+CUSTOM_FIELD_PREFIX = "cf:"
+# Show Subtasks, per view that has the switch.
+SUBTASK_VIEWS = ("board", "timeline")
 # The table key the Tasks module keeps row-color settings under
 # (frontend/src/tasks/rowColorState.js useRowColorPrefs).
 ROW_COLORS_TABLE = "rowColors"
@@ -74,6 +81,31 @@ class TablePrefIn(BaseModel):
     # {scope: {"show": bool, "cols": {column: agg}}} - the totals row per
     # project (scope = project id, "_" for a list on no project).
     totals:    dict | None = None
+    # {"lanes", "columns", "previews"} - the Board's layout (Oct 22 2026).
+    board:     dict | None = None
+    # {"board": bool, "timeline": bool} - Show Subtasks (Oct 22 2026).
+    showSubtasks: dict | None = None
+
+
+def _clean_board(raw: dict) -> dict:
+    """The Board's layout: known lanes (or a custom field's key), known
+    columns, a boolean switch. Anything else is dropped, and the board then
+    falls back to its default for that part."""
+    out: dict = {}
+    lanes = str((raw or {}).get("lanes") or "").strip()
+    if lanes in BOARD_LANES or (lanes.startswith(CUSTOM_FIELD_PREFIX) and len(lanes) <= MAX_KEY
+                                 and len(lanes) > len(CUSTOM_FIELD_PREFIX)):
+        out["lanes"] = lanes
+    columns = str((raw or {}).get("columns") or "").strip()
+    if columns in BOARD_COLUMNS:
+        out["columns"] = columns
+    if isinstance((raw or {}).get("previews"), bool):
+        out["previews"] = raw["previews"]
+    return out
+
+
+def _clean_subtask_switches(raw: dict) -> dict:
+    return {k: v for k, v in (raw or {}).items() if k in SUBTASK_VIEWS and isinstance(v, bool)}
 
 
 def _clean_totals(raw: dict) -> dict:
@@ -154,6 +186,10 @@ def _clean(body: TablePrefIn) -> dict:
         out["data"] = body.data
     if body.totals is not None:
         out["totals"] = _clean_totals(body.totals)
+    if body.board is not None:
+        out["board"] = _clean_board(body.board)
+    if body.showSubtasks is not None:
+        out["showSubtasks"] = _clean_subtask_switches(body.showSubtasks)
     if body.widths is not None:
         widths = {}
         for key, val in list(body.widths.items())[:MAX_COLS]:

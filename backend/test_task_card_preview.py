@@ -243,6 +243,30 @@ class PayloadTests(Base):
         v2 = self.file(t, name="a-v2.png", at="2026-10-05T00:00:00", version_group=first.id, version=2)
         self.assertEqual(self.listed(MANAGER)[t.id]["cardPreview"]["id"], v2.id)
 
+    def test_checklist_lines_only_for_who_may_read_the_checklist(self):
+        # An org-wide task in a restricted project OUTSIDER is not on: they see
+        # the task (list), but GET /checklist refuses them - so does the card.
+        p = self.project()
+        t = self.task(project_id=p.id, access_level="org", description="<p>What to do</p>")
+        self.lines(t, 3)
+        bare = self.task(project_id=p.id, access_level="org")
+        self.lines(bare, 2)
+        rows = self.listed(OUTSIDER)
+        self.assertEqual(rows[t.id]["cardPreview"], {"kind": "description", "text": "What to do"})
+        self.assertIsNone(rows[bare.id]["cardPreview"])
+        # A viewer on the project, an assignee, and a manager may read it.
+        self.assertEqual(self.listed(VIEWER)[t.id]["cardPreview"]["kind"], "checklist")
+        t.assignee_emails = [OUTSIDER["email"]]
+        t.assignee_email = OUTSIDER["email"]
+        self.db.commit()
+        self.assertEqual(self.listed(OUTSIDER)[t.id]["cardPreview"]["kind"], "checklist")
+        self.assertEqual(self.listed(MANAGER)[bare.id]["cardPreview"]["kind"], "checklist")
+        # A subtask answers to its parent's project.
+        kid = self.task(parent_task_id=bare.id, access_level="org")
+        self.lines(kid, 1)
+        self.assertIsNone(self.listed(OUTSIDER)[kid.id]["cardPreview"])
+        self.assertEqual(self.listed(VIEWER)[kid.id]["cardPreview"]["kind"], "checklist")
+
     def test_never_another_tasks_file(self):
         a = self.task(access_level="org")
         b = self.task(access_level="org")
@@ -273,7 +297,7 @@ class PayloadTests(Base):
         out = self.patch(t, MANAGER, card_preview="description", description="Hello")
         self.assertEqual(out["cardPreview"], {"kind": "description", "text": "Hello"})
 
-    def test_two_queries_at_most_for_many_tasks(self):
+    def test_a_handful_of_queries_for_many_tasks(self):
         tasks = []
         for i in range(40):
             t = self.task(access_level="org", card_preview=["", "checklist", "description", "none"][i % 4],
@@ -293,17 +317,34 @@ class PayloadTests(Base):
 
         event.listen(database.engine, "before_cursor_execute", count)
         try:
-            out = CP.card_previews(self.db, rows)
+            out = CP.card_previews(self.db, rows, MANAGER)
         finally:
             event.remove(database.engine, "before_cursor_execute", count)
-        self.assertLessEqual(len(seen), 2, seen)
+        # The files (no URLs), the picked covers' URLs, the checklist lines.
+        self.assertLessEqual(len(seen), 3, seen)
+        # No URL is read to pick a cover: the first query never selects it.
+        self.assertNotIn("task_attachments.url AS", seen[0].replace('"', ""))
+        # A non-manager on restricted projects adds the projects and the teams, once each.
+        p = self.project()
+        for t in rows:
+            t.project_id = p.id
+            t.access_level = "restricted"
+        self.db.commit()
+        rows = self.db.query(models.Task).all()
+        seen.clear()
+        event.listen(database.engine, "before_cursor_execute", count)
+        try:
+            CP.card_previews(self.db, rows, VIEWER)
+        finally:
+            event.remove(database.engine, "before_cursor_execute", count)
+        self.assertLessEqual(len(seen), 5, seen)
         self.assertTrue(any(v["kind"] == "image" for v in out.values()))
         self.assertTrue(all(len(v["items"]) <= 5 for v in out.values() if v["kind"] == "checklist"))
         # Nothing to show: no query at all.
         seen.clear()
         event.listen(database.engine, "before_cursor_execute", count)
         try:
-            self.assertEqual(CP.card_previews(self.db, [r for r in rows if r.card_preview == "none"]), {})
+            self.assertEqual(CP.card_previews(self.db, [r for r in rows if r.card_preview == "none"], MANAGER), {})
         finally:
             event.remove(database.engine, "before_cursor_execute", count)
         self.assertEqual(seen, [])
@@ -346,6 +387,18 @@ class CopyTests(Base):
         copies = {t.title: t.card_preview for t in self.db.query(models.Task).filter(models.Task.project_id == out["id"]).all()}
         self.assertEqual(copies, {"Shows text": "description", "Shows a photo": ""})
         self.assertEqual(a.card_preview, "description")
+
+    def test_a_task_template_keeps_the_mode_but_never_an_image(self):
+        for stored, want in (("checklist", "checklist"), ("image:abc", ""), ("bogus", "")):
+            tpl = models.TaskTemplate(id=gen_id(), name=f"Tpl {stored}", patch={"cardPreview": stored},
+                                      subtask_titles=[], subtasks=[], checklist=[], created_by=MANAGER["email"],
+                                      created_at=now_iso(), company_id="")
+            self.db.add(tpl)
+            self.db.commit()
+            C.use_template(tpl.id, C.UseTemplateBody(title=f"From {stored}"), BackgroundTasks(), user=MANAGER, db=self.db)
+            self.db.expire_all()
+            row = self.db.query(models.Task).filter(models.Task.title == f"From {stored}").first()
+            self.assertEqual(row.card_preview, want, stored)
 
     def test_a_new_task_never_takes_a_picked_image(self):
         out = T.create_task(T.TaskCreate(title="Copy", card_preview="image:abc"), BackgroundTasks(), user=MANAGER, db=self.db)

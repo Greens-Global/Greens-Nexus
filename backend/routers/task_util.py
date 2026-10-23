@@ -636,7 +636,7 @@ def project_for_task(db: Session, task: Task):
     return db.query(TaskProject).filter(TaskProject.id == t.project_id).first() if t.project_id else None
 
 
-def project_role_for(db: Session, email: str, project) -> str | None:
+def project_role_for(db: Session, email: str, project, teams: list | None = None) -> str | None:
     """The highest Share-panel role `email` holds on `project`: project owner,
     else the best of an explicit member_roles entry, a bare member_emails entry
     (editor - see below), or any TaskTeam scoped to this project, else "editor"
@@ -667,7 +667,9 @@ def project_role_for(db: Session, email: str, project) -> str | None:
     # because it is read above and this never lowers a rank.
     if not role and email in email_list(project.member_emails):
         role, best_rank = "editor", PROJECT_ROLE_RANK["editor"]
-    for t in db.query(TaskTeam).all():
+    # `teams`: every TaskTeam, when the caller already loaded them for a
+    # batch (task_card_preview) - the same rows, read once.
+    for t in (teams if teams is not None else db.query(TaskTeam).all()):
         if not team_is_approved(t):
             continue        # see visible_project_ids
         if project.id in team_project_ids(t) and email in email_list(t.member_emails):

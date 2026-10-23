@@ -129,13 +129,18 @@ def task_to_dict(t: models.Task) -> dict:
     }
 
 
-def _with_previews(db: Session, rows: list) -> list:
+def _with_previews(db: Session, rows: list, user: dict) -> list:
     """task_to_dict for each row plus its board card's `cardPreview` (null
-    when the card shows nothing), built for all of them at once - two queries
-    at most, however many rows (task_card_preview.card_previews). Only ever
-    called with rows the caller may see, so a preview never leaks a file or a
-    checklist line of a task that was filtered out."""
-    previews = task_card_preview.card_previews(db, rows)
+    when the card shows nothing), built for all of them at once - a fixed
+    handful of queries however many rows (task_card_preview.card_previews).
+    Only ever called with rows `user` may see, so a preview never leaks a
+    file of a task that was filtered out; checklist lines show only where
+    `user` may read the checklist.
+
+    Built for every list answer: the store loads one task list for all of
+    the module's views, so there is no request that is known never to reach
+    a board."""
+    previews = task_card_preview.card_previews(db, rows, user)
     return [{**task_to_dict(t), "cardPreview": previews.get(t.id)} for t in rows]
 
 
@@ -2044,11 +2049,11 @@ def _series_groups(rows: list, by_id: Optional[dict] = None) -> list[list[models
 def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = wall_tasks(db, user, db.query(models.Task).all())   # company wall first
     if is_manager(user):
-        return _with_previews(db, rows)
+        return _with_previews(db, rows, user)
     # Pass the USER dict, not just the email: the helpers scope external
     # (B2B guest) callers to explicit participation only (Aug 17).
     visible_projects = visible_project_ids(db, user)
-    return _with_previews(db, [t for t in rows if task_is_visible(t, user, visible_projects)])
+    return _with_previews(db, [t for t in rows if task_is_visible(t, user, visible_projects)], user)
 
 
 def _csv_set(value: str) -> set:
@@ -2557,7 +2562,7 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
         if i and i not in kept and i not in seen:
             seen.add(i)
             deleted_ids.append(i)
-    return {"tasks": _with_previews(db, rows),
+    return {"tasks": _with_previews(db, rows, user),
             "deletedIds": deleted_ids,
             "serverTime": server_time}
 
@@ -3094,7 +3099,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
                                   due_entry_at=(due_entry or {}).get("at") or "")
     # With its card preview: the client puts this copy in place of its own,
     # so a task without one would lose its cover until the next refresh.
-    return _with_previews(db, [t])[0]
+    return _with_previews(db, [t], user)[0]
 
 
 class RescheduleBody(BaseModel):
@@ -4191,7 +4196,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         task_automation.run_after_commit(db, auto)
     fire_task_event("", "bulk")
     # With their card previews: the client swaps these copies in for its own.
-    out = _with_previews(db, rows)
+    out = _with_previews(db, rows, user)
     if dates is None:
         return out
     changed = sum(1 for t in rows if (t.due_on or "")[:10] != before_due[t.id]

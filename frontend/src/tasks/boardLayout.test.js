@@ -1,7 +1,7 @@
 // The Board's columns and swimlanes (Planner's board, Oct 22 2026).
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  boardPrefs, boardSetup, boardHasSections, columnOptions, dueColumns, dueColumnOf, effectiveLanes, laneOptions,
+  boardPrefs, boardSetup, boardHasSections, columnOptions, dueColumns, dueColumnOf, dueBoardColumns, dueColumnForTask, effectiveLanes, laneOptions,
   labelLaneTags, assigneeLanePeople, laneAddDefaults, isCoverCandidate,
 } from './boardLayout';
 import { calendarDatePatch } from './calendarMove';
@@ -48,6 +48,13 @@ describe('Due Date columns', () => {
     expect(dueColumnOf('2026-11-01', '2026-10-20')).toBe('later');
     expect(dueColumnOf('', '2026-10-20')).toBe('none');
     expect(dueColumnOf('2026-10-21T15:00', '2026-10-20')).toBe('tomorrow');   // a time does not move the day
+  });
+
+  it('a completed task is in Completed, never Overdue, whatever its date', () => {
+    expect(keys(dueBoardColumns('2026-10-20')).at(-1)).toBe('completed');
+    expect(dueColumnForTask({ dueOn: '2026-10-01', completed: true }, '2026-10-20')).toBe('completed');
+    expect(dueColumnForTask({ dueOn: '2026-10-21', completed: true }, '2026-10-20')).toBe('completed');
+    expect(dueColumnForTask({ dueOn: '2026-10-01' }, '2026-10-20')).toBe('overdue');
   });
 
   it('a Friday or Saturday has no This Week left; next week starts after tomorrow', () => {
@@ -114,9 +121,10 @@ describe('Group on Board = the swimlanes', () => {
   it('remembers mine first, then a default Board, then my general choice', () => {
     expect(boardPrefs({ lanes: 'label' }, { view: 'board', group: 'assignee', columns: 'due' }, { lanes: 'priority', columns: 'priority', previews: false }))
       .toEqual({ lanes: 'label', columns: 'due', previews: false });
-    // A default Board's own lanes; one saved before lanes existed uses its group.
+    // A default Board's own lanes; one saved before lanes existed opens with
+    // none - its `group` is the List's grouping, not lanes anybody chose.
     expect(boardPrefs(null, { view: 'board', group: 'status', lanes: 'label' }, null).lanes).toBe('label');
-    expect(boardPrefs(null, { view: 'board', group: 'assignee' }, null).lanes).toBe('assignee');
+    expect(boardPrefs(null, { view: 'board', group: 'assignee' }, null).lanes).toBe('none');
     // A default List says nothing about the board.
     expect(boardPrefs(null, { view: 'list', group: 'status' }, { lanes: 'priority' })).toEqual({ lanes: 'priority', columns: 'status', previews: true });
     expect(boardPrefs(null, null, null)).toEqual({ lanes: 'none', columns: 'status', previews: true });
