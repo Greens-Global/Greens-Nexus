@@ -90,7 +90,10 @@ function SwitchButton({ on, onClick, label }) {
   );
 }
 
-function DepartmentHeads({ companyId, companyName, depts, people, agents, onSetHead, onSetEnabled, onReorder, onSetDefault, defaultOpen = false }) {
+// The department head is set in one place since Oct 23 - Settings > Companies
+// > the company > Departments (the same row Tasks and tickets read); this
+// shows it. The Default Assignee stays a ticket matter and is set here.
+function DepartmentHeads({ companyId, companyName, depts, people, agents, onSetEnabled, onReorder, onSetDefault, defaultOpen = false }) {
   // Collapsed by default - a company with a lot of departments (a real one
   // has 11) made its card towering over its grid neighbors, forcing scroll
   // through every card just to reach the Save button. Independent per card,
@@ -149,10 +152,9 @@ function DepartmentHeads({ companyId, companyName, depts, people, agents, onSetH
                   <span style={{ width: 110, flexShrink: 0, fontSize: 12.5, color: on ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={on ? d.name : `${d.name} - off for tickets`}>{d.name}</span>
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', gap: 8, flexWrap: 'wrap', opacity: on ? 1 : 0.6 }}>
-                    <div style={{ flex: '1 1 160px', minWidth: 0 }} title="Department Head - gets escalations">
-                      <PersonSelect value={d.leadEmail || null} people={people}
-                        onChange={(email) => onSetHead(d.id, email || '').catch((e) => dialog.alert(e.message || 'Could not set department head.'))}
-                        placeholder="No department head set" />
+                    <div style={{ flex: '1 1 160px', minWidth: 0, fontSize: 12.5, color: d.leadEmail ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', alignSelf: 'center' }}
+                      title="Department Head - gets escalations. Set under Settings > Companies > the company > Departments.">
+                      {d.leadEmail ? ((people || []).find((p) => (p.email || '').toLowerCase() === d.leadEmail.toLowerCase())?.name || d.leadEmail) : 'No department head set'}
                     </div>
                     {/* Default Assignee (Oct 2026, ticket_auto_assign.py): a
                         new ticket filed here that nobody assigned goes
@@ -279,10 +281,6 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
   // back into the flat list rather than refetching everyone else's.
   const mergeDepts = (companyId, rows) =>
     setDepts((d) => [...d.filter((x) => x.companyId !== companyId), ...rows]);
-  const setDeptHead = (deptId, email) => {
-    const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
-    return api.setTicketDepartmentHead(deptId, email).then((rows) => mergeDepts(companyId, rows));
-  };
   const setDeptDefault = (deptId, email) => {
     const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
     return api.setTicketDepartmentDefaultAssignee(deptId, email).then((rows) => mergeDepts(companyId, rows));
@@ -364,7 +362,7 @@ export default function TicketDeskSettings({ company: scoped = '' }) {
     >
       <DepartmentHeads key={company.id} defaultOpen companyId={company.id} companyName={company.name} people={people}
         depts={depts.filter((d) => d.companyId === company.id)} agents={deskAgents[company.id]}
-        onSetHead={setDeptHead} onSetEnabled={setDeptEnabled} onReorder={reorderDepts} onSetDefault={setDeptDefault} />
+        onSetEnabled={setDeptEnabled} onReorder={reorderDepts} onSetDefault={setDeptDefault} />
     </DeskRoster>
   ) : (
     <DeskRoster

@@ -323,7 +323,13 @@ keep the diff minimal.
   of a module or a company and is changed rarely by an administrator; a
   module keeps what its managers maintain daily (Tasks > Manage, KB
   collections, Accounting's own tools stay put). Copy says "Settings >
-  <subject>", never "Global Settings" / "Company Settings".
+  <subject>", never "Global Settings" / "Company Settings". A setting a company
+  may override layers defaults <- tenant row <- `<key>:<company_id>` through
+  `backend/scoped_settings.py` (the pay rules and time-off reasons use it;
+  Shift Settings and Payroll Readiness have the same shape of their own) -
+  readers resolve by the EMPLOYEE's company (`_round_min(db, email)`,
+  `_break_cfg_for`, `_compute_timecard`), so a company with no override
+  reads the tenant row exactly as before.
 
 ## Asana — removed (Sep 2026)
 

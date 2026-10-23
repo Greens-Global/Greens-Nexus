@@ -408,16 +408,20 @@ function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes
 // Custom time-off reasons (e.g. "Jury Duty") next to the built-in ones.
 // Settings > Time & Pay > Time-Off Reasons (Oct 23; it used to sit inside
 // Shift Settings, where a company pick hid it).
-export function TimeOffReasons({ toastOk, toastErr }) {
+// `company` (Settings' scope picker): that company's own list, over the
+// default for every company; '' edits the default.
+export function TimeOffReasons({ toastOk, toastErr, company = '' }) {
   const [list, setList] = useState(null);
   const [draft, setDraft] = useState('');
+  const [own, setOwn] = useState(false);   // the company has a list of its own
   useEffect(() => {
     let live = true;
-    api.timeOffTypes().then((r) => { if (live) setList(r.custom || []); }).catch(() => { if (live) setList([]); });
+    // 'default' = the list for every company (the server otherwise answers with the caller's own company's).
+    api.timeOffTypes(company || 'default').then((r) => { if (live) { setList(r.custom || []); setOwn(!!r.hasOverride); } }).catch(() => { if (live) setList([]); });
     return () => { live = false; };
-  }, []);
-  async function save(next) {
-    try { const r = await api.timeOffTypesSave({ custom: next }); setList(r.custom); setDraft(''); toastOk?.('Time-off reasons saved.'); }
+  }, [company]);
+  async function save(next, reset = false) {
+    try { const r = await api.timeOffTypesSave(reset ? { custom: [], reset: true } : { custom: next }, company || 'default'); setList(r.custom); setOwn(!!r.hasOverride); setDraft(''); toastOk?.(reset ? 'Back to the default reasons.' : 'Time-off reasons saved.'); }
     catch (e) { toastErr?.(e.message || 'Could not save the reasons.'); }
   }
   if (!list) return null;
@@ -437,6 +441,12 @@ export function TimeOffReasons({ toastOk, toastErr }) {
           onKeyDown={(e) => { if (e.key === 'Enter') add(); }} style={{ width: 150, fontSize: 12.5, padding: '3px 8px' }} />
         <button type="button" className="secondary-btn" onClick={add} disabled={!draft.trim()} style={{ fontSize: 12 }}>Add Reason</button>
       </div>
+      {company && (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {own ? 'This company has reasons of its own.' : 'Using the default reasons; a change here is this company\'s alone.'}
+          {own && <button type="button" className="secondary-btn" onClick={() => save([], true)} style={{ fontSize: 11.5 }}>Use the Default</button>}
+        </div>
+      )}
     </div>
   );
 }

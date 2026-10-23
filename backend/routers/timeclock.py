@@ -43,6 +43,7 @@ from sqlalchemy.exc import IntegrityError
 
 from database import get_db
 from notify_company import notification_company
+import scoped_settings
 from auth import (get_current_user, require_level_or_module, require_administrator,
                   require_module_grant, require_level_or_modules, _module_level, _LEVELS,
                   _MODULE_LEVEL_RANK)
@@ -1391,7 +1392,7 @@ def _notify_offline_punch(db: Session, row) -> None:
 def my_timesheet(start: str = "", end: str = "",
                  user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _mine = _live_punches(db, user["email"], start, end)
-    return {"days": _day_summaries(_mine, _round_min(db), break_cfg=_break_cfg_for(db, user["email"]),
+    return {"days": _day_summaries(_mine, _round_min(db, user["email"]), break_cfg=_break_cfg_for(db, user["email"]),
                                    geo=_live_geo(db, user["email"], _mine)),
             # My HR hides its hours widgets for salaried/exempt people (Charmi, Aug 21)
             "timeTrackingExempt": is_time_tracking_exempt(db, user["email"])}
@@ -1414,7 +1415,15 @@ def _left_before(emp, start: str) -> bool:
 
 
 def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixed: bool = False) -> list:
-    rmin = _round_min(db)   # round like the pay engine so review == paid
+    # Round and credit breaks like the pay engine so review == paid - each
+    # person by their own company's rules (Oct 23), read once per company.
+    _rules_by_co = {}
+
+    def _rules_of(co: str):
+        if co not in _rules_by_co:
+            _r = _rounding_cfg(db, co)
+            _rules_by_co[co] = (_r["nearestMin"] if _r["enabled"] else 0, _breakpolicy_cfg(db, co))
+        return _rules_by_co[co]
     q = db.query(TimePunch).filter(TimePunch.voided == 0)
     if only_emails is not None:
         q = q.filter(TimePunch.employee_email.in_(only_emails))
@@ -1433,9 +1442,9 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
     _ents = {x.id: x.name or "" for x in db.query(HrEntity).all()}
     depts = {e.work_email: e.department or "" for e in _emps}
     companies = {e.work_email: _ents.get(e.company or "", "") for e in _emps}
+    _co_of = {(e.work_email or "").lower(): e.company or "" for e in _emps}
     # Break policy per employee (the paid rest-break credit is CA-rule only) -
     # bulk-load rules so this stays one query, not one per person.
-    _bp = _breakpolicy_cfg(db)
     _rates = {r.employee_email: r for r in db.query(PayrollRate).all()}
     _rules = {em: (getattr(r, "overtime_rule", None) or "ca") for em, r in _rates.items()}
     _tt_exempt = time_tracking_exempt_emails(db)
@@ -1474,6 +1483,7 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
     rows = []
     for email in sorted(set(by_emp) | roster):
         plist = by_emp.get(email, [])
+        rmin, _bp = _rules_of(_co_of.get((email or "").lower(), ""))
         days = _day_summaries(plist, rmin,
                               break_cfg={**_bp, "enabled": _bp["enabled"] and _rules.get(email, "ca") == "ca"},
                               geo=_live_geo(db, email, plist)) if plist else {}
@@ -1782,7 +1792,7 @@ def _period_exceptions(db: Session, email: str, start: str, end: str, with_pendi
     punches = _live_punches(db, email, start, _end_nx)
     if with_pending:
         punches = _with_pending_fixes(db, email, punches, start, _end_nx)
-    summ = _day_summaries(punches, _round_min(db), break_cfg=_break_cfg_for(db, email))
+    summ = _day_summaries(punches, _round_min(db, email), break_cfg=_break_cfg_for(db, email))
     out = []
     for d in sorted(summ):
         if end and d > end:
@@ -1976,7 +1986,7 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
             # available to pair with this day's in-punch - otherwise the locked-in
             # approved minutes would be short by the whole after-midnight portion.
             _nx = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
-            worked = _day_summaries(_live_punches(db, email, day, _nx), _round_min(db),
+            worked = _day_summaries(_live_punches(db, email, day, _nx), _round_min(db, email),
                                     break_cfg=_break_cfg_for(db, email)).get(day, {}).get("workedMin", 0)
             old = (db.query(TimeApproval)
                    .filter(TimeApproval.employee_email == email,
@@ -2017,7 +2027,7 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
     # extra day's own shifts don't inflate the total.
     _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat() if body.end else body.end
     worked = sum(v["workedMin"] for k, v in _day_summaries(
-        _live_punches(db, email, body.start, _end_nx), _round_min(db),
+        _live_punches(db, email, body.start, _end_nx), _round_min(db, email),
         break_cfg=_break_cfg_for(db, email)).items()
         if not body.end or k <= body.end)
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
@@ -2152,7 +2162,7 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                        "missedFullDays", "missedHalfDays", "weekendDaysWorked", "missedReasons")}
     else:
         worked = sum(v["workedMin"] for k, v in _day_summaries(
-            _live_punches(db, email, body.start, _end_nx), _round_min(db),
+            _live_punches(db, email, body.start, _end_nx), _round_min(db, email),
             break_cfg=_break_cfg_for(db, email)).items() if k <= body.end)
     # The rate each day of the period was priced at on the live card (the dated
     # history, _rate_on) - frozen day by day (Oct 17 2026, Neil). One rate for
@@ -3894,7 +3904,7 @@ def _day_problems(db: Session, email: str, punches: list, days: set) -> set:
     """(local_date, problem) pairs that block sign-off - judged by the SAME
     engine the timesheet, Submit and HR sign-off use (_day_summaries), plus a
     clock-out earlier than its clock-in (_inverted_days)."""
-    summ = _day_summaries(punches, _round_min(db), break_cfg=_break_cfg_for(db, email))
+    summ = _day_summaries(punches, _round_min(db, email), break_cfg=_break_cfg_for(db, email))
     out = {(d, f) for d, v in summ.items() if d in days for f in v.get("flags", []) if f in _BLOCKING_EXCEPTIONS}
     return out | {(d, "inverted") for d in _inverted_days(punches, days)}
 
@@ -9331,47 +9341,77 @@ _AUTOLUNCH_KEY = "timeclock_autolunch"
 _AUTOLUNCH_DEFAULT = {"enabled": False, "afterMin": 360, "deductMin": 30}
 
 
-def _autolunch_cfg(db: Session) -> dict:
+# ── Pay rules per company (Settings redesign phase 4, Oct 23 2026) ─────────
+# Punch rounding, auto-lunch and the CA break policy each layer defaults <-
+# the tenant row <- a company's override (scoped_settings.py). Every reader
+# resolves by the EMPLOYEE's company (_company_of): a company with no
+# override reads the tenant row exactly as before, so nothing moves until an
+# administrator saves one. The routes take ?company=<id> to read or save a
+# company's own; `reset` drops it.
+
+def _company_of(db: Session, email: str) -> str:
+    return scoped_settings.company_of_email(db, email) if email else ""
+
+
+def _pay_company(db: Session, company: str) -> str:
+    from models import HrEntity
+    cid = (company or "").strip()
+    if cid and not db.query(HrEntity.id).filter(HrEntity.id == cid).first():
+        raise HTTPException(404, "Company not found.")
+    return cid
+
+
+def _pay_rule_payload(db: Session, key: str, cfg: dict, company_id: str) -> dict:
+    """A rule as the Settings screen reads it: the rule itself, whose it is,
+    whether the company has one of its own, and the companies to pick from."""
+    from models import HrEntity
+    return {**cfg, "company": company_id, "hasOverride": scoped_settings.has_override(db, key, company_id),
+            "companies": [{"id": e.id, "name": e.name or ""} for e in db.query(HrEntity).order_by(HrEntity.name).all()]}
+
+
+def _save_pay_rule(db: Session, key: str, cfg: dict, company_id: str, reset: bool, user: dict) -> None:
+    if reset and company_id:
+        scoped_settings.reset(db, key, company_id)
+    else:
+        scoped_settings.save(db, key, company_id, cfg, user["email"])
+    db.commit()
+
+
+def _autolunch_cfg(db: Session, company_id: str = "") -> dict:
     """Auto-lunch deduction rule: deduct `deductMin` from a worked segment that ran
     at least `afterMin` with NO recorded break (the person forgot to clock lunch).
     Off by default so it never silently changes pay until an admin enables it."""
-    row = db.query(NexusSetting).filter(NexusSetting.key == _AUTOLUNCH_KEY).first()
-    cfg = dict(_AUTOLUNCH_DEFAULT)
-    if row and row.value:
-        try:
-            cfg.update({k: v for k, v in json.loads(row.value).items() if k in cfg})
-        except (ValueError, TypeError):
-            pass
-    cfg["enabled"] = bool(cfg.get("enabled"))
-    cfg["afterMin"] = max(0, int(cfg.get("afterMin") or 0))
-    cfg["deductMin"] = max(0, int(cfg.get("deductMin") or 0))
+    cfg = scoped_settings.get(db, _AUTOLUNCH_KEY, _AUTOLUNCH_DEFAULT, company_id)
+    try:
+        cfg["enabled"] = bool(cfg.get("enabled"))
+        cfg["afterMin"] = max(0, int(cfg.get("afterMin") or 0))
+        cfg["deductMin"] = max(0, int(cfg.get("deductMin") or 0))
+    except (ValueError, TypeError):
+        cfg = dict(_AUTOLUNCH_DEFAULT)
     return cfg
 
 
 @router.get("/payroll/autolunch")
-def get_autolunch(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    return _autolunch_cfg(db)
+def get_autolunch(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    cid = _pay_company(db, company)
+    return _pay_rule_payload(db, _AUTOLUNCH_KEY, _autolunch_cfg(db, cid), cid)
 
 
 class AutoLunchIn(BaseModel):
     enabled: bool = False
     afterMin: int = 360
     deductMin: int = 30
+    reset: bool = False
 
 
 @router.put("/payroll/autolunch")
-def set_autolunch(body: AutoLunchIn, user: dict = Depends(require_administrator),
+def set_autolunch(body: AutoLunchIn, company: str = "", user: dict = Depends(require_administrator),
                   db: Session = Depends(get_db)):
+    cid = _pay_company(db, company)
     cfg = {"enabled": bool(body.enabled), "afterMin": max(0, int(body.afterMin)),
            "deductMin": max(0, int(body.deductMin))}
-    row = db.query(NexusSetting).filter(NexusSetting.key == _AUTOLUNCH_KEY).first()
-    if not row:
-        row = NexusSetting(key=_AUTOLUNCH_KEY)
-        db.add(row)
-    row.value = json.dumps(cfg)
-    row.updated_by = user["email"]
-    db.commit()
-    return cfg
+    _save_pay_rule(db, _AUTOLUNCH_KEY, cfg, cid, body.reset, user)
+    return _pay_rule_payload(db, _AUTOLUNCH_KEY, _autolunch_cfg(db, cid), cid)
 
 
 # ── Punch rounding (SwipeClock parity) ─────────────────────────────────────────
@@ -9384,28 +9424,26 @@ _ROUNDING_KEY = "timeclock_rounding"
 # OFF by default (Charmi, Sep 30): an admin turns it on under Settings > Global
 # Settings > Time Clock when the company has a rounding policy. PROD carries an
 # explicit nexus_settings row (enabled, nearest 5), so Greens' SwipeClock
-# parity is unchanged by this default. Per-company scoping (one rule per
-# hr_entities company) is deferred - today one tenant-wide key.
+# parity is unchanged by this default. Per company since Oct 23 2026: a
+# company's override (scoped_settings) wins over the tenant row.
 _ROUNDING_DEFAULT = {"enabled": False, "nearestMin": 5}
 
 
-def _rounding_cfg(db: Session) -> dict:
-    row = db.query(NexusSetting).filter(NexusSetting.key == _ROUNDING_KEY).first()
-    cfg = dict(_ROUNDING_DEFAULT)
-    if row and row.value:
-        try:
-            cfg.update({k: v for k, v in json.loads(row.value).items() if k in cfg})
-        except (ValueError, TypeError):
-            pass
-    cfg["enabled"] = bool(cfg.get("enabled"))
-    cfg["nearestMin"] = min(30, max(0, int(cfg.get("nearestMin") or 0)))
+def _rounding_cfg(db: Session, company_id: str = "") -> dict:
+    cfg = scoped_settings.get(db, _ROUNDING_KEY, _ROUNDING_DEFAULT, company_id)
+    try:
+        cfg["enabled"] = bool(cfg.get("enabled"))
+        cfg["nearestMin"] = min(30, max(0, int(cfg.get("nearestMin") or 0)))
+    except (ValueError, TypeError):
+        cfg = dict(_ROUNDING_DEFAULT)
     return cfg
 
 
-def _round_min(db: Session) -> int:
+def _round_min(db: Session, email: str = "") -> int:
     """The active punch-rounding step (0 when rounding is off) - the value to pass
-    to _day_summaries so its totals match the rounded PAY engine."""
-    c = _rounding_cfg(db)
+    to _day_summaries so its totals match the rounded PAY engine. With `email`,
+    that person's company's rule."""
+    c = _rounding_cfg(db, _company_of(db, email))
     return c["nearestMin"] if c["enabled"] else 0
 
 
@@ -9421,27 +9459,24 @@ def _round_punch(t: datetime, nearest: int) -> datetime:
 
 
 @router.get("/payroll/rounding")
-def get_rounding(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    return _rounding_cfg(db)
+def get_rounding(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    cid = _pay_company(db, company)
+    return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid)
 
 
 class RoundingIn(BaseModel):
     enabled: bool = True
     nearestMin: int = 5
+    reset: bool = False
 
 
 @router.put("/payroll/rounding")
-def set_rounding(body: RoundingIn, user: dict = Depends(require_administrator),
+def set_rounding(body: RoundingIn, company: str = "", user: dict = Depends(require_administrator),
                  db: Session = Depends(get_db)):
+    cid = _pay_company(db, company)
     cfg = {"enabled": bool(body.enabled), "nearestMin": min(30, max(0, int(body.nearestMin)))}
-    row = db.query(NexusSetting).filter(NexusSetting.key == _ROUNDING_KEY).first()
-    if not row:
-        row = NexusSetting(key=_ROUNDING_KEY)
-        db.add(row)
-    row.value = json.dumps(cfg)
-    row.updated_by = user["email"]
-    db.commit()
-    return cfg
+    _save_pay_rule(db, _ROUNDING_KEY, cfg, cid, body.reset, user)
+    return _pay_rule_payload(db, _ROUNDING_KEY, _rounding_cfg(db, cid), cid)
 
 
 # ── Payroll export codes (Neil, Oct 17 2026) ──────────────────────────────────
@@ -9559,27 +9594,24 @@ _BREAKPOLICY_KEY = "timeclock_breakpolicy"
 _BREAKPOLICY_DEFAULT = {"enabled": False, "paidBreakMin": 10, "restMaxMin": 20, "longBreakMin": 75}
 
 
-def _breakpolicy_cfg(db: Session) -> dict:
-    row = db.query(NexusSetting).filter(NexusSetting.key == _BREAKPOLICY_KEY).first()
-    cfg = dict(_BREAKPOLICY_DEFAULT)
-    if row and row.value:
-        try:
-            cfg.update({k: v for k, v in json.loads(row.value).items() if k in cfg})
-        except (ValueError, TypeError):
-            pass
-    cfg["enabled"] = bool(cfg.get("enabled"))
-    cfg["paidBreakMin"] = max(0, int(cfg.get("paidBreakMin") or 0))
-    cfg["restMaxMin"] = max(1, int(cfg.get("restMaxMin") or 1))
-    cfg["longBreakMin"] = max(15, int(cfg.get("longBreakMin") or 75))
+def _breakpolicy_cfg(db: Session, company_id: str = "") -> dict:
+    cfg = scoped_settings.get(db, _BREAKPOLICY_KEY, _BREAKPOLICY_DEFAULT, company_id)
+    try:
+        cfg["enabled"] = bool(cfg.get("enabled"))
+        cfg["paidBreakMin"] = max(0, int(cfg.get("paidBreakMin") or 0))
+        cfg["restMaxMin"] = max(1, int(cfg.get("restMaxMin") or 1))
+        cfg["longBreakMin"] = max(15, int(cfg.get("longBreakMin") or 75))
+    except (ValueError, TypeError):
+        cfg = dict(_BREAKPOLICY_DEFAULT)
     return cfg
 
 
 def _break_cfg_for(db: Session, email: str, cfg: dict = None) -> dict:
-    """The break policy as it applies to ONE employee: the paid rest-break
-    credit only exists under California law, so `enabled` is forced off for
-    federal/none-rule employees (India etc. - their local law is handled
-    off-Nexus). Flags stay on for everyone."""
-    cfg = cfg or _breakpolicy_cfg(db)
+    """The break policy as it applies to ONE employee - their company's rule
+    (Oct 23) - and the paid rest-break credit only exists under California
+    law, so `enabled` is forced off for federal/none-rule employees (India
+    etc. - their local law is handled off-Nexus). Flags stay on for everyone."""
+    cfg = cfg or _breakpolicy_cfg(db, _company_of(db, email))
     rr = db.query(PayrollRate).filter(PayrollRate.employee_email == email).first()
     rule = (getattr(rr, "overtime_rule", None) or "ca") if rr else "ca"
     return {**cfg, "enabled": cfg["enabled"] and rule == "ca"}
@@ -9621,8 +9653,9 @@ def _paid_break_credit(windows: list, worked_min: int, cfg: dict) -> int:
 
 
 @router.get("/payroll/breakpolicy")
-def get_breakpolicy(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    return _breakpolicy_cfg(db)
+def get_breakpolicy(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    cid = _pay_company(db, company)
+    return _pay_rule_payload(db, _BREAKPOLICY_KEY, _breakpolicy_cfg(db, cid), cid)
 
 
 class BreakPolicyIn(BaseModel):
@@ -9630,21 +9663,17 @@ class BreakPolicyIn(BaseModel):
     paidBreakMin: int = 10
     restMaxMin: int = 20
     longBreakMin: int = 75
+    reset: bool = False
 
 
 @router.put("/payroll/breakpolicy")
-def set_breakpolicy(body: BreakPolicyIn, user: dict = Depends(require_administrator),
+def set_breakpolicy(body: BreakPolicyIn, company: str = "", user: dict = Depends(require_administrator),
                     db: Session = Depends(get_db)):
+    cid = _pay_company(db, company)
     cfg = {"enabled": bool(body.enabled), "paidBreakMin": max(0, int(body.paidBreakMin)),
            "restMaxMin": max(1, int(body.restMaxMin)), "longBreakMin": max(15, int(body.longBreakMin))}
-    row = db.query(NexusSetting).filter(NexusSetting.key == _BREAKPOLICY_KEY).first()
-    if not row:
-        row = NexusSetting(key=_BREAKPOLICY_KEY)
-        db.add(row)
-    row.value = json.dumps(cfg)
-    row.updated_by = user["email"]
-    db.commit()
-    return cfg
+    _save_pay_rule(db, _BREAKPOLICY_KEY, cfg, cid, body.reset, user)
+    return _pay_rule_payload(db, _BREAKPOLICY_KEY, _breakpolicy_cfg(db, cid), cid)
 
 
 @router.get("/team-exceptions")
@@ -9766,8 +9795,10 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         return int(q.distance_m or 0) if q else 0
     # SwipeClock-parity rounding: rounded times drive ALL math below; the raw
     # punch strings are still emitted per segment so the UI can offer a
-    # "show unrounded times" view, mirroring SwipeClock exactly.
-    _rnd = _rounding_cfg(db)
+    # "show unrounded times" view, mirroring SwipeClock exactly. Every pay
+    # rule below is the employee's company's (Oct 23).
+    _co = _company_of(db, em)
+    _rnd = _rounding_cfg(db, _co)
     # round_min override: fixed-salary employees pass 0 (no rounding) since their pay
     # is day-based, not per-minute - nearest-5 rounding just makes real punch times
     # look wrong (e.g. 9:46 -> 9:45). Hourly keeps SwipeClock rounding (round_min=None).
@@ -9818,7 +9849,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     dept = (emp.department if emp else "") or ""
     # Break policy: flags always; the paid rest-break credit only for CA-rule
     # employees with the policy enabled (must mirror _day_summaries).
-    _bp = _breakpolicy_cfg(db)
+    _bp = _breakpolicy_cfg(db, _co)
     _bp_eff = {**_bp, "enabled": _bp["enabled"] and rule == "ca"}
     _long_min = _bp_eff["longBreakMin"]
     # CA meal detection + meal/rest premiums (Neil, Oct 17 2026 - ca_breaks.py):
@@ -10001,7 +10032,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
 
     # Auto-lunch: deduct a lunch from a long segment that recorded no break, before
     # any totals/overtime are computed (so the deduction flows through to pay).
-    al = _autolunch_cfg(db)
+    al = _autolunch_cfg(db, _co)
     total_deducted = 0
     for segs in segs_by_day.values():
         for s in segs:
@@ -11363,19 +11394,32 @@ _TIMEOFF_DEFAULT_REASONS = ("Approved Time Off", "Off", "Holiday", "Parental Lea
                             "Medical Appointment", "Work From Home", "Requested Off")
 
 
-def _custom_timeoff_types(db: Session) -> list:
-    """Admin-added time-off reasons (Sep 29, Teams parity), e.g. "Jury Duty".
-    Stored as the label itself. Payroll's leave pay classes come from punch
-    job categories (_leave_class), not from this type, so a new reason never
-    changes pay."""
-    row = db.query(NexusSetting).filter(NexusSetting.key == _TIMEOFF_REASONS_KEY).first()
+def _timeoff_reasons_saved(db: Session, company_id: str = ""):
+    """The list saved for the tenant ('' company) or a company's own, or None
+    when nothing is saved under that key."""
+    row = db.get(NexusSetting, scoped_settings.key_for(_TIMEOFF_REASONS_KEY, company_id))
     if row is None:
-        return list(_TIMEOFF_DEFAULT_REASONS)
+        return None
     try:
         v = json.loads(row.value) if row.value else []
     except (TypeError, ValueError):
         return []
     return [str(x) for x in v if str(x).strip()] if isinstance(v, list) else []
+
+
+def _custom_timeoff_types(db: Session, company_id: str = "") -> list:
+    """Admin-added time-off reasons (Sep 29, Teams parity), e.g. "Jury Duty".
+    Stored as the label itself. Per company since Oct 23: a company's own
+    list wins over the tenant's, and the built-in defaults stand until
+    someone saves either. Payroll's leave pay classes come from punch job
+    categories (_leave_class), not from this type, so a new reason never
+    changes pay."""
+    if company_id:
+        own = _timeoff_reasons_saved(db, company_id)
+        if own is not None:
+            return own
+    tenant = _timeoff_reasons_saved(db)
+    return list(_TIMEOFF_DEFAULT_REASONS) if tenant is None else tenant
 
 
 # The employee request form's fixed list (Neil, Oct 1): Personal, Sick,
@@ -11385,8 +11429,9 @@ def _custom_timeoff_types(db: Session) -> list:
 _REQUEST_FORM_TYPES = ("Medical Appointment",)
 
 
-def _check_timeoff_type(db: Session, t: str) -> None:
-    allowed = TIMEOFF_TYPES + _REQUEST_FORM_TYPES + tuple(_custom_timeoff_types(db))
+def _check_timeoff_type(db: Session, t: str, email: str = "") -> None:
+    """`email`: the person the request is for - their company's reasons."""
+    allowed = TIMEOFF_TYPES + _REQUEST_FORM_TYPES + tuple(_custom_timeoff_types(db, _company_of(db, email)))
     if (t or "").strip().lower() not in {x.lower() for x in allowed}:
         raise HTTPException(400, f"type must be one of {allowed}")
 
@@ -11423,22 +11468,46 @@ def _timeoff_requests_on(db: Session, email: str = "") -> bool:
     return bool(cfg.get("timeOffRequests", True))
 
 
+def _reasons_company(db: Session, company: str, user: dict) -> str:
+    """Whose reasons a /timeoff/types call means: a company id, 'default'
+    for the tenant list (Settings at Every company), or nothing for the
+    caller's own company (the request form)."""
+    if company == "default":
+        return ""
+    if company:
+        return _pay_company(db, company)
+    return _company_of(db, user.get("email") or "")
+
+
 @router.get("/timeoff/types")
-def timeoff_types(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    return {"builtIn": list(TIMEOFF_TYPES), "custom": _custom_timeoff_types(db),
+def timeoff_types(company: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    cid = _reasons_company(db, company, user)
+    return {"builtIn": list(TIMEOFF_TYPES), "custom": _custom_timeoff_types(db, cid),
+            "hasOverride": bool(cid) and _timeoff_reasons_saved(db, cid) is not None,
             "requestsOn": _timeoff_requests_on(db, user.get("email") or "")}
 
 
 class TimeOffTypesIn(BaseModel):
     custom: List[str] = []
+    reset: bool = False   # a company: drop its own list and follow the default
 
 
 @router.put("/timeoff/types")
-def save_timeoff_types(body: TimeOffTypesIn, user: dict = Depends(require_team_write),
+def save_timeoff_types(body: TimeOffTypesIn, company: str = "", user: dict = Depends(require_team_write),
                        db: Session = Depends(get_db)):
-    """Replace the custom time-off reasons. Removing one leaves existing
-    requests of that type as they are."""
-    _require_unscoped_team(user, db)   # company-wide, like the other shift switches
+    """Replace the custom time-off reasons - the default for every company,
+    or one company's own (?company=). Removing one leaves existing requests
+    of that type as they are."""
+    cid = "" if company in ("", "default") else _pay_company(db, company)
+    if cid:
+        _require_company_manage(user, db, cid, "time-off reasons")
+    else:
+        _require_unscoped_team(user, db)   # company-wide, like the other shift switches
+    if body.reset and cid:
+        scoped_settings.reset(db, _TIMEOFF_REASONS_KEY, cid)
+        db.commit()
+        return {"builtIn": list(TIMEOFF_TYPES), "custom": _custom_timeoff_types(db, cid), "hasOverride": False,
+                "requestsOn": _timeoff_requests_on(db)}
     out, seen = [], set(TIMEOFF_TYPES)
     for v in body.custom:
         label = " ".join(str(v or "").split())[:40]
@@ -11447,15 +11516,16 @@ def save_timeoff_types(body: TimeOffTypesIn, user: dict = Depends(require_team_w
             out.append(label)
     if len(out) > _TIMEOFF_REASONS_MAX:
         raise HTTPException(400, f"Add at most {_TIMEOFF_REASONS_MAX} reasons.")
-    row = db.query(NexusSetting).filter(NexusSetting.key == _TIMEOFF_REASONS_KEY).first()
+    _key = scoped_settings.key_for(_TIMEOFF_REASONS_KEY, cid)
+    row = db.query(NexusSetting).filter(NexusSetting.key == _key).first()
     if not row:
-        row = NexusSetting(key=_TIMEOFF_REASONS_KEY)
+        row = NexusSetting(key=_key)
         db.add(row)
     row.value = json.dumps(out)
     row.updated_by = user["email"]
     row.updated_at = _now_iso()
     db.commit()
-    return {"builtIn": list(TIMEOFF_TYPES), "custom": out, "requestsOn": _timeoff_requests_on(db)}
+    return {"builtIn": list(TIMEOFF_TYPES), "custom": out, "hasOverride": bool(cid), "requestsOn": _timeoff_requests_on(db)}
 
 
 # ── Confidential time off (Neil, Sep 29) ─────────────────────────────────────
@@ -11680,7 +11750,7 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
         # Admins can switch self-service requests off (Sep 29, Teams parity);
         # a manager can still file one on the person's behalf.
         raise HTTPException(403, "Time-off requests are turned off. Ask your manager to add your time off.")
-    _check_timeoff_type(db, body.type)
+    _check_timeoff_type(db, body.type, user.get("email") or "")
     try:
         s = datetime.strptime(body.start_date, "%Y-%m-%d")
         e = datetime.strptime(body.end_date, "%Y-%m-%d")
@@ -11758,7 +11828,7 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
     normal pending request in the employee's name; requested_by records who
     filed it, the employee is told, and the approval flow is unchanged (the
     filing manager can approve it themselves right after, on the record)."""
-    _check_timeoff_type(db, body.type)
+    _check_timeoff_type(db, body.type, body.employee_email)
     try:
         s = datetime.strptime(body.start_date, "%Y-%m-%d")
         e = datetime.strptime(body.end_date, "%Y-%m-%d")
@@ -12054,7 +12124,7 @@ def _add_time_day_state(db: Session, email: str, d: str) -> dict:
     # _period_exceptions reads one day past its range).
     d0 = date.fromisoformat(d)
     around = _live_punches(db, email, (d0 - timedelta(days=1)).isoformat(), (d0 + timedelta(days=1)).isoformat())
-    summ = _day_summaries(around, _round_min(db), break_cfg=_break_cfg_for(db, email)).get(d, {})
+    summ = _day_summaries(around, _round_min(db, email), break_cfg=_break_cfg_for(db, email)).get(d, {})
     flags = set(summ.get("flags", []))
     own = [p for p in around if p.local_date == d]
     if _clocked_in_now(db, email) == d:

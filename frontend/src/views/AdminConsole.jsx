@@ -303,8 +303,8 @@ const GROUPS = [
     sub: 'Which tickets must name the property they are about, by service area and by help topic.',
     keywords: 'property tickets required service area help topic facility unit link suggest' },
   // Time & Pay
-  { id: 'timeclock-policy', subject: 'pay', face: 'org', scope: 'org', icon: CalendarClock, title: 'Pay Rules',
-    sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks. Applies to every time sheet.',
+  { id: 'timeclock-policy', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Pay Rules',
+    sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks - the default for every time sheet, and each company\'s own.',
     keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california time sheet' },
   { id: 'payroll-export-codes', subject: 'pay', face: 'both', scope: 'company', icon: FileText, title: 'Payroll Export Codes',
     sub: 'The payroll item name each pay class carries in the QuickBooks IIF and the Intacct payroll memo, and the QuickBooks company name, per company.',
@@ -321,7 +321,7 @@ const GROUPS = [
   { id: 'leave-policies', subject: 'pay', face: 'org', scope: 'org', icon: CalendarClock, title: 'Leave Policies',
     sub: 'The vacation and sick policies people are assigned - hours earned per hour worked, caps and carry-over.',
     keywords: 'leave policies vacation sick accrual balance hours earned per hour start date cutover pto carry over' },
-  { id: 'time-off-reasons', subject: 'pay', face: 'org', scope: 'org', icon: CalendarClock, title: 'Time-Off Reasons',
+  { id: 'time-off-reasons', subject: 'pay', face: 'both', scope: 'layered', icon: CalendarClock, title: 'Time-Off Reasons',
     sub: 'The reasons staff can pick when requesting time off, beyond the built-in Vacation, Sick, Personal, Unpaid, 1/2 Day and Other.',
     keywords: 'time off reasons request jury duty bereavement custom' },
   { id: 'intacct-nightly', subject: 'pay', face: 'both', scope: 'company', icon: FileText, title: 'Intacct Nightly Sync',
@@ -1306,7 +1306,7 @@ function SettingsBody({ subject, group, company, onNavigate, entities, refreshEn
       case 'timeclock-policy':
         return (
           <Group key={key} {...g} {...chrome}>
-            <TimeClockPolicyPanel toastOk={toastOk} toastErr={toastErr} />
+            <TimeClockPolicyPanel toastOk={toastOk} toastErr={toastErr} company={company} />
           </Group>
         );
       case 'hiring-documents':     return <HiringSetupSection key={key} id={id} Modal={PacketsModal} label="Open Hiring Documents" chrome={chrome} toastOk={toastOk} toastErr={toastErr} modalProps={company ? { companyId: company, lockCompany: true } : undefined} />;
@@ -1323,7 +1323,7 @@ function SettingsBody({ subject, group, company, onNavigate, entities, refreshEn
       case 'payroll-readiness':    return <LazyPanelSection key={key} id={id} Panel={ReadinessThresholds} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company || undefined} />;
       case 'ca-min-wage':          return <LazyPanelSection key={key} id={id} Panel={MinWageForm} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'leave-policies':       return <LazyPanelSection key={key} id={id} Panel={LeaveSetup} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
-      case 'time-off-reasons':     return <LazyPanelSection key={key} id={id} Panel={TimeOffReasons} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'time-off-reasons':     return <LazyPanelSection key={key} id={id} Panel={TimeOffReasons} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'intacct-nightly':      return <LazyPanelSection key={key} id={id} Panel={IntacctNightlySync} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'letterheads':          return <LazyPanelSection key={key} id={id} Panel={LetterheadsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ticket-property-rules': return <LazyPanelSection key={key} id={id} Panel={TicketPropertyRulesPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
@@ -1576,7 +1576,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
 // the front door moved. Rounding is OFF for a new tenant; PROD keeps its own
 // saved row. Per-company scoping (one rule per hr_entities company) is
 // deferred: today each rule is one tenant-wide key.
-function PolicyCard({ title, desc, enabled, onToggle, busy, children }) {
+function PolicyCard({ title, desc, enabled, onToggle, busy, foot, children }) {
   return (
     <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '14px 16px', marginBottom: 12 }}>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: busy ? 'default' : 'pointer' }}>
@@ -1590,6 +1590,7 @@ function PolicyCard({ title, desc, enabled, onToggle, busy, children }) {
       {enabled && children && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12, paddingLeft: 26 }}>{children}</div>
       )}
+      {foot && <div style={{ marginTop: 10, paddingLeft: 26, fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{foot}</div>}
     </div>
   );
 }
@@ -1604,16 +1605,20 @@ function PolicyNumber({ label, value, onChange, min = 0, max = 999, unit = 'min'
   );
 }
 
-function TimeClockPolicyPanel({ toastOk, toastErr }) {
+// `company` (Settings' scope picker, Oct 23): that company's own rules over
+// the defaults - each card says whether the company has one of its own and
+// offers the default back; '' edits the defaults for every company.
+function TimeClockPolicyPanel({ toastOk, toastErr, company = '' }) {
   const [cfg, setCfg] = useState(null);     // { rounding, autoLunch, breakPolicy } | null while loading
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');     // which card is saving
   const load = useCallback(() => {
     setErr('');
-    Promise.all([api.timeRoundingGet(), api.timeAutoLunchGet(), api.timeBreakPolicyGet()])
+    setCfg(null);
+    Promise.all([api.timeRoundingGet(company), api.timeAutoLunchGet(company), api.timeBreakPolicyGet(company)])
       .then(([rounding, autoLunch, breakPolicy]) => setCfg({ rounding, autoLunch, breakPolicy }))
       .catch(e => setErr(e?.message || 'Could not load the Time Clock settings.'));
-  }, []);
+  }, [company]);
   useEffect(() => { load(); }, [load]);
 
   // Each save writes the whole rule, so a number typed and a switch flipped
@@ -1621,15 +1626,22 @@ function TimeClockPolicyPanel({ toastOk, toastErr }) {
   const save = async (key, next, label) => {
     setBusy(key);
     try {
-      const saved = key === 'rounding' ? await api.timeRoundingSet(next)
-        : key === 'autoLunch' ? await api.timeAutoLunchSet(next)
-        : await api.timeBreakPolicySet(next);
+      const saved = key === 'rounding' ? await api.timeRoundingSet(next, company)
+        : key === 'autoLunch' ? await api.timeAutoLunchSet(next, company)
+        : await api.timeBreakPolicySet(next, company);
       setCfg(c => ({ ...c, [key]: saved }));
-      toastOk?.(`${label} saved.`);
+      toastOk?.(next.reset ? `${label}: back to the default.` : `${label} saved.`);
     } catch (e) { toastErr?.(e?.message || `Could not save ${label.toLowerCase()}.`); }
     setBusy('');
   };
   const num = (v, fallback) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
+  // With a company picked: whose rule the card shows, and the way back to the default.
+  const foot = (key, rule, label) => (company ? (
+    <>
+      {rule.hasOverride ? 'This company has a rule of its own.' : 'Using the default; a change here is this company\'s alone.'}
+      {rule.hasOverride && <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} disabled={busy === key} onClick={() => save(key, { reset: true }, label)}>Use the Default</button>}
+    </>
+  ) : null);
 
   if (err) return <ErrorLine text={err} onRetry={load} />;
   if (!cfg) return <SkeletonBlocks count={3} height={64} borderRadius={12} />;
@@ -1637,9 +1649,11 @@ function TimeClockPolicyPanel({ toastOk, toastErr }) {
   return (
     <div>
       <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
-        These rules shape every time sheet the moment they are saved. They apply to every company today; a rule per company is planned.
+        {company
+          ? 'These rules shape this company\'s time sheets the moment they are saved. A rule the company has not set follows the default for every company.'
+          : 'These rules shape every time sheet the moment they are saved. A company can have rules of its own: pick it in the Scope box.'}
       </div>
-      <PolicyCard title="Punch Rounding" busy={busy === 'rounding'} enabled={rounding.enabled}
+      <PolicyCard title="Punch Rounding" busy={busy === 'rounding'} enabled={rounding.enabled} foot={foot('rounding', rounding, 'Punch rounding')}
         desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (SwipeClock's model; the raw times stay on record and can be shown on the time sheet). Off by default - turn it on only if the company has a rounding policy.`}
         onToggle={on => save('rounding', { enabled: on, nearestMin: rounding.nearestMin || 5 }, 'Punch rounding')}>
         <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin}
@@ -1647,7 +1661,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr }) {
         <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy === 'rounding'}
           onClick={() => save('rounding', { enabled: true, nearestMin: Math.min(30, Math.max(1, num(rounding.nearestMin, 5))) }, 'Punch rounding')}>Save</button>
       </PolicyCard>
-      <PolicyCard title="Auto-Lunch Deduction" busy={busy === 'autoLunch'} enabled={autoLunch.enabled}
+      <PolicyCard title="Auto-Lunch Deduction" busy={busy === 'autoLunch'} enabled={autoLunch.enabled} foot={foot('autoLunch', autoLunch, 'Auto-lunch')}
         desc={`Deduct ${autoLunch.deductMin} minutes of lunch from any shift longer than ${Math.round((autoLunch.afterMin || 0) / 60 * 10) / 10} hours that has no recorded break (the person forgot to clock lunch).`}
         onToggle={on => save('autoLunch', { enabled: on, afterMin: num(autoLunch.afterMin, 360), deductMin: num(autoLunch.deductMin, 30) }, 'Auto-lunch')}>
         <PolicyNumber label="Shifts over" min={0} max={1440} value={autoLunch.afterMin}
@@ -1657,7 +1671,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr }) {
         <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy === 'autoLunch'}
           onClick={() => save('autoLunch', { enabled: true, afterMin: num(autoLunch.afterMin, 360), deductMin: num(autoLunch.deductMin, 30) }, 'Auto-lunch')}>Save</button>
       </PolicyCard>
-      <PolicyCard title="California Paid Rest Breaks" busy={busy === 'breakPolicy'} enabled={breakPolicy.enabled}
+      <PolicyCard title="California Paid Rest Breaks" busy={busy === 'breakPolicy'} enabled={breakPolicy.enabled} foot={foot('breakPolicy', breakPolicy, 'CA paid breaks')}
         desc={`Pay the first ${breakPolicy.paidBreakMin} minutes of each short break (up to ${breakPolicy.restMaxMin} minutes long) - one per 4 hours worked, as California requires. Meal-length breaks stay unpaid. Only employees on the California overtime rule; the long-break flags are always on.`}
         onToggle={on => save('breakPolicy', { ...breakPolicy, enabled: on, paidBreakMin: num(breakPolicy.paidBreakMin, 10), restMaxMin: num(breakPolicy.restMaxMin, 20), longBreakMin: num(breakPolicy.longBreakMin, 75) }, 'CA paid breaks')}>
         <PolicyNumber label="Paid per break" min={0} max={60} value={breakPolicy.paidBreakMin}

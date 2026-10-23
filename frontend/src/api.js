@@ -1760,8 +1760,8 @@ export const api = {
   timeSchedImport:   (data)      => req('/timeclock/schedule/import', { method: 'POST', body: JSON.stringify(data) }),
   availabilityMine:  ()          => req('/timeclock/availability/mine'),
   availabilitySave:  (data)      => req('/timeclock/availability/mine', { method: 'PUT', body: JSON.stringify(data) }),
-  timeOffTypes:      ()          => req('/timeclock/timeoff/types'),
-  timeOffTypesSave:  (data)      => req('/timeclock/timeoff/types', { method: 'PUT', body: JSON.stringify(data) }),
+  timeOffTypes:      (company = '') => req(`/timeclock/timeoff/types${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  timeOffTypesSave:  (data, company = '') => req(`/timeclock/timeoff/types${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   timeSchedDayNote:  (data)      => req('/timeclock/schedule/day-note', { method: 'PUT', body: JSON.stringify(data) }),
   // Teams on the schedule grid (Sep 30): add/remove members, rename/archive, reorder.
   timeShiftGroupMembers: (id, data) => req(`/timeclock/shift-groups/${id}/members`, { method: 'POST', body: JSON.stringify(data) }),
@@ -1770,10 +1770,10 @@ export const api = {
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),
-  timeAutoLunchSet:  (data)      => req('/timeclock/payroll/autolunch', { method: 'PUT', body: JSON.stringify(data) }),
-  timeRoundingSet:   (data)      => req('/timeclock/payroll/rounding', { method: 'PUT', body: JSON.stringify(data) }),
+  timeAutoLunchSet:  (data, company = '') => req(`/timeclock/payroll/autolunch${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
+  timeRoundingSet:   (data, company = '') => req(`/timeclock/payroll/rounding${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   // Break policy: CA paid rest breaks + long/unended-break flags (Charmi, Aug 21)
-  timeBreakPolicySet: (data)     => req('/timeclock/payroll/breakpolicy', { method: 'PUT', body: JSON.stringify(data) }),
+  timeBreakPolicySet: (data, company = '') => req(`/timeclock/payroll/breakpolicy${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   timeFinalize:      (data)      => req('/timeclock/finalize', { method: 'POST', body: JSON.stringify(data) }),
   timeUnfinalize:    (data)      => req('/timeclock/unfinalize', { method: 'POST', body: JSON.stringify(data) }),
   timeTeamExceptions:(start, end) => req(`/timeclock/team-exceptions?start=${start || ''}&end=${end || ''}`),
@@ -2090,9 +2090,10 @@ export const api = {
 
   // ── Time Clock company settings (Charmi, Sep 30) - read by Settings > Global
   //    Settings > Time Clock; the matching *Set calls are above ──
-  timeRoundingGet:     () => req('/timeclock/payroll/rounding'),
-  timeAutoLunchGet:    () => req('/timeclock/payroll/autolunch'),
-  timeBreakPolicyGet:  () => req('/timeclock/payroll/breakpolicy'),
+  // Pay rules per company (Oct 23): `company` reads or saves that company's own; '' the default for every company.
+  timeRoundingGet:     (company = '') => req(`/timeclock/payroll/rounding${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  timeAutoLunchGet:    (company = '') => req(`/timeclock/payroll/autolunch${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  timeBreakPolicyGet:  (company = '') => req(`/timeclock/payroll/breakpolicy${company ? `?company=${encodeURIComponent(company)}` : ''}`),
   // Payroll Export Codes (Oct 17): one company's pay item names for the
   // QuickBooks IIF and Intacct memo; codes {} is Reset to Default.
   timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),

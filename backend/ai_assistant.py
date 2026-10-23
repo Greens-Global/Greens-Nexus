@@ -242,7 +242,7 @@ def _get_my_hours(user: dict, db: Session, start: str = "", end: str = "", **_ar
         start, end = yesterday, date.today().isoformat()
     punches = timeclock._live_punches(db, user["email"], start=start, end=end)
     days = timeclock._day_summaries(
-        punches, timeclock._round_min(db),
+        punches, timeclock._round_min(db, user["email"]),
         break_cfg=timeclock._break_cfg_for(db, user["email"]),
     )
     return {"days": days}

@@ -222,11 +222,11 @@ describe('AdminConsole', () => {
     expect(await find('Weather panel c1')).toBeInTheDocument();
 
     rerender(<AdminConsole activeSub="pay@c1" onSubChange={() => {}} />);
-    expect(screen.queryByRole('heading', { name: 'Pay Rules' })).not.toBeInTheDocument();
+    // Pay Rules are per company too since phase 4 - the group stays, with the company's own.
+    expect(screen.getByRole('heading', { name: 'Pay Rules' })).toBeInTheDocument();
     expect(await find('Export codes panel c1')).toBeInTheDocument();
     expect(await find('Premiums panel c1')).toBeInTheDocument();
-    // Pay Rules are for every company: a link line, not a group.
-    expect(screen.getByRole('button', { name: 'Pay Rules' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pay Rules' })).not.toBeInTheDocument();
 
     rerender(<AdminConsole activeSub="pay" onSubChange={() => {}} />);
     expect(screen.getByText('Pay Rules')).toBeInTheDocument();
