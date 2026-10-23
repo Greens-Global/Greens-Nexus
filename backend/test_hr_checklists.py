@@ -1280,6 +1280,24 @@ class ChecklistTests(unittest.TestCase):
                          ("p-hr", "auto"))
         self.assertIn("p-hr", {p["id"] for p in place["projects"]})     # and HR can pick it by hand
 
+    def test_a_task_made_before_there_was_a_place_is_placed_on_the_next_sync(self):
+        cl = self._start(self._person())          # no HR project anywhere yet: the parent has none
+        pid = self._cl_task(cl["id"])
+        self.assertEqual(self._task(pid).project_id or "", "")
+        self._hr_project()
+        db = database.SessionLocal()
+        try:
+            hc.sync_tasks(db, db.query(models.HrChecklist).filter_by(id=cl["id"]).one(), by="nexus")
+            db.commit()
+            self.assertEqual(db.query(models.Task).filter_by(id=pid).one().project_id, "p-hr")
+            db.query(models.Task).filter_by(id=pid).update({"project_id": "p-ops"})
+            db.commit()
+            hc.sync_tasks(db, db.query(models.HrChecklist).filter_by(id=cl["id"]).one(), by="nexus")
+            db.commit()
+            self.assertEqual(db.query(models.Task).filter_by(id=pid).one().project_id, "p-ops")   # never moved
+        finally:
+            db.close()
+
     def test_old_per_owner_tasks_fold_into_one_and_the_empty_ones_are_binned(self):
         cl = self._start(self._person())
         db = database.SessionLocal()

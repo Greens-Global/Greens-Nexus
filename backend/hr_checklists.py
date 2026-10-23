@@ -1213,6 +1213,12 @@ def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus"
                                project_id=place["projectId"], section_id=place["sectionId"], owner=head)
             cl.task_id = parent.id
             created.append(parent.id)
+        elif not parent.project_id:
+            # Made before its company had a place (Oct 23: Maria Lopez): placed
+            # now; one that has a project is only ever moved by move_open_tasks.
+            place = task_place(db, cl.company or "", cl.kind)
+            if place["projectId"]:
+                parent.project_id, parent.section_id, parent.modified_at = place["projectId"], place["sectionId"], now
         kids = [k for k in (parent.subtask_ids or []) if k]
         first_new = {}
         for it in rows:
