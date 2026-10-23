@@ -565,7 +565,8 @@ class ChecklistTests(unittest.TestCase):
         blank = [i for i in cl["items"] if i["ownerRole"] == "accounting"]
         self.assertTrue(blank and not any(i["ownerEmail"] for i in blank))
         self._dept("d-acc-b", "Bookkeeping", lead=HRC, company=CO_B)
-        r = self.client.put(f"/hr/checklists/owner-departments?entity_id={CO_B}", json={"departments": {"accounting": "d-acc-b"}})
+        # No owner setting of its own (Pranshu, Oct 23): renamed to Accounting, its head gets the steps
+        r = self.client.patch(f"/hr/entities/{CO_B}/departments/d-acc-b", json={"name": "Accounting"})
         self.assertEqual(r.status_code, 200, r.text)
         rows, subs, parents = self._tasks_of(cl["id"], HRC)
         self.assertEqual(len(rows), len(blank))
@@ -1513,13 +1514,16 @@ class DepartmentOwnerTests(unittest.TestCase):
         rows = [i for c in again["checklists"] for i in c["items"] if i["key"] == "ON-20"]
         self.assertEqual(self._owners(rows[0]), sorted([HR, SCOPED]))
 
-    def test_a_company_picks_which_department_plays_it(self):
+    def test_steps_go_by_the_department_name_with_no_owner_setting(self):
+        # Pranshu, Oct 23: "checklist owner should not be there" - the department head is.
         self._dept("d-tech", "Technology", lead=MANAGER)
+        out = self.client.get(f"/hr/checklists/owners?entity_id={CO_A}").json()
+        self.assertNotEqual(out["departments"].get("it", {}).get("name"), "Technology")
+        self.assertNotIn("departmentChoices", out)
         r = self.client.put(f"/hr/checklists/owner-departments?entity_id={CO_A}", json={"departments": {"it": "d-tech"}})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["departments"]["it"]["name"], "Technology")
-        self.assertEqual(r.json()["effective"]["it"], [MANAGER])
+        self.assertIn(r.status_code, (404, 405))
+        for did, name in (("d-it-a", "Engineering"), ("d-tech", "Information Technology")):   # a rename moves the steps
+            r = self.client.patch(f"/hr/entities/{CO_A}/departments/{did}", json={"name": name})
+            self.assertEqual(r.status_code, 200, r.text)
         cl = self._start(self._person())
         self.assertEqual(self._row(cl, "ON-12")["ownerEmail"], MANAGER)
-        r = self.client.put(f"/hr/checklists/owner-departments?entity_id={CO_A}", json={"departments": {"it": "nope"}})
-        self.assertEqual(r.status_code, 400)

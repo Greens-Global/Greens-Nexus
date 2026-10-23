@@ -251,10 +251,9 @@ describe('Who does each step', () => {
     api.getChecklistOwners.mockResolvedValueOnce({
       effective: { hr: ['head@greensglobal.com'] }, hrContact: '',
       globalAdmins: ['owner@greensglobal.com'],
-      departmentChoices: [{ id: 'd-hr', name: 'Human Resources' }, { id: 'd-it', name: 'IT' }],
       departments: {
-        hr: { id: 'd-hr', name: 'Human Resources', leadEmail: 'head@greensglobal.com', backupEmail: '', picked: false, active: ['head@greensglobal.com'] },
-        it: { id: 'd-it', name: 'IT', leadEmail: '', backupEmail: '', picked: true, active: [] },
+        hr: { id: 'd-hr', name: 'Human Resources', leadEmail: 'head@greensglobal.com', backupEmail: '', active: ['head@greensglobal.com'] },
+        it: { id: 'd-it', name: 'IT', leadEmail: '', backupEmail: '', active: [] },
       },
     });
     render(<ChecklistSettings entityId="co-a" entities={[{ id: 'co-a', name: 'Greens' }]} toastOk={() => {}} toastErr={() => {}} />);
@@ -263,8 +262,9 @@ describe('Who does each step', () => {
     expect(screen.getByText('No department head.')).toBeInTheDocument();
     expect(screen.getByText('No Accounting department.')).toBeInTheDocument();
     expect(screen.getAllByText(/until it is set/).length).toBeGreaterThan(0);
-    expect(screen.getByRole('combobox', { name: 'Department for HR steps' })).toHaveValue('');
-    expect(screen.getByRole('combobox', { name: 'Department for IT steps' })).toHaveValue('d-it');
+    expect(screen.getByText('Human Resources department')).toBeInTheDocument();
+    expect(screen.getByText('Add a department named Accounting in Departments')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /Department for/ })).toBeNull();   // no checklist owner setting of its own
   });
 });
 

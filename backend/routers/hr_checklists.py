@@ -799,58 +799,20 @@ def save_task_place(body: PlaceIn, entity_id: str = "", user: dict = Depends(req
 @router.get("/owners")
 def get_owners(entity_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """Who owns HR / IT / Accounting steps at a company, and why: the
-    department playing each part (its head and backup), the HR contact and the
+    department of that name (its head and backup), the HR contact and the
     Global Admins at the end of the line (Neil, Oct 22)."""
     scope = hr_scope(user, db)
     if entity_id and scope is not None and entity_id not in scope:
         raise HTTPException(404, "Company not found")
     ent = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
     depts = hc.owner_departments(db, entity_id)
-    picked = hc._setting_json(db, hc.DEPTS_KEY + entity_id) if entity_id else {}
-    choices = (db.query(HrDepartment).filter(HrDepartment.company_id == entity_id)
-               .order_by(HrDepartment.sort_order, HrDepartment.name).all() if entity_id else [])
     return {"effective": hc.role_owners(db, entity_id),
             "hrContact": (ent.hr_contact_email if ent else "") or "",
             "departments": {r: {"id": d.id, "name": d.name, "leadEmail": d.lead_email or "",
-                                "backupEmail": d.backup_email or "", "picked": picked.get(r) == d.id,
+                                "backupEmail": d.backup_email or "",
                                 "active": hc.active_people(db, [d.lead_email, d.backup_email])}
                             for r, d in depts.items()},
-            "departmentChoices": [{"id": d.id, "name": d.name} for d in choices],
             "globalAdmins": hc.global_admins(db)}
-
-
-class OwnerDeptsIn(BaseModel):
-    departments: dict
-
-
-@router.put("/owner-departments")
-def save_owner_departments(body: OwnerDeptsIn, entity_id: str = "",
-                           user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Which of the company's departments plays HR, IT and Accounting ('' =
-    match by name). Open checklists move to the new owners at once."""
-    if not entity_id:
-        raise HTTPException(400, "Pick a company")
-    entity_id = _entity_for_settings(db, entity_id, user)
-    ids = {d.id for d in db.query(HrDepartment.id).filter(HrDepartment.company_id == entity_id)}
-    clean = {}
-    for role, did in (body.departments or {}).items():
-        if role not in hc.DEPT_ROLES:
-            raise HTTPException(400, f"{role} is not HR, IT or Accounting")
-        did = str(did or "").strip()
-        if did and did not in ids:
-            raise HTTPException(400, "That department is not in this company")
-        if did:
-            clean[role] = did
-    key = hc.DEPTS_KEY + entity_id
-    row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
-    if row is None:
-        row = NexusSetting(key=key)
-        db.add(row)
-    row.value, row.updated_by, row.updated_at = json.dumps(clean), user["email"], hc._now()
-    db.flush()
-    hc.resync_company(db, entity_id, user["email"].lower())
-    db.commit()
-    return get_owners(entity_id, user, db)
 
 
 @router.put("/owners")

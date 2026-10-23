@@ -952,24 +952,14 @@ function SaveBar({ label, busy, onDiscard, onSave, saveText }) {
 
 // Neil, Oct 22: "integrate role owners with department heads in departments in
 // settings" - one company setup, applied everywhere. HR / IT / Accounting
-// steps go to the head AND backup of the department playing that part; with
-// nobody active there, HR steps to the HR contact, then everything to the
-// Global Admins. This card says who that is right now and what is missing.
-function DepartmentOwnersCard({ entityId, people, onOpenDepartments, toastOk, toastErr }) {
+// steps go to the head AND backup of the department of that name - no
+// checklist owner setting of its own (Pranshu, Oct 23); with nobody active
+// there, HR steps to the HR contact, then everything to the Global Admins.
+// This card says who that is right now and what is missing.
+function DepartmentOwnersCard({ entityId, people, onOpenDepartments }) {
   const [data, setData] = useState(null);
-  const [busy, setBusy] = useState('');
-  const load = useCallback(() => api.getChecklistOwners(entityId).then(setData).catch(() => setData(false)), [entityId]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { api.getChecklistOwners(entityId).then(setData).catch(() => setData(false)); }, [entityId]);
   const nameOf = em => people.find(p => p.email === (em || '').toLowerCase())?.name || em;
-  async function pick(role, deptId) {
-    setBusy(role);
-    try {
-      const picked = Object.fromEntries(OWNER_ROLES.map(r => [r, data.departments?.[r]?.picked ? data.departments[r].id : '']));
-      setData(await api.saveChecklistOwnerDepartments(entityId, { ...picked, [role]: deptId }));
-      toastOk('Saved - open checklists now go to that department.');
-    } catch (e) { toastErr(e?.message || 'Could not save.'); }
-    setBusy('');
-  }
   if (data === null) return <SkeletonBlocks count={1} height={150} />;
   if (data === false) return <div style={{ ...card, padding: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load who owns the steps.</div>;
   const admins = (data.globalAdmins || []).map(nameOf).join(', ') || 'nobody yet';
@@ -979,7 +969,7 @@ function DepartmentOwnersCard({ entityId, people, onOpenDepartments, toastOk, to
         <div style={{ flex: '1 1 300px', minWidth: 0 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: FONT, color: 'var(--wk-ink)' }}>Who Does Each Step</h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
-            HR, IT and Accounting steps go to the head and the backup of that department - both get the task, and either one closing it closes it.
+            HR, IT and Accounting steps go to the head and the backup of the department of that name in Departments - both get the task, and either one closing it closes it.
             Manager steps go to the person&apos;s reports-to (no reports-to: their department head). Anything nobody owns goes to the Global Admins ({admins}).
           </p>
         </div>
@@ -997,17 +987,9 @@ function DepartmentOwnersCard({ entityId, people, onOpenDepartments, toastOk, to
             <div key={role} style={{ border: `1px solid ${warn && !active.length ? 'var(--wk-orange)' : 'var(--wk-line2)'}`, borderRadius: 'var(--wk-r)', padding: 14, display: 'grid', gap: 10, alignContent: 'start', background: 'var(--wk-card)' }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <span className={`dk-chip ${look.chip}`}><look.Icon /></span>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--wk-ink)', flex: 1 }}>{look.label}</div>
-                {busy === role && <Spinner size={13} />}
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--wk-ink)', flex: 1 }}>{look.label} Steps</div>
               </div>
-              <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'var(--wk-dim)' }}>
-                Department
-                <select aria-label={`Department for ${look.label} steps`} value={d?.picked ? d.id : ''} disabled={!!busy}
-                  onChange={e => pick(role, e.target.value)} style={inputStyle}>
-                  <option value="">{d && !d.picked ? `${d.name} (matched by name)` : 'Match by name'}</option>
-                  {(data.departmentChoices || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </label>
+              <div style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{d ? `${d.name} department` : `Add a department named ${look.label} in Departments`}</div>
               {d && (
                 <div style={{ display: 'grid', gap: 6 }}>
                   {[['Head', d.leadEmail], ['Backup', d.backupEmail]].map(([lbl, em]) => (
@@ -1712,7 +1694,7 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
       </section>
 
       {entityId
-        ? <DepartmentOwnersCard key={entityId} entityId={entityId} people={people} onOpenDepartments={onOpenDepartments} toastOk={toastOk} toastErr={toastErr} />
+        ? <DepartmentOwnersCard key={entityId} entityId={entityId} people={people} onOpenDepartments={onOpenDepartments} />
         : <LibraryOwnersNote />}
 
       {entityId && <TaskPlaceCard key={`place:${entityId}`} entityId={entityId} kinds={kinds} toastOk={toastOk} toastErr={toastErr} />}

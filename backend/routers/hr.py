@@ -3292,6 +3292,7 @@ def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Department not found")
+    people_before = (row.lead_email or "", row.backup_email or "", row.name or "")
     if body.name is not None:
         new_name = (body.name or "").strip()
         if not new_name:
@@ -3310,7 +3311,6 @@ def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
                 if _dept_key(e.department or "") == old_key:
                     e.department = new_name
             row.name = new_name
-    people_before = (row.lead_email or "", row.backup_email or "")
     for field in ("lead_email", "backup_email"):
         val = getattr(body, field)
         if val is None:
@@ -3325,9 +3325,10 @@ def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
         setattr(row, field, val)
     if row.backup_email and row.backup_email == row.lead_email:
         raise HTTPException(400, "The backup has to be someone other than the department head")
-    if (row.lead_email or "", row.backup_email or "") != people_before:
-        # Checklist steps owned by this department follow the new head / backup
-        # (Neil, Oct 22: one company setup, applied everywhere).
+    if (row.lead_email or "", row.backup_email or "", row.name or "") != people_before:
+        # Checklist steps owned by this department follow the new head / backup,
+        # or the new name: HR, IT and Accounting steps go by it (Neil, Oct 22: one
+        # company setup, applied everywhere; Pranshu, Oct 23: no owner setting).
         db.flush()
         import hr_checklists
         hr_checklists.resync_company(db, entity_id, user["email"].lower())

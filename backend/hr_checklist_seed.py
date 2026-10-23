@@ -12,7 +12,7 @@ Checklist Library (and per company in Company Settings > Checklists). Each row:
   title     the step (Title Case); hint = one sentence of how-to (sentence case)
   owner     a ROLE, resolved per person when the checklist is created:
             hr (the company's HR contact), manager (reports-to), employee,
-            it, accounting (set per company in Checklist Owners; Neil, Oct 19:
+            it, accounting (the head and backup of that department; Neil, Oct 19:
             payroll is Accounting, equipment is IT, there is no Finance)
   anchor    S (start date - the effective date on a promotion), X (exit date /
             leave start), created (the day the

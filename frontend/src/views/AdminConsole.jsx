@@ -227,7 +227,7 @@ const GLOBAL_SECTIONS = [
     keywords: 'questions interview questionnaire role character competence availability' },
   // Neil, Oct 19: "copy from company or have a common library".
   { id: 'checklist-library', category: 'hiring', icon: ListChecks, title: 'Checklist Library',
-    sub: 'The steps every new onboarding, promotion, offboarding and leave checklist starts with, whatever the role, and the default role owners. Each role adds its own steps (Company Settings > Roles > a role > Checklists).',
+    sub: 'The steps every new onboarding, promotion, offboarding and leave checklist starts with, whatever the role, and who does each step (the head and backup of the HR, IT and Accounting departments). Each role adds its own steps (Company Settings > Roles > a role > Checklists).',
     keywords: 'checklist onboarding promotion offboarding leave steps template library owners copy standardize' },
   { id: 'timeclock-policy', category: 'timeclock', icon: CalendarClock, title: 'Pay Rules',
     sub: 'Punch rounding (off by default), the auto-lunch deduction, California paid rest breaks, each company\'s payroll export codes, and shift differentials and call-back pay (off by default). Applies to every time sheet.',

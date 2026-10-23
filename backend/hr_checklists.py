@@ -65,9 +65,8 @@ OWNERS_KEY = "hr_checklist_owners:"   # pre-Oct 22 Role Owners lists: retired Oc
 # settings... when you set up your company for the very first time, you are
 # saying who is the head of each... there needs to be a backup also", and "if
 # the company setup did not happen properly... it should default back to global
-# admin". HR / IT / Accounting steps belong to a department's head AND backup;
-# which department plays each part is picked per company (else matched by name).
-DEPTS_KEY = "hr_checklist_owner_depts:"   # + entity id -> {"hr": department id, ...}
+# admin". HR / IT / Accounting steps belong to the head AND backup of the
+# department of that name - no separate checklist owner setting (Pranshu, Oct 23).
 DEPT_ROLES = ("hr", "it", "accounting")
 DEPT_NAMES = {"hr": ("hr", "human resources", "people", "people operations"),
               "it": ("it", "information technology", "it support"),
@@ -348,18 +347,14 @@ def active_people(db, emails) -> list:
 
 def owner_departments(db, entity_id: str) -> dict:
     """{role: HrDepartment} - the company's department for HR, IT and
-    Accounting: the one picked on its Checklists tab, else the one whose name
-    says so ("Human Resources", "Finance"...)."""
+    Accounting, by its name ("HR", "Human Resources", "Finance"...)."""
     if not entity_id:
         return {}
-    rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).all()
-    by_id = {d.id: d for d in rows}
-    picked = _setting_json(db, DEPTS_KEY + entity_id)
+    rows = (db.query(HrDepartment).filter(HrDepartment.company_id == entity_id)
+            .order_by(HrDepartment.sort_order, HrDepartment.name).all())
     out = {}
     for role in DEPT_ROLES:
-        d = by_id.get(str(picked.get(role) or ""))
-        if d is None:
-            d = next((r for r in rows if (r.name or "").strip().lower() in DEPT_NAMES[role]), None)
+        d = next((r for r in rows if (r.name or "").strip().lower() in DEPT_NAMES[role]), None)
         if d is not None:
             out[role] = d
     return out
@@ -716,8 +711,7 @@ def email_tasks_after_commit(db, task_ids: list, by: str) -> None:
 
 def resync_company(db, entity_id: str, by: str) -> list:
     """Open checklists at a company ('' = every company) take who owns their
-    steps NOW - a department head or backup changed, or which department plays
-    HR / IT / Accounting - and their tasks follow. The new tasks' email goes
+    steps NOW - a department head or backup changed - and their tasks follow. The new tasks' email goes
     out after commit. Returns the new task ids."""
     q = db.query(HrChecklist).filter(HrChecklist.status == "open")
     if entity_id:

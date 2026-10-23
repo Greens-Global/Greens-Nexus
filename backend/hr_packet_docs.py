@@ -894,7 +894,7 @@ def person_values(ev) -> dict:
 
 def event_ctx(db: Session, ev, setting: HrPacketSetting, sender: str) -> dict:
     """Who each role is for THIS event, right now - read live, so a change of
-    HR contact or Checklist Owner moves an unsent packet with it."""
+    HR contact or HR department head moves an unsent packet with it."""
     from models import HrCandidate
     entity = db.query(HrEntity).filter(HrEntity.id == ev.entity_id).first() if ev.entity_id else None
     d = ev.inputs or {}
