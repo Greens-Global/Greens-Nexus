@@ -104,9 +104,17 @@ def _meeting(join_url: str, organizer: str, user: dict) -> tuple[dict, str, dict
     return m, oid, h
 
 
+_TRANSCRIPTS_OFF = ("Microsoft has Graph access to Teams transcripts switched off for Greens (a tenant setting), "
+                    "so only the recording can be fetched - transcribe it instead")
+
+
 def _list(oid: str, mid: str, kind: str, h: dict) -> list[dict]:
     r = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings/{mid}/{kind}", headers=h, timeout=30)
     if r.status_code in (401, 403):
+        # Graph says this in plain words when the tenant has transcript access off
+        # (Oct 24: recordings worked, transcripts did not) - not a permission problem.
+        if kind == "transcripts" and "disabled for this tenant" in r.text:
+            raise HTTPException(409, _TRANSCRIPTS_OFF)
         raise HTTPException(502, _POLICY_HINT)
     if r.status_code == 404:
         return []
@@ -121,11 +129,19 @@ def meeting_info(join_url: str = Query(...), organizer: str = Query(""), user: d
     recordings published so far (newest last)."""
     m, oid, h = _meeting(join_url, organizer, user)
     pick = lambda xs: [{"id": x.get("id"), "created": x.get("createdDateTime"), "ended": x.get("endDateTime")} for x in xs]  # noqa: E731
+    # A blocked transcript must never hide the recording.
+    try:
+        transcripts, transcripts_note = pick(_list(oid, m["id"], "transcripts", h)), ""
+    except HTTPException as e:
+        if e.status_code != 409:
+            raise
+        transcripts, transcripts_note = [], e.detail
     return {
         "subject": m.get("subject") or "",
         "start": m.get("startDateTime"), "end": m.get("endDateTime"),
         "organizer": _canon(((m.get("participants") or {}).get("organizer") or {}).get("upn", "")),
-        "transcripts": pick(_list(oid, m["id"], "transcripts", h)),
+        "transcripts": transcripts,
+        "transcriptsNote": transcripts_note,
         "recordings": pick(_list(oid, m["id"], "recordings", h)),
     }
 
