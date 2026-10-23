@@ -203,7 +203,9 @@ _MAX_SIG_BYTES = 200 * 1024          # decoded PNG cap for drawn signatures
 # it names the company. The version only ever goes UP - an envelope signed
 # under 2.0 keeps citing 2.0, because the certificate must describe what that
 # signer actually read.
-_CONSENT_VERSION = "3.0-2026-09"
+# 3.1 (Pranshu, Oct 23 2026): it names the company SENDING the document (the
+# envelope's entity) instead of always Greens Global, LLC.
+_CONSENT_VERSION = "3.1-2026-10"
 _CONSENT_TEXT = (
     "By checking the box below and selecting \"I Agree,\" I confirm that I have read "
     "and understood this Electronic Records and Signatures Disclosure, that I can "
@@ -214,7 +216,7 @@ _CONSENT_TEXT = (
 # reproduced verbatim on the Certificate of Completion.
 _ESIGN_DISCLOSURES = [
     ("About This Disclosure",
-     "From time to time, Greens Global, LLC (\"we,\" \"us,\" or \"Company\") may be "
+     "From time to time, {company} (\"we,\" \"us,\" or \"Company\") may be "
      "required to provide you with certain notices, disclosures, records, or other "
      "documents in writing. This disclosure explains how those materials may be "
      "provided to you electronically through the Nexus Sign electronic signing "
@@ -275,25 +277,37 @@ _ESIGN_DISCLOSURES = [
 ]
 
 
-def _disclosure_text(support_email: str = "") -> str:
+def _disclosure_text(support_email: str = "", company: str = "") -> str:
     """The exact bytes presented to the signer, in a fixed order. The digest of
     THIS is the consent evidence - a version label alone proves nothing if the
     text behind the label ever changed."""
     parts = [f"Electronic Records and Signatures Disclosure (version {_CONSENT_VERSION})"]
-    for head, body in _disclosures(support_email):
+    for head, body in _disclosures(support_email, company):
         parts.append(head + "\n" + body)
     parts.append(_CONSENT_TEXT)
     return "\n\n".join(parts)
 
 
-def _disclosure_digest(support_email: str = "") -> str:
-    return hashlib.sha256(_disclosure_text(support_email).encode("utf-8")).hexdigest()
+def _disclosure_digest(support_email: str = "", company: str = "") -> str:
+    return hashlib.sha256(_disclosure_text(support_email, company).encode("utf-8")).hexdigest()
 
 
-def _disclosures(support_email: str = "") -> list:
-    """The 7001(c) disclosure set with the support contact filled in."""
+def _disclosures(support_email: str = "", company: str = "") -> list:
+    """The 7001(c) disclosure set with the support contact and the sending
+    company filled in."""
     who = support_email or _SUPPORT_CONTACT
-    return [(head, body.replace("{support}", who)) for head, body in _ESIGN_DISCLOSURES]
+    co = company or _DISCLOSURE_COMPANY
+    return [(head, body.replace("{support}", who).replace("{company}", co)) for head, body in _ESIGN_DISCLOSURES]
+
+
+_DISCLOSURE_COMPANY = "Greens Global, LLC"
+
+
+def _disclosure_company(db: Session, entity_id: str) -> str:
+    """The company the disclosure names: the envelope's own entity, by its
+    legal name; Greens Global, LLC when an envelope has none."""
+    ent = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
+    return ((ent.legal_name or ent.name or "").strip() if ent else "") or _DISCLOSURE_COMPANY
 
 
 # ── Records an electronic signature cannot be used for ───────────────────────
@@ -2253,15 +2267,17 @@ def purge_expired_envelopes(db: Session, retain_days: int, dry_run: bool = True,
 
 
 @router.get("/disclosures")
-def current_disclosures(user: dict = Depends(get_current_user)):
+def current_disclosures(entity_id: str = "", user: dict = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
     """The disclosure text behind the version the certificate cites, with its
     digest. The one-page certificate names a version and a digest instead of
     reprinting five paragraphs; this is where the text itself lives, so the
     digest on the certificate is something a reader can actually recompute."""
-    text = _disclosure_text()
-    return {"version": _CONSENT_VERSION, "digest": _disclosure_digest(),
+    company = _disclosure_company(db, entity_id)
+    text = _disclosure_text(company=company)
+    return {"version": _CONSENT_VERSION, "digest": _disclosure_digest(company=company),
             "consentText": _CONSENT_TEXT, "text": text,
-            "sections": [{"heading": h, "body": b} for h, b in _disclosures()]}
+            "sections": [{"heading": h, "body": b} for h, b in _disclosures(company=company)]}
 
 
 @router.get("/requests/{rid}/certificate")
@@ -2753,8 +2769,9 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
                # so they ship with the payload the signing screen renders -
                # the certificate cites this same version as "shown to each
                # signer before consent", which is only true if it really was.
-               "disclosures": [{"heading": h, "body": b} for h, b in _disclosures()],
-               "disclosureDigest": _disclosure_digest(),
+               "disclosures": [{"heading": h, "body": b}
+                               for h, b in _disclosures(company=_disclosure_company(db, req.entity_id))],
+               "disclosureDigest": _disclosure_digest(company=_disclosure_company(db, req.entity_id)),
                "supportContact": _SUPPORT_CONTACT,
                # UETA section 8 retention: where this signer downloads their own
                # copy of the document while deciding. Public link only - an
@@ -3468,7 +3485,7 @@ def _apply_consent(db: Session, req: HrSignRequest, party: HrSignParty,
         db.add(HrSignConsent(
             id=str(uuid.uuid4()), party_id=party.id, request_id=req.id,
             disclosure_version=_CONSENT_VERSION,
-            disclosure_digest=_disclosure_digest(_SUPPORT_CONTACT),
+            disclosure_digest=_disclosure_digest(_SUPPORT_CONTACT, _disclosure_company(db, req.entity_id)),
             scope="transaction",
             # Filled in at signing from what the viewer actually rendered - see
             # the ordering note above. Never guessed here.

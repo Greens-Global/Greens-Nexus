@@ -872,6 +872,7 @@ export const DOCS = [
       { name: 'Templates', desc: 'Reusable templates with categories, an owning department, draft or active status, and a default per type.' },
       { name: 'Nexus Sign', desc: 'Envelopes with statuses: Awaiting Signatures, Partially Executed, Fully Executed, Declined, Voided, Expired. Each signer shows Waiting, Notified, Viewed or Signed. Signed Time Sheets are not listed here: they open from the Time Sheet (Open Signed Copy) for the employee, the approving manager, the company HR contact, Full HR and Global Admins only.' },
       { name: 'Signing Fields', desc: 'Signature, Initials, Name, Date Signed, Text, Checkbox, Dropdown, Radio and File Upload.' },
+      { name: 'Electronic Signature Consent', desc: 'Before signing, each signer reads the electronic records disclosure and agrees to sign electronically. It names the company sending the document (its legal name from Company Settings), and the certificate records the exact text they agreed to.' },
       { name: 'Sign on Paper', desc: 'A signer can print, sign by hand and upload a scan instead.' },
       { name: 'PDF Tools', desc: 'Open a PDF full screen to add text, draw, add shapes and save.' },
     ],

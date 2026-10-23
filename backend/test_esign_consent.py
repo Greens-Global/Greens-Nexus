@@ -182,6 +182,30 @@ class StandaloneConsentTests(unittest.TestCase):
         self.assertEqual(p["disclosureDigest"], esign._disclosure_digest())
         self.assertEqual(len(p["disclosures"]), len(esign._ESIGN_DISCLOSURES))
 
+    def test_the_disclosure_names_the_company_sending_it(self):
+        """Pranshu, Oct 23 2026: an Oversite envelope says Oversite, not
+        Greens Global, LLC - and the digest is of that text."""
+        ent = models.HrEntity(id=f"ent-{uuid.uuid4()}", name="Oversite", legal_name="Oversite Construction, Inc.")
+        self.db.add(ent)
+        self.db.flush()
+        try:
+            req = models.HrSignRequest(id=f"env-{uuid.uuid4()}", title="T", source="template",
+                                       status="pending", routing="sequential", body_snapshot=[],
+                                       created_by=SENDER, created_at="2026-09-01T00:00:00+00:00",
+                                       governing_law="CA", current_order=1, entity_id=ent.id)
+            party = models.HrSignParty(id=str(uuid.uuid4()), request_id=req.id, role_key="a",
+                                       name="Ada", email="ada@greensglobal.com", kind="external",
+                                       ordinal=1, status="notified", party_role="signer")
+            p = esign._render_payload(self.db, req, party)
+            self.assertIn("Oversite Construction, Inc.", p["disclosures"][0]["body"])
+            self.assertNotIn("Greens Global", p["disclosures"][0]["body"])
+            self.assertEqual(p["disclosureDigest"], esign._disclosure_digest(company="Oversite Construction, Inc."))
+            self.assertNotEqual(p["disclosureDigest"], esign._disclosure_digest())
+        finally:
+            self.db.rollback()
+        # No entity: the group's own name.
+        self.assertIn("Greens Global, LLC", self._payload("CA")["disclosures"][0]["body"])
+
     def test_the_digest_covers_the_actual_text_not_just_the_version(self):
         """Change any wording and the digest must move - that is the whole
         point of digesting the disclosure rather than labelling it."""
