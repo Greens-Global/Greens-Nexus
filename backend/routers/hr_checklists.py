@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 import hr_checklist_seed
 import hr_checklists as hc
-from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, get_current_user, hr_scope, require_module_grant
+from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, get_current_user, hr_scope, is_team_scope, require_module_grant
 from database import get_db
 from models import (
     HrChecklist,
@@ -459,6 +459,19 @@ def audit_candidates(entity_id: str = "", user: dict = Depends(require_hr_read),
             "startDate": (e.start_date or "")[:10]} for e in people if e.id not in had]
     out.sort(key=lambda x: x["name"].lower())
     return {"people": out}
+
+
+@router.get("/records-audit")
+def records_audit(entity_id: Optional[str] = None, user: dict = Depends(require_hr_read),
+                  db: Session = Depends(get_db)):
+    """People > Records Audit: everyone whose record is missing something or
+    has a document past its expiry (hr_record_audit.gaps - what the morning
+    bell says)."""
+    import hr_record_audit
+    scope = hr_scope(user, db)
+    if entity_id and scope is not None and not is_team_scope(scope) and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    return {"people": hr_record_audit.company_report(db, entity_id or None, scope)}
 
 
 class AuditIn(BaseModel):

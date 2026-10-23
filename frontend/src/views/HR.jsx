@@ -61,6 +61,7 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
 import { US_STATE_NAMES } from '../lib/usStates';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
+import RecordsAudit from '../components/RecordsAudit';
 import { ApprovalDelegationsAdmin } from '../components/DelegateApprovals';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { PersonReimbursements } from '../components/Reimbursements';
@@ -6387,6 +6388,7 @@ export default function HR({ activeSub, onSubChange }) {
 
       {sub === 'hr-people' && (<>
         {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}
+        {!hrTeam && <RecordsAudit entityName={entityName} refreshKey={employees} onOpen={id => { setOpenTab('documents'); setSelectedId(id); }} />}
         {/* Stat cards - headcount composition, status breakdown, department
             spread (real data, designed zero/loading states) */}
         <PeopleStatCards employees={employees} externals={extEmployees} loading={loading} isMobile={isMobile}

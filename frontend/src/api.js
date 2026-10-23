@@ -2863,6 +2863,8 @@ export const api = {
   kbCorpusCourses: () => req("/kb/courses").then((rows) => (rows || []).map((c) => ({ ...c, course_code: c.code, overview: [] }))),
   // What The New Hire Will Be Asked - the packet editor's unsaved documents and form
   packetIntakePreview: (data) => req('/hr/packets/intake-preview', { method: 'POST', body: JSON.stringify(data) }),
+  // People > Records Audit - missing details and expired documents (hr_record_audit.py)
+  getRecordsAudit: () => req('/hr/checklists/records-audit'),
 
 };
 

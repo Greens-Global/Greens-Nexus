@@ -37,6 +37,9 @@ const ROWS = [
       { field: 'firstNudgeAfterDays', label: 'Nudge after', suffix: 'quiet days', min: 1, max: 30 },
       { field: 'maxNudges', label: 'Stop after', suffix: n => (n === 1 ? 'nudge' : 'nudges'), min: 0, max: 10 },
     ] },
+  { key: 'recordAudit', title: 'Records Audit',
+    what: 'Someone\'s record is missing something HR must have on file (picture ID, manager, start date, emergency contact, verified work authorization) or one of their documents has expired. Checked every morning.',
+    who: 'Goes to the company\'s HR department head and backup (else its HR contact, else the Global Admins) - one notification per company, updated until it is fixed. People > Records Audit lists everyone.' },
 ];
 
 export default function HrReminderSettings() {
