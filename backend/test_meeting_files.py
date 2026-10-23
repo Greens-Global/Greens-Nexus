@@ -49,13 +49,15 @@ class _R:
         return self._body
 
 
-def fake_graph(policy_ok=True, transcripts=True):
+def fake_graph(policy_ok=True, transcripts=True, transcripts_off=False):
     def get(url, params=None, headers=None, timeout=None):
         assert headers and headers["Authorization"] == "Bearer app-token"
         if not policy_ok:
             return _R(403, {"error": {"code": "Forbidden"}})
         if url.endswith(f"/users/{OID}/onlineMeetings"):
             return _R(200, {"value": [MEETING]})
+        if url.endswith("/transcripts") and transcripts_off:
+            return _R(403, text='{"error":{"code":"Forbidden","message":"Graph API access to transcripts is disabled for this tenant."}}')
         if url.endswith("/transcripts"):
             return _R(200, {"value": [{"id": "T1", "createdDateTime": "2026-10-23T21:01:00Z"}] if transcripts else []})
         if url.endswith("/recordings"):
@@ -145,6 +147,17 @@ class MeetingFilesTests(unittest.TestCase):
             self.assertEqual(r.status_code, 200, r.text)
             r2 = self.client.get("/meeting-files", params={"join_url": short})
             self.assertEqual(r2.status_code, 400)
+
+    def test_transcripts_off_for_the_tenant_still_gives_the_recording(self):
+        self.as_("visesh.lodha@greensglobal.com")
+        with mock.patch.object(meeting_files.httpx, "get", side_effect=fake_graph(transcripts_off=True)):
+            r = self.client.get("/meeting-files", params={"join_url": JOIN})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["transcripts"], [])
+            self.assertIn("switched off", r.json()["transcriptsNote"])
+            self.assertEqual([x["id"] for x in r.json()["recordings"]], ["R1"])
+            t = self.client.get("/meeting-files/transcript", params={"join_url": JOIN})
+            self.assertEqual(t.status_code, 409)
 
     def test_no_transcript_yet_is_a_plain_404(self):
         self.as_("neil@greensglobal.com")
