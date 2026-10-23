@@ -5,11 +5,11 @@ import Amount, { AmountInput, formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useAccountingPrefs } from './prefs';
-import { ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, control } from './reportControls';
+import { ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, OpFilter, Pager, PopoverPanel, control } from './reportControls';
 import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
 import { cellStyle, headStyle } from './columnStyles';
 import EntryDetail from './EntryDetail';
-import { downloadBlob, iso } from './reportModel';
+import { downloadBlob, iso, numberFilterHit } from './reportModel';
 import { linesFile } from './linesExport';
 import SendReportDialog from './SendReportDialog';
 import { ScanOutcome, ScanProgress, entitiesScannedText, mergeScans, useLedgerScan, useScanRetry, POLL_MS } from './LedgerScan';
@@ -70,6 +70,11 @@ export { CUSTOM_MAX_MONTHS, frequencyLabel, stepMonths };
 //     from Egnyte's search, the person picks, changes or clears it.
 //   - Possibly Ended: a line with nothing posted for months (the daily
 //     check, recurring_stale.py) carries a chip.
+//
+// Oct 23 (Charmi, Teams): a filter box under every heading, as on AMA and the
+// Reports - text columns hold the words typed, amount columns compare with
+// =, >, <, >=, <=, Between (OpFilter). They stack with the vendor search, the
+// category and Customize, and the exports follow what is left. View only.
 
 const CATEGORIES = [
   { key: 'utilities', label: 'Utilities' },
@@ -178,6 +183,46 @@ export function spanFigures(row, [from, to]) {
   };
 }
 
+// The filter box under each heading (Oct 23), in the grid's column order:
+// Vendor, Entity, Category, the optional columns shown, Expected, the months
+// shown, Total, Balance, Notes. A month filters on the figure in its cell.
+export function mreFilterColumns(extra = [], span = [0, 11]) {
+  const [from, to] = span;
+  const shownFigure = (c) => (c?.status === 'upcoming' && !c.paid ? Number(c.expected) || 0 : Number(c?.paid) || 0);
+  return [
+    { key: 'vendor', label: 'Vendor', text: (r) => `${vendorLabel(r.line.vendorId, r.line.vendorName)} ${r.line.vendorName || ''}` },
+    { key: 'entity', label: 'Entity', text: (r) => `${r.line.entityCode || ''} ${r.line.entityName || ''}` },
+    { key: 'category', label: 'Category', text: (r) => CATEGORY[r.line.category] || 'Other' },
+    ...OPTIONAL_COLUMNS.filter(([k]) => extra.includes(k)).map(([k, l]) => (k === 'variancePct'
+      ? { key: k, label: l, num: true, value: (r) => Number(r.line.variancePct) || 0 }
+      : { key: k, label: l, text: (r) => optionalValue(r.line, k) })),
+    { key: 'expected', label: 'Expected', num: true, value: (r) => Number(r.line.expectedAmount) || 0 },
+    ...MONTHS.map((m, i) => ({ key: `m${i}`, label: m, num: true, value: (r) => shownFigure(r.months?.[i]) })).slice(from, to + 1),
+    { key: 'total', label: 'Total', num: true, value: (r) => spanFigures(r, span).paid },
+    { key: 'balance', label: 'Balance', num: true, value: (r) => spanFigures(r, span).balance },
+    { key: 'notes', label: 'Notes', text: (r) => r.line.notes || '' },
+  ];
+}
+
+const opSet = (f) => !!f && typeof f === 'object' && !!(String(f.a ?? '').trim() || String(f.b ?? '').trim());
+const textSet = (v) => typeof v === 'string' && !!v.trim();
+/** Whether any of these column filters is typed. */
+export const mreFiltering = (columns, typed) => columns.some((c) => (c.num ? opSet(typed?.[c.key]) : textSet(typed?.[c.key])));
+
+/** The rows every typed column filter lets through: a text column holds the
+ *  words typed (each must appear, any case), an amount column compares. They
+ *  stack. A filter on a column not shown (a month outside the period, an
+ *  optional column turned off) is ignored. */
+export function mreColumnFilter(rows, typed = {}, columns = mreFilterColumns()) {
+  const active = columns.filter((c) => (c.num ? opSet(typed[c.key]) : textSet(typed[c.key])));
+  if (!active.length) return rows || [];
+  return (rows || []).filter((r) => active.every((c) => {
+    if (c.num) return numberFilterHit(c.value(r), typed[c.key]);
+    const hay = String(c.text(r) || '').toLowerCase();
+    return typed[c.key].trim().toLowerCase().split(/\s+/).every((w) => hay.includes(w));
+  }));
+}
+
 // Sortable headers (Oct 22, Urmi), remembered per viewer (prefs.mreSort).
 const SORTS = {
   vendor: (r) => (r.line.vendorName || r.line.vendorId || '').toLowerCase(),
@@ -260,6 +305,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('');
   const [showZero, setShowZero] = useState(false);
+  const [typed, setTyped] = useState({});              // the filter boxes under the headings
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -294,7 +340,9 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   const sortDir = prefs.mreSort?.dir || 'asc';
   const sort = sortKey ? { key: sortKey, dir: sortDir } : null;
   const visible = useMemo(() => visibleRows(data?.rows, { q, category, showEnded, showInactive, showZero }), [data, q, category, showEnded, showInactive, showZero]);
-  const rows = sortRows(visible, sort, span);
+  const filterColumns = mreFilterColumns(extra, span);
+  const filtering = mreFiltering(filterColumns, typed);
+  const rows = sortRows(mreColumnFilter(visible, typed, filterColumns), sort, span);
   const onSort = (key) => setPrefs({ mreSort: sort?.key === key ? (sort.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' } });
   const fullYear = spanFrom === 0 && spanTo === 11;
   // The figures over the months shown; the full year is the server's summary as it always was.
@@ -414,7 +462,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
           </div>
         )}
 
-        {loading && !data?.rows?.length ? <SkeletonBlocks count={4} /> : !rows.length ? (
+        {loading && !data?.rows?.length ? <SkeletonBlocks count={4} /> : !rows.length && !filtering ? (
           <div style={{ ...card, padding: '18px 16px', fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
             <strong style={{ color: 'var(--text-primary)' }}>{(data?.rows || []).length ? 'Nothing matches these filters.' : 'No recurring expenses yet.'}</strong>
             <span>
@@ -424,8 +472,9 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
             </span>
           </div>
         ) : (
-          <Grid rows={rows} totals={data?.totals || []} year={year} density={density} loading={loading} canEdit={canEdit} extra={extra} span={span} sort={sort} onSort={onSort}
-            pageSize={customize.pageSize} pageKey={[year, picked, q, category, showEnded, showInactive, showZero, period, spanFrom, spanTo, sort?.key, sort?.dir]} onLines={setLines}
+          <Grid filterColumns={filterColumns} typed={typed} onTyped={(k, v) => setTyped((t) => ({ ...t, [k]: v }))}
+            rows={rows} totals={data?.totals || []} year={year} density={density} loading={loading} canEdit={canEdit} extra={extra} span={span} sort={sort} onSort={onSort}
+            pageSize={customize.pageSize} pageKey={[year, picked, q, category, showEnded, showInactive, showZero, period, spanFrom, spanTo, sort?.key, sort?.dir, JSON.stringify(typed)]} onLines={setLines}
             onEdit={(l) => setEditing(l)} onNotes={(id, notes) => api.setMreNotes(id, notes).then((line) => setData((d) => ({ ...d, rows: d.rows.map((r) => (r.line.id === id ? { ...r, line } : r)) })))} />
         )}
       </div>
@@ -467,7 +516,7 @@ function Legend() {
 // entity, category, expected, each month (m0..m11), total, balance, notes.
 const MRE_COLUMNS = [['vendor', 'Vendor'], ['entity', 'Entity'], ['category', 'Category'], ['expected', 'Expected', true]];
 
-function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null, extra = [], span = [0, 11], sort = null, onSort = null }) {
+function Grid({ filterColumns = [], typed = {}, onTyped = null, rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null, extra = [], span = [0, 11], sort = null, onSort = null }) {
   const [from, to] = span;
   const idx = MONTHS.map((_m, i) => i).slice(from, to + 1);
   const range = { from: `${year}-${String(from + 1).padStart(2, '0')}-01`, to: monthRange(`${year}-${String(to + 1).padStart(2, '0')}`).to };
@@ -503,8 +552,22 @@ function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes, 
             <th aria-label="Balance" aria-sort={ariaSort('balance')} className="acct-num" title="Expected less paid, in the months shown that are over" style={headStyle(cw.width('balance'))}>{head('balance', 'Balance')}<ColumnResizer {...cw.resizer('balance', 'Balance')} /></th>
             <th aria-label="Notes" style={headStyle(cw.width('notes'), { minWidth: cw.width('notes') || 180 })}>Notes<ColumnResizer {...cw.resizer('notes', 'Notes')} /></th>
           </tr>
+          {onTyped && (
+            <tr className="acct-filter-row">
+              {filterColumns.map((c) => (
+                <td key={c.key} className={c.key === 'vendor' ? 'acct-head' : undefined}>
+                  {c.num
+                    ? <OpFilter label={c.label} value={typed[c.key]} onChange={(v) => onTyped(c.key, v)} />
+                    : <input type="text" value={typed[c.key] || ''} onChange={(e) => onTyped(c.key, e.target.value)} aria-label={`Filter ${c.label}`} placeholder="contains" />}
+                </td>
+              ))}
+            </tr>
+          )}
         </thead>
         <tbody>
+          {!rows.length && (
+            <tr><td colSpan={filterColumns.length || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: '0.84rem' }}>Nothing matches these column filters.</td></tr>
+          )}
           {paged.rows.map((r) => { const f = spanFigures(r, span); return (
             <tr key={r.line.id}>
               <td className="acct-label" style={cw.width('vendor') ? cellStyle(cw.width('vendor')) : { maxWidth: 260 }}>
