@@ -37,10 +37,10 @@ const go = (detail) => window.dispatchEvent(new CustomEvent('nexus:navigate', { 
 const SECTION = {
   hiring: { heading: 'Set Up Hiring', grid: 'What Each Hire Gets', kind: 'Kind Of Hire', main: 'offer', done: 'Everything is set. You can make an offer.',
     blocked: 'a hire here would be blocked', who: 'that kind of hire', another: 'Hiring in another state or country?' },
-  promotion: { heading: 'Set Up Promotions', grid: 'What Each Promotion Gets', kind: 'Kind Of Employee', main: 'letter', done: 'Everything is set. You can promote with a letter.',
-    blocked: 'Promote is off there - Change Role Now still works', who: 'those employees', another: 'People in another state or country?' },
-  offboarding: { heading: 'Set Up Offboarding', grid: 'What Each Offboarding Gets', kind: 'Kind Of Employee', main: 'package', done: 'Everything is set. Offboarding sends the separation package.',
-    blocked: 'offboarding there runs without documents', who: 'those employees', another: 'People in another state or country?' },
+  promotion: { heading: 'Set Up Promotions', grid: 'What Each Promotion Gets', kind: 'Kind Of Person', main: 'letter', done: 'Everything is set. You can promote with a letter.',
+    blocked: 'Promote is off there - Change Role Now still works', who: 'those people', another: 'People in another state or country?' },
+  offboarding: { heading: 'Set Up Offboarding', grid: 'What Each Offboarding Gets', kind: 'Kind Of Person', main: 'package', done: 'Everything is set. Offboarding sends the separation package.',
+    blocked: 'offboarding there runs without documents', who: 'those people', another: 'People in another state or country?' },
 };
 const HIRING_COLUMNS = [{ key: 'offer', label: 'Offer Letter' }, { key: 'packet', label: 'Hiring Packet' }, { key: 'jd', label: 'Job Description' }];
 const sectionOf = (f) => f?.section || (f?.column === 'letter' ? 'promotion' : f?.column === 'package' ? 'offboarding' : 'hiring');
@@ -141,17 +141,30 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
   const focusDone = useRef(false);
   const jdRef = useRef(null);
   const aboutRef = useRef(null);
+  const reqRef = useRef(0);
 
-  const load = () => api.getHiringSetupCompany(entityId, roleId, section)
-    .then(v => { setView(v); setErr(''); return v; })
-    .catch(e => setErr(e?.message || 'Could not load the hiring setup.'));
+  // Only the newest request lands: a slower answer for a section (or role) left behind is dropped.
+  const load = () => {
+    const seq = ++reqRef.current;
+    return api.getHiringSetupCompany(entityId, roleId, section)
+      .then(v => { if (seq !== reqRef.current) return v; setView(v); setErr(''); return v; })
+      .catch(e => { if (seq === reqRef.current) setErr(e?.message || 'Could not load the hiring setup.'); });
+  };
+  // A Set It Up target can name a place the grid does not list yet (the person's own country): offer to add it.
+  function openA(v, rowKey, column) {
+    if (v.rows.some(r => r.key === rowKey)) { setPopup({ a: { rowKey, column } }); return; }
+    const [, country = '', region = ''] = String(rowKey || '').split(':');
+    const note = 'That place is not in the grid yet - add it, then click its box to set it up.';
+    if (country && v.entity.canEdit !== false) setPlacing({ country, region, note });
+    else toastErr?.(note);
+  }
   useEffect(() => { load(); }, [entityId, roleId, section, refreshKey]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!view || focusDone.current || !focus) return;
     focusDone.current = true;
     onFocusUsed?.();
     if (focus.roleId) setPopup({ b: { roleId: focus.roleId, rowKey: '' } });
-    else if (focus.rowKey) setPopup({ a: { rowKey: focus.rowKey, column: focus.column || SECTION[sectionOf(focus)].main } });
+    else if (focus.rowKey) openA(view, focus.rowKey, focus.column || SECTION[sectionOf(focus)].main);
   }, [view, focus]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (err && !view) return <ErrorBanner message={err} onRetry={load} />;
@@ -168,7 +181,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
 
   function act(it) {
     const t = it.target || {};
-    if (it.action === 'setUp') setPopup({ a: { rowKey: t.rowKey, column: t.column || S.main } });
+    if (it.action === 'setUp') openA(view, t.rowKey, t.column || S.main);
     else if (it.action === 'addDuties') setPopup({ b: { roleId: t.roleId, rowKey: '' } });
     else if (it.action === 'editAbout') { setEditing(t.field); aboutRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }); }
     else if (it.action === 'navigate') go(t);
@@ -186,7 +199,8 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
     try { await api.hiringSetupPlace(view.entity.id, placing.country, placing.region); setPlacing(null); load(); toastOk?.('Place added - it starts with the shared documents.'); }
     catch (e) { toastErr?.(e?.message || 'Could not add it.'); }
   }
-  const aRow = popup?.a && view.rows.find(r => r.key === popup.a.rowKey);
+  // A popup whose column the shown rows lack (another section's view) is not drawn.
+  const aRow = popup?.a && view.rows.find(r => r.key === popup.a.rowKey && r[popup.a.column]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -201,10 +215,10 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
       {view.sections?.length > 0 && (
         <div role="tablist" aria-label="Section" className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: 3, borderRadius: 10, background: 'var(--mist)', alignSelf: 'flex-start', maxWidth: '100%' }}>
           {view.sections.map(x => (
-            <button key={x.key} type="button" role="tab" aria-selected={section === x.key} onClick={() => pick(x.key)}
+            <button key={x.key} type="button" role="tab" aria-selected={sec === x.key} onClick={() => pick(x.key)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 12px', minHeight: 36, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--ink)', background: section === x.key ? 'var(--card)' : 'transparent',
-                boxShadow: section === x.key ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
+                fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--ink)', background: sec === x.key ? 'var(--card)' : 'transparent',
+                boxShadow: sec === x.key ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
               {x.label} <StatusChip status={x.status} chip={x.chip} />
             </button>
           ))}
@@ -324,6 +338,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
             <div style={{ flex: '0 1 280px' }}><PlaceSelect label="New Place" country={placing.country} region={placing.region} onChange={(c, rg) => setPlacing({ country: c, region: rg })} /></div>
             <button type="button" className="primary-btn" disabled={!placing.country} onClick={addPlace}>Add</button>
             <button type="button" className="secondary-btn" onClick={() => setPlacing(null)}>Cancel</button>
+            {placing.note && <span role="status" style={{ flexBasis: '100%', fontSize: 12.5, color: '#b45309', fontWeight: 600 }}>{placing.note}</span>}
           </div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
@@ -377,7 +392,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
       </details>
 
       {aRow && (
-        <ChooseWhatTheyGet view={view} row={aRow} column={popup.a.column} toastErr={toastErr} toastOk={toastOk}
+        <ChooseWhatTheyGet view={view} row={aRow} column={popup.a.column} roleId={roleId} toastErr={toastErr} toastOk={toastOk}
           onClose={() => setPopup(null)} onChanged={load} />
       )}
       {popup?.b && (

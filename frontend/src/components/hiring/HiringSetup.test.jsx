@@ -486,6 +486,69 @@ describe('Promotion and Offboarding sections', () => {
   });
 });
 
+describe('Sections: stale answers and edge cases', () => {
+  const deferred = () => { let res; const p = new Promise(r => { res = r; }); return { p, res }; };
+
+  it('a hiring box clicked while Promotion loads never crashes the popup', async () => {
+    const promo = deferred();
+    m.getHiringSetupCompany.mockImplementation((e, r, s) => (s === 'promotion' ? promo.p : Promise.resolve(bySection(s))));
+    company();
+    expect(await screen.findByText('Set Up Hiring - Greens Global')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /Promotion/ }));
+    fireEvent.click(screen.getAllByText('US Employee Offer Letter')[0]);           // the old grid is still on screen
+    expect(await screen.findByText('Offer Letter - Employees In California')).toBeTruthy();
+    promo.res(promotionView());
+    expect(await screen.findByText('Set Up Promotions - Greens Global')).toBeTruthy();
+    expect(screen.queryByText('Offer Letter - Employees In California')).toBeNull();
+  });
+
+  it('an older section answer landing last is dropped, and the tab follows what is shown', async () => {
+    const promo = deferred();
+    const off = deferred();
+    m.getHiringSetupCompany.mockImplementation((e, r, s) => (s === 'promotion' ? promo.p : s === 'offboarding' ? off.p : Promise.resolve(bySection(s))));
+    company();
+    expect(await screen.findByText('Set Up Hiring - Greens Global')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /Promotion/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Offboarding/ }));
+    expect(screen.getByRole('tab', { name: /Hiring/ }).getAttribute('aria-selected')).toBe('true');   // nothing new is shown yet
+    off.res(offboardingView());
+    expect(await screen.findByText('Set Up Offboarding - Greens Global')).toBeTruthy();
+    promo.res(promotionView());
+    await new Promise(r => setTimeout(r, 0));
+    expect(screen.getByText('Set Up Offboarding - Greens Global')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Offboarding/ }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('offboarding under Show For Role is read-only, so a role-level package is never archived', async () => {
+    companyView = offboardingView({ rows: [offRow('employee', 'US', 'CA', 'Employees In California', {
+      package: pkg({ name: 'Accountant Separation', sourceLabel: 'Only For Accountant', tone: 'own', settingId: 's-acct-sep' }) })] });
+    company({ focus: { entityId: 'e-gg', section: 'offboarding' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Accountant' }));
+    await waitFor(() => expect(m.getHiringSetupCompany).toHaveBeenLastCalledWith('e-gg', 'jr-acct', 'offboarding'));
+    fireEvent.click(await screen.findByText('Accountant Separation'));
+    expect(await screen.findByText(/Showing what one role gets/)).toBeTruthy();
+    expect(screen.queryByText(/Use The Same/)).toBeNull();
+    expect(m.hiringSetupUseSame).not.toHaveBeenCalled();
+  });
+
+  it('a Set It Up target for a place not in the grid starts Add A Place for it', async () => {
+    companyView = promotionView();
+    company({ focus: { entityId: 'e-gg', section: 'promotion', rowKey: 'employee:IN:', column: 'letter' } });
+    expect(await screen.findByText(/That place is not in the grid yet/)).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByText('Add'));
+    await waitFor(() => expect(m.hiringSetupPlace).toHaveBeenCalledWith('e-gg', 'IN', ''));
+  });
+
+  it('promotion copy says people, not employees, for contractor rows', async () => {
+    companyView = promotionView();
+    company({ focus: { entityId: 'e-gg', section: 'promotion' } });
+    expect(await screen.findByText('Kind Of Person')).toBeTruthy();
+    fireEvent.click(screen.getByText('Nothing Yet - Choose One'));
+    expect(await screen.findByText('Only these people get it. Everyone else keeps the shared one.')).toBeTruthy();
+  });
+});
+
 describe('Popup B: Job Description', () => {
   it('shows the versions with who uses them, adds, saves as you type and removes', async () => {
     render(<RoleDutiesModal roleId="jr-acct" entityId="e-gg" rowKey="contractor:US:CA" companyName="Greens Global" onClose={noop} toastErr={noop} />);

@@ -21,8 +21,8 @@ const EVENT = { offer: 'offer', packet: 'hire', letter: 'promotion', package: 's
 const WORDS = {
   offer: ['Hires', 'hires', 'a hire here would be blocked'],
   hire: ['Hires', 'hires', 'a hire here would be blocked'],
-  promotion: ['Promotions', 'employees', 'Promote is off there - Change Role Now still works'],
-  separation: ['Offboardings', 'employees', 'offboarding there runs without documents'],
+  promotion: ['Promotions', 'people', 'Promote is off there - Change Role Now still works'],
+  separation: ['Offboardings', 'people', 'offboarding there runs without documents'],
 };
 const carriesJd = (event) => event === 'hire' || event === 'promotion';
 
@@ -70,7 +70,7 @@ function PickTemplate({ column, exclude, onPick, onCancel }) {
   );
 }
 
-export default function ChooseWhatTheyGet({ view, row, column, onClose, onChanged, toastErr, toastOk }) {
+export default function ChooseWhatTheyGet({ view, row, column, roleId = '', onClose, onChanged, toastErr, toastOk }) {
   const cell = row[column];
   const event = EVENT[column];
   const [Noun, noun] = NOUN[column];
@@ -79,8 +79,8 @@ export default function ChooseWhatTheyGet({ view, row, column, onClose, onChange
   const company = view.entity.name;
   // Show For Role and a screen this HR cannot change are read-only: a role's
   // row ("Only For Accountant") may be shared by every company, so it is never
-  // archived from here.
-  const roleMode = !!row.jd?.roleId;
+  // archived from here. Offboarding rows carry no jd, so the screen's role counts too.
+  const roleMode = !!roleId || !!row.jd?.roleId;
   const readOnly = roleMode || view.entity.canEdit === false;
   const own = cell.tone === 'own' && !readOnly;
   const editable = own && !!cell.settingId && cell.engine === 'documents';
