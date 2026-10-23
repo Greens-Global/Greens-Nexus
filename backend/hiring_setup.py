@@ -314,7 +314,10 @@ def places_for(db: Session, entity_id: str, scope=None) -> list:
             if scope is None or e.id in scope:
                 out += places_for(db, e.id)
     out += stored_places(db, entity_id)
-    out += [((s.country or "").upper(), (s.region or "").upper()) for s in _own_rows(db, entity_id) if s.country]
+    # Hiring rows only (P5): a promotion letter or separation package for another
+    # country never adds a row to the grid; Add A Place covers those.
+    out += [((s.country or "").upper(), (s.region or "").upper()) for s in _own_rows(db, entity_id)
+            if s.country and s.event in ("offer", "hire")]
     return [p for p in dict.fromkeys(out) if not _fills_home(db, entity_id, p)]
 
 
@@ -640,11 +643,13 @@ class View:
                         "empty": True, "email": sug})
         # Signs For The Company: the authorized signatory; suggested from the Executive / Admin head.
         sig = (e.signatory_email or "").strip().lower()
+        signs_hint = ("Signs after the new hire on a hiring packet." if self.section == "hiring"
+                      else "Signs after the employee when a letter asks for the company.")
         if sig:
             p = hpd.person(db, sig)
             text = (e.signatory or "").strip() or ", ".join(x for x in (hpd.name_of(db, sig), (p.job_title if p else "") or "") if x)
             out.append({"key": "signsForCompany", "label": "Signs For The Company", "value": text,
-                        "hint": "Signs after the new hire on a hiring packet.", "empty": False, "email": sig})
+                        "hint": signs_hint, "empty": False, "email": sig})
         else:
             sug, dname = "", ""
             for d in db.query(HrDepartment).filter(HrDepartment.company_id == e.id).all():
@@ -658,7 +663,7 @@ class View:
             out.append({"key": "signsForCompany", "label": "Signs For The Company",
                         "value": ", ".join(x for x in (hpd.name_of(db, sug), (p.job_title if p else "") or "") if x) if sug else "",
                         "hint": f"Suggested from the {dname} department head - click Edit to keep it." if sug
-                        else "Signs after the new hire on a hiring packet.", "empty": True, "email": sug})
+                        else signs_hint, "empty": True, "email": sug})
         tokens = {t for s in self.settings() for tid in s.doc_template_ids or [] for snap in [self.snap(tid)] if snap
                   for t in snap.tokens}
         if tokens & {"company_legal", "company_address"}:

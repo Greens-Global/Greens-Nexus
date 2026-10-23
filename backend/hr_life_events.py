@@ -1632,9 +1632,10 @@ def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
 def refresh_due(ev: HrLifeEvent) -> None:
     """The packet that follows a signed offer is paperwork, not an offer: its
     date never strands it. Asking again or sending it with less than three
-    days left gives it two more weeks."""
+    days left gives it two more weeks. The same holds for the details link of
+    a promotion letter or separation package (the employee answers)."""
     d = dict(ev.inputs or {})
-    if not d.get("after_offer"):
+    if not d.get("after_offer") and ev.kind in CANDIDATE_KINDS:
         return
     today = datetime.strptime(_today(), "%Y-%m-%d")
     if (d.get("due_on") or "") < (today + timedelta(days=3)).strftime("%Y-%m-%d"):
@@ -1645,7 +1646,9 @@ def refresh_due(ev: HrLifeEvent) -> None:
 def reopen_intake(db: Session, ev: HrLifeEvent, by: str) -> str:
     """Ask the candidate again (a typo, an expired link): a fresh link, the
     old one dead. The packet goes back to waiting on details. Commits."""
-    if ev.kind != "hire" or ev.status not in ("intake", "review"):
+    # A promotion / separation asks only when it started with questions for the employee.
+    asks = ev.kind == "hire" or (ev.kind in ("promotion", "separation") and ev.intake_token_hash)
+    if not asks or ev.status not in ("intake", "review"):
         raise PacketError("Only a hiring packet that has not been sent can ask for details again.", 409)
     refresh_due(ev)
     exp = (ev.inputs or {}).get("due_on") or (ev.inputs or {}).get("offer_expires") or ""
@@ -2769,6 +2772,11 @@ def _package_follows_the_leaver(db: Session, ev: HrLifeEvent, emp: NexusEmployee
             return "package not sent yet - no personal email to send it to"
         ev.subject_email = personal
         ev.inputs = {**(ev.inputs or {}), "send_kind": "external"}
+        if ev.status == "intake" and ev.intake_token_hash:
+            # The details link went to the closed work mailbox - a fresh one, the old one dead.
+            refresh_due(ev)
+            mail_intake_after_commit(db, ev, new_intake_token(ev))
+            return f"package will go to {personal} - a new details link went there"
         return f"package will go to {personal}"
     if not ev.sign_request_id or ev.status not in ACTIVE:
         return ""

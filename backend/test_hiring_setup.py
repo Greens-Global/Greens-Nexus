@@ -679,6 +679,19 @@ class SectionGridTests(SectionCase):
         self.assertEqual(own.status_code, 400)
         self.assertIn("A promotion letter is countersigned", own.json()["detail"])
 
+    def test_a_separation_row_elsewhere_adds_no_hiring_row(self):
+        before = [r["key"] for r in self.view(GS)["rows"]]
+        _setting(self.db, "s-gs-in-sep", "separation", ["t-sep"], entity=GS, country="IN", flow=EMP_FLOW)
+        _setting(self.db, "s-gs-in-promo", "promotion", ["t-promo"], entity=GS, country="IN", flow=PROMO_FLOW)
+        self.db.commit()
+        self.assertEqual([r["key"] for r in self.view(GS)["rows"]], before)
+        self.assertEqual([r["key"] for r in self.sview("offboarding", GS)["rows"]], before)
+
+    def test_signs_for_the_company_reads_for_the_section(self):
+        hint = lambda v: next(a for a in v["about"] if a["key"] == "signsForCompany")["hint"]  # noqa: E731
+        self.assertEqual(hint(self.view()), "Signs after the new hire on a hiring packet.")
+        self.assertEqual(hint(self.sview("promotion")), "Signs after the employee when a letter asks for the company.")
+
     def test_the_list_shows_each_section(self):
         by_id = {c["id"]: c for c in self.client.get("/hr/hiring-setup").json()["companies"]}
         self.assertEqual([s["key"] for s in by_id[CO]["sections"]], ["hiring", "promotion", "offboarding"])
@@ -835,7 +848,7 @@ class OffboardingTests(SectionCase):
                       [i["text"] for i in v["items"]])
         self.assertEqual(self.row(v, "employee:US:TX")["package"]["sourceLabel"], "Offboarding runs without documents here")
 
-    def test_the_employee_fills_their_forwarding_details(self):
+    def _ask_forwarding(self):
         defs = [{"token": "forwarding_address", "source": "person", "label": "Forwarding Address", "type": "address"},
                 {"token": "forwarding_email", "source": "person", "label": "Forwarding Email", "type": "email",
                  "required": True}]
@@ -845,6 +858,32 @@ class OffboardingTests(SectionCase):
         self.db.add(models.DocTemplateVersion(id="v-t-fwd", template_id="t-fwd", version_no=1, content=SEP_FWD))
         self.db.query(models.HrPacketSetting).filter_by(id="s-ca-sep").update({"doc_template_ids": ["t-sep", "t-fwd"]})
         self.db.commit()
+
+    def test_the_details_link_follows_the_leaver_and_can_be_sent_again(self):
+        self._ask_forwarding()
+        ev = self.ev(self._offboard("e-erin", True).json()["id"])
+        first = ev.intake_token_hash
+        self.assertEqual((ev.status, ev.subject_email, len(self.tokens)), ("intake", EMP, 1))
+        # The last day passed: the work mailbox is closed, so a fresh link goes to the personal email.
+        emp = self.db.get(models.NexusEmployee, "e-erin")
+        note = hle._package_follows_the_leaver(self.db, ev, emp)
+        self.db.commit()
+        ev = self.ev(ev.id)
+        self.assertEqual(note, "package will go to e-erin@home.example - a new details link went there")
+        self.assertEqual((ev.subject_email, len(self.tokens)), ("e-erin@home.example", 2))
+        self.assertNotEqual(ev.intake_token_hash, first)
+        # Expired link: HR asks again, and the link gets two more weeks.
+        ev.intake_expires_on = ev.inputs["due_on"] = "2026-01-01"
+        ev.inputs = dict(ev.inputs)
+        self.db.commit()
+        r = self.client.post(f"/hr/life-events/{ev.id}/reopen-intake")
+        self.assertEqual(r.status_code, 200, r.text)
+        ev = self.ev(ev.id)
+        self.assertGreater(ev.intake_expires_on, hle._today())
+        self.assertEqual(self.client.get(f"/hr/intake/public/{r.json()['intakeUrl'].rsplit('/', 1)[-1]}").json()["state"], "open")
+
+    def test_the_employee_fills_their_forwarding_details(self):
+        self._ask_forwarding()
         r = self._offboard("e-erin", True)
         self.assertEqual(r.status_code, 200, r.text)
         ev = self.ev(r.json()["id"])
