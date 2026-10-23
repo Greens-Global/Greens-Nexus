@@ -343,7 +343,7 @@ describe('Building a role on the baseline', () => {
     expect(screen.queryByText('Microsoft 365 Account Provisioned')).not.toBeInTheDocument();
     fireEvent.click(toggle);
     expect(screen.getByText('Microsoft 365 Account Provisioned')).toBeInTheDocument();
-    expect(screen.getByText(/edited in Global Settings > Hiring > Checklist Library/)).toBeInTheDocument();
+    expect(screen.getByText(/edited in Settings > Hiring & Onboarding > Checklist Library/)).toBeInTheDocument();
   });
 
   it('copies another role steps in', async () => {

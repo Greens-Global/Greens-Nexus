@@ -2,8 +2,8 @@
 Section C: "Onboarding checklist per hire").
 
 These are the starting rows a company gets the first time anyone opens the
-checklists; HR edits them afterward in Settings > Global Settings > Hiring >
-Checklist Library (and per company in Company Settings > Checklists). Each row:
+checklists; HR edits them afterward in Settings > Hiring & Onboarding >
+Checklist Library (and per company with the company picked > Checklists). Each row:
 
   key       stable id inside the template (ON-01, OFF-14, ...) - completion
             signals and history refer to it, so never reuse a key for a

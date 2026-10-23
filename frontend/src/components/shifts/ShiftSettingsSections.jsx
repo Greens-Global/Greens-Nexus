@@ -51,16 +51,23 @@ const ZonePick = ({ value, onChange, label }) => (
 const COMPANY_KEY = 'shifts.settings.company';
 const COMPANY_EVENT = 'shifts:settings-company';
 const readCompany = () => { try { return localStorage.getItem(COMPANY_KEY) || ''; } catch { return ''; } };
-export function useSettingsCompany() {
-  const [company, setState] = useState(readCompany);
+// Settings' scope picker drives the company since Oct 23 (`forced`: '' is
+// Every company); the remembered pick and the in-panel picker only remain
+// for a panel mounted on its own. A viewer pinned to one company
+// (settleCompany) still lands on it whatever the scope says.
+export function useSettingsCompany(forced) {
+  const [company, setState] = useState(() => (forced !== undefined ? forced : readCompany()));
+  useEffect(() => { if (forced !== undefined) setState(forced); }, [forced]);
   useEffect(() => {
+    if (forced !== undefined) return undefined;
     const on = (e) => setState(e.detail ?? readCompany());
     window.addEventListener(COMPANY_EVENT, on);
     return () => window.removeEventListener(COMPANY_EVENT, on);
-  }, []);
+  }, [forced]);
   const setCompany = (v) => {
     const next = v || '';
     setState(next);
+    if (forced !== undefined) return;
     try { localStorage.setItem(COMPANY_KEY, next); } catch { /* per-viewer convenience only */ }
     window.dispatchEvent(new CustomEvent(COMPANY_EVENT, { detail: next }));
   };
@@ -139,9 +146,11 @@ const SWITCHES = [
   ['teamShiftDetails', "Staff can see the notes, activities and breaks on teammates' shifts"],
   ['teamTimeOffReasons', 'Staff can see why a teammate is off, and their note'],
 ];
-export function ShiftSettingsPanel({ toastOk, toastErr }) {
-  const [company, setCompany] = useSettingsCompany();
+export function ShiftSettingsPanel({ toastOk, toastErr, company: scoped, onOverride }) {
+  const [company, setCompany] = useSettingsCompany(scoped);
+  const locked = scoped !== undefined;
   const [cfg, setCfg] = useState(null);
+  useEffect(() => { if (locked && company && cfg) onOverride?.(!!cfg.hasOverride); }, [locked, company, cfg, onOverride]);
   const [error, setError] = useState(null);
   const [tick, setTick] = useState(0);
   // Sticky across reloads so the picker stays put while a company loads.
@@ -164,7 +173,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
         settleCompany(next, company, setCompany, failed.current);
         if (company) failed.current = '';
       })
-      .catch((e) => { if (live && !dropFailedCompany(company, setCompany, failed)) setError(e?.message || 'Could not load the settings.'); });
+      .catch((e) => { if (live && (locked || !dropFailedCompany(company, setCompany, failed))) setError(e?.message || 'Could not load the settings.'); });
     return () => { live = false; };
   }, [tick, company]);   // eslint-disable-line react-hooks/exhaustive-deps
   const graceShown = graceDraft ?? String(cfg?.defaultGraceMin ?? 10);
@@ -198,7 +207,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
   }
   return (
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
-      {canPick && <CompanyPicker value={company} onChange={setCompany} companies={companies} hint="A company with no settings of its own follows the defaults." />}
+      {canPick && !locked && <CompanyPicker value={company} onChange={setCompany} companies={companies} hint="A company with no settings of its own follows the defaults." />}
       <AsyncSection loading={!cfg && !error} error={!!error} onRetry={() => setTick((t) => t + 1)} errorMessage="The shift settings could not be loaded right now." skeleton={<SkeletonBlocks count={3} height={36} borderRadius={8} />}>
         {cfg && (
           <div style={{ display: 'grid', gap: 14 }}>
@@ -318,7 +327,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>A share then asks each person to confirm in My Shifts; the schedule shows who has, and a manager can nudge the rest.</div>
               <CalendarSyncStatus />
             </div>
-            {!company && <TimeOffReasons toastOk={toastOk} toastErr={toastErr} />}
+            {!company && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Time-off reasons are under Time &amp; Pay &gt; Time-Off Reasons.</div>}
           </div>
         )}
       </AsyncSection>
@@ -398,16 +407,23 @@ function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes
 }
 
 // Custom time-off reasons (e.g. "Jury Duty") next to the built-in ones.
-function TimeOffReasons({ toastOk, toastErr }) {
+// Settings > Time & Pay > Time-Off Reasons (Oct 23; it used to sit inside
+// Shift Settings, where a company pick hid it).
+// `company` (Settings' scope picker): that company's own list, over the
+// default for every company; '' edits the default.
+export function TimeOffReasons({ toastOk, toastErr, company = '', onOverride }) {
   const [list, setList] = useState(null);
   const [draft, setDraft] = useState('');
+  const [own, setOwn] = useState(false);   // the company has a list of its own
+  useEffect(() => { if (list && company) onOverride?.(own); }, [list, own, company, onOverride]);
   useEffect(() => {
     let live = true;
-    api.timeOffTypes().then((r) => { if (live) setList(r.custom || []); }).catch(() => { if (live) setList([]); });
+    // 'default' = the list for every company (the server otherwise answers with the caller's own company's).
+    api.timeOffTypes(company || 'default').then((r) => { if (live) { setList(r.custom || []); setOwn(!!r.hasOverride); } }).catch(() => { if (live) setList([]); });
     return () => { live = false; };
-  }, []);
-  async function save(next) {
-    try { const r = await api.timeOffTypesSave({ custom: next }); setList(r.custom); setDraft(''); toastOk?.('Time-off reasons saved.'); }
+  }, [company]);
+  async function save(next, reset = false) {
+    try { const r = await api.timeOffTypesSave(reset ? { custom: [], reset: true } : { custom: next }, company || 'default'); setList(r.custom); setOwn(!!r.hasOverride); setDraft(''); toastOk?.(reset ? 'Back to the default reasons.' : 'Time-off reasons saved.'); }
     catch (e) { toastErr?.(e.message || 'Could not save the reasons.'); }
   }
   if (!list) return null;
@@ -427,14 +443,21 @@ function TimeOffReasons({ toastOk, toastErr }) {
           onKeyDown={(e) => { if (e.key === 'Enter') add(); }} style={{ width: 150, fontSize: 12.5, padding: '3px 8px' }} />
         <button type="button" className="secondary-btn" onClick={add} disabled={!draft.trim()} style={{ fontSize: 12 }}>Add Reason</button>
       </div>
+      {company && (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {own ? 'This company has reasons of its own.' : 'Using the default reasons; a change here is this company\'s alone.'}
+          {own && <button type="button" className="secondary-btn" onClick={() => save([], true)} style={{ fontSize: 11.5 }}>Use the Default</button>}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Shift Types ──────────────────────────────────────────────────────────
 // A shift type is a reusable shift: name, code, color, times, zone and days.
-export function ShiftTypesPanel({ toastOk, toastErr }) {
-  const [company, setCompany] = useSettingsCompany();
+export function ShiftTypesPanel({ toastOk, toastErr, company: scoped }) {
+  const [company, setCompany] = useSettingsCompany(scoped);
+  const locked = scoped !== undefined;
   const [shifts, setShifts] = useState(null);
   const [error, setError] = useState(null);
   const [tick, setTick] = useState(0);
@@ -460,7 +483,7 @@ export function ShiftTypesPanel({ toastOk, toastErr }) {
       setCanManage(r.canManage !== false);
       settleCompany(r, company, setCompany, failed.current);
       if (company) failed.current = '';
-    }).catch((e) => { if (live && !dropFailedCompany(company, setCompany, failed)) setError(e?.message || 'Could not load the shift types.'); });
+    }).catch((e) => { if (live && (locked || !dropFailedCompany(company, setCompany, failed))) setError(e?.message || 'Could not load the shift types.'); });
     return () => { live = false; };
   }, [tick, company]);   // eslint-disable-line react-hooks/exhaustive-deps
   const reload = () => setTick((t) => t + 1);
@@ -491,7 +514,7 @@ export function ShiftTypesPanel({ toastOk, toastErr }) {
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
-      {canPick && <CompanyPicker value={company} onChange={setCompany} companies={companies} hint="A company sees the shared shift types and its own." />}
+      {canPick && !locked && <CompanyPicker value={company} onChange={setCompany} companies={companies} hint="A company sees the shared shift types and its own." />}
       <AsyncSection loading={!shifts && !error} error={!!error} onRetry={reload} errorMessage="The shift types could not be loaded right now." skeleton={<SkeletonBlocks count={2} height={64} borderRadius={10} />}>
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -590,9 +613,10 @@ export function weatherLine(g) {
 }
 const weatherTone = (g) => (g.weatherAlerts === false ? 'var(--muted)' : (!g.workSiteId || g.siteLocated === false) ? 'hsl(var(--color-orange))' : 'var(--wk-brand)');
 
-export function ShiftGroupsPanel({ toastOk, toastErr }) {
+export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
   const nameOf = useNameResolver();
-  const [company, setCompany] = useSettingsCompany();
+  const [company, setCompany] = useSettingsCompany(scoped);
+  const locked = scoped !== undefined;
   const [canPick, setCanPick] = useState(false);
   const [companies, setCompanies] = useState([]);
   const [groups, setGroups] = useState(null);
@@ -678,7 +702,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
-      {canPick && <CompanyPicker value={company} onChange={setCompany} companies={companies} hint="A company sees the shared groups and its own." />}
+      {canPick && !locked && <CompanyPicker value={company} onChange={setCompany} companies={companies} hint="A company sees the shared groups and its own." />}
       <AsyncSection loading={!groups && !error} error={!!error} onRetry={reload} errorMessage="The groups could not be loaded right now." skeleton={<SkeletonBlocks count={2} height={64} borderRadius={10} />}>
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>

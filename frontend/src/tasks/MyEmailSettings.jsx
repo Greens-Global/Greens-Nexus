@@ -3,7 +3,8 @@
 // daily summary, which instant emails they get, and muted tasks/projects.
 // Shown as the Email Settings section of Profile (components/MyProfileModal.jsx),
 // which the "Email Settings" link in every task email also opens.
-// Company settings (Manage -> Notifications) stay the default; anything left on
+// The organization's settings (Settings > Emails & Reminders > Task
+// Notifications) stay the default; anything left on
 // "Company default" here follows them. The backend is the real boundary
 // (task_notify_prefs.normalize) - this form only offers valid choices.
 //

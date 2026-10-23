@@ -13,7 +13,7 @@
 //   * People on the California rule whose work state Nexus cannot tell are
 //     listed under Work State Unknown - set it, and they are checked.
 // Employees never see any of this (the routes are HR only).
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, ChevronDown, RefreshCw, Scale, SlidersHorizontal, MapPinOff, Check } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
@@ -298,33 +298,50 @@ function FlagRow({ f, busy, onPay, onHandled, onNote, onReopen, onAdjust }) {
   );
 }
 
-function MinWageSettings({ current, onClose, onSaved, toastOk, toastErr }) {
-  const [v, setV] = useState(current ?? 16.9);
+// The minimum wage box (Settings > Time & Pay > California Minimum Wage since
+// Oct 23). `current` comes from the review when it wraps it; on its own it
+// loads the saved value.
+export function MinWageForm({ current, onSaved, toastOk, toastErr }) {
+  const [v, setV] = useState(current ?? null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (current !== undefined) return;
+    api.caReviewSettings().then(r => setV(r?.minWage ?? 16.9)).catch(() => setV(16.9));
+  }, [current]);
   async function save() {
     setBusy(true);
     try { await api.caReviewSaveSettings({ minWage: Number(v) }); toastOk?.('Minimum wage saved.'); onSaved?.(); }
     catch (e) { toastErr?.(e?.message || 'Could not save the minimum wage.'); }
     setBusy(false);
   }
+  if (v === null) return <div style={{ padding: 16, textAlign: 'center' }}><Spinner size="inline" /></div>;
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+        The California state minimum wage the review checks pay rates against ($16.90/hr in 2026). It also prices the split-shift premium. City and county minimums are not checked.
+      </p>
+      <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--ink)', maxWidth: 240 }}>
+        Minimum Wage ($/hr)
+        <input className="form-input" type="number" min={0.01} step={0.01} aria-label="Minimum Wage" value={v}
+          onChange={e => setV(e.target.value)} style={{ fontSize: 13 }} />
+      </label>
+      <div>
+        <button type="button" className="primary-btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+      </div>
+    </div>
+  );
+}
+
+function MinWageSettings({ current, onClose, onSaved, toastOk, toastErr }) {
   const footer = (
     <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-      <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-      <button type="button" className="primary-btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+      <button type="button" className="secondary-btn" onClick={onClose}>Close</button>
     </div>
   );
   return (
     <Modal title="California Minimum Wage" onClose={onClose} footer={footer}>
-      <div style={{ display: 'grid', gap: 10 }}>
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-          The California state minimum wage the review checks pay rates against ($16.90/hr in 2026). It also prices the split-shift premium. City and county minimums are not checked.
-        </p>
-        <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--ink)', maxWidth: 240 }}>
-          Minimum Wage ($/hr)
-          <input className="form-input" type="number" min={0.01} step={0.01} aria-label="Minimum Wage" value={v}
-            onChange={e => setV(e.target.value)} style={{ fontSize: 13 }} />
-        </label>
-      </div>
+      <MinWageForm current={current} onSaved={() => { onSaved?.(); onClose(); }} toastOk={toastOk} toastErr={toastErr} />
+      <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--muted)' }}>Also under Settings &gt; Time &amp; Pay &gt; California Minimum Wage.</p>
     </Modal>
   );
 }

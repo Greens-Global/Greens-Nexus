@@ -51,7 +51,7 @@ vi.mock('../../api', () => ({
   },
 }));
 
-const { ShiftSettingsPanel, ShiftTypesPanel, ShiftGroupsPanel } = await import('./ShiftSettingsSections');
+const { ShiftSettingsPanel, ShiftTypesPanel, ShiftGroupsPanel, TimeOffReasons } = await import('./ShiftSettingsSections');
 const { ZONE_GROUPS } = await import('../../lib/worldClockZones');
 const ASIA = ZONE_GROUPS.Asia[0];
 
@@ -95,8 +95,15 @@ describe('Shift Settings', () => {
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: ASIA }), ''));
     fireEvent.change(screen.getByLabelText('Week starts on'), { target: { value: 'sunday' } });
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ weekStart: 'sunday' }), ''));
-    expect(await screen.findByText('Jury Duty')).toBeTruthy();   // the time-off reasons live here too
+    // The time-off reasons are their own Settings group now (Time & Pay, Oct 23).
+    expect(screen.queryByText('Jury Duty')).toBeNull();
+    expect(screen.getByText(/Time-off reasons are under Time & Pay/)).toBeTruthy();
     expect(toastOk).toHaveBeenCalledWith('Shift settings saved.');
+  });
+
+  it('keeps the time-off reasons as a panel of their own', async () => {
+    render(<TimeOffReasons toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByText('Jury Duty')).toBeTruthy();
   });
 
   // Shifts Phase 3b (Oct 15): releases to the open pool, whether a manager

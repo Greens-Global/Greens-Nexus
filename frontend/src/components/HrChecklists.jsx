@@ -451,7 +451,7 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             <span>Task: <b style={{ color: 'var(--wk-ink)', fontWeight: 600 }}>{cl.task.title}</b>{' '}
               {cl.task.projectName
                 ? <>in {cl.task.projectName}{cl.task.sectionName ? `, section ${cl.task.sectionName}` : ''}</>
-                : <span style={{ color: 'var(--wk-orange)' }}>- not in a project yet; pick one in Company Settings &gt; Checklists &gt; Where Checklist Tasks Go</span>}
+                : <span style={{ color: 'var(--wk-orange)' }}>- not in a project yet; pick one in Settings &gt; Hiring &amp; Onboarding, with the company picked, &gt; Checklists &gt; Where Checklist Tasks Go</span>}
             </span>
             <button onClick={() => openTask(cl.task.id)} style={{ ...ghostBtn, padding: '3px 8px', fontSize: 12 }}>Open Task</button>
           </div>
@@ -1061,7 +1061,7 @@ function LibraryOwnersNote() {
   return (
     <section style={{ ...card, padding: '14px 18px', marginBottom: 18, fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
       <b style={{ color: 'var(--wk-ink)' }}>Who does each step</b> is set once per company: the head and the backup of its HR, IT and
-      Accounting departments (Company Settings &gt; a company &gt; Departments). A step nobody owns goes to the Global Admins.
+      Accounting departments (Settings &gt; Companies, with the company picked, &gt; Departments). A step nobody owns goes to the Global Admins.
     </section>
   );
 }
@@ -1722,8 +1722,8 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>{entityId ? `Checklists For ${companyName}` : 'Checklist Library'}</div>
           <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
             {entityId
-              ? 'Each role builds its own onboarding, promotion, offboarding and leave steps (Roles tab > a role > Checklists). Below: the baseline steps every hire gets first, whatever the role, then which roles are built and what is still missing.'
-              : 'The standard steps every new checklist starts with, whatever the role. Each role\'s own steps are built on the role (Company Settings > Roles > a role > Checklists).'}
+              ? 'Each role builds its own onboarding, promotion, offboarding and leave steps (People & Access > Roles > a role > Checklists). Below: the baseline steps every hire gets first, whatever the role, then which roles are built and what is still missing.'
+              : 'The standard steps every new checklist starts with, whatever the role. Each role\'s own steps are built on the role (People & Access, with the company picked > Roles > a role > Checklists).'}
           </div>
         </div>
         {!entityId && entities.length > 0 && (
@@ -1912,8 +1912,8 @@ function BaselineBlock({ baseline, companyName, roleItems = [], kindLabel = '', 
   const items = baseline?.items || [];
   if (!items.length) return null;
   const where = baseline.source === 'company'
-    ? `Company Settings > ${companyName} > Checklists > Baseline Steps`
-    : 'Global Settings > Hiring > Checklist Library';
+    ? `Settings > Hiring & Onboarding > ${companyName} > Checklists > Baseline Steps`
+    : 'Settings > Hiring & Onboarding > Checklist Library';
   const who = companyName ? `every hire at ${companyName}` : 'every hire';
   const titles = new Set(items.map(r => (r.title || '').trim().toLowerCase()));
   const repeats = roleItems.filter(r => titles.has((r.title || '').trim().toLowerCase()));
@@ -2122,7 +2122,7 @@ export function RoleChecklists({ toastOk, toastErr }) {
     return (
       <div style={{ ...card, padding: 24, fontSize: 13.5, color: 'var(--wk-dim)', lineHeight: 1.6, fontFamily: FONT }}>
         <b style={{ color: 'var(--wk-ink)' }}>No roles to look after yet.</b> The head of a department keeps the extra checklist steps for its
-        roles - set department heads in Company Settings &gt; Departments.
+        roles - set department heads in Settings &gt; Companies &gt; the company &gt; Departments.
       </div>
     );
   }

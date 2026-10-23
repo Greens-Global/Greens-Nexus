@@ -213,7 +213,7 @@ export default function CmaReview({ facility, onSection, onChanged }) {
           {items.length > 0 && <span className="status-badge status-pending">Awaiting Approval</span>}
         </div>
         {!d.pushOn && (
-          <p className="cma-note">Push to Cubby is turned off (Settings &gt; Global Settings &gt; Operations), so Nexus only reads from Cubby. Enter the approved changes in Cubby by hand, then mark them entered here.</p>
+          <p className="cma-note">Push to Cubby is turned off (Settings &gt; Operations), so Nexus only reads from Cubby. Enter the approved changes in Cubby by hand, then mark them entered here.</p>
         )}
         {d.pushOn && !d.pushReady && <p className="cma-note" style={{ color: 'var(--warn-fg)' }}>Push to Cubby is on, but this server has no Cubby key with the Manager role yet, so changes can only be marked entered.</p>}
         <div className="cma-actions">

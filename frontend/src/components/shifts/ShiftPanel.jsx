@@ -179,7 +179,7 @@ function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people,
   return (
     <>
       <div onKeyDown={onKey} style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', display: 'grid', gap: 14, alignContent: 'start' }}>
-        {noPresets && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shift types yet. Add them under Settings &gt; Global Settings &gt; Shifts, or set the times here.</div>}
+        {noPresets && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shift types yet. Add them under Settings &gt; Shifts &amp; Scheduling, or set the times here.</div>}
         {(!noPresets || quickPicks.length > 0) && <TypeChips presets={presets} value={shiftId} onPick={pickType} quickPicks={quickPicks} pickedQuick={pickedQuick} onQuick={pickQuick} />}
         <div style={{ display: 'flex', gap: 10 }}>
           <label style={{ flex: 1 }}><div style={LBL}>Start</div><input type="time" className="form-input" aria-label="Start" value={effStart} onChange={(e) => setStart(e.target.value)} style={INPUT} /></label>

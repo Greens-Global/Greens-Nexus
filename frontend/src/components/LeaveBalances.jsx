@@ -135,6 +135,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [cut, setCut] = useState('');
+  const [cutCo, setCutCo] = useState('');          // '' = the organization's start date; else a company's own (Oct 23)
   const [busy, setBusy] = useState('');
   const [open, setOpen] = useState('');            // 'import' | 'policies' | ''
   const [q, setQ] = useState('');
@@ -142,7 +143,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
 
   const load = useCallback(() => {
     setErr('');
-    return api.leaveAdmin().then(d => { setData(d); setCut(d.cutover || ''); })
+    return api.leaveAdmin().then(d => { setData(d); setCut(d.cutover || ''); setCutCo(''); })
       .catch(e => { setErr(e?.status === 403 ? '' : (e?.message || 'Could not load leave balances.')); setData(e?.status === 403 ? false : null); });
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -154,11 +155,17 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
   const pols = data.policies || [];
   const polName = Object.fromEntries(pols.map(p => [p.id, p.name]));
 
-  async function saveCutover() {
-    if (!cut) return;
+  const cutRow = cutCo ? (data.companies || []).find(c => c.id === cutCo) : null;
+  const savedCut = cutRow ? cutRow.cutover : (data.cutover || '');
+  function pickCutCo(id) { setCutCo(id); const row = (data.companies || []).find(c => c.id === id); setCut((row ? row.cutover : data.cutover) || ''); }
+  async function saveCutover(reset = false) {
+    if (!cut && !reset) return;
     setBusy('cut');
-    try { await api.leaveSetCutover(cut); toastOk?.('Start date saved.'); await load(); }
-    catch (e) { toastErr?.(e?.message || 'Could not save the start date.'); }
+    try {
+      await api.leaveSetCutover(cut, cutCo, reset);
+      toastOk?.(reset ? `${cutRow?.name || 'The company'} follows the organization's start date again.` : 'Start date saved.');
+      await load();
+    } catch (e) { toastErr?.(e?.message || 'Could not save the start date.'); }
     setBusy('');
   }
   async function recalc() {
@@ -197,15 +204,29 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
 
       {data.canSetup && (
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+          {(data.companies || []).length > 0 && (
+            <label style={{ display: 'grid', gap: 5 }}>
+              <span style={LBL}>For</span>
+              <select className="form-input" value={cutCo} onChange={e => pickCutCo(e.target.value)} style={{ fontSize: 12.5 }} aria-label="Start date for">
+                <option value="">Every company</option>
+                {data.companies.map(c => <option key={c.id} value={c.id}>{c.name}{c.own ? ' (its own)' : ''}</option>)}
+              </select>
+            </label>
+          )}
           <label style={{ display: 'grid', gap: 5 }}>
             <span style={LBL}>Start Date</span>
             <input className="form-input" type="date" value={cut} onChange={e => setCut(e.target.value)} style={{ fontSize: 12.5 }} />
           </label>
-          <button className="primary-btn" onClick={saveCutover} disabled={!cut || cut === data.cutover || busy === 'cut'} style={{ fontSize: 12.5 }}>
+          <button className="primary-btn" onClick={() => saveCutover(false)} disabled={!cut || cut === savedCut || busy === 'cut'} style={{ fontSize: 12.5 }}>
             {busy === 'cut' ? <Spinner size={12} /> : 'Save Start Date'}
           </button>
+          {cutRow?.own && (
+            <button className="secondary-btn" onClick={() => saveCutover(true)} disabled={busy === 'cut'} style={{ fontSize: 12.5 }}>Use the Organization's</button>
+          )}
           <span style={{ fontSize: 12, color: 'var(--muted)', paddingBottom: 9 }}>
-            {data.cutover ? `Balances count from ${day(data.cutover)}.` : 'Nothing shows to employees until a start date is set.'}
+            {cutCo
+              ? (cutRow?.own ? `${cutRow.name} counts from ${day(cutRow.cutover)}, its own date.` : `${cutRow?.name || 'This company'} follows the organization's date${data.cutover ? ` (${day(data.cutover)})` : ''}.`)
+              : (data.cutover ? `Balances count from ${day(data.cutover)}. A company can have a date of its own: pick it under For.` : 'Nothing shows to employees until a start date is set.')}
           </span>
         </div>
       )}
@@ -219,9 +240,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
         </Section>
       )}
       {data.canSetup && (
-        <Section title="Policies" open={open === 'policies'} onToggle={() => setOpen(open === 'policies' ? '' : 'policies')}>
-          <PoliciesEditor policies={pols} builtIn={data.defaults || []} onSaved={load} toastOk={toastOk} toastErr={toastErr} />
-        </Section>
+        <div style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 10px' }}>The policies themselves are under Settings &gt; Time &amp; Pay &gt; Leave Policies.</div>
       )}
 
       {data.cutover && (
@@ -496,6 +515,33 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
         <span style={{ flex: 1 }} />
         <button className="primary-btn" onClick={save} disabled={busy} style={{ fontSize: 12.5 }}>{busy ? <Spinner size={12} /> : 'Save Policies'}</button>
       </div>
+    </div>
+  );
+}
+
+// Settings > Time & Pay > Leave Policies (Oct 23): the policy library HR >
+// Leave used to hold in an accordion. The start date stays with the import on
+// HR > Leave; this shows it.
+export function LeaveSetup({ toastOk, toastErr }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  const load = useCallback(() => {
+    setErr('');
+    return api.leaveAdmin().then(setData)
+      .catch(e => { setErr(e?.status === 403 ? '' : (e?.message || 'Could not load the leave policies.')); setData(e?.status === 403 ? false : null); });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  if (data === false) return <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Only HR can see the leave policies.</div>;
+  if (err) return <div style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{err} <button className="secondary-btn" onClick={load} style={{ marginLeft: 8, fontSize: 12 }}>Retry</button></div>;
+  if (data === null) return <SkeletonBlocks count={3} height={18} />;
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
+        {data.cutover ? `Balances count from ${day(data.cutover)}${(data.companies || []).some(c => c.own) ? ' (some companies have a date of their own)' : ''}.` : 'No start date yet - nothing shows to employees until one is set.'} The start dates and the opening balances are on People &gt; Leave.
+      </div>
+      {data.canSetup
+        ? <PoliciesEditor policies={data.policies || []} builtIn={data.defaults || []} onSaved={load} toastOk={toastOk} toastErr={toastErr} />
+        : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Only an administrator can change the policies.</div>}
     </div>
   );
 }

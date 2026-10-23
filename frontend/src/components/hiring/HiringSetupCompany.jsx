@@ -358,7 +358,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
           <h2 style={h2}>Job Descriptions</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>Write each role&apos;s duties once. Give contractors, part-time staff or another place a different version only if they need one.</p>
         </div>
-        {view.jobDescriptions.rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>No roles yet - add them in Company Settings &gt; Roles.</div> : (
+        {view.jobDescriptions.rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>No roles yet - add them in Settings &gt; People &amp; Access, with the company picked, &gt; Roles.</div> : (
           <div style={{ overflowX: 'auto' }}>
             <div role="table" aria-label="Job Descriptions" style={{ minWidth: 620, display: 'grid', gridTemplateColumns: `220px repeat(${view.jobDescriptions.columns.length}, minmax(0, 1fr))`, gap: 8 }}>
               <div style={cap}>Role</div>

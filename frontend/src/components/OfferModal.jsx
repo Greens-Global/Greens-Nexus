@@ -418,7 +418,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             </select>
             <div style={hint}>
               {!from.department_head?.email
-                ? `${from.department ? `The ${from.department} department` : 'This department'} has no head set up (Company Settings > Departments), so the offer comes from HR.`
+                ? `${from.department ? `The ${from.department} department` : 'This department'} has no head set up (Settings > Companies > Departments), so the offer comes from HR.`
                 : 'The letter closes with their name and the offer email comes from them. It still says who they report to.'}
             </div></div>
           {(opts?.choices || []).length > 0 && (

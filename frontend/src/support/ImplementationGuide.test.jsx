@@ -58,7 +58,7 @@ describe('Implementation Guide screen', () => {
     render(<ImplementationGuide />);
     fireEvent.click((await screen.findAllByText('Job Roles and Access'))[0]);
     fireEvent.click(screen.getAllByRole('button', { name: /Open/ })[0]);
-    expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'admin-console', sub: 'company' });
+    expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'admin-console', sub: 'access' });
     window.removeEventListener('nexus:navigate', nav);
   });
 });

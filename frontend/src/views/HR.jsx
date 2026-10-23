@@ -1404,6 +1404,13 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
 
   return (
     <div>
+      {/* The same access, with everyone else's beside it (Oct 23). */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button type="button" className="secondary-btn" style={{ fontSize: 12 }}
+          onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'access' } }))}>
+          Open in Settings
+        </button>
+      </div>
       <div className="acc-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <div style={_accBox}>
           <div style={_accLabel}>Job role</div>
@@ -2298,7 +2305,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           {/* Neil, Oct 14: the questionnaires and the documents are settings -
               set up in Settings > Hiring, never edited on the board. */}
           <button className="secondary-btn"
-            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'global-hiring' } }))}
+            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'hiring' } }))}
             title={needPackets.length ? `${needPackets.map(r => r.name).join(', ')} - added while hiring, no hiring documents yet` : 'Hiring documents and interview questionnaires, in Settings'}
             style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6,
               ...(needPackets.length ? { borderColor: '#b45309', color: '#b45309', background: 'rgba(180,83,9,0.08)', fontWeight: 700 } : {}) }}>
@@ -3555,7 +3562,15 @@ const COMPANY_TABS = [
 ];
 const COMPANY_ROLES_TAB = { key: 'roles', label: 'Roles' };
 
-export function CompanySetupPage({ entities, employees = [], sites = [], onChangedEntities, onChangedSites, toastOk, toastErr }) {
+// Settings merged into one tab (Neil, Oct 23 2026): `entityId` opens the page
+// on that company (the shell's scope picker chose it, so no Back button and
+// no title of its own), `tabs` limits it to the tabs the shell's subject
+// asked for (Profile / Departments / Holiday Calendar under Companies, the
+// sites under Locations, Roles under People & Access...), `onOpen` is what
+// the list's Edit does instead of opening in place, and `onDirtyChange`
+// tells the shell the Overview form has unsaved edits.
+export function CompanySetupPage({ entities, employees = [], sites = [], onChangedEntities, onChangedSites, toastOk, toastErr,
+  entityId = '', tabs = null, onOpen, onDirtyChange }) {
   // linkedin_url is deliberately NOT in this form state (Sep 18: removed from
   // the UI) - omitting the key means an update PATCH never sends it, so
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
@@ -3565,7 +3580,9 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const { can } = useRole();
-  const companyTabs = can('administrator') ? [...COMPANY_TABS, COMPANY_ROLES_TAB] : COMPANY_TABS;
+  const allTabs = can('administrator') ? [...COMPANY_TABS, COMPANY_ROLES_TAB] : COMPANY_TABS;
+  const companyTabs = tabs ? allTabs.filter(t => tabs.includes(t.key)) : allTabs;
+  const firstTab = companyTabs[0]?.key || 'overview';
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
@@ -3615,8 +3632,15 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       hr_contact_email: en.hrContactEmail || '',
       invoice_recipients: (en.invoiceRecipients || []).join(', '),
       logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
-    setF(seeded); formSnapshotRef.current = seeded; setTab('overview'); setMode(en.id);
+    setF(seeded); formSnapshotRef.current = seeded; setTab(firstTab); setMode(en.id);
   };
+  // Opened on a company by the shell: follow it (and a later switch of the
+  // scope picker); a refresh of the same company keeps the form as it is.
+  useEffect(() => {
+    if (!entityId) return;
+    const en = entities.find(e => e.id === entityId);
+    if (en && mode !== entityId) startEdit(en);
+  }, [entityId, entities]); // eslint-disable-line react-hooks/exhaustive-deps
   async function uploadLogo(file) {
     if (!file || mode === 'new') return;   // logo needs a saved company id - save first
     setLogoBusy(true);
@@ -3673,23 +3697,34 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Only the Overview tab's form carries unsaved state - Departments/Work
   // Sites/Holidays manage and save their own rows independently as you go.
   const dirty = !!mode && tab === 'overview' && JSON.stringify(f) !== JSON.stringify(formSnapshotRef.current);
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   const backToList = () => setMode(null);
   const guard = useUnsavedGuard(dirty, backToList, f.name.trim() ? save : undefined);
+  const opened = !!entityId && mode === entityId;   // the shell picked the company
+
+  if (entityId && !opened) {
+    return entities.length
+      ? <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
+      : <SkeletonBlocks count={4} height={56} borderRadius={10} />;
+  }
 
   if (mode) {
     return (
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-          <button onClick={guard.requestClose} className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px' }}>
-            <ChevronLeft size={14} /> Back
-          </button>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Building2 size={17} color="hsl(var(--color-blue))" />
+        {!opened && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <button onClick={guard.requestClose} className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px' }}>
+              <ChevronLeft size={14} /> Back
+            </button>
+            <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Building2 size={17} color="hsl(var(--color-blue))" />
+            </div>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{mode === 'new' ? 'Add Company' : editingEntity?.name || 'Edit Company'}</h3>
           </div>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{mode === 'new' ? 'Add Company' : editingEntity?.name || 'Edit Company'}</h3>
-        </div>
+        )}
 
-        {mode !== 'new' && <ModuleTabs tabs={companyTabs} active={tab} onChange={setTab} inline />}
+        {mode !== 'new' && companyTabs.length > 1 && <ModuleTabs tabs={companyTabs} active={tab} onChange={setTab} inline />}
 
         {(mode === 'new' || tab === 'overview') && (
           <>
@@ -3918,7 +3953,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, mgrNames && `Manager${mgrEmails.length > 1 ? 's' : ''} ${mgrNames}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
           </div>
-          <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
+          <button className="secondary-btn" onClick={() => (onOpen ? onOpen(en.id) : startEdit(en))} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
           <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
         </div>
         );
@@ -5691,7 +5726,7 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Every location, entered once. Pick the companies whose people punch in at each one - here, or from a company's Locations tab in Company Settings.</p>
+        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Every location, entered once. Pick the companies whose people punch in at each one - here, or under Locations with the company picked.</p>
         <div style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
           <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search locations" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
@@ -6380,7 +6415,7 @@ export default function HR({ activeSub, onSubChange }) {
       {sub === 'hr-checklists' && (
         <>
           <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', marginBottom: 14 }}>
-            Steps are set up in Settings: Company Settings &gt; Checklists for each company, Global Settings &gt; Hiring &gt; Checklist Library for the standard ones, and Team &gt; Role Checklists for a role&apos;s own steps.
+            Steps are set up in Settings &gt; Hiring &amp; Onboarding: the Checklist Library for the standard ones, each company&apos;s Checklists with that company picked, and Team &gt; Role Checklists for a role&apos;s own steps.
           </div>
           <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
         </>

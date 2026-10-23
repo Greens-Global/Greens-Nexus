@@ -50,6 +50,7 @@ export default function SavedReplyPicker({ ticket, agentEmail, nameOf, onInsert,
       <Modal title="Manage Saved Replies" onClose={onClose} minHeight="60vh"
         footer={<button type="button" onClick={() => setManaging(false)} style={btn('primary')}>Back to Saved Replies</button>}>
         <TicketSavedRepliesSettings onChanged={() => setVersion((v) => v + 1)} />
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>The desk's shared replies are also under Settings &gt; Tickets &gt; Saved Replies.</div>
       </Modal>
     );
   }

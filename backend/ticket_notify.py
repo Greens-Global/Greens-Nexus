@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import email_theme
 import models
 from database import SessionLocal
 import graph_mail
@@ -607,7 +608,7 @@ def _render(db: Session, t: models.TaskTicket, event_type: str, role: str, ctx: 
     """(subject, html) for one recipient of one event, or None for an event
     with no email. THE one renderer - the first send and a legacy row's retry
     (one stored before the body was kept) both come through here."""
-    logo_url = cfg.get("logoUrl") or ""
+    logo_url = email_theme.logo_for(db, cfg.get("logoUrl") or "", recipient)
     base = app_url()
     if event_type == "created":
         return (tmpl.created_email_requester(t=ctx, base_url=base, logo_url=logo_url) if role == "requester"
@@ -728,7 +729,7 @@ def _walkthrough_mail(db: Session, b, tickets: list, role: str, recipient: str, 
              "pending": (t.approval_status or "none") == "pending"} for t in mine]
     return tmpl.walkthrough_email(property_name=b.property_name, property_id=b.property_asset_id,
                                   actor_name=_name_of(db, b.created_by_email), rows=rows, audience=role,
-                                  base_url=app_url(), logo_url=cfg.get("logoUrl") or "")
+                                  base_url=app_url(), logo_url=email_theme.logo_for(db, cfg.get("logoUrl") or "", recipient))
 
 
 def notify_walkthrough(batch_id: str, actor_email: str) -> None:
@@ -855,7 +856,7 @@ def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict, *, db: Sess
     mail = _render(db, t, event_type, role, ctx, cfg, kw, zone, recipient=recipient)
     if mail is not None:
         return mail
-    return tmpl.update_email(t=ctx, base_url=app_url(), logo_url=cfg.get("logoUrl") or "",
+    return tmpl.update_email(t=ctx, base_url=app_url(), logo_url=email_theme.logo_for(db, cfg.get("logoUrl") or "", recipient),
                              update_kind="Ticket updated")
 
 

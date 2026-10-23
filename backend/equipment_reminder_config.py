@@ -1,7 +1,7 @@
 """Admin-set timing for the equipment reminders (Sep 2026).
 
 Two jobs read this one NexusSetting row, `equipment_reminder_config`
-(Settings > Global Settings > Notifications & Communications > Equipment
+(Settings > Emails & Reminders > Equipment
 Reminders), through the same cached path hr_reminder_config.py uses:
 
   - overdue checkout reminders (equipment_reminders.run_overdue_checkouts):

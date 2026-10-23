@@ -187,7 +187,7 @@ export default function TicketHelpTopicsSettings() {
       </div>
 
       {state.names.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: NX.faint }}>No departments yet - add them in Settings &gt; Company Settings.</div>
+        <div style={{ fontSize: 12.5, color: NX.faint }}>No departments yet - add them in Settings &gt; Companies, with the company picked.</div>
       ) : (
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <div role="tablist" aria-label="Departments" style={{ ...card, padding: 6, flex: '0 0 220px', display: 'flex', flexDirection: 'column', gap: 2 }}>

@@ -45,7 +45,7 @@ def _person(db: Session, email: str) -> Optional[models.NexusEmployee]:
 
 def department_head(db: Session, cand: models.HrCandidate) -> str:
     """Who runs the department the role belongs to: the department's lead for
-    the hiring company (Company Settings > Departments), else its backup, else
+    the hiring company (Settings > Companies > Departments), else its backup, else
     the role's default manager - the same head -> backup order as checklist
     steps (Neil, Oct 22 6:52)."""
     import hr_checklists as hc

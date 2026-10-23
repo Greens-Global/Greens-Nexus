@@ -732,7 +732,8 @@ def _check_fix(sid: str, chk: dict) -> tuple:
         if f:
             return (f[0], "editAbout", {"field": f[1]})
     if k == "checklistOwners":
-        return ("Open Company Settings", "navigate", {"view": "admin-console", "sub": "company"})
+        _eid = fix.get("entityId") or ""
+        return ("Open Settings > Companies", "navigate", {"view": "admin-console", "sub": f"companies@{_eid}" if _eid else "companies"})
     if k == "template":
         return ("Open Documents", "navigate", {"view": "documents", "sub": "documents-templates"})
     return ("Open The Packet", "advanced", {"settingId": sid})

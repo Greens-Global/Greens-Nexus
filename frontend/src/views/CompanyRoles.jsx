@@ -128,7 +128,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
         <div style={{ flex: 1, minWidth: 220 }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Roles at {entity.name}</h4>
           <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>
-            Only people at {entity.name} can hold these roles. What each role can reach is set in its bundle; extra groups are managed in Global Settings under Access.
+            Only people at {entity.name} can hold these roles. What each role can reach is set in its bundle; extra groups are managed in People &amp; Access with the scope on Every company.
           </p>
         </div>
         <button className="primary-btn" onClick={() => setEditing({})} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
@@ -236,7 +236,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800, flex: 1 }}>Shared Across Companies</h4>
           {/* Shared roles are org-wide, so creating and deleting them lives in
-              Global Settings > Access > Shared Roles; this jumps there. */}
+              People & Access > Shared Roles (scope: Every company); this jumps there. */}
           <button className="secondary-btn" style={{ fontSize: 12.5 }}
             onClick={() => {
               setPendingOpen(PENDING_ACCESS_TAB, 'jobroles');

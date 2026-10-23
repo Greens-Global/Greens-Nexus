@@ -173,7 +173,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
             </label>
             <label style={lbl}>Used For These Roles</label>
             <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 180, overflowY: 'auto', padding: '6px 10px' }}>
-              {roles.length === 0 ? <div style={{ fontSize: 12, color: 'var(--muted)', padding: 4 }}>No job roles yet - they are set up in Settings &gt; Access.</div>
+              {roles.length === 0 ? <div style={{ fontSize: 12, color: 'var(--muted)', padding: 4 }}>No job roles yet - they are set up in Settings &gt; People &amp; Access, with the company picked.</div>
                 : roles.map(r => {
                   const on = (editing.roleIds || []).includes(r.id);
                   const other = (tpls || []).find(t => t.id !== editing.id && (t.roleIds || []).includes(r.id));

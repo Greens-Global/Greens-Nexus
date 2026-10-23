@@ -44,8 +44,8 @@ export const IMPL_INTRO = {
 
 // How Nexus is organized - read once before Phase 1.
 export const IMPL_CONCEPTS = [
-  { term: 'Organization', text: 'One Nexus deployment, one Microsoft 365 tenant. Global Settings (Settings > Global Settings) apply to everything in it.' },
-  { term: 'Company', text: 'A legal entity the organization runs (Settings > Company Settings). Each has its own departments, locations, holiday calendar, workforce analytics policy, managers, HR contact and job roles. One organization can hold many companies.' },
+  { term: 'Organization', text: 'One Nexus deployment, one Microsoft 365 tenant. Settings with the scope on Every company apply to everything in it.' },
+  { term: 'Company', text: 'A legal entity the organization runs (Settings > Companies). Pick it in the Scope box at the top of Settings to see what is set for it alone. Each has its own departments, locations, holiday calendar, workforce analytics policy, managers, HR contact and job roles. One organization can hold many companies.' },
   { term: 'Department', text: 'A team inside one company (Operations, Accounting, IT...). Used by people, tasks, tickets and reporting. Keep the list short and aligned with how the books are organized - sub-teams belong in shifts groups or task teams, not new departments.' },
   { term: 'Location', text: 'A physical site people punch in at, placed once in the Location Library from its Google Maps link with a geofence radius, then switched on for the companies that use it.' },
   { term: 'Job Role', text: 'What a person does: a seniority tier, a department, a bundle of modules at set levels, the time-clock exemptions, the Teams chat or channel their day messages post to, and a default approver. Giving someone a role gives them all of it at once.' },
@@ -140,7 +140,7 @@ export const IMPL_PHASES = [
         'Add the permissions and click Grant admin consent: sign-in (openid, profile, email, offline_access); directory (User.ReadWrite.All, plus license assignment for provisioning); Teams (Chat.ReadBasic, Chat.Create, ChatMessage.Send, Team.ReadBasic.All, Channel.ReadBasic.All, ChannelMessage.Send); email (Mail.Send, and Mail.ReadWrite for ticket replies by email).',
         'Hand the tenant ID, client ID and client secret to the Nexus team for the server settings.',
       ]},
-      { title: 'Tell Nexus which domains are the client’s', where: 'Settings > Company Settings > a company > Overview > Email Domains', view: 'admin-console', sub: 'company', items: [
+      { title: 'Tell Nexus which domains are the client’s', where: 'Settings > Companies > pick the company > Company > Email Domains', view: 'admin-console', sub: 'companies', items: [
         'List every email domain each company uses. The directory sync brings in only people on these domains and tags them to that company.',
       ]},
       { title: 'Optional: Actionable Messages', items: [
@@ -174,18 +174,18 @@ export const IMPL_PHASES = [
       'Session idle limit, and how guest (external) sign-in codes behave.',
     ],
     steps: [
-      { title: 'Brand color and email appearance', where: 'Settings > Global Settings > Branding & Policies', view: 'admin-console', sub: 'global-branding', items: [
+      { title: 'Brand color and email appearance', where: 'Settings > Branding & Email', view: 'admin-console', sub: 'branding', items: [
         'Brand Color: pick the accent used across Nexus.',
         'Email Appearance: logo, title, accent, footer text and company address line. Check the Preview, then save.',
       ]},
-      { title: 'Publish the sign-in policy', where: 'Settings > Global Settings > Branding & Policies > Sign-In Policy', view: 'admin-console', sub: 'global-branding', items: [
+      { title: 'Publish the sign-in policy', where: 'Settings > Security > Sign-In Policy', view: 'admin-console', sub: 'security:signin-policy', items: [
         'Edit the Policy Text, Save Draft, have it approved, then click Publish and Ask Everyone.',
       ]},
-      { title: 'Sessions and guest sign-in', where: 'Settings > Global Settings > Security > Sign-In & Sessions', view: 'admin-console', sub: 'global-security', items: [
+      { title: 'Sessions and guest sign-in', where: 'Settings > Security > Sign-In & Sessions', view: 'admin-console', sub: 'security:sign-in-sessions', items: [
         'Set the Web Session Idle Limit, Act As Session Length and the Credential Vault unlock times.',
         'Guest Sign-In: code lifetime, wrong-code attempts, lockout duration, code requests per hour and invitation link lifetime.',
       ]},
-      { title: 'Email signature', where: 'Settings > Global Settings > Organization > Email Signature', view: 'admin-console', sub: 'global', items: [
+      { title: 'Email signature', where: 'Settings > Branding & Email > Email Signature', view: 'admin-console', sub: 'branding:email-signature', items: [
         'Choose the template and sign-off. Each person’s signature fills from their profile and their company’s logo and address.',
       ]},
     ],
@@ -214,22 +214,22 @@ export const IMPL_PHASES = [
       'Holidays per company and country, for this year and the next few.',
     ],
     steps: [
-      { title: 'Add each company', where: 'Settings > Company Settings > Add Company', view: 'admin-console', sub: 'company', items: [
+      { title: 'Add each company', where: 'Settings > Companies > Add Company', view: 'admin-console', sub: 'companies', items: [
         'Overview: legal details, logo, domains, main phone and social links, the company manager(s) and the HR Contact.',
-        'Set the Group Manager (the person above every company) once, on the Company Settings page.',
+        'Set the Group Manager (the person above every company) once, at the top of the Companies list.',
       ]},
-      { title: 'Departments', where: 'Company Settings > the company > Departments', view: 'admin-console', sub: 'company', items: [
+      { title: 'Departments', where: 'Settings > Companies > pick the company > Departments', view: 'admin-console', sub: 'companies', items: [
         'Add the company’s departments. Tasks, tickets and People all use this one list.',
       ]},
-      { title: 'Locations', where: 'Settings > Global Settings > Organization > Location Library', view: 'admin-console', sub: 'global', items: [
+      { title: 'Locations', where: 'Settings > Locations > Location Library', view: 'admin-console', sub: 'locations', items: [
         'Add each site once: paste its Google Maps link (that places it), set the radius, and pick the companies whose people punch in there.',
-        'Or from the company: Company Settings > the company > Locations.',
+        'Or pick the company in the Scope box: Locations then shows that company\'s sites.',
       ]},
-      { title: 'Holiday calendar', where: 'Company Settings > the company > Holiday Calendar', view: 'admin-console', sub: 'company', items: [
+      { title: 'Holiday calendar', where: 'Settings > Companies > pick the company > Holiday Calendar', view: 'admin-console', sub: 'companies', items: [
         'Pick the country and year to see its public holidays, and add the ones the company observes. Add company-only days by hand.',
         'Use Copy to Year(s) to roll the set forward, and save it as a Holiday Policy to reuse in another company instead of rebuilding it.',
       ]},
-      { title: 'Workforce analytics policy', where: 'Company Settings > the company > Workforce Analytics Policy', view: 'admin-console', sub: 'company', items: [
+      { title: 'Workforce analytics policy', where: 'Settings > Workforce Analytics > pick the company', view: 'admin-console', sub: 'analytics', items: [
         'If monitoring is used: what is captured while clocked in (screenshots, activity) and the capture interval. Leave it off if the client does not monitor.',
       ]},
     ],
@@ -262,17 +262,17 @@ export const IMPL_PHASES = [
       'Who the Global Admins are - keep it to a very few.',
     ],
     steps: [
-      { title: 'Create the job roles', where: 'Settings > Company Settings > the company > Roles', view: 'admin-console', sub: 'company', items: [
+      { title: 'Create the job roles', where: 'Settings > People & Access > pick the company > Roles', view: 'admin-console', sub: 'access', items: [
         'New Role: name, seniority tier, department and a plain description.',
         'Module Bundle: click a level per module (the x on the selected level removes it). Inherit from an existing role to start fast; Duplicate a role for the same job in another company.',
         'Time Clock: Exempt from screen-share monitoring, Skip day and break messages, Exempt from time tracking - as decided.',
         'Teams Messages: bind the group chat or channel this role’s beginning-of-day, end-of-day and break messages post to.',
         'Set the default approver.',
       ]},
-      { title: 'Access Groups for the extras', where: 'Settings > Global Settings > Access > People & Access Groups', view: 'admin-console', sub: 'access', items: [
+      { title: 'Access Groups for the extras', where: 'Settings > People & Access > Groups', view: 'admin-console', sub: 'access', items: [
         'Create a group only for access a few people need beyond their role, and add those people.',
       ]},
-      { title: 'Check the matrix', where: 'Settings > Global Settings > Access', view: 'admin-console', sub: 'access', items: [
+      { title: 'Check the matrix', where: 'Settings > People & Access > Matrix', view: 'admin-console', sub: 'access', items: [
         'Read the access matrix role by role. Every module a role opens should have a reason.',
         'Company Walls: switch on once every person has a company (Phase 5), so people only see their own company.',
       ]},
@@ -353,7 +353,7 @@ export const IMPL_PHASES = [
       'Whether managers get a live alert before someone reaches overtime (off by default).',
     ],
     steps: [
-      { title: 'Pay rules', where: 'Settings > Global Settings > Time Clock > Pay Rules', view: 'admin-console', sub: 'global-timeclock', items: [
+      { title: 'Pay rules', where: 'Settings > Time & Pay > Pay Rules', view: 'admin-console', sub: 'pay', items: [
         'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every time sheet is computed with.',
         'Payroll Export Codes: pick each company and type its QuickBooks payroll item names (blank keeps the default).',
         'Shift Differentials and Call-Back Pay: turn it on only for companies that pay them, then add each differential.',
@@ -361,7 +361,7 @@ export const IMPL_PHASES = [
       { title: 'California staff', where: 'People > the person > Pay & Benefits', view: 'hr', sub: 'hr-people', items: [
         'For hourly staff on the California rule who waive meal periods: Send Waiver to Sign. California Review on People > Time > Payroll then checks each period.',
       ]},
-      { title: 'Time off', where: 'Settings > Global Settings > Shifts > Shift Settings', view: 'admin-console', sub: 'global-shifts', items: [
+      { title: 'Time off', where: 'Settings > Shifts & Scheduling > Shift Settings', view: 'admin-console', sub: 'shifts:shift-settings', items: [
         'With the Company picker on All Companies (Default), add the time-off reasons the client uses - one list for every company. Requests route to the person’s manager; approved time off is not punched in automatically.',
       ]},
       { title: 'Monitoring computers', where: 'Workforce Analytics', view: 'employee-tracking', items: [
@@ -405,17 +405,17 @@ export const IMPL_PHASES = [
       'Outdoor crews only: which companies get weather alerts, and each group’s work site and weather deciders.',
     ],
     steps: [
-      { title: 'Shift settings', where: 'Settings > Global Settings > Shifts > Shift Settings', view: 'admin-console', sub: 'global-shifts', items: [
+      { title: 'Shift settings', where: 'Settings > Shifts & Scheduling > Shift Settings', view: 'admin-console', sub: 'shifts:shift-settings', items: [
         'Pick the Company, or All Companies (Default) for the defaults; a company with none of its own follows the defaults.',
         'Requests And Visibility, Team Time Zone, Week Starts On and Default Grace.',
         'Attendance (No-Show Alert, Left Early, Alert for usual hours too, and Alert managers before overtime with its daily and weekly warning minutes), Rules, and Sharing (Outlook calendars, Show In Outlook As, Ask people to confirm a shared schedule).',
       ]},
-      { title: 'Shift types and groups', where: 'Settings > Global Settings > Shifts', view: 'admin-console', sub: 'global-shifts', items: [
+      { title: 'Shift types and groups', where: 'Settings > Shifts & Scheduling', view: 'admin-console', sub: 'shifts', items: [
         'Shift Types: name, code, color, times, grace, unpaid break, time zone, days and company (Shared With Every Company or one).',
         'Groups: members and schedulers. Leave Teams binding to the job roles; a group binding is only the fallback.',
         'Outdoor crews: give the group a Work Site with coordinates (from the Location Library) and its Weather Deciders.',
       ]},
-      { title: 'Weather alerts (outdoor crews only)', where: 'Settings > Global Settings > Shifts > Weather Alerts', view: 'admin-console', sub: 'global-shifts', items: [
+      { title: 'Weather alerts (outdoor crews only)', where: 'Settings > Shifts & Scheduling > Weather Alerts', view: 'admin-console', sub: 'shifts:shift-weather', items: [
         'Switch on each company to watch (off by default), check the rain thresholds and quiet hours, and click Check Now.',
       ]},
       { title: 'Build and publish the first schedule', where: 'Team > Schedule', view: 'shifts', sub: 'schedule', items: [
@@ -447,15 +447,15 @@ export const IMPL_PHASES = [
     summary: 'The steps HR, IT, Accounting and managers take for every new starter, promotion, leaver and leave of absence.',
     why: 'Checklists make joining and leaving repeatable: each step has an owner and a due date counted from the start date, exit date or leave start, with reminders. Templates vary by worker type and country (an I-9 for US employees, PF for India, a W-9 for contractors).',
     steps: [
-      { title: 'The Checklist Library', where: 'Settings > Global Settings > Hiring > Checklist Library', view: 'admin-console', sub: 'global-hiring', items: [
+      { title: 'The Checklist Library', where: 'Settings > Hiring & Onboarding > Checklist Library', view: 'admin-console', sub: 'hiring:checklist-library', items: [
         'Review the standard onboarding, promotion, offboarding and leave steps and adjust them to the client’s process.',
         'Set the default owner for each kind of step (HR, IT, Accounting).',
       ]},
-      { title: 'Each company', where: 'Settings > Company Settings > the company > Checklists', items: [
-        'Set a head and a backup for the HR, IT and Accounting departments (Company Settings > Departments), then read the Role Checklists audit: every role should have its onboarding, promotion, offboarding and leave steps built. Click Build on any role with something Missing.',
+      { title: 'Each company', where: 'Settings > Hiring & Onboarding > pick the company > Checklists', view: 'admin-console', sub: 'hiring', items: [
+        'Set a head and a backup for the HR, IT and Accounting departments (Settings > Companies > the company > Departments), then read the Role Checklists audit: every role should have its onboarding, promotion, offboarding and leave steps built. Click Build on any role with something Missing.',
       ]},
       { title: 'Each role', where: 'Team > Role Checklists', view: 'shifts', sub: 'role-checklists', items: [
-        'The head of each department adds the extra steps its roles need - their training and tools. Set department heads in Company Settings > Departments first.',
+        'The head of each department adds the extra steps its roles need - their training and tools. Set department heads under Companies > the company > Departments first.',
       ]},
     ],
     checks: [
@@ -481,9 +481,9 @@ export const IMPL_PHASES = [
       { title: 'Tasks', where: 'Tasks > Manage', view: 'tasks', items: [
         'Teams, Custom Fields (with Required per project), Custom Statuses, Templates and Automation Rules.',
         'Each project’s settings: Time Tracking (Automatic, On or Off) and its default view.',
-        'Task Notifications (Settings > Global Settings > Notifications & Communications): the batching window for task emails.',
+        'Task Notifications (Settings > Emails & Reminders): the batching window for task emails.',
       ]},
-      { title: 'Ticket desks', where: 'Settings > Global Settings > Notifications & Communications > Ticket Manager', view: 'admin-console', sub: 'global-notifications', items: [
+      { title: 'Ticket desks', where: 'Settings > Tickets', view: 'admin-console', sub: 'tickets', items: [
         'Routing & Escalation: departments that take tickets, their order, default agents, and each department’s head and default assignee.',
         'Notifications, SLA & Ticket Types (resolution and first response hours per priority), Help Topics per department (with an optional default assignee per topic), Desk Access (requester, agent, supervisor) and Saved Replies (shared answers for the desk).',
       ]},
@@ -516,7 +516,7 @@ export const IMPL_PHASES = [
     summary: 'Load the catalog, the properties, the finance connection and each remaining module the client uses.',
     why: 'Each operational module starts from data the client already has - an equipment list, property list, ledger, passwords, links. Loading it in bulk now makes the module useful on day one instead of filling up slowly.',
     steps: [
-      { title: 'Item Management', where: 'Settings > Global Settings > Items, then Item Management > Manage', view: 'inventory', items: [
+      { title: 'Item Management', where: 'Settings > Items & Equipment, then Item Management > Manage', view: 'inventory', items: [
         'Item Types & Custom Fields first, then Import Items From CSV or Excel. Assign permanent equipment to people.',
         'Equipment Reminders (Notifications & Communications): overdue returns, warranty and inspection dates.',
       ]},
@@ -558,7 +558,7 @@ export const IMPL_PHASES = [
     summary: 'Decide who hears about what, how often, and when HR and equipment reminders fire.',
     why: 'Nexus tells people what needs them - in the bell, by email and in Teams. Too much and it is ignored; too little and work stalls. These settings set the rhythm for the whole organization.',
     steps: [
-      { title: 'Communications', where: 'Settings > Global Settings > Notifications & Communications', view: 'admin-console', sub: 'global-notifications', items: [
+      { title: 'Communications', where: 'Settings > Emails & Reminders', view: 'admin-console', sub: 'emails', items: [
         'Daily Briefing and Weekly Digest: on or off, send time, test recipients.',
         'HR & Compliance Reminders: visa and right-to-work expiry, contract ends, new-starter documents - days before and who is told.',
         'Equipment Reminders: overdue returns, warranties, inspections, registrations, insurance.',

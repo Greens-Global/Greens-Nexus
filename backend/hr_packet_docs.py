@@ -498,7 +498,7 @@ def _nobody(role: str, ctx: dict) -> str:
         return f"{ctx.get('subject_name') or 'The person'} has no email to send it to."
     if role == "hr":
         return (f"{company} has no HR contact - set a head for its HR department in "
-                f"Company Settings > Departments, or an HR contact in People > Companies.")
+                f"Settings > Companies > Departments, or an HR contact in People > Companies.")
     if role == "manager":
         return "No manager - pick the supervisor (or set their manager in People) first."
     if role == "signatory":
@@ -506,7 +506,7 @@ def _nobody(role: str, ctx: dict) -> str:
     if role == "sender":
         return "Nobody started this packet."
     return (f"No {role_label(role)} owner for {company} - set a head for its {role_label(role)} "
-            f"department in Company Settings > Departments.")
+            f"department in Settings > Companies > Departments.")
 
 
 def signer_values(parties: list, remap: dict) -> dict:
@@ -1914,7 +1914,7 @@ def readiness(db: Session, setting: HrPacketSetting, entity: Optional[HrEntity] 
         for tok, lbl in (("company_address", "Company Address"),):
             if tok in tokens:
                 out.append(_check(f"company:{tok}", bool(merge[tok].strip()), f"{entity.name} Has A {lbl}",
-                                  merge[tok] if merge[tok].strip() else f"The documents print {{{{{tok}}}}} - set it in Company Settings.",
+                                  merge[tok] if merge[tok].strip() else f"The documents print {{{{{tok}}}}} - set it in Settings > Companies.",
                                   fix={"kind": "entityField", "field": "physical_address", "entityId": entity.id}))
         # 4. Whoever verifies can see pay, when the documents show it.
         vemail = resolve_role(db, verify, ctx)

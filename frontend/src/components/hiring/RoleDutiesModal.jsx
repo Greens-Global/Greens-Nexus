@@ -245,7 +245,7 @@ export default function RoleDutiesModal({ roleId, entityId = '', rowKey = '', co
                     {extra.length ? extra.map(d => (
                       <div key={d.templateId}>{d.name || d.templateName} - <b>{d.replaces ? `Replaces: ${d.replacesName || 'A Packet Document'}` : 'Adds To The Packet'}</b></div>
                     )) : <div>None.</div>}
-                    <div>Added to the hiring packet only, never the offer letter. Change them in Company Settings &gt; Roles &gt; Hiring Documents.</div>
+                    <div>Added to the hiring packet only, never the offer letter. Change them in Settings &gt; People &amp; Access, with the company picked, &gt; Roles &gt; Hiring Documents.</div>
                   </div>
                 </details>
               </div>

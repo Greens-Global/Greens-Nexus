@@ -160,7 +160,9 @@ function LetterheadForm({ letterhead, onSaved, toastErr }) {
   );
 }
 
-function LetterheadsPanel({ toastOk, toastErr }) {
+// Settings > Branding & Email > Letterheads (Oct 23) - the Templates screen's
+// Letterheads tab points there.
+export function LetterheadsPanel({ toastOk, toastErr }) {
   const { can } = useRole();
   const isAdmin = can('administrator');
   const [letterheads, setLetterheads] = useState(null);
@@ -285,7 +287,13 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
       </div>
 
       {sub === 'letterheads' ? (
-        <LetterheadsPanel toastOk={toastOk} toastErr={toastErr} />
+        <div style={{ padding: '18px 4px', fontSize: 13, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          Letterheads are under Settings &gt; Branding &amp; Email.
+          <button className="secondary-btn" style={{ fontSize: 12.5 }}
+            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'branding:letterheads' } }))}>
+            Open Letterheads
+          </button>
+        </div>
       ) : (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>

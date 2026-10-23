@@ -94,24 +94,40 @@ def admin_overview(user: dict = Depends(get_current_user), db: Session = Depends
         b = lb.balances(db, email, pols=pols, emp=emp)
         people.append({"email": email, "name": f"{emp.first_name or ''} {emp.last_name or ''}".strip() or email,
                        "company": emp.company or "", "department": emp.department or "", **b})
-    return {"cutover": lb.cutover(db), "canSetup": glob, "policies": list(pols.values()),
-            "defaults": list(lb.DEFAULT_POLICIES.keys()), "people": people}
+    return {"cutover": lb.cutover(db), "companies": _company_cutovers(db), "canSetup": glob,
+            "policies": list(pols.values()), "defaults": list(lb.DEFAULT_POLICIES.keys()), "people": people}
+
+
+def _company_cutovers(db: Session) -> list:
+    """Each company with the start date that applies to it and whether it is
+    its own (Oct 23: a company may have one of its own)."""
+    own = lb.company_cutovers(db)
+    return [{"id": e.id, "name": e.name or "", "cutover": own.get(e.id) or lb.cutover(db), "own": e.id in own}
+            for e in db.query(models.HrEntity).order_by(models.HrEntity.name).all()]
 
 
 class CutoverIn(BaseModel):
-    date: str
+    date: str = ""
+    company: str = ""      # '' = the organization's; else that company's own
+    reset: bool = False    # a company: drop its own and follow the organization's
 
 
 @router.put("/cutover")
 def set_cutover(body: CutoverIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = _me(user)
     _require_global(db, me)
-    try:
-        lb.set_cutover(db, (body.date or "").strip()[:10], me)
-    except ValueError:
-        raise HTTPException(400, "Pick a valid start date.")
+    cid = (body.company or "").strip()
+    if cid and not db.query(models.HrEntity.id).filter(models.HrEntity.id == cid).first():
+        raise HTTPException(404, "Company not found.")
+    if body.reset and cid:
+        lb.clear_cutover(db, cid)
+    else:
+        try:
+            lb.set_cutover(db, (body.date or "").strip()[:10], me, cid)
+        except ValueError:
+            raise HTTPException(400, "Pick a valid start date.")
     db.commit()
-    return {"cutover": lb.cutover(db)}
+    return {"cutover": lb.cutover(db), "companies": _company_cutovers(db)}
 
 
 class PoliciesIn(BaseModel):
@@ -146,7 +162,7 @@ def import_opening(body: ImportIn, user: dict = Depends(get_current_user), db: S
     """The one-time import of what each person had left in QuickBooks on the
     start date. Re-importing a person replaces their opening numbers."""
     me = _me(user)
-    if not lb.cutover(db):
+    if not lb.any_cutover(db):
         raise HTTPException(400, "Set the start date before importing balances.")
     if len(body.rows) > 2000:
         raise HTTPException(400, "Import at most 2,000 people at a time.")
@@ -194,7 +210,7 @@ class AdjustIn(BaseModel):
 def adjust(body: AdjustIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me, email = _me(user), (body.email or "").strip().lower()
     _require_manage(db, me, email)
-    if not lb.cutover(db):
+    if not lb.cutover_for(db, email):
         raise HTTPException(400, "Set the start date first.")
     if body.bucket not in lb.BUCKETS:
         raise HTTPException(400, "bucket must be vacation or sick")
@@ -235,7 +251,9 @@ def recalculate(user: dict = Depends(get_current_user), db: Session = Depends(ge
     start date - after the start date or a policy changes."""
     me = _me(user)
     _require_global(db, me)
-    cut = lb.cutover(db)
+    # From the earliest start date anywhere; each person's own is applied
+    # inside record_period (period_entries).
+    cut = min([d for d in [lb.cutover(db), *lb.company_cutovers(db).values()] if d] or [""])
     if not cut:
         raise HTTPException(400, "Set the start date first.")
     rows = (db.query(models.TimeApproval)

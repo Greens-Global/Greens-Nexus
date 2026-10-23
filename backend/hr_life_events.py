@@ -1157,7 +1157,7 @@ def offer_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
     if frm == "department_head" and not email:
         dept = f"The {d['department']} department" if d["department"] else "This role's department"
         raise PacketError(f"{dept} has no head set up - choose Head of HR, or set the head under "
-                          f"Company Settings > Departments.")
+                          f"Settings > Companies > Departments.")
     d.update({"offer_from": frm, "offer_from_email": email})
     return d
 

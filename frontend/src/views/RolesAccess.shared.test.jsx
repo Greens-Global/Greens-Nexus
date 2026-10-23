@@ -31,8 +31,8 @@ describe('Access > Shared Roles', () => {
   it('sits between Groups and Audit, and lists shared roles only', async () => {
     render(<RolesAccess embedded />);
     const tabs = screen.getAllByRole('button').map(b => b.textContent.trim())
-      .filter(t => ['People', 'Groups', 'Shared Roles', 'Audit'].includes(t));
-    expect(tabs).toEqual(['People', 'Groups', 'Shared Roles', 'Audit']);
+      .filter(t => ['People', 'Groups', 'Shared Roles', 'Matrix'].includes(t));
+    expect(tabs).toEqual(['People', 'Groups', 'Shared Roles', 'Matrix']);
 
     fireEvent.click(screen.getByRole('button', { name: /Shared Roles/ }));
     expect(await screen.findByText('Tester')).toBeInTheDocument();

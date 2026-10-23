@@ -480,7 +480,7 @@ const DEFAULT_SUBS = {
   // activeSub sync for that half).
   myhr:              "overview",
   timeclock:         "overview",   // the Clock tab is a widget on Overview (Oct 2)
-  "admin-console":   "global",
+  "admin-console":   "companies",   // Settings opens on Companies (one tab, Oct 23 2026)
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
