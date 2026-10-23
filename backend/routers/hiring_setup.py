@@ -87,8 +87,9 @@ def set_documents(sid: str, body: DocumentsIn, user: dict = Depends(require_hr_w
 
 
 @router.post("/settings/{sid}/documents/{tid}/own-copy")
-def own_copy(sid: str, tid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    return hs.own_copy(db, user, hr_scope(user, db), sid, tid)
+def own_copy(sid: str, tid: str, entity_id: str = "", user: dict = Depends(require_hr_write),
+             db: Session = Depends(get_db)):
+    return hs.own_copy(db, user, hr_scope(user, db), sid, tid, entity_id)
 
 
 @router.put("/places")

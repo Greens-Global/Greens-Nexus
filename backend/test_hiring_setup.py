@@ -16,7 +16,7 @@ import hr_life_events as hle
 import hr_packet_docs as hpd
 import models
 from routers import hiring_setup as hs_router
-from test_hr_packet_review import CAND, CO, HR, ReviewCase, _doc, _p, _sig
+from test_hr_packet_review import CAND, CO, HR, MGR, ReviewCase, _doc, _p, _sig
 
 GGC, GS, NEW = "co-ggcon", "co-gs", "co-new"
 LETTER = _doc(_p("Dear ", "{{full_name}}", ", we offer you ", "{{job_title}}", "."), _sig("employee"))
@@ -479,6 +479,97 @@ class ThingsToFinishTests(SetupCase):
         self.client.put("/hr/hiring-setup/places", json={"entity_id": CO, "country": "US", "region": "TX", "remove": True})
         self.assertNotIn("employee:US:TX", [r["key"] for r in self.view()["rows"]])
         self.assertEqual(self.client.put("/hr/hiring-setup/places", json={"entity_id": CO}).json()["detail"], "Pick a country.")
+
+
+class ReviewFixTests(SetupCase):
+    """The review findings on the API branch (Oct 23)."""
+
+    def test_a_role_jd_document_is_left_out_when_the_packet_prints_the_duties(self):
+        self.db.query(models.NexusGroup).filter_by(id="jr-clerk").update(
+            {"job_description": "Count boxes.", "hiring_docs": [{"templateId": "t-jd-acct", "replaces": "@jd"}]})
+        self.db.commit()
+        docs = [{"templateId": "t-jd-acct", "replaces": "@jd"}]
+        s = self.setting("s-tx-hire")
+        self.assertEqual(hpd.template_ids_for(s, {"role_description": "Count boxes.", "role_docs": docs}, "hire"),
+                         ["t-duty"])
+        self.assertEqual(hpd.template_ids_for(self.setting("s-in-hire"), {"role_docs": docs}, "hire"),
+                         ["t-i9", "t-jd-acct"])               # no marker, not printed inside: at the end, as before
+        pk = self.row(self.view(GS, role="jr-clerk"), "employee:US:TX")["packet"]
+        self.assertEqual(pk["placement"], "inside")
+        self.assertEqual([d["id"] for d in pk["documents"]], ["t-duty"])
+
+    def test_edit_wording_never_hands_a_company_the_shared_document(self):
+        r = self.client.post("/hr/hiring-setup/settings/s-ca-hire/documents/t-agree/own-copy", params={"entity_id": CO})
+        self.assertEqual((r.status_code, r.json()["detail"]), (400, hs.OWN_FIRST))
+
+    def test_also_use_it_for_copies_the_primary_cells_documents(self):
+        _setting(self.db, "s-ca-con-offer", "offer", ["t-i9"], wt="contractor", country="US", region="CA")
+        self.db.commit()
+        r = self.make_own(also=[{"worker_type": "contractor", "country": "US", "region": "CA"},
+                                {"worker_type": "employee", "country": "US", "region": "NV"}])
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([s["docTemplateIds"] for s in r.json()["settings"]], [["t-letter"]] * 3)
+
+    def test_a_shared_roles_documents_need_every_company(self):
+        hs_router.hr_scope = lambda user, db: {CO}
+        body = {"hiring_docs": [{"templateId": "t-jd-acct", "replaces": "@jd"}]}
+        r = self.client.put("/hr/hiring-setup/roles/jr-acct/documents", json=body)
+        self.assertEqual((r.status_code, r.json()["detail"]), (403, hs.SHARED_ROLE_DOCS))
+        self.assertEqual(self.client.put("/hr/hiring-setup/roles/jr-admin/documents", json=body).status_code, 200)
+
+    def test_a_us_place_needs_a_state_where_the_home_state_would_fill_it(self):
+        r = self.client.put("/hr/hiring-setup/places", json={"entity_id": CO, "country": "US", "region": ""})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.put("/hr/hiring-setup/places", json={"entity_id": GGC, "country": "US", "region": ""})
+        self.assertEqual(r.status_code, 200)                  # an India company's US-wide row is its own place
+        self.assertIn("employee:US:", [x["key"] for x in self.view(GGC)["rows"]])
+        self.assertEqual(self.make_own(region="").status_code, 200)
+        self.assertNotIn("employee:US:", [x["key"] for x in self.view()["rows"]])
+
+    def test_part_time_duties_are_checked_too(self):
+        g = self.db.get(models.NexusGroup, "jr-acct")
+        g.duty_versions = list(g.duty_versions) + [{"id": "dv-pt", "hiredAs": "part_time", "country": "", "region": "",
+                                                    "entityId": "", "text": "", "updatedAt": "2026-10-02", "archivedAt": ""}]
+        self.db.commit()
+        v = self.view(GS)
+        self.assertIn("Accountant has no duties written, and the hiring packet prints them.", [i["text"] for i in v["items"]])
+        self.assertEqual(self.row(self.view(GS, role="jr-acct"), "employee:US:TX")["jd"]["tone"], "missing")
+
+    def test_a_formatted_jd_counts_as_written_in_the_table(self):
+        self.db.query(models.NexusGroup).filter_by(id="jr-clerk").update(
+            {"hiring_docs": [{"templateId": "t-jd-acct", "replaces": "@jd"}]})
+        self.db.commit()
+        table = {r["roleId"]: r for r in self.view()["jobDescriptions"]["rows"]}
+        self.assertEqual(table["jr-clerk"]["cells"]["employee:US:CA"]["label"], "Standard")
+
+    def test_handles_hiring_names_who_the_send_goes_to(self):
+        self.db.add(models.HrDepartment(id="d-hr", company_id=CO, name="Human Resources", lead_email=MGR))
+        self.db.commit()
+        self.addCleanup(lambda: (self.db.query(models.HrDepartment).delete(), self.db.commit()))
+        hh = next(a for a in self.view()["about"] if a["key"] == "handlesHiring")
+        self.assertEqual((hh["email"], hh["value"]), (MGR, "Max Mgr (HR Head)"))
+
+    def test_an_uploaded_pdf_offer_is_flagged_and_not_copied(self):
+        _setting(self.db, "s-tx-pdf", "offer", [], country="US", region="TX")
+        self.db.commit()
+        self.db.query(models.HrPacketSetting).filter_by(id="s-tx-pdf").update({"engine": "pdf", "template_id": "x"})
+        self.db.commit()
+        it = next(i for i in self.view(GS)["items"] if i["key"] == "pdf:s-tx-pdf")
+        self.assertEqual((it["button"], it["target"]["column"]), ("Rebuild From A Word File", "offer"))
+        r = self.make_own(entity_id=GS, region="TX")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("old uploaded PDF", r.json()["detail"])
+
+    def test_the_offer_jd_line_when_the_packet_prints_no_duties(self):
+        got = self.client.get("/hr/candidates/cand-1/offer/options",
+                              params={"hired_as": "full_time", "role_id": "jr-acct", "country": "IN"}).json()
+        jd = {x["key"]: x for x in got["whatTheyGet"]}["jd"]
+        self.assertEqual((jd["name"], jd["tone"], jd["blocks"]), ("Not In This Packet", "same", False))
+
+    def test_company_signers_follow_document_order(self):
+        from types import SimpleNamespace
+        snap = SimpleNamespace(content=_doc(_sig("employee"), _sig("signatory"), _sig("hr")))
+        self.assertEqual(hs._signature_keys([snap]), ["employee", "signatory", "hr"])
 
 
 if __name__ == "__main__":

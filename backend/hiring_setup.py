@@ -43,6 +43,8 @@ EVENT_NAMES = {"offer": "Offer Letter", "hire": "Hiring Packet"}
 PLACES_KEY = "hr_setup_places:"            # + entity id ('' = the shared screen) -> [{country, region}]
 COPIED_KEY = "hr_setup_duties_copied"
 SHARED_WRITE = "Only HR with access to every company can change the default packet."
+SHARED_ROLE_DOCS = ("Only HR with access to every company can change a shared role's documents - "
+                    "ask HR with access to every company.")
 SHARED_DUTIES = ("Only HR with access to every company can change a shared role's standard duties - "
                  "make a version for this company instead.")
 
@@ -190,6 +192,23 @@ def duty_ctx(entity_id: str, worker_type: str, country: str, region: str, employ
             "country": country, "region": region}
 
 
+def duty_ctxs(entity_id: str, worker_type: str, country: str, region: str) -> list:
+    """An employee row covers full-time and part-time hires, and each can
+    have its own duties - both are checked, as the offer checks the one picked."""
+    if worker_type == "employee":
+        return [duty_ctx(entity_id, worker_type, country, region, et) for et in ("full_time", "part_time")]
+    return [duty_ctx(entity_id, worker_type, country, region)]
+
+
+def has_duties(role, ctxs: list, placement: str) -> bool:
+    """Whether every hire these contexts cover gets duties printed. A role's
+    formatted Job Description counts unless the packet prints the duties
+    inside a document (template_ids_for then leaves it out)."""
+    if role_jd_doc(role) and placement != "inside":
+        return True
+    return all(resolve_duties(role, x)[0].strip() for x in ctxs)
+
+
 # ── labels ───────────────────────────────────────────────────────────────────
 
 def kind(worker_type: str, country: str, region: str = "") -> str:
@@ -246,6 +265,13 @@ def _own_rows(db: Session, entity_id: str) -> list:
             if not r.archived_at]
 
 
+def _fills_home(db: Session, entity_id: str, place: tuple) -> bool:
+    """resolve_setting reads a US place with no state as the company's home
+    state, so such a grid row would only repeat the home row."""
+    return (bool(entity_id) and place[0] == "US" and not place[1] and hle.country_of(db, entity_id) == "US"
+            and bool(hle.region_of(db, entity_id)))
+
+
 def places_for(db: Session, entity_id: str, scope=None) -> list:
     """The places a company's grid shows: its home, then the places added with
     Add A Place, then any place its own letters and packets name. The shared
@@ -261,7 +287,7 @@ def places_for(db: Session, entity_id: str, scope=None) -> list:
                 out += places_for(db, e.id)
     out += stored_places(db, entity_id)
     out += [((s.country or "").upper(), (s.region or "").upper()) for s in _own_rows(db, entity_id) if s.country]
-    return list(dict.fromkeys(out))
+    return [p for p in dict.fromkeys(out) if not _fills_home(db, entity_id, p)]
 
 
 def set_place(db: Session, user: dict, scope, entity_id: str, country: str, region: str, remove: bool) -> list:
@@ -273,6 +299,8 @@ def set_place(db: Session, user: dict, scope, entity_id: str, country: str, regi
     if not c:
         raise HTTPException(400, "Pick a country.")
     place = (c, _code(region, 3) if c == "US" else "")
+    if not remove and _fills_home(db, entity_id, place):
+        raise HTTPException(400, "Pick a state - each state has its own hiring paperwork.")
     cur = stored_places(db, entity_id)
     cur = [p for p in cur if p != place] if remove else list(dict.fromkeys(cur + [place]))
     key = PLACES_KEY + entity_id
@@ -460,21 +488,21 @@ class View:
         out["_setting"] = s
         return out
 
-    def _jd_cell(self, wt: str, c: str, r: str, placement_label: str) -> dict:
-        ctx = duty_ctx(self.eid, wt, c, r)
+    def _jd_cell(self, wt: str, c: str, r: str, placement: str, placement_label: str) -> dict:
+        ctxs = duty_ctxs(self.eid, wt, c, r)
         if self.role is None:
-            ready = sum(1 for g in self.roles if resolve_duties(g, ctx)[0].strip() or role_jd_doc(g))
+            ready = sum(1 for g in self.roles if has_duties(g, ctxs, placement))
             return {"name": "Each Role's Duties", "sourceLabel": f"{ready} Of {len(self.roles)} Roles Ready",
                     "tone": "same", "placementLabel": placement_label, "versionId": "", "roleId": ""}
         role = self.role
-        text, v = resolve_duties(role, ctx)
-        if v is not None:
+        v = next((x for x in (resolve_duties(role, ctx)[1] for ctx in ctxs) if x is not None), None)
+        if not has_duties(role, ctxs, placement):
+            name, src, tone = "Not Written Yet", f"{role.name} has no duties", "missing"
+        elif v is not None:
             name, src, tone = (f"{role.name} - {_version_short(self.db, v)} Version",
                                f"Only For {_version_for(self.db, v)}", "own")
-        elif text.strip() or role_jd_doc(role):
-            name, src, tone = f"{role.name} - Standard", "Same For Everyone", "same"
         else:
-            name, src, tone = "Not Written Yet", f"{role.name} has no duties", "missing"
+            name, src, tone = f"{role.name} - Standard", "Same For Everyone", "same"
         return {"name": name, "sourceLabel": src, "tone": tone, "placementLabel": placement_label,
                 "versionId": v["id"] if v else "", "roleId": role.id}
 
@@ -484,7 +512,7 @@ class View:
                 "sub": "Full-time and part-time" if wt == "employee" else "Independent contractors",
                 "workerType": wt, "country": c, "region": r, "home": False, "removable": False,
                 "notHired": wt in self.not_hired, "offer": offer, "packet": packet,
-                "jd": self._jd_cell(wt, c, r, packet["placementLabel"])}
+                "jd": self._jd_cell(wt, c, r, packet["placement"], packet["placementLabel"])}
 
     # ── the rest of the screen
     def jd_table(self) -> dict:
@@ -493,14 +521,12 @@ class View:
         for g in self.roles:
             cells = {}
             for row in cols:
-                ctxs = ([duty_ctx(self.eid, "employee", row["country"], row["region"], et) for et in ("full_time", "part_time")]
-                        if row["workerType"] == "employee" else [duty_ctx(self.eid, "contractor", row["country"], row["region"])])
-                got = [resolve_duties(g, x) for x in ctxs]
-                v = next((x[1] for x in got if x[1] is not None), None)
-                if v is not None:
-                    cells[row["key"]] = {"label": "Own Version", "tone": "own", "versionId": v["id"]}
-                elif not got[0][0].strip():
+                ctxs = duty_ctxs(self.eid, row["workerType"], row["country"], row["region"])
+                v = next((x for x in (resolve_duties(g, ctx)[1] for ctx in ctxs) if x is not None), None)
+                if not has_duties(g, ctxs, row["packet"]["placement"]):
                     cells[row["key"]] = {"label": "Not Written Yet", "tone": "missing", "versionId": ""}
+                elif v is not None:
+                    cells[row["key"]] = {"label": "Own Version", "tone": "own", "versionId": v["id"]}
                 else:
                     cells[row["key"]] = {"label": "Standard", "tone": "same", "versionId": ""}
             out.append({"roleId": g.id, "name": g.name, "shared": not (g.company_id or ""), "cells": cells})
@@ -535,17 +561,18 @@ class View:
                         "value": (f"{hle.place_words(sc, sr)}, United States" if sr else hle.place_words(sc)) if sc else "",
                         "hint": "Suggested from the address - click Edit to keep it." if sc else "Pick where its people work.",
                         "empty": True, "country": sc, "region": sr})
-        # Handles Hiring: the company's HR contact; suggested from its HR department.
+        # Handles Hiring: whoever the HR verify step goes to - resolve_role, as
+        # the send (the HR department's head, else its backup, else the HR contact).
         dept = hc.owner_departments(db, e.id).get("hr")
         lead = hc.active_people(db, [dept.lead_email]) if dept is not None else []
         backup = hc.active_people(db, [dept.backup_email]) if dept is not None else []
-        contact = (e.hr_contact_email or "").strip().lower()
-        if contact:
-            parts = [hpd.name_of(db, contact) + (" (HR Head)" if lead and lead[0] == contact else "")]
-            if backup and backup[0] != contact:
+        who = hpd.resolve_role(db, "hr", self.ctx())
+        if who:
+            parts = [hpd.name_of(db, who) + (" (HR Head)" if lead and lead[0] == who else "")]
+            if backup and backup[0] != who:
                 parts.append(f"{hpd.name_of(db, backup[0])} (Backup)")
             out.append({"key": "handlesHiring", "label": "Handles Hiring", "value": ", ".join(parts),
-                        "hint": "Checks documents before they go out.", "empty": False, "email": contact})
+                        "hint": "Checks documents before they go out.", "empty": False, "email": who})
         else:
             sug, src = (lead[0], "the HR department head") if lead else ((backup[0], "the HR department backup") if backup else ("", ""))
             out.append({"key": "handlesHiring", "label": "Handles Hiring", "value": hpd.name_of(db, sug) if sug else "",
@@ -646,6 +673,11 @@ def items(db: Session, view: View) -> list:
         if row["notHired"]:
             continue
         o, p = row["offer"]["_setting"] is None, row["packet"]["_setting"] is None
+        old = row["offer"]["_setting"]
+        if old is not None and not hle.is_documents(old):        # start_offer refuses an uploaded-PDF letter
+            out.append({"key": f"pdf:{old.id}", "text": f"The {old.name or 'offer letter'} is an old uploaded PDF and can't be sent.",
+                        "button": "Rebuild From A Word File", "action": "setUp",
+                        "target": {"rowKey": row["key"], "column": "offer"}})
         pdf = None
         if p:
             pdf = hle.resolve_setting(db, view.eid, "hire", row["workerType"], view.role.id if view.role else "",
@@ -660,10 +692,11 @@ def items(db: Session, view: View) -> list:
             out.append({"key": f"pdf:{pdf.id}", "text": f"The {pdf.name or 'hiring packet'} is an old uploaded PDF and can't start by itself.",
                         "button": "Rebuild From A Word File", "action": "setUp",
                         "target": {"rowKey": row["key"], "column": "packet"}})
-        if not view.shared and row["packet"].get("placement") in ("inside", "page"):
-            ctx = duty_ctx(view.eid, row["workerType"], row["country"], row["region"])
+        placement = row["packet"].get("placement")
+        if not view.shared and placement in ("inside", "page"):
+            ctxs = duty_ctxs(view.eid, row["workerType"], row["country"], row["region"])
             for g in ([view.role] if view.role is not None else view.roles):
-                if not resolve_duties(g, ctx)[0].strip() and not role_jd_doc(g):
+                if not has_duties(g, ctxs, placement):
                     out.append({"key": f"duties:{g.id}", "text": f"{g.name} has no duties written, and the hiring packet prints them.",
                                 "button": "Add Duties", "action": "addDuties", "target": {"roleId": g.id}})
     for s in view.settings():
@@ -817,9 +850,23 @@ def restore(db: Session, user: dict, scope, sid: str) -> dict:
 
 
 def _signature_keys(snaps: list) -> list:
+    """Every signature block's key in document order: body pages, then the
+    header and footer."""
     out = []
+
+    def walk(node):
+        if isinstance(node, list):
+            for x in node:
+                walk(x)
+        elif isinstance(node, dict):
+            if node.get("type") == "signatureBlock":
+                k = str((node.get("attrs") or {}).get("role") or "").strip().lower()
+                if k and k not in out:
+                    out.append(k)
+            for key in ("pages", "json", "content", "header", "footer"):
+                walk(node.get(key))
     for s in snaps:
-        out += [k for k in sorted(s.signature_roles) if k not in out]
+        walk(s.content if isinstance(s.content, dict) else {})
     return out
 
 
@@ -866,6 +913,7 @@ def make_own(db: Session, user: dict, scope, body: dict) -> dict:
     entity = _entity_or_404(db, eid, scope)
     _setting_in_scope(eid, scope, write=True)
     start = "templates" if body.get("start") == "templates" else "copy"
+    src = None
     keys = [{"worker_type": body.get("worker_type"), "country": body.get("country"), "region": body.get("region")}]
     keys += [k for k in (body.get("also") or []) if isinstance(k, dict)]
     out, seen = [], set()
@@ -883,7 +931,17 @@ def make_own(db: Session, user: dict, scope, body: dict) -> dict:
                 continue
             seen.add((wt, c, r))
             what = kind(wt, c, r)
-            row = _make_one(db, user, entity, eid, event, wt, c, r, start, body.get("doc_template_ids"), what)
+            if start == "copy" and i == 0:
+                # The primary cell's letter or packet is the source for every
+                # key - Also Use It For gets the same documents.
+                src = hle.resolve_setting(db, eid, event, wt, "", c, documents_only=(event == "hire"), region=r)
+                if src is not None and not hle.is_documents(src):
+                    raise HTTPException(400, f"The {src.name or EVENT_NAMES[event].lower()} for {what} is an old "
+                                             f"uploaded PDF - upload a Word file or pick one you already have.")
+                if src is None:
+                    raise HTTPException(400, f"There is nothing to copy for {what} yet - upload a Word file or pick "
+                                             f"one you already have.")
+            row = _make_one(db, user, entity, eid, event, wt, c, r, start, body.get("doc_template_ids"), src)
             problems = _problems(db, row)
             if problems:
                 raise HTTPException(400, (f"{what}: " if i else "") + problems[0])
@@ -897,7 +955,7 @@ def make_own(db: Session, user: dict, scope, body: dict) -> dict:
     return {"settings": [hle.ser_setting(db, s) for s in out], "settingIds": [s.id for s in out]}
 
 
-def _make_one(db, user, entity, eid, event, wt, c, r, start, doc_ids, what) -> HrPacketSetting:
+def _make_one(db, user, entity, eid, event, wt, c, r, start, doc_ids, src) -> HrPacketSetting:
     existing = next((x for x in _own_rows(db, eid) if x.event == event and not (x.role_ids or [])
                      and (x.worker_type or "any") == wt and (x.country or "").upper() == c
                      and (x.region or "").upper() == r), None)
@@ -905,10 +963,6 @@ def _make_one(db, user, entity, eid, event, wt, c, r, start, doc_ids, what) -> H
     if start == "copy":
         if existing is not None:
             return existing
-        src = hle.resolve_setting(db, eid, event, wt, "", c, documents_only=True, region=r)
-        if src is None:
-            raise HTTPException(400, f"There is nothing to copy for {what} yet - upload a Word file or pick one you "
-                                     f"already have.")
         row = HrPacketSetting(id=str(uuid.uuid4()), created_at=now, template_id="", engine="documents")
         for f in ("doc_template_ids", "flow", "details_form", "extra_docs"):
             setattr(row, f, list(getattr(src, f) or []))
@@ -931,7 +985,7 @@ def _make_one(db, user, entity, eid, event, wt, c, r, start, doc_ids, what) -> H
         row.subject_role = next((x["key"] for x in row.flow if x["role"] == hpd.SUBJECT_ROLE), "employee")
     row.entity_id, row.event, row.worker_type, row.country, row.region = eid, event, wt, c, r
     row.role_ids, row.archived_at, row.archived_by = [], "", ""
-    row.name = (f"{entity.name} - " if entity is not None else "") + f"{what} {EVENT_NAMES[event]}"
+    row.name = (f"{entity.name} - " if entity is not None else "") + f"{kind(wt, c, r)} {EVENT_NAMES[event]}"
     row.updated_by, row.updated_at = user["email"], now
     db.add(row)
     return row
@@ -957,11 +1011,20 @@ def set_documents(db: Session, user: dict, scope, sid: str, doc_ids) -> dict:
     return hle.ser_setting(db, row)
 
 
-def own_copy(db: Session, user: dict, scope, sid: str, tid: str) -> dict:
+OWN_FIRST = ("Every company uses this one - click Make A Different One first, then change the wording in "
+             "this company's own copy.")
+
+
+def own_copy(db: Session, user: dict, scope, sid: str, tid: str, entity_id: str = "") -> dict:
     """Edit Wording from a company's screen: a document other rows or roles
     also use is copied for this company first ("<Title> - <Company>"), so a
-    shared template is never changed by accident."""
+    shared template is never changed by accident. entity_id is the screen's
+    company: a shared row seen from there is refused - it is every company's."""
     from routers.documents import TemplateNotPublished, published_snapshot
+    if (entity_id or "").strip():
+        found = db.query(HrPacketSetting).filter(HrPacketSetting.id == sid).first()
+        if found is not None and not (found.entity_id or ""):
+            raise HTTPException(400, OWN_FIRST)
     row = _locked_setting(db, sid, scope)
     if tid == hpd.JD_MARKER or tid not in (row.doc_template_ids or []):
         raise HTTPException(404, "That document is not in this packet.")
@@ -1115,6 +1178,8 @@ def remove_duty(db: Session, user: dict, scope, rid: str, vid: str, entity_id: s
 def set_role_documents(db: Session, user: dict, scope, rid: str, rows) -> dict:
     from routers.jobroles import _clean_hiring_docs, _ser_hiring_docs
     g = _role(db, rid, scope, lock=True)
+    if not (g.company_id or "") and scope is not None:
+        raise HTTPException(403, SHARED_ROLE_DOCS)
     docs = _clean_hiring_docs(db, rows)
     if sum(1 for d in docs if d["replaces"] == hpd.JD_MARKER) > 1:
         raise HTTPException(400, "Only one document can take the job description's place.")
@@ -1151,18 +1216,18 @@ def what_they_get(db: Session, cand, wt: str, et: str, country: str, region: str
     placement = view.placement(packet)[0]
     if role is not None:
         text, v = resolve_duties(role, duty_ctx(eid, wt, country, region, et))
-        jd = role_jd_doc(role)
-        if v is not None and text.strip():
+        jd = role_jd_doc(role) if placement != "inside" else ""     # inside: template_ids_for leaves it out
+        if placement == "none" and not jd:
+            line = ("Not In This Packet", "This Hiring Packet Does Not Print Them", "same", False, None)
+        elif jd:
+            line = (f"{role.name} - {view.name(jd)}", "Its Own Page", "own", False, None)
+        elif v is not None and text.strip():
             line = (f"{role.name} - {_version_short(db, v)} Version", f"Only For {_version_for(db, v)}", "own", False, None)
         elif text.strip():
             line = (f"{role.name} - Standard", "Same For Everyone", "same", False, None)
-        elif jd:
-            line = (f"{role.name} - {view.name(jd)}", "Its own page", "own", False, None)
-        elif placement in ("inside", "page"):
+        else:
             line = (f"{role.name} - no duties written", "Add them before sending", "missing", True,
                     {"action": "addDuties", "target": {"entityId": eid, "roleId": role.id}})
-        else:
-            line = (f"{role.name} - no duties written", "This hiring packet does not print them", "same", False, None)
         lines.append({"key": "jd", "label": "Job Description", "name": line[0], "sourceLabel": line[1], "tone": line[2],
                       "blocks": line[3], "fix": line[4]})
     elif new_role_name is not None:

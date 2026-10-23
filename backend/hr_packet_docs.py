@@ -1573,7 +1573,11 @@ def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str
     ids += [t for t in block_ids(setting, d.get("department", ""), d.get("role_id", "")) if t not in ids]
     if kind == "offer":
         return [t for t in ids if t != JD_MARKER]
-    ids = with_role_docs(ids, d.get("role_docs"))      # a role doc replacing "@jd" takes the marker's place
+    role_docs = d.get("role_docs") or []
+    is_jd = [isinstance(r, dict) and r.get("replaces") == JD_MARKER for r in role_docs]
+    if any(is_jd) and JD_MARKER not in ids and _prints_inside(setting, ids):
+        role_docs = [r for r, j in zip(role_docs, is_jd) if not j]   # the duties print inside - never twice
+    ids = with_role_docs(ids, role_docs)               # a role doc replacing "@jd" takes the marker's place
     legacy = d.get("jd_template_id") or ""
     if JD_MARKER in ids:
         fill = (legacy if legacy and legacy not in ids
@@ -1588,6 +1592,15 @@ def prints_duties(snaps: list) -> bool:
     """A document prints the role's duties itself ({{role_description}}) - no
     separate job description page is needed."""
     return any("role_description" in s.tokens for s in snaps)
+
+
+def _prints_inside(setting: Optional[HrPacketSetting], ids: list) -> bool:
+    """Whether these packet documents print the duties themselves. Reads
+    through the setting's own session so template_ids_for keeps its
+    signature; a setting with no session counts as not printing them."""
+    from sqlalchemy.orm import object_session
+    db = object_session(setting) if setting is not None else None
+    return bool(db is not None and prints_duties(load_snaps(db, ids)[0]))
 
 
 def event_template_ids(ev, setting: Optional[HrPacketSetting]) -> list:
