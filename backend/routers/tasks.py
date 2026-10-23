@@ -44,6 +44,7 @@ import task_automation
 import task_schedule
 import task_history
 import code_sequence
+import task_card_preview
 from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
 from routers.task_config import coerce_custom_field_values, missing_required_fields
@@ -122,7 +123,20 @@ def task_to_dict(t: models.Task) -> dict:
         "createdBy":        _nz(t.created_by),
         # Time entries - see models.TaskTimeEntry / _recount_time.
         "timeEntryCount":   int(t.time_entry_count or 0),
+        # What its board card shows - the setting (task_card_preview.py). The
+        # preview itself, `cardPreview`, rides on the task LIST (_with_previews).
+        "cardPreviewMode":  t.card_preview or "",
     }
+
+
+def _with_previews(db: Session, rows: list) -> list:
+    """task_to_dict for each row plus its board card's `cardPreview` (null
+    when the card shows nothing), built for all of them at once - two queries
+    at most, however many rows (task_card_preview.card_previews). Only ever
+    called with rows the caller may see, so a preview never leaks a file or a
+    checklist line of a task that was filtered out."""
+    previews = task_card_preview.card_previews(db, rows)
+    return [{**task_to_dict(t), "cardPreview": previews.get(t.id)} for t in rows]
 
 
 def time_entry_to_dict(e: models.TaskTimeEntry) -> dict:
@@ -223,6 +237,9 @@ class TaskCreate(BaseModel):
     recurrence:       Optional[dict] = None
     is_milestone:     Optional[bool] = False
     approval_status:  Optional[str] = "none"
+    # Show On Card (Oct 22 2026) - a copy's setting (duplicate, template). A
+    # picked image is never taken here: a new task has no files yet.
+    card_preview:     Optional[str] = ""
 
 
 class TaskUpdate(BaseModel):
@@ -259,6 +276,8 @@ class TaskUpdate(BaseModel):
     is_milestone:     Optional[bool] = None
     approval_status:  Optional[str] = None
     completed:        Optional[bool] = None
+    # Show On Card (Oct 22 2026) - see task_card_preview.clean_mode.
+    card_preview:     Optional[str] = None
 
 
 def _next_code(db: Session) -> str:
@@ -1467,6 +1486,9 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
         completed_at="",
         comment_ids=[], attachment_ids=[], activity_ids=[],
         created_at=now, modified_at=now, created_by=user["email"],
+        # Its board card shows the same kind of thing - not a picked image,
+        # which stays with this occurrence's files.
+        card_preview=task_card_preview.copyable(getattr(t, "card_preview", "")),
     )
     db.add(nxt)
     # The checklist travels with the series, every line unticked: a recurring
@@ -2022,11 +2044,11 @@ def _series_groups(rows: list, by_id: Optional[dict] = None) -> list[list[models
 def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = wall_tasks(db, user, db.query(models.Task).all())   # company wall first
     if is_manager(user):
-        return [task_to_dict(t) for t in rows]
+        return _with_previews(db, rows)
     # Pass the USER dict, not just the email: the helpers scope external
     # (B2B guest) callers to explicit participation only (Aug 17).
     visible_projects = visible_project_ids(db, user)
-    return [task_to_dict(t) for t in rows if task_is_visible(t, user, visible_projects)]
+    return _with_previews(db, [t for t in rows if task_is_visible(t, user, visible_projects)])
 
 
 def _csv_set(value: str) -> set:
@@ -2535,7 +2557,7 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
         if i and i not in kept and i not in seen:
             seen.add(i)
             deleted_ids.append(i)
-    return {"tasks": [task_to_dict(t) for t in rows],
+    return {"tasks": _with_previews(db, rows),
             "deletedIds": deleted_ids,
             "serverTime": server_time}
 
@@ -2600,6 +2622,7 @@ def _new_task_row(db: Session, body: TaskCreate, *, tid: str, code: str, company
         completed_at=(now if body.status == "completed" else ""),
         comment_ids=[], attachment_ids=[], activity_ids=[],
         created_at=now, modified_at=now, created_by=user["email"],
+        card_preview=task_card_preview.copyable(body.card_preview),
     )
 
 
@@ -2766,6 +2789,10 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     validate_task_payload(db, data, task_id=task_id)
     if "subtask_order" in data and data["subtask_order"] not in ("", "manual"):
         data["subtask_order"] = ""
+    # Show On Card (Oct 22 2026): a picked image must be one of THIS task's
+    # image files (422 otherwise). Editors only - the role check above.
+    if "card_preview" in data:
+        data["card_preview"] = task_card_preview.clean_mode(db, t, data["card_preview"])
     # A section belongs to one project (the Custom grouping, Oct 13 2026), so a
     # task moved to another project leaves its old section behind - the same
     # rule bulk_update applies to Move To.
@@ -3065,7 +3092,9 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
                                   update_kind=", ".join(modified_kinds),
                                   due_changed=due_entry is not None,
                                   due_entry_at=(due_entry or {}).get("at") or "")
-    return task_to_dict(t)
+    # With its card preview: the client puts this copy in place of its own,
+    # so a task without one would lose its cover until the next refresh.
+    return _with_previews(db, [t])[0]
 
 
 class RescheduleBody(BaseModel):
@@ -4161,7 +4190,8 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     for auto in auto_results:
         task_automation.run_after_commit(db, auto)
     fire_task_event("", "bulk")
-    out = [task_to_dict(t) for t in rows]
+    # With their card previews: the client swaps these copies in for its own.
+    out = _with_previews(db, rows)
     if dates is None:
         return out
     changed = sum(1 for t in rows if (t.due_on or "")[:10] != before_due[t.id]

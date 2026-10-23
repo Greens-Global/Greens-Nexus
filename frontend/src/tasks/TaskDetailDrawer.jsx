@@ -10,7 +10,7 @@ import {
   Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate, Sigma, MoveRight,
-  History, Upload, HardDrive,
+  History, Upload, HardDrive, Image as ImageIcon,
 } from 'lucide-react';
 import MoveTaskModal from './MoveTaskModal';
 import { api } from '../api';
@@ -32,6 +32,8 @@ import { myProjectIds } from './ProjectPicker';
 import DueBadge from './DueBadge';
 import DueNegotiation from './DueNegotiation';
 import Checklist from './Checklist';
+import { ShowOnCardSelect } from './CardPreview';
+import { IMAGE_MODE, isCoverCandidate } from './boardLayout';
 import CommentThread from './CommentThread';
 import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
@@ -439,7 +441,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
       );
       case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} focusComment={focusHere} canComment={canComment} canPin={canEditProject} />;
       case 'activity':     return <ActivityTab taskId={activeId} nameOf={nameOf} />;
-      case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} canAttach={canComment} canRemoveAny={canEditProject} />;
+      case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} canAttach={canComment} canRemoveAny={canEditProject} onShowOnCard={canEdit ? (v) => patch({ cardPreviewMode: v }) : null} />;
       case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub} onMoveSub={setMoving}
         canAdd={canEditProject} canEditParent={canEdit} canEditTask={canEditTask} />;
       case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} readOnly={!canEdit} />;
@@ -1300,6 +1302,13 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {/* Which of the project's Custom sections it is filed under. */}
       <TaskSectionRow task={task} patch={patch} />
 
+      {/* Show On Card (Oct 22 2026): what the task's board card shows under
+          its title - Planner's card preview. Editors only. */}
+      <Row label="Show On Card">
+        <ShowOnCardSelect task={task} disabled={readOnly} onChange={(v) => patch({ cardPreviewMode: v })}
+          style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '5px 8px', fontSize: 13 }} />
+      </Row>
+
       {/* The project's custom columns, right here on the task (Oct 13 2026) -
           they used to live only on the Properties tab, which most people
           never opened and phones do not show. */}
@@ -1400,7 +1409,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
 
       {/* Attachments */}
       <Section title="Attachments">
-        <AttachmentsTab task={task} refresh={refresh} canAttach={canComment} canRemoveAny={canEditProject} />
+        <AttachmentsTab task={task} refresh={refresh} canAttach={canComment} canRemoveAny={canEditProject} onShowOnCard={readOnly ? null : (v) => patch({ cardPreviewMode: v })} />
       </Section>
     </div>
   );
@@ -1867,7 +1876,9 @@ export function ActivityTab({ taskId, nameOf }) {
 // version (a soft "V3" when it has more), with Upload New Version (or drop a
 // file onto it) and a Versions panel; Add From Egnyte links a file or folder
 // in Egnyte instead of uploading a copy. See attachmentParts.jsx.
-function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }) {
+// onShowOnCard (Oct 22 2026): an editor's "Show On Card" on each image file -
+// it becomes the task's board card cover ('' puts the card back on Automatic).
+function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, onShowOnCard = null }) {
   const { myEmail, nameOf } = useTasks();
   const [rows, setRows] = useState(null);
   const [versionsOf, setVersionsOf] = useState(null);     // the file whose Versions panel is open
@@ -2058,6 +2069,18 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true }
                       <button type="button" onClick={() => pickVersion(a)} disabled={!!up && !up.error} title="Upload New Version" aria-label={`Upload new version of ${a.name}`}
                         style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Upload size={13} /></button>
                     )}
+                    {onShowOnCard && isCoverCandidate(a) && (() => {
+                      // Any version of the picked file counts - the card shows its newest.
+                      const onCard = [a.id, a.versionGroup].filter(Boolean).some((id) => task.cardPreviewMode === `${IMAGE_MODE}${id}`);
+                      return (
+                        <button type="button" onClick={() => onShowOnCard(onCard ? '' : `${IMAGE_MODE}${a.id}`)} aria-pressed={onCard}
+                          title={onCard ? 'Shown on the board card - click to go back to Automatic' : 'Show On Card'}
+                          aria-label={onCard ? `Stop showing ${a.name} on the card` : `Show ${a.name} on the card`}
+                          style={{ ...btn('ghost'), padding: '3px 6px', fontSize: 11.5, color: onCard ? NX.blue : NX.dim }}>
+                          <ImageIcon size={13} /> {onCard ? 'On Card' : 'Show On Card'}
+                        </button>
+                      );
+                    })()}
                     {mayRemove(a) && <button onClick={() => del(a)} title="Remove" aria-label={`Remove ${a.name}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>}
                     {up && !up.error && <span style={{ color: NX.faint, fontVariantNumeric: 'tabular-nums' }}>Uploading new version {Math.round(up.pct * 100)}%</span>}
                     {up?.error && (

@@ -1272,6 +1272,9 @@ def _run_migrations():
             "ALTER TABLE task_custom_fields ADD COLUMN formula_format JSON DEFAULT '{}'",
             # Tasks conditional row colors (Oct 22 2026) - see the Postgres list.
             "ALTER TABLE task_projects ADD COLUMN color_rules JSON DEFAULT '[]'",
+            # Board card previews + a saved Board view's columns (Oct 22 2026) - see the Postgres list.
+            "ALTER TABLE tasks ADD COLUMN card_preview VARCHAR DEFAULT ''",
+            "ALTER TABLE task_saved_views ADD COLUMN board_columns VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2924,6 +2927,11 @@ def _run_migrations():
         # Time Sheet bonuses (Neil, Oct 22) - a new table: explicit RLS on top of
         # the _enable_rls_everywhere sweep. models.TimecardBonus.
         "ALTER TABLE timecard_bonuses ENABLE ROW LEVEL SECURITY",
+        # Board card previews (Oct 22 2026): models.Task.card_preview - what a
+        # board card shows ("" = Automatic). A saved Board view's columns:
+        # models.TaskSavedView.board_columns ("" = Status). Additive only.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS card_preview VARCHAR DEFAULT ''",
+        "ALTER TABLE task_saved_views ADD COLUMN IF NOT EXISTS board_columns VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

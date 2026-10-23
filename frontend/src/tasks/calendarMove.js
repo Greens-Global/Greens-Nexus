@@ -35,6 +35,47 @@ export function calendarMovePatch(task, targetIso) {
   return patch;
 }
 
+/**
+ * The patch that gives `task` the due day `targetIso` (Oct 22 2026, the
+ * Board's Due Date columns as well as the Calendar): a dated task moves as
+ * calendarMovePatch moves it (its start date keeps the task's length); an
+ * undated one just takes the day; '' clears the due date. Null when nothing
+ * would change.
+ */
+export function dueMovePatch(task, targetIso) {
+  const due = task?.dueOn || '';
+  const target = day(targetIso);
+  if (!target) return due ? { dueOn: '' } : null;
+  if (!due) return { dueOn: target };
+  return calendarMovePatch(task, target);
+}
+
+/**
+ * Moves `task` to day `iso` ('' = no due date) through the store - the ONE
+ * path a drag onto a day takes, from the Calendar or a Board's Due Date
+ * column. A move is the task's own update (store.updateTask): optimistic,
+ * put back and explained by updateTask itself if refused (a repeating
+ * task's series rules); a date that needs approval comes back as a request
+ * - the store has already said so, with Withdraw as its Undo - and the task
+ * keeps its day. Otherwise an Undo toast: the server-side Undo of that
+ * due-history entry (no extension counted for the trip back, no second
+ * bell), or putting the dates back when there is no entry to name.
+ * Resolves to the saved task, or null when nothing was saved.
+ */
+export async function moveTaskToDay(store, task, iso) {
+  const patch = dueMovePatch(task, iso);
+  if (!task || !patch || !store?.updateTask) return null;
+  const back = previousDates(task, patch);
+  let saved;
+  try { saved = await store.updateTask(task.id, patch); } catch { return null; }
+  if (wasSentForApproval(saved, patch)) return saved;
+  const at = undoEntryAt(saved, patch);
+  store.offerUndo?.(patch.dueOn ? movedLabel(patch) : 'Due date cleared', () => (at && store.undoDueChange
+    ? store.undoDueChange(task.id, at)
+    : store.updateTask(task.id, back)).catch(() => {}));
+  return saved;
+}
+
 /** The dates `patch` would replace on `task` - what Undo puts back. */
 export function previousDates(task, patch) {
   const back = {};

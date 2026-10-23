@@ -83,6 +83,8 @@ const CAMEL_TO_SNAKE = {
   slaDueAt: 'sla_due_at',
   // The ticket's Unit at its property (Ops review, Oct 20).
   propertyUnit: 'property_unit',
+  // Board card previews + a saved Board view's columns (Oct 22 2026).
+  cardPreviewMode: 'card_preview', boardColumns: 'board_columns',
 };
 function toBody(patch) {
   const out = {};

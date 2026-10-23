@@ -47,7 +47,12 @@ def saved_view_to_dict(s: models.TaskSavedView) -> dict:
     return {"id": s.id, "ownerId": _nz(s.owner_email), "name": s.name, "view": s.view or "list",
             "filters": s.filters if isinstance(s.filters, dict) else {},
             "sort": s.sort if isinstance(s.sort, dict) else {}, "group": s.group or "none",
-            "scope": s.scope or "task"}
+            "scope": s.scope or "task",
+            # A Board view's columns (Oct 22 2026); "" = Status.
+            "boardColumns": getattr(s, "board_columns", "") or ""}
+
+
+_BOARD_COLUMNS = ("status", "section", "priority", "due")
 
 
 class SavedViewBody(BaseModel):
@@ -57,6 +62,7 @@ class SavedViewBody(BaseModel):
     filters: Optional[dict] = None
     sort: Optional[dict] = None
     group: Optional[str] = "none"
+    board_columns: Optional[str] = ""
 
 
 @router.get("/task-saved-views")
@@ -71,7 +77,8 @@ def list_saved_views(user: dict = Depends(get_current_user), db: Session = Depen
 def create_saved_view(body: SavedViewBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     s = models.TaskSavedView(id=body.id or gen_id(), owner_email=user["email"].lower(), name=body.name,
                              view=body.view or "list", filters=body.filters or {}, sort=body.sort or {},
-                             group=body.group or "none", scope="task", created_at=now_iso())
+                             group=body.group or "none", scope="task", created_at=now_iso(),
+                             board_columns=(body.board_columns if body.board_columns in _BOARD_COLUMNS else ""))
     db.add(s)
     db.commit()
     db.refresh(s)
@@ -334,6 +341,10 @@ def save_task_as_template(task_id: str, body: SaveAsTemplateBody, user: dict = D
              "projectId": t.project_id or "", "teamId": t.team_id or "", "tags": list(t.tags or [])}
     if t.estimate_hours is not None:
         patch["estimateHours"] = t.estimate_hours
+    # Show On Card (Oct 22 2026) - a picked image is not copied (its file isn't).
+    import task_card_preview
+    if task_card_preview.copyable(getattr(t, "card_preview", "")):
+        patch["cardPreview"] = task_card_preview.copyable(t.card_preview)
     if "description" in keep and t.description:
         patch["description"] = t.description
     if "assignees" in keep:
@@ -426,6 +437,7 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
         project_id=project_id, team_id=(p.get("teamId") or "") if project_id == (p.get("projectId") or "") else "",
         tags=list(p.get("tags") or []), custom_field_values=values, due_on=due,
         estimate_hours=p.get("estimateHours"), recurrence=rule,
+        card_preview=str(p.get("cardPreview") or ""),
     )
     subs = tpl.subtasks if isinstance(tpl.subtasks, list) and tpl.subtasks else [
         {"title": x} for x in (tpl.subtask_titles or []) if x]

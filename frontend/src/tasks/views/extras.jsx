@@ -10,7 +10,7 @@ import AnchoredMenu from '../../components/AnchoredMenu';
 import { useRowColorMap } from '../rowColorState';
 import { DateField } from '../components';
 import { useRole } from '../../contexts/RoleContext';
-import { calendarMovePatch, canMoveOnCalendar, movedLabel, previousDates, undoEntryAt, wasSentForApproval } from '../calendarMove';
+import { canMoveOnCalendar, moveTaskToDay } from '../calendarMove';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -74,26 +74,13 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null }) {
   const canMove = (t) => !!store?.updateTask && canMoveOnCalendar(t, {
     projects: store.projects, teams: store.teams, taskById: store.taskById, email: store.myEmail, isManager,
   });
+  // The one day-move path (calendarMove.moveTaskToDay), shared with the
+  // Board's Due Date columns: a refused move is put back, a held one is a
+  // request for approval, anything else gets an Undo toast.
   const moveTask = async (id, iso) => {
     const t = taskMap[id];
     if (!canMove(t)) return;
-    const patch = calendarMovePatch(t, iso);
-    if (!patch) return;
-    const back = previousDates(t, patch);
-    let saved;
-    // A refused move (say a repeating task dropped on or before its previous
-    // occurrence) is put back and explained by updateTask itself.
-    try { saved = await store.updateTask(id, patch); } catch { return; }
-    // Held for approval: the store has already said "Due date change sent
-    // for approval" (with Withdraw as its Undo) and the chip is back.
-    if (wasSentForApproval(saved, patch)) return;
-    // Undo takes the move out on the server (POST /tasks/{id}/due/undo): no
-    // extension counted for the trip back, no second bell. Without the
-    // history entry to name, it falls back to putting the dates back.
-    const at = undoEntryAt(saved, patch);
-    store.offerUndo?.(movedLabel(patch), () => (at && store.undoDueChange
-      ? store.undoDueChange(id, at)
-      : store.updateTask(id, back)).catch(() => {}));
+    await moveTaskToDay(store, t, iso);
   };
   const openMove = (e, id) => setMoveAt({ id, el: e.currentTarget });
   const endDrag = () => { setDragId(null); setOverIso(null); };

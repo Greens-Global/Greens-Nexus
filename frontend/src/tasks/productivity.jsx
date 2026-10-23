@@ -5,7 +5,7 @@
 // TasksContext store. The export's store had applyTemplate/submitIntakeForm/
 // saveView helpers; here those are expressed directly via createTask/createSavedView.
 import { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, X, ListChecks, CalendarRange, LayoutGrid, ChevronRight, Search, Palette } from 'lucide-react';
+import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, X, ListChecks, CalendarRange, LayoutGrid, ChevronRight, Search, Palette, Columns3 } from 'lucide-react';
 import { BottomSheet } from './MobileTaskBar';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, useIsMobile, DateField } from './components';
@@ -335,7 +335,9 @@ function GroupBody({ group, setGroup, groupOptions, close }) {
   );
 }
 
-export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProjectId, hideAssignee, current, onApplyView, onOpenTask, group, setGroup, groupOptions, customFields = [], sortFieldOptions = [], sheet = false }) {
+// columnOptions / columns / setColumns (Oct 22 2026): the Board's Columns
+// menu, beside Group (which is the board's swimlanes there). Board only.
+export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProjectId, hideAssignee, current, onApplyView, onOpenTask, group, setGroup, groupOptions, columnOptions = null, columns = '', setColumns = null, customFields = [], sortFieldOptions = [], sheet = false }) {
   const store = useTasks();
   const { savedViews, createSavedView, deleteSavedView, templates, intakeForms, projects, projectName, createTask, myEmail, teams } = store;
   const people = usePeople();
@@ -372,6 +374,13 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
         </Popover>
       )}
 
+      {/* Columns - the Board's (Status / Section / Priority / Due Date) */}
+      {columnOptions && setColumns && (
+        <Popover sheet={sheet} label="Columns" icon={Columns3} width={190}>
+          {(close) => <GroupBody group={columns} setGroup={setColumns} groupOptions={columnOptions} close={close} />}
+        </Popover>
+      )}
+
       {/* Saved views */}
       <Popover sheet={sheet} label="Saved Views" icon={Bookmark} width={260}>
         {(close) => <SavedViews {...{ savedViews, createSavedView, deleteSavedView, current, filters, sort, onApplyView, close }} />}
@@ -395,7 +404,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
 // `columnControls` - the List view's Hide / + Column pair. On desktop they sit
 // in the toolbar; there is no toolbar on mobile, so they ride along at the
 // bottom of this sheet rather than being unreachable on a phone.
-export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, current, onApplyView, search, setSearch, lockedProjectId, hideAssignee, columnControls, rowColors = null, customFields = [], sortFieldOptions = [], onClose }) {
+export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, columnOptions = null, columns = '', setColumns = null, current, onApplyView, search, setSearch, lockedProjectId, hideAssignee, columnControls, rowColors = null, customFields = [], sortFieldOptions = [], onClose }) {
   const store = useTasks();
   const { savedViews, createSavedView, deleteSavedView, projects, teams } = store;
   const people = usePeople();
@@ -412,6 +421,7 @@ export function MobileFilters({ filters, setFilters, sort, setSort, group, setGr
     { key: 'date', label: 'Date', icon: CalendarRange, badge: dateActive ? '•' : null },
     { key: 'sort', label: 'Sort', icon: ArrowUpDown },
     ...(hasGroup ? [{ key: 'group', label: 'Group', icon: LayoutGrid }] : []),
+    ...(columnOptions && setColumns ? [{ key: 'boardColumns', label: 'Columns', icon: Columns3 }] : []),
     { key: 'saved', label: 'Saved Views', icon: Bookmark },
   ];
 
@@ -454,13 +464,14 @@ export function MobileFilters({ filters, setFilters, sort, setSort, group, setGr
     );
   }
 
-  const catLabel = { filters: 'Filters', date: 'Date', sort: 'Sort', group: 'Group', saved: 'Saved Views' }[cat];
+  const catLabel = { filters: 'Filters', date: 'Date', sort: 'Sort', group: 'Group', boardColumns: 'Columns', saved: 'Saved Views' }[cat];
   return (
     <BottomSheet title={catLabel} onClose={onClose} onBack={() => setCat(null)}>
       {cat === 'filters' && <FiltersBody teams={teams} filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder} statusMeta={store.statusMeta} customFields={customFields} />}
       {cat === 'date' && <DateBody filters={filters} setFilters={setFilters} />}
       {cat === 'sort' && <SortBody sort={sort} setSort={setSort} close={() => {}} sortFieldOptions={sortFieldOptions} />}
       {cat === 'group' && <GroupBody group={group} setGroup={setGroup} groupOptions={groupOptions} close={() => {}} />}
+      {cat === 'boardColumns' && <GroupBody group={columns} setGroup={setColumns} groupOptions={columnOptions} close={() => {}} />}
       {cat === 'saved' && <SavedViews {...{ savedViews, createSavedView, deleteSavedView, current, filters, sort, onApplyView, close: onClose }} />}
     </BottomSheet>
   );
@@ -471,7 +482,8 @@ function SavedViews({ savedViews, createSavedView, deleteSavedView, current, fil
   const [name, setName] = useState('');
   const save = async () => {
     const n = name.trim(); if (!n) return;
-    await createSavedView({ name: n, view: current.view, group: current.group, filters, sort }).catch(() => {});
+    // A Board view keeps its columns too (Oct 22 2026); `group` is its swimlanes then.
+    await createSavedView({ name: n, view: current.view, group: current.group, ...(current.boardColumns ? { boardColumns: current.boardColumns } : {}), filters, sort }).catch(() => {});
     setName(''); setNaming(false); close();
   };
   return (

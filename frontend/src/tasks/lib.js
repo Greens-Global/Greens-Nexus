@@ -561,6 +561,8 @@ export function duplicateTaskData(t, overrides = {}) {
     followerIds: [...(t.followerIds || [])], dueOn: t.dueOn || '', startOn: t.startOn || '',
     tags: [...(t.tags || [])], estimateHours: t.estimateHours ?? null, isMilestone: !!t.isMilestone,
     customFieldValues: { ...(t.customFieldValues || {}) },
+    // Show On Card (Oct 22 2026) - not a picked image: the copy has no files.
+    cardPreviewMode: String(t.cardPreviewMode || '').startsWith('image:') ? '' : (t.cardPreviewMode || ''),
     ...overrides,
   };
 }

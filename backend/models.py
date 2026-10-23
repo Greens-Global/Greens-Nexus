@@ -133,6 +133,11 @@ class Task(Base):
     # taken from a payload; the task list reads it to hide Move To, and Move
     # To refuses these (routers/tasks._is_hr_checklist_task).
     hr_checklist      = Column(Boolean, default=False)
+    # What the task's board card shows under its title (Planner's "Show On
+    # Card", Oct 22 2026): "" Automatic, "checklist", "description", "none"
+    # or "image:<attachment id>" - one of this task's own image files. See
+    # task_card_preview.py.
+    card_preview      = Column(String, default="")
 
 
 class PurchaseRequest(Base):
@@ -3356,6 +3361,9 @@ class TaskSavedView(Base):
     group       = Column(String, default="none")
     scope       = Column(String, default="task")         # task|ticket - which module the view belongs to
     created_at  = Column(String, default="")
+    # A Board view's columns (Oct 22 2026): status|section|priority|due, ""
+    # = Status. `group` is then the board's swimlanes.
+    board_columns = Column(String, default="")
 
 
 class TaskAutomationRule(Base):
