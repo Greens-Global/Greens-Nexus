@@ -42,7 +42,7 @@ vi.mock('../api', () => ({
     sendHiringPacket: (...a) => sendPacket(...a),
     getLifeEvents: () => Promise.resolve(events),
     getPeopleDirectory: () => Promise.resolve([{ email: 'max@x.com', name: 'Max' }]),
-    hiringOptions: () => Promise.resolve({ roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting' }], departments: ['Accounting', 'IT'] }),
+    hiringOptions: () => Promise.resolve({ roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting' }], departments: ['Accounting', 'IT'], departmentLeads: { it: ['max@x.com'] } }),
     // Packets built from Documents (Oct 14).
     getDocTemplates: () => Promise.resolve([{ id: 'jd1', name: 'JD - Analyst', publishedVersion: 1 }]),
     packetRoleHolders: () => Promise.resolve({ hr: { email: 'hana@x.com', name: 'Hana' } }),
@@ -107,6 +107,16 @@ describe('SendHiringPacketModal', () => {
     expect(screen.getByPlaceholderText('e.g. Leasing Coordinator')).toBeTruthy();
     expect(screen.getByText(/NO access/)).toBeTruthy();
     expect(screen.getByText('Review Packet').closest('button')).toBeDisabled();  // name + department first
+  });
+
+  // Neil, Oct 22: the supervisor is the department head, and the label says Reports To.
+  it('a new role in a department defaults the supervisor to its head', async () => {
+    render(<SendHiringPacketModal candidate={cand} canSeePay onClose={noop} onSent={noop} toastErr={noop} />);
+    await waitFor(() => expect(screen.getByText('Analyst - Accounting')).toBeTruthy());
+    expect(screen.getByText(/Reports To - the person this hire reports to/)).toBeTruthy();
+    fireEvent.change(screen.getByDisplayValue('Analyst - Accounting'), { target: { value: '__other__' } });
+    fireEvent.change(screen.getByDisplayValue('- pick a department -'), { target: { value: 'IT' } });
+    expect(screen.getByText('Max')).toBeTruthy();
   });
 
   it('reviews, asks for what the template still needs, and sends only once confirmed', async () => {

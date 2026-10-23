@@ -736,12 +736,13 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
         if r.department and r.department not in depts:
             depts.append(r.department)
     names = {e.id: e.name for e in db.query(HrEntity).all()} if all_roles else {}
+    by_key = {_dept_key(k): v for k, v in leads.items()}   # "accounting " still finds Accounting's head
     return {"roles": [{"id": r.id, "name": r.name, "department": r.department or "",
                        "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", ""),
                        # No default manager on the role: its department's head (Neil, Oct 22 -
                        # "supervisor should be the department head").
                        "defaultManagerEmail": ((r.default_manager_email or "").lower()
-                                               or next(iter(leads.get(r.department or "") or []), ""))}
+                                               or next(iter(by_key.get(_dept_key(r.department)) or []), ""))}
                       for r in roles],
             "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES)}
 
