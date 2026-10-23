@@ -1125,6 +1125,13 @@ class ChecklistTests(unittest.TestCase):
                               json={"place": {"default": {"projectId": "p-ops", "sectionId": "s-new"}}})
         self.assertEqual(bad.status_code, 400)                # a section of another project
 
+    def test_a_company_without_its_own_hr_project_uses_the_groups(self):
+        self._hr_project()                        # company A's "#General - Human Resources"
+        place = self.client.get(f"/hr/checklists/task-place?entity_id={CO_B}").json()
+        self.assertEqual((place["effective"]["onboarding"]["projectId"], place["effective"]["onboarding"]["source"]),
+                         ("p-hr", "auto"))
+        self.assertIn("p-hr", {p["id"] for p in place["projects"]})     # and HR can pick it by hand
+
     def test_old_per_owner_tasks_fold_into_one_and_the_empty_ones_are_binned(self):
         cl = self._start(self._person())
         db = database.SessionLocal()

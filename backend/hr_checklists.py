@@ -999,7 +999,8 @@ def _key(emails) -> str:
 def auto_project(db, entity_id: str):
     """The company's general HR project, found by itself when no place is set:
     a project of its HR department named "#General...", else one whose name
-    says Human Resources. None when there is no such project."""
+    says Human Resources, else the group's Human Resources project (another
+    company's). None when there is no such project."""
     import models
     from routers.task_util import row_company
     if not entity_id:
@@ -1013,12 +1014,22 @@ def auto_project(db, entity_id: str):
             return 0
         return 4 * mine + 2 * name.startswith("#general") + ("human resources" in name)
 
-    best, top = None, 0
-    for p in db.query(models.TaskProject).filter(models.TaskProject.archived.isnot(True)).order_by(models.TaskProject.created_at):
-        s = score(p)
-        if s > top:
-            best, top = p, s
-    return best
+    # One HR team runs every company from one project (Neil's "#General - Human
+    # Resources"): a company with no HR project of its own uses the group's.
+    def group(p):
+        name = (p.name or "").strip().lower()
+        return ("human resources" in name) * (1 + name.startswith("#general"))
+
+    projects = db.query(models.TaskProject).filter(models.TaskProject.archived.isnot(True)).order_by(models.TaskProject.created_at).all()
+    for rank in (score, group):
+        best, top = None, 0
+        for p in projects:
+            s = rank(p)
+            if s > top:
+                best, top = p, s
+        if best is not None:
+            return best
+    return None
 
 
 def task_place(db, entity_id: str, kind: str) -> dict:

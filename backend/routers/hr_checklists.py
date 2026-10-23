@@ -693,11 +693,14 @@ def reset_template(kind: str, entity_id: str = "", user: dict = Depends(require_
 # --- Where checklist tasks go (Neil, Oct 22; Pranshu: "what if I want to
 # change the task location for the checklist in future?") -------------------
 
-def _place_out(db: Session, entity_id: str) -> dict:
+def _place_out(db: Session, entity_id: str, scope=None) -> dict:
     import models
     from routers.task_util import row_company
+    # Any project of a company HR covers - the group's HR project usually
+    # belongs to the parent company, not the one hiring.
     projects = [p for p in db.query(models.TaskProject).filter(models.TaskProject.archived.isnot(True))
-                .order_by(models.TaskProject.name).all() if row_company(db, p) in ("", entity_id)]
+                .order_by(models.TaskProject.name).all()
+                if scope is None or row_company(db, p) in ("", entity_id, *scope)]
     secs = {}
     if projects:
         for s in (db.query(models.TaskSection).filter(models.TaskSection.project_id.in_([p.id for p in projects]))
@@ -735,7 +738,7 @@ def get_task_place(entity_id: str = "", user: dict = Depends(require_hr_read), d
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Company not found")
-    return _place_out(db, entity_id)
+    return _place_out(db, entity_id, scope)
 
 
 class PlaceIn(BaseModel):
@@ -773,7 +776,7 @@ def save_task_place(body: PlaceIn, entity_id: str = "", user: dict = Depends(req
     db.flush()
     moved = hc.move_open_tasks(db, entity_id, user["email"].lower()) if body.move else 0
     db.commit()
-    return {**_place_out(db, entity_id), "moved": moved}
+    return {**_place_out(db, entity_id, hr_scope(user, db)), "moved": moved}
 
 
 # --- Role owners -----------------------------------------------------------
