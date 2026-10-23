@@ -748,7 +748,9 @@ export const noPaperwork = ev => ev.status === 'completed' && !ev.signRequestId 
 
 // One life event (hiring packet, promotion letter, separation package): who
 // has signed, Sign Now for HR's own turn, Void, and where it was filed.
-export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hideSign = false, egnyteEmail = '' }) {
+// `compact`: one line for a signed one on the Documents tab; `filing={false}`
+// leaves the Egnyte line to that row (Neil, Oct 22 1:01:35).
+export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hideSign = false, egnyteEmail = '', compact = false, filing = true }) {
   const [busy, setBusy] = useState('');
   const [picking, setPicking] = useState(null);      // File Manually: the folder the picker opens at
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -815,6 +817,53 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
     } catch (e) { toastErr?.(e?.message || 'Could not start the hiring packet.'); }
     setBusy('');
   }
+  const unfiled = ev.status === 'completed' && !bare && ev.filingStatus !== 'filed';
+  const filingColor = ev.filingStatus === 'filed' ? 'hsl(var(--color-green))' : ev.filingStatus === 'failed' ? 'hsl(var(--color-red))' : 'var(--muted)';
+  const filingText = ev.filingStatus === 'filed' ? `Filed in Egnyte: ${ev.filingPath}`
+    : ev.filingStatus === 'failed' ? `Not filed in Egnyte: ${ev.filingError}`
+      : `Filing in Egnyte${ev.filingError ? ` - try ${ev.filingAttempts || 1} did not work: ${ev.filingError}. Nexus tries again by itself` : '...'}`;
+  const filingButtons = unfiled && (
+    <>
+      <button className="secondary-btn" onClick={() => act('retry')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        {busy === 'retry' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry Filing
+      </button>
+      {/* Pending after a failed try too, not only once it gives up. */}
+      {(ev.filingError || ev.filingAttempts > 0) && (
+        <button className="secondary-btn" onClick={openPicker} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          {busy === 'manual' ? <Spinner size={12} /> : <FolderOpen size={12} />} File Manually
+        </button>
+      )}
+    </>
+  );
+  const modals = (
+    <>
+      {picking !== null && (
+        <FolderPickModal startPath={picking} title="File Manually In Egnyte"
+          hint={`Browse to the Egnyte folder to file into (it must already exist), or paste its path or Egnyte link, then press "Use This Folder". The offer letter and hiring packet are filed there together.`}
+          onPick={fileInto} onClose={() => setPicking(null)} />
+      )}
+      {reviewOpen && (
+        <PacketReview eventId={ev.id} onClose={() => setReviewOpen(false)} onChanged={onChanged}
+          onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} />
+      )}
+    </>
+  );
+  if (compact) return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 0', borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+      <FileSignature size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+      <b>{what}</b>
+      <StatusChip label={label} tone={tone} />
+      {ev.completedAt && <span style={{ color: 'var(--muted)' }}>Signed {formatDateTime(ev.completedAt)}</span>}
+      <span title={filingText} style={{ flex: 1, minWidth: 160, color: filingColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filingText}</span>
+      {docs && (
+        <button className="secondary-btn" onClick={() => setReviewOpen(true)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <FileSignature size={12} /> Documents
+        </button>
+      )}
+      {filingButtons}
+      {modals}
+    </div>
+  );
   return (
     <div style={{ marginTop: 14, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -862,13 +911,10 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
           <span>No separation package was sent, so there is nothing to sign or file in Egnyte.</span>
         </div>
       )}
-      {ev.status === 'completed' && !bare && (
-        <div style={{ marginTop: 8, fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start',
-          color: ev.filingStatus === 'filed' ? 'hsl(var(--color-green))' : ev.filingStatus === 'failed' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
+      {filing && ev.status === 'completed' && !bare && (
+        <div style={{ marginTop: 8, fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start', color: filingColor }}>
           <FolderOpen size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>{ev.filingStatus === 'filed' ? `Filed in Egnyte: ${ev.filingPath}`
-            : ev.filingStatus === 'failed' ? `Not filed in Egnyte: ${ev.filingError}`
-              : `Filing in Egnyte${ev.filingError ? ` - try ${ev.filingAttempts || 1} did not work: ${ev.filingError}. Nexus tries again by itself` : '...'}`}</span>
+          <span>{filingText}</span>
         </div>
       )}
       {['intake', 'review'].includes(ev.status) && (
@@ -909,26 +955,9 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
             {busy === 'apply' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry
           </button>
         )}
-        {ev.status === 'completed' && !bare && ev.filingStatus !== 'filed' && (
-          <button className="secondary-btn" onClick={() => act('retry')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {busy === 'retry' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry Filing
-          </button>
-        )}
-        {ev.status === 'completed' && !bare && ev.filingStatus !== 'filed' && ev.filingError && (
-          <button className="secondary-btn" onClick={openPicker} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {busy === 'manual' ? <Spinner size={12} /> : <FolderOpen size={12} />} File Manually
-          </button>
-        )}
+        {filing && filingButtons}
       </div>
-      {picking !== null && (
-        <FolderPickModal startPath={picking} title="File Manually In Egnyte"
-          hint={`Browse to the Egnyte folder to file into (it must already exist), or paste its path or Egnyte link, then press "Use This Folder". The offer letter and hiring packet are filed there together, and these cards leave the profile.`}
-          onPick={fileInto} onClose={() => setPicking(null)} />
-      )}
-      {reviewOpen && (
-        <PacketReview eventId={ev.id} onClose={() => setReviewOpen(false)} onChanged={onChanged}
-          onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} />
-      )}
+      {modals}
     </div>
   );
 }
@@ -978,20 +1007,22 @@ export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChang
   );
 }
 
-// The letters on a person (People > profile): anything still out for
-// signature, plus the latest finished one while it is recent or not filed.
-export function PersonLifeEvents({ employeeId, workEmail = '', refreshKey, onSignNow, onChanged, toastOk, toastErr }) {
+// The letters on a person (People > profile). Above the tabs: only what HR
+// still acts on - out for details or signature, a scheduled last day, a
+// packet that did not start, a failed apply, a recent decline. Signed ones
+// (`signed`) are one line each on the Documents tab, their Egnyte filing
+// with them - so an Egnyte outage never pins a card to the header (Neil,
+// Oct 22 1:01:35: "how do I get these two things off of here?").
+export function PersonLifeEvents({ employeeId, workEmail = '', refreshKey, onSignNow, onChanged, toastOk, toastErr, signed = false }) {
   const [events, setEvents] = useState([]);
   const load = () => api.getLifeEvents({ employeeId }).then(setEvents).catch(() => setEvents([]));
   useEffect(() => { load(); }, [employeeId, refreshKey]);
   const recent = Date.now() - 14 * 86400000;
-  const shown = events.filter(e => ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status) || e.applyStatus === 'scheduled'
-    || (e.kind === 'offer' && (e.flags || []).some(f => f.code === 'packet_not_started'))
-    // Filed by hand (Oct 15 2026): HR has dealt with it - off the profile at once.
-    || (e.status === 'completed' && ((e.filingStatus !== 'filed' && !noPaperwork(e))
-      || (new Date(e.completedAt).getTime() > recent && !(e.flags || []).some(f => f.code === 'filed_by_hand'))))
-    || (e.flags || []).some(f => f.code === 'apply_failed')
-    || (['declined', 'expired'].includes(e.status) && new Date(e.createdAt).getTime() > recent));
+  const shown = signed ? events.filter(e => e.status === 'completed' && !noPaperwork(e))
+    : events.filter(e => ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status) || e.applyStatus === 'scheduled'
+      || (e.kind === 'offer' && (e.flags || []).some(f => f.code === 'packet_not_started'))
+      || (e.flags || []).some(f => f.code === 'apply_failed')
+      || (['declined', 'expired'].includes(e.status) && new Date(e.createdAt).getTime() > recent));
   // A signed packet waiting for its Egnyte filing: the server files it within
   // a minute or two (then retries with backoff), so re-read this card while
   // one is pending - it used to sit on "Filing in Egnyte..." until a reload.
@@ -1006,7 +1037,15 @@ export function PersonLifeEvents({ employeeId, workEmail = '', refreshKey, onSig
   }, [filingPending, events]);   // eslint-disable-line react-hooks/exhaustive-deps
   if (!shown.length) return null;
   // A cancel or void changes the person too (People re-reads - Oct 20 2026).
-  return <div>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} egnyteEmail={workEmail} onSignNow={onSignNow} onChanged={() => { load(); onChanged?.(); }} toastOk={toastOk} toastErr={toastErr} />)}</div>;
+  const cards = shown.map(ev => <LifeEventCard key={ev.id} ev={ev} egnyteEmail={workEmail} compact={signed} filing={signed}
+    onSignNow={onSignNow} onChanged={() => { load(); onChanged?.(); }} toastOk={toastOk} toastErr={toastErr} />);
+  if (!signed) return <div>{cards}</div>;
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>Signed Paperwork</div>
+      {cards}
+    </div>
+  );
 }
 
 // Right to work compliance (Neil, Oct 14): "they can't receive their first
@@ -1035,11 +1074,13 @@ export function paperworkState(events) {
   if (stuck) return { done: false, ev: offer, why: `the hiring packet has not started - ${stuck.message}` };
   return null;          // hired before offers and packets, or not hired through Nexus
 }
-export function PaperworkStatus({ employeeId, refreshKey }) {
+// `pendingOnly` (the profile header): gone once signed - Compliance keeps the
+// done line (Neil, Oct 22 19:20: the Overview "has gotten so messy").
+export function PaperworkStatus({ employeeId, refreshKey, pendingOnly = false }) {
   const [events, setEvents] = useState(null);
   useEffect(() => { api.getLifeEvents({ employeeId }).then(setEvents).catch(() => setEvents([])); }, [employeeId, refreshKey]);
   const st = paperworkState(events);
-  if (!st) return null;
+  if (!st || (pendingOnly && st.done)) return null;
   const tone = st.done ? 'green' : ['declined', 'expired'].includes(st.ev?.status) ? 'red' : 'orange';
   return (
     <div role="status" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', borderRadius: 12, padding: '10px 14px', margin: '10px 0',

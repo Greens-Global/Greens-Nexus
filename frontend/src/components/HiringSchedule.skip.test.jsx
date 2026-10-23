@@ -29,6 +29,7 @@ describe('Skip Interview', () => {
     expect(skip.parentElement.firstElementChild).toBe(skip);
     fireEvent.click(skip);
     expect(promptMock.mock.calls[0][0]).toMatch(/Skip the interview and move Jane Doe to Decision\?/);
+    expect(promptMock.mock.calls[0][1].multiline).toBe(true);        // the note fills the popup (nx-fill), not one floating line
     await waitFor(() => expect(onScheduled).toHaveBeenCalled());
     expect(updateCandidate).toHaveBeenCalledWith('c1', { stage: 'decision', skip_interview: true, stage_note: 'It already happened' });
   });

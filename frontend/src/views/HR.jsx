@@ -1887,7 +1887,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           nothing was deleted. Their Microsoft 365 account was never changed.
         </div>
       )}
-      {!teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} />}
+      {!teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} pendingOnly />}
       {!teamView && <PersonLifeEvents employeeId={e.id} workEmail={e.workEmail} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
       {roleAction === 'choose' && <RoleChangeModal employee={e} toastErr={toastErr}
         onClose={() => setRoleAction(null)} onPromote={() => setRoleAction('promotion')}
@@ -2073,6 +2073,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'documents' && (
           <>
+            {/* Signed offer / packet / letters, one line each with their filing (off the header - Neil, Oct 22). */}
+            {!teamView && <PersonLifeEvents signed employeeId={e.id} workEmail={e.workEmail} refreshKey={eventsKey} onSignNow={setSignParty} onChanged={onReload} toastOk={toastOk} toastErr={toastErr} />}
             <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
             {/* The person's wired Egnyte folder (Neil, Aug 6): hiring package,
                 invoices, payment proofs live in Egnyte, not as Nexus uploads.
