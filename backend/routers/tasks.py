@@ -3634,7 +3634,7 @@ class BulkUpdate(BaseModel):
     dates: Optional[BulkDates] = None
     # Add Label / Remove Label (Oct 22 2026): MERGED into each task's own
     # labels under the row lock (task_labels.merge_tags, by key - "urgent"
-    # is "Urgent"), where patch["tags"] replaces them. Not with patch["tags"].
+    # is "Urgent"), where patch["tags"] replaces them. Sent on their own.
     tags_add: Optional[list[str]] = None
     tags_remove: Optional[list[str]] = None
 
@@ -3742,14 +3742,15 @@ _BULK_ALLOWED = {"status", "priority", "assignee_email", "assignee_emails", "tea
 
 def _bulk_label_change(body: "BulkUpdate", patch: dict) -> tuple[list, list]:
     """The batch bar's Add Label / Remove Label, cleaned: names trimmed,
-    blanks dropped, each label once. Refused alongside patch["tags"], which
-    replaces the labels outright - the two cannot both say what a task ends
-    up with."""
+    blanks dropped, each label once. Refused alongside any patch field
+    (patch["tags"] replaces the labels outright; anything else is a second
+    edit) - the same rule the Dates action keeps."""
     if body.tags_add is None and body.tags_remove is None:
         return [], []
     import task_labels
-    if "tags" in patch:
-        raise HTTPException(422, "Set the labels, or add and remove them - not both at once.")
+    if patch:
+        # One kind of change per batch, the rule the Dates action keeps.
+        raise HTTPException(422, "Add or remove labels on their own, not together with other fields.")
 
     def _clean(names) -> list:
         out, seen = [], set()

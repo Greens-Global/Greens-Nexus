@@ -52,7 +52,9 @@ export default function LabelsManageTab() {
     return k ? rows.filter((r) => r.key.includes(k)) : rows;
   }, [rows, q]);
   const map = data?.labels || {};
-  const cid = company || data?.companyId || '';
+  // Always the company the list on screen belongs to - the picker and
+  // every change follow the data, never a pick still loading.
+  const cid = data?.companyId || '';
 
   // Every change answers with the fresh list; the shared colors everyone
   // else on this page reads are refreshed too.
@@ -89,7 +91,7 @@ export default function LabelsManageTab() {
         {(data?.companies || []).length > 1 && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: NX.dim }}>
             Company
-            <select value={cid} onChange={(e) => { setData(null); setNote(''); setCompany(e.target.value); }}
+            <select value={cid} aria-label="Company" onChange={(e) => { setData(null); setNote(''); setCompany(e.target.value); }}
               style={{ ...inputStyle, width: 'auto', padding: '6px 9px', cursor: 'pointer' }}>
               {data.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -121,12 +123,12 @@ export default function LabelsManageTab() {
       )}
 
       {renaming && (
-        <RenameModal row={renaming.row} merge={renaming.merge} rows={rows} busy={busy}
+        <RenameModal row={renaming.row} merge={renaming.merge} rows={rows} busy={busy} company={cid}
           onClose={() => setRenaming(null)}
           onSave={(to) => run(() => api.renameTaskLabel(renaming.row.name, to, cid),
             (r) => (r.merged
-              ? `Merged "${renaming.row.name}" into "${r.name}" on ${plural(r.changed, 'task')}.`
-              : `Renamed to "${r.name}" on ${plural(r.changed, 'task')}.`))
+              ? `Merged "${renaming.row.name}" into "${r.name}" on ${plural(r.changed, 'task')}.${alsoText(r.also, 'rename')}`
+              : `Renamed to "${r.name}" on ${plural(r.changed, 'task')}.${alsoText(r.also, 'rename')}`))
             .then(() => setRenaming(null)).catch(() => {})} />
       )}
       {deleting && (
@@ -134,7 +136,7 @@ export default function LabelsManageTab() {
           <>
             <button type="button" style={btn('ghost')} onClick={() => setDeleting(null)}>Cancel</button>
             <button type="button" disabled={busy} style={{ ...btn('primary'), background: NX.red, borderColor: NX.red }}
-              onClick={() => run(() => api.deleteTaskLabel(deleting.name, cid), (r) => `Removed "${deleting.name}" from ${plural(r.changed, 'task')}.`)
+              onClick={() => run(() => api.deleteTaskLabel(deleting.name, cid), (r) => `Removed "${deleting.name}" from ${plural(r.changed, 'task')}.${alsoText(r.also, 'delete')}`)
                 .then(() => setDeleting(null)).catch(() => {})}>
               {busy ? 'Deleting…' : 'Delete Label'}
             </button>
@@ -145,6 +147,7 @@ export default function LabelsManageTab() {
             <p style={{ margin: 0 }}>
               This removes the label from {plural(deleting.count, 'task')} in this company, including tasks you may not see in your lists and tasks in the Recycle Bin, and forgets its color.
             </p>
+            <ImpactNote name={deleting.name} company={cid} mode="delete" />
             <p style={{ margin: 0, color: NX.dim }}>Each task's history records the change. This cannot be undone from here.</p>
           </div>
         </Modal>
@@ -206,7 +209,61 @@ function TonePicker({ current, defaultTone, onPick }) {
   );
 }
 
-function RenameModal({ row, merge, rows, busy, onClose, onSave }) {
+/** What else a rename / delete changes, in one line for the result note. */
+function alsoText(also, mode) {
+  if (!also) return '';
+  const parts = [];
+  if (also.automationRules) parts.push(mode === 'delete' ? plural(also.automationRules, 'automation rule') + ' no longer add it' : plural(also.automationRules, 'automation rule'));
+  if (also.projects) parts.push(`row colors in ${plural(also.projects, 'project')}`);
+  if (also.personalRules) parts.push(plural(also.personalRules, "person's own row colors", "people's own row colors"));
+  if (also.savedViews) parts.push(plural(also.savedViews, 'saved view'));
+  return parts.length ? ` Also updated: ${parts.join(', ')}.` : '';
+}
+
+/** Manage's confirmation of everything a rename / delete reaches beyond the
+ *  tasks: automation rules, row colors, saved views - and what it does NOT
+ *  change (rules shared by every company, templates), with the counts. */
+function ImpactNote({ name, company, mode }) {
+  const [impact, setImpact] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    Promise.resolve().then(() => api.getTaskLabelImpact(name, company))
+      .then((r) => { if (alive) setImpact(r || {}); })
+      .catch(() => { if (alive) setImpact({ failed: true }); });
+    return () => { alive = false; };
+  }, [name, company]);
+  if (!impact) return <div style={{ fontSize: 12.5, color: NX.faint }}>Checking what else names this label…</div>;
+  if (impact.failed) return null;
+  const lines = [];
+  if (mode === 'delete') {
+    const d = impact.deleteRules || {};
+    if (d.automationRules) {
+      lines.push(`${plural(d.automationRules, 'automation rule')} that ${d.automationRules === 1 ? 'adds' : 'add'} this label will stop adding it`
+        + (d.rulesDisabled ? `; ${plural(d.rulesDisabled, 'rule')} with nothing else to do ${d.rulesDisabled === 1 ? 'is' : 'are'} switched off.` : '.'));
+    }
+    if (d.rulesStillNaming) lines.push(`${plural(d.rulesStillNaming, 'automation rule')} still ${d.rulesStillNaming === 1 ? 'tests' : 'test'} for it in ${d.rulesStillNaming === 1 ? 'its' : 'their'} conditions and ${d.rulesStillNaming === 1 ? 'is' : 'are'} left as ${d.rulesStillNaming === 1 ? 'it is' : 'they are'}.`);
+    if (impact.savedViews) lines.push(`${plural(impact.savedViews, 'saved view')} will drop it from the Labels filter.`);
+    if (impact.projects || impact.personalRules) lines.push('Row color rules that look for it are left as they are; they simply stop matching.');
+  } else {
+    const parts = [];
+    if (impact.automationRules) parts.push(plural(impact.automationRules, 'automation rule'));
+    if (impact.projects) parts.push(`row colors in ${plural(impact.projects, 'project')}`);
+    if (impact.personalRules) parts.push(plural(impact.personalRules, "person's own row colors", "people's own row colors"));
+    if (impact.savedViews) parts.push(plural(impact.savedViews, 'saved view'));
+    if (parts.length) lines.push(`Also updated to the new name: ${parts.join(', ')}.`);
+  }
+  if (impact.sharedRules) lines.push(`${plural(impact.sharedRules, 'automation rule')} shared by every company also ${impact.sharedRules === 1 ? 'names' : 'name'} it and ${impact.sharedRules === 1 ? 'is' : 'are'} not changed from here.`);
+  lines.push(impact.templates
+    ? `Task templates are not changed: ${plural(impact.templates, 'template')} still ${impact.templates === 1 ? 'uses' : 'use'} "${name}".`
+    : 'Task templates are not changed.');
+  return (
+    <div data-testid="label-impact" style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12.5, color: NX.dim, lineHeight: 1.5 }}>
+      {lines.map((l) => <span key={l}>{l}</span>)}
+    </div>
+  );
+}
+
+function RenameModal({ row, merge, rows, busy, company, onClose, onSave }) {
   const [to, setTo] = useState(merge ? '' : row.name);
   const key = labelKey(to);
   const target = key && key !== row.key ? rows.find((r) => r.key === key) : null;
@@ -260,6 +317,7 @@ function RenameModal({ row, merge, rows, busy, onClose, onSave }) {
           ) : merge ? (
             <span>Pick the label to merge into.</span>
           ) : null}
+          {(target || (!unchanged && !merge)) && <ImpactNote name={row.name} company={company} mode="rename" />}
         </div>
       </div>
     </Modal>

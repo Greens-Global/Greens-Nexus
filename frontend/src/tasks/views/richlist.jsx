@@ -20,7 +20,7 @@ import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, field
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey, isMissed, MISSED_TITLE } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
-import { LabelPill, LabelStrip, useLabelColors } from '../labels';
+import { LabelPill, LabelStrip, labelKey, mergeLabels, useLabelColors } from '../labels';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar, localTodayISO, useIsMobile } from '../components';
 import { FormulaValue, FormulaFieldModal } from '../FormulaColumn';
 import { formulaEngineFor, fieldNameProblem } from '../formula';
@@ -1282,14 +1282,29 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
 
   // Drag a row onto another group to move it there (status/priority/project/…).
   const [dragId, setDragId] = useState(null);
+  const [dragFrom, setDragFrom] = useState(null);   // the group the dragged row was picked up in
   const [dropKey, setDropKey] = useState(null);
-  const dropPatch = (key) => {
+  const dropPatch = (key, g = null) => {
     // Creating inside an assignee group assigns to that one person.
     if (effGroup === 'assignee') return { assigneeIds: key === '-' ? [] : [key] };
     if (effGroup === 'section') return customSections ? { section: key } : null;
-    // A task listed under several labels has no one label to move FROM, so a
-    // drag between label groups only reorders (Oct 22 2026).
-    if (effGroup === 'label') return null;
+    // A label MOVE (Oct 22 2026), as between a board's label lanes: the
+    // label of the group the row was picked up in comes off, the label of
+    // the group it lands in goes on - any other labels stay. Into No Label
+    // takes just the one off; out of it, adds one. Within its own group a
+    // drag only reorders.
+    if (effGroup === 'label') {
+      const t = draggedTask(dragId);
+      if (!t || !dragFrom || key === dragFrom) return null;
+      // The label the row came from, as the task spells it; the one it lands
+      // in, as its group shows it ('-' is No Label: neither).
+      const fromKey = dragFrom.startsWith('label:') ? dragFrom.slice(6) : '';
+      const from = (t.tags || []).find((x) => fromKey && labelKey(x) === fromKey) || '';
+      const to = g?.labelName || '';
+      const next = mergeLabels(t.tags, to ? [to] : [], from ? [from] : []);
+      const same = next.map(labelKey).join('\n') === mergeLabels(t.tags).map(labelKey).join('\n');
+      return same ? null : { tags: next };
+    }
     const d = groupAddDefaults(effGroup, key);
     return Object.keys(d).length ? d : null;
   };
@@ -1303,25 +1318,27 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   // hovered target row + which half of it the cursor is over.
   const manualSort = (sort?.key || 'manual') === 'manual';
   const [dropRow, setDropRow] = useState(null);
-  const rowDragOver = (t) => (e) => {
+  // Keyed by group too: a task listed under two labels (or two assignees) is
+  // two rows, and only the one under the cursor shows the drop line.
+  const rowDragOver = (g, t) => (e) => {
     if (!dragId || dragId === t.id) return;
     e.preventDefault(); e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
     const rect = e.currentTarget.getBoundingClientRect();
     const edge = (e.clientY - rect.top) < rect.height / 2 ? 'above' : 'below';
-    setDropRow((r) => (r && r.taskId === t.id && r.edge === edge ? r : { taskId: t.id, edge }));
+    setDropRow((r) => (r && r.taskId === t.id && r.groupKey === g.key && r.edge === edge ? r : { taskId: t.id, groupKey: g.key, edge }));
   };
-  const rowDragLeave = (t) => (e) => {
+  const rowDragLeave = (g, t) => (e) => {
     if (e.currentTarget.contains(e.relatedTarget)) return;
     e.stopPropagation();
-    setDropRow((r) => (r?.taskId === t.id ? null : r));
+    setDropRow((r) => (r?.taskId === t.id && r.groupKey === g.key ? null : r));
   };
   const rowDrop = (g, t) => (e) => {
     if (!dragId || dragId === t.id) return;
     e.preventDefault(); e.stopPropagation();
     const list = g.tasks.filter((x) => x.id !== dragId);
     const idx = list.findIndex((x) => x.id === t.id);
-    const edge = dropRow?.taskId === t.id ? dropRow.edge : 'below';
+    const edge = dropRow?.taskId === t.id && dropRow.groupKey === g.key ? dropRow.edge : 'below';
     const before = edge === 'above' ? list[idx - 1] : list[idx];
     const after = edge === 'above' ? list[idx] : list[idx + 1];
     const beforePos = before ? (before.position ?? 0) : null;
@@ -1334,9 +1351,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     // Dropping into a DIFFERENT group also re-homes the task onto that group's
     // value (same rule the group-header drop already applies), so a manual
     // drag can move and reorder in one gesture.
-    const groupPatch = dropPatch(g.key);
+    const groupPatch = dropPatch(g.key, g);
     store.updateTask(dragId, withTaskFields(draggedTask(dragId), { ...(groupPatch || {}), position: newPos })).catch(() => {});
-    setDragId(null); setDropKey(null); setDropRow(null);
+    setDragId(null); setDragFrom(null); setDropKey(null); setDropRow(null);
   };
 
   // Widths/resize come from the shared column kit (tableCols.jsx) - the same
@@ -1675,17 +1692,17 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
               ))}
             </div>
           );
-          const isDropTarget = dragId && dropKey === g.key && dropPatch(g.key);
+          const isDropTarget = dragId && dropKey === g.key && dropPatch(g.key, g);
           return (
             <div key={g.key} style={{ marginTop: 22 }}
-              onDragOver={(e) => { if (dragId && dropPatch(g.key)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropKey !== g.key) setDropKey(g.key); } }}
+              onDragOver={(e) => { if (dragId && dropPatch(g.key, g)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropKey !== g.key) setDropKey(g.key); } }}
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropKey((k) => (k === g.key ? null : k)); }}
               onDrop={(e) => {
                 e.preventDefault();
-                const patch = dropPatch(g.key);
+                const patch = dropPatch(g.key, g);
                 if (dragId && patch?.section !== undefined) customSections.move([dragId], patch.section).catch(() => {});
                 else if (dragId && patch) store.updateTask(dragId, withTaskFields(draggedTask(dragId), patch)).catch(() => {});
-                setDragId(null); setDropKey(null);
+                setDragId(null); setDragFrom(null); setDropKey(null);
               }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
@@ -1710,11 +1727,11 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                   {g.tasks.slice(0, groupBudgets[gi] ?? g.tasks.length).map((t, ri) => (
                     <TaskRow key={t.id} t={t} band={ri % 2 === 1} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onPick={pickRow} onOpen={onOpen}
                       onMove={store.moveTask && !t.hrChecklist && canEditTask(t) ? setMoving : null}
-                      personWidth={personWidth} groupColor={gc} projectOptions={projectOptions} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); setDropRow(null); }}
-                      onRowDragOver={manualSort ? rowDragOver(t) : undefined}
+                      personWidth={personWidth} groupColor={gc} projectOptions={projectOptions} onDragStartRow={(id) => { setDragId(id); setDragFrom(g.key); }} onDragEndRow={() => { setDragId(null); setDragFrom(null); setDropKey(null); setDropRow(null); }}
+                      onRowDragOver={manualSort ? rowDragOver(g, t) : undefined}
                       onRowDrop={manualSort ? rowDrop(g, t) : undefined}
-                      onRowDragLeave={manualSort ? rowDragLeave(t) : undefined}
-                      dropEdge={manualSort && dropRow?.taskId === t.id ? dropRow.edge : null} formula={formula} />
+                      onRowDragLeave={manualSort ? rowDragLeave(g, t) : undefined}
+                      dropEdge={manualSort && dropRow?.taskId === t.id && dropRow.groupKey === g.key ? dropRow.edge : null} formula={formula} />
                   ))}
                   {showTotals && anyTotal && groups.length > 1 && totalsRow(g.tasks, false)}
                   <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={effGroup === 'section' && customSections?.personal ? {} : groupAddDefaults(effGroup, g.key, g)} onFullCreate={onFullCreate} />

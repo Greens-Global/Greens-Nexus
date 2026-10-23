@@ -27,6 +27,7 @@ import auth
 import cache
 import database
 import models
+import task_automation
 import task_labels as L
 from routers import task_config as C
 from routers import task_labels as R
@@ -55,7 +56,8 @@ GA_NONE = {"email": "ga2@greensglobal.com", "level": 4}  # Global Admin with no 
 
 _CLEAR = (models.Task, models.TaskProject, models.TaskActivity, models.TaskNotification,
           models.NexusNotification, models.NexusEmployee, models.NexusSetting, models.HrEntity,
-          models.TaskEmailQueue, models.TaskTeam, models.TaskSavedView)
+          models.TaskEmailQueue, models.TaskTeam, models.TaskSavedView, models.TaskAutomationRule,
+          models.TaskTablePref, models.TaskTemplate)
 
 
 class Base(unittest.TestCase):
@@ -84,6 +86,7 @@ class Base(unittest.TestCase):
         self.db.add(models.HrEntity(id=COB, name="Bravo"))
         self.db.commit()
         cache.settings_config.invalidate()
+        L._cache_drop()
 
     def tearDown(self):
         self.db.close()
@@ -121,7 +124,15 @@ class Base(unittest.TestCase):
         return R.get_labels(company=company, all_tasks=all_tasks, user=user, db=self.db)
 
     def in_use(self, user, **kw):
-        return {r["key"]: r for r in self.labels(user, **kw)["inUse"]}
+        """Manage's list (managers, `all`)."""
+        return {r["key"]: r for r in self.labels(user, all_tasks=True, **kw)["inUse"]}
+
+    def seen(self, user, **kw):
+        """The map keys a caller is handed on a plain read."""
+        return set(self.labels(user, **kw)["labels"])
+
+    def color(self, name, tone, user=AMGR, company=""):
+        R.set_color(R.ColorBody(name=name, color=tone, company=company), user=user, db=self.db)
 
 
 class HelperTests(Base):
@@ -176,21 +187,53 @@ class PermissionTests(Base):
         self.assertEqual(r.json()["labels"]["urgent"], {"name": "urgent", "color": "blue"})
         self.assertEqual(c.put("/task-labels/color", json={"name": "Urgent", "color": "#ff0000"}).status_code, 422)
         self.assertEqual(c.put("/task-labels/color", json={"name": "  ", "color": "blue"}).status_code, 422)
-        # Back to the default.
-        self.assertEqual(c.put("/task-labels/color", json={"name": "Urgent", "color": ""}).json()["labels"]["urgent"]["color"], "")
+        # Back to the default: an entry with no color is not kept (the map
+        # holds only what changes something).
+        self.assertNotIn("urgent", c.put("/task-labels/color", json={"name": "Urgent", "color": ""}).json()["labels"])
+        self.assertEqual(L.get_map(self.db, ""), {})
 
 
-class SuggestionTests(Base):
-    def test_restricted_task_labels_reach_only_those_who_can_open_it(self):
+class VisibilityTests(Base):
+    def test_a_plain_read_names_only_labels_on_tasks_the_caller_can_open(self):
         self.task(tags=["Shared"])
         self.task(tags=["Secret Deal"], access_level="restricted", owner_email=AEMP["email"],
                   created_by=AEMP["email"])
-        self.assertNotIn("secret deal", self.in_use(OUTSIDER))
-        self.assertIn("shared", self.in_use(OUTSIDER))
-        self.assertIn("secret deal", self.in_use(AEMP))
-        self.assertIn("secret deal", self.in_use(AMGR))   # a manager sees every task
-        # Manage's view is a manager's.
+        self.color("Shared", "blue")
+        self.color("Secret Deal", "red")
+        self.assertEqual(self.seen(OUTSIDER), {"shared"})
+        self.assertEqual(self.seen(AEMP), {"shared", "secret deal"})
+        self.assertEqual(self.seen(AMGR), {"shared", "secret deal"})   # a manager sees every task
+        # The labels in use are Manage's alone.
+        self.assertNotIn("inUse", self.labels(OUTSIDER))
         self.assertEqual(self.code(lambda: self.labels(OUTSIDER, all_tasks=True)), 401)
+
+    def test_a_rename_of_a_restricted_only_label_does_not_leak_its_name(self):
+        # The review's probe: a rename writes the new name into the map (to
+        # keep its color); it must still reach only those who can open it.
+        self.task(tags=["Secret Deal"], access_level="restricted", owner_email=AEMP["email"],
+                  created_by=AEMP["email"])
+        R.rename_label(R.RenameBody(name="Secret Deal", to="Project Falcon Acquisition"), user=AMGR, db=self.db)
+        self.assertIn("project falcon acquisition", L.get_map(self.db, ""))
+        got = self.labels(OUTSIDER)
+        self.assertEqual(got["labels"], {})
+        self.assertNotIn("Falcon", str(got))
+        self.assertEqual(self.seen(AEMP), {"project falcon acquisition"})
+
+    def test_a_project_member_sees_labels_on_a_restricted_projects_tasks(self):
+        proj = models.TaskProject(id=gen_id(), name="P", access_level="restricted", created_at=now_iso(),
+                                  member_emails=[OUTSIDER["email"]])
+        self.db.add(proj)
+        self.db.commit()
+        self.task(tags=["Plant"], access_level="restricted", project_id=proj.id, owner_email=AEMP["email"])
+        self.color("Plant", "green")
+        self.assertEqual(self.seen(OUTSIDER), {"plant"})
+        self.assertEqual(self.seen(BEMP), set())
+
+    def test_trashed_tasks_reveal_nothing(self):
+        self.task(tags=["Gone"], deleted_at=now_iso())
+        self.color("Gone", "pink")
+        self.assertEqual(self.seen(AMGR), set())
+        self.assertNotIn("gone", self.in_use(AMGR))
 
     def test_counts_and_the_common_spelling(self):
         self.task(tags=["Urgent"])
@@ -201,31 +244,46 @@ class SuggestionTests(Base):
         self.assertEqual(got["urgent"]["name"], "Urgent")
         self.assertEqual(got["client"]["count"], 1)
 
-    def test_trashed_tasks_are_not_suggested(self):
-        self.task(tags=["Gone"], deleted_at=now_iso())
-        self.assertNotIn("gone", self.in_use(AMGR))
-
     def test_walls_keep_each_company_to_its_own_labels(self):
         self.task(COA, tags=["Alpha Only"])
         self.task(COB, tags=["Bravo Only"])
         self.arm()
         self.assertEqual(set(self.in_use(AMGR)), {"alpha only"})
-        self.assertEqual(set(self.in_use(BEMP)), {"bravo only"})
+        self.assertEqual(set(self.in_use(BMGR)), {"bravo only"})
         self.assertEqual(self.code(lambda: self.labels(AMGR, company=COB)), 404)
         # A Global Admin can look at either.
         self.assertEqual(set(self.in_use(GA, company=COB)), {"bravo only"})
         self.assertEqual({c["id"] for c in self.labels(GA)["companies"]}, {COA, COB})
         self.assertEqual({c["id"] for c in self.labels(AMGR)["companies"]}, {COA})
 
+    def test_a_global_admin_with_no_company_lands_on_the_first_one(self):
+        self.task(COA, tags=["Alpha"])
+        self.arm()
+        got = self.labels(GA_NONE, all_tasks=True)
+        self.assertEqual(got["companyId"], got["companies"][0]["id"])
+        self.assertEqual(got["companyId"], COA)            # "Alpha" sorts first
+        self.assertEqual([r["key"] for r in got["inUse"]], ["alpha"])
+
+    def test_the_memo_is_dropped_by_a_change(self):
+        self.task(tags=["Urgent"])
+        self.color("Urgent", "blue")
+        self.assertEqual(self.seen(OUTSIDER), {"urgent"})
+        R.delete_label(R.DeleteBody(name="Urgent"), user=AMGR, db=self.db)
+        self.color("Urgent", "blue")
+        self.assertEqual(self.seen(OUTSIDER), set())
+
 
 class MapTests(Base):
     def test_walls_off_one_shared_map(self):
+        self.task(COB, tags=["Urgent"])
         R.set_color(R.ColorBody(name="Urgent", color="amber"), user=AMGR, db=self.db)
         self.assertEqual(self.labels(BEMP)["labels"]["urgent"]["color"], "amber")
         self.assertEqual(self.labels(BEMP)["companyId"], "")
         self.assertEqual(self.labels(BEMP)["companies"], [])
 
     def test_walls_on_each_company_has_its_own_map(self):
+        self.task(COA, tags=["Urgent"])
+        self.task(COB, tags=["Urgent"])
         self.arm()
         R.set_color(R.ColorBody(name="Urgent", color="amber"), user=AMGR, db=self.db)
         R.set_color(R.ColorBody(name="Urgent", color="teal"), user=BMGR, db=self.db)
@@ -236,11 +294,9 @@ class MapTests(Base):
         self.assertEqual(self.code(lambda: R.set_color(R.ColorBody(name="Urgent", color="red", company=COB),
                                                        user=AMGR, db=self.db)), 404)
         self.assertEqual(self.labels(BEMP)["labels"]["urgent"]["color"], "teal")
-        # A Global Admin may change any company's; one with no company must name one.
+        # A Global Admin may change any company's.
         R.set_color(R.ColorBody(name="Urgent", color="red", company=COB), user=GA, db=self.db)
         self.assertEqual(self.labels(BEMP)["labels"]["urgent"]["color"], "red")
-        self.assertEqual(self.code(lambda: R.set_color(R.ColorBody(name="Urgent", color="red"),
-                                                       user=GA_NONE, db=self.db)), 422)
 
 
 class RewriteTests(Base):
@@ -305,7 +361,7 @@ class RewriteTests(Base):
         r = R.rename_label(R.RenameBody(name="urgent", to="Urgent"), user=AMGR, db=self.db)
         self.assertFalse(r["merged"])
         self.assertEqual((self.tags(a), self.tags(b)), (["Urgent"], ["Urgent", "x"]))
-        self.assertEqual(L.get_map(self.db, "")["urgent"], {"name": "Urgent", "color": ""})
+        self.assertNotIn("urgent", L.get_map(self.db, ""))   # nothing to keep: no color
 
     def test_delete_takes_the_label_off_everything_and_forgets_its_color(self):
         a = self.task(tags=["Urgent", "Client"])
@@ -329,11 +385,19 @@ class RewriteTests(Base):
         self.assertEqual(self.code(lambda: R.delete_label(R.DeleteBody(name="Urgent", company=COB),
                                                           user=AMGR, db=self.db)), 404)
         self.assertEqual(self.tags(b), ["Urgent"])
-        # The Global Admin with no company of their own must pick one.
-        self.assertEqual(self.code(lambda: R.delete_label(R.DeleteBody(name="Urgent"), user=GA_NONE,
-                                                          db=self.db)), 422)
+        # A Global Admin with no company of their own acts on the first one
+        # listed (Alpha) unless they pick another.
+        R.delete_label(R.DeleteBody(name="Urgent"), user=GA_NONE, db=self.db)
+        self.assertEqual(self.tags(b), ["Urgent"])
         R.delete_label(R.DeleteBody(name="Urgent", company=COB), user=GA_NONE, db=self.db)
         self.assertEqual(self.tags(b), [])
+
+    def test_with_no_company_at_all_nothing_can_be_changed(self):
+        self.db.query(models.HrEntity).delete()
+        self.db.commit()
+        self.arm()
+        self.assertEqual(self.code(lambda: R.delete_label(R.DeleteBody(name="Urgent"), user=GA_NONE,
+                                                          db=self.db)), 422)
 
 
 class BulkTests(Base):
@@ -364,6 +428,8 @@ class BulkTests(Base):
     def test_refused_shapes(self):
         a = self.task(tags=["x"])
         self.assertEqual(self.code(lambda: self.bulk([a.id], patch={"tags": ["y"]}, tags_add=["z"])), 422)
+        # On their own, like the Dates action.
+        self.assertEqual(self.code(lambda: self.bulk([a.id], patch={"priority": "high"}, tags_add=["z"])), 422)
         self.assertEqual(self.code(lambda: self.bulk([a.id], tags_add=["  "], tags_remove=[])), 422)
         self.assertEqual(self.code(lambda: self.bulk([a.id], tags_add=["x" * 61])), 422)
         full = self.task(tags=[f"l{i}" for i in range(30)])
@@ -396,6 +462,141 @@ class ViewTests(Base):
 
     def test_a_project_default_view_keeps_the_label_grouping(self):
         self.assertEqual(P.clean_default_view({"view": "list", "group": "label"}), {"view": "list", "group": "label"})
+
+
+def _color_rule(value, field="tags"):
+    return {"id": gen_id(), "name": "Hot", "color": "#dc2626", "bold": False, "enabled": True, "match": "all",
+            "conditions": [{"field": field, "op": "contains", "value": value}]}
+
+
+class CarryThroughTests(Base):
+    """Rename and delete reach what NAMES a label, in the same transaction."""
+
+    def rule(self, company="", conditions=(), actions=()):
+        r = models.TaskAutomationRule(id=gen_id(), name="R", trigger={"type": "created"}, enabled=True,
+                                      conditions=list(conditions), actions=list(actions), company_id=company)
+        self.db.add(r)
+        self.db.commit()
+        return r
+
+    def get(self, model, rid):
+        self.db.expire_all()
+        return self.db.get(model, rid)
+
+    def test_rename_renames_rule_conditions_and_add_tag_actions(self):
+        self.task(tags=["Urgent"])
+        r = self.rule(conditions=[{"field": "tag", "op": "is", "value": " URGENT "},
+                                  {"field": "priority", "op": "is", "value": "urgent"}],
+                      actions=[{"type": "add_tag", "value": "urgent"}, {"type": "set_priority", "value": "high"}])
+        out = R.rename_label(R.RenameBody(name="Urgent", to="Critical"), user=AMGR, db=self.db)
+        self.assertEqual(out["also"]["automationRules"], 1)
+        r = self.get(models.TaskAutomationRule, r.id)
+        self.assertEqual(r.conditions, [{"field": "tag", "op": "is", "value": "Critical"},
+                                        {"field": "priority", "op": "is", "value": "urgent"}])
+        self.assertEqual(r.actions, [{"type": "add_tag", "value": "Critical"}, {"type": "set_priority", "value": "high"}])
+
+    def test_delete_drops_add_tag_actions_and_leaves_conditions(self):
+        self.task(tags=["Urgent"])
+        tests = self.rule(conditions=[{"field": "tag", "op": "is", "value": "urgent"}],
+                          actions=[{"type": "set_priority", "value": "high"}])
+        adds = self.rule(actions=[{"type": "add_tag", "value": "Urgent"}, {"type": "set_priority", "value": "high"}])
+        only = self.rule(actions=[{"type": "add_tag", "value": "URGENT"}])
+        out = R.delete_label(R.DeleteBody(name="Urgent"), user=AMGR, db=self.db)
+        self.assertEqual(out["also"]["rulesStillNaming"], 1)
+        self.assertEqual(out["also"]["automationRules"], 2)
+        self.assertEqual(out["also"]["rulesDisabled"], 1)
+        self.assertEqual(self.get(models.TaskAutomationRule, tests.id).conditions[0]["value"], "urgent")
+        self.assertEqual(self.get(models.TaskAutomationRule, adds.id).actions, [{"type": "set_priority", "value": "high"}])
+        gone = self.get(models.TaskAutomationRule, only.id)
+        self.assertEqual((gone.actions, gone.enabled), ([], False))
+
+    def test_behind_the_walls_only_the_companys_rules_change(self):
+        self.task(COA, tags=["Urgent"])
+        mine = self.rule(COA, actions=[{"type": "add_tag", "value": "Urgent"}])
+        theirs = self.rule(COB, actions=[{"type": "add_tag", "value": "Urgent"}])
+        shared = self.rule("", actions=[{"type": "add_tag", "value": "Urgent"}])
+        self.arm()
+        out = R.rename_label(R.RenameBody(name="Urgent", to="Hot"), user=AMGR, db=self.db)
+        self.assertEqual((out["also"]["automationRules"], out["also"]["sharedRules"]), (1, 1))
+        self.assertEqual(self.get(models.TaskAutomationRule, mine.id).actions[0]["value"], "Hot")
+        self.assertEqual(self.get(models.TaskAutomationRule, theirs.id).actions[0]["value"], "Urgent")
+        self.assertEqual(self.get(models.TaskAutomationRule, shared.id).actions[0]["value"], "Urgent")
+
+    def test_project_row_colors_are_renamed_in_the_company(self):
+        self.task(COA, tags=["Urgent"])
+        pa = models.TaskProject(id=gen_id(), name="A", company_id=COA, created_at=now_iso(), modified_at="2026-01-01",
+                                color_rules=[_color_rule("urgent"), _color_rule("other")])
+        pb = models.TaskProject(id=gen_id(), name="B", company_id=COB, created_at=now_iso(), modified_at="2026-01-01",
+                                color_rules=[_color_rule("Urgent")])
+        self.db.add_all([pa, pb])
+        self.db.commit()
+        self.arm()
+        out = R.rename_label(R.RenameBody(name="Urgent", to="Critical"), user=AMGR, db=self.db)
+        self.assertEqual(out["also"]["projects"], 1)
+        pa, pb = self.get(models.TaskProject, pa.id), self.get(models.TaskProject, pb.id)
+        self.assertEqual([r["conditions"][0]["value"] for r in pa.color_rules], ["Critical", "other"])
+        self.assertGreater(pa.modified_at, "2026-01-01")
+        self.assertEqual(pb.color_rules[0]["conditions"][0]["value"], "Urgent")
+
+    def test_my_tasks_row_colors_and_saved_views_follow_for_people_in_the_company(self):
+        self.task(COA, tags=["Urgent"])
+        mine = {"rowColors": {"data": {"mine": [_color_rule("urgent")], "hidden": False}}, "richlist": {"order": ["task"]}}
+        a = models.TaskTablePref(id=gen_id(), owner_email=AEMP["email"], prefs=mine)
+        b = models.TaskTablePref(id=gen_id(), owner_email=BEMP["email"], prefs=json_copy(mine))
+        va = models.TaskSavedView(id=gen_id(), owner_email=AEMP["email"], name="V", view="list",
+                                  filters={"tags": ["urgent", "client"], "statuses": []}, scope="task")
+        vb = models.TaskSavedView(id=gen_id(), owner_email=BEMP["email"], name="V", view="list",
+                                  filters={"tags": ["Urgent"]}, scope="task")
+        self.db.add_all([a, b, va, vb])
+        self.db.commit()
+        self.arm()
+        out = R.rename_label(R.RenameBody(name="Urgent", to="Critical"), user=AMGR, db=self.db)
+        self.assertEqual((out["also"]["personalRules"], out["also"]["savedViews"]), (1, 1))
+        a, b = self.get(models.TaskTablePref, a.id), self.get(models.TaskTablePref, b.id)
+        self.assertEqual(a.prefs["rowColors"]["data"]["mine"][0]["conditions"][0]["value"], "Critical")
+        self.assertEqual(a.prefs["richlist"], {"order": ["task"]})   # the rest of the document is kept
+        self.assertEqual(b.prefs["rowColors"]["data"]["mine"][0]["conditions"][0]["value"], "urgent")
+        self.assertEqual(self.get(models.TaskSavedView, va.id).filters, {"tags": ["critical", "client"], "statuses": []})
+        self.assertEqual(self.get(models.TaskSavedView, vb.id).filters, {"tags": ["Urgent"]})
+        # A delete takes the label out of the filter.
+        R.delete_label(R.DeleteBody(name="Critical"), user=AMGR, db=self.db)
+        self.assertEqual(self.get(models.TaskSavedView, va.id).filters["tags"], ["client"])
+
+    def test_templates_are_counted_not_changed_and_impact_says_so(self):
+        self.task(tags=["Urgent"], deleted_at=now_iso())
+        self.task(tags=["urgent"])
+        tpl = models.TaskTemplate(id=gen_id(), name="T", patch={"tags": ["Urgent"]}, created_at=now_iso())
+        self.db.add(tpl)
+        self.rule(conditions=[{"field": "tag", "op": "is", "value": "urgent"}],
+                  actions=[{"type": "add_tag", "value": "Urgent"}])
+        self.db.commit()
+        got = R.label_impact(name="URGENT", company="", user=AMGR, db=self.db)
+        self.assertEqual((got["tasks"], got["templates"], got["automationRules"]), (2, 1, 1))
+        self.assertEqual(got["deleteRules"], {"automationRules": 1, "rulesDisabled": 1, "rulesStillNaming": 1})
+        R.rename_label(R.RenameBody(name="Urgent", to="Hot"), user=AMGR, db=self.db)
+        self.assertEqual(self.get(models.TaskTemplate, tpl.id).patch, {"tags": ["Urgent"]})
+        # A dry run changed nothing before the rename did.
+        self.assertEqual(self.db.query(models.TaskAutomationRule).one().actions[0]["value"], "Hot")
+
+
+class AutomationKeyTests(Base):
+    def test_a_tag_condition_matches_spacing_and_case_variants(self):
+        t = self.task(tags=["Q4   Close"])
+        snap = task_automation.snapshot(t)
+        self.assertTrue(task_automation.conditions_ok([{"field": "tag", "op": "is", "value": " q4 close"}], snap))
+        self.assertFalse(task_automation.conditions_ok([{"field": "tag", "op": "is_not", "value": "Q4 CLOSE"}], snap))
+
+    def test_add_tag_does_not_add_a_spacing_variant_twice(self):
+        t = self.task(tags=["Q4 Close"])
+        res = task_automation.Result()
+        line = task_automation._apply_action(self.db, t, {"type": "add_tag", "value": "q4   close"}, res,
+                                             today=None, gate=None, prev_status="", prev_completed=False)
+        self.assertEqual((line, t.tags), ("", ["Q4 Close"]))
+
+
+def json_copy(v):
+    import json
+    return json.loads(json.dumps(v))
 
 
 if __name__ == "__main__":

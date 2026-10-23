@@ -26,6 +26,19 @@ name already in use) and delete. Rename / merge / delete rewrite the tags on
 EVERY task in the company - restricted tasks and the Trash included, since
 it is an admin action - locked in id order, one quiet field-history row per
 task changed, no emails, no automation run, one realtime ping at the end.
+In the same transaction they carry through to what NAMES a label: the
+company's automation rules (tag conditions, Add Tag actions), its projects'
+row color rules, people's own row color rules (My Tasks) and saved views'
+Labels filter. Task templates are left as they are (counted, not changed).
+
+WHO SEES WHAT. The map's entries reach a caller only for labels on tasks
+they can open (visible_keys): a label that lives only on restricted tasks
+never shows its name through the map. The full list of labels in use, with
+counts, is Manage's (managers, `all`).
+
+LOCK ORDER for a rename / delete: the map row, then the tasks (id order,
+the Trash included), then the automation rules, the projects, the people's
+preferences and the saved views - each in id order.
 """
 from __future__ import annotations
 
@@ -33,6 +46,7 @@ import json
 from typing import Iterable
 
 from fastapi import HTTPException
+from sqlalchemy import String, cast, or_
 from sqlalchemy.orm import Session, load_only
 
 import models
@@ -109,6 +123,10 @@ def settings_key(company: str = "") -> str:
 
 
 def _clean_map(raw) -> dict:
+    """Only entries that say something: a color. An entry with no color
+    would only repeat the spelling the tasks already carry (a rename
+    rewrites them), so it is dropped - the map never creeps toward MAX_MAP
+    with entries that change nothing."""
     out = {}
     if not isinstance(raw, dict):
         return out
@@ -117,7 +135,9 @@ def _clean_map(raw) -> dict:
         if not key or not isinstance(v, dict):
             continue
         color = str(v.get("color") or "")
-        out[key] = {"name": clean_name(v.get("name")) or key, "color": color if color in TONES else ""}
+        if color not in TONES:
+            continue
+        out[key] = {"name": clean_name(v.get("name")) or key, "color": color}
     return out
 
 
@@ -131,38 +151,41 @@ def get_map(db: Session, company: str = "") -> dict:
         return {}
 
 
-def _lock_map_row(db: Session, company: str):
-    """The map's row, locked for this transaction (no-op on SQLite), created
-    when missing - two admins recoloring at once queue up rather than one
-    write dropping the other's change."""
+def lock_map(db: Session, company: str) -> tuple:
+    """(row, map) - the company map's row locked for this transaction (no-op
+    on SQLite), created when missing, and the map as it stands under the
+    lock. Every change computes from this value, so two admins at once queue
+    up rather than one dropping the other's change."""
     key = settings_key(company)
     row = (db.query(models.NexusSetting).filter(models.NexusSetting.key == key)
            .with_for_update().first())
     if row is None:
         row = models.NexusSetting(key=key, value="{}")
         db.add(row)
-    return row
-
-
-def write_map(db: Session, company: str, change: dict, actor: str) -> dict:
-    """Apply {key: entry or None} to the company's map (None drops the key)
-    under the row lock and return the new map. Not committed."""
-    row = _lock_map_row(db, company)
     try:
         current = _clean_map(json.loads(row.value or "{}"))
     except (TypeError, ValueError):
         current = {}
+    return row, current
+
+
+def apply_map(row, current: dict, change: dict, actor: str) -> dict:
+    """Apply {key: entry or None} (None drops the key) to the locked map and
+    store it. Not committed."""
+    out = dict(current)
     for key, entry in change.items():
         if entry is None:
-            current.pop(key, None)
+            out.pop(key, None)
         else:
-            current[key] = entry
-    if len(current) > MAX_MAP:
+            out[key] = entry
+    out = _clean_map(out)
+    if len(out) > MAX_MAP:
         raise HTTPException(422, f"A company can keep at most {MAX_MAP} label colors.")
-    row.value = json.dumps(current, sort_keys=True)
+    row.value = json.dumps(out, sort_keys=True)
     row.updated_by = actor or ""
     row.updated_at = now_iso()
-    return current
+    _cache_drop()
+    return out
 
 
 # ── Which company's labels ────────────────────────────────────────────────
@@ -193,9 +216,10 @@ def company_for(db: Session, user: dict, requested: str = "") -> str:
     '' with the walls off (the one shared map). Behind the walls: the
     requested company when it is inside the caller's scope (another one is
     a 404, as everywhere behind the wall), else their own company, else the
-    one company in their scope. A Global Admin may name any company; one
-    with no company of their own and none named gets '' (the shared map,
-    read-only for changes - see require_company)."""
+    first of the companies they may pick (company_choices) - so a Global
+    Admin with no company of their own lands on a real company, and the
+    picker never shows one company over another's data. '' only when there
+    is no company at all (then nothing can be changed - require_company)."""
     import auth
     if not _walls_on(db):
         return ""
@@ -208,9 +232,8 @@ def company_for(db: Session, user: dict, requested: str = "") -> str:
     home = auth.company_of(user, db)
     if home and (scope is None or home in scope):
         return home
-    if scope:
-        return sorted(scope)[0]
-    return ""
+    choices = company_choices(db, user)
+    return choices[0]["id"] if choices else ""
 
 
 def require_company(db: Session, company: str) -> None:
@@ -218,6 +241,16 @@ def require_company(db: Session, company: str) -> None:
     delete reach every task in it, and '' would mean every company's."""
     if _walls_on(db) and not company:
         raise HTTPException(422, "Pick the company whose labels to change.")
+
+
+def _owner_in(db: Session, company: str):
+    """Predicate on an email: is this person in `company`'s labels? Everyone
+    with the walls off; behind them, the people whose company it is."""
+    if not _walls_on(db):
+        return lambda email: True
+    from routers.task_util import _emp_company_map
+    emp = _emp_company_map(db)
+    return lambda email: emp.get((email or "").lower(), "") == company
 
 
 def in_company(db: Session, company: str):
@@ -236,34 +269,120 @@ _SCAN_COLS = ("id", "tags", "company_id", "owner_email", "created_by", "access_l
               "assignee_emails", "follower_emails", "project_id", "project_ids")
 
 
-def _scan(db: Session, include_deleted: bool = False):
+def _scan(db: Session, company: str = "", include_deleted: bool = False):
+    """The tasks that carry any label, narrow columns only. Untagged rows are
+    left out in SQL; behind the walls so are rows stamped for another
+    company (a blank stamp is derived from the owner, so it stays in)."""
     cols = [getattr(models.Task, c) for c in _SCAN_COLS]
-    q = db.query(models.Task).options(load_only(*cols))
+    q = (db.query(models.Task).options(load_only(*cols))
+         .filter(models.Task.tags.isnot(None), cast(models.Task.tags, String).notin_(["[]", "null", ""])))
+    if company and _walls_on(db):
+        q = q.filter(or_(models.Task.company_id == company, models.Task.company_id == "",
+                         models.Task.company_id.is_(None)))
     if include_deleted:
         q = q.execution_options(include_deleted=True)
     return q
 
 
-def visible_labels(db: Session, user: dict, company: str) -> list:
-    """[{key, name, count}] for the labels on live tasks the caller can SEE
-    (the GET /tasks rule: the company wall, then a non-manager's own
-    visibility) that sit in `company` - so a restricted task's labels never
-    reach someone who cannot open it. The most common spelling names a
-    label; ties go to the first seen."""
-    from routers.task_util import (is_manager, task_is_visible, visible_project_ids, wall_tasks)
-    rows = wall_tasks(db, user, [t for t in _scan(db).all() if t.tags])
-    if not is_manager(user):
-        vis = visible_project_ids(db, user)
-        rows = [t for t in rows if task_is_visible(t, user, vis)]
+# A short per-company memo of the tagged rows (Oct 22 2026 review): the map
+# filter reads them on every page load. Dropped on every label change; a
+# label added to a task shows its company color to others within the TTL.
+_CACHE_TTL = 45.0
+_cache: dict = {}
+
+
+def _cache_drop() -> None:
+    _cache.clear()
+
+
+def _tagged_rows(db: Session, company: str) -> list:
+    """[(id, label keys, visibility fields...)] for live tagged tasks in the
+    company - plain tuples, safe to keep between requests."""
+    import time
+    now = time.monotonic()
+    hit = _cache.get(company)
+    if hit and now - hit[0] < _CACHE_TTL:
+        return hit[1]
     inside = in_company(db, company)
-    return _tally(t for t in rows if inside(t))
+    rows = []
+    for t in _scan(db, company).all():
+        if not inside(t):
+            continue
+        keys = frozenset(k for k in (label_key(x) for x in (t.tags or [])) if k)
+        if keys:
+            rows.append(_Row(t, keys))
+    _cache[company] = (now, rows)
+    return rows
+
+
+class _Row:
+    """A detached copy of the columns visibility reads (task_is_visible,
+    task_company) - a cached row must not hold a session's object."""
+    __slots__ = _SCAN_COLS + ("keys",)
+
+    def __init__(self, t, keys):
+        for c in _SCAN_COLS:
+            v = getattr(t, c)
+            setattr(self, c, list(v) if isinstance(v, list) else v)
+        self.keys = keys
+
+
+def visible_keys(db: Session, user: dict, company: str, wanted) -> set:
+    """Which of the label keys `wanted` sit on at least one live task the
+    caller can SEE (the GET /tasks rule: the company wall, then a
+    non-manager's own visibility) in `company`. Cheap checks first; a
+    non-manager's visible projects are worked out only when a task's own
+    access does not settle it, and the scan stops once every key is found."""
+    wanted = {k for k in wanted or () if k}
+    if not wanted:
+        return set()
+    from routers.task_util import is_manager, task_is_visible, visible_project_ids, wall_tasks
+    rows = [r for r in _tagged_rows(db, company) if r.keys & wanted]
+    if not rows:
+        return set()
+    rows = wall_tasks(db, user, rows)
+    if is_manager(user):
+        return set().union(*(r.keys for r in rows)) & wanted
+    # Pass 1: what the task itself settles (org-wide, or the caller is on it).
+    found: set = set()
+    later = []
+    for r in rows:
+        new = (r.keys & wanted) - found
+        if not new:
+            continue
+        if task_is_visible(r, user, set()):
+            found |= new
+            if found == wanted:
+                return found
+        elif r.project_id or r.project_ids:
+            later.append(r)
+    # Pass 2, only for keys still unfound: sight through a project, which
+    # needs the caller's visible projects (a scan of its own) - once.
+    later = [r for r in later if (r.keys & wanted) - found]
+    if later:
+        projects = visible_project_ids(db, user)
+        for r in later:
+            new = (r.keys & wanted) - found
+            if new and task_is_visible(r, user, projects):
+                found |= new
+                if found == wanted:
+                    break
+    return found
+
+
+def visible_map(db: Session, user: dict, company: str) -> dict:
+    """The company map, cut down to the labels the caller can see on a task
+    - a label that lives only on restricted tasks never shows its name."""
+    full = get_map(db, company)
+    keep = visible_keys(db, user, company, set(full))
+    return {k: v for k, v in full.items() if k in keep}
 
 
 def company_labels(db: Session, company: str) -> list:
     """[{key, name, count}] over every live task in the company - Manage's
     list, which counts restricted tasks too (an admin view)."""
     inside = in_company(db, company)
-    return _tally(t for t in _scan(db).all() if t.tags and inside(t))
+    return _tally(t for t in _scan(db, company).all() if t.tags and inside(t))
 
 
 def _tally(rows) -> list:
@@ -284,6 +403,15 @@ def _tally(rows) -> list:
 
 
 # ── Rename / merge / delete ───────────────────────────────────────────────
+def _lock_ids(db: Session, model, ids) -> None:
+    """FOR UPDATE on these rows in id order, soft-deleted ones included (a
+    purge or a restore mid-rename waits rather than racing). No-op on SQLite."""
+    ids = sorted({i for i in ids if i})
+    for i in range(0, len(ids), _CHUNK):
+        (db.query(model.id).execution_options(include_deleted=True)
+         .filter(model.id.in_(ids[i:i + _CHUNK])).order_by(model.id).with_for_update().all())
+
+
 def rewrite(db: Session, company: str, old_key: str, new_name: str | None, actor: str) -> int:
     """Take the label `old_key` off every task in the company - restricted
     and trashed tasks included - and, with `new_name`, put that on in its
@@ -291,24 +419,23 @@ def rewrite(db: Session, company: str, old_key: str, new_name: str | None, actor
     one). Returns how many tasks changed. Not committed.
 
     The candidates are found with a narrow scan, then locked in id order
-    (tasks._lock_task_rows, the module's lock order) chunk by chunk and read
-    again under the lock, so a concurrent edit of one of them is either
-    before this or after it - never lost. Each changed task gets ONE quiet
-    field-history row (task_history.write quiet: on the task's own history,
-    not the Updates card or the briefing) and a new modified_at, so every
-    open list picks the change up on its next delta. No email, no bell, no
-    automation: an admin tidying the vocabulary is not news about the work."""
+    chunk by chunk (trashed rows too) and read again under the lock, so a
+    concurrent edit of one of them is either before this or after it -
+    never lost. Each changed task gets ONE quiet field-history row
+    (task_history.write quiet: on the task's own history, not the Updates
+    card or the briefing) and a new modified_at, so every open list picks the
+    change up on its next delta. No email, no bell, no automation: an admin
+    tidying the vocabulary is not news about the work."""
     import task_history
-    from routers.tasks import _lock_task_rows
     inside = in_company(db, company)
-    ids = sorted(t.id for t in _scan(db, include_deleted=True).all()
+    ids = sorted(t.id for t in _scan(db, company, include_deleted=True).all()
                  if t.tags and inside(t) and any(label_key(x) == old_key for x in t.tags))
     changed = 0
     now = now_iso()
     new_key = label_key(new_name) if new_name else ""
     for i in range(0, len(ids), _CHUNK):
         chunk = ids[i:i + _CHUNK]
-        _lock_task_rows(db, chunk)
+        _lock_ids(db, models.Task, chunk)
         rows = (db.query(models.Task).execution_options(include_deleted=True)
                 .filter(models.Task.id.in_(chunk)).order_by(models.Task.id).populate_existing().all())
         for t in rows:
@@ -333,4 +460,196 @@ def rewrite(db: Session, company: str, old_key: str, new_name: str | None, actor
             t.modified_at = now
             task_history.record(db, t, before, actor, only={"tags"}, quiet=True)
             changed += 1
+    _cache_drop()
     return changed
+
+
+def task_count(db: Session, company: str, key: str) -> int:
+    """How many tasks in the company carry the label - the Recycle Bin too."""
+    inside = in_company(db, company)
+    return sum(1 for t in _scan(db, company, include_deleted=True).all()
+               if inside(t) and any(label_key(x) == key for x in (t.tags or [])))
+
+
+# ── What names a label: rules, row colors, saved views ───────────────────
+def _names(value, old_key: str) -> bool:
+    return isinstance(value, str) and label_key(value) == old_key
+
+
+def _color_rules_naming(rules, old_key: str) -> bool:
+    return any(_names(c.get("value"), old_key)
+               for r in (rules if isinstance(rules, list) else []) if isinstance(r, dict)
+               for c in (r.get("conditions") or []) if isinstance(c, dict) and c.get("field") == "tags")
+
+
+def _rename_color_rules(rules, old_key: str, new_name: str) -> list:
+    out = []
+    for r in rules if isinstance(rules, list) else []:
+        if not isinstance(r, dict):
+            out.append(r)
+            continue
+        conds = []
+        for c in r.get("conditions") or []:
+            if isinstance(c, dict) and c.get("field") == "tags" and _names(c.get("value"), old_key):
+                c = {**c, "value": new_name}
+            conds.append(c)
+        out.append({**r, "conditions": conds})
+    return out
+
+
+def _rule_naming(rule, old_key: str) -> tuple:
+    """(conditions name it, Add Tag actions add it)."""
+    conds = any(isinstance(c, dict) and c.get("field") == "tag" and _names(c.get("value"), old_key)
+                for c in (rule.conditions or []))
+    acts = any(isinstance(a, dict) and a.get("type") == "add_tag" and _names(a.get("value"), old_key)
+               for a in (rule.actions or []))
+    return conds, acts
+
+
+def carry_through(db: Session, company: str, old_key: str, new_name: str | None, *, dry_run: bool = False) -> dict:
+    """Bring everything that NAMES the label along with a rename (`new_name`)
+    or a delete (None). `dry_run` only counts - Manage's confirmation.
+
+      automation rules   the company's (all with the walls off). Rename:
+                         tag conditions and Add Tag actions take the new
+                         name. Delete: Add Tag actions naming it are removed
+                         (else the label comes back on the next run); a rule
+                         left with no action is switched off; conditions are
+                         left alone and counted (`rulesStillNaming`). Behind
+                         the walls a rule shared by every company is never
+                         changed from one company - counted (`sharedRules`).
+      project row colors the company's projects: tag conditions renamed
+                         (delete leaves them; they simply match nothing).
+      My Tasks row colors each person's own rules (task_table_prefs
+                         rowColors.data.mine), people in the company.
+      saved views        Labels filter (filters.tags): renamed, or the label
+                         dropped from it on delete; owners in the company.
+      templates          NOT changed - counted (`templates`).
+    Each table is locked in id order before it is written. Not committed."""
+    from routers.task_util import config_admits, row_company
+    walls = _walls_on(db)
+    owner_in = _owner_in(db, company)
+    out = {"automationRules": 0, "rulesDisabled": 0, "rulesStillNaming": 0, "sharedRules": 0,
+           "projects": 0, "personalRules": 0, "savedViews": 0, "templates": 0}
+
+    # Automation rules.
+    rules = db.query(models.TaskAutomationRule).order_by(models.TaskAutomationRule.id).all()
+    mine, shared = [], 0
+    for r in rules:
+        conds, acts = _rule_naming(r, old_key)
+        if not (conds or acts):
+            continue
+        rc = (r.company_id or "").strip()
+        if walls and rc != company:
+            if not rc:
+                shared += 1
+            continue
+        mine.append(r.id)
+    out["sharedRules"] = shared
+    if mine and not dry_run:
+        _lock_ids(db, models.TaskAutomationRule, mine)
+        locked = (db.query(models.TaskAutomationRule).filter(models.TaskAutomationRule.id.in_(mine))
+                  .order_by(models.TaskAutomationRule.id).populate_existing().all())
+    else:
+        locked = [r for r in rules if r.id in set(mine)]
+    for r in locked:
+        conds, acts = _rule_naming(r, old_key)
+        if not (conds or acts):
+            continue
+        if new_name:
+            out["automationRules"] += 1
+            if dry_run:
+                continue
+            r.conditions = [({**c, "value": new_name} if isinstance(c, dict) and c.get("field") == "tag"
+                             and _names(c.get("value"), old_key) else c) for c in (r.conditions or [])]
+            r.actions = [({**a, "value": new_name} if isinstance(a, dict) and a.get("type") == "add_tag"
+                          and _names(a.get("value"), old_key) else a) for a in (r.actions or [])]
+            continue
+        if conds:
+            out["rulesStillNaming"] += 1
+        if acts:
+            out["automationRules"] += 1
+            kept = [a for a in (r.actions or []) if not (isinstance(a, dict) and a.get("type") == "add_tag"
+                                                         and _names(a.get("value"), old_key))]
+            if not kept:
+                out["rulesDisabled"] += 1
+            if not dry_run:
+                r.actions = kept
+                if not kept:
+                    r.enabled = False   # a rule must have an action to run (validate_rule)
+
+    # Project row color rules - renamed only; a delete leaves them be.
+    if new_name or dry_run:
+        projects = (db.query(models.TaskProject).execution_options(include_deleted=True)
+                    .filter(models.TaskProject.color_rules.isnot(None),
+                            cast(models.TaskProject.color_rules, String).notin_(["[]", "null", ""])).all())
+        ids = [p.id for p in projects if _color_rules_naming(p.color_rules, old_key)
+               and (not walls or row_company(db, p) == company)]
+        out["projects"] = len(ids)
+        if ids and new_name and not dry_run:
+            _lock_ids(db, models.TaskProject, ids)
+            now = now_iso()
+            for p in (db.query(models.TaskProject).execution_options(include_deleted=True)
+                      .filter(models.TaskProject.id.in_(ids)).order_by(models.TaskProject.id)
+                      .populate_existing().all()):
+                if _color_rules_naming(p.color_rules, old_key):
+                    p.color_rules = _rename_color_rules(p.color_rules, old_key, new_name)
+                    p.modified_at = now
+
+    # People's own My Tasks row colors - renamed only.
+    def _mine(prefs):
+        data = ((prefs or {}).get("rowColors") or {}).get("data") if isinstance(prefs, dict) else None
+        return data.get("mine") if isinstance(data, dict) else None
+
+    if new_name or dry_run:
+        prefs = [x for x in db.query(models.TaskTablePref).all()
+                 if owner_in(x.owner_email) and _color_rules_naming(_mine(x.prefs), old_key)]
+        out["personalRules"] = len(prefs)
+        if prefs and new_name and not dry_run:
+            _lock_ids(db, models.TaskTablePref, [x.id for x in prefs])
+            now = now_iso()
+            for x in (db.query(models.TaskTablePref).filter(models.TaskTablePref.id.in_([x.id for x in prefs]))
+                      .order_by(models.TaskTablePref.id).populate_existing().all()):
+                if not _color_rules_naming(_mine(x.prefs), old_key):
+                    continue
+                doc = json.loads(json.dumps(x.prefs))
+                doc["rowColors"]["data"]["mine"] = _rename_color_rules(doc["rowColors"]["data"]["mine"],
+                                                                      old_key, new_name)
+                x.prefs = doc
+                x.updated_at = now
+
+    # Saved views' Labels filter - renamed, or the label taken out.
+    def _view_names(v) -> bool:
+        tags = (v.filters or {}).get("tags") if isinstance(v.filters, dict) else None
+        return isinstance(tags, list) and any(_names(x, old_key) for x in tags)
+
+    views = [v for v in db.query(models.TaskSavedView).all() if owner_in(v.owner_email) and _view_names(v)]
+    out["savedViews"] = len(views)
+    if views and not dry_run:
+        _lock_ids(db, models.TaskSavedView, [v.id for v in views])
+        for v in (db.query(models.TaskSavedView).filter(models.TaskSavedView.id.in_([v.id for v in views]))
+                  .order_by(models.TaskSavedView.id).populate_existing().all()):
+            if not _view_names(v):
+                continue
+            tags, seen = [], set()
+            for x in v.filters.get("tags") or []:
+                k = label_key(x) if isinstance(x, str) else ""
+                if k == old_key:
+                    if not new_name:
+                        continue
+                    k = label_key(new_name)
+                if k and k not in seen:
+                    seen.add(k)
+                    tags.append(k)
+            v.filters = {**v.filters, "tags": tags}
+
+    # Templates: counted, never changed.
+    scope = {company} if walls else None
+
+    def _template_names(t) -> bool:
+        tags = t.patch.get("tags") if isinstance(t.patch, dict) else None
+        return isinstance(tags, list) and any(_names(x, old_key) for x in tags)
+
+    out["templates"] = sum(1 for t in db.query(models.TaskTemplate).all()
+                           if config_admits(getattr(t, "company_id", "") or "", scope) and _template_names(t))
+    return out

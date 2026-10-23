@@ -79,6 +79,13 @@ describe('built-in fields', () => {
     expect(m({ field: 'tags', op: 'is_not_empty' }, t)).toBe(true);
   });
 
+  it('tags: spacing variants are one label too (labels.js labelKey)', () => {
+    const t = task({ tags: ['Q4   Close'] });
+    expect(m({ field: 'tags', op: 'contains', value: ' q4 close ' }, t)).toBe(true);
+    expect(m({ field: 'tags', op: 'not_contains', value: 'Q4 CLOSE' }, t)).toBe(false);
+    expect(m({ field: 'tags', op: 'is_not_empty' }, task({ tags: ['  '] }))).toBe(false);
+  });
+
   it('section: the project section, or the person\'s own through sectionOf', () => {
     expect(m({ field: 'section', op: 'is', value: 'sec-1' }, task({ sectionId: 'sec-1' }))).toBe(true);
     expect(m({ field: 'section', op: 'is_not', value: 'sec-1' }, task())).toBe(true);

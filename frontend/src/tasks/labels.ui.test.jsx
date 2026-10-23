@@ -164,6 +164,43 @@ describe('the List grouped by label', () => {
     expect(store.createTask.mock.calls[1][0].tags).toBeUndefined();
   });
 
+  const dt = () => ({ effectAllowed: '', dropEffect: '', setData() {}, getData() { return ''; } });
+  const groupBlock = (name) => screen.getByRole('button', { name: new RegExp(`^(Select|Deselect) all in ${name}$`) })
+    .closest('[style*="margin-top: 22px"]');
+
+  it('dragging a row to another label group moves the label', () => {
+    const store = listStore(tasks);
+    render(<GroupedList tasks={tasks} store={store} />);
+    // Task b is only under Urgent; dropped on Client it trades Urgent for Client.
+    const row = screen.getByText('Task b').closest('[data-task-row]');
+    fireEvent.dragStart(row, { dataTransfer: dt() });
+    fireEvent.dragOver(groupBlock('Client'), { dataTransfer: dt() });
+    fireEvent.drop(groupBlock('Client'), { dataTransfer: dt() });
+    expect(store.updateTask).toHaveBeenLastCalledWith('b', { tags: ['Client'] });
+  });
+
+  it('a drag within its own label group only reorders, and No Label just takes the label off', () => {
+    const store = listStore(tasks);
+    render(<GroupedList tasks={tasks} store={store} />);
+    const row = screen.getByText('Task b').closest('[data-task-row]');
+    fireEvent.dragStart(row, { dataTransfer: dt() });
+    fireEvent.drop(groupBlock('Urgent'), { dataTransfer: dt() });
+    expect(store.updateTask).not.toHaveBeenCalled();
+    fireEvent.dragStart(row, { dataTransfer: dt() });
+    fireEvent.drop(groupBlock('No Label'), { dataTransfer: dt() });
+    expect(store.updateTask).toHaveBeenLastCalledWith('b', { tags: [] });
+  });
+
+  it('a task listed twice shows the drop line only on the copy under the cursor', () => {
+    render(<GroupedList tasks={tasks} store={listStore(tasks)} />);
+    fireEvent.dragStart(screen.getByText('Task b').closest('[data-task-row]'), { dataTransfer: dt() });
+    const copies = screen.getAllByText('Task a').map((el) => el.closest('[data-task-row]'));
+    expect(copies).toHaveLength(2);
+    fireEvent.dragOver(copies[1], { dataTransfer: dt(), clientY: 0 });
+    const lines = copies.map((el) => /inset/.test(el.style.boxShadow));
+    expect(lines).toEqual([false, true]);
+  });
+
   it('shows each row its labels', () => {
     render(<GroupedList tasks={[tasks[0]]} store={listStore([tasks[0]])} />);
     const strips = document.querySelectorAll('[data-labels]');
