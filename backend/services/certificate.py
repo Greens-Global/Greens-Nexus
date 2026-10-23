@@ -26,6 +26,7 @@ signer-level events are already in section 2, and a chain head plus an event
 count that a verifier can check is a stronger claim than printed rows.
 """
 from html import escape
+from company_time import TIME_STYLE, pacific_with_utc
 
 _SHEET_W = 816       # 8.5in at 96dpi
 _SHEET_H = 1056      # 11in at 96dpi
@@ -247,6 +248,10 @@ def build_snapshot(*, req, parties, events, consents, doc_digests, content_sha,
         # the deployment that actually signed it - which is why it is FROZEN
         # onto the snapshot here rather than recomputed at render time.
         "timestamp_policy": system.get("timestamp_policy") or _NO_TSA_POLICY,
+        # Times print on Pacific with the recorded UTC in brackets (Oct 23
+        # 2026, company_time.py). Frozen here, like the policies above: a
+        # certificate issued before it keeps re-rendering in plain UTC.
+        "time_style": TIME_STYLE,
     }
 
 
@@ -498,6 +503,16 @@ def _hex(value: str, group: int = 32) -> str:
 
 def render_html(snapshot: dict) -> str:
     """Pure. Same snapshot in, byte-identical HTML out."""
+    # Pacific with the UTC in brackets for certificates issued from Oct 23
+    # 2026; the plain UTC they always printed for everything before
+    # (snapshot["time_style"] - see company_time.py).
+    pacific = snapshot.get("time_style") == TIME_STYLE
+
+    def _stamp(value):
+        if not pacific:
+            return _dt(value)
+        return escape(pacific_with_utc(value, _us_date)) or "-"
+
     env = snapshot["envelope"]
     sysd = snapshot["system"]
     integ = snapshot["integrity"]
@@ -528,6 +543,8 @@ def render_html(snapshot: dict) -> str:
             f'<tr><th>{escape(k)}</th><td>{v}</td></tr>' for k, v in rows) + "</table>"
 
     def _otp_note(signer):
+        if pacific:
+            return escape(otp_note(signer, lambda v: pacific_with_utc(v, _us_date, seconds=False) or "-"))
         return escape(otp_note(signer, lambda v: _us_date(v) + " " + (v or "")[11:16] + " UTC"))
 
     def signer_table():
@@ -551,22 +568,22 @@ def render_html(snapshot: dict) -> str:
                 pages = (f"all {pt} pages viewed" if pt and pv >= pt
                          else f"{pv} of {pt} pages viewed" if pt else "")
                 extra = " - ".join(x for x in (c["format"], pages, c["standing_basis"]) if x)
-                cons = [f'v{escape(c["version"] or "-")} accepted {_dt(c["accepted_at"])}']
+                cons = [f'v{escape(c["version"] or "-")} accepted {_stamp(c["accepted_at"])}']
                 if c["digest"]:
                     cons.append(f'<span class="hex">{_hex(c["digest"][:32])}</span>')
                 if extra:
                     cons.append(f'<span class="m">{escape(extra)}</span>')
                 cons.append('<span class="m">'
-                            + (f'Withdrawn {_dt(c["withdrawn_at"])}' if c["withdrawn_at"]
+                            + (f'Withdrawn {_stamp(c["withdrawn_at"])}' if c["withdrawn_at"]
                                else "No withdrawal recorded") + "</span>")
                 consent_cell = "<br>".join(cons)
             else:
                 consent_cell = '<span class="m">No consent recorded</span>'
             if s["status"] == "declined":
-                exec_cell = (f'<b>Declined</b><br>{_dt(s["executed_at"])}'
+                exec_cell = (f'<b>Declined</b><br>{_stamp(s["executed_at"])}'
                              f'<br><span class="m">{escape(s["decline_reason"])}</span>')
             else:
-                exec_cell = (f'{_dt(s["executed_at"])}<br>{escape(s["ip"] or "IP not recorded")}'
+                exec_cell = (f'{_stamp(s["executed_at"])}<br>{escape(s["ip"] or "IP not recorded")}'
                              f'<br><span class="m">{escape(s["client"])}</span>')
             if not s.get("signs", True):
                 # Approvers and certified-delivery recipients never sign, and
@@ -679,10 +696,10 @@ def render_html(snapshot: dict) -> str:
     ])
     right_facts = facts([
         ("Routing", f'{escape(env["routing"])} - {len(signers)} signer(s)'),
-        ("Sent", _dt(env["sent_at"])),
-        ("Completed", _dt(env["completed_at"])),
+        ("Sent", _stamp(env["sent_at"])),
+        ("Completed", _stamp(env["completed_at"])),
         ("Eligibility", (f'Confirmed by {escape(env["eligibility_by"])}'
-                         f'<br><span class="m">{_dt(env["eligibility_at"])}</span>')
+                         f'<br><span class="m">{_stamp(env["eligibility_at"])}</span>')
                         if env["eligibility_at"] else "Not recorded"),
     ])
 
@@ -773,7 +790,7 @@ def render_html(snapshot: dict) -> str:
     be attributed to a person if it was the act of that person, which may be shown in any manner,
     including by the efficacy of the security procedure described here. This certificate is not
     legal advice and is not itself the agreement between the parties.
-    Generated {escape(snapshot["generated_at"][:19].replace("T", " "))} UTC.
+    Generated {escape(pacific_with_utc(snapshot["generated_at"], _us_date)) if pacific else escape(snapshot["generated_at"][:19].replace("T", " ")) + " UTC"}.
   </div>
 </div></body></html>"""
 

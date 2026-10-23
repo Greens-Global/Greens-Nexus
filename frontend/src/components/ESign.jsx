@@ -15,7 +15,7 @@ import TypedFieldInput from './TypedFieldInput';
 import EgnyteBrowser from './EgnyteBrowser';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import { useIsMobile } from '../lib/useIsMobile';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDate, formatDateTime, formatPacificDate, formatPacificDateTime } from '../lib/datetime';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import AccessCodeField from './AccessCodeField';
 import AnchoredMenu from './AnchoredMenu';
@@ -3650,7 +3650,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
                         onClick={() => { setEditPid(editPid === p.id ? null : p.id); setPf({ name: p.name, email: p.email, access_code: '' }); }}
                         style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px' }}><Pencil size={11} /> Edit</button>
                     )}
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${formatDate(p.signedAt.slice(0, 10))}` : cc && p.status !== 'signed' ? '-' : m.label}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${formatPacificDate(p.signedAt)}` : cc && p.status !== 'signed' ? '-' : m.label}</span>
                   </div>
                   {editPid === p.id && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '0 0 10px 32px', alignItems: 'center' }}>
@@ -3680,8 +3680,9 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
             <div style={{ margin: '18px 0 8px' }}><label style={FL}>Audit trail</label></div>
             {(req.events || []).map((e, i) => (
               <div key={i} style={{ display: 'flex', gap: 10, padding: '5px 0', fontSize: 12, borderBottom: '1px dashed var(--line)' }}>
-                <span style={{ color: 'var(--muted)', width: 118, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{(e.at || '').slice(0, 16).replace('T', ' ')}</span>
-                <span style={{ fontWeight: 700, width: 78, flexShrink: 0, textTransform: 'capitalize' }}>{e.type}</span>
+                {/* Pacific time, PDT or PST by the date (Oct 23 2026) - was the raw UTC stamp. */}
+                <span style={{ color: 'var(--muted)', width: 172, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatPacificDateTime(e.at, '-')}</span>
+                <span style={{ fontWeight: 700, width: 120, flexShrink: 0, textTransform: 'capitalize', overflowWrap: 'anywhere' }}>{String(e.type || '').replace(/_/g, ' ')}</span>
                 <span style={{ color: 'var(--muted)', flex: 1 }}>{e.detail}{e.ip && ` · ${e.ip}`}</span>
               </div>
             ))}
@@ -3898,7 +3899,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
                       <span style={{ width: 70, height: 4, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
                         <span style={{ display: 'block', height: '100%', width: `${total ? (signed / total) * 100 : 0}%`, background: m.fg }} />
                       </span>
-                      {signed}/{total} signed · sent {formatDate((r.createdAt || '').slice(0, 10))}
+                      {signed}/{total} signed · sent {formatPacificDate(r.createdAt)}
                       {r.routing === 'parallel' && ' · all at once'}
                     </div>
                   </div>
