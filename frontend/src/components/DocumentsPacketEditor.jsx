@@ -187,7 +187,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
 
   const templates = useMemo(() => catalog?.docTemplates || [], [catalog]);
   const byId = useMemo(() => Object.fromEntries(templates.map(t => [t.id, t])), [templates]);
-  const docs = p.docIds.map(id => byId[id] || { id, name: 'A template that is no longer active', missing: true, signs: [] });
+  const docs = p.docIds.map(id => byId[id] || (id === '@jd' ? { id, name: 'Job Description - Goes Here', marker: true, publishedVersion: 1, signs: [] } : { id, name: 'A template that is no longer active', missing: true, signs: [] }));
   const roleOpts = catalog?.flowRoles || [];
   const verifyOpts = catalog?.verifyRoles || [];
   const actionOpts = catalog?.actions || [];
@@ -443,19 +443,19 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
       <div style={{ flex: '1 1 220px', minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4, alignItems: 'center' }}>
-          {d.missing ? <Chip tone="red">Not Available</Chip>
+          {d.marker ? null : d.missing ? <Chip tone="red">Not Available</Chip>
             : !d.publishedVersion ? <Chip tone="orange" title="Open it in Documents and click Publish">Not Published</Chip>
               : <Chip tone="green">Published v{d.publishedVersion}</Chip>}
           {d.hasUnpublishedChanges && <Chip tone="orange" title="Someone is editing it - packets keep the published version until Publish Changes">Unpublished Changes</Chip>}
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            {(d.signs || []).length ? `Signed by: ${d.signs.map(keyLabel).join(', ')}` : 'No signature spots'}
+            {d.marker ? "Each role's duties, as its own page" : (d.signs || []).length ? `Signed by: ${d.signs.map(keyLabel).join(', ')}` : 'No signature spots'}
           </span>
         </div>
       </div>
-      {!d.missing && d.publishedVersion > 0 && (
+      {!d.missing && !d.marker && d.publishedVersion > 0 && (
         <button type="button" className="secondary-btn" onClick={() => setPreview(d)} style={smallBtn} title="See it filled with a sample person"><Eye size={12} /> Preview</button>
       )}
-      {!d.missing && (
+      {!d.missing && !d.marker && (
         <button type="button" className="secondary-btn" onClick={() => openTemplate(d.id)} title="Change the wording in Documents" style={iconBtn} aria-label="Open in Documents"><ExternalLink size={13} /></button>
       )}
       <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => setDocs(move(p.docIds, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
