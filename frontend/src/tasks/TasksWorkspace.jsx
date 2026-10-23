@@ -298,12 +298,15 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     ...GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g === 'section' ? 'Custom' : g[0].toUpperCase() + g.slice(1) })),
     ...groupableFields.map((f) => ({ key: cfKey(f.id), label: f.name })),
   ];
+  // Group by Label (Oct 22 2026) on the List: a task with two labels is
+  // listed under each. On Board, labels are swimlanes (board.laneOpts).
+  const listGroupOptions = groupOptions.flatMap((o) => (o.key === 'none' ? [{ key: 'label', label: 'Label' }, o] : [o]));
   // The toolbar's Group is the List's grouping on List and the swimlanes on
   // Board (Oct 22 2026 - on Board it used to change nothing), where Columns
   // joins it. Saved views record whichever the view in front of you uses.
   const menuGroup = onBoard ? board.lanes : group;
   const menuSetGroup = onBoard ? (k) => setBoardPref({ lanes: k }) : setGroup;
-  const menuGroupOptions = onBoard ? board.laneOpts : view === 'list' ? groupOptions : null;
+  const menuGroupOptions = onBoard ? board.laneOpts : view === 'list' ? listGroupOptions : null;
   const columnsMenu = onBoard
     ? { columnOptions: board.columnOpts, columns: board.columns, setColumns: (k) => setBoardPref({ columns: k }) }
     : {};

@@ -34,6 +34,7 @@ import { changedRecently } from './recentChanges';
 import { RowColorsProvider, useRowColorScope, useRuleContext, useMyColorRules, useRowColor, rowColorAttrs, boldTitleStyle, srOnly, onTint } from './rowColorState';
 import { RowColorLegend } from './RowColors';
 import ColorRulesEditor from './ColorRulesEditor';
+import { LabelStrip } from './labels';
 
 const VIEW_TABS = [
   { key: 'list', label: 'List', icon: ListIcon },
@@ -225,6 +226,8 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
         {/* Same badges the Task List shows. Without them the same task looked
             emptier here than there, which is the kind of difference that reads
             as data missing rather than as a different screen. */}
+        {/* Labels as on the Task List (Oct 22 2026). */}
+        <LabelStrip tags={t.tags} max={2} />
         <TaskCountBadges t={t} store={store} />
       </div>
     ),

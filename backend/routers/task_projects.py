@@ -260,7 +260,7 @@ class ProjectBody(BaseModel):
 
 
 VIEW_KINDS = ("list", "board", "calendar", "timeline", "dashboard", "workload", "files")
-GROUP_KINDS = ("status", "priority", "assignee", "project", "none", "due")
+GROUP_KINDS = ("status", "priority", "assignee", "project", "none", "due", "label")
 # A Board's columns (Oct 22 2026) - frontend/src/tasks/boardLayout.js.
 BOARD_COLUMNS = ("status", "section", "priority", "due")
 MAX_SHARED_CHARTS = 24

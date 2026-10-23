@@ -53,6 +53,8 @@ import { RecurrenceMenu, RecurrenceEnds, repeatOption, repeatSummary } from './R
 export { CommitNumberInput } from './RecurrenceMenu';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 import { FieldHistoryButton, HistoryChange } from './FieldHistoryPopover';
+import LabelsEditor from './LabelsEditor';
+import { labelsInUse } from './labels';
 import { FieldHistoryContext, useHistoryCtx } from './fieldHistoryContext';
 import { groupFieldChanges, historyFieldName } from './fieldHistory';
 
@@ -2434,6 +2436,9 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
   const activeFields = fieldsForTask(customFields, task);
   const { statusMeta, projects = [], tasks: allTasks = [] } = useTasks();
   const tracksTime = taskTracksTime(task, projects, allTasks);
+  // Labels on the tasks already loaded (all ones this person can open), so a
+  // label made since the page loaded is offered too.
+  const knownLabels = useMemo(() => labelsInUse(allTasks), [allTasks]);
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const rows = [
@@ -2478,7 +2483,7 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
           <span style={{ width: 112, flexShrink: 0, color: NX.faint, paddingTop: 2, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
             Labels <FieldHistoryButton field="tags" label="Labels" />
           </span>
-          <FieldsLock readOnly={readOnly}><LabelsEditor tags={task.tags || []} onChange={(tags) => patch({ tags })} /></FieldsLock>
+          <FieldsLock readOnly={readOnly}><LabelsEditor tags={task.tags || []} onChange={(tags) => patch({ tags })} readOnly={readOnly} known={knownLabels} /></FieldsLock>
         </div>
       </div>
 
@@ -2491,27 +2496,6 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
         </div>
       )}
     </div>
-  );
-}
-
-function LabelsEditor({ tags, onChange }) {
-  const [input, setInput] = useState('');
-  const add = () => {
-    const v = input.trim();
-    if (v && !tags.includes(v)) onChange([...tags, v]);
-    setInput('');
-  };
-  return (
-    <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, flex: 1 }}>
-      {tags.map((t) => (
-        <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: NX.dim, background: NX.border2 }}>
-          {t}
-          <button onClick={() => onChange(tags.filter((x) => x !== t))} aria-label={`Remove label ${t}`} title="Remove Label" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={11} /></button>
-        </span>
-      ))}
-      <input className="nx-inline-edit" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} onBlur={add}
-        placeholder="Add label…" style={{ border: 'none', fontFamily: FONT, fontSize: 12, width: 100, color: NX.ink }} />
-    </span>
   );
 }
 

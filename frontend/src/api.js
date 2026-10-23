@@ -2851,6 +2851,18 @@ export const api = {
   }))),
   kbCorpusCourses: () => req("/kb/courses").then((rows) => (rows || []).map((c) => ({ ...c, course_code: c.code, overview: [] }))),
 
+  // Task labels (Oct 22 2026): the company's label colors, for labels on
+  // tasks the caller can open (tasks/labels.js). `all` = Manage's view: the
+  // whole map and every label in use with counts (managers). Changes name
+  // the company only when someone in several companies picks one.
+  getTaskLabels: ({ company = "", all = false } = {}) => req(`/task-labels?${new URLSearchParams({ ...(company ? { company } : {}), ...(all ? { all: "true" } : {}) }).toString()}`),
+  // What a rename / delete would change (rules, row colors, saved views, templates).
+  getTaskLabelImpact: (name, company = "") => req(`/task-labels/impact?${new URLSearchParams({ name, ...(company ? { company } : {}) }).toString()}`),
+  setTaskLabelColor: (name, color, company = "") => req("/task-labels/color", { method: "PUT", body: JSON.stringify({ name, color, company }) }),
+  renameTaskLabel: (name, to, company = "") => req("/task-labels/rename", { method: "POST", body: JSON.stringify({ name, to, company }) }),
+  deleteTaskLabel: (name, company = "") => req("/task-labels/delete", { method: "POST", body: JSON.stringify({ name, company }) }),
+  // The batch bar's Add Label / Remove Label: merged into each task's labels.
+  bulkTaskLabels: (ids, { add = [], remove = [] } = {}) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, tags_add: add, tags_remove: remove }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

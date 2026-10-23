@@ -3666,6 +3666,11 @@ class BulkUpdate(BaseModel):
     # Sent instead of `patch`. The answer is then {tasks, changed, skipped,
     # sentForApproval} - `tasks` is the list every other bulk call answers with.
     dates: Optional[BulkDates] = None
+    # Add Label / Remove Label (Oct 22 2026): MERGED into each task's own
+    # labels under the row lock (task_labels.merge_tags, by key - "urgent"
+    # is "Urgent"), where patch["tags"] replaces them. Sent on their own.
+    tags_add: Optional[list[str]] = None
+    tags_remove: Optional[list[str]] = None
 
 
 _BULK_DATE_OPS = ("shift", "set_due", "set_start", "clear_due")
@@ -3769,6 +3774,34 @@ _BULK_ALLOWED = {"status", "priority", "assignee_email", "assignee_emails", "tea
                  "section_id"}
 
 
+def _bulk_label_change(body: "BulkUpdate", patch: dict) -> tuple[list, list]:
+    """The batch bar's Add Label / Remove Label, cleaned: names trimmed,
+    blanks dropped, each label once. Refused alongside any patch field
+    (patch["tags"] replaces the labels outright; anything else is a second
+    edit) - the same rule the Dates action keeps."""
+    if body.tags_add is None and body.tags_remove is None:
+        return [], []
+    import task_labels
+    if patch:
+        # One kind of change per batch, the rule the Dates action keeps.
+        raise HTTPException(422, "Add or remove labels on their own, not together with other fields.")
+
+    def _clean(names) -> list:
+        out, seen = [], set()
+        for n in names or []:
+            v = task_labels.clean_name(n)
+            if v and task_labels.label_key(v) not in seen:
+                if len(v) > task_labels.MAX_NAME:
+                    raise HTTPException(422, f"A label can be at most {task_labels.MAX_NAME} characters.")
+                seen.add(task_labels.label_key(v))
+                out.append(v)
+        return out
+    add, remove = _clean(body.tags_add), _clean(body.tags_remove)
+    if not add and not remove:
+        raise HTTPException(422, "Pick a label to add or remove.")
+    return add, remove
+
+
 def _merge_custom_field_values(db: Session, current, change) -> dict:
     """A task's custom-field values after a bulk edit (Oct 13 2026: Property
     and the other custom columns could not be set on several tasks at once).
@@ -3828,9 +3861,10 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     dates = body.dates
     locked: set = set()
     if dates is not None:
-        if patch:
+        if patch or body.tags_add or body.tags_remove:
             raise HTTPException(422, "Change dates on their own, not together with other fields.")
         _check_bulk_dates(dates)
+    tags_add, tags_remove = _bulk_label_change(body, patch)
     rows = db.query(models.Task).filter(models.Task.id.in_(body.ids)).all()
     # The company wall, all-or-nothing like the editor check below (Oct 21
     # 2026). A manager clears every role check, so without this one batch
@@ -3870,14 +3904,22 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                                               project_after, values_after)
             if missing:
                 raise HTTPException(422, f"{t.title}: {_required_message(db, missing, project_after)}")
-    if dates is not None:
+    if dates is not None or tags_add or tags_remove:
         # Each task moves from ITS OWN date, so once the walls and roles have
         # passed the rows are locked (id order, the module's lock order -
         # _lock_task_rows; nothing is locked or written before it) and read
         # again under the lock: two shifts at once queue up instead of both
         # starting from the same old date. A date change takes no code counter.
+        # Adding / removing labels merges into each task's own labels the same
+        # way, so two batches at once never drop each other's labels.
         locked.update(_lock_task_rows(db, body.ids))
         rows = db.query(models.Task).filter(models.Task.id.in_(body.ids)).populate_existing().all()
+    if tags_add or tags_remove:
+        import task_labels
+        new_tags = {t.id: task_labels.merge_tags(t.tags, tags_add, tags_remove) for t in rows}
+        for t in rows:
+            if len(new_tags[t.id]) > task_labels.MAX_PER_TASK and len(new_tags[t.id]) > len(t.tags or []):
+                raise HTTPException(422, f"{t.title}: a task can carry at most {task_labels.MAX_PER_TASK} labels.")
     if "status" in patch or "completed" in patch:
         # Same-batch dependencies (Oct 21 2026): when A blocks B and both are
         # completed in this one call, A counts as done for B's gate once A has
@@ -3954,6 +3996,8 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             setattr(t, k, v)
         for k, v in row_dates.get(t.id, {}).items():
             setattr(t, k, v)
+        if (tags_add or tags_remove) and new_tags[t.id] != list(t.tags or []):
+            t.tags = new_tags[t.id]   # a new list, so the JSON column registers it
         bulk_assignees = _assignees_from(patch, list(before[t.id][2]))
         if bulk_assignees is not None:
             set_task_assignees(t, bulk_assignees)
