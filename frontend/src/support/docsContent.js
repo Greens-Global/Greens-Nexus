@@ -548,7 +548,7 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Home', desc: 'Your own dashboard of widgets for My Day, My Week or My Month: Tasks, Updates (what other people did lately on tasks you are on or follow, and comments that mention you), Bookmarks, urgent tasks and more. Customize adds or removes widgets.' },
+      { name: 'Home', desc: 'Your own dashboard of widgets for Today, This Week or This Month: Tasks, Updates (what other people did lately on tasks you are on or follow, and comments that mention you), Bookmarks, urgent tasks and more. Customize adds or removes widgets.' },
       { name: 'Tasks', desc: 'Everything assigned to you across every project, with comment, attachment and subtask counts on each row. Switch between List, Board, Calendar, Dashboard, Files and Time (your logged time, a week at a time).' },
       { name: 'Projects', desc: 'Related work in one place. You see a project if it is open to the company or you were added (directly or through a team).' },
       { name: 'Portfolios', desc: 'Groups of projects, so leads can follow progress across several at once.' },

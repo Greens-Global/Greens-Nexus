@@ -60,7 +60,9 @@ const INTRODUCED = ['updates'];
 const PRIORITY_COLORS = { urgent: '#fc6363', high: '#ffb546', medium: '#0998c3', low: '#9699a6' };
 const LAYOUT_KEY = 'nexus.homeWidgets';
 const TABS = ['Upcoming', 'Overdue', 'Completed'];
-const RANGES = [{ key: 'day', label: 'My Day', days: 0 }, { key: 'week', label: 'My Week', days: 7 }, { key: 'month', label: 'My Month', days: 30 }];
+// Today / This Week / This Month (Neil, Oct 23 2026 - called My Day / My Week /
+// My Month until Tasks got its own My Day list; the keys are unchanged).
+const RANGES = [{ key: 'day', label: 'Today', days: 0 }, { key: 'week', label: 'This Week', days: 7 }, { key: 'month', label: 'This Month', days: 30 }];
 
 // Row-order masonry cell: measures its content and spans that many 8px grid
 // rows, so widgets keep left-to-right order while short ones pull UP to fill
@@ -247,7 +249,7 @@ export default function HomeView({ onNavigate }) {
   }, [updates]);
   const rangeDef = RANGES.find((r) => r.key === range);
   const rangeEnd = addDays(todayISO(), rangeDef.days);
-  // The My Day / My Week / My Month picker scopes every tile and tab except
+  // The Today / This Week / This Month picker scopes every tile and tab except
   // Overdue (overdue is overdue whatever the window). It used to narrow only
   // Upcoming - and that list also carried every undated task, so switching the
   // range barely moved a number and read as a dead control.
@@ -362,7 +364,7 @@ export default function HomeView({ onNavigate }) {
     return () => ro.disconnect();
   }, []);
   const coreWide = !isMobile && coreW >= CORE_WIDE;
-  // My Day / My Week / My Month. On the summary card at a desk; on phones that
+  // Today / This Week / This Month. On the summary card at a desk; on phones that
   // card is gone (Neil, Oct 14: keep it focused on the task list), so the
   // picker sits in the Tasks card's own header - it scopes those tabs.
   const rangePicker = (

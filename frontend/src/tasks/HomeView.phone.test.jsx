@@ -82,13 +82,16 @@ describe('Tasks Home on a phone', () => {
     await flush();
     expect(screen.queryByTitle('Open my tasks')).toBeNull();          // the Priority tile
     expect(screen.queryByText('Priority')).toBeNull();
-    const picker = screen.getByText('My Week');
+    const picker = screen.getByText('This Week');
     expect(picker.closest('div').parentElement.textContent).toContain('Tasks');
     fireEvent.click(picker);
-    fireEvent.click(screen.getByText('My Day'));
-    expect(screen.queryByText('My Month')).toBeNull();                 // the menu closed...
-    expect(screen.getByText('My Day').tagName).toBe('BUTTON');         // ...and the pick is on the button
-    expect(screen.queryByText('My Week')).toBeNull();
+    // "Today" is also a day label elsewhere on the screen - take the menu's button.
+    const todayButtons = () => screen.getAllByText('Today').filter((el) => el.tagName === 'BUTTON');
+    expect(todayButtons()).toHaveLength(1);
+    fireEvent.click(todayButtons()[0]);
+    expect(screen.queryByText('This Month')).toBeNull();                 // the menu closed...
+    expect(todayButtons()).toHaveLength(1);                             // ...and the pick is on the button
+    expect(screen.queryByText('This Week')).toBeNull();
   });
 
   it('keeps the tiles at a desk', async () => {
