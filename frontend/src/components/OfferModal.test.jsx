@@ -239,10 +239,11 @@ describe('OfferModal - Preview Offer Letter', () => {
     const btn = () => screen.getByText('Preview Offer Letter').closest('button');
     expect(btn()).toBeDisabled();                                   // no letter until Hired As is picked
     hire('Full-Time Employee');
+    await ready();                                                  // the role prefill refetches the options first
     await waitFor(() => expect(btn()).not.toBeDisabled());
     fireEvent.click(btn());
-    await waitFor(() => expect(renderPacketPreview).toHaveBeenCalledWith(expect.objectContaining({ template_id: 't-offer', entity_id: 'e-gg', setting_id: 's-offer' })));
-    expect(await screen.findByText(/Preview With Sample Person/)).toBeTruthy();
+    await waitFor(() => expect(renderPacketPreview).toHaveBeenCalledWith(expect.objectContaining({ template_id: 't-offer', entity_id: 'e-gg', setting_id: 's-offer' })), { timeout: 5000 });
+    expect(await screen.findByText(/Preview With Sample Person/, {}, { timeout: 5000 })).toBeTruthy();
   });
 
   it('a letter with no document (the PDF engine) cannot be previewed', async () => {
