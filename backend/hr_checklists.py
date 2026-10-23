@@ -68,6 +68,11 @@ OWNERS_KEY = "hr_checklist_owners:"   # pre-Oct 22 Role Owners lists: retired Oc
 # admin". HR / IT / Accounting steps belong to the head AND backup of the
 # department of that name - no separate checklist owner setting (Pranshu, Oct 23).
 DEPT_ROLES = ("hr", "it", "accounting")
+# Pranshu, Oct 23: HR, IT and Accounting always own steps; any other department
+# of the company can be ticked on its Checklists tab to own steps too - a step
+# owner "dept:<department id>", done by that department's head and backup.
+DEPT_PREFIX = "dept:"
+STEP_DEPTS_KEY = "hr_checklist_step_depts:"   # + entity id -> [department id, ...]
 DEPT_NAMES = {"hr": ("hr", "human resources", "people", "people operations"),
               "it": ("it", "information technology", "it support"),
               "accounting": ("accounting", "finance", "accounts")}
@@ -215,7 +220,7 @@ def clean_template_items(items: list) -> list:
             raise ValueError(f"Two rows share the key {key}")
         seen.add(key)
         owner = norm_role(str(raw.get("owner") or "hr"))
-        if owner not in ROLES:
+        if owner not in ROLES and not (owner.startswith(DEPT_PREFIX) and len(owner) > len(DEPT_PREFIX)):
             raise ValueError(f"{title}: owner must be one of {', '.join(ROLES)}")
         anchor = str(raw.get("anchor") or "S").strip()
         if anchor not in ("S", "X", "created", "none"):
@@ -360,18 +365,50 @@ def owner_departments(db, entity_id: str) -> dict:
     return out
 
 
+def step_departments(db, entity_id: str) -> list:
+    """The company's other departments ticked to own checklist steps, in
+    Departments order (a deleted one drops out)."""
+    if not entity_id:
+        return []
+    try:
+        picked = json.loads(_setting_raw(db, STEP_DEPTS_KEY + entity_id) or "[]")
+    except ValueError:
+        picked = []
+    picked = {str(x) for x in picked} if isinstance(picked, list) else set()
+    taken = {d.id for d in owner_departments(db, entity_id).values()}
+    return [d for d in db.query(HrDepartment).filter(HrDepartment.company_id == entity_id)
+            .order_by(HrDepartment.sort_order, HrDepartment.name).all() if d.id in picked and d.id not in taken]
+
+
+def _setting_raw(db, key: str) -> str:
+    row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
+    return row.value if row and row.value else ""
+
+
 def role_owners(db, entity_id: str) -> dict:
-    """{role: [emails]} for HR / IT / Accounting at this company: the
+    """{role: [emails]} for HR / IT / Accounting at this company, and
+    "dept:<id>" for each other department ticked to own steps: the
     department's head and backup (whoever of them is active). ONE setup, no
     people list kept inside checklists (Neil, Oct 22 4:41-5:42, 35:07): an
-    empty role falls back in resolve_owners to the HR contact, then the
+    empty role falls back in resolve_owners to HR, the HR contact, then the
     Global Admins."""
     out = {}
-    for role, d in owner_departments(db, entity_id).items():
+    pairs = [*owner_departments(db, entity_id).items(), *((DEPT_PREFIX + d.id, d) for d in step_departments(db, entity_id))]
+    for role, d in pairs:
         people = active_people(db, [d.lead_email, d.backup_email])
         if people:
             out[role] = people
     return out
+
+
+def role_label(db, role: str) -> str:
+    """"HR", "Manager"... or a ticked department's name."""
+    if role in ROLE_LABELS:
+        return ROLE_LABELS[role]
+    if (role or "").startswith(DEPT_PREFIX):
+        d = db.query(HrDepartment).filter(HrDepartment.id == role[len(DEPT_PREFIX):]).first()
+        return d.name if d else "Department"
+    return role or ""
 
 
 def global_admins(db) -> list:
@@ -416,6 +453,8 @@ def resolve_owners(db, role: str, emp: NexusEmployee, owners: dict, entity: HrEn
         else:
             return found
     found = email_list(owners.get(role))
+    if not found and role.startswith(DEPT_PREFIX):
+        found, role = email_list(owners.get("hr")), "hr"   # nobody active there, or no longer ticked: HR
     if not found and role == "hr" and entity is not None:
         found = email_list(entity.hr_contact_email)
     return found or global_admins(db)
@@ -1408,7 +1447,7 @@ def ser_item(it: HrChecklistItem, names: dict = None, comments: list = None) -> 
     return {
         "id": it.id, "checklistId": it.checklist_id, "key": it.key, "phase": it.phase,
         "title": it.title, "hint": it.hint,
-        "ownerRole": it.owner_role, "ownerRoleLabel": ROLE_LABELS.get(it.owner_role, it.owner_role),
+        "ownerRole": it.owner_role, "ownerRoleLabel": ROLE_LABELS.get(it.owner_role) or (names or {}).get(it.owner_role) or it.owner_role,
         "ownerEmail": it.owner_email,
         "ownerName": ", ".join((names or {}).get(e, "") or e for e in owners) if len(owners) > 1 else (names or {}).get(it.owner_email, ""),
         "ownerEmails": owners,
@@ -1451,16 +1490,21 @@ def role_people(db, cl: HrChecklist, emp: NexusEmployee = None) -> dict:
         return {}
     owners = role_owners(db, cl.company)
     entity = db.query(HrEntity).filter(HrEntity.id == cl.company).first() if cl.company else None
-    return {r: resolve_owners(db, r, emp, owners, entity) for r in ROLES}
+    roles = [*ROLES, *{i.owner_role for i in db.query(HrChecklistItem.owner_role)
+                       .filter(HrChecklistItem.checklist_id == cl.id) if (i.owner_role or "").startswith(DEPT_PREFIX)}]
+    return {r: resolve_owners(db, r, emp, owners, entity) for r in roles}
 
 
 def name_map(db, emails) -> dict:
+    """{email: name}; a "dept:<id>" owner role in the list maps to the
+    department's name (ser_item's ownerRoleLabel)."""
     emails = {e for e in emails if e}
     if not emails:
         return {}
+    depts = {e for e in emails if e.startswith(DEPT_PREFIX)}
     rows = (db.query(NexusEmployee)
-            .filter(func.lower(NexusEmployee.work_email).in_(list(emails))).all())
-    return {(r.work_email or "").lower(): full_name(r) for r in rows}
+            .filter(func.lower(NexusEmployee.work_email).in_(list(emails - depts))).all())
+    return {**{(r.work_email or "").lower(): full_name(r) for r in rows}, **{r: role_label(db, r) for r in depts}}
 
 
 # --- Daily reminders -------------------------------------------------------

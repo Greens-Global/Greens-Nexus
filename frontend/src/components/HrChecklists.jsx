@@ -956,10 +956,24 @@ function SaveBar({ label, busy, onDiscard, onSave, saveText }) {
 // checklist owner setting of its own (Pranshu, Oct 23); with nobody active
 // there, HR steps to the HR contact, then everything to the Global Admins.
 // This card says who that is right now and what is missing.
-function DepartmentOwnersCard({ entityId, people, onOpenDepartments }) {
+// Any other department can be ticked to own steps too (Pranshu, Oct 23: "the
+// three should be auto default, checked, but if we want, we can check other
+// from the departments also") - its head and backup get those steps.
+function DepartmentOwnersCard({ entityId, people, onOpenDepartments, onTicked, toastOk, toastErr }) {
   const [data, setData] = useState(null);
+  const [busy, setBusy] = useState('');
   useEffect(() => { api.getChecklistOwners(entityId).then(setData).catch(() => setData(false)); }, [entityId]);
   const nameOf = em => people.find(p => p.email === (em || '').toLowerCase())?.name || em;
+  async function tick(dept) {
+    const ids = (data.otherDepartments || []).filter(d => (d.id === dept.id ? !d.checked : d.checked)).map(d => d.id);
+    setBusy(dept.id);
+    try {
+      setData(await api.saveChecklistStepDepartments(entityId, ids));
+      onTicked?.();
+      toastOk(dept.checked ? `${dept.name} no longer owns steps - its open steps went to HR.` : `${dept.name} can own steps now - pick it as the owner when you edit a step.`);
+    } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
+    setBusy('');
+  }
   if (data === null) return <SkeletonBlocks count={1} height={150} />;
   if (data === false) return <div style={{ ...card, padding: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load who owns the steps.</div>;
   const admins = (data.globalAdmins || []).map(nameOf).join(', ') || 'nobody yet';
@@ -1014,6 +1028,29 @@ function DepartmentOwnersCard({ entityId, people, onOpenDepartments }) {
             </div>
           );
         })}
+      </div>
+      <div style={{ marginTop: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--wk-ink)' }}>Departments That Own Steps</div>
+        <p style={{ margin: '2px 0 8px', fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
+          HR, IT and Accounting always do. Tick another department to pick it as a step&apos;s owner - its head and backup get those steps.
+        </p>
+        <div style={{ display: 'grid', gap: 2 }}>
+          {[...OWNER_ROLES.filter(r => data.departments?.[r]).map(r => ({ ...data.departments[r], checked: true, fixed: true })),
+            ...(data.otherDepartments || [])].map(d => (
+            <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px', fontSize: 13, cursor: d.fixed ? 'default' : 'pointer', color: 'var(--wk-ink)' }}>
+              <input type="checkbox" checked={!!d.checked} disabled={d.fixed || !!busy} onChange={() => tick(d)}
+                aria-label={`${d.name} owns checklist steps`} />
+              <b style={{ fontWeight: 600, minWidth: 120 }}>{d.name}</b>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--wk-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {d.fixed ? 'Always' : d.leadEmail ? `Head: ${nameOf(d.leadEmail)}${d.backupEmail ? ` · Backup: ${nameOf(d.backupEmail)}` : ' · No backup'}` : 'No department head yet - its steps go to HR'}
+              </span>
+              {busy === d.id && <Spinner size={13} />}
+            </label>
+          ))}
+          {!(data.otherDepartments || []).length && (
+            <div style={{ fontSize: 12.5, color: 'var(--wk-faint)', padding: '4px' }}>No other departments yet - add them in Departments.</div>
+          )}
+        </div>
       </div>
     </section>
   );
@@ -1664,7 +1701,8 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
   const [reloadKey, setReloadKey] = useState(0);
   const { data: dir = [] } = usePeopleDirectory();
   const people = useMemo(() => dir.map(p => ({ email: (p.email || '').toLowerCase(), name: p.name || p.email })), [dir]);
-  useEffect(() => { api.getChecklistMeta().then(setMeta).catch(() => setMeta(null)); }, []);
+  const loadMeta = useCallback(() => api.getChecklistMeta({ entityId }).then(setMeta).catch(() => setMeta(null)), [entityId]);
+  useEffect(() => { loadMeta(); }, [loadMeta]);
   useEffect(() => {
     api.getChecklistTemplates(entityId)
       .then(r => setLoaded({ entityId, templates: r.templates || [] }))
@@ -1694,7 +1732,7 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
       </section>
 
       {entityId
-        ? <DepartmentOwnersCard key={entityId} entityId={entityId} people={people} onOpenDepartments={onOpenDepartments} />
+        ? <DepartmentOwnersCard key={entityId} entityId={entityId} people={people} onOpenDepartments={onOpenDepartments} onTicked={loadMeta} toastOk={toastOk} toastErr={toastErr} />
         : <LibraryOwnersNote />}
 
       {entityId && <TaskPlaceCard key={`place:${entityId}`} entityId={entityId} kinds={kinds} toastOk={toastOk} toastErr={toastErr} />}
@@ -1869,7 +1907,7 @@ const countsOf = d => Object.fromEntries((d?.templates || []).map(t => [t.kind, 
 // The baseline a role builds on (Neil, Oct 22: "this is a baseline and we
 // build off of the baseline"): read-only and folded, so a role adds only what
 // it needs on top. `baseline` = { source: 'company' | 'library', items }.
-function BaselineBlock({ baseline, companyName, roleItems = [], kindLabel = '' }) {
+function BaselineBlock({ baseline, companyName, roleItems = [], kindLabel = '', roles = [] }) {
   const [open, setOpen] = useState(false);
   const items = baseline?.items || [];
   if (!items.length) return null;
@@ -1909,7 +1947,7 @@ function BaselineBlock({ baseline, companyName, roleItems = [], kindLabel = '' }
               <ul style={{ margin: '4px 0 0', paddingLeft: 18, display: 'grid', gap: 2 }}>
                 {p.rows.map(r => (
                   <li key={r.key || r.title} style={{ fontSize: 12.5, color: 'var(--wk-ink)' }}>
-                    {r.title} <span style={{ color: 'var(--wk-faint)' }}>· {ROLE_LOOK[r.owner]?.label || (r.owner === 'manager' ? 'Manager' : r.owner === 'employee' ? 'Employee' : r.owner)}</span>
+                    {r.title} <span style={{ color: 'var(--wk-faint)' }}>· {roles.find(o => o.value === r.owner)?.label || ROLE_LOOK[r.owner]?.label || (r.owner === 'manager' ? 'Manager' : r.owner === 'employee' ? 'Employee' : String(r.owner || '').startsWith('dept:') ? 'Department' : r.owner)}</span>
                   </li>
                 ))}
               </ul>
@@ -2008,7 +2046,7 @@ export function RoleStepsEditor({ roleId, roleName, toastOk, toastErr, onCounts,
   const [kind, setKind] = useState(initialKind);
   const [meta, setMeta] = useState(null);
   const [copying, setCopying] = useState(false);
-  useEffect(() => { api.getChecklistMeta().then(setMeta).catch(() => setMeta(null)); }, []);
+  useEffect(() => { api.getChecklistMeta({ roleId }).then(setMeta).catch(() => setMeta(null)); }, [roleId]);
   useEffect(() => {
     if (!roleId) { setData(null); return undefined; }
     let live = true;
@@ -2052,7 +2090,7 @@ export function RoleStepsEditor({ roleId, roleName, toastOk, toastErr, onCounts,
       </div>
       {data === null && <SkeletonBlocks count={2} height={56} />}
       {data === false && <div style={{ fontSize: 13, color: 'var(--wk-dim)' }}>Could not load this role&apos;s steps.</div>}
-      {tpl && <BaselineBlock key={kind} baseline={tpl.baseline} companyName={data.companyName} roleItems={tpl.items} kindLabel={tpl.kindLabel || ''} />}
+      {tpl && <BaselineBlock key={kind} baseline={tpl.baseline} companyName={data.companyName} roleItems={tpl.items} kindLabel={tpl.kindLabel || ''} roles={meta?.roles || []} />}
       {copying && (
         <CopyRoleStepsModal roleId={roleId} roleName={roleName || data?.roleName || 'This Role'} kind={kind} kinds={kinds}
           onClose={() => setCopying(false)} toastOk={toastOk} toastErr={toastErr}

@@ -98,22 +98,31 @@ def _send_task_emails(background: Optional[BackgroundTasks], task_ids: list, by:
 
 def _full(db: Session, cl: HrChecklist) -> dict:
     items = db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all()
-    names = hc.name_map(db, [e for i in items for e in hc.owners_of(i)])
+    names = hc.name_map(db, [e for i in items for e in [*hc.owners_of(i), i.owner_role]])
     return hc.ser_checklist(cl, items, names, hc.comments_for(db, items), hc.role_people(db, cl),
                             hc.task_info(db, cl))
 
 
 def _step_out(db: Session, it: HrChecklistItem) -> dict:
-    return hc.ser_item(it, hc.name_map(db, hc.owners_of(it)), hc.comments_for(db, [it])[it.id])
+    return hc.ser_item(it, hc.name_map(db, [*hc.owners_of(it), it.owner_role]), hc.comments_for(db, [it])[it.id])
 
 
 # --- Meta ------------------------------------------------------------------
 
 @router.get("/meta")
-def meta(user: dict = Depends(get_current_user)):
+def meta(entity_id: str = "", role_id: str = "", user: dict = Depends(get_current_user),
+         db: Session = Depends(get_db)):
+    """`entity_id` (or a job role's company, `role_id`): the company's other
+    departments ticked to own steps are owners too (Pranshu, Oct 23)."""
+    if role_id and not entity_id:
+        role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first()
+        entity_id = (role.company_id or "") if role else ""
+    scope = hr_scope(user, db) if entity_id else None
+    depts = hc.step_departments(db, entity_id) if entity_id and (scope is None or entity_id in scope) else []
     return {
         "kinds": [{"value": k, "label": hc.KIND_LABELS[k]} for k in hc.KINDS],
-        "roles": [{"value": r, "label": hc.ROLE_LABELS[r]} for r in hc.ROLES],
+        "roles": [{"value": r, "label": hc.ROLE_LABELS[r]} for r in hc.ROLES]
+                 + [{"value": hc.DEPT_PREFIX + d.id, "label": d.name, "department": True} for d in depts],
         "exitTypes": [{"value": t, "label": hr_checklist_seed.EXIT_TYPE_LABELS[t]}
                       for t in hr_checklist_seed.EXIT_TYPES],
         "signals": [{"value": k, "label": v} for k, v in {**hc.SIGNAL_PRESETS, **hc.SIGNAL_LABELS}.items()],
@@ -424,7 +433,7 @@ def board(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
                 "title": nxt.title, "dueDate": nxt.due_date,
                 "overdue": bool(nxt.due_date and nxt.due_date < t_iso),
                 "ownerEmail": nxt.owner_email, "ownerName": names.get(nxt.owner_email, ""),
-                "ownerRoleLabel": hc.ROLE_LABELS.get(nxt.owner_role, nxt.owner_role),
+                "ownerRoleLabel": hc.role_label(db, nxt.owner_role),
             },
         })
     # Most urgent first: anything late, then the nearest date.
@@ -567,7 +576,7 @@ def checklist_record(cid: str, user: dict = Depends(require_hr_read), db: Sessio
         closed = i.status in ("done", "na")
         by = ("Nexus" if i.done_by == "Nexus" else who(i.done_by)) if closed and i.done_by else ""
         how = (i.done_reason or "Ticked by hand") if i.status == "done" else (i.note or "") if i.status == "na" else ""
-        rows.append([i.phase, i.title, ", ".join(who(e) for e in hc.owners_of(i)) or hc.ROLE_LABELS.get(i.owner_role, i.owner_role),
+        rows.append([i.phase, i.title, ", ".join(who(e) for e in hc.owners_of(i)) or hc.role_label(db, i.owner_role),
                      status.get(i.status, i.status), hc.us_date(i.due_date), by, hc.us_date(i.done_at) if closed else "", how])
     name = f"{label} - {hc.full_name(emp)}".replace('"', "")
     return Response(content=_csv(rows), media_type="text/csv",
@@ -806,13 +815,47 @@ def get_owners(entity_id: str = "", user: dict = Depends(require_hr_read), db: S
         raise HTTPException(404, "Company not found")
     ent = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
     depts = hc.owner_departments(db, entity_id)
+    ticked = {d.id for d in hc.step_departments(db, entity_id)}
+    taken = {d.id for d in depts.values()}
+    others = (db.query(HrDepartment).filter(HrDepartment.company_id == entity_id)
+              .order_by(HrDepartment.sort_order, HrDepartment.name).all() if entity_id else [])
+    out = lambda d: {"id": d.id, "name": d.name, "leadEmail": d.lead_email or "",  # noqa: E731
+                     "backupEmail": d.backup_email or "",
+                     "active": hc.active_people(db, [d.lead_email, d.backup_email])}
     return {"effective": hc.role_owners(db, entity_id),
             "hrContact": (ent.hr_contact_email if ent else "") or "",
-            "departments": {r: {"id": d.id, "name": d.name, "leadEmail": d.lead_email or "",
-                                "backupEmail": d.backup_email or "",
-                                "active": hc.active_people(db, [d.lead_email, d.backup_email])}
-                            for r, d in depts.items()},
+            "departments": {r: out(d) for r, d in depts.items()},
+            # Every other department, ticked = it owns steps too (Pranshu, Oct 23).
+            "otherDepartments": [{**out(d), "checked": d.id in ticked} for d in others if d.id not in taken],
             "globalAdmins": hc.global_admins(db)}
+
+
+class StepDeptsIn(BaseModel):
+    department_ids: list
+
+
+@router.put("/step-departments")
+def save_step_departments(body: StepDeptsIn, entity_id: str = "",
+                          user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Which of the company's other departments own checklist steps (HR, IT
+    and Accounting always do). Unticked: its open steps go to HR at once."""
+    if not entity_id:
+        raise HTTPException(400, "Pick a company")
+    entity_id = _entity_for_settings(db, entity_id, user)
+    ids = {d.id for d in db.query(HrDepartment.id).filter(HrDepartment.company_id == entity_id)}
+    clean = list(dict.fromkeys(str(x or "").strip() for x in (body.department_ids or []) if str(x or "").strip()))
+    if any(x not in ids for x in clean):
+        raise HTTPException(400, "That department is not in this company")
+    key = hc.STEP_DEPTS_KEY + entity_id
+    row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
+    if row is None:
+        row = NexusSetting(key=key)
+        db.add(row)
+    row.value, row.updated_by, row.updated_at = json.dumps(clean), user["email"], hc._now()
+    db.flush()
+    hc.resync_company(db, entity_id, user["email"].lower())
+    db.commit()
+    return get_owners(entity_id, user, db)
 
 
 @router.put("/owners")

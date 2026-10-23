@@ -266,6 +266,27 @@ describe('Who does each step', () => {
     expect(screen.getByText('Add a department named Accounting in Departments')).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: /Department for/ })).toBeNull();   // no checklist owner setting of its own
   });
+
+  it('keeps HR, IT and Accounting ticked and lets another department own steps', async () => {
+    api.getChecklistOwners.mockResolvedValueOnce({
+      effective: {}, hrContact: '', globalAdmins: [],
+      departments: { hr: { id: 'd-hr', name: 'HR', leadEmail: 'head@greensglobal.com', backupEmail: '', active: ['head@greensglobal.com'] } },
+      otherDepartments: [{ id: 'd-est', name: 'Estimating', leadEmail: 'raj@greensglobal.com', backupEmail: '', active: [], checked: false }],
+    });
+    api.saveChecklistStepDepartments = vi.fn(() => Promise.resolve({
+      effective: {}, hrContact: '', globalAdmins: [], departments: {},
+      otherDepartments: [{ id: 'd-est', name: 'Estimating', leadEmail: 'raj@greensglobal.com', backupEmail: '', active: [], checked: true }],
+    }));
+    render(<ChecklistSettings entityId="co-a" entities={[{ id: 'co-a', name: 'Greens' }]} toastOk={() => {}} toastErr={() => {}} />);
+    const hr = await screen.findByRole('checkbox', { name: 'HR owns checklist steps' });
+    expect(hr).toBeChecked();
+    expect(hr).toBeDisabled();
+    const est = screen.getByRole('checkbox', { name: 'Estimating owns checklist steps' });
+    expect(est).not.toBeChecked();
+    fireEvent.click(est);
+    await waitFor(() => expect(api.saveChecklistStepDepartments).toHaveBeenCalledWith('co-a', ['d-est']));
+    expect(await screen.findByRole('checkbox', { name: 'Estimating owns checklist steps' })).toBeChecked();
+  });
 });
 
 // Neil, Oct 22: "how it gets marked done should be a multi-select" - the owner

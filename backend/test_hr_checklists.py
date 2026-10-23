@@ -1514,6 +1514,30 @@ class DepartmentOwnerTests(unittest.TestCase):
         rows = [i for c in again["checklists"] for i in c["items"] if i["key"] == "ON-20"]
         self.assertEqual(self._owners(rows[0]), sorted([HR, SCOPED]))
 
+    def test_another_department_ticked_owns_steps_and_unticked_hands_them_to_hr(self):
+        # Pranshu, Oct 23: HR, IT and Accounting by default; any other department ticked owns steps too.
+        self._dept("d-hr", "Human Resources", lead=HR)
+        self._dept("d-est", "Estimating", lead=MANAGER, backup=IT)
+        out = self.client.get(f"/hr/checklists/owners?entity_id={CO_A}").json()
+        self.assertEqual([(d["name"], d["checked"]) for d in out["otherDepartments"]], [("Estimating", False)])
+        self.assertNotIn("dept:d-est", [r["value"] for r in self.client.get(f"/hr/checklists/meta?entity_id={CO_A}").json()["roles"]])
+        r = self.client.put(f"/hr/checklists/step-departments?entity_id={CO_A}", json={"department_ids": ["d-est"]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["otherDepartments"][0]["checked"])
+        roles = self.client.get(f"/hr/checklists/meta?entity_id={CO_A}").json()["roles"]
+        self.assertIn({"value": "dept:d-est", "label": "Estimating", "department": True}, roles)
+        self.assertEqual(self.client.put(f"/hr/checklists/step-departments?entity_id={CO_A}",
+                                         json={"department_ids": ["d-it-b"]}).status_code, 400)    # another company's
+        r = self.client.put(f"/hr/checklists/templates/onboarding?entity_id={CO_A}",
+                            json={"items": [{"key": "E-1", "title": "Bid Software Login", "owner": "dept:d-est"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        cl = self._start(self._person())
+        row = self._row(cl, "E-1")
+        self.assertEqual((self._owners(row), row["ownerRoleLabel"]), (sorted([MANAGER, IT]), "Estimating"))
+        self.client.put(f"/hr/checklists/step-departments?entity_id={CO_A}", json={"department_ids": []})
+        row = next(i for i in self.client.get("/hr/checklists/employee/emp-new").json()["checklists"][0]["items"] if i["key"] == "E-1")
+        self.assertEqual(self._owners(row), [HR])                      # unticked: HR's head takes it
+
     def test_steps_go_by_the_department_name_with_no_owner_setting(self):
         # Pranshu, Oct 23: "checklist owner should not be there" - the department head is.
         self._dept("d-tech", "Technology", lead=MANAGER)

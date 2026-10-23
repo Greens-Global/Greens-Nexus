@@ -2194,7 +2194,8 @@ export const api = {
   // People > onboarding / offboarding / leave checklists (hr_checklists.py).
   // The owner of a step (manager, IT, the new hire) ticks it from My HR via
   // getMyChecklistSteps + updateChecklistItem without an hr grant.
-  getChecklistMeta:       ()          => req('/hr/checklists/meta'),
+  getChecklistMeta:       ({ entityId = '', roleId = '' } = {}) => req(`/hr/checklists/meta?entity_id=${encodeURIComponent(entityId)}&role_id=${encodeURIComponent(roleId)}`),
+  saveChecklistStepDepartments: (entityId, departmentIds) => req(`/hr/checklists/step-departments?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ department_ids: departmentIds }) }),
   getEmployeeChecklists:  (empId)     => req(`/hr/checklists/employee/${empId}`),
   startChecklist:         (empId, d)  => req(`/hr/checklists/employee/${empId}`, { method: 'POST', body: JSON.stringify(d) }),
   cancelChecklist:        (id)        => req(`/hr/checklists/${id}/cancel`, { method: 'POST' }),

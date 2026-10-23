@@ -3355,7 +3355,11 @@ def delete_department(entity_id: str, dept_id: str, reassign_to: Optional[str] =
         for e in db.query(NexusEmployee).filter(NexusEmployee.company == entity_id).all():
             if _dept_key(e.department or "") == dept_key:
                 e.department = target
-        db.delete(row); db.commit()
+        db.delete(row)
+        db.flush()
+        import hr_checklists                 # its open checklist steps go back to HR
+        hr_checklists.resync_company(db, entity_id, user["email"].lower())
+        db.commit()
     rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
     return [_serialize_dept(d) for d in rows]
 
