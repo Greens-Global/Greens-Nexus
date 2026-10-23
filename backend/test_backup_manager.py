@@ -102,7 +102,7 @@ class BackupManagerTest(unittest.TestCase):
 
     def test_backup_sees_the_timesheet_waiting_on_the_manager(self):
         self._set_backup(EMP, COVER)
-        self.db.add(TimesheetReview(id="r1", employee_email=EMP, period_start="2026-10-01", period_end="2026-10-31",
+        self.db.add(TimesheetReview(id="r1", employee_email=EMP, period_start="2026-10-04", period_end="2026-10-17",
                                     pay_type="hourly", manager_email=MGR, status="with_manager", rounds=[],
                                     last_snapshot={}))
         self.db.commit()
