@@ -548,7 +548,7 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Home', desc: 'Your own dashboard of widgets for My Day, My Week or My Month: Tasks, Updates (what other people did lately on tasks you are on or follow, and comments that mention you), Bookmarks, urgent tasks and more. Customize adds or removes widgets.' },
+      { name: 'Home', desc: 'Four tiles (Overdue, Due Today, This Week, In Progress) that switch the Tasks card, and the number of tasks that need you now - the same count as the dashboard. Then Tasks (grouped Today, Tomorrow, This Week, Later, with No Due Date folded away; Today, This Week or This Month picks the window), Updates (what other people did lately on tasks you are on or follow, and comments that mention you) and Bookmarks. Below them your own widgets: My Day, Week Ahead and By Priority (click a day or a bar to filter the Tasks card), Projects at Risk, Completed This Week, Teams, Team Workload and the Recycle Bin. Customize adds, removes and moves widgets (Move Up and Move Down work without a mouse).' },
       { name: 'Tasks', desc: 'Everything assigned to you across every project, with comment, attachment and subtask counts on each row. Switch between List, Board, Calendar, Dashboard, Files and Time (your logged time, a week at a time).' },
       { name: 'Projects', desc: 'Related work in one place. You see a project if it is open to the company or you were added (directly or through a team).' },
       { name: 'Portfolios', desc: 'Groups of projects, so leads can follow progress across several at once.' },
