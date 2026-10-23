@@ -90,7 +90,7 @@ describe('applyBlanks', () => {
     expect(signers.sort()).toEqual(['company', 'employee']);
     const client = fieldDefs.find(f => f.default === 'Greens Global LLC');
     expect(client).toBeTruthy();
-    expect(fieldDefs.find(f => f.token === 'type_of_account')).toMatchObject({ type: 'dropdown', options: ['Savings Account', 'Current Account'] });
+    expect(fieldDefs.find(f => f.token === 'account_type')).toMatchObject({ type: 'dropdown', options: ['Savings Account', 'Current Account'] });
     // the original is untouched
     expect(JSON.stringify(DOC)).not.toContain('mergeField');
   });

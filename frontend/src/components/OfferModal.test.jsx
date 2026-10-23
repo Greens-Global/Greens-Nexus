@@ -1,212 +1,211 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// Make An Offer in three steps (Oct 15): HR says employee or contractor
-// (never guessed) and Nexus shows the ONE offer letter for that hire and the
-// packet that follows; the offer asks only what the documents print; the
-// documents' own HR questions come last; problems show only on Continue.
+// Make An Offer on one screen (Hiring Setup, Oct 23): HR picks how they are
+// hired (one pick - never guessed), and What They Get shows, live from the
+// server, the offer letter, the packet that follows, the role's duties for
+// that kind of hire and who signs. A missing piece is amber, Send stays off,
+// and Set It Up opens the Hiring Setup over the offer. No Job Description pick.
 
-const letter = { id: 's-offer', name: 'US Employee Offer', documents: ['Offer Of Employment'], problems: [],
+const letter = { id: 's-offer', name: 'US Employee Offer Letter', documents: ['Offer Of Employment'], problems: [],
   prints: ['work_location'], printsPay: true,
   hrQuestions: [{ token: 'probation_period', label: 'Probation Period', type: 'text', required: true, pay: false, options: [] },
                 { token: 'joining_bonus', label: 'Joining Bonus', type: 'text', required: false, pay: true, options: [] }] };
-const packet = { id: 's-hire', name: 'Analyst Hiring', documents: ['NDA'], problems: [], prints: [], hrQuestions: [], personQuestions: ['PAN Number'] };
+const packet = { id: 's-hire', name: 'California Employee Hiring Packet', documents: ['Employment Agreement'], problems: [], prints: [], hrQuestions: [] };
+const line = (key, label, name, sourceLabel, tone = 'same', extra = {}) => ({ key, label, name, sourceLabel, tone, blocks: false, fix: null, ...extra });
+// Greens Global CA: employee and contractor Accountants share the letter and packet but get different duties.
+const gets = (p) => [
+  line('offer', 'Offer Letter', 'US Employee Offer Letter', 'Same As All Companies - United States'),
+  line('packet', 'Then The Hiring Packet', 'California Employee Hiring Packet', 'Starts by itself once Jane signs the offer'),
+  p.hired_as === 'contractor' ? line('jd', 'Job Description', 'Accountant - Contractors Version', 'Only For Contractors', 'own')
+    : line('jd', 'Job Description', 'Accountant - Standard', 'Same For Everyone'),
+  line('signs', 'Signs', 'Offer: New Hire - Packet: New Hire, then Raj Patel', ''),
+];
 const head = { current: { email: 'ada@x.com', name: 'Ada Lee' } };
-const offerOptions = vi.fn((cid, p) => Promise.resolve({
+const standard = (cid, p) => Promise.resolve({
   offerFrom: { hr: { email: 'hana@x.com', name: 'Hana Lee' }, department_head: head.current, department: 'Accounting' },
-  country: 'US', companyCountry: 'US', choices: [{ id: 's-offer', name: 'US Employee Offer', workerType: 'employee', country: 'US' }],
-  offerLetter: p.worker_type === 'employee' ? letter : null,
-  hiringPacket: p.worker_type === 'employee' ? packet : null,
-  missing: p.worker_type === 'contractor' ? 'No offer letter is set up for a Contractor in US at Greens yet.' : '',
-}));
+  country: 'US', companyCountry: 'US', region: 'CA', choices: [{ id: 's-offer', name: 'US Employee Offer Letter', workerType: 'employee', country: 'US' }],
+  offerLetter: p.hired_as ? letter : null, hiringPacket: p.hired_as ? packet : null,
+  hiredAs: p.hired_as, whatTheyGet: p.hired_as ? gets(p) : [], blocked: '',
+});
+const offerOptions = vi.fn(standard);
 const startOffer = vi.fn(() => Promise.resolve({ id: 'ev-offer', candidateId: 'c1', kind: 'offer', status: 'review' }));
-const getDocTemplates = vi.fn(() => Promise.resolve([]));
-const plainOptions = { roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting', defaultManagerEmail: '' }], departments: ['Accounting'] };
+const plainOptions = { roles: [{ id: 'jr-an', name: 'Accountant', department: 'Accounting', defaultManagerEmail: '' }], departments: ['Accounting'] };
 const hiringOptions = vi.fn(() => Promise.resolve(plainOptions));
 const people = { current: [] };
 vi.mock('../api', () => ({ api: {
   offerOptions: (...a) => offerOptions(...a),
   startOffer: (...a) => startOffer(...a),
   hiringOptions: (...a) => hiringOptions(...a),
-  getDocTemplates: (...a) => getDocTemplates(...a),
 } }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: people.current }) }));
+const packetsProps = vi.fn();
+vi.mock('./HiringPacket', () => ({ PacketsModal: (props) => {
+  packetsProps(props);
+  return <div>Hiring Setup Open <button type="button" onClick={props.onClose}>Close Setup</button></div>;
+} }));
 const { default: OfferModal } = await import('./OfferModal');
 
-const cand = { id: 'c1', firstName: 'Jane', lastName: 'Doe', email: 'jane@gmail.com', company: 'co', roleId: 'jr-an', expectedStart: '2030-11-02' };
-const next = () => fireEvent.click(screen.getByText('Continue'));
+const cand = { id: 'c1', firstName: 'Jane', lastName: 'Doe', email: 'jane@gmail.com', company: 'e-gg', roleId: 'jr-an', expectedStart: '2030-11-02' };
+const hire = (name) => fireEvent.click(screen.getByRole('radio', { name }));
+const sendBtn = () => screen.getByText('Send Offer Letter').closest('button');
+const ready = () => waitFor(() => expect(sendBtn()).not.toBeDisabled());
+
+beforeEach(() => { offerOptions.mockImplementation(standard); startOffer.mockClear(); });
 
 describe('OfferModal', () => {
-  it('asks employee or contractor first, then only what the chosen letter needs, step by step', async () => {
+  it('Hired As is four pills, and what they get follows the pick', async () => {
+    render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    expect(screen.getAllByRole('radio').map(r => r.textContent)).toEqual(['Full-Time Employee', 'Part-Time Employee', 'Contractor', 'Intern']);
+    expect(screen.getByText(/Pick how they are hired/)).toBeTruthy();                 // nothing guessed
+    expect(screen.queryByLabelText('Job Description')).toBeNull();                    // no JD dropdown
+    hire('Full-Time Employee');
+    await waitFor(() => expect(offerOptions).toHaveBeenLastCalledWith('c1', expect.objectContaining({ hired_as: 'full_time', worker_type: 'employee' })));
+    expect(await screen.findByText('Accountant - Standard')).toBeTruthy();
+    expect(screen.getByText('US Employee Offer Letter')).toBeTruthy();
+    expect(screen.getByText('California Employee Hiring Packet')).toBeTruthy();
+    hire('Contractor');
+    await waitFor(() => expect(offerOptions).toHaveBeenLastCalledWith('c1', expect.objectContaining({ hired_as: 'contractor', worker_type: 'contractor' })));
+    expect(await screen.findByText('Accountant - Contractors Version')).toBeTruthy();
+    expect(screen.getByText('Only For Contractors')).toBeTruthy();
+    expect(screen.getByText('US Employee Offer Letter')).toBeTruthy();                // same letter, different duties
+    expect(screen.getByText('Fee')).toBeTruthy();
+  });
+
+  it('sends hired_as and never a job description id; pay never goes in merge', async () => {
     const onStarted = vi.fn();
     render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={onStarted} toastErr={() => {}} />);
-    await waitFor(() => expect(offerOptions).toHaveBeenCalled());
-    expect(screen.queryByText(/Offer letter:/)).toBeNull();          // nothing guessed
-    expect(screen.queryByText('Choose Employee or Contractor.')).toBeNull();   // nothing nags before you choose
-    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
-    next();
-    expect(screen.getByText('Choose Employee or Contractor.')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('radio', { name: 'Contractor' }));
-    await waitFor(() => expect(screen.getByText(/No offer letter is set up for a Contractor/)).toBeTruthy());
-
-    fireEvent.click(screen.getByRole('radio', { name: 'Employee' }));
-    await waitFor(() => expect(screen.getByText('US Employee Offer')).toBeTruthy());
-    expect(screen.getByText(/Analyst Hiring/)).toBeTruthy();
-    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
-    next();
-    expect(screen.getByText('The offer')).toBeTruthy();
-    expect(screen.getByLabelText('Primary Work Location')).toBeTruthy();   // the letter prints it
-    fireEvent.change(screen.getByLabelText('Primary Work Location'), { target: { value: 'Irvine, CA' } });
+    await ready();
+    fireEvent.click(sendBtn());
+    expect(screen.getByText('Choose how they are hired.')).toBeTruthy();
+    hire('Part-Time Employee');
+    await screen.findByText('Accountant - Standard');
+    await ready();
+    fireEvent.change(screen.getByLabelText('Primary Work Location'), { target: { value: 'Irvine, CA' } });   // the letter prints it
     fireEvent.change(screen.getByLabelText('Pay'), { target: { value: '85000' } });
-    next();
-    expect(screen.getByLabelText('Probation Period *')).toBeTruthy();       // the letter asks HR
-    fireEvent.click(screen.getByText('Create Offer Letter'));
-    expect(screen.getByText('Answer Probation Period.')).toBeTruthy();       // required, said at the field's step
+    fireEvent.click(sendBtn());
+    expect(screen.getByText('Answer Probation Period.')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Probation Period *'), { target: { value: '90 days' } });
     fireEvent.change(screen.getByLabelText('Joining Bonus'), { target: { value: '$2,000' } });
-    fireEvent.click(screen.getByText('Create Offer Letter'));
+    fireEvent.click(sendBtn());
     await waitFor(() => expect(onStarted).toHaveBeenCalledWith(expect.objectContaining({ id: 'ev-offer' })));
     const [cid, body] = startOffer.mock.calls[0];
     expect(cid).toBe('c1');
-    expect(body.inputs).toMatchObject({ worker_type: 'employee', employment_type: 'full_time', country: 'US', role_id: 'jr-an',
-      work_location: 'Irvine, CA', merge: { probation_period: '90 days' } });
-    expect(body.pay_values).toEqual({ joining_bonus: '$2,000' });            // pay never goes in merge
+    expect(body.inputs).toMatchObject({ hired_as: 'part_time', worker_type: 'employee', employment_type: 'part_time', country: 'US', region: 'CA',
+      role_id: 'jr-an', work_location: 'Irvine, CA', merge: { probation_period: '90 days' } });
+    expect(body.inputs).not.toHaveProperty('jd_template_id');
+    expect(body.pay_values).toEqual({ joining_bonus: '$2,000' });
     expect(body.pay).toMatchObject({ base: 85000, payBasis: 'salary' });
+  });
+
+  it('an amber item blocks Send, and Set It Up opens the Hiring Setup over the offer, keeping the form', async () => {
+    offerOptions.mockImplementation((cid, p) => standard(cid, p).then(o => (p.hired_as !== 'contractor' ? o : {
+      ...o, offerLetter: null, hiringPacket: null, blocked: 'Fix the amber item before sending.',
+      whatTheyGet: [line('offer', 'Offer Letter', 'Nothing Yet For Contractors In California', "A contractor can't be hired here yet", 'missing',
+        { blocks: true, fix: { action: 'setUp', target: { entityId: 'e-gg', rowKey: 'contractor:US:CA', column: 'offer' } } }), ...gets(p).slice(1)],
+    })));
+    render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    hire('Contractor');
+    expect(await screen.findByText('Nothing Yet For Contractors In California')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Fix the amber item before sending.')).toBeTruthy());
+    expect(sendBtn()).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Fee'), { target: { value: '6500' } });
+    fireEvent.click(screen.getByText('Set It Up'));
+    expect(await screen.findByText('Hiring Setup Open')).toBeTruthy();
+    expect(packetsProps).toHaveBeenLastCalledWith(expect.objectContaining({ initialCompanyId: 'e-gg',
+      focus: { entityId: 'e-gg', rowKey: 'contractor:US:CA', column: 'offer' } }));
+    const calls = offerOptions.mock.calls.length;
+    fireEvent.click(screen.getByText('Close Setup'));
+    await waitFor(() => expect(offerOptions.mock.calls.length).toBeGreaterThan(calls));     // fetched again
+    expect(screen.queryByText('Hiring Setup Open')).toBeNull();
+    expect(screen.getByLabelText('Fee').value).toBe('6500');                              // the form kept its values
+  });
+
+  it('a role with no duties: Add Duties opens the role', async () => {
+    offerOptions.mockImplementation((cid, p) => standard(cid, p).then(o => ({ ...o, blocked: 'Fix the amber item before sending.',
+      whatTheyGet: p.hired_as ? [...gets(p).slice(0, 2), line('jd', 'Job Description', 'Accountant - no duties written', 'Add them before sending', 'missing',
+        { blocks: true, fix: { action: 'addDuties', target: { entityId: 'e-gg', roleId: 'jr-an' } } })] : [] })));
+    render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    hire('Full-Time Employee');
+    fireEvent.click(await screen.findByText('Add Duties'));
+    await screen.findByText('Hiring Setup Open');
+    expect(packetsProps).toHaveBeenLastCalledWith(expect.objectContaining({ focus: { entityId: 'e-gg', roleId: 'jr-an' } }));
   });
 
   // Neil, Oct 22: Supervisor keeps its name with a Reports To tip; the offer
   // comes from the head of HR unless HR picks the department head.
-  it('Supervisor says Reports To, and the offer comes from Head of HR or the department head', async () => {
-    startOffer.mockClear();
+  it('the offer comes from Head of HR or the department head, under More Options', async () => {
     render(<OfferModal candidate={cand} canSeePay={false} onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
-    fireEvent.click(await screen.findByRole('radio', { name: 'Employee' }));
-    await waitFor(() => expect(screen.getByText('US Employee Offer')).toBeTruthy());
-    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
-    next();
+    hire('Full-Time Employee');
+    await screen.findByText('Accountant - Standard');
     expect(screen.getByText(/Reports To - the person this hire reports to day to day/)).toBeTruthy();
+    expect(screen.getByText('More Options')).toBeTruthy();
     const from = screen.getByLabelText('Offer Comes From');
     expect(from.value).toBe('hr');
-    expect(screen.getByText('Head of HR - Hana Lee')).toBeTruthy();
     fireEvent.change(from, { target: { value: 'department_head' } });
-    next();
     fireEvent.change(screen.getByLabelText('Probation Period *'), { target: { value: '90 days' } });
-    fireEvent.click(screen.getByText('Create Offer Letter'));
+    await ready();
+    fireEvent.click(sendBtn());
     await waitFor(() => expect(startOffer).toHaveBeenCalled());
     expect(startOffer.mock.calls[0][1].inputs.offer_from).toBe('department_head');
   });
 
-  it('no department head: that choice is off and says why', async () => {
-    head.current = null;
-    render(<OfferModal candidate={cand} canSeePay={false} onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
-    fireEvent.click(await screen.findByRole('radio', { name: 'Employee' }));
-    await waitFor(() => expect(screen.getByText('US Employee Offer')).toBeTruthy());
-    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
-    next();
-    expect(screen.getByText('Department Head - none set up').disabled).toBe(true);
-    expect(screen.getByText(/The Accounting department has no head set up/)).toBeTruthy();
-    head.current = { email: 'ada@x.com', name: 'Ada Lee' };
-  });
-
   it('hides pay from someone without Pay & Benefits', async () => {
     render(<OfferModal candidate={cand} canSeePay={false} onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
-    fireEvent.click(await screen.findByRole('radio', { name: 'Employee' }));
-    await waitFor(() => expect(screen.getByText('US Employee Offer')).toBeTruthy());
-    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
-    next();
+    hire('Full-Time Employee');
+    await screen.findByText('Accountant - Standard');
     expect(screen.queryByLabelText('Pay')).toBeNull();
-    next();
+    expect(screen.getByText('Pay is added by someone with Pay & Benefits access.')).toBeTruthy();
     expect(screen.getByLabelText('Joining Bonus').disabled).toBe(true);
   });
-});
 
-// Oct 22: HR sees what the packet holds for this hire, and the one Job
-// Description document is picked for them.
-describe('OfferModal - what the packet holds', () => {
-  it('lists the packet documents and picks the only job description', async () => {
-    getDocTemplates.mockResolvedValueOnce([{ id: 'jd-1', name: 'Job Description' }]);
+  it('Works In shows the place, and Change lets HR pick another state', async () => {
     render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
-    fireEvent.click(screen.getByRole('radio', { name: 'Employee' }));
-    expect(await screen.findByText(/It holds: NDA, and the job description/)).toBeTruthy();
-  });
-});
-
-
-// Neil, Oct 22: never an offer with nothing after it, and the state is part
-// of where they work (California and Texas get different paperwork).
-describe('OfferModal - place and the packet that follows', () => {
-  it('asks the state for a US hire and will not go on when no hiring packet follows', async () => {
-    offerOptions.mockImplementation((cid, p) => Promise.resolve({
-      country: 'US', companyCountry: 'US', region: 'CA', companyRegion: 'CA', choices: [],
-      offerLetter: p.worker_type ? letter : null, hiringPacket: null, missing: '',
-      missingPacket: p.worker_type ? 'No hiring packet is set up for an Employee in TX, US at Greens - set one up before sending the offer.' : '',
-    }));
-    render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
-    await waitFor(() => expect(screen.getByLabelText('State').value).toBe('CA'));      // the company's state
+    await waitFor(() => expect(screen.getByText('California, United States')).toBeTruthy());
+    expect(screen.queryByLabelText('State')).toBeNull();
+    fireEvent.click(screen.getByText('Change', { selector: 'button' }));
     fireEvent.change(screen.getByLabelText('State'), { target: { value: 'TX' } });
     await waitFor(() => expect(offerOptions).toHaveBeenLastCalledWith('c1', expect.objectContaining({ region: 'TX' })));
-    fireEvent.click(screen.getByRole('radio', { name: 'Employee' }));
-    expect(await screen.findByText(/No hiring packet is set up for an Employee in TX/)).toBeTruthy();
-    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
-    next();
-    expect(screen.getByText(/Set up the hiring packet for this place first/)).toBeTruthy();
-    expect(screen.queryByText('The offer')).toBeNull();
   });
 });
 
-// Neil, Oct 22 (34:45): "Supervisor should be the department head ... once you
-// get the department wiring set up correctly one time in company, it should be
-// applicable everywhere." The default follows the role; HR's own pick stays.
+// Neil, Oct 22 (34:45): the supervisor default follows the role; HR's own pick stays.
 describe('OfferModal - the supervisor follows the role', () => {
   const wired = {
-    roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting', defaultManagerEmail: 'amy@x.com' },
+    roles: [{ id: 'jr-an', name: 'Accountant', department: 'Accounting', defaultManagerEmail: 'amy@x.com' },
             { id: 'jr-ops', name: 'Coordinator', department: 'Operations', defaultManagerEmail: 'bo@x.com' }],
     departments: ['Accounting', 'Operations', 'Leasing'], departmentLeads: { ' leasing': ['dee@x.com'] },
   };
-  const toOffer = async () => {
-    await waitFor(() => expect(screen.getByText('Continue').closest('button')).not.toBeDisabled());
-    next();
-  };
   const start = async () => {
-    offerOptions.mockImplementation((cid, p) => Promise.resolve({ country: 'US', companyCountry: 'US', region: 'CA', choices: [],
-      offerLetter: p.worker_type ? letter : null, hiringPacket: p.worker_type ? packet : null, offerFrom: {} }));
     hiringOptions.mockResolvedValue(wired);
     people.current = [{ email: 'amy@x.com', name: 'Amy Fox' }, { email: 'bo@x.com', name: 'Bo Chen' },
                       { email: 'cy@x.com', name: 'Cy Park' }, { email: 'dee@x.com', name: 'Dee Wu' }];
     render(<OfferModal candidate={cand} canSeePay={false} onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
-    fireEvent.click(screen.getByRole('radio', { name: 'Employee' }));
-    await waitFor(() => expect(screen.getByText('US Employee Offer')).toBeTruthy());
-    await waitFor(() => expect(screen.getByLabelText('Role').value).toBe('jr-an'));
+    await waitFor(() => expect(screen.getByText('Amy Fox')).toBeTruthy());
   };
 
   it('switching the role replaces the old role default supervisor', async () => {
     await start();
     fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'jr-ops' } });
-    await toOffer();
     expect(screen.getByText('Bo Chen')).toBeTruthy();
     expect(screen.queryByText('Amy Fox')).toBeNull();
   });
 
   it('keeps a supervisor HR picked by hand when the role changes', async () => {
     await start();
-    await toOffer();
-    expect(screen.getByText('Amy Fox')).toBeTruthy();                       // the role's default
-    fireEvent.click(screen.getByText('Change'));
+    fireEvent.click(screen.getAllByText('Change', { selector: 'button.secondary-btn' })[0]);
     fireEvent.change(screen.getByPlaceholderText('Type a name or email'), { target: { value: 'Cy' } });
     fireEvent.mouseDown(await screen.findByRole('option', { name: /Cy Park/ }));
-    fireEvent.click(screen.getByText('Back'));
     fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'jr-ops' } });
-    await toOffer();
     expect(screen.getByText('Cy Park')).toBeTruthy();
   });
 
-  it('a new role defaults to the department head, however the name is spelled', async () => {
+  it('a new role defaults to the department head', async () => {
     await start();
     fireEvent.change(screen.getByLabelText('Role'), { target: { value: '__other__' } });
     fireEvent.change(screen.getByLabelText('New Role Name'), { target: { value: 'Leasing Agent' } });
     fireEvent.change(screen.getByLabelText('Department'), { target: { value: 'Leasing' } });
-    await toOffer();
     expect(screen.getByText('Dee Wu')).toBeTruthy();
     people.current = [];
     hiringOptions.mockResolvedValue(plainOptions);

@@ -1,0 +1,141 @@
+import { describe, it, expect } from 'vitest';
+import { findSamples, existingTokens, existingBlank, whoOf, setWho, HIRE_TOKENS } from './wordSamples';
+import { applyBlanks, tokensFor, findBlanks } from './wordBlanks';
+
+// Automatic variables on upload (Oct 23): a filled-in sample letter becomes a
+// template - Nexus finds the sample values, makes the variables and says who
+// fills each one; HR can change any of them or turn one back into text.
+const t = (text, marks) => ({ type: 'text', text, ...(marks ? { marks } : {}) });
+const p = (...runs) => ({ type: 'paragraph', content: runs.map(r => (typeof r === 'string' ? t(r) : r)) });
+const bold = (text) => p(t(text, [{ type: 'bold' }]));
+
+const CTX = { companyLegal: 'Greens Global, LLC', companyName: 'Greens Global', companyAddress: '123 Main St, Fresno, CA 93721',
+  companyPhone: '(559) 555-0100', signatoryName: 'Raj Patel', signatoryTitle: 'President', roleNames: ['Accountant', 'Project Manager'] };
+
+const LETTER = { type: 'doc', content: [
+  p('Greens Global, LLC'),                                         // 0
+  p('123 Main St, Fresno, CA 93721 - (559) 555-0100'),             // 1
+  p('10/23/2026'),                                                 // 2
+  p('Jane Smith, 45 Oak Avenue, Clovis, CA 93611'),                // 3
+  p('Dear Jane Smith,'),                                           // 4
+  p('We are pleased to offer you the position of Accountant, starting 11/02/2026, at $85,000 per year.'),   // 5
+  p('Jane, please call us back. Your phone on file is (559) 555-2233.'),   // 6
+  p('Date of Birth: 04/12/1990'),                                  // 7
+  bold('Duties And Responsibilities'),                             // 8
+  p('Keep the books.'),                                            // 9
+  p('Close the month.'),                                           // 10
+  bold('Signatures'),                                              // 11
+  p('Employee Signature:'),                                        // 12
+] };
+
+const byToken = (list, token) => list.find(b => b.token === token);
+
+describe('findSamples', () => {
+  const found = findSamples(LETTER, CTX);
+
+  it('recognizes the sample values and what each one becomes', () => {
+    expect(byToken(found, 'full_name')).toMatchObject({ kind: 'text', match: 'Jane Smith', who: 'nexus', became: 'Full Name' });
+    expect(byToken(found, 'full_name').places).toHaveLength(2);           // both places it appears
+    expect(byToken(found, 'first_name')).toMatchObject({ match: 'Jane' });
+    expect(byToken(found, 'first_name').places).toHaveLength(1);          // not the one inside "Jane Smith"
+    expect(byToken(found, 'start_date')).toMatchObject({ match: '11/02/2026', became: 'Start Date' });
+    expect(byToken(found, 'salary')).toMatchObject({ match: '$85,000 per year', became: 'Pay' });
+    expect(byToken(found, 'company_legal')).toMatchObject({ match: 'Greens Global, LLC', became: 'Company Legal Name' });
+    expect(byToken(found, 'company_address')).toMatchObject({ match: '123 Main St, Fresno, CA 93721' });
+    expect(byToken(found, 'job_title')).toMatchObject({ match: 'Accountant' });
+    expect(byToken(found, 'today')).toMatchObject({ match: '10/23/2026' });
+  });
+
+  it('puts the new hire\'s own details in the new hire group', () => {
+    expect(byToken(found, 'address')).toMatchObject({ who: 'hire', became: 'Home Address' });
+    expect(byToken(found, 'address').match).toContain('45 Oak Avenue');
+    expect(byToken(found, 'phone')).toMatchObject({ match: '(559) 555-2233', who: 'hire' });
+    expect(found.some(b => b.match === '(559) 555-0100')).toBe(false);    // the company's own phone stays text
+    const dob = found.find(b => b.label === 'Date Of Birth');
+    expect(dob).toMatchObject({ fill: 'ask', who: 'hire', match: '04/12/1990' });
+    expect(tokensFor([dob])).toEqual(['date_of_birth']);                // the name People files it under
+  });
+
+  it('finds the duties section', () => {
+    expect(found.find(b => b.kind === 'section')).toMatchObject({ at: [8, 10], label: 'Duties And Responsibilities' });
+  });
+
+  it('leaves a file that already has variables alone', () => {
+    const doc = { type: 'doc', content: [p('Dear {{full_name}}, you start on {{ start_date }}.'), p('Notice: {{notice_period}}')] };
+    const { doc: json, tokens } = existingTokens(doc);
+    expect(tokens).toEqual(['full_name', 'start_date', 'notice_period']);
+    expect(JSON.stringify(json)).toContain('"type":"mergeField"');
+    expect(JSON.stringify(json)).not.toContain('{{');
+    const vars = [{ token: 'full_name', label: 'Full name', source: 'builtin' }, { token: 'start_date', label: 'Start date', source: 'builtin' }];
+    const kept = tokens.map(x => existingBlank(x, vars));
+    expect(kept.map(whoOf)).toEqual(['nexus', 'nexus', 'you']);         // Notice Period is HR's answer
+    expect(tokensFor(kept)).toEqual(['full_name', 'start_date', 'notice_period']);
+  });
+});
+
+describe('who fills it', () => {
+  it('maps the five choices onto the blank fields', () => {
+    const b = { kind: 'text', label: 'Home Address', fill: 'nexus', token: 'address', rule: 'address' };
+    expect(HIRE_TOKENS.has('address')).toBe(true);
+    expect(whoOf(b)).toBe('hire');
+    expect(setWho(b, 'you')).toMatchObject({ fill: 'hr' });
+    expect(setWho(b, 'same')).toMatchObject({ fill: 'same' });
+    expect(setWho(b, 'paper')).toMatchObject({ fill: 'leave' });
+    expect(setWho({ ...b, fill: 'hr', token: undefined }, 'hire')).toMatchObject({ fill: 'ask' });
+    expect(setWho(b, 'nexus', 'company_address')).toMatchObject({ fill: 'nexus', token: 'company_address', label: 'Company Address' });
+  });
+});
+
+describe('applyBlanks with samples', () => {
+  const found = findSamples(LETTER, CTX);
+
+  it('turns each sample into a variable at every place, and the duties section into the role\'s duties', () => {
+    const blanks = found.map(b => (b.kind === 'section' ? { ...b, answer: 'inside' } : b));
+    const { doc, fieldDefs } = applyBlanks(LETTER, blanks);
+    const json = JSON.stringify(doc);
+    expect(json).not.toContain('Jane Smith');
+    expect(json.match(/"token":"full_name"/g)).toHaveLength(2);
+    expect(json).toContain('"token":"first_name"');
+    expect(json).toContain('"token":"salary"');
+    expect(json).toContain('"token":"company_legal"');
+    expect(json).not.toContain('Keep the books');
+    expect(json).toContain('"token":"role_description"');
+    expect(doc.content[9]).toEqual({ type: 'paragraph', content: [{ type: 'mergeField', attrs: { token: 'role_description' } }] });
+    expect(doc.content[10].content[0].text).toBe('Signatures');      // the next heading is kept
+    expect(fieldDefs).toEqual([expect.objectContaining({ token: 'date_of_birth', source: 'person', type: 'date' })]);
+  });
+
+  it('keeps the section text when the duties go on their own page or nowhere', () => {
+    ['page', 'none'].forEach(answer => {
+      const { doc } = applyBlanks(LETTER, found.map(b => (b.kind === 'section' ? { ...b, answer } : b)));
+      expect(JSON.stringify(doc)).toContain('Keep the books');
+    });
+  });
+
+  it('Turn Back Into Text leaves the original text', () => {
+    const { doc } = applyBlanks(LETTER, found.filter(b => b.token !== 'salary'));
+    expect(JSON.stringify(doc)).toContain('$85,000 per year');
+  });
+
+  it('a renamed label changes the token; a new hire label uses the canonical token', () => {
+    const notice = { kind: 'text', match: '30 days', pattern: '30 days', places: [], label: 'Notice Period', fill: 'hr', rule: 'label' };
+    const renamed = { ...notice, label: 'Notice Window' };
+    const pan = { kind: 'text', match: 'ABCDE1234F', pattern: 'ABCDE1234F', places: [], label: 'PAN', fill: 'ask', rule: 'label' };
+    expect(tokensFor([notice, pan])).toEqual(['notice_period', 'pan_number']);
+    expect(tokensFor([renamed])).toEqual(['notice_window']);
+    const doc = { type: 'doc', content: [p('Notice: 30 days. PAN: ABCDE1234F')] };
+    const out = applyBlanks(doc, [renamed, pan]);
+    expect(JSON.stringify(out.doc)).toContain('"token":"notice_window"');
+    expect(out.fieldDefs.map(f => [f.token, f.source])).toEqual([['notice_window', 'hr'], ['pan_number', 'person']]);
+  });
+});
+
+describe('signatures and who signs', () => {
+  it('writes the chosen signer onto the block and returns the signer keys', () => {
+    const doc = { type: 'doc', content: [p('Employee Signature:'), p('COMPANY'), p('By: ________'), p('Date:')] };
+    const blanks = findBlanks(doc).map(b => (b.kind === 'signature' && b.who === 'company' ? { ...b, who: 'signatory' } : b));
+    const out = applyBlanks(doc, blanks);
+    expect(out.doc.content.map(n => n.attrs?.role)).toEqual(['employee', undefined, 'signatory']);
+    expect(out.signers).toEqual(['employee', 'signatory']);
+  });
+});

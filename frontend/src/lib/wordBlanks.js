@@ -18,9 +18,9 @@
 //              because the block draws its own.
 import { formKey } from './packetFlow';
 
-const textOf = (n) => (!n ? '' : n.type === 'text' ? (n.text || '') : (n.content || []).map(textOf).join(''));
+export const textOf = (n) => (!n ? '' : n.type === 'text' ? (n.text || '') : (n.content || []).map(textOf).join(''));
 const NBSP = /\u00a0/g;
-const clean = (s) => String(s || '').replace(NBSP, ' ').replace(/\s+/g, ' ').trim();
+export const clean = (s) => String(s || '').replace(NBSP, ' ').replace(/\s+/g, ' ').trim();
 const cleanLabel = (s) => clean(s).replace(/[:\s_]+$/, '').replace(/^[\s:_]+/, '');
 
 // What Nexus fills by itself - the choices of "Nexus fills it".
@@ -37,6 +37,8 @@ export const NEXUS_FIELDS = [
   ['work_location', 'Work Location (From The Offer)'], ['work_schedule', 'Work Hours And Days'],
   ['worker_type', 'Hired As (Employee / Contractor)'], ['employment_type', 'Employment Type'],
   ['offer_expires', 'Offer Expires'],
+  // Hiring Setup (Oct 23): the role's duties and who signs for the company.
+  ['role_description', "The Role's Duties"], ['signatory', 'Signs For The Company - Name And Title'],
 ];
 const NEXUS_KEYS = new Set(NEXUS_FIELDS.map(([k]) => k));
 
@@ -51,6 +53,31 @@ const PRIVATE = /account (number|no)|aadha+r|\bpan\b|\bssn\b|social security|pas
 // HR's answer that is pay.
 const PAYISH = /salary|wage|\bpay\b|payment|compensation|\bctc\b|stipend|\bfees?\b|bonus|commission|incentive|allowance|equity|stock|amount|\brate\b/;
 
+// The new hire's own details under the names People files them by
+// (hr_life_events._profile_from_answers), so "DOB" and "Date of Birth" are
+// one {{date_of_birth}} that lands on their record. First match wins.
+export const HIRE_LABELS = [
+  [/account holder/, 'Account Holder Name', 'account_holder_name'],
+  [/account type|type of account/, 'Account Type', 'account_type'],
+  [/date of birth|\bdob\b|birth ?date/, 'Date Of Birth', 'date_of_birth'],
+  [/\bgender\b/, 'Gender', 'gender'],
+  [/\bpan\b/, 'PAN Number', 'pan_number'],
+  [/aadha+r/, 'Aadhaar Number', 'aadhaar_number'],
+  [/social security|\bssn\b/, 'Social Security Number', 'ssn'],
+  [/national id/, 'National ID', 'national_id'],
+  [/ifsc/, 'IFSC Code', 'ifsc_code'],
+  [/routing/, 'Routing Number', 'routing_number'],
+  [/bank name|name of (the )?bank/, 'Bank Name', 'bank_name'],
+  [/account (number|no)/, 'Bank Account Number', 'bank_account_number'],
+  [/business name|doing business as|\bdba\b|trade name/, 'Business Name', 'business_name'],
+];
+/** The canonical {label, token} for a new hire's own detail, or null. */
+export function hireLabel(label) {
+  const l = clean(label).toLowerCase();
+  const hit = HIRE_LABELS.find(([re]) => re.test(l));
+  return hit ? { label: hit[1], token: hit[2] } : null;
+}
+
 /** Whether a person's answer should be Private (Pay & Benefits only). */
 export const guessPrivate = (label) => PRIVATE.test(clean(label).toLowerCase());
 /** Whether an HR answer is pay - entered only by Pay & Benefits holders. */
@@ -58,6 +85,9 @@ export const guessPay = (label) => PAYISH.test(clean(label).toLowerCase());
 
 // The person's own details - asked on the Details Form.
 const PERSONAL = /\bpan\b|aadha+r|\bssn\b|social security|passport|account (number|no)|ifsc|\bupi\b|\bbank\b|branch|licen[cs]e|date of birth|\bdob\b|birth|gender|nationality|marital|blood|whatsapp|middle name|\bcity\b|\bstate\b|pin ?code|zip|postal|account holder|type of account|account type|18 or older/;
+
+/** Whether a label names the person's own detail (asked on the Details Form). */
+export const isPersonal = (label) => PERSONAL.test(clean(label).toLowerCase()) || !!hireLabel(label);
 
 /** The best guess for a blank, from its label and where it sits. */
 export function guessFill(label, ctx = {}) {
@@ -70,7 +100,8 @@ export function guessFill(label, ctx = {}) {
     if (/phone|telephone|mobile|number/.test(l) && !/e-?mail/.test(l)) return { fill: 'nexus', token: 'emergency_phone' };
     if (/name/.test(l)) return { fill: 'nexus', token: 'emergency_name' };
   }
-  if (PERSONAL.test(l)) return { fill: 'ask' };
+  if (/duties|responsibilit|job description|scope of work/.test(l)) return { fill: 'nexus', token: 'role_description' };
+  if (PERSONAL.test(l) || /business name|doing business|\bdba\b|trade name/.test(l)) return { fill: 'ask' };
   if (/client/.test(l)) return { fill: 'same' };
   if (/work location|place of work|location of work|primary location|office location|work site/.test(l)) return { fill: 'nexus', token: 'work_location' };
   if (/working hours|hours of work|work hours|work schedule|shift timing|timings/.test(l)) return { fill: 'nexus', token: 'work_schedule' };
@@ -265,12 +296,15 @@ export function tokensFor(blanks) {
   const byLabel = new Map();
   const used = new Set();
   return blanks.map(b => {
+    // A {{variable}} the file already had keeps its name.
+    if (b.kind === 'existing') return b.fill === 'leave' ? '' : b.fill === 'nexus' ? b.token : b.orig;
     if (b.fill === 'nexus') return b.token;
     if (b.fill !== 'ask' && b.fill !== 'same' && b.fill !== 'hr') return '';
-    const key = clean(b.label).toLowerCase();
+    const canon = b.fill === 'ask' ? hireLabel(b.label) : null;
+    const key = (canon ? canon.label : clean(b.label)).toLowerCase();
     if (byLabel.has(key)) return byLabel.get(key);
     // "Driver's Licence No. (if applicable)" -> drivers_licence_no
-    let token = formKey(String(b.label).replace(/\([^)]*\)/g, ' ').replace(/'s\b/gi, 's')) || 'detail';
+    let token = canon ? canon.token : formKey(String(b.label).replace(/\([^)]*\)/g, ' ').replace(/'s\b/gi, 's')) || 'detail';
     while (NEXUS_KEYS.has(token) || used.has(token)) token = `${token}_value`;
     used.add(token);
     byLabel.set(key, token);
@@ -290,10 +324,19 @@ export function applyBlanks(doc, blanks) {
     const token = tokens[n];
     if (b.kind === 'signature') {
       if (b.fill !== 'sign') return;
-      const role = b.who === 'company' ? 'company' : 'employee';
+      const role = b.who || 'employee';     // employee | company, or (Hiring Setup) hr | signatory | manager
       signers.add(role);
       blocks[b.at[0]] = { type: 'signatureBlock', attrs: { role, label: /^(company|signature)$/i.test(b.label) ? '' : b.label, withName: true, withDate: true } };
       (b.absorb || []).forEach(j => remove.add(j));
+      return;
+    }
+    // A duties section HR chose to print the role's duties in (Hiring Setup):
+    // its body becomes one {{role_description}}; the heading stays.
+    if (b.kind === 'section') {
+      const [s, e] = b.at || [];
+      if (b.answer !== 'inside' || !(e > s)) return;
+      blocks[s + 1] = { type: 'paragraph', content: [mf('role_description')] };
+      for (let j = s + 2; j <= e; j++) remove.add(j);
       return;
     }
     if (!token) return;
@@ -309,6 +352,10 @@ export function applyBlanks(doc, blanks) {
         ...(b.fill === 'ask' ? { sensitive: b.private ?? guessPrivate(b.label) } : {}),
         ...(b.fill === 'hr' ? { pay: b.pay ?? guessPay(b.label) } : {}),
       });
+    }
+    if (b.kind === 'existing') {                     // already in place - renamed only when HR picked a Nexus field
+      if (token !== b.orig) renameField(out, b.orig, token);
+      return;
     }
     if (b.kind === 'text' || !b.at) return;          // placed below, wherever it appears
     const target = blocks[b.at[0]];
@@ -328,10 +375,15 @@ export function applyBlanks(doc, blanks) {
       replaceMatch(target, GAP, b.occurrence, token);
     }
   });
+  // Sample text Nexus recognized (lib/wordSamples.js): every place it appears,
+  // longest first so "Jane Smith" is placed before "Jane".
+  blanks.map((b, n) => [b, tokens[n]]).filter(([b, token]) => b.kind === 'text' && b.pattern && token)
+    .sort(([a], [b]) => b.match.length - a.match.length)
+    .forEach(([b, token]) => eachPar(out, par => replaceAll(par, new RegExp(b.pattern, 'g'), token)));
   // Text HR picked by hand ("Missed one?"): every chosen place it appears.
   blanks.forEach((b, n) => {
     const token = tokens[n];
-    if (b.kind !== 'text' || !token || !b.match) return;
+    if (b.kind !== 'text' || b.pattern || !token || !b.match) return;
     const re = new RegExp(escapeRe(b.match), 'gi');
     const byPar = new Map();
     (b.places || []).forEach(pl => {
@@ -349,7 +401,25 @@ export function applyBlanks(doc, blanks) {
   return { doc: out, fieldDefs: [...defs.values()], signers: [...signers] };
 }
 
-const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export function eachPar(node, fn) {
+  if (!node || typeof node !== 'object') return;
+  if ((node.type === 'paragraph' || node.type === 'heading') && Array.isArray(node.content)) { fn(node); return; }
+  (node.content || []).forEach(c => eachPar(c, fn));
+}
+function replaceAll(par, re, token) {
+  for (let guard = 0; guard < 100; guard++) {
+    const before = par.content;
+    replaceMatch(par, re, 0, token);
+    if (par.content === before) return;
+  }
+}
+function renameField(node, from, to) {
+  if (!node || typeof node !== 'object') return;
+  if (node.type === 'mergeField' && node.attrs?.token === from) node.attrs = { ...node.attrs, token: to };
+  (node.content || []).forEach(c => renameField(c, from, to));
+}
+
+export const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const nodeAt = (root, path) => path.reduce((n, i) => (n && n.content ? n.content[i] : undefined), root);
 
 /** Every place a piece of text appears in the document (paragraphs and
@@ -376,6 +446,41 @@ export function findText(doc, query) {
   };
   walk(doc, []);
   return out;
+}
+
+// A duties section (Hiring Setup, Oct 23): a heading or short line - a
+// heading, bold, ending in ":" or numbered - that says duties,
+// responsibilities, job description or scope of work, through the block
+// before the next heading. {kind:'section', at:[start, end], label} or null.
+const DUTIES = /duties|responsibilit|job description|scope of work/i;
+const NUMBERED = /^(\d+(\.\d+)*[.)]?|[IVX]+\.|[A-Z][.)])\s+\S/;
+const allBold = (b) => {
+  const runs = (b.content || []).filter(r => r.type === 'text' && r.text?.trim());
+  return runs.length > 0 && runs.every(r => (r.marks || []).some(m => m.type === 'bold'));
+};
+const headingLike = (b) => {
+  if (b?.type === 'heading') return true;
+  if (b?.type !== 'paragraph') return false;
+  const t = clean(textOf(b));
+  return !!t && t.length <= 60 && (allBold(b) || /:$/.test(t) || (NUMBERED.test(t) && !/[.;]$/.test(t)));
+};
+export function findSection(doc) {
+  const blocks = doc?.content || [];
+  for (let i = 0; i < blocks.length; i++) {
+    const t = clean(textOf(blocks[i]));
+    if (!headingLike(blocks[i]) || !DUTIES.test(t)) continue;
+    let end = i;
+    for (let j = i + 1; j < blocks.length; j++) {
+      const b = blocks[j];
+      const bt = clean(textOf(b));
+      if (b.type === 'pageBreak' || headingLike(b) || SIGNATURE.test(bt) || BY_LINE.test(bt)) break;
+      end = j;
+    }
+    while (end > i && !clean(textOf(blocks[end]))) end -= 1;   // trailing empty lines stay
+    const label = t.replace(/^(\d+(\.\d+)*[.)]?|[IVX]+\.|[A-Z][.)])\s+/, '').replace(/:$/, '').trim();
+    if (end > i) return { kind: 'section', at: [i, end], label, context: t };
+  }
+  return null;
 }
 
 /** Real pages at Word's own page breaks - the editor's shape. */
