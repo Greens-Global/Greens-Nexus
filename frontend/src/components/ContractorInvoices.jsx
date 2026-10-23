@@ -85,7 +85,7 @@ export function InvoiceCard({ invoice, toastOk, toastErr, onSent }) {
       {btn && <button type="button" className="secondary-btn" onClick={() => setOpen(true)} style={{ fontSize: 12.5 }}>{btn}</button>}
       {canSend && (
         <button type="button" className="primary-btn" onClick={send} disabled={sending || noRecipients}
-          title={noRecipients ? `No recipients set for ${inv.companyName || 'this company'} - add Contractor Invoice Recipients in Company Settings.` : undefined}
+          title={noRecipients ? `No recipients set for ${inv.companyName || 'this company'} - add Contractor Invoice Recipients in Settings > Companies.` : undefined}
           style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: noRecipients ? 0.55 : 1 }}>
           {sending ? <Spinner size={13} /> : <Send size={13} />} Approve &amp; Send
         </button>
@@ -165,7 +165,7 @@ export default function ContractorInvoices({ toastOk, toastErr, onChanged }) {
                         <button type="button" className="secondary-btn" onClick={() => setPreview(inv)} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Eye size={13} /> Preview</button>
                         {inv.status === 'draft' && (
                           <button type="button" className="primary-btn" disabled={noRecipients || busy === inv.id} onClick={() => send(inv)}
-                            title={noRecipients ? `No recipients set for ${inv.companyName || 'this company'} - add Contractor Invoice Recipients in Company Settings.` : `To: ${(inv.recipients || []).join(', ')}`}
+                            title={noRecipients ? `No recipients set for ${inv.companyName || 'this company'} - add Contractor Invoice Recipients in Settings > Companies.` : `To: ${(inv.recipients || []).join(', ')}`}
                             style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: noRecipients ? 0.55 : 1 }}>
                             <Send size={13} /> Approve & Send
                           </button>
@@ -173,7 +173,7 @@ export default function ContractorInvoices({ toastOk, toastErr, onChanged }) {
                       </div>
                       {inv.status === 'draft' && noRecipients && (
                         <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 4, whiteSpace: 'normal', maxWidth: 260, textAlign: 'right' }}>
-                          No recipients set for {inv.companyName || 'this company'} - add Contractor Invoice Recipients in Company Settings.
+                          No recipients set for {inv.companyName || 'this company'} - add Contractor Invoice Recipients in Settings &gt; Companies.
                         </div>
                       )}
                     </td>

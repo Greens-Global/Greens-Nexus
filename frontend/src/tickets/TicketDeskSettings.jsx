@@ -76,7 +76,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // turning it off. Like, I don't want a construction ticket."). They are added,
 // renamed and deleted in Settings > Company Settings only; here each one gets
 // an on/off switch for Submit a Ticket, its head, and its place in the order.
-const goToCompanySettings = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'company' } }));
+const goToCompanySettings = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'companies' } }));
 
 function SwitchButton({ on, onClick, label }) {
   return (
@@ -101,7 +101,7 @@ function DepartmentHeads({ companyId, companyName, depts, people, agents, onSetH
   const manageLink = (
     <button type="button" onClick={goToCompanySettings}
       style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 'inherit', color: 'var(--wk-brand)', fontWeight: 600 }}>
-      Settings &gt; Company Settings
+      Settings &gt; Companies
     </button>
   );
   return (
@@ -386,7 +386,7 @@ export default function TicketDeskSettings() {
           {detail}
           {companies.length === 0 && (
             <div style={{ fontSize: 12, color: NX.faint, marginTop: 10 }}>
-              No companies are set up yet. Add one in Settings &gt; Company Settings to give it its own agents.
+              No companies are set up yet. Add one in Settings &gt; Companies to give it its own agents.
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>

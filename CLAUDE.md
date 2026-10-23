@@ -279,7 +279,7 @@ keep the diff minimal.
   `company_id` ('' = shared); writes go through `_require_company_manage`.
   Trading (swaps, offers, open-shift requests), releasing a shift to the open
   pool and cross-team open shifts are OFF by default (Neil) - switches in
-  Global Settings > Shifts, per company. `shift_attendance.py`: the no-show
+  Settings > Shifts & Scheduling, per company. `shift_attendance.py`: the no-show
   scan (every minute, in a thread; one rollup bell per team and day to the
   manager, backup manager and group schedulers, one email, resolved in
   place; `noShowAlertMin`, 0 = off) and `actuals()` (On Time / Late / Left
@@ -302,6 +302,28 @@ keep the diff minimal.
   `shift_confirm.py` the confirm-my-schedule ask and nudge,
   `shift_offboard.py` clears a leaver's future shifts. New shift tables rely
   on `_enable_rls_everywhere`; run `get_advisors` after each release.
+
+- **Settings is one tab (Neil, Oct 23 2026, plan
+  https://claude.ai/artifact/UGtPmeFBrfU6wXhd474erx; `views/AdminConsole.jsx`).**
+  Every setting has ONE scope - the organization, one company, or an
+  organization default a company may override - and the screen shows it: a
+  rail of SUBJECTS (`SUBJECTS`), a Scope picker ("Every company" or one
+  company) and under each subject its setting GROUPS (`GROUPS`), all open -
+  no accordions, nothing behind a click. With a company picked, each subject
+  shows its company face (the old Company Settings tabs, spread over the
+  subjects they belong to: Profile / Departments / Holiday Calendar under
+  Companies, sites under Locations, Roles under People & Access, Checklists
+  under Hiring & Onboarding, the policy under Workforce Analytics); subjects
+  with nothing per company sit under "For every company" in the rail. The
+  sub is `<subject>[:<group>][@<companyId>]`; every pre-merge key
+  (`global`, `global-<category>`, `company`, `access`, `actas`) still lands
+  (`resolveSub`). A new setting = one `GROUPS` entry (subject, face, scope,
+  keywords) + one `renderGroup` case; the panel stays the component its
+  module owns - never a second copy. Settings holds what defines the shape
+  of a module or a company and is changed rarely by an administrator; a
+  module keeps what its managers maintain daily (Tasks > Manage, KB
+  collections, Accounting's own tools stay put). Copy says "Settings >
+  <subject>", never "Global Settings" / "Company Settings".
 
 ## Asana — removed (Sep 2026)
 

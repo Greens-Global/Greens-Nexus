@@ -245,7 +245,9 @@ function RoleMenu({ roles, companyName, placeholder, onPick, disabled = false })
 // the roles people at ANY company can hold are org-wide, so they are managed
 // here (Pranshu, Sep 27 - they had no create/delete anywhere after the split).
 const TABS = [['people', 'People', User], ['jobroles', 'Roles', Shield], ['groups', 'Groups', Users], ['audit', 'Audit', LayoutGrid]];
-const EMBEDDED_TABS = [['people', 'People', User], ['groups', 'Groups', Users], ['jobroles', 'Shared Roles', Shield], ['audit', 'Audit', LayoutGrid]];
+// The matrix tab reads "Matrix" in Settings (Oct 23) - "Audit" next to the
+// Logs tab suggested an audit log, and it is the access matrix.
+const EMBEDDED_TABS = [['people', 'People', User], ['groups', 'Groups', Users], ['jobroles', 'Shared Roles', Shield], ['audit', 'Matrix', LayoutGrid]];
 // Company Settings' "Manage Shared Roles" link leaves this note so Access opens
 // straight on the Shared Roles tab.
 export const PENDING_ACCESS_TAB = 'access-tab';
@@ -502,7 +504,7 @@ export default function RolesAccess({ embedded = false }) {
   const allTourSteps = [
     { target: 'tabs', title: 'One rule runs this whole screen',
       body: embedded
-        ? 'A person’s access = their job role + any extra groups. Nothing else. People is where you work day to day; Groups add extras; Audit is the all-at-once view. Job roles are set up per company, in Company Settings.'
+        ? 'A person’s access = their job role + any extra groups. Nothing else. People is where you work day to day; Groups add extras; Matrix is the all-at-once view. Job roles are set up per company: pick the company in the Scope box.'
         : 'A person’s access = their job role + any extra groups. Nothing else. People is where you work day to day; Job roles and Groups are the building blocks; Audit is the all-at-once view.' },
     { target: 'people-search', before: () => setSub('people'), title: 'Start with a person',
       body: 'Type any name. You’ll see who they are, their job role, their extra groups, and every screen they can touch - with the reason next to each line.' },

@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 
-// Settings (AdminConsole): Global Settings, Company Settings and Tools render
-// as separate areas, Access is a Global Settings category (admins only), old
-// links still land somewhere sensible, and the filter narrows the org-wide
-// sections.
+// Settings (AdminConsole, one tab since Oct 23 2026): a rail of subjects, a
+// scope picker (Every company / one company), every group open, old links
+// still landing somewhere sensible, and the filter searching every subject.
 
-// Every api call resolves empty - no section that renders here needs data.
+// Every api call resolves empty, except the companies the scope picker lists.
+const COMPANIES = [{ id: 'c1', name: 'Greens Global' }, { id: 'c2', name: 'Greens India' }];
 vi.mock('../api', () => ({
-  api: new Proxy({}, { get: () => vi.fn(() => Promise.resolve([])) }),
+  api: new Proxy({}, { get: (_, k) => (k === 'getEntities' ? () => Promise.resolve(COMPANIES) : vi.fn(() => Promise.resolve([]))) }),
 }));
 const roleState = { admin: true };
 vi.mock('../contexts/RoleContext', () => ({
@@ -18,74 +18,109 @@ vi.mock('../contexts/RoleContext', () => ({
     startActAs: vi.fn(), stopActAs: vi.fn(),
   }),
 }));
-// HR.jsx is huge; Company Settings only needs to prove it mounts the page.
+// HR.jsx is huge; the company page only needs to prove it mounts with what
+// the shell asked for.
 vi.mock('./HR', () => ({
-  CompanySetupPage: () => <div>Company list</div>,
+  CompanySetupPage: ({ entityId, tabs, onOpen }) => (
+    <div>
+      {entityId ? `Company page ${entityId}: ${(tabs || []).join(' ')}` : 'Company list'}
+      {onOpen && <button onClick={() => onOpen('c2')}>Edit Greens India</button>}
+    </div>
+  ),
   WorkSiteLibrary: () => <div>Site list</div>,
 }));
 vi.mock('../tickets/TicketDeskSettings', () => ({ default: () => <div>Desk panel</div> }));
 vi.mock('../tickets/TicketNotifySettings', () => ({ default: () => <div>Notify panel</div> }));
 vi.mock('../tickets/TicketTaxonomySettings', () => ({ default: () => <div>SLA panel</div> }));
 vi.mock('./RolesAccess', () => ({ default: () => <div>Access panel</div> }));
+vi.mock('./SecuritySettings', () => ({ default: () => <div>Sessions panel</div> }));
+vi.mock('./BrandingPoliciesSettings', () => ({
+  BrandColorPanel: () => <div>Brand color panel</div>,
+  EmailAppearancePanel: () => <div>Email appearance panel</div>,
+  SignInPolicyPanel: () => <div>Sign-in policy panel</div>,
+}));
 vi.mock('../components/shifts/ShiftSettingsSections', () => ({
   ShiftSettingsPanel: () => <div>Shift settings panel</div>,
   ShiftTypesPanel: () => <div>Shift types panel</div>,
   ShiftGroupsPanel: () => <div>Groups panel</div>,
 }));
+vi.mock('../components/shifts/WeatherSettings', () => ({ default: () => <div>Weather panel</div> }));
+vi.mock('../components/DailyBriefingSettings', () => ({ default: () => <div>Briefing panel</div> }));
+vi.mock('../components/WeeklyDigestSettings', () => ({ default: () => <div>Digest panel</div> }));
+vi.mock('../components/WorkforceScorecardSettings', () => ({ default: () => <div>Scorecard panel</div> }));
+vi.mock('../components/HrReminderSettings', () => ({ default: () => <div>HR reminders panel</div> }));
+vi.mock('../components/EquipmentReminderSettings', () => ({ default: () => <div>Equipment reminders panel</div> }));
+vi.mock('../tasks/TaskNotifySettings', () => ({ default: () => <div>Task notify panel</div> }));
+vi.mock('../tasks/TasksContext', () => ({ TasksProvider: ({ children }) => <div>{children}</div> }));
 vi.mock('./SettingsTools', () => ({ default: () => <div>Tools panel</div> }));
+vi.mock('../components/HrChecklists', () => ({ ChecklistLibrary: () => <div>Checklist library panel</div> }));
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); roleState.admin = true; });
 
+const rail = () => screen.getByRole('navigation', { name: 'Settings subjects' });
+// Lazy panels on a slow machine: give a find a little longer than the default second.
+const find = (text) => screen.findByText(text, {}, { timeout: 5000 });
+
 describe('AdminConsole', () => {
-  it('has Global Settings, Company Settings, Tools and Logs tabs, and no Access tab', () => {
-    render(<AdminConsole activeSub="global" onSubChange={() => {}} />);
-    for (const name of ['Global Settings', 'Company Settings', 'Tools', 'Logs']) {
+  it('has one Settings tab beside Tools and Logs - no Global or Company Settings tabs', () => {
+    render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
+    for (const name of ['Settings', 'Tools', 'Logs']) {
       expect(screen.getByRole('button', { name: new RegExp(`^${name}$`) })).toBeInTheDocument();
     }
-    expect(screen.queryByRole('button', { name: /Audit Logs/ })).not.toBeInTheDocument();
-    // The only "Access" left is the Global Settings rail entry.
-    expect(screen.getAllByRole('button', { name: /Access/ })).toHaveLength(1);
-    expect(screen.getByRole('navigation', { name: 'Global settings categories' })).toContainElement(
-      screen.getByRole('button', { name: /Access/ }));
+    expect(screen.queryByRole('button', { name: /Global Settings|Company Settings|Audit Logs/ })).not.toBeInTheDocument();
   });
 
-  it('shows Global Settings with the Organization category by default', () => {
-    render(<AdminConsole activeSub="global" onSubChange={() => {}} />);
-    expect(screen.getByText('Applies to every company.')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Organization' })).toBeInTheDocument();
-    expect(screen.getByText('Email Signature')).toBeInTheDocument();
-    expect(screen.getByText('Location Library')).toBeInTheDocument();
-    expect(screen.queryByText('Ticket Manager')).not.toBeInTheDocument();
+  it('opens on Companies at Every company, with every subject in the rail', async () => {
+    render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Companies' })).toBeInTheDocument();
+    expect(await find('Company list')).toBeInTheDocument();
+    expect(screen.getByLabelText('Scope')).toHaveValue('');
+    const names = within(rail()).getAllByRole('button').map(b => b.textContent);
+    expect(names).toEqual(['Companies', 'Locations', 'People & Access', 'Security', 'Branding & Email', 'Emails & Reminders',
+      'Tickets', 'Time & Pay', 'Workforce Analytics', 'Shifts & Scheduling', 'Hiring & Onboarding', 'Items & Equipment', 'Operations']);
+    expect(screen.queryByText('For every company')).not.toBeInTheDocument();
   });
 
-  it('lands an old "settings" sub on Global Settings', () => {
-    render(<AdminConsole activeSub="settings" onSubChange={() => {}} />);
-    expect(screen.getByText('Applies to every company.')).toBeInTheDocument();
-    expect(screen.getByText('Email Signature')).toBeInTheDocument();
+  it.each([
+    ['settings', 'Companies'], ['global', 'Companies'], ['company', 'Companies'],
+    ['global-notifications', 'Emails & Reminders'], ['global-service-desk', 'Tickets'], ['global-tasks', 'Emails & Reminders'],
+    ['global-timeclock', 'Time & Pay'], ['global-branding', 'Branding & Email'], ['global-hiring', 'Hiring & Onboarding'],
+    ['global-shifts', 'Shifts & Scheduling'], ['access', 'People & Access'], ['global-access', 'People & Access'],
+    ['nonsense', 'Companies'],
+  ])('lands the old "%s" link on %s', (sub, heading) => {
+    render(<AdminConsole activeSub={sub} onSubChange={() => {}} />);
+    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
   });
 
-  it('keeps ticket, task and briefing emails in one Notifications & Communications category', () => {
+  it('opens Tools from an old actas link', async () => {
+    render(<AdminConsole activeSub="actas" onSubChange={() => {}} />);
+    expect(await find('Tools panel')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Scope')).not.toBeInTheDocument();
+  });
+
+  it('keeps every scheduled email in Emails & Reminders, open, and Ticket Manager under Tickets', async () => {
     const onSubChange = vi.fn();
-    render(<AdminConsole activeSub="global-notifications" onSubChange={onSubChange} />);
-    expect(screen.getByRole('heading', { name: 'Notifications & Communications' })).toBeInTheDocument();
-    for (const t of ['Ticket Manager', 'Task Notifications', 'Daily Briefing', 'HR & Compliance Reminders']) {
+    render(<AdminConsole activeSub="emails" onSubChange={onSubChange} />);
+    expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
+    for (const t of ['Task Notifications', 'Daily Briefing', 'Weekly Digest', 'Workforce Scorecard', 'HR & Compliance Reminders', 'Equipment Reminders']) {
       expect(screen.getByText(t)).toBeInTheDocument();
     }
-    // Routing, ticket email and SLAs are one Ticket Manager section now.
-    expect(screen.queryByText('Ticket Notifications')).not.toBeInTheDocument();
+    // Nothing to expand: the panels are already there.
+    expect(await find('Briefing panel')).toBeInTheDocument();
+    expect(await find('HR reminders panel')).toBeInTheDocument();
+    expect(screen.queryByText('Ticket Manager')).not.toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Items/ }));
-    expect(onSubChange).toHaveBeenLastCalledWith('global-items');
-    fireEvent.click(screen.getByRole('button', { name: /Organization/ }));
-    expect(onSubChange).toHaveBeenLastCalledWith('global');
+    fireEvent.click(within(rail()).getByRole('button', { name: 'Tickets' }));
+    expect(onSubChange).toHaveBeenLastCalledWith('tickets');
+    fireEvent.click(within(rail()).getByRole('button', { name: 'Companies' }));
+    expect(onSubChange).toHaveBeenLastCalledWith('companies');
   });
 
   it('switches Ticket Manager panels with tabs, keeping an opened panel mounted', () => {
-    render(<AdminConsole activeSub="global-notifications" onSubChange={() => {}} />);
-    fireEvent.click(screen.getByText('Ticket Manager'));
+    render(<AdminConsole activeSub="tickets" onSubChange={() => {}} />);
     expect(screen.getByRole('tab', { name: /Routing & Escalation/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('Desk panel')).toBeVisible();
 
@@ -96,54 +131,88 @@ describe('AdminConsole', () => {
     expect(screen.queryByText('Notify panel')).not.toBeInTheDocument();
   });
 
-  it.each(['global-service-desk', 'global-tasks', 'global-communications'])(
-    'sends the retired %s link to Notifications & Communications', (sub) => {
-      render(<AdminConsole activeSub={sub} onSubChange={() => {}} />);
-      expect(screen.getByRole('heading', { name: 'Notifications & Communications' })).toBeInTheDocument();
-    });
+  it('puts the Sign-In Policy under Security and highlights the group a link points at', () => {
+    render(<AdminConsole activeSub="security:signin-policy" onSubChange={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Security' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Sign-In & Sessions' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Sign-In Policy' })).toHaveAttribute('data-highlight', 'true');
+    expect(screen.getByRole('region', { name: 'Sign-In & Sessions' })).not.toHaveAttribute('data-highlight');
+  });
 
-  it('shows Access as a Global Settings category, and old access links land on it', async () => {
+  it('shows People & Access whole, and hides the administrator-only subjects from everyone else', async () => {
     render(<AdminConsole activeSub="access" onSubChange={() => {}} />);
-    expect(screen.getByText('Applies to every company.')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Access' })).toBeInTheDocument();
-    expect(await screen.findByText('Access panel')).toBeInTheDocument();
-  });
+    expect(screen.getByRole('heading', { name: 'People & Access' })).toBeInTheDocument();
+    expect(await find('Access panel')).toBeInTheDocument();
+    cleanup();
 
-  it('hides the Access category from non-admins', () => {
     roleState.admin = false;
-    render(<AdminConsole activeSub="global-access" onSubChange={() => {}} />);
-    expect(screen.queryByRole('button', { name: /Access/ })).not.toBeInTheDocument();
-    // Falls back to the first category it can show.
-    expect(screen.getByRole('heading', { name: 'Organization' })).toBeInTheDocument();
+    render(<AdminConsole activeSub="access" onSubChange={() => {}} />);
+    for (const name of ['People & Access', 'Security', 'Branding & Email', 'Time & Pay']) {
+      expect(within(rail()).queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    // Falls back to the first subject it can show.
+    expect(screen.getByRole('heading', { name: 'Companies' })).toBeInTheDocument();
   });
 
-  it('has a Shifts category with the settings, shift types and groups (Charmi, 09/30)', async () => {
-    render(<AdminConsole activeSub="global-shifts" onSubChange={() => {}} />);
-    expect(screen.getByRole('heading', { name: 'Shifts' })).toBeInTheDocument();
-    for (const t of ['Shift Settings', 'Shift Types', 'Groups']) expect(screen.getByText(t)).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Shift Types'));
-    expect(await screen.findByText('Shift types panel')).toBeInTheDocument();
+  it('has Shifts & Scheduling with the settings, shift types, groups and weather, all open (Charmi, 09/30)', async () => {
+    render(<AdminConsole activeSub="shifts" onSubChange={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Shifts & Scheduling' })).toBeInTheDocument();
+    for (const t of ['Shift Settings', 'Shift Types', 'Groups', 'Weather Alerts']) expect(screen.getByText(t)).toBeInTheDocument();
+    expect(await find('Shift types panel')).toBeInTheDocument();
     // The filter finds them too, from the words a manager would type.
     fireEvent.change(screen.getByLabelText('Filter settings'), { target: { value: 'swap' } });
     expect(screen.getByText('Shift Settings')).toBeInTheDocument();
-    expect(screen.queryByText('Groups')).not.toBeInTheDocument();
+    expect(screen.queryByText('Weather Alerts')).not.toBeInTheDocument();
   });
 
-  it('shows Company Settings as its own per-company area', async () => {
-    render(<AdminConsole activeSub="company" onSubChange={() => {}} />);
-    expect(screen.getByText('Applies to one company at a time.')).toBeInTheDocument();
-    expect(await screen.findByText('Company list')).toBeInTheDocument();
-    expect(screen.queryByText('Applies to every company.')).not.toBeInTheDocument();
+  it('picks a company in the scope box and shows its own faces', async () => {
+    const onSubChange = vi.fn();
+    const { rerender } = render(<AdminConsole activeSub="hiring" onSubChange={onSubChange} />);
+    await screen.findByRole('option', { name: 'Greens Global' }, { timeout: 5000 });
+    fireEvent.change(screen.getByLabelText('Scope'), { target: { value: 'c1' } });
+    expect(onSubChange).toHaveBeenLastCalledWith('hiring@c1');
+
+    rerender(<AdminConsole activeSub="hiring@c1" onSubChange={onSubChange} />);
+    expect(screen.getByLabelText('Scope')).toHaveValue('c1');
+    expect(screen.getByRole('heading', { name: /Hiring & Onboarding · Greens Global/ })).toBeInTheDocument();
+    expect(await find('Company page c1: checklists')).toBeInTheDocument();
+    // The organization-wide groups of the subject are one line of links.
+    expect(screen.getByText('For every company:')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Checklist Library' }));
+    expect(onSubChange).toHaveBeenLastCalledWith('hiring:checklist-library');
+    // Subjects with nothing per company sit under "For every company" and switch the scope back.
+    expect(within(rail()).getByText('For every company')).toBeInTheDocument();
+    fireEvent.click(within(rail()).getByRole('button', { name: 'Security' }));
+    expect(onSubChange).toHaveBeenLastCalledWith('security');
   });
 
-  it('opens Tools from an old actas link', async () => {
-    render(<AdminConsole activeSub="actas" onSubChange={() => {}} />);
-    expect(await screen.findByText('Tools panel')).toBeInTheDocument();
-    expect(screen.queryByText('Applies to every company.')).not.toBeInTheDocument();
+  it('spreads the old company page over the subjects: profile under Companies, sites under Locations, roles under People & Access', async () => {
+    const onSubChange = vi.fn();
+    const { rerender } = render(<AdminConsole activeSub="companies@c1" onSubChange={onSubChange} />);
+    expect(await find('Company page c1: overview departments holidays')).toBeInTheDocument();
+    rerender(<AdminConsole activeSub="locations@c1" onSubChange={onSubChange} />);
+    expect(await find('Company page c1: sites')).toBeInTheDocument();
+    rerender(<AdminConsole activeSub="access@c1" onSubChange={onSubChange} />);
+    expect(await find('Company page c1: roles')).toBeInTheDocument();
+    rerender(<AdminConsole activeSub="analytics@c1" onSubChange={onSubChange} />);
+    expect(await find('Company page c1: monitoring')).toBeInTheDocument();
   });
 
-  it('filters sections across every category and opens a lone match', () => {
-    render(<AdminConsole activeSub="global" onSubChange={() => {}} />);
+  it('opens a company from the list, and offers the companies for a per-company subject', async () => {
+    const onSubChange = vi.fn();
+    render(<AdminConsole activeSub="companies" onSubChange={onSubChange} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Greens India' }, { timeout: 5000 }));
+    expect(onSubChange).toHaveBeenLastCalledWith('companies@c2');
+    cleanup();
+
+    render(<AdminConsole activeSub="analytics" onSubChange={onSubChange} />);
+    expect(screen.getByText(/Workforce Analytics Policy is set per company/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Greens Global' }, { timeout: 5000 }));
+    expect(onSubChange).toHaveBeenLastCalledWith('analytics:company-policy@c1');
+  });
+
+  it('filters groups across every subject', () => {
+    render(<AdminConsole activeSub="companies" onSubChange={() => {}} />);
     const box = screen.getByLabelText('Filter settings');
 
     fireEvent.change(box, { target: { value: 'notifications' } });
@@ -153,31 +222,30 @@ describe('AdminConsole', () => {
 
     fireEvent.change(box, { target: { value: 'geofence' } });
     expect(screen.getByText('Location Library')).toBeInTheDocument();
-    expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
+    expect(screen.queryByText('Task Notifications')).not.toBeInTheDocument();
 
     fireEvent.change(box, { target: { value: 'visa expiry' } });
     expect(screen.getByText('HR & Compliance Reminders')).toBeInTheDocument();
-    expect(screen.queryByText('Task Notifications')).not.toBeInTheDocument();
 
     fireEvent.change(box, { target: { value: 'permissions' } });
-    expect(screen.getByRole('heading', { name: 'Access' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'People & Access' })).toBeInTheDocument();
 
     fireEvent.change(box, { target: { value: 'nothing like this' } });
     expect(screen.getByText(/No settings match/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Clear Filter' }));
-    expect(screen.getByText('Email Signature')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Companies' })).toBeInTheDocument();
   });
 
-  it('swaps the category rail for a select on phones', () => {
+  it('swaps the subject rail for a select on phones', () => {
     vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
       matches: true, media: q, onchange: null,
       addEventListener() {}, removeEventListener() {},
       addListener() {}, removeListener() {}, dispatchEvent() { return false; },
     }));
     const onSubChange = vi.fn();
-    render(<AdminConsole activeSub="global" onSubChange={onSubChange} />);
-    expect(screen.queryByRole('navigation', { name: 'Global settings categories' })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'notifications' } });
-    expect(onSubChange).toHaveBeenLastCalledWith('global-notifications');
+    render(<AdminConsole activeSub="companies" onSubChange={onSubChange} />);
+    expect(screen.queryByRole('navigation', { name: 'Settings subjects' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'emails' } });
+    expect(onSubChange).toHaveBeenLastCalledWith('emails');
   });
 });

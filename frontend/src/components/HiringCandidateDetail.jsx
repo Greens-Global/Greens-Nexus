@@ -124,7 +124,7 @@ function DecisionPanel({ candidateId, refreshKey, onReload }) {
       <div style={{ fontSize: 13, fontWeight: 800 }}>Interview Feedback</div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Answered on the "Decide on" task with Yes or No and why.</div>
       {d.votes.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'hsl(var(--color-orange))', padding: '8px 0' }}>Nobody to ask - set the department&apos;s lead in Company Settings &gt; Departments.</div>
+        <div style={{ fontSize: 13, color: 'hsl(var(--color-orange))', padding: '8px 0' }}>Nobody to ask - set the department&apos;s head in Settings &gt; Companies &gt; the company &gt; Departments.</div>
       ) : d.votes.map(v => (
         <div key={v.email} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)', alignItems: 'flex-start' }}>
           {v.vote === 'yes' ? <ThumbsUp size={15} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 2 }} aria-label="Yes" />
@@ -253,7 +253,7 @@ export default function CandidateDetailModal({
   const offers = onMakeOffer && (offerChoices === null || offerChoices.length > 0);
   const noOfferLetter = !!onMakeOffer && Array.isArray(offerChoices) && offerChoices.length === 0;
   const offerSigned = (packetEvents || []).some(e => e.kind === 'offer' && e.status === 'completed');
-  const goHiringSettings = () => { onClose?.(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'global-hiring' } })); };
+  const goHiringSettings = () => { onClose?.(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'hiring' } })); };
   // Once an interview is on the books the record is settled - no more editing
   // of who they are or which company; the email goes with the packet.
   const canEdit = ['applied', 'screening'].includes(c.stage);

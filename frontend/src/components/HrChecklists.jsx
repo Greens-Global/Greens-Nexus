@@ -1366,8 +1366,8 @@ export function ChecklistSettings({ entityId = '', entities = [], toastOk, toast
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>{entityId ? `Checklists For ${companyName}` : 'Checklist Library'}</div>
           <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
             {entityId
-              ? 'Each role builds its own onboarding, promotion, offboarding and leave steps (Roles tab > a role > Checklists). Below: which roles are built and what is still missing. Steps every hire gets, whatever the role, are in Global Settings > Hiring > Checklist Library.'
-              : 'The standard steps every new checklist starts with, whatever the role. Each role\'s own steps are built on the role (Company Settings > Roles > a role > Checklists).'}
+              ? 'Each role builds its own onboarding, promotion, offboarding and leave steps (People & Access > Roles > a role > Checklists). Below: which roles are built and what is still missing. Steps every hire gets, whatever the role, are in the Checklist Library, with the scope on Every company.'
+              : 'The standard steps every new checklist starts with, whatever the role. Each role\'s own steps are built on the role (People & Access, with the company picked > Roles > a role > Checklists).'}
           </div>
         </div>
         {!entityId && entities.length > 0 && (
@@ -1602,7 +1602,7 @@ export function RoleChecklists({ toastOk, toastErr }) {
     return (
       <div style={{ ...card, padding: 24, fontSize: 13.5, color: 'var(--wk-dim)', lineHeight: 1.6, fontFamily: FONT }}>
         <b style={{ color: 'var(--wk-ink)' }}>No roles to look after yet.</b> The head of a department keeps the extra checklist steps for its
-        roles - set department heads in Company Settings &gt; Departments.
+        roles - set department heads in Settings &gt; Companies &gt; the company &gt; Departments.
       </div>
     );
   }
