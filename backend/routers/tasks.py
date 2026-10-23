@@ -14,7 +14,7 @@ import json
 import re
 import time
 from datetime import date, datetime, timedelta, timezone
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import parse_qsl, quote, unquote, urlparse, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
@@ -997,6 +997,15 @@ def _check_move_section(db: Session, section_id: str, project_id: str) -> None:
         raise HTTPException(422, "That section is not in this task's project.")
 
 
+def _narrow_to_parent(level, parent) -> str:
+    """A subtask is never more visible than its parent (Oct 22 2026): an
+    org-wide (or unset) level under a private parent becomes the parent's
+    level; anything else stays as it is. Used by _create_task and moves."""
+    mine = level or "org"
+    theirs = (getattr(parent, "access_level", None) or "org") if parent is not None else "org"
+    return theirs if (mine == "org" and theirs != "org") else mine
+
+
 def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
                 section_id=None, keep_team: bool = False, place: bool = True,
                 history_self: bool = False) -> str:
@@ -1014,7 +1023,10 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
         through its parent), and leaves the old project's section and team;
       * a "skip this occurrence" rule only means something under a repeating
         parent, so a task made top-level drops it.
-    Nobody's access_level changes: a moved task keeps its own. Each row it
+    A move never leaves a row more visible than the task it now sits under
+    (Oct 22 2026): under a private parent, `t` and every row of its subtree
+    that was org-wide take the parent's level (_narrow_to_parent); a row
+    already private keeps its own, and nothing is ever widened. Each row it
     touches is stamped modified, so GET /tasks/delta hands it to every other
     open client. Each subtree row's project / section move goes into its
     field history (Oct 22 2026) - `t`'s own is recorded by the edit that moved
@@ -1060,6 +1072,14 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
             task_history.record(db, row, sub_before.get(row.id), user["email"], only=tracked)
     if self_before is not None:
         task_history.record(db, t, self_before, user["email"], only=tracked)
+    narrowed = False
+    if parent is not None:
+        for row in [t, *plan["subtree"]]:
+            level = _narrow_to_parent(row.access_level, parent)
+            if level != (row.access_level or "org"):
+                row.access_level, narrowed = level, True
+                if row is not t and not row.deleted_at:
+                    row.modified_at = now
     # The parent is named only when everybody who sees this task's history
     # may see it: a private parent's code is not this task's to give away.
     if parent is None:
@@ -1068,6 +1088,8 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
         detail = f"moved this task under {parent.code}"
     else:
         detail = "moved this task under another task"
+    if narrowed:
+        detail += " - now private, like the task it is under"
     return log_activity(db, type="moved", actor_email=user["email"], entity_id=t.id,
                         entity_code=t.code, entity_title=t.title, detail=detail)
 
@@ -2712,6 +2734,10 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
             where = f" in {project.name}" if project and project.name else " in this project"
             raise HTTPException(422, f"{names} {'is' if len(missing) == 1 else 'are'} required for tasks{where}.")
     access_level = body.access_level or (project.access_level if project else None) or "org"
+    # Under a private parent the subtask is private too (Oct 22 2026): an
+    # unset level takes the parent's ahead of the project's, and an explicit
+    # "org" is narrowed to it - a subtask is never wider than its parent.
+    access_level = _narrow_to_parent(access_level, parent)
     t = _new_task_row(db, body, tid=tid, code=_next_code(db), company_id=company_id,
                       access_level=access_level, user=user, now=now)
     set_task_assignees(t, _assignees_from(body.__dict__, []) or [])
@@ -4781,6 +4807,33 @@ def _checklist_item(db: Session, item_id: str) -> tuple:
     return i, t
 
 
+def _lock_checklist(db: Session, t: models.Task) -> None:
+    """Every checklist write takes the TASK row first (Oct 22 2026), after
+    its access checks and before it touches a line: then the task's
+    counters, and only then any line (_relock_line). One order for every
+    writer - add, tick / rename, remove, reorder, Convert to Subtask - so
+    two of them on one task wait for each other instead of deadlocking (a
+    tick used to take the line first and the task second, a convert the
+    reverse). The task is re-read after the wait, so counters and activity
+    lists are rebuilt from what the other request committed. A no-op lock
+    on SQLite (its database-wide write lock serializes writers)."""
+    _lock_task_rows(db, [t.id])
+    try:
+        db.refresh(t)
+    except InvalidRequestError:        # purged while we waited
+        raise HTTPException(404, "Task not found")
+    if t.deleted_at:
+        raise HTTPException(409, "This task is in the Trash. Restore it to change its checklist.")
+
+
+def _relock_line(db: Session, t: models.Task, item_id: str):
+    """The line as it is now, locked (FOR UPDATE) - after _lock_checklist.
+    None when it went while we waited (removed, or converted)."""
+    return (db.query(models.TaskChecklistItem)
+            .filter(models.TaskChecklistItem.id == item_id, models.TaskChecklistItem.task_id == t.id)
+            .populate_existing().with_for_update().first())
+
+
 @router.get("/{task_id}/checklist")
 def list_checklist(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _wall_task(db, user, task_id)
@@ -4801,6 +4854,7 @@ def add_checklist_items(task_id: str, body: ChecklistItemCreate, user: dict = De
         raise HTTPException(422, "A checklist item needs a title")
     if len(titles) > 100:
         raise HTTPException(422, "At most 100 items at a time")
+    _lock_checklist(db, t)
     last = (db.query(func.max(models.TaskChecklistItem.position))
             .filter(models.TaskChecklistItem.task_id == task_id).scalar()) or 0.0
     who = assert_person_on_task(db, t, body.assignee_email or "")
@@ -4834,10 +4888,20 @@ def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = D
     data = upd.model_dump(exclude_unset=True)
     me = (user["email"] or "").lower()
     only_ticking = set(data) <= {"done"}
-    if only_ticking and (i.assignee_email or "").lower() == me:
-        require_task_role(db, user, t, "viewer")   # the line names them: ticking it is theirs to do
-    else:
-        require_task_role(db, user, t, "editor")
+
+    def check(line):
+        if only_ticking and (line.assignee_email or "").lower() == me:
+            require_task_role(db, user, t, "viewer")   # the line names them: ticking it is theirs to do
+        else:
+            require_task_role(db, user, t, "editor")
+    check(i)
+    # The task first, then the line (_lock_checklist); the line as it is now,
+    # checked again - it may have been handed to someone else meanwhile.
+    _lock_checklist(db, t)
+    i = _relock_line(db, t, item_id)
+    if i is None:
+        raise HTTPException(404, "Checklist item not found")
+    check(i)
     if "title" in data:
         title = (data["title"] or "").strip()
         if not title:
@@ -4873,6 +4937,10 @@ def delete_checklist_item(item_id: str, user: dict = Depends(get_current_user), 
     i, t = _checklist_item(db, item_id)
     assert_task_wall(db, user, t)
     require_task_role(db, user, t, "editor")
+    _lock_checklist(db, t)             # the task first, then the line
+    i = _relock_line(db, t, item_id)
+    if i is None:
+        raise HTTPException(404, "Checklist item not found")
     db.delete(i)
     _recount_checklist(db, t)
     db.commit()
@@ -4888,7 +4956,9 @@ def reorder_checklist(task_id: str, body: ChecklistOrder, user: dict = Depends(g
     place after the listed ones; ids of other tasks are ignored."""
     t = _wall_task(db, user, task_id)
     require_task_role(db, user, t, "editor")
-    rows = {i.id: i for i in db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == task_id).all()}
+    _lock_checklist(db, t)             # the task first, then the lines
+    rows = {i.id: i for i in db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == task_id)
+            .order_by(models.TaskChecklistItem.id).populate_existing().with_for_update().all()}
     n = 0
     for n, iid in enumerate([x for x in body.ids if x in rows], start=1):
         rows[iid].position = float(n)
@@ -4899,6 +4969,84 @@ def reorder_checklist(task_id: str, body: ChecklistOrder, user: dict = Depends(g
     db.commit()
     fire_task_event(t.id, "updated")
     return [checklist_item_to_dict(i) for i in sorted(rows.values(), key=lambda i: i.position or 0)]
+
+
+# Convert to Subtask (Neil, Oct 22 2026): a checklist line that turned out
+# to need its own date, owner or discussion becomes a subtask of the task,
+# in one commit. The subtask is made by _create_task - the path Add Subtask
+# takes - so the project's rules, people checks, automation, history and
+# the batched "created" email (notify_task_event) are exactly a new
+# subtask's. It starts the way the drawer's Add Subtask starts one (the
+# parent's project, team, collaborators, priority and field values), with
+# the line's text as its title and the line's person as its assignee - the
+# parent's assignees when the line names nobody, as Add Subtask defaults.
+# A person who may no longer hold work is left off and said so
+# (droppedPeople), never refused. A line already ticked becomes a completed
+# subtask, quietly (no bell, no email). It is never more visible than the
+# parent: under a private task the subtask is private too. HR checklist tasks are refused: their
+# subtasks ARE the HR checklist's steps (hr_checklists.sync_tasks), which
+# nothing else goes under (_plan_move's rule).
+_ITEM_GONE = "That checklist item is no longer there - someone removed it or already made it a subtask."
+
+
+@router.post("/checklist/{item_id}/convert", status_code=201)
+def convert_checklist_item(item_id: str, background_tasks: BackgroundTasks,
+                           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Returns {subtask: the new subtask, task: the parent with fresh
+    counters}. 409 when the line has gone (removed, or converted already)."""
+    i = db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.id == item_id).first()
+    if i is None:
+        raise HTTPException(409, _ITEM_GONE)
+    t = _get_task(db, i.task_id)
+    assert_task_wall(db, user, t)
+    # Changing the checklist takes editor (delete_checklist_item); making the
+    # subtask takes the project's editor too, which _create_task checks.
+    require_task_role(db, user, t, "editor")
+    if _is_hr_checklist_task(db, t):
+        raise HTTPException(422, "This is an HR checklist task. Its subtasks come from the HR checklist, "
+                                 "so this item stays on the checklist.")
+    # The task, then the line - the order every checklist write takes them
+    # in (_lock_checklist), so a tick or a removal landing at the same moment
+    # waits rather than deadlocks. The line is re-read under its lock: one
+    # removed or converted while we waited is gone here (409). _create_task
+    # locks the task again below (already held) and then the code counter.
+    _lock_checklist(db, t)
+    i = _relock_line(db, t, item_id)
+    if i is None:
+        raise HTTPException(409, _ITEM_GONE)
+    who = (i.assignee_email or "").strip().lower()
+    title = (i.title or "").strip()[:500] or "Subtask"
+    body = TaskCreate(
+        title=title, parent_task_id=t.id, type="task",
+        status="completed" if i.done else "not_started", priority=t.priority or "medium",
+        project_id=t.project_id or "", team_id=t.team_id or "",
+        follower_emails=list(t.follower_emails or []),
+        custom_field_values=dict(t.custom_field_values or {}),
+        assignee_emails=[who] if who else task_assignees(t),
+        # No level of its own: the project's, as for any subtask - and under a
+        # private task a private one (_create_task, _narrow_to_parent).
+    )
+    line_id, line_title = i.id, i.title or title
+
+    def finish(sub: models.Task) -> None:
+        # The line goes in the same commit as the subtask arrives, and the
+        # parent's History says where it went.
+        gone = db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.id == line_id).first()
+        if gone is not None:
+            db.delete(gone)
+        _recount_checklist(db, t)
+        t.activity_ids = list(t.activity_ids or []) + [log_activity(
+            db, type="checklist_converted", actor_email=user["email"], entity_id=t.id,
+            entity_code=t.code, entity_title=t.title,
+            detail=f'made checklist item "{line_title}" a subtask')]
+
+    # A line already ticked is born completed: nothing to do, so nobody is
+    # told (no assignment bell, no "created" email) - `quiet`.
+    out = _create_task(body, background_tasks, user, db, before_commit=finish, check_people=True,
+                       quiet=bool(i.done))
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"subtask": out, "task": task_to_dict(t)}
 
 
 def _version_key(a: models.TaskAttachment) -> tuple:
@@ -4939,12 +5087,17 @@ _URL_SCHEME_RE = re.compile(r"^https?://", re.I)
 
 
 def _check_attachment_url(url) -> None:
-    """What an attachment may point at (Oct 21 2026). The Tasks screens only
-    ever send a file they just stored - its canonical Supabase storage URL -
-    or, with no storage configured, the file inline as a data: URL (stored
-    below, or kept inline). There is no "add a link" attachment, so anything
-    else is refused: a javascript: / vbscript: / file: URL would run or open
-    from the Attachments list, and an outside https URL is not our evidence.
+    """What an UPLOADED attachment may point at (Oct 21 2026; links Oct 22).
+    This route and Upload New Version take files only: the canonical
+    Supabase storage URL of a file the screen just stored, or, with no
+    storage configured, the file inline as a data: URL (stored below, or
+    kept inline). Anything else is refused here: a javascript: / vbscript: /
+    file: URL would run or open from the Attachments list, and an outside
+    https URL is not our evidence. Outside web pages and Egnyte items ARE
+    attachable, but only as LINKS, through their own routes and rules -
+    POST /{task_id}/links (kind "link", _check_web_link) and
+    POST /{task_id}/egnyte-links (kind "egnyte", _check_egnyte_url) - and
+    neither is ever fetched or stored by the server.
     Non-data URLs go through the app's own _validate_photo_url (Supabase
     storage only, 400) after an http(s) scheme check that holds even where
     storage is not configured (local dev, where that check is a no-op).
@@ -4959,12 +5112,16 @@ def _check_attachment_url(url) -> None:
 
 
 def _check_attachment_kind(kind) -> None:
-    """An uploaded file never claims to be an Egnyte link (Oct 22 2026): kind
+    """An uploaded file never claims to be a link (Oct 22 2026): kind
     "egnyte" rows render as "Open In Egnyte" links and are made ONLY by
     POST /{task_id}/egnyte-links, which checks the link is on the company's
-    Egnyte domain."""
-    if (kind or "").strip().lower() == "egnyte":
+    Egnyte domain; kind "link" rows open an outside web page and are made
+    ONLY by POST /{task_id}/links (_check_web_link)."""
+    k = (kind or "").strip().lower()
+    if k == "egnyte":
         raise HTTPException(422, "Add an Egnyte link with Add From Egnyte, not as a file.")
+    if k == "link":
+        raise HTTPException(422, "Add a web link with Add Link, not as a file.")
 
 
 @router.post("/{task_id}/attachments", status_code=201)
@@ -5055,6 +5212,7 @@ def delete_attachment(attachment_id: str, user: dict = Depends(get_current_user)
         ids.insert(min(at, len(ids)), prev.id)
     t.attachment_ids = ids
     detail = (f'removed version {a.version or 1} of "{a.name}"' if siblings
+              else f'removed link "{_link_label(a)}"' if (a.kind or "") == "link"
               else f'removed attachment "{a.name}"')
     act = log_activity(db, type="attachment_removed", actor_email=user["email"], entity_id=t.id,
                        entity_code=t.code, entity_title=t.title, detail=detail)
@@ -5071,8 +5229,8 @@ def delete_attachment(attachment_id: str, user: dict = Depends(get_current_user)
 # Adding a version takes the attachment right (commenter, add_attachment)
 # AND, because it replaces the file everyone sees, the right to remove that
 # file: the uploader of its first version, else an editor (delete_attachment's
-# rule). Removing a version is removing a file. Comment files and Egnyte
-# links are not versioned. Nothing here notifies: a new file does not today.
+# rule). Removing a version is removing a file. Comment files, Egnyte links
+# and web links are not versioned. Nothing here notifies: a new file does not today.
 
 def _version_rows(db: Session, a: models.TaskAttachment, lock: bool = False) -> list:
     """Every version of `a`'s file on its task, oldest first. With `lock` the
@@ -5160,6 +5318,8 @@ def add_attachment_version(attachment_id: str, body: AttachmentVersionCreate,
     require_task_role(db, user, t, "commenter")    # = add_attachment
     if (a.kind or "") == "egnyte":
         raise HTTPException(422, "An Egnyte link has no versions here - Egnyte keeps its own.")
+    if (a.kind or "") == "link":
+        raise HTTPException(422, "A web link has no versions. Edit the link to point it somewhere else.")
     if a.comment_id:
         raise HTTPException(422, "A file attached to a comment cannot take new versions. Attach the new file to the task instead.")
     _may_replace(db, user, t, _version_rows(db, a))
@@ -5346,6 +5506,273 @@ def add_egnyte_link(task_id: str, body: EgnyteLinkCreate, user: dict = Depends(g
     db.refresh(a)
     fire_task_event(t.id, "attachment")
     return {**attachment_to_dict(a), "versionCount": 1}
+
+
+# ── Web links (Neil, Oct 22 2026 - Microsoft Planner parity) ─────────────────
+# Any web page attached to a task as a LINK: a kind "link" row whose `url`
+# is the page's address, normalized (_check_web_link) - nothing is uploaded,
+# and the server NEVER fetches, previews or unfurls the address (no request
+# to an outside or internal host can be made through this). The screens open
+# it in a new tab with rel="noopener noreferrer"; api.js's storage-URL
+# rewriting and the /files viewer never touch it, because a link to our own
+# storage is refused here (attach the file instead) and so no stored link
+# ever carries a storage or viewer URL. Rights are the attachment rights:
+# adding one is adding a file (commenter); changing or removing one takes
+# the person who added it, or an editor (delete_attachment's rule) - and
+# changing one also takes commenter, so a viewer never edits. Not
+# versioned. One address is linked once per task (409 on a repeat). Like a
+# new file, a link notifies nobody; adding it logs "attached".
+
+_LINK_MAX = 2000
+# How an added link's "attached" activity row starts - the Updates card reads
+# it to say "added a link" rather than "attached a file".
+_LINK_ADDED = "added link "
+# What stays as typed in the path / query / fragment: the reserved and
+# unreserved characters and "%" (an escape already in the link). Spaces and
+# anything outside ASCII are percent-encoded, the way a browser sends them.
+_LINK_SAFE = "!#$&'()*+,/:;=?@[]~-._%"
+_LINK_SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):")
+# One DNS label: 1-63 letters, digits and hyphens, no hyphen at either end.
+_LINK_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+# The authenticated file viewer, wherever it sits in a link (path, a query
+# value, a fragment): ".../files/view?u=..." - lib/storageView.js VIEW_PREFIX.
+_VIEWER_RE = re.compile(r"/files/view/?\?(?:[^#]*&)?u=", re.I)
+
+
+def _hidden_char(c: str) -> bool:
+    """Control, format (zero-width, right-to-left overrides...), surrogate,
+    private-use, unassigned and line/paragraph separator characters - none
+    belongs in a link or a label, and several make one read as another."""
+    import unicodedata
+    cat = unicodedata.category(c)
+    return cat[0] == "C" or cat in ("Zl", "Zp")
+
+
+def _unquoted(text: str) -> str:
+    """`text` with percent-escapes undone, lower-cased - repeatedly (at most
+    three rounds), so %2F and a double-encoded %252F read as "/" too."""
+    out = text or ""
+    for _ in range(3):
+        nxt = unquote(out)
+        if nxt == out:
+            break
+        out = nxt
+    return out.lower()
+
+
+def _own_file_url(u: str) -> bool:
+    """A link into Nexus's own file storage or its /files/view viewer: a file
+    stored in Nexus is attached as a file (its access rules apply), never
+    linked - and a stored link must never look like a storage URL, which
+    api.js would rewrite and the viewer would serve. Read from the parsed
+    link, not the raw text: the host compared as a host (http or https, a
+    trailing dot, any port) with the storage path read unquoted, and the
+    query and the fragment searched for a storage or viewer address carried
+    inside them (?next=..., #...). frontend/src/tasks/webLinks.js says the
+    same before sending."""
+    import os
+    p = urlsplit(u)
+    base = (urlsplit(os.getenv("SUPABASE_URL", "").strip()).hostname or "").rstrip(".").lower()
+    if base:
+        host = (p.hostname or "").rstrip(".").lower()
+        if host == base and "/storage/v1/" in _unquoted(p.path):
+            return True
+        carried = re.compile(re.escape(base) + r"\.?(?::\d+)?/storage/v1/")
+        if any(carried.search(_unquoted(part)) for part in (p.query, p.fragment)):
+            return True
+    if p.path.rstrip("/").lower().endswith("/files/view") and any(
+            k.lower() == "u" for k, _ in parse_qsl(p.query or "", keep_blank_values=True)):
+        return True
+    return any(_VIEWER_RE.search(_unquoted(part)) for part in (p.query, p.fragment))
+
+
+def _check_host(host: str) -> str:
+    """The link's host as stored, or 400. A name: labels of 1-63 letters,
+    digits and hyphens, no hyphen at either end, no empty label (so no
+    leading, trailing or doubled dot), 253 characters at most. A name whose
+    last label is all digits is read as an IPv4 address, as a browser reads
+    it, and must then be a plain dotted quad (no 0x7f.1, no 2130706433). An
+    IPv6 address must parse (no zone id) and is stored compressed."""
+    import ipaddress
+    bad = HTTPException(400, "That link's website name is not valid.")
+    if ":" in host:
+        if "%" in host:
+            raise bad
+        try:
+            return f"[{ipaddress.IPv6Address(host).compressed}]"
+        except ValueError:
+            raise bad
+    labels = host.split(".")
+    if len(host) > 253 or not all(_LINK_LABEL_RE.match(x) for x in labels):
+        raise bad
+    if labels[-1].isdigit():
+        try:
+            return str(ipaddress.IPv4Address(host))
+        except ValueError:
+            raise bad
+    return host
+
+
+def _check_web_link(url) -> str:
+    """The web address a link may hold, normalized - or 400 with what is
+    wrong. http(s) only (a bare "example.com/page" is taken as https); a
+    host is required; no user name or password in it; no control or
+    invisible characters, no backslash; at most 2,000 characters. The
+    scheme and host are lower-cased, an international host is stored in its
+    ASCII (punycode) form so a look-alike shows as what it is, the default
+    port is dropped, and spaces and non-ASCII characters in the rest are
+    percent-encoded. A link into Nexus's own storage is refused (attach the
+    file). Nothing is fetched. frontend/src/tasks/webLinks.js (webLinkProblem)
+    says the same things before sending."""
+    u = (url or "").strip()
+    if not u:
+        raise HTTPException(400, "Paste the web address to link.")
+    if len(u) > _LINK_MAX:
+        raise HTTPException(400, "That link is too long - 2,000 characters at most.")
+    if any(_hidden_char(c) for c in u):
+        raise HTTPException(400, "That link has hidden characters in it. Copy it again and paste it here.")
+    if "\\" in u:
+        raise HTTPException(400, "That link has a backslash in it. Copy it again and paste it here.")
+    m = _LINK_SCHEME_RE.match(u)
+    if m and not u[m.end():].startswith("//") and "." in m.group(1) and m.group(1).lower() not in ("http", "https"):
+        m = None        # "example.com:8080/x" - a host and port, not a scheme
+    if not m:
+        if u.startswith("/"):
+            raise HTTPException(400, "Paste the full link, starting with https://")
+        u = f"https://{u}"
+    elif m.group(1).lower() not in ("http", "https"):
+        raise HTTPException(400, "Only web links (http or https) can be added.")
+    try:
+        p = urlsplit(u)
+        port = p.port
+    except ValueError:
+        raise HTTPException(400, "That is not a valid link.")
+    scheme = p.scheme.lower()
+    if not u[len(p.scheme) + 1:].startswith("//"):
+        raise HTTPException(400, "That is not a valid link.")
+    if p.username is not None or p.password is not None or "@" in p.netloc:
+        raise HTTPException(400, "Links with a user name or password in them cannot be added.")
+    host = (p.hostname or "").strip()
+    if not host:
+        raise HTTPException(400, "That link has no website in it.")
+    if not host.isascii():
+        try:
+            host = host.encode("idna").decode("ascii").lower()
+        except UnicodeError:
+            raise HTTPException(400, "That link's website name is not valid.")
+    netloc = _check_host(host.lower())
+    if port is not None and port != (443 if scheme == "https" else 80):
+        netloc += f":{port}"
+    out = urlunsplit((scheme, netloc, quote(p.path, safe=_LINK_SAFE), quote(p.query, safe=_LINK_SAFE),
+                      quote(p.fragment, safe=_LINK_SAFE)))
+    if len(out) > _LINK_MAX:
+        raise HTTPException(400, "That link is too long - 2,000 characters at most.")
+    if _own_file_url(out):
+        raise HTTPException(400, "That is a file stored in Nexus. Attach the file instead of linking to it.")
+    return out
+
+
+def _link_name(name) -> str:
+    """A link's display name: trimmed, hidden characters dropped, 250 at most."""
+    return "".join(c for c in (name or "") if not _hidden_char(c)).strip()[:250]
+
+
+def _link_label(a: models.TaskAttachment) -> str:
+    """What the History calls a link: its display name, else its website."""
+    if (a.name or "") and a.name != a.url:
+        return a.name
+    return (urlsplit(a.url or "").hostname or a.url or "link")[:250]
+
+
+def _link_taken(db: Session, t: models.Task, url: str, except_id: str = "") -> None:
+    """One address once per task: 409, naming the link it already is."""
+    for r in (db.query(models.TaskAttachment)
+              .filter(models.TaskAttachment.task_id == t.id, models.TaskAttachment.kind == "link").all()):
+        if r.id != except_id and r.url == url:
+            raise HTTPException(409, f'That link is already on this task as "{_link_label(r)}".')
+
+
+class WebLinkCreate(BaseModel):
+    url: str
+    name: Optional[str] = ""
+
+
+class WebLinkUpdate(BaseModel):
+    url: Optional[str] = None
+    name: Optional[str] = None
+
+
+@router.post("/{task_id}/links", status_code=201)
+def add_web_link(task_id: str, body: WebLinkCreate, user: dict = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    t = _get_task(db, task_id)
+    require_task_role(db, user, t, "commenter")    # = add_attachment
+    url = _check_web_link(body.url)
+    # The display name is optional; without one the row's name is the
+    # address itself, so every list that shows `name` shows something real.
+    name = _link_name(body.name) or url
+    _lock_task_files(db, t)
+    _link_taken(db, t, url)
+    a = models.TaskAttachment(id=gen_id(), task_id=t.id, name=name, size="", kind="link", url=url,
+                              added_at=now_iso(), added_by=user["email"], comment_id="")
+    db.add(a)
+    t.attachment_ids = list(t.attachment_ids or []) + [a.id]
+    act = log_activity(db, type="attached", actor_email=user["email"], entity_id=t.id,
+                       entity_code=t.code, entity_title=t.title, detail=f'{_LINK_ADDED}"{_link_label(a)}"')
+    t.activity_ids = list(t.activity_ids or []) + [act]
+    t.modified_at = now_iso()
+    db.commit()
+    db.refresh(a)
+    fire_task_event(t.id, "attachment")
+    return {**attachment_to_dict(a), "versionCount": 1, "groupAddedBy": _nz(a.added_by)}
+
+
+@router.patch("/attachments/{attachment_id}/link")
+def update_web_link(attachment_id: str, body: WebLinkUpdate, user: dict = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """Change a link's address or display name. The person who added it, or
+    an editor (delete_attachment's rule), and never a viewer: it takes the
+    attachment right (commenter) too. A name left out is kept; sent blank,
+    the link shows its address again."""
+    a, t = _attachment_and_task(db, attachment_id)
+    # Sight of the task first: somebody who cannot see it learns nothing
+    # about the row - not even whether it is a link (404 before 422).
+    assert_task_wall(db, user, t)
+    if not task_visible_to(db, user, t):
+        raise HTTPException(404, "Task not found")
+    if (a.kind or "") != "link":
+        raise HTTPException(422, "Only a web link can be edited here.")
+    require_task_role(db, user, t, "commenter")
+    if (a.added_by or "").lower() != (user["email"] or "").lower():
+        require_project_role(db, user, project_for_task(db, t), "editor")
+    url = _check_web_link(body.url) if body.url is not None else None
+    _lock_task_files(db, t)
+    row = (db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id)
+           .populate_existing().first())
+    if row is None or row.task_id != t.id:
+        raise HTTPException(404, "Attachment not found")   # removed while we waited
+    before = _link_label(row)
+    custom = (row.name or "") != (row.url or "")
+    new_url = url if url is not None else row.url
+    if new_url != row.url:
+        _link_taken(db, t, new_url, except_id=row.id)
+    if body.name is not None:
+        new_name = _link_name(body.name) or new_url
+    else:
+        new_name = row.name if custom else new_url
+    if (new_url, new_name) == (row.url, row.name):
+        return {**attachment_to_dict(row), "versionCount": 1, "groupAddedBy": _nz(row.added_by)}
+    row.url, row.name = new_url, new_name
+    after = _link_label(row)
+    detail = f'changed link "{before}" to "{after}"' if after != before else f'changed the address of link "{after}"'
+    act = log_activity(db, type="attachment_changed", actor_email=user["email"], entity_id=t.id,
+                       entity_code=t.code, entity_title=t.title, detail=detail)
+    t.activity_ids = list(t.activity_ids or []) + [act]
+    t.modified_at = now_iso()
+    db.commit()
+    db.refresh(row)
+    fire_task_event(t.id, "attachment")
+    return {**attachment_to_dict(row), "versionCount": 1, "groupAddedBy": _nz(row.added_by)}
 
 
 # ── Activity ─────────────────────────────────────────────────────────────────
@@ -5844,7 +6271,8 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
             elif t == "comment_resolved":
                 add("resolved")
             elif t == "attached":
-                add("attached")
+                # A web link is told as a link, not a file (Oct 22 2026).
+                add("linked" if (a.detail or "").startswith(_LINK_ADDED) else "attached")
             elif t == "checklist_done":
                 add("checklist", a.detail or "")
             elif t == "restored":
@@ -5953,11 +6381,11 @@ def mark_updates_seen(user: dict = Depends(get_current_user), db: Session = Depe
 # What an update says first: what is asked of me, then what happened.
 _PART_ORDER = ["unblocked", "assigned_you", "extension_ask", "date_ask", "mentioned_you", "comment_for_you",
                "completed", "restored", "status", "due", "date_request", "assignees", "commented",
-               "resolved", "attached", "checklist"]
+               "resolved", "attached", "linked", "checklist"]
 # The bells that say something was put to ME (assigned, a date ask).
 _ASK_BELLS = ("task_assigned", "task_due_extension_requested", "task_due_proposed")
 # Progress, not news: an update made only of these drops.
-_PROGRESS_ONLY = {"attached", "checklist"}
+_PROGRESS_ONLY = {"attached", "linked", "checklist"}
 
 
 # ── Sections & custom statuses (board columns) ───────────────────────────────

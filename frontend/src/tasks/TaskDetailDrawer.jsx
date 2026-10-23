@@ -40,8 +40,9 @@ import { toDownloadUrl } from '../lib/storageView';
 import { openNotificationTarget } from '../lib/openTarget';
 import { useRole } from '../contexts/RoleContext';
 import { dialog } from '../ui/dialog';
-import { VersionChip, VersionsModal, EgnyteLinkRow, EgnyteLinkPicker } from './attachmentParts';
+import { VersionChip, VersionsModal, EgnyteLinkRow, EgnyteLinkPicker, WebLinkRow, WebLinkModal } from './attachmentParts';
 import { currentVersionsOf, isEgnyteLink, canVersion } from './egnyteLinks';
+import { isWebLink } from './webLinks';
 import { ticketNo } from '../tickets/ticketMeta';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
@@ -1373,7 +1374,11 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
           Quick steps for this task. Use Subtasks for work that needs its own date or owner.
         </span>
       </>}>
-        <Checklist task={task} people={people} />
+        {/* Read-only roles see the lines (and tick their own); Convert to
+            Subtask takes the Add Subtask right too - never on an HR checklist
+            task, whose subtasks are the checklist's steps (Oct 22 2026). */}
+        <Checklist task={task} people={people} canEdit={!readOnly}
+          canConvert={canEditProject && !task.hrChecklist} onOpenTask={onOpenSub} />
       </Section>
 
       {/* Subtasks (inline) */}
@@ -1880,11 +1885,16 @@ export function ActivityTab({ taskId, nameOf }) {
 // in Egnyte instead of uploading a copy. See attachmentParts.jsx.
 // onShowOnCard (Oct 22 2026): an editor's "Show On Card" on each image file -
 // it becomes the task's board card cover ('' puts the card back on Automatic).
+// Web links (Oct 22 2026): Add Web Link attaches any web page as a link (a new
+// tab, never the in-app viewer, never versioned); the person who added it
+// or an editor edits or removes it.
 function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, onShowOnCard = null }) {
   const { myEmail, nameOf } = useTasks();
   const [rows, setRows] = useState(null);
   const [versionsOf, setVersionsOf] = useState(null);     // the file whose Versions panel is open
   const [egnyteOpen, setEgnyteOpen] = useState(false);
+  // Add Web Link: {} for a new link, the row for Edit Web Link, null when closed.
+  const [linkEdit, setLinkEdit] = useState(null);
   // New versions in flight, by the attachment they replace: {pct, error}.
   const [verUploads, setVerUploads] = useState({});
   const [dropRow, setDropRow] = useState('');
@@ -1992,6 +2002,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
           <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach File</button>
           <button type="button" onClick={() => setEgnyteOpen(true)} style={{ ...btn('outline'), fontSize: 12, marginBottom: 12, marginLeft: 8 }}><HardDrive size={13} /> Add From Egnyte</button>
+          <button type="button" onClick={() => setLinkEdit({})} style={{ ...btn('outline'), fontSize: 12, marginBottom: 12, marginLeft: 8 }}><Link2 size={13} /> Add Web Link</button>
           <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot. Drop a file onto a file to upload a new version.</span>
           <input ref={versionRef} type="file" data-testid="version-input" style={{ display: 'none' }} onChange={onVersionFile} />
         </>
@@ -2031,6 +2042,10 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
               {(rows || []).map((a) => {
                 if (isEgnyteLink(a)) {
                   return <EgnyteLinkRow key={a.id} a={a} onRemove={mayRemove(a) ? () => del(a) : null} />;
+                }
+                if (isWebLink(a)) {
+                  return <WebLinkRow key={a.id} a={a} onEdit={canAttach && mayRemove(a) ? () => setLinkEdit(a) : null}
+                    onRemove={mayRemove(a) ? () => del(a) : null} />;
                 }
                 const href = a.dataUrl || a.url;
                 const thumb = a.kind === 'image' && href
@@ -2104,6 +2119,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
           canRemoveAny={canRemoveAny} myEmail={myEmail} nameOf={nameOf || ((e) => e)} />
       )}
       {egnyteOpen && <EgnyteLinkPicker taskId={task.id} onClose={() => setEgnyteOpen(false)} onAdded={() => { reload(); refresh?.(); }} />}
+      {linkEdit && <WebLinkModal taskId={task.id} link={linkEdit.id ? linkEdit : null} onClose={() => setLinkEdit(null)} onSaved={() => { reload(); refresh?.(); }} />}
     </>
   );
 }

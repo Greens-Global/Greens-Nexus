@@ -3316,6 +3316,11 @@ class TaskAttachment(Base):
     # is stored in Supabase, and Egnyte applies each viewer's own permissions.
     egnyte_path   = Column(String, default="")   # /Shared/... when known
     egnyte_kind   = Column(String, default="")   # file|folder
+    # Web links (Oct 22 2026): kind "link" is a LINK to any web page - `url`
+    # is its normalized http(s) address (tasks._check_web_link), `name` its
+    # display name (the address itself when none was given). Never stored in
+    # or served from Supabase, never fetched by the server, never versioned.
+    # No column of its own: `kind` says it, as "egnyte" does.
 
 
 class TaskActivity(Base):

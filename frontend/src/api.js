@@ -503,6 +503,9 @@ export const api = {
   addTaskAttachmentVersion: (aid, data) => req(`/tasks/attachments/${aid}/versions`, { method: "POST", body: JSON.stringify(data) }),
   deleteTaskAttachmentVersions: (aid) => req(`/tasks/attachments/${aid}/versions`, { method: "DELETE" }),
   addTaskEgnyteLink: (id, data) => req(`/tasks/${id}/egnyte-links`, { method: "POST", body: JSON.stringify(data) }),
+  // Web links (Oct 22 2026): {url, name} - kind "link" rows, never fetched by the server.
+  addTaskLink: (id, data) => req(`/tasks/${id}/links`, { method: "POST", body: JSON.stringify(data) }),
+  updateTaskLink: (aid, data) => req(`/tasks/attachments/${aid}/link`, { method: "PATCH", body: JSON.stringify(data) }),
   ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
   // Field history (Oct 22 2026): {items, more}, newest first. `field` = a core
@@ -516,6 +519,8 @@ export const api = {
   updateTaskChecklistItem: (itemId, data) => req(`/tasks/checklist/${itemId}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskChecklistItem: (itemId) => req(`/tasks/checklist/${itemId}`, { method: "DELETE" }),
   reorderTaskChecklist: (taskId, ids) => req(`/tasks/${taskId}/checklist/order`, { method: "PUT", body: JSON.stringify({ ids }) }),
+  // Convert to Subtask (Oct 22 2026): {subtask, task} - the line is gone, the subtask made.
+  convertTaskChecklistItem: (itemId) => req(`/tasks/checklist/${itemId}/convert`, { method: "POST" }),
   getGlobalTaskActivity: () => req("/tasks/activity"),
   // Due-date negotiation (Sep 24) - the assignee confirms or proposes, the
   // requester answers. Each returns the updated task.
