@@ -314,15 +314,18 @@ def team_project_ids(t: TaskTeam) -> list:
 
 
 # ── Sight through a private parent (Oct 22 2026) ────────────────────────────
-# A subtask is never wider than its parent (routers/tasks._narrow_to_parent),
-# so a subtask under a PRIVATE task is private too - and must stay in sight of
-# the people who see that parent: its owner, its assignees, its project's
-# people. The rule, in ONE place (task_is_visible / task_visible_to): a
-# restricted subtask whose parent is ALSO restricted is visible to anyone who
-# can see that parent, up the parent chain (bounded, cycle-safe). A
-# restricted subtask under an ORG-WIDE parent keeps its own rule - an org
-# parent is seen by everyone, and that never opens a private child.
-PARENT_SIGHT_DEPTH = 8
+# A subtask is never wider than its parent (routers/tasks._narrow_to_parent).
+# When a subtask is private ONLY BECAUSE its parent is - it was made, moved,
+# converted, copied or cascaded under a private task and would otherwise be
+# org-wide - it remembers that parent (Task.narrowed_by == parent_task_id) and
+# stays in sight of whoever can see that parent by the parent's own rule, up
+# the chain while each link is inherited the same way. A subtask somebody made
+# private BY HAND (narrowed_by cleared, or never set) gets nothing from its
+# parent: a parent's follower never sees a deliberately private subtask.
+# Externals never get the hop (Aug 17: explicit participation or their own
+# projects only), and a parent outside the viewer's company scope grants
+# nothing. The rule lives here only (task_is_visible / task_visible_to).
+MAX_SUBTASK_DEPTH = 20   # = routers.tasks' tree depth; the browser walks no deeper
 _PARENT_CHUNK = 500
 
 
@@ -330,26 +333,36 @@ def _restricted(t) -> bool:
     return (getattr(t, "access_level", None) or "org") != "org"
 
 
+def inherits_privacy(t) -> bool:
+    """Private only because of its parent (see above)."""
+    pid = getattr(t, "parent_task_id", "") or ""
+    return bool(pid) and _restricted(t) and (getattr(t, "narrowed_by", "") or "") == pid
+
+
 class ParentSight:
     """Parents for the rule above, for one request: the rows a list already
-    loaded, plus the restricted parents it did not, read in batches - one
-    query per level of the chain (almost always one), never one per task.
-    `get` falls back to a single read for a parent nobody primed (one-task
-    checks). A trashed parent is not found, and so confers nothing."""
-    def __init__(self, db: Session, rows=()):
+    loaded, plus the parents of inherited-private rows it did not, read in
+    batches - one query per level of the chain (almost always one), never one
+    per task. `get` falls back to a single read for a parent nobody primed
+    (one-task checks). A trashed parent is not found, and so confers nothing.
+    `scope` / `in_scope(p)`: the viewer's company scope, worked out once - a
+    parent over the wall grants nothing."""
+    def __init__(self, db: Session, rows=(), user=None):
         self.db = db
+        self.user = user
         self.by_id = {}
         self.missing: set = set()
+        self._scope = _UNSET
+        self._emp = None
         self.prime(rows)
 
     def prime(self, rows) -> "ParentSight":
         rows = [r for r in rows or () if getattr(r, "id", None)]
         for r in rows:
             self.by_id.setdefault(r.id, r)
-        need = {r.parent_task_id for r in rows
-                if _restricted(r) and r.parent_task_id and r.parent_task_id not in self.by_id}
+        need = {r.parent_task_id for r in rows if inherits_privacy(r) and r.parent_task_id not in self.by_id}
         depth = 0
-        while need and depth < PARENT_SIGHT_DEPTH:
+        while need and depth < MAX_SUBTASK_DEPTH:
             ids = sorted(need)
             got = []
             for i in range(0, len(ids), _PARENT_CHUNK):
@@ -358,8 +371,8 @@ class ParentSight:
                 self.by_id[p.id] = p
             self.missing |= need - {p.id for p in got}
             need = {p.parent_task_id for p in got
-                    if _restricted(p) and p.parent_task_id
-                    and p.parent_task_id not in self.by_id and p.parent_task_id not in self.missing}
+                    if inherits_privacy(p) and p.parent_task_id not in self.by_id
+                    and p.parent_task_id not in self.missing}
             depth += 1
         return self
 
@@ -374,6 +387,17 @@ class ParentSight:
             self.by_id[pid] = p
         return self.by_id[pid]
 
+    def in_scope(self, p, user_or_email) -> bool:
+        if self._scope is _UNSET:
+            import auth
+            u = user_or_email if isinstance(user_or_email, dict) else {"email": user_or_email or ""}
+            self._scope = auth.company_scope(u, self.db) if (u.get("email") or "") else set()
+        if self._scope is None:
+            return True
+        if self._emp is None:
+            self._emp = _emp_company_map(self.db)
+        return task_company(p, self._emp) in self._scope
+
 
 def task_is_visible(t: Task, user_or_email, visible_proj_ids: set[str], parents: "ParentSight | None" = None) -> bool:
     """A task is visible if it's independently 'org', the viewer is its
@@ -381,24 +405,30 @@ def task_is_visible(t: Task, user_or_email, visible_proj_ids: set[str], parents:
     already see (org-wide, owned, or via team/assignee collaboration).
     EXTERNAL callers (pass the user dict) never get the 'org' default - only
     explicit participation or a project they explicitly belong to (Aug 17).
-    With `parents` (a ParentSight), a restricted subtask under a restricted
-    parent is also visible to whoever can see that parent (see above);
-    without it, only the task's own grants count."""
+    With `parents` (a ParentSight), a subtask private only because of its
+    parent (inherits_privacy) is also visible to whoever can see that parent
+    by the parent's own rule - never to an external, never through a parent
+    over the viewer's company wall."""
     if _own_sight(t, user_or_email, visible_proj_ids):
         return True
-    if parents is None or not _restricted(t) or not t.parent_task_id:
+    if parents is None or not inherits_privacy(t):
+        return False
+    _email, external = _email_and_external(user_or_email)
+    if external:
         return False
     seen, cur = {t.id}, t
-    for _ in range(PARENT_SIGHT_DEPTH):
-        pid = cur.parent_task_id
-        if not pid or pid in seen:
+    for _ in range(MAX_SUBTASK_DEPTH):
+        if not inherits_privacy(cur) or cur.parent_task_id in seen:
             return False
-        p = parents.get(pid)
-        if p is None or not _restricted(p):
-            return False   # an org-wide parent never opens a private child
+        p = parents.get(cur.parent_task_id)
+        # An org-wide parent never opens a private child (a stale marker
+        # under one grants nothing); nor does a trashed one or one over the wall.
+        if (p is None or not _restricted(p) or getattr(p, "deleted_at", "")
+                or not parents.in_scope(p, user_or_email)):
+            return False
         if _own_sight(p, user_or_email, visible_proj_ids):
             return True
-        seen.add(pid)
+        seen.add(p.id)
         cur = p
     return False
 
@@ -896,7 +926,7 @@ def assert_person_on_task(db: Session, task, email: str) -> str:
         raise HTTPException(422, "That person is in another company.")
     if auth.level_in_module(who, "tasks", 3, db) >= 3:   # managers (and Tasks Owners) open every task
         return who
-    if not task_is_visible(task, who, visible_project_ids(db, who), ParentSight(db)):
+    if not task_is_visible(task, who, visible_project_ids(db, who), ParentSight(db, user=who)):
         raise HTTPException(422, "That person cannot see this task. Add them to the task or its project first.")
     return who
 
@@ -976,16 +1006,17 @@ def task_visible_to(db: Session, user: dict, task, visible: set | None = None,
     also admitted through its top-level ancestor's project. `visible` is the
     caller's visible_project_ids when already worked out; it is only built
     when the cheap checks (org task, owner / creator / assignee / follower)
-    have not already answered. A restricted subtask under a restricted
-    parent is also visible to whoever can see that parent (ParentSight -
-    `parents` when the caller loaded a list, else read here)."""
+    have not already answered. A subtask private only because of its parent
+    (inherits_privacy) is also visible to whoever can see that parent
+    (ParentSight - `parents` when the caller loaded a list, else read here);
+    never to an external."""
     if is_manager(user):
         return True
     if task_is_visible(task, user, set()):
         return True
-    inherits = _restricted(task) and bool(task.parent_task_id)
+    inherits = inherits_privacy(task) and not user.get("external")
     if inherits and parents is None:
-        parents = ParentSight(db)
+        parents = ParentSight(db, user=user)
     extras = [p for p in (task.project_ids or []) if p]
     proj = project_for_task(db, task) if (not task.project_id and task.parent_task_id) else None
     if not (task.project_id or extras or proj or inherits):

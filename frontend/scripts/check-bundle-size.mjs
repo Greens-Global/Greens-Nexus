@@ -256,7 +256,14 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // 13712 KB (a clean local build reads ~13505 - CI's clean install runs about
 // 200 KB higher, see above). No new dependency: the heat map and hexes are
 // drawn by hand. Deliberate (Visesh).
-const TOTAL_KB     = 13950;
+// Oct 22 2026: 13950 -> 14250. Planner parity batch (PR #765) measured
+// 14033 KB on CI: the Board's Group / Columns / label lanes / card previews,
+// the Calendar's Unscheduled pane, colored labels with Manage > Labels, web
+// links and checklist item to subtask, and My Day. A clean local build reads
+// 13828 KB. My Day and Manage > Labels already load with their tab (their
+// own chunks); this sums every shipped file regardless. App code only, no
+// new dependency. Deliberate (Neil).
+const TOTAL_KB     = 14250;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

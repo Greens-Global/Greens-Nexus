@@ -36,6 +36,7 @@ from routers.task_util import (
     assert_task_wall, require_project_access, wall_rows, wall_teams,
     config_admits, config_company_for_new, assert_config_editable,
     task_visible_to, assert_person_assignable, project_role_for, PROJECT_ROLE_RANK, row_company, ParentSight,
+    inherits_privacy,
     split_people, note_dropped_people,
 )
 from task_notify import notify_task_event
@@ -79,6 +80,10 @@ def task_to_dict(t: models.Task) -> dict:
         "likedByIds":       t.liked_by_emails or [],
         "reactions":        t.reactions if isinstance(t.reactions, dict) else {},
         "accessLevel":      t.access_level or "org",
+        # Private only because of its parent (task_util.inherits_privacy):
+        # the parent's id, else "". The Share popup counts these to say what
+        # opening the parent brings back.
+        "narrowedBy":       getattr(t, "narrowed_by", "") or "",
         "projectId":        _nz(t.project_id),
         "projectIds":       [p for p in (t.project_ids or []) if p],
         "sectionId":        _nz(t.section_id),
@@ -875,7 +880,8 @@ def _sync_hierarchy(db: Session, t: models.Task, data: dict, prev_parent: str, p
 #
 # The browser walks a parent chain at most 20 levels (lib.js effectiveProjectId,
 # rootParent, taskRoleFor), so a deeper tree would lose its project there.
-MAX_SUBTASK_DEPTH = 20
+# One number with the private-parent sight walk (task_util).
+from routers.task_util import MAX_SUBTASK_DEPTH   # noqa: E402,F401
 
 
 def _tree_depth(db: Session, task_id: str) -> int:
@@ -922,21 +928,36 @@ def _is_hr_checklist_task(db: Session, t) -> bool:
         models.HrChecklistItem.task_id.in_([t.id, *kids])).first() is not None
 
 
-def _require_open_up_for_move(db: Session, user: dict, rows: list, dest_id: str) -> None:
+def _require_open_up_for_move(db: Session, user: dict, rows: list, dest_id: str,
+                              new_parent=None, check_dest: bool = True) -> bool:
     """A move never makes a restricted row more visible than it was (Oct 22
     2026). Into another project, a restricted row becomes visible to that
     project's people - the same widening as opening it to the organization,
     so it takes the same person (_may_open_up: a manager, its owner or
     creator, or an editor of the project it is in now) for EVERY restricted
-    row that goes, or the whole move is refused."""
-    if not dest_id:
-        return
+    row that goes, or the whole move is refused (`check_dest`: the move
+    changes project).
+    Under a private parent - with or without a project - a private row that
+    was private only because of its OLD parent (task_util.inherits_privacy)
+    would be seen by the NEW parent's people if its marker followed it. That
+    is the same widening, so it takes the same person: returns whether the
+    marker may follow (the caller re-stamps it, or clears it - the row then
+    stays private to its own people). Never skipped for a parent with no
+    project."""
+    moved = rows[0] if rows else None
+    follows = bool(moved is not None and new_parent is not None
+                   and (new_parent.access_level or "org") != "org"
+                   and (moved.access_level or "org") != "org"
+                   and (moved.narrowed_by or "") and _may_open_up(db, user, moved))
+    if not (check_dest and dest_id):
+        return follows
     for row in rows:
         if row.deleted_at or (row.access_level or "org") == "org":
             continue
         if not _may_open_up(db, user, row):
             raise HTTPException(403, "You can't move private tasks into a project where more people can see "
                                      "them - ask their owner or a project editor.")
+    return follows
 
 
 def _plan_move(db: Session, user: dict, t: models.Task, new_parent_id: str, project_hint=None) -> dict:
@@ -977,10 +998,10 @@ def _plan_move(db: Session, user: dict, t: models.Task, new_parent_id: str, proj
         dest_id = src_id if project_hint is None else (project_hint or "")
     plan = {"parent": parent, "src": src_id, "dest": dest_id, "new_parent": new_parent_id or ""}
     _check_move_shape(db, t, plan)
-    if dest_id != src_id:
-        if src is not None:
-            require_project_access(db, user, src, "editor")
-        _require_open_up_for_move(db, user, [t, *plan["subtree"]], dest_id)
+    if dest_id != src_id and src is not None:
+        require_project_access(db, user, src, "editor")
+    plan["marker_follows"] = _require_open_up_for_move(db, user, [t, *plan["subtree"]], dest_id,
+                                                       new_parent=parent, check_dest=dest_id != src_id)
     return plan
 
 
@@ -1025,22 +1046,26 @@ def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str) -> 
 
     Made private (org -> restricted): every org-wide row of its subtree goes
     private too - a subtask is never more visible than its parent
-    (_narrow_to_parent) - and remembers that `t` did it (narrowed_by). The
-    people who see `t` still see them (task_util.ParentSight).
-    Opened again (restricted -> org): exactly the rows `t` made private come
-    back, top down, unless one was set by hand since (that clears
-    narrowed_by) or the task right above it is still private.
-    The subtree is row-locked in id order with `t` first (_lock_task_rows)
-    and re-read under the lock, so a concurrent edit of one of them is seen,
-    never overwritten. One activity row on `t` says how many went. Returns
-    the ids changed (the caller fires one realtime event for them)."""
+    (_narrow_to_parent) - and is marked private BECAUSE of the task right
+    above it (narrowed_by = its parent; task_util.inherits_privacy), so the
+    people who see `t` still see it. A row already private keeps its level
+    and its own marker.
+    Opened again (restricted -> org): the rows private only because of the
+    task above them come back, top down - never one somebody made private by
+    hand (that clears the marker), never one under a task still private.
+    `t` is locked first, then its subtree is read and locked in id order
+    (_lock_task_rows) and re-read under the lock, so a concurrent edit of one
+    of them is seen, never overwritten. One activity row on `t` says how many
+    went (their ids in its field_change). Returns the ids changed (the caller
+    fires one realtime event for them)."""
     now_level = t.access_level or "org"
     if prev_level == now_level or "org" not in (prev_level, now_level):
         return []
+    _lock_task_rows(db, [t.id])
     ids = [r.id for r in _subtree_rows(db, t.id)[0]]
     if not ids:
         return []
-    _lock_task_rows(db, [t.id, *ids])
+    _lock_task_rows(db, ids)
     rows = (db.query(models.Task).execution_options(include_deleted=True)
             .filter(models.Task.id.in_(ids)).populate_existing().all())
     by_id = {r.id: r for r in rows}
@@ -1049,7 +1074,7 @@ def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str) -> 
     if now_level != "org":
         for r in rows:
             if (r.access_level or "org") == "org":
-                r.access_level, r.narrowed_by = now_level, t.id
+                r.access_level, r.narrowed_by = now_level, (r.parent_task_id or "")
                 changed.append(r)
         what = "made private too"
     else:
@@ -1058,10 +1083,9 @@ def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str) -> 
             r = by_id.get(rid)
             if r is None:
                 continue
-            above = level.get(r.parent_task_id or "", by_id[r.parent_task_id].access_level
-                              if r.parent_task_id in by_id else "restricted")
-            if ((r.narrowed_by or "") == t.id and (r.access_level or "org") != "org"
-                    and (above or "org") == "org"):
+            pid = r.parent_task_id or ""
+            above = level.get(pid) or ((by_id[pid].access_level or "org") if pid in by_id else "restricted")
+            if inherits_privacy(r) and above == "org":
                 r.access_level, r.narrowed_by = "org", ""
                 changed.append(r)
             level[r.id] = r.access_level or "org"
@@ -1075,8 +1099,20 @@ def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str) -> 
     t.activity_ids = list(t.activity_ids or []) + [log_activity(
         db, type="subtasks_access", actor_email=user["email"], entity_id=t.id, entity_code=t.code,
         entity_title=t.title, detail=f"{n} subtask{'s' if n != 1 else ''} {what}",
-        change={"subtaskIds": [r.id for r in changed], "to": "org" if now_level == "org" else now_level})]
+        change={"subtaskIds": [r.id for r in changed], "to": now_level})]
     return [r.id for r in changed]
+
+
+def _copy_level(src, new_parent) -> tuple:
+    """(level, narrowed_by) for a COPY of `src` made under `new_parent` (the
+    next occurrence of a repeating task, its carried subtasks): never wider
+    than the new parent (_narrow_to_parent), and private-because-of-the-parent
+    (task_util.inherits_privacy) when that is why it is private - narrowed
+    here, or the source already was."""
+    level = _narrow_to_parent(src.access_level, new_parent)
+    inherited = (new_parent is not None and level != "org"
+                 and ((src.access_level or "org") == "org" or inherits_privacy(src)))
+    return level, (new_parent.id if inherited else "")
 
 
 def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
@@ -1146,11 +1182,20 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
     if self_before is not None:
         task_history.record(db, t, self_before, user["email"], only=tracked)
     narrowed = False
+    # The moved task's "private because of its parent" marker (task_util.
+    # inherits_privacy) names its OLD parent: it follows to the new one only
+    # when _plan_move allowed it (_require_open_up_for_move), else it is
+    # cleared and the task stays private to its own people.
+    if (t.narrowed_by or "") and (parent is None or t.narrowed_by != parent.id):
+        t.narrowed_by = parent.id if (parent is not None and plan.get("marker_follows")) else ""
     if parent is not None:
         for row in [t, *plan["subtree"]]:
             level = _narrow_to_parent(row.access_level, parent)
             if level != (row.access_level or "org"):
+                # Made private by this move: private because of the task
+                # above it - `parent` for `t`, its own parent below.
                 row.access_level, narrowed = level, True
+                row.narrowed_by = parent.id if row is t else (row.parent_task_id or "")
                 if row is not t and not row.deleted_at:
                     row.modified_at = now
     # The parent is named only when everybody who sees this task's history
@@ -1563,8 +1608,8 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
         owner_email=t.owner_email or "",
         follower_emails=list(t.follower_emails or []),
         liked_by_emails=[],
-        # Never wider than the parent occurrence it goes under (_narrow_to_parent).
-        access_level=_narrow_to_parent(t.access_level, parent),
+        # Never wider than the parent occurrence it goes under (_copy_level).
+        access_level=_copy_level(t, parent)[0], narrowed_by=_copy_level(t, parent)[1],
         project_id=t.project_id or "",
         # The "also in" projects too - without them the next occurrence
         # silently dropped out of every project but the primary one.
@@ -1775,6 +1820,9 @@ def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict, c
             continue
         if isinstance(s.recurrence, dict) and s.recurrence.get("freq"):
             if not s.completed or s.id in carry_open:
+                # Private because of the old occurrence = because of the new one.
+                if inherits_privacy(s):
+                    s.narrowed_by = nxt.id if (nxt.access_level or "org") != "org" else ""
                 s.parent_task_id, s.modified_at = nxt.id, now
                 moved.append(s.id)
                 ids.append(s.id)
@@ -1792,7 +1840,7 @@ def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict, c
             status="not_started", priority=s.priority or "medium",
             assignee_email=s.assignee_email or "", assignee_emails=list(task_assignees(s)),
             owner_email=s.owner_email or "", follower_emails=list(s.follower_emails or []),
-            liked_by_emails=[], access_level=_narrow_to_parent(s.access_level, nxt),
+            liked_by_emails=[], access_level=_copy_level(s, nxt)[0], narrowed_by=_copy_level(s, nxt)[1],
             project_id=s.project_id or "", project_ids=list(s.project_ids or []),
             section_id=s.section_id or "", team_id=s.team_id or "",
             parent_task_id=nxt.id, position=s.position or 0.0,
@@ -2151,7 +2199,7 @@ def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get
     visible_projects = visible_project_ids(db, user)
     # A private subtask is seen by whoever sees its private parent
     # (task_util.ParentSight): the parents come from these same rows.
-    parents = ParentSight(db, rows)
+    parents = ParentSight(db, rows, user=user)
     return _with_previews(db, [t for t in rows if task_is_visible(t, user, visible_projects, parents)], user)
 
 
@@ -2204,7 +2252,7 @@ def export_tasks_excel(
     rows = wall_tasks(db, user, db.query(models.Task).all())   # company wall first
     if not is_manager(user):
         visible = visible_project_ids(db, user)
-        parents = ParentSight(db, rows)
+        parents = ParentSight(db, rows, user=user)
         rows = [t for t in rows if task_is_visible(t, user, visible, parents)]
 
     # -- Filters (empty = no constraint; several values = match ANY) ----------
@@ -2422,7 +2470,7 @@ def search_everything(q: str = "", limit: int = 6,
     visible = None if manager else visible_project_ids(db, user)
 
     walled = wall_tasks(db, user, db.query(models.Task).all())
-    parents = None if manager else ParentSight(db, walled)
+    parents = None if manager else ParentSight(db, walled, user=user)
     tasks = [t for t in walled
              if (term in (t.title or "").lower() or term in (t.code or "").lower())
              and not t.completed
@@ -2543,7 +2591,7 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
     manager = is_manager(user)
     visible = None if manager else visible_project_ids(db, user)
     walled = wall_tasks(db, user, db.query(models.Task).all())
-    parents = None if manager else ParentSight(db, walled)
+    parents = None if manager else ParentSight(db, walled, user=user)
     rows = [t for t in walled if manager or task_is_visible(t, user, visible, parents)]
     walled_projects = wall_rows(db, user, db.query(models.TaskProject).all())
     project_names = {p.id: p.name for p in walled_projects}
@@ -2649,14 +2697,24 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
         q = q.execution_options(include_deleted=True).filter(models.Task.modified_at > since)
     fetched = q.all()
     live = [t for t in fetched if not t.deleted_at]
+    manager = is_manager(user)
+    # A private task that changed decides the sight of the subtasks that are
+    # private only because of it (task_util.inherits_privacy) - a follower
+    # taken off, a parent made private: they are judged again here although
+    # they did not change themselves, so they join the caller's list or
+    # leave it with their parent.
+    riders = _inherited_below(db, [t for t in live if (t.access_level or "org") != "org"],
+                              {t.id for t in fetched}) if (since and not manager) else []
+    live = live + riders
     rows = wall_tasks(db, user, live)   # company wall first
-    if not is_manager(user):
+    if not manager:
         visible_projects = visible_project_ids(db, user)
         # The changed rows' private parents in one batch (ParentSight), not
         # one read per row.
-        parents = ParentSight(db, rows)
+        parents = ParentSight(db, rows, user=user)
         rows = [t for t in rows if task_is_visible(t, user, visible_projects, parents)]
     kept = {t.id for t in rows}
+    fetched = fetched + riders
     gone: list[str] = []
     if since:
         logged = (db.query(models.TaskDeleteLog.task_id)
@@ -2671,6 +2729,32 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
     return {"tasks": _with_previews(db, rows, user),
             "deletedIds": deleted_ids,
             "serverTime": server_time}
+
+
+def _inherited_below(db: Session, tops: list, skip: set) -> list:
+    """The live subtasks private only because of a task in `tops`, down the
+    tree (task_util.inherits_privacy: narrowed_by is its parent) - one query
+    per level, at most MAX_SUBTASK_DEPTH levels; rows in `skip` are left out
+    (the caller has them already)."""
+    out, seen = [], set(skip)
+    frontier = sorted({t.id for t in tops})
+    for _ in range(MAX_SUBTASK_DEPTH):
+        if not frontier:
+            break
+        kids = []
+        for i in range(0, len(frontier), 500):
+            kids += (db.query(models.Task)
+                     .filter(models.Task.parent_task_id.in_(frontier[i:i + 500]),
+                             models.Task.narrowed_by == models.Task.parent_task_id).all())
+        frontier = []
+        for k in kids:
+            if k.id in seen or (k.access_level or "org") == "org":
+                continue
+            seen.add(k.id)
+            frontier.append(k.id)
+            out.append(k)
+        frontier.sort()
+    return out
 
 
 def _new_task_row(db: Session, body: TaskCreate, *, tid: str, code: str, company_id: str,
@@ -2795,6 +2879,9 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
         # the task-code counter below: task rows are always locked before the
         # counter, never after (see _lock_task_rows).
         _lock_task_rows(db, [parent.id])
+        # Its level as it is now, under the lock: a parent made private while
+        # this request was on its way makes a private subtask.
+        db.refresh(parent, ["access_level"])
     # Company wall: stamp the creator's company so the task is fixed on their side
     # of the wall even if they later change companies (task_util.task_company falls
     # back to deriving it for legacy/sync rows that were never stamped).
@@ -2821,9 +2908,14 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     # Under a private parent the subtask is private too (Oct 22 2026): an
     # unset level takes the parent's ahead of the project's, and an explicit
     # "org" is narrowed to it - a subtask is never wider than its parent.
-    access_level = _narrow_to_parent(access_level, parent)
+    # Narrowed that way it is private BECAUSE of the parent, and says so
+    # (narrowed_by - task_util.inherits_privacy): the parent's people see it.
+    narrowed = _narrow_to_parent(access_level, parent)
+    inherited = narrowed != access_level
+    access_level = narrowed
     t = _new_task_row(db, body, tid=tid, code=_next_code(db), company_id=company_id,
                       access_level=access_level, user=user, now=now)
+    t.narrowed_by = parent.id if inherited else ""
     set_task_assignees(t, _assignees_from(body.__dict__, []) or [])
     dropped_people: list = []
     if check_people:
@@ -2990,6 +3082,13 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # the three cannot disagree about what "done" means.
     new_completed = _resolve_completed(data, prev_completed)
     _check_dependency_gate(db, t, prev_status, prev_completed, new_status, new_completed)
+    # Opening up / making private a repeating task AND completing it in one
+    # edit would lock its subtree (_cascade_level) and then the next
+    # occurrence's rows out of id order (_lock_task_rows) - two steps instead.
+    if (data.get("access_level") and (data["access_level"] or "org") != prev_level
+            and new_completed and not prev_completed
+            and isinstance(t.recurrence, dict) and t.recurrence.get("freq")):
+        raise HTTPException(422, "Change who can see this repeating task first, then complete it.")
 
     for field, val in data.items():
         if field == "completed":
@@ -3052,9 +3151,11 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         if child is not None:
             child.activity_ids = list(child.activity_ids or []) + [
                 _apply_move(db, user, child, plan, now_iso(), place=False, history_self=True)]
-    # A level set by hand is the person's own: a later "open again" of the
-    # task that once made it private (_cascade_level) leaves it alone.
-    if "access_level" in data:
+    # A level CHANGED by hand is the person's own: no longer private because
+    # of the parent (task_util.inherits_privacy), so the parent's people lose
+    # the sight it gave and a later "open again" of the parent leaves it
+    # alone. The same level re-sent (a full form) changes nothing.
+    if "access_level" in data and (t.access_level or "org") != prev_level:
         t.narrowed_by = ""
     # Made private / opened again (Oct 22 2026): the subtree follows - see
     # _cascade_level.

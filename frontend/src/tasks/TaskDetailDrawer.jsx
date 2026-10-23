@@ -925,7 +925,7 @@ export function ShareModal({ task, people, nameOf, patch, onClose }) {
   const level = task.accessLevel || 'org';
   const followers = task.followerIds || [];
   const { tasks = [], taskById = {} } = useTasks();
-  const { underPrivate, openBelow } = shareRules(task, tasks, taskById);
+  const { underPrivate, openBelow, reopenBelow } = shareRules(task, tasks, taskById);
   const orgLocked = underPrivate && level !== 'org';
   const [copied, setCopied] = useState(false);
   // A phone gets the full-screen sheet; elsewhere the 60% popup (.nx-popup).
@@ -952,6 +952,7 @@ export function ShareModal({ task, people, nameOf, patch, onClose }) {
               {OPTS.map((o) => {
                 const locked = o.key === 'org' && orgLocked;
                 const warn = o.key === 'restricted' && level === 'org' && openBelow > 0;
+                const reopen = o.key === 'org' && !locked && level !== 'org' && reopenBelow > 0;
                 return (
                   <button key={o.key} disabled={locked} aria-disabled={locked || undefined}
                     onClick={() => { if (!locked) patch({ accessLevel: o.key }); }}
@@ -963,6 +964,11 @@ export function ShareModal({ task, people, nameOf, patch, onClose }) {
                       {locked && (
                         <div data-testid="share-org-locked" style={{ fontSize: 12, color: NX.dim, marginTop: 4 }}>
                           Not available for this subtask while the task it is under is private - share that task first.
+                        </div>
+                      )}
+                      {reopen && (
+                        <div data-testid="share-subtasks-reopen" role="note" style={{ fontSize: 12, color: NX.amber, marginTop: 4 }}>
+                          {reopenBelow === 1 ? 'Its 1 subtask made private with it opens to everyone again.' : `Its ${reopenBelow} subtasks made private with it open to everyone again.`}
                         </div>
                       )}
                       {warn && (

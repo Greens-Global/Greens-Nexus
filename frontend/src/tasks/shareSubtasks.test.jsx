@@ -17,13 +17,13 @@ vi.mock('./TasksContext', () => ({ useTasks: () => state }));
 const { ShareModal } = await import('./TaskDetailDrawer');
 const { shareRules } = await import('./shareRules');
 
-const t = (id, accessLevel = 'org', parentTaskId = '') => ({ id, title: id, accessLevel, parentTaskId, followerIds: [] });
+const t = (id, accessLevel = 'org', parentTaskId = '', narrowedBy = '') => ({ id, title: id, accessLevel, parentTaskId, narrowedBy, followerIds: [] });
 const setTasks = (list) => { state = { tasks: list, taskById: Object.fromEntries(list.map((x) => [x.id, x])) }; };
 
 describe('shareRules', () => {
   it('counts the open subtasks below, at any depth', () => {
     const list = [t('top'), t('a', 'org', 'top'), t('b', 'restricted', 'top'), t('c', 'org', 'b')];
-    expect(shareRules(list[0], list, {})).toEqual({ underPrivate: false, openBelow: 2 });
+    expect(shareRules(list[0], list, {})).toMatchObject({ underPrivate: false, openBelow: 2, reopenBelow: 0 });
   });
 
   it('a subtask under a private parent, or one this person cannot see, is under a private task', () => {
@@ -63,5 +63,24 @@ describe('ShareModal', () => {
     render(<ShareModal task={list[0]} people={[]} nameOf={(e) => e} patch={() => {}} onClose={() => {}} />);
     expect(screen.queryByTestId('share-subtasks-warning')).toBeNull();
     expect(screen.getByText('Everyone in your organization').closest('button')).not.toBeDisabled();
+  });
+
+  it('opening up says how many subtasks made private with it come back', () => {
+    // a, b private because of top; c because of a; d private by hand; e under d.
+    const list = [t('top', 'restricted'), t('a', 'restricted', 'top', 'top'), t('b', 'restricted', 'top', 'top'),
+      t('c', 'restricted', 'a', 'a'), t('d', 'restricted', 'top'), t('e', 'restricted', 'd', 'd')];
+    setTasks(list);
+    expect(shareRules(list[0], list, {}).reopenBelow).toBe(3);
+    render(<ShareModal task={list[0]} people={[]} nameOf={(e) => e} patch={() => {}} onClose={() => {}} />);
+    expect(screen.getByTestId('share-subtasks-reopen').textContent).toBe('Its 3 subtasks made private with it open to everyone again.');
+  });
+});
+
+describe('Duplicate keeps a subtask private the way it was', () => {
+  it('sends a hand-set private level, and leaves an inherited one to the server', async () => {
+    const { duplicateTaskData } = await import('./lib');
+    const base = { id: 'k', title: 'K', parentTaskId: 'p', accessLevel: 'restricted' };
+    expect(duplicateTaskData({ ...base, narrowedBy: '' }).accessLevel).toBe('restricted');
+    expect(duplicateTaskData({ ...base, narrowedBy: 'p' }).accessLevel).toBeUndefined();
   });
 });

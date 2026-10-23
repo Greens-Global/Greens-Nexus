@@ -332,7 +332,8 @@ def in_company(db: Session, company: str):
 
 # ── Labels in use ─────────────────────────────────────────────────────────
 _SCAN_COLS = ("id", "tags", "company_id", "owner_email", "created_by", "access_level", "assignee_email",
-              "assignee_emails", "follower_emails", "project_id", "project_ids", "parent_task_id")
+              "assignee_emails", "follower_emails", "project_id", "project_ids", "parent_task_id",
+              "narrowed_by")
 
 
 def _scan(db: Session, company: str = "", include_deleted: bool = False):
@@ -428,7 +429,7 @@ def visible_keys(db: Session, user: dict, company: str, wanted) -> set:
     later = [r for r in later if (r.keys & wanted) - found]
     if later:
         projects = visible_project_ids(db, user)
-        parents = ParentSight(db, later)
+        parents = ParentSight(db, later, user=user)
         for r in later:
             new = (r.keys & wanted) - found
             if new and task_is_visible(r, user, projects, parents):

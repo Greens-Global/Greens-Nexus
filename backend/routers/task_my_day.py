@@ -173,7 +173,7 @@ class _Sight:
         self._visible = None
         # Private parents for a private subtask's sight (task_util.ParentSight),
         # primed in one batch with the rows _gather read.
-        self.parents = ParentSight(db)
+        self.parents = ParentSight(db, user=user)
 
     def walled_in(self, t) -> bool:
         if self.scope is None:

@@ -2,8 +2,9 @@
 // task with subtasks (TaskDetailDrawer's ShareModal).
 // A subtask is never wider than its parent (Oct 22 2026): under a private
 // task "Everyone" is shown but cannot be picked, with the reason; making a
-// task private says how many of its open subtasks go private with it (the
-// server takes them along - tasks._cascade_level).
+// task private says how many of its open subtasks go private with it, and
+// opening it up again how many come back with it (the server takes them
+// along both ways - tasks._cascade_level).
 export function shareRules(task, tasks = [], taskById = {}) {
   const parent = task.parentTaskId ? taskById[task.parentTaskId] || tasks.find((x) => x.id === task.parentTaskId) : null;
   // A parent this person cannot see at all is a private one.
@@ -21,5 +22,20 @@ export function shareRules(task, tasks = [], taskById = {}) {
       if ((k.accessLevel || 'org') === 'org') openBelow += 1;
     }
   }
-  return { underPrivate, openBelow };
+  // Opening it up again brings back the subtasks private only because of it
+  // (narrowedBy = their parent), down the chain while each link is that way -
+  // what the server's _cascade_level opens. One made private by hand stays.
+  let reopenBelow = 0;
+  const again = [task.id];
+  const met = new Set([task.id]);
+  while (again.length) {
+    const pid = again.pop();
+    for (const k of kids.get(pid) || []) {
+      if (met.has(k.id) || (k.accessLevel || 'org') === 'org' || k.narrowedBy !== pid) continue;
+      met.add(k.id);
+      again.push(k.id);
+      reopenBelow += 1;
+    }
+  }
+  return { underPrivate, openBelow, reopenBelow };
 }

@@ -572,8 +572,12 @@ export function duplicateTaskData(t, overrides = {}) {
     cardPreviewMode: String(t.cardPreviewMode || '').startsWith('image:') ? '' : (t.cardPreviewMode || ''),
     // A private task's copy is private too (Oct 22 2026) - never wider than
     // what it was copied from. An org-wide one leaves it to the server (the
-    // project's level, or the parent's when that is private).
-    ...(t.accessLevel && t.accessLevel !== 'org' ? { accessLevel: t.accessLevel } : {}),
+    // project's level, or the parent's when that is private) - and so does
+    // one private only because of its parent (narrowedBy): the server makes
+    // the copy private under its private parent the same way, so the
+    // parent's people keep seeing it.
+    ...(t.accessLevel && t.accessLevel !== 'org' && !(t.narrowedBy && t.narrowedBy === t.parentTaskId)
+      ? { accessLevel: t.accessLevel } : {}),
     ...overrides,
   };
 }
