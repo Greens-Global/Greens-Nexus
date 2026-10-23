@@ -715,6 +715,35 @@ def resync_company(db, entity_id: str, by: str) -> list:
     return created
 
 
+def refresh_person(db, employee_id: str, by: str = "nexus") -> list:
+    """The evidence behind a person's automatic steps just changed (a signed
+    offer, a provisioning run, an ID or work authorization on file): each of
+    their OPEN checklists ticks what it now can and its tasks follow at once -
+    not when someone next opens the profile or at the nightly pass (Neil, Oct
+    22 1:03:43: "close it off and let's see if it closed off there"). In a
+    savepoint, so a checklist problem never undoes the change that called it;
+    the new tasks' email goes out after commit. Returns the new task ids."""
+    if not employee_id:
+        return []
+    created = []
+    db.flush()                       # autoflush is off: the signals must see the change
+    sp = db.begin_nested()
+    try:
+        emp = db.query(NexusEmployee).filter(NexusEmployee.id == employee_id).first()
+        for cl in (db.query(HrChecklist)
+                   .filter(HrChecklist.employee_id == employee_id, HrChecklist.status == "open").all()):
+            if sync(db, cl, emp):
+                db.flush()
+                created += sync_tasks(db, cl, emp, by=by)
+        sp.commit()
+    except Exception as e:   # noqa: BLE001 - best effort by design
+        sp.rollback()
+        print(f"[checklists] refresh for {employee_id} skipped: {e}")
+        return []
+    email_tasks_after_commit(db, created, by)
+    return created
+
+
 def start_on_hire(db, emp: NexusEmployee, by: str, role_id: str = None) -> None:
     """Hook for the hiring pipeline (Hired -> employee in Onboarding), with the
     steps of the role they were hired into. Never lets a checklist problem

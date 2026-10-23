@@ -2037,6 +2037,14 @@ def on_completed(db: Session, req: HrSignRequest) -> None:
     ev.filing_status = "pending"
     ev.filing_next_at = now
     ev.filing_attempts = 0
+    # The signed offer / packet ticks its checklist step and subtask now, not
+    # when someone next opens the profile (Oct 23).
+    eid = ev.employee_id
+    if not eid and ev.candidate_id:
+        cand = db.query(HrCandidate).filter(HrCandidate.id == ev.candidate_id).first()
+        eid = cand.employee_id if cand else ""
+    import hr_checklists
+    hr_checklists.refresh_person(db, eid)
 
 
 def retry_apply(db: Session, ev: HrLifeEvent) -> None:

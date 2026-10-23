@@ -130,15 +130,17 @@ def employee_checklists(eid: str, background: BackgroundTasks = None,
             .order_by(HrChecklist.created_at.desc()).all())
     changed, created = False, []
     for cl in rows:
-        changed = hc.sync(db, cl, emp) or changed
+        did = hc.sync(db, cl, emp)
+        changed = did or changed
         db.flush()
         # A step whose owner is known but has no subtask yet (owner filled in
-        # after the start) gets it now, not at the overnight pass.
+        # after the start) gets it now, not at the overnight pass - and a step
+        # that just ticked (or a checklist that just closed) completes its task.
         waiting = cl.status == "open" and db.query(HrChecklistItem.id).filter(
             HrChecklistItem.checklist_id == cl.id, HrChecklistItem.status == "open",
             func.coalesce(HrChecklistItem.owner_email, "") != "",
             func.coalesce(HrChecklistItem.task_id, "") == "").first() is not None
-        if waiting:
+        if did or waiting:
             new = hc.sync_tasks(db, cl, emp, by=user["email"])
             created += new
             changed = changed or bool(new)

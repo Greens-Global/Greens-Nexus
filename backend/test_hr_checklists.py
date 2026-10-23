@@ -934,6 +934,73 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(step["status"], "done")
         self.assertIn("offer letter", step["doneReason"])
 
+    def _manager_step(self, signal):
+        r = self.client.put("/hr/checklists/templates/onboarding?entity_id=" + CO_B, json={"items": [
+            {"key": "EV-1", "title": "Evidence On File", "owner": "manager", "anchor": "S", "offset": 0,
+             "signal": signal}]})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_a_signed_packet_ticks_its_step_and_subtask_without_opening_the_profile(self):
+        # Oct 23 browser test: Jake signed, but his step and its subtask stayed
+        # open on My Tasks until someone opened his profile (Neil, 1:03:43).
+        import hr_life_events as hle
+        self._manager_step("envelope:nda,handbook_ack")
+        eid = self._person("emp-sign", company=CO_B)
+        cl = self._start(eid)
+        rows, subs, _ = self._tasks_of(cl["id"], MANAGER)
+        self.assertEqual((len(rows), len(subs)), (1, 1))
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrCandidate(id="cand-sign", first_name="Jane", last_name="Doe", employee_id=eid,
+                                      stage="hired"))
+            db.add(models.HrLifeEvent(id="ev-sign", kind="hire", candidate_id="cand-sign", status="sent",
+                                      sign_request_id="req-sign", created_by=HR))
+            db.add(models.HrSignRequest(id="req-sign", title="Hiring Packet", link_kind="life_event",
+                                        link_id="ev-sign", status="completed"))
+            db.commit()
+            hle.on_completed(db, db.query(models.HrSignRequest).filter_by(id="req-sign").one())
+            db.commit()
+            step = db.query(models.HrChecklistItem).filter_by(id=rows[0].id).one()
+            self.assertEqual((step.status, step.done_by), ("done", "Nexus"))
+            self.assertEqual(db.query(models.HrChecklist).filter_by(id=cl["id"]).one().status, "done")
+        finally:
+            db.close()
+        self.assertTrue(self._task(rows[0].task_id).completed)       # off the owner's My Tasks
+        self.assertTrue(self._task(self._cl_task(cl["id"])).completed)
+
+    def test_an_id_upload_ticks_its_step_at_once(self):
+        from unittest import mock
+        self._custom(signal="id_on_file")
+        eid = self._person("emp-up", company=CO_B)
+        cl = self._start(eid)
+        with mock.patch("routers.hr._storage_headers", return_value={}),                 mock.patch("routers.hr.httpx.post", return_value=mock.Mock(is_success=True)):
+            r = self.client.post(f"/hr/employees/{eid}/documents", data={"kind": "id"},
+                                 files={"file": ("dl.pdf", b"%PDF-1.4", "application/pdf")})
+        self.assertEqual(r.status_code, 200, r.text)
+        db = database.SessionLocal()
+        try:
+            step = db.query(models.HrChecklistItem).filter_by(checklist_id=cl["id"]).one()
+            self.assertEqual((step.status, step.done_by), ("done", "Nexus"))
+        finally:
+            db.close()
+
+    def test_opening_the_profile_closes_the_task_of_a_step_that_ticked(self):
+        # Audit item 8: a tick found on the profile read completes its tasks too.
+        self._manager_step("id_on_file")
+        eid = self._person("emp-open", company=CO_B)
+        cl = self._start(eid)
+        db = database.SessionLocal()
+        try:
+            db.add(models.HrDocument(id="doc-open", employee_id=eid, kind="id", file_name="dl.pdf", storage_path="z"))
+            db.commit()
+            step = db.query(models.HrChecklistItem).filter_by(checklist_id=cl["id"]).one()
+        finally:
+            db.close()
+        self.assertTrue(step.task_id)
+        self.assertEqual(self._get(eid)["status"], "done")
+        self.assertTrue(self._task(step.task_id).completed)
+        self.assertTrue(self._task(self._cl_task(cl["id"])).completed)
+
     def test_meta_offers_the_evidence_conditions(self):
         values = {s["value"] for s in self.client.get("/hr/checklists/meta").json()["signals"]}
         self.assertTrue({"id_on_file", "work_auth_verified", "envelope:nda,handbook_ack"} <= values)

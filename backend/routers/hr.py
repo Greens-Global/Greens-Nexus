@@ -413,6 +413,9 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     row.updated_at = datetime.now(timezone.utc).isoformat()
     if "work_email" in changes and not changes["work_email"][0]:
         adopt_pending_pay(db, row, user["email"])
+    if changes:   # work authorization, status, dates: the checklist's automatic steps tick now
+        import hr_checklists
+        hr_checklists.refresh_person(db, row.id, user["email"].lower())
     db.commit()
     db.refresh(row)
     # Field-level audit (Sep 22, 2026). The request-level audit row only says
@@ -1446,6 +1449,8 @@ def upload_document(eid: str, file: UploadFile = File(...), kind: str = Form("ot
                      size_bytes=len(data), expires_on=expires_on.strip(),
                      uploaded_by=user["email"], created_at=datetime.now(timezone.utc).isoformat())
     db.add(row)
+    import hr_checklists
+    hr_checklists.refresh_person(db, row.employee_id, user["email"].lower())   # an ID on file ticks now
     db.commit()
     return _ser_doc(row)
 
@@ -1625,6 +1630,8 @@ def attach_request_to_employee(rid: str, body: AttachToEmployeeIn,
                      file_name=fname, storage_path=dest, size_bytes=0, expires_on="",
                      uploaded_by=user["email"], created_at=datetime.now(timezone.utc).isoformat())
     db.add(row)
+    import hr_checklists
+    hr_checklists.refresh_person(db, row.employee_id, user["email"].lower())   # an ID on file ticks now
     db.commit()
     return _ser_doc(row)
 
@@ -1981,6 +1988,8 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
     run.finished_at = datetime.now(timezone.utc).isoformat()
     if emp.status == "onboarding" and user_id:
         emp.status = "active"
+    import hr_checklists
+    hr_checklists.refresh_person(db, eid, user["email"].lower())   # "provisioned" ticks now
     db.commit()
 
     return {

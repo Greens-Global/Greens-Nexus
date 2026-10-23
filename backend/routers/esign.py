@@ -5292,6 +5292,8 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
                           file_name=f"{req.title}.pdf", storage_path=path,
                           size_bytes=len(final), uploaded_by="e-sign",
                           created_at=req.completed_at))
+        import hr_checklists
+        hr_checklists.refresh_person(db, req.employee_id)   # a signed envelope of a step's kind ticks it now
 
     # Completion fan-out: bell notification for the sender and every internal
     # party, and an EMAIL WITH THE SEALED PDF ATTACHED for everyone involved -
