@@ -924,10 +924,39 @@ function MembersMenu({ task, people, nameOf, patch }) {
 export function ShareModal({ task, people, nameOf, patch, onClose }) {
   const level = task.accessLevel || 'org';
   const followers = task.followerIds || [];
-  const { tasks = [], taskById = {} } = useTasks();
-  const { underPrivate, openBelow, reopenBelow } = shareRules(task, tasks, taskById);
+  const { tasks = [], taskById = {}, applyServerTask, notify } = useTasks();
+  const { underPrivate, openBelow, reopenBelow, inherited } = shareRules(task, tasks, taskById);
   const orgLocked = underPrivate && level !== 'org';
   const [copied, setCopied] = useState(false);
+  // Sharing it again with subtasks made private with it: ask what they do
+  // (Oct 23 2026) - open with it (the default) or stay private.
+  const [askReopen, setAskReopen] = useState(false);
+  const [keeping, setKeeping] = useState(false);
+  const [keepError, setKeepError] = useState('');
+  const pick = (key) => {
+    if (key === 'org' && level !== 'org' && reopenBelow > 0) { setAskReopen(true); return; }
+    setAskReopen(false);
+    patch({ accessLevel: key });
+  };
+  const reopenWith = (keepSubtasksPrivate) => {
+    setAskReopen(false);
+    patch(keepSubtasksPrivate ? { accessLevel: 'org', keepSubtasksPrivate: true } : { accessLevel: 'org' });
+  };
+  // Keep Private: this subtask stops following its main task (the server
+  // keeps the person doing it on it - tasks._pin_private).
+  const keepPrivate = async () => {
+    setKeeping(true);
+    setKeepError('');
+    try {
+      const saved = await api.keepTaskPrivate(task.id);
+      applyServerTask?.(saved);
+      notify?.('Kept private');
+    } catch (e) {
+      setKeepError(e?.message || 'Could not keep this subtask private.');
+    } finally {
+      setKeeping(false);
+    }
+  };
   // A phone gets the full-screen sheet; elsewhere the 60% popup (.nx-popup).
   const isMobile = useIsMobile();
   const copy = () => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); setCopied(true); setTimeout(() => setCopied(false), 1500); };
@@ -955,7 +984,7 @@ export function ShareModal({ task, people, nameOf, patch, onClose }) {
                 const reopen = o.key === 'org' && !locked && level !== 'org' && reopenBelow > 0;
                 return (
                   <button key={o.key} disabled={locked} aria-disabled={locked || undefined}
-                    onClick={() => { if (!locked) patch({ accessLevel: o.key }); }}
+                    onClick={() => { if (!locked) pick(o.key); }}
                     style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 12, borderRadius: 10, border: `1px solid ${level === o.key ? NX.blue : NX.border}`, background: level === o.key ? 'rgba(37,99,235,0.10)' : NX.surface, cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.55 : 1, fontFamily: FONT }}>
                     <o.icon size={16} style={{ color: NX.dim, marginTop: 2 }} />
                     <div style={{ flex: 1 }}>
@@ -982,7 +1011,42 @@ export function ShareModal({ task, people, nameOf, patch, onClose }) {
                 );
               })}
             </div>
+            {askReopen && (
+              <div data-testid="share-reopen-choice" role="group" aria-label="What Happens to Its Subtasks"
+                style={{ marginTop: 10, padding: 12, borderRadius: 10, border: `1px solid ${NX.border}`, background: NX.surface2 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>
+                  {reopenBelow === 1 ? 'Its 1 subtask made private with it:' : `Its ${reopenBelow} subtasks made private with it:`}
+                </div>
+                <div style={{ fontSize: 12, color: NX.dim, marginTop: 4 }}>
+                  Open Subtasks Too shares them with everyone as well. Keep Them Private leaves them private: only the people on each subtask will see it; people who can see this task won't.
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                  <button type="button" autoFocus onClick={() => reopenWith(false)} style={btn('primary')}>Open Subtasks Too</button>
+                  <button type="button" onClick={() => reopenWith(true)} style={btn('outline')}>Keep Them Private</button>
+                  <button type="button" onClick={() => setAskReopen(false)} style={btn('ghost')}>Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
+          {inherited && (
+            <div data-testid="share-inherited" style={{ padding: 12, borderRadius: 10, border: `1px solid ${NX.border}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: NX.ink }}>
+                <Lock size={14} style={{ color: NX.dim }} /> Private Because of Its Main Task
+              </div>
+              <div style={{ fontSize: 12, color: NX.dim, marginTop: 4 }}>
+                People who can see the main task can see this subtask. If the main task is shared with everyone, this subtask will be too.
+              </div>
+              <div style={{ fontSize: 12, color: NX.dim, marginTop: 6 }}>
+                Keep Private: only the people on this subtask will see it; people who can see the main task won't. You stay on it.
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+                <button type="button" onClick={keepPrivate} disabled={keeping} aria-busy={keeping || undefined} style={btn('outline')}>
+                  <Lock size={14} /> {keeping ? 'Keeping Private...' : 'Keep Private'}
+                </button>
+                {keepError && <span role="alert" style={{ fontSize: 12, color: NX.red }}>{keepError}</span>}
+              </div>
+            </div>
+          )}
           {followers.length > 0 && (
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Collaborators</div>

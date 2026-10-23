@@ -85,6 +85,8 @@ const CAMEL_TO_SNAKE = {
   propertyUnit: 'property_unit',
   // Board card previews + a saved Board view's columns (Oct 22 2026).
   cardPreviewMode: 'card_preview', boardColumns: 'board_columns',
+  // Sharing a private task again, keeping its subtasks private (Oct 23 2026).
+  keepSubtasksPrivate: 'keep_subtasks_private',
 };
 function toBody(patch) {
   const out = {};

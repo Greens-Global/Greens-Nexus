@@ -4,7 +4,9 @@
 // task "Everyone" is shown but cannot be picked, with the reason; making a
 // task private says how many of its open subtasks go private with it, and
 // opening it up again how many come back with it (the server takes them
-// along both ways - tasks._cascade_level).
+// along both ways - tasks._cascade_level). Since Oct 23 2026 the person
+// opening it may keep them private instead, and a subtask private only
+// because of its parent may be kept private on its own (Keep Private).
 export function shareRules(task, tasks = [], taskById = {}) {
   const parent = task.parentTaskId ? taskById[task.parentTaskId] || tasks.find((x) => x.id === task.parentTaskId) : null;
   // A parent this person cannot see at all is a private one.
@@ -37,5 +39,8 @@ export function shareRules(task, tasks = [], taskById = {}) {
       reopenBelow += 1;
     }
   }
-  return { underPrivate, openBelow, reopenBelow };
+  // Private only because of the task it is under (the server's
+  // task_util.inherits_privacy): Keep Private turns it into one set by hand.
+  const inherited = !!task.parentTaskId && (task.accessLevel || 'org') !== 'org' && task.narrowedBy === task.parentTaskId;
+  return { underPrivate, openBelow, reopenBelow, inherited };
 }
