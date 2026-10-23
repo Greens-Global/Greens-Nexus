@@ -30,6 +30,9 @@ const withPackage = () => Promise.resolve({ rowKey: 'employee:US:CA', kind: 'Emp
   hrQuestions: [] });
 const offboardOptions = vi.fn(withPackage);
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [{ email: 'max@x.com', name: 'Max' }] }) }));
+// DateField as a plain box (no native type="date" - Neil, Oct 19), so a test can type a date
+vi.mock('../tasks/components', async (orig) => ({ ...(await orig()),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} value={value || ''} onChange={(e) => onChange(e.target.value)} /> }));
 vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
 
 const { OffboardModal } = await import('./HrPersonActions');
@@ -42,6 +45,21 @@ describe('OffboardModal', () => {
     render(<OffboardModal employee={erin} companyName="Greens" onClose={() => {}} onSent={() => {}} toastErr={() => {}} />);
     expect(screen.getByText(/their access ends as soon as you confirm/)).toBeTruthy();
     expect(screen.getByText(/erin@gmail.com/)).toBeTruthy();
+  });
+
+  // e2e findings (Oct 23): the package's HR questions are needed before Review, and Last Day is a DateField.
+  it('an HR question from the package must be answered before Review, and Last Day is not a native date box', async () => {
+    offboardOptions.mockImplementation(() => withPackage().then(o => ({ ...o,
+      hrQuestions: [{ token: 'final_pay_date', label: 'Final Pay Date', type: 'text', required: false, pay: false, options: [] }] })));
+    render(<OffboardModal employee={erin} companyName="Greens" onClose={() => {}} onSent={() => {}} toastErr={() => {}} />);
+    expect(document.querySelector('input[type="date"]')).toBeNull();
+    expect(screen.getByLabelText('Last day').value).toBe(localToday());
+    fireEvent.change(screen.getByDisplayValue('- pick one -'), { target: { value: 'resignation' } });
+    await screen.findByLabelText(/Final Pay Date/);
+    expect(screen.getByText('Answer Final Pay Date before you review.')).toBeTruthy();
+    expect(screen.getByText('Review').closest('button')).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Final Pay Date/), { target: { value: '11/20/2026' } });
+    expect(screen.getByText('Review').closest('button')).not.toBeDisabled();
   });
 
   it('a future last day is scheduled', async () => {

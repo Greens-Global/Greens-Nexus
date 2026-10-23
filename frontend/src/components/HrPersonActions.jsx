@@ -31,6 +31,7 @@ import { EXIT_TYPE_LABELS } from '../lib/wordSamples';
 import { usePeopleDirectory } from '../lib/queries';
 import { currencyOptions } from '../asset/lib/currency';
 import PersonSearchSelect from './PersonSearchSelect';
+import { DateField } from '../tasks/components';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
 const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
@@ -139,6 +140,11 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, onClose, onPro
   );
 }
 
+// Every question a letter asks HR is needed: an empty one prints as Unfilled and stops the letter at Verify.
+const allRequired = (qs) => (qs || []).map(q => ({ ...q, required: true }));
+const MissingAnswers = ({ list }) => (list.length > 0
+  ? <div role="status" style={{ ...hint, color: '#b45309' }}>Answer {list.map(q => q.label).join(', ')} before you review.</div> : null);
+
 export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClose, onSent, toastErr }) {
   const changeType = mode;
   const [roles, setRoles] = useState(null);
@@ -178,7 +184,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
   const past = f.effective_date && f.effective_date < todayIso();
   const gets = opts?.whatTheyGet || [];
   const blocked = gets.some(g => g.blocks);
-  const questions = opts?.hrQuestions || [];
+  const questions = allRequired(opts?.hrQuestions);
   const toAnswer = unanswered(questions, answers, canSeePay);
   const body = () => {
     const { merge, payValues } = splitAnswers(questions, answers, canSeePay);
@@ -248,7 +254,10 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
               </select>
               <div style={hint}>The role sets their access in Nexus - it changes when the letter is signed.</div></div>
             {input('Title In The Letter', 'job_title', { placeholder: 'Defaults to the role name' })}
-            {input('Effective Date *', 'effective_date', { type: 'date' })}
+            <div><label style={lbl}>Effective Date *</label>
+              <div className="form-input" style={{ width: '100%', display: 'flex', alignItems: 'center' }}>
+                <DateField value={f.effective_date} onChange={x => set('effective_date', x || '')} placeholder="MM/DD/YYYY" title="Effective date" style={{ width: '100%' }} />
+              </div></div>
           </div>
           {past && <Warn>The effective date is in the past. Pay is dated from it; any time sheet from then that is already signed is flagged for HR to review, not changed.</Warn>}
           <div aria-label="What They Get" style={card}>
@@ -269,6 +278,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
               <HrQuestionFields questions={questions} answers={answers} setAnswers={(fn) => { setAnswers(fn); setPreview(null); }} canSeePay={canSeePay} idPrefix="pr-q" />
             </div>
           )}
+          <MissingAnswers list={toAnswer} />
           {canSeePay ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0 14px' }}>
               <div><label style={lbl}>New Pay</label>
@@ -423,7 +433,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
   const immediate = f.last_day && f.last_day <= todayIso();
   const noPackage = !!opts && !opts.canSendPackage;
   const packageFix = (opts?.whatTheyGet || []).find(g => g.key === 'package' && g.fix);
-  const questions = opts?.hrQuestions || [];
+  const questions = allRequired(opts?.hrQuestions);
   const toAnswer = unanswered(questions, answers, false);
   const body = () => ({
     inputs: { ...f, merge: { ...filled(extra), ...splitAnswers(questions, answers, false).merge }, offboarding: { mailboxAction: mailbox, delegateTo: mailbox === 'share' ? trustees : [],
@@ -469,7 +479,9 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
         <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '0 14px' }}>
             <div><label style={lbl}>Last Day *</label>
-              <input type="date" className="form-input" style={{ width: '100%' }} value={f.last_day} onChange={ev => set('last_day', ev.target.value)} /></div>
+              <div className="form-input" style={{ width: '100%', display: 'flex', alignItems: 'center' }}>
+                <DateField value={f.last_day} onChange={x => set('last_day', x || '')} placeholder="MM/DD/YYYY" title="Last day" style={{ width: '100%' }} />
+              </div></div>
             <div><label style={lbl}>Why They Are Leaving *</label>
               <select className="form-input" style={{ width: '100%' }} value={f.exit_type} onChange={ev => set('exit_type', ev.target.value)}>
                 <option value="">- pick one -</option>
@@ -537,6 +549,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
               <HrQuestionFields questions={questions} answers={answers} setAnswers={(fn) => { setAnswers(fn); setPreview(null); }} canSeePay={false} idPrefix="ob-q" />
             </div>
           )}
+          {f.send_package && <MissingAnswers list={toAnswer} />}
 
           {preview && (
             <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>

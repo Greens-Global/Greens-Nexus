@@ -35,6 +35,9 @@ vi.mock('../api', () => ({
     changeRoleNow: (...a) => changeRoleNow(...a),
   },
 }));
+// DateField as a plain box (no native type="date" - Neil, Oct 19), so a test can type a date
+vi.mock('../tasks/components', async (orig) => ({ ...(await orig()),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} value={value || ''} onChange={(e) => onChange(e.target.value)} /> }));
 vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
 const packetsProps = vi.fn();
 vi.mock('./HiringPacket', async (orig) => ({ ...(await orig()), PacketsModal: (props) => {
@@ -187,6 +190,24 @@ describe('PromoteModal - What They Get', () => {
     expect(body.inputs.responsibilities).toBe('Duties of jr-2');
   });
 
+  // e2e findings (Oct 23): every HR question the letter asks is needed before Review, and the date is a DateField.
+  it('an HR question from the letter must be answered before Review, and says which', async () => {
+    promotionOptions.mockImplementation((eid, roleId) => ready(eid, roleId).then(o => ({ ...o,
+      hrQuestions: [{ token: 'review_cycle', label: 'Review Cycle', type: 'text', required: false, pay: false, options: [] }] })));
+    render(<PromoteModal employee={erin} canSeePay onClose={() => {}} onSent={() => {}} toastErr={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/IT Dev Associate II - IT/)).toBeTruthy());
+    expect(document.querySelector('input[type="date"]')).toBeNull();
+    expect(screen.getByLabelText('Effective date')).toBeTruthy();
+    fireEvent.change(screen.getByDisplayValue('- pick a role -'), { target: { value: 'jr-2' } });
+    fireEvent.change(screen.getByPlaceholderText(/Annual review/), { target: { value: 'Exceeded targets' } });
+    await screen.findByLabelText(/Review Cycle/);
+    expect(screen.getByText('Answer Review Cycle before you review.')).toBeTruthy();
+    expect(screen.getByText('Review Letter').closest('button')).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Review Cycle/), { target: { value: 'Annual' } });
+    expect(screen.getByText('Review Letter').closest('button')).not.toBeDisabled();
+    expect(screen.queryByText(/before you review/)).toBeNull();
+  });
+
   it('a blank left after one review never drops the HR answer typed since', async () => {
     promotionOptions.mockImplementation((eid, roleId) => ready(eid, roleId).then(o => ({ ...o, letter: { ...o.letter, engine: 'documents' },
       hrQuestions: [{ token: 'relocation_note', label: 'Relocation Note', type: 'text', required: false, pay: false, options: [] }] })));
@@ -196,6 +217,7 @@ describe('PromoteModal - What They Get', () => {
     await waitFor(() => expect(screen.getByText(/IT Dev Associate II - IT/)).toBeTruthy());
     fireEvent.change(screen.getByDisplayValue('- pick a role -'), { target: { value: 'jr-2' } });
     fireEvent.change(screen.getByPlaceholderText(/Annual review/), { target: { value: 'Exceeded targets' } });
+    fireEvent.change(await screen.findByLabelText(/Relocation Note/), { target: { value: 'Moves' } });
     fireEvent.click(await screen.findByText('Review Letter'));
     await screen.findByText('Generate Letter');
     fireEvent.change(screen.getByLabelText(/Relocation Note/), { target: { value: 'Moves to Fresno' } });
