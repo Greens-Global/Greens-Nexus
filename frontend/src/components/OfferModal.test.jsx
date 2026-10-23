@@ -21,11 +21,12 @@ const offerOptions = vi.fn((cid, p) => Promise.resolve({
   missing: p.worker_type === 'contractor' ? 'No offer letter is set up for a Contractor in US at Greens yet.' : '',
 }));
 const startOffer = vi.fn(() => Promise.resolve({ id: 'ev-offer', candidateId: 'c1', kind: 'offer', status: 'review' }));
+const getDocTemplates = vi.fn(() => Promise.resolve([]));
 vi.mock('../api', () => ({ api: {
   offerOptions: (...a) => offerOptions(...a),
   startOffer: (...a) => startOffer(...a),
   hiringOptions: () => Promise.resolve({ roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting', defaultManagerEmail: '' }], departments: ['Accounting'] }),
-  getDocTemplates: () => Promise.resolve([]),
+  getDocTemplates: (...a) => getDocTemplates(...a),
 } }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [] }) }));
 const { default: OfferModal } = await import('./OfferModal');
@@ -116,6 +117,18 @@ describe('OfferModal', () => {
     expect(screen.getByLabelText('Joining Bonus').disabled).toBe(true);
   });
 });
+
+// Oct 22: HR sees what the packet holds for this hire, and the one Job
+// Description document is picked for them.
+describe('OfferModal - what the packet holds', () => {
+  it('lists the packet documents and picks the only job description', async () => {
+    getDocTemplates.mockResolvedValueOnce([{ id: 'jd-1', name: 'Job Description' }]);
+    render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Employee' }));
+    expect(await screen.findByText(/It holds: NDA, and the job description/)).toBeTruthy();
+  });
+});
+
 
 // Neil, Oct 22: never an offer with nothing after it, and the state is part
 // of where they work (California and Texas get different paperwork).
