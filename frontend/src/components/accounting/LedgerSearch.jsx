@@ -244,18 +244,38 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   }, [wrap]);
   // UI test 10/23 (item 18): what sits above the lines (the drill's title, the
   // filters, the totals) wraps to a different height on each screen, so the
-  // box is sized from where it actually starts: it ends 24px above the bottom
-  // of the window, never under it (no second page scrollbar), 300px at least.
+  // box is sized from where it actually starts, leaving room for what the page
+  // still shows under it (the notes below the lines, the card's and the page's
+  // bottom padding), so it ends inside the window with no second page
+  // scrollbar; 300px at least. It re-measures when the window or the area
+  // around it changes size (filters or totals above wrapping after a load).
   const [boxH, setBoxH] = useState(0);
   useEffect(() => {
     if (!wrap || full) return undefined;
+    const px = (v) => parseFloat(v) || 0;
+    const below = () => {
+      let h = 0;
+      for (let el = wrap; el && el.parentElement && el !== document.body; el = el.parentElement) {
+        h += px(getComputedStyle(el).marginBottom);
+        for (let sib = el.nextElementSibling; sib; sib = sib.nextElementSibling) {
+          const cs = getComputedStyle(sib);
+          if (cs.position === 'fixed' || cs.position === 'absolute' || cs.display === 'none') continue;
+          h += sib.getBoundingClientRect().height + px(cs.marginTop) + px(cs.marginBottom);
+        }
+        const pcs = getComputedStyle(el.parentElement);
+        h += px(pcs.paddingBottom) + px(pcs.borderBottomWidth);
+      }
+      return h;
+    };
     const fit = () => {
       const top = wrap.getBoundingClientRect().top + (window.scrollY || 0);
-      setBoxH(Math.max(300, Math.floor(window.innerHeight - top - 24)));
+      setBoxH(Math.max(300, Math.floor(window.innerHeight - top - below() - 8)));
     };
     fit();
     window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+    if (ro && wrap.parentElement) ro.observe(wrap.parentElement);
+    return () => { window.removeEventListener('resize', fit); ro?.disconnect(); };
   }, [wrap, full]);
   const natural = shownColumns.reduce((s, c) => s + widthOf(c), 0);
   const fillers = shownColumns.filter((c) => !c.num && !layout.widths?.[c.key] && !['date', 'entry', 'journal'].includes(c.key));

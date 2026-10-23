@@ -126,10 +126,20 @@ describe('LedgerSearch grid', () => {
     expect(box.style.maxHeight).toBe('');
     // UI test 10/23: the box ends inside the window, measured from where it starts.
     const tall = window.innerHeight;
-    expect(box.style.getPropertyValue('--acct-lines-h')).toBe(`${Math.max(300, tall - 24)}px`);
+    // What the page still shows under the box (the notes under the lines) is left room for.
+    const under = tall - 8 - parseInt(box.style.getPropertyValue('--acct-lines-h'), 10);
+    expect(under).toBeGreaterThanOrEqual(0);
     window.innerHeight = 500;
     fireEvent(window, new Event('resize'));
-    expect(box.style.getPropertyValue('--acct-lines-h')).toBe('476px');
+    expect(box.style.getPropertyValue('--acct-lines-h')).toBe(`${492 - under}px`);
+    // ...and so is the card's bottom padding.
+    const card = box.parentElement;
+    const pad = card.style.paddingBottom;
+    const had = parseFloat(getComputedStyle(card).paddingBottom) || 0;
+    card.style.paddingBottom = `${had + 30}px`;
+    fireEvent(window, new Event('resize'));
+    expect(box.style.getPropertyValue('--acct-lines-h')).toBe(`${462 - under}px`);
+    card.style.paddingBottom = pad;
     window.innerHeight = 200;
     fireEvent(window, new Event('resize'));
     expect(box.style.getPropertyValue('--acct-lines-h')).toBe('300px');

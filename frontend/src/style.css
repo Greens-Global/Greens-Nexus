@@ -2780,10 +2780,10 @@ html { overflow-x: hidden; }
 .acct-report.mre-grid tbody tr.acct-grand td.acct-label { background: linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card); }
 /* The same on every statement (UI test 10/23): the pinned first column keeps
    the hover and Total tints painted over the card color, so the figures
-   scrolling sideways under it never show through. Flagged rows keep their
-   own (already solid) amber. */
-.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):not(.acct-flag):hover td.acct-label,
-.acct-report.acct-gl tbody tr.acct-line-link:not(.acct-flag):hover td.acct-label,
+   scrolling sideways under it never show through - flagged rows on hover
+   too (the row takes the hover tint there, as the rest of it does). */
+.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label,
+.acct-report.acct-gl tbody tr.acct-line-link:hover td.acct-label,
 .acct-report tbody tr.acct-grand td.acct-label { background: linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card); }
 /* Oct 23 (Viral, Charmi, item 10: "Header should not be hide when we scroll
    down"): the header is the column headings. The whole heading block - the

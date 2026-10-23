@@ -827,9 +827,11 @@ describe('ReportsTab pinned headings (items 10 and 18)', () => {
 
   it('keeps the pinned first column solid on hover and on the Total row (UI test 10/23)', () => {
     const css = fs.readFileSync(path.join(__dirname, '..', '..', 'style.css'), 'utf8').replace(/\r\n/g, '\n');
-    const at = css.indexOf('.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):not(.acct-flag):hover td.acct-label,');
+    const at = css.indexOf('.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td.acct-label,\n.acct-report.acct-gl');
     expect(at).toBeGreaterThan(-1);
     const rule = css.slice(at, css.indexOf('}', at));
+    // Flagged rows are not left out: on hover the pinned cell takes the solid tint too.
+    expect(rule).not.toContain('acct-flag');
     expect(rule).toContain('.acct-report tbody tr.acct-grand td.acct-label');
     expect(rule).toContain('linear-gradient(var(--wk-brand-tint, #e8ecfd), var(--wk-brand-tint, #e8ecfd)), var(--bg-card)');
   });
@@ -857,6 +859,15 @@ describe('ReportsTab after a reload (item 17)', () => {
     sessionStorage.setItem(KEY, JSON.stringify({ config: { report: 'pnl' }, drill: { account: '11261', accountName: 'Gr FLP- CNB - 6766', from: '2026-01-01', to: '2026-10-22', book: 'accrual' } }));
     render(<ReportsTab />);
     await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill:11261:2026-10-22:accrual'));
+  });
+
+  it('closes the lines when another statement is picked from the menu (UI test 10/23)', async () => {
+    sessionStorage.setItem('nexus.refresh.acct.report.general-ledger||', JSON.stringify({ config: { report: 'general-ledger' }, drill: { account: '11261', accountName: 'Gr FLP- CNB - 6766', from: '2026-01-01', to: '2026-10-22', book: 'accrual' } }));
+    const { rerender } = render(<ReportsTab report="general-ledger" />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill:11261:2026-10-22:accrual'));
+    rerender(<ReportsTab report="pnl" view="pnl-t12" />);
+    await waitFor(() => expect(screen.getByLabelText('Report').value).toBe('pnl'));
+    expect(screen.queryByTestId('ledger-search')).toBeNull();
   });
 
   it('keeps each change for the next reload, per screen', async () => {

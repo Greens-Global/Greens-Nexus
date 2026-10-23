@@ -223,6 +223,17 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const waiting = (searchText.trim().length >= 2 && searchText.trim() !== term) || (searching && searchBusy);
   useEffect(() => { onWaiting?.(waiting); }, [waiting]); // eslint-disable-line react-hooks/exhaustive-deps
   const closeSearch = () => { setSearchText(''); setTerm(''); setDrill(null); };
+  // UI test 10/23: another statement or quick view picked from the menu closes
+  // the ledger lines open from the last one (they were kept with the screen,
+  // item 17, and stayed on top of the new report). Not on the first draw, so a
+  // reload still brings the lines back.
+  const menuPick = useRef(`${report || ''}|${view || ''}`);
+  useEffect(() => {
+    const now = `${report || ''}|${view || ''}`;
+    if (menuPick.current === now) return;
+    menuPick.current = now;
+    setDrill(null);
+  }, [report, view]);
   useEffect(() => { saveRefresh(screenKey, { config: storable(config), drill }); }, [screenKey, config, drill]);
   const toTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
