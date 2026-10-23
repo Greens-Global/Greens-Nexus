@@ -6746,3 +6746,12 @@ tr.nx-needs-you > td:first-child::before, tr.nx-needs-you--row > td:first-child:
   --nx-tag-slate-bg: #212938;
   --nx-tag-slate-border: #3a4558;
 }
+/* Tasks > My Day (Oct 22 2026, tasks/MyDayView.jsx): a row's drag handle and
+   Remove button show on hover or keyboard focus where there is a mouse;
+   always there on touch, where nothing hovers. The progress bar eases. */
+@media (hover: hover) and (pointer: fine) {
+  .nx-md-row .nx-md-reveal { opacity: 0; transition: opacity 0.12s ease; }
+  .nx-md-row:hover .nx-md-reveal, .nx-md-row:focus-within .nx-md-reveal { opacity: 1; }
+}
+.nx-md-bar { transition: width 0.3s ease; }
+@media (prefers-reduced-motion: reduce) { .nx-md-bar { transition: none; } }

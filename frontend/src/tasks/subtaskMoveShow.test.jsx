@@ -268,6 +268,8 @@ describe('MoveTaskModal review fixes', () => {
 });
 
 describe('list row menu', () => {
+  // Since My Day (Oct 22 2026) every row has the menu - Add To My Day is for
+  // any task you can see - and Move To... is left off where it is not offered.
   it('has no Move To on an HR checklist task', async () => {
     const tasks = [T('plain', { title: 'Plain task' }), T('step', { title: 'Collect I-9', hrChecklist: true })];
     state = makeStore(tasks);
@@ -277,8 +279,11 @@ describe('list row menu', () => {
     render(<RichListView visible={tasks} group="none" ctx={{ nameOf: (e) => e, projectName: () => 'Plant', teamName: () => '', customFields: [] }}
       store={store} people={[]} selected={new Set()} toggleSel={() => {}} onOpen={() => {}} onSelectAll={() => {}}
       lockedProjectId="" hidden={new Set()} setHidden={() => {}} />);
-    expect(screen.getByLabelText('More actions for Plain task')).toBeTruthy();
-    expect(screen.queryByLabelText('More actions for Collect I-9')).toBeNull();
+    fireEvent.click(screen.getByLabelText('More actions for Collect I-9'));
+    expect(await screen.findByRole('menuitem', { name: /Open Task/ })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: /Move To/ })).toBeNull();
+    fireEvent.click(screen.getByLabelText('More actions for Plain task'));
+    expect(await screen.findByRole('menuitem', { name: /Move To/ })).toBeTruthy();
   });
 });
 

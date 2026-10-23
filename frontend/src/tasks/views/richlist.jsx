@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import AnchoredMenu from '../../components/AnchoredMenu';
 import MoveTaskModal from '../MoveTaskModal';
+import { MyDayMenuItem } from '../MyDayToggle';
 import { useCanEditTask } from '../canEditTask';
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees, requiredFieldsFor, projectTracksTime, taskTracksTime, todayISO, withTaskFields } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey, isMissed, MISSED_TITLE } from '../theme';
@@ -398,7 +399,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
               that opened the drawer/file-picker regardless of whether the
               task had anything to show. */}
           <TaskCountBadges t={t} store={store} />
-          {onMove && <RowMenu t={t} onOpen={onOpen} onMove={onMove} />}
+          <RowMenu t={t} onOpen={onOpen} onMove={onMove} />
         </div>
         ),
         // assignee - monday Person cell: avatar + follower stack, spread to
@@ -1771,9 +1772,10 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   );
 }
 
-/** A row's own menu (Oct 22 2026): Open Task and Move To... - the move a
- *  drag cannot make (under another task, or out to the top). Rendered only
- *  for a row the person can edit. */
+/** A row's own menu (Oct 22 2026): Open Task, Add To / Remove From My Day
+ *  (any task you can see - it is your own list), and Move To... - the move a
+ *  drag cannot make (under another task, or out to the top) - only on a row
+ *  the person can edit (`onMove`). */
 function RowMenu({ t, onOpen, onMove }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -1791,9 +1793,12 @@ function RowMenu({ t, onOpen, onMove }) {
         <button type="button" role="menuitem" onClick={() => { setOpen(false); onOpen(t.id); }} style={item}>
           <Maximize2 size={13} style={{ color: NX.faint }} />Open Task
         </button>
-        <button type="button" role="menuitem" onClick={() => { setOpen(false); onMove(t.id); }} style={item}>
-          <MoveRight size={13} style={{ color: NX.faint }} />Move To...
-        </button>
+        <MyDayMenuItem task={t} style={item} onDone={() => setOpen(false)} />
+        {onMove && (
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onMove(t.id); }} style={item}>
+            <MoveRight size={13} style={{ color: NX.faint }} />Move To...
+          </button>
+        )}
       </AnchoredMenu>
     </span>
   );
