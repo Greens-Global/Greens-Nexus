@@ -281,9 +281,14 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
                     ], band)
                     if first:
                         top = i
-                # No break line on paper (SwipeClock prints none): the gap between a
-                # row's Out and the next row's In is the break, which keeps a light
-                # two weeks on one page with the signature.
+                elif ctx.get("paper_note") and x["kind"] == "break":
+                    # HR's paper copy shows every break, as the screen does (Pranshu,
+                    # Oct 23). The e-sign copy prints none (SwipeClock): the gap
+                    # between a row's Out and the next row's In is the break.
+                    paid = f", {x['paidMin']}m paid" if x.get("paidMin") else ""
+                    g.add(["", _time_cell(x.get("start") or "", x.get("startId") or "", ctx, missing=False),
+                           _time_cell(x.get("end") or "", x.get("endId") or "", ctx, missing=False), "", "",
+                           _p(f"Break {x.get('min') or 0}m{paid}", color=DIM, italic=True), "", "", "", "", ""], band)
             # Deducted Time, Category, OT, Loc, Pay Rate and Wage merge down the shift, as on screen.
             if top is not None:
                 g.span_down((3, 4, 7, 8, 9, 10), top, len(g.rows) - 1)
@@ -334,7 +339,7 @@ def hourly_rows(card: dict, ctx: dict) -> Table:
     return g.table([62, 54, 58, 48, 84, 48, 42, 54, 146, 58, 66])
 
 
-def hourly_summary(card: dict) -> list:
+def hourly_summary(card: dict, full: bool = False) -> list:
     """The HOURS / WAGE lines under the grid - the Time Sheet's summary box."""
     t = card.get("totals") or {}
     cur = card.get("currency") or "USD"
@@ -373,6 +378,11 @@ def hourly_summary(card: dict) -> list:
     rows.append(("TOTALS", hd(worked), money(t.get("totalPay"), cur)))
     rows.append(("TOTAL EDITED PUNCHES", str(int(t.get("editedPunches") or 0)), ""))
     rows.append(("MISSING PUNCHES", str(int(t.get("missingPunches") or 0)), ""))
+    if full:     # HR's paper copy: the break lines the screen shows beside the totals
+        for label, key, sign in (("BREAK TIME", "breakMin", ""), ("PAID BREAKS", "paidBreakMin", "+"),
+                                 ("AUTO-LUNCH DEDUCTED", "deductedMin", "-")):
+            if t.get(key):
+                rows.append((label, f"{sign}{hm(t[key])}", ""))
     return rows
 
 
@@ -541,7 +551,7 @@ def _history_table(ctx: dict, spot: dict) -> Table:
     for h in ctx.get("approval_history") or []:
         data.append([cell(h.get("step") or "", bold=True), cell(h.get("by") or ""), cell(h.get("when") or ""),
                      cell(h.get("note") or "-", color=None if h.get("note") else DIM)])
-    data.append([cell("Signed by employee - finalizes the time sheet", bold=True), cell(ctx["name"]),
+    data.append([cell(ctx.get("sign_step") or "Signed by employee - finalizes the time sheet", bold=True), cell(ctx["name"]),
                  _SignedOnBox(spot), cell("Signature above", color=DIM)])
     t = Table(data, colWidths=[210, 150, 130, WIDTH - 490], repeatRows=1)
     t.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, LINE), ("BACKGROUND", (0, 0), (-1, 0), HEAD),
@@ -611,7 +621,7 @@ def render(card: dict, ctx: dict) -> tuple[bytes, dict]:
         try:
             page1 = [Paragraph("Time Sheet", head), Spacer(1, 6), top, Spacer(1, 8),
                      fixed_rows(card, ctx) if fixed else hourly_rows(card, ctx), Spacer(1, 8),
-                     _summary_table(fixed_summary(card) if fixed else hourly_summary(card), fixed)]
+                     _summary_table(fixed_summary(card) if fixed else hourly_summary(card, bool(ctx.get("paper_note"))), fixed)]
         finally:
             _DENSITY.reset(token)
         if sum(f.wrap(WIDTH, HEIGHT)[1] for f in page1) <= HEIGHT:

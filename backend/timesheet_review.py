@@ -1379,8 +1379,21 @@ def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None, paper_b
         # Every step with who and when (Oct 16, Neil: "manager Sahil approved
         # Jackson's time card on this time at this date"; Oct 20, Charmi: the
         # whole history - employee, manager, HR - in one place).
-        "approval_history": approval_history(db, r, offset),
+        "approval_history": approval_history(db, r, offset) + (_finalized_step(db, r, offset) if paper_by else []),
+        **({"sign_note": [], "sign_step": "Signed by employee on paper"} if paper_by else {}),
     })
+
+
+def _finalized_step(db: Session, r: TimesheetReview, offset: int) -> list:
+    """The paper copy of a period HR finalized outside a review: who locked it
+    and when, so the printout says it is final."""
+    if r.status == "completed":
+        return []        # its history already ends with the signature that finalized it
+    row = _tc()._finalized_row(db, r.employee_email, r.period_start, r.period_end)
+    if row is None:
+        return []
+    return [{"step": "Finalized by HR - period locked", "by": display_name(db, row.approved_by or ""),
+             "when": us_datetime(row.approved_at or "", offset), "note": row.note or ""}]
 
 
 def paper_pdf(db: Session, employee_email: str, anchor: str, actor: str) -> tuple[bytes, str]:

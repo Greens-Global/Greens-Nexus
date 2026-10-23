@@ -1573,6 +1573,7 @@ export const DOCS = [
           'The employee is asked to sign - the request comes from Nexus, not the manager. Their signature finalizes the period, and the signed copy files to their Egnyte folder under Timesheets & Attendance.',
           'The signed copy reads like the Time Sheet screen. Page 1 is the whole time sheet - name, company, employee code, department, period and pay rate, then every day and shift with its breaks, the weekly totals, pay rate and wages, and the hours and wage summary - fitted onto one page however many punches there are. Page 2 is the employee\'s attestation (staff whose Country or Region is the US also confirm they were provided every meal and rest break California law requires), their signature and date, and the Approval History: every step with who and when, ending with the employee\'s signature, which finalizes it. Then the Nexus Sign certificate. Notes written by a manager or HR are left off, since the employee signs it.',
           'HR only: for someone who left, or who has not signed 3 days after approval, open their time sheet and use Employee Not Signing? > Finalize Without Employee Signature, with a reason.',
+          'HR and Global Admins only: Print Time Sheet (beside the totals) opens the period as a PDF to print and sign on paper instead of in Nexus Sign - for example a new hire who must be paid before their intake is finished. It works for any period and any employee, in review, finalized or locked, prints every punch, break and note, and changes nothing in Nexus.',
         ],
       },
       {

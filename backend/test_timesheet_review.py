@@ -480,6 +480,27 @@ class PaperPrintTests(ReviewCase):
                 tsr.paper_pdf(self.db, EMP, ANCHOR, who)
             self.assertEqual(e.exception.status_code, 403)
 
+    def test_the_paper_copy_shows_every_break_and_who_finalized_it(self):
+        self._punch(self.start, "break_start", "19:00:00")
+        self._punch(self.start, "break_end", "19:30:00")
+        self.db.add(models.TimeApproval(id="fin-paper", employee_email=EMP, period_start=self.start, period_end=self.end,
+                                        worked_min=0, approved_by=HR, approved_at=f"{self.end}T20:00:00",
+                                        note="Final", revoked=0, kind="final"))
+        self.db.commit()
+        self.addCleanup(lambda: (self.db.query(models.TimeApproval).filter_by(id="fin-paper").delete(), self.db.commit()))
+        text = self._text(tsr.paper_pdf(self.db, EMP, ANCHOR, HR)[0])
+        self.assertIn("Break 30m", text)
+        self.assertIn("BREAK TIME", text)
+        self.assertIn("Finalized by HR - period locked", text)
+        self.assertIn("Signed by employee on paper", text)
+        self.assertNotIn("reported instead of signing", text)       # a Nexus Sign step, not a paper one
+        self.db.query(models.TimeApproval).filter_by(id="fin-paper").delete()
+        self.db.commit()
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        esign_text = self._text(tsr.build_pdf(self.db, r)[0])
+        self.assertNotIn("Break 30m", esign_text)                    # the e-sign copy keeps its layout
+        self.assertNotIn("on paper", esign_text)
+
     def test_a_finalized_time_sheet_still_prints_and_stays_as_it_was(self):
         r = self._to_signing()
         self._sign(self._parties(r.sign_request_id)["employee"])
