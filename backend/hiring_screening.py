@@ -66,7 +66,8 @@ def department_head(db: Session, cand: models.HrCandidate) -> str:
 
 def screeners(db: Session, cand: models.HrCandidate) -> list:
     """The department head and everyone above them ("manager plus plus"),
-    nearest first, then the company's HR contact."""
+    nearest first, then the company's HR contact; the Global Admins when
+    nobody is set up."""
     out = []
     email = department_head(db, cand)
     while email and email not in out and len(out) < MAX_CHAIN:
@@ -81,6 +82,10 @@ def screeners(db: Session, cand: models.HrCandidate) -> list:
         hr = (ent.hr_contact_email or "").strip().lower() if ent is not None else ""
         if hr and hr not in out and _person(db, hr):
             out.append(hr)
+    # Nobody set up at all: the Global Admins are the stop gap (Neil, Oct 22).
+    if not out:
+        import hr_checklists as hc
+        out = hc.global_admins(db)
     return out
 
 

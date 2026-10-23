@@ -755,6 +755,7 @@ class DecisionTests(PipelineCase):
         try:
             self.assertEqual(hs.department_head(self.db, cand), "")
             self.assertEqual(hd.decider(self.db, cand), NEIL)          # never nobody
+            self.assertEqual(hs.screeners(self.db, cand), [NEIL])      # screening too
         finally:
             self.db.query(models.NexusRole).delete()
             self.db.commit()

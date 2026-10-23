@@ -432,16 +432,16 @@ def _nobody(role: str, ctx: dict) -> str:
     if role == SUBJECT_ROLE:
         return f"{ctx.get('subject_name') or 'The person'} has no email to send it to."
     if role == "hr":
-        return (f"{company} has no HR contact - set one in People > Companies, or HR in "
-                f"Company Settings > Checklists > Role Owners.")
+        return (f"{company} has no HR contact - set a head for its HR department in "
+                f"Company Settings > Departments, or an HR contact in People > Companies.")
     if role == "manager":
         return "No manager - pick the supervisor (or set their manager in People) first."
     if role == "signatory":
         return f"{company} has no Authorized Signatory person - pick one in People > Companies."
     if role == "sender":
         return "Nobody started this packet."
-    return (f"No {role_label(role)} owner for {company} - set one in Company Settings > Checklists > "
-            f"Role Owners.")
+    return (f"No {role_label(role)} owner for {company} - set a head for its {role_label(role)} "
+            f"department in Company Settings > Departments.")
 
 
 def signer_values(parties: list, remap: dict) -> dict:
