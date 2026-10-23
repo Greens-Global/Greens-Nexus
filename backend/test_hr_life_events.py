@@ -664,6 +664,19 @@ class PromotionTests(LifeEventCase):
         self._run_filing_now()
         self.assertIn("/Promotion Documents/", self.uploads[0][0])
 
+    def test_a_promotion_template_with_only_the_person_is_refused(self):
+        """Countersigned (Pranshu, Oct 23 2026): a one-signer promotion letter
+        is a setup problem, so it is never sent unsigned by the company."""
+        s = self.db.query(models.HrPacketSetting).filter_by(id="set-promo").first()
+        self.assertEqual(hle.setting_problems(self.db, s), [])
+        self.db.query(models.HrSignTemplate).filter_by(id="tpl-promo").update(
+            {"roles": [{"key": "employee", "label": "Employee", "order": 1}]})
+        self.db.commit()
+        self.assertTrue(any("countersigned" in x for x in hle.setting_problems(self.db, s)))
+        with self.assertRaises(hle.PacketError) as e:
+            self._promote()
+        self.assertIn("countersigned", str(e.exception))
+
     def test_hr_cannot_hand_out_an_administrator_role(self):
         with self.assertRaises(hle.PacketError) as e:
             self._promote(inputs={"role_id": "jr-admin"})

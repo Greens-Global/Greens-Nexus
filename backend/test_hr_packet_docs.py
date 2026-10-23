@@ -205,6 +205,16 @@ class PacketDocsTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_a_promotion_letter_is_countersigned(self):
+        """Pranshu, Oct 23 2026: someone signs after the person on a promotion
+        letter - a person-only flow is a problem, a company step clears it."""
+        p = self._problems(event="promotion", flow=[{"key": "employee", "role": "employee", "action": "sign"},
+                                                    {"key": "company", "role": "hr", "action": "copy"}])
+        self.assertTrue(any("promotion letter is countersigned" in x for x in p), p)
+        self.assertFalse(any("countersigned" in x for x in self._problems(event="promotion")))
+        self.assertFalse(any("countersigned" in x for x in self._problems(
+            event="hire", flow=[{"key": "employee", "role": "employee", "action": "sign"}])))
+
     def test_an_offer_has_one_signer_the_person(self):
         """"Offer is just saying, do you accept?" - no company signer, no
         Signs Once, and the template's company block prints nothing rather

@@ -560,6 +560,11 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
         out.append("Exactly one step must be The Person (the one the packet is about).")
     elif subjects[0]["action"] != "sign":
         out.append("The Person must sign the packet.")
+    # A promotion letter is countersigned (Pranshu, Oct 23 2026, settling Oct 8
+    # vs Oct 22): the manager - or HR - signs after the person.
+    if setting.event == "promotion" and not any(s["role"] != SUBJECT_ROLE and s["action"] == "sign" for s in flow):
+        out.append("A promotion letter is countersigned - add a signature spot for their manager (or HR) "
+                   "to the letter, so someone signs after the person.")
     # Never "move the person": signing_flow puts them first (Neil, Oct 22 2026),
     # so an order saved with the company first still loads and sends.
     flow = signing_flow(setting)

@@ -250,7 +250,12 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
       ...p.extraDocs.map(r => (r.value || r.templateIds.length) && !r.value && 'Pick the team or role each added document is for.'),
       ...p.extraDocs.map(r => r.value && !r.templateIds.length && `Add a document for ${r.match === 'role' ? (companyRoles || []).find(x => x.id === r.value)?.name || 'the role' : r.value}, or remove that row.`),
     ],
-    signs: [!p.flow.some(s => s.role === 'employee') && `One step must be The Person (the ${who}).`],
+    signs: [
+      !p.flow.some(s => s.role === 'employee') && `One step must be The Person (the ${who}).`,
+      // Countersigned (Pranshu, Oct 23 2026) - the server says the same.
+      event === 'promotion' && !p.flow.some(s => s.role !== 'employee' && s.action === 'sign')
+        && 'A promotion letter is countersigned - add a signature spot for their manager (or HR) to the letter, so someone signs after the person.',
+    ],
     ready: [],
   };
   const stepProblems = (k) => [...new Set(problemsFor[k].filter(Boolean))];
