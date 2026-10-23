@@ -2367,6 +2367,9 @@ class TicketTeamsMessage(Base):
     attempts        = Column(Integer, default=0)
     last_try_at     = Column(String, default="")
     created_at      = Column(String, default="")
+    # 'dm' = the requester DM above; 'feedback_chat' = a new Feature Request
+    # posted to the Nexus - Feedback and Bugs group chat (feature_requests.py).
+    kind            = Column(String, default="dm")
 
 
 class AgentDevice(Base):
@@ -7074,6 +7077,9 @@ class ChangelogFeedback(Base):
     shipped_entry_id = Column(String, default="")
     notified_status  = Column(String, default="")
     module           = Column(String, default="")
+    # The Feature Request ticket this request IS (Oct 23 2026,
+    # feature_requests.py): its comments are the request's one conversation.
+    ticket_id        = Column(String, default="", index=True)
 
 
 class ChangelogSubscription(Base):

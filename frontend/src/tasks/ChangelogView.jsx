@@ -453,7 +453,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
           onEdit={isAdmin ? () => { setEditing(openOne); closeEntry(); } : undefined} />
       )}
 
-      {requesting && <MyRequestsDialog onClose={() => setRequesting(false)} onOpenEntry={openEntry} />}
+      {requesting && <MyRequestsDialog onClose={() => setRequesting(false)} onOpenEntry={openEntry} nameOf={nameOf} />}
 
       {following && (
         <FollowDialog entries={sorted} categories={CHANGE_TYPES} initial={me.subscription}

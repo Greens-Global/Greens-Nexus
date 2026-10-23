@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from xml.sax.saxutils import escape
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -252,7 +252,7 @@ def get_feedback(entry_id: str, user: dict = Depends(get_current_user), db: Sess
 
 @router.post("/task-changelog/{entry_id}/feedback")
 def give_feedback(entry_id: str, body: FeedbackBody, user: dict = Depends(get_current_user),
-                  db: Session = Depends(get_db)):
+                  db: Session = Depends(get_db), background_tasks: BackgroundTasks = None):
     """Helpful? one vote per person (pressing the same answer again takes it
     back). A feature request needs a note and can be sent any number of times."""
     e = _entry_or_404(db, entry_id)
@@ -264,9 +264,9 @@ def give_feedback(entry_id: str, body: FeedbackBody, user: dict = Depends(get_cu
         note = (body.note or "").strip()
         if not note:
             raise HTTPException(400, "Say what you would like")
-        db.add(F(id=gen_id(), entry_id=entry_id, email=email, kind="request", helpful=1, note=note[:2000],
-                 created_at=now_iso()))
-        db.commit()
+        # Filed as a Feature Request ticket, like every request (feature_requests.py).
+        import feature_requests
+        feature_requests.file_from_whats_new(db, user, background_tasks or BackgroundTasks(), note, entry_id=entry_id)
         return {"ok": True, **_feedback_summary(db, entry_id, email)}
     if body.kind != "helpful" or body.helpful is None:
         raise HTTPException(400, "Say whether it helped")
@@ -286,7 +286,7 @@ def give_feedback(entry_id: str, body: FeedbackBody, user: dict = Depends(get_cu
 def list_feedback(user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
     """Every note and feature request, newest first, for Manage - requests
     with their status (changelog_lifecycle)."""
-    from routers.changelog_lifecycle import request_dict
+    from routers.changelog_lifecycle import request_dict, with_tickets
     titles = {e.id: (reach.payload_of(e).get("title") or "Update", reach.status_of(reach.payload_of(e)) == "Released")
               for e in _entries(db)}
     rows = (db.query(models.ChangelogFeedback).order_by(models.ChangelogFeedback.created_at.desc()).all())
@@ -299,7 +299,7 @@ def list_feedback(user: dict = Depends(require_level(3)), db: Session = Depends(
         elif (r.note or "").strip():
             out.append({"id": r.id, "entryId": r.entry_id, "entryTitle": titles.get(r.entry_id, ("(deleted update)",))[0],
                         "email": r.email, "kind": r.kind, "helpful": bool(r.helpful), "note": r.note or "", "at": r.created_at})
-    return out
+    return with_tickets(db, out)
 
 
 # ── Edit history ───────────────────────────────────────────────────────────

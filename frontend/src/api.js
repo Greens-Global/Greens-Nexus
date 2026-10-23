@@ -778,6 +778,9 @@ export const api = {
   getMyChangelogRequests: () => req("/task-changelog/my-requests"),
   raiseChangelogRequest: (data) => req("/task-changelog/requests", { method: "POST", body: JSON.stringify(data) }),
   setChangelogRequestStatus: (id, data) => req(`/task-changelog-admin/requests/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // A request is a Feature Request ticket (Oct 23 2026): its thread is the ticket's.
+  getChangelogRequestComments: (id) => req(`/task-changelog/requests/${encodeURIComponent(id)}/comments`),
+  addChangelogRequestComment: (id, body) => req(`/task-changelog/requests/${encodeURIComponent(id)}/comments`, { method: "POST", body: JSON.stringify({ body }) }),
   raiseChangelogIssue: (id, data) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue`, { method: "POST", body: JSON.stringify(data) }),
   resolveChangelogIssue: (id, data) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue/resolve`, { method: "POST", body: JSON.stringify(data) }),
   clearChangelogIssue: (id) => req(`/task-changelog-admin/${encodeURIComponent(id)}/issue`, { method: "DELETE" }),

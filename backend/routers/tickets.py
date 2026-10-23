@@ -1076,7 +1076,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
 
 
 def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict, db: Session,
-                arrived_by: str = "") -> dict:
+                arrived_by: str = "", whats_new: dict | None = None) -> dict:
     """Everything POST /task-tickets does - THE way a ticket is created, so
     one that arrives by email (ticket_inbound.py, `source="email"`) goes
     through the same checks, approval gate, default assignee, SLA, receipts
@@ -1228,6 +1228,13 @@ def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict,
         background_tasks.add_task(notify_ticket_event, t.id, "created", user["email"])
     # No approval email here: a gated ticket has no approver yet, so there is
     # nobody to send one to. request_approval sends it once an IT Admin names one.
+    if t.type == "feature_request":
+        # One record per request (Oct 23 2026): its What's New card and its
+        # post to the Nexus - Feedback and Bugs Teams chat. `whats_new` is
+        # what the What's New form sent, when it came from there.
+        import feature_requests
+        feature_requests.after_filed(db, t, background_tasks, whats_new)
+        db.refresh(t)
     out = ticket_to_dict(t)
     if source is not None:
         out["sourceTaskClosed"] = _finish_source_task(db, source, t, user, bool(body.close_source_task),
@@ -3404,7 +3411,7 @@ def get_ticket_teams_dm_log(ticket_id: str = "", sent: str = "", limit: int = 20
     return [{
         "id": r.id, "ticketId": r.ticket_id, "agentEmail": r.agent_email, "requesterEmail": r.requester_email,
         "chatId": r.chat_id, "sent": bool(r.sent), "attempts": r.attempts, "lastTryAt": r.last_try_at,
-        "sendError": r.send_error, "createdAt": r.created_at,
+        "sendError": r.send_error, "createdAt": r.created_at, "kind": r.kind or "dm",
     } for r in rows]
 
 
