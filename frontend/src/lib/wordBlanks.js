@@ -38,7 +38,8 @@ export const NEXUS_FIELDS = [
   ['worker_type', 'Hired As (Employee / Contractor)'], ['employment_type', 'Employment Type'],
   ['offer_expires', 'Offer Expires'],
 ];
-const NEXUS_KEYS = new Set(NEXUS_FIELDS.map(([k]) => k));
+// email / work_email are filled server-side too (not offered: work first), so an asked blank must not take them.
+const NEXUS_KEYS = new Set([...NEXUS_FIELDS.map(([k]) => k), 'email', 'work_email']);
 
 // Filled by hand on the printed copy (a notary page), never by Nexus.
 const PAPER = /notar|witness|\bseal\b|stamp|franking|e-stamp|registration number|place of|purchased by|date of issue|state of issue|value\b|work e-?mail/;
