@@ -1098,7 +1098,9 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
             problems.append(f'"{d["title"]}" still has unfilled details: '
                             + ", ".join(t.replace("_", " ") for t in rest) + ".")
     empty = {k for part in answer_values(p["form"], event_answers(ev)) for k, v in part.items() if v == ""}
-    blank = [f"{labels.get(t, t)} ({s.name})" for s in p["snaps"] for t in sorted(s.tokens & empty)]
+    # A field with a Default Value prints that default, not a blank.
+    blank = [f"{labels.get(t, t)} ({s.name})" for s in p["snaps"] for t in sorted(s.tokens & empty)
+             if not str((s.defs.get(t) or {}).get("default") or "").strip()]
     warnings = ([f"Prints blank: {', '.join(blank)} - {first} left {them(len(blank))} empty. "
                  f"Click Edit to fill {them(len(blank))} in, or send as is."] if blank else [])
     me = (user["email"] or "").lower()

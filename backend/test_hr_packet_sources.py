@@ -135,6 +135,22 @@ class SourceTests(ReviewCase):
                                               "Click Edit to fill it in, or send as is."])
         self.assertTrue(review["canVerify"], review["problems"])        # a warning, never a block
 
+    def test_an_empty_answer_with_a_default_is_not_called_blank(self):
+        db = database.SessionLocal()
+        _publish(db, "t-nda", NDA2, [PAN, {**BANK, "default": "HDFC"}, PROBATION], version=3)
+        db.commit()
+        db.close()
+        r = self.client.post("/hr/candidates/cand-1/hiring-packet/start", json={
+            "inputs": {"job_title": "Analyst", "start_date": "2030-11-02", "offer_expires": "2030-10-28",
+                       "employment_type": "full_time", "merge": {"probation_period": "90 days"},
+                       "work_start": "09:00", "work_end": "17:30", "work_days": ["mon", "tue", "wed", "thu", "fri"]},
+            "pay": {"base": 85000, "payBasis": "salary", "frequency": "annual", "currency": "USD"},
+            "details": {"first_name": "Jane", "last_name": "Doe", "phone": "555-0100", "address": "12 Pine St",
+                        "answers": {"pan_number": "ABCDE1234F"}}})
+        self.assertEqual(r.status_code, 200, r.text)
+        review = self.client.get(f"/hr/life-events/{r.json()['id']}/review").json()
+        self.assertEqual(review["warnings"], [])                        # it prints HDFC, not a blank
+
     def test_the_preview_lists_what_each_roles_own_documents_add(self):
         db = database.SessionLocal()
         content = _doc(_p("Safety card ", "{{safety_card}}", " for ", "{{full_name}}"), _sig("employee"))
