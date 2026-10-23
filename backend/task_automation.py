@@ -987,6 +987,12 @@ def _move_to_project(db: Session, t: models.Task, spec: dict, res: Result, run: 
         # Same reason create_task refuses a copy: the other project's people
         # would see a task that was hidden from them. A person can move it.
         return f"could not move to {project.name}: the task is restricted, so a rule does not move it to another project"
+    if old != pid and any((d.access_level or "org") != "org" for d in _live_descendants(db, [t.id])):
+        # A restricted SUBTASK goes too (its own project, or through this
+        # one): the same widening, refused the same way - a manual move takes
+        # someone who may open each restricted row up (tasks.
+        # _require_open_up_for_move); a rule has no such person.
+        return f"could not move to {project.name}: a subtask is restricted, so a rule does not move it to another project"
     if old != pid:
         values = t.custom_field_values or {}
         missing = _newly_missing_required(db, t, old, values, pid, values)

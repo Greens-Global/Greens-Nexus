@@ -770,7 +770,8 @@ def sync_tasks(db, cl: HrChecklist, emp: NexusEmployee = None, by: str = "nexus"
                 if old is not None:           # reassigned: the subtask moves to the new owner's task
                     old.subtask_ids = [x for x in (old.subtask_ids or []) if x != sub.id]
                 set_task_assignees(sub, people)
-                sub.parent_task_id, sub.modified_at = parent.id, now
+                # A new parent: no longer private because of the old one.
+                sub.parent_task_id, sub.narrowed_by, sub.modified_at = parent.id, "", now
             if (sub.due_on or "") != (it.due_date or ""):
                 sub.due_on, sub.modified_at = it.due_date or "", now
             _set_done(sub, it.status != "open" or not live)

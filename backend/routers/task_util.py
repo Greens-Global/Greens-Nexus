@@ -926,7 +926,11 @@ def assert_person_on_task(db: Session, task, email: str) -> str:
         raise HTTPException(422, "That person is in another company.")
     if auth.level_in_module(who, "tasks", 3, db) >= 3:   # managers (and Tasks Owners) open every task
         return who
-    if not task_is_visible(task, who, visible_project_ids(db, who), ParentSight(db, user=who)):
+    # The person as the visibility rules read them: a guest / external is
+    # scoped to explicit participation (no org-wide default, no private-
+    # parent hop, their own projects only) - never a bare address.
+    person = {"email": who, "external": (emp.identity_type or "internal") in ("guest", "external")}
+    if not task_is_visible(task, person, visible_project_ids(db, person), ParentSight(db, user=person)):
         raise HTTPException(422, "That person cannot see this task. Add them to the task or its project first.")
     return who
 
@@ -1237,7 +1241,8 @@ def _binned_subtree_ids(db: Session, task_id: str) -> list:
                 ids.append(k.id)
                 frontier.append(k.id)
             else:
-                k.parent_task_id = ""
+                # Out from under its parent: no longer private because of it.
+                k.parent_task_id, k.narrowed_by = "", ""
                 k.modified_at = now_iso()
     for k in q.filter(Task.deleted_with == task_id).all():
         if k.id not in seen and k.deleted_at:

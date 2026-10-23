@@ -289,6 +289,70 @@ class SightTests(Base):
         self.assertEqual((self.row(k4.id).access_level, self.row(k4.id).narrowed_by), ("restricted", q.id))
         self.assertTrue(self.sees(OUTSIDER, k4.id))
 
+    def test_a_stale_marker_never_rides_a_re_attach(self):
+        # Detached through the parent's subtask list, a follower added to the
+        # parent, then re-attached by someone who may not open the task up:
+        # the old marker is gone, so the new follower sees nothing.
+        parent = self.task(title="P", access_level="restricted", owner_email=OWNER["email"],
+                           follower_emails=[HELPER["email"]])
+        kid = self.task(title="K", access_level="restricted", parent_task_id=parent.id, owner_email=OTHER["email"],
+                        created_by=OTHER["email"], assignee_email=HELPER["email"], assignee_emails=[HELPER["email"]],
+                        narrowed_by=parent.id)
+        parent.subtask_ids = [kid.id]
+        self.db.commit()
+        self.patch(parent, subtask_ids=[])
+        self.assertEqual((self.row(kid.id).parent_task_id, self.row(kid.id).narrowed_by), ("", ""))
+        self.patch(parent, follower_emails=[HELPER["email"], OUTSIDER["email"]])
+        self.assertFalse(self.sees(OUTSIDER, kid.id))
+        self.patch(kid, user=HELPER, parent_task_id=parent.id)     # an assignee: not an opener
+        self.assertEqual(self.row(kid.id).narrowed_by, "")
+        self.assertFalse(self.sees(OUTSIDER, kid.id))
+        # A stale marker naming the very parent it goes back under is judged too.
+        stale = self.task(title="Stale", access_level="restricted", owner_email=OTHER["email"],
+                          created_by=OTHER["email"], assignee_email=HELPER["email"], assignee_emails=[HELPER["email"]],
+                          narrowed_by=parent.id)
+        self.patch(stale, user=HELPER, parent_task_id=parent.id)
+        self.assertEqual(self.row(stale.id).narrowed_by, "")
+        self.assertFalse(self.sees(OUTSIDER, stale.id))
+
+    def test_a_parent_move_keeps_rows_the_mover_may_not_open_private_to_their_people(self):
+        p = self.task(title="P", access_level="restricted", owner_email=OWNER["email"])
+        k = self.task(title="K", access_level="restricted", parent_task_id=p.id, owner_email=HELPER["email"],
+                      created_by=HELPER["email"], narrowed_by=p.id)
+        c = self.task(title="C", access_level="restricted", parent_task_id=k.id, owner_email=OTHER["email"],
+                      created_by=OTHER["email"], narrowed_by=k.id)
+        q = self.task(title="Q", access_level="restricted", owner_email=HELPER["email"], created_by=HELPER["email"],
+                      follower_emails=[OUTSIDER["email"]])
+        p.subtask_ids, k.subtask_ids = [k.id], [c.id]
+        self.db.commit()
+        self.patch(k, user=HELPER, parent_task_id=q.id)            # HELPER owns K, not C
+        self.assertEqual((self.row(k.id).narrowed_by, self.row(c.id).narrowed_by), (q.id, ""))
+        self.assertTrue(self.sees(OUTSIDER, k.id))
+        self.assertFalse(self.sees(OUTSIDER, c.id))
+        self.assertTrue(self.sees(OTHER, c.id))                    # still its own people's
+
+    def test_a_guest_follower_cannot_be_named_on_an_inherited_subtask(self):
+        from routers.task_util import assert_person_on_task
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email=EXT["email"], status="active", first_name="g",
+                                         company=COA, identity_type="guest"))
+        self.db.commit()
+        parent, kid = self.tree(top_level="restricted", kid_level="restricted", inherited=True,
+                                follower_emails=[EXT["email"], HELPER["email"]])
+        with self.assertRaises(HTTPException) as e:
+            assert_person_on_task(self.db, self.row(kid.id), EXT["email"])
+        self.assertEqual(e.exception.status_code, 422)
+        with self.assertRaises(HTTPException) as e:
+            T.add_checklist_items(kid.id, T.ChecklistItemCreate(title="Call", assignee_email=EXT["email"]),
+                                  user=OWNER, db=self.db)
+        self.db.rollback()
+        self.assertEqual(e.exception.status_code, 422)
+        # An internal follower of the parent may be named (the hop is theirs).
+        self.assertEqual(assert_person_on_task(self.db, self.row(kid.id), HELPER["email"]), HELPER["email"])
+        # Nor does a guest get the org-wide default.
+        open_task = self.task(title="Org", access_level="org", owner_email=OWNER["email"])
+        with self.assertRaises(HTTPException):
+            assert_person_on_task(self.db, open_task, EXT["email"])
+
     def test_the_same_level_re_sent_keeps_the_marker(self):
         parent, kid = self.tree()
         self.patch(parent, access_level="restricted")

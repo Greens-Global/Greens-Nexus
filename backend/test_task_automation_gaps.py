@@ -408,6 +408,22 @@ class GapsTests(unittest.TestCase):
         self.assertEqual(out["tags"], [])              # the automation's move fires no moved_to_project rule
         self.assertIn("moved to Build (Ready)", self._runs()[-1].actions)
 
+    def test_move_to_project_never_carries_a_restricted_subtask(self):
+        # A manual project move needs someone who may open every restricted
+        # row up (tasks._require_open_up_for_move); a rule has no such
+        # person, so the whole move is skipped with a run note.
+        src, dst = self._project("Intake"), self._project("Build")
+        self._rule("Route", {"type": "status_changed", "value": "in_progress"},
+                   [{"type": "move_to_project", "value": {"projectId": dst.id}}])
+        t = self._create(title="Job", project_id=src.id)
+        sub = self._create(title="Private step", project_id=src.id, parent_task_id=t["id"])
+        row = self._row(sub["id"])
+        row.access_level = "restricted"
+        self.db.commit()
+        self._patch(t["id"], status="in_progress")
+        self.assertEqual((self._row(t["id"]).project_id, self._row(sub["id"]).project_id), (src.id, src.id))
+        self.assertIn("a subtask is restricted", self._runs()[-1].detail)
+
     def test_move_across_the_company_wall_is_refused_at_run_time(self):
         pb = self._project("B Ops", company=COB)
         self._rule("Shared route", {"type": "status_changed", "value": "in_progress"},

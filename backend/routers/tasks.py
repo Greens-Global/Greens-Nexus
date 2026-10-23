@@ -860,7 +860,9 @@ def _sync_hierarchy(db: Session, t: models.Task, data: dict, prev_parent: str, p
                 if old is not None and child.id in (old.subtask_ids or []):
                     old.subtask_ids = [x for x in old.subtask_ids if x != child.id]
                     old.modified_at = now
-            child.parent_task_id, child.modified_at = t.id, now
+            # Re-attached through a parent's list, not a move: whatever the
+            # old parent's marker said no longer holds (task_util.inherits_privacy).
+            child.parent_task_id, child.narrowed_by, child.modified_at = t.id, "", now
         for child in (db.query(models.Task).filter(models.Task.id.in_(removed)).all() if removed else []):
             if (child.parent_task_id or "") == t.id:
                 # It keeps the project it reached through this task, written
@@ -868,7 +870,7 @@ def _sync_hierarchy(db: Session, t: models.Task, data: dict, prev_parent: str, p
                 if not child.project_id:
                     home = project_for_task(db, child)
                     child.project_id = home.id if home is not None else ""
-                child.parent_task_id, child.modified_at = "", now
+                child.parent_task_id, child.narrowed_by, child.modified_at = "", "", now
 
 
 # ── Moving a task in the subtask tree (Neil, Oct 22 2026) ────────────────────
@@ -929,7 +931,7 @@ def _is_hr_checklist_task(db: Session, t) -> bool:
 
 
 def _require_open_up_for_move(db: Session, user: dict, rows: list, dest_id: str,
-                              new_parent=None, check_dest: bool = True) -> bool:
+                              new_parent=None, check_dest: bool = True) -> tuple:
     """A move never makes a restricted row more visible than it was (Oct 22
     2026). Into another project, a restricted row becomes visible to that
     project's people - the same widening as opening it to the organization,
@@ -937,27 +939,32 @@ def _require_open_up_for_move(db: Session, user: dict, rows: list, dest_id: str,
     creator, or an editor of the project it is in now) for EVERY restricted
     row that goes, or the whole move is refused (`check_dest`: the move
     changes project).
-    Under a private parent - with or without a project - a private row that
-    was private only because of its OLD parent (task_util.inherits_privacy)
-    would be seen by the NEW parent's people if its marker followed it. That
-    is the same widening, so it takes the same person: returns whether the
-    marker may follow (the caller re-stamps it, or clears it - the row then
-    stays private to its own people). Never skipped for a parent with no
-    project."""
+    Under a private parent - with or without a project - a row private only
+    because of the task above it (task_util.inherits_privacy) would be seen
+    by the NEW parent's people through the chain. That is the same widening,
+    judged row by row the same way: returns (follows, clear) - whether the
+    moved task's marker may follow it to the new parent, and the ids of the
+    subtree rows whose marker must go because the mover may not open them up
+    (each then stays private to its own people). Never skipped for a parent
+    with no project."""
     moved = rows[0] if rows else None
-    follows = bool(moved is not None and new_parent is not None
-                   and (new_parent.access_level or "org") != "org"
+    private_dest = new_parent is not None and (new_parent.access_level or "org") != "org"
+    follows = bool(moved is not None and private_dest
                    and (moved.access_level or "org") != "org"
                    and (moved.narrowed_by or "") and _may_open_up(db, user, moved))
-    if not (check_dest and dest_id):
-        return follows
-    for row in rows:
-        if row.deleted_at or (row.access_level or "org") == "org":
-            continue
-        if not _may_open_up(db, user, row):
-            raise HTTPException(403, "You can't move private tasks into a project where more people can see "
-                                     "them - ask their owner or a project editor.")
-    return follows
+    clear = set()
+    if private_dest:
+        for row in rows[1:]:
+            if not row.deleted_at and inherits_privacy(row) and not _may_open_up(db, user, row):
+                clear.add(row.id)
+    if check_dest and dest_id:
+        for row in rows:
+            if row.deleted_at or (row.access_level or "org") == "org":
+                continue
+            if not _may_open_up(db, user, row):
+                raise HTTPException(403, "You can't move private tasks into a project where more people can see "
+                                         "them - ask their owner or a project editor.")
+    return follows, clear
 
 
 def _plan_move(db: Session, user: dict, t: models.Task, new_parent_id: str, project_hint=None) -> dict:
@@ -1000,8 +1007,9 @@ def _plan_move(db: Session, user: dict, t: models.Task, new_parent_id: str, proj
     _check_move_shape(db, t, plan)
     if dest_id != src_id and src is not None:
         require_project_access(db, user, src, "editor")
-    plan["marker_follows"] = _require_open_up_for_move(db, user, [t, *plan["subtree"]], dest_id,
-                                                       new_parent=parent, check_dest=dest_id != src_id)
+    plan["old_parent"] = t.parent_task_id or ""
+    plan["marker_follows"], plan["clear_markers"] = _require_open_up_for_move(
+        db, user, [t, *plan["subtree"]], dest_id, new_parent=parent, check_dest=dest_id != src_id)
     return plan
 
 
@@ -1053,19 +1061,25 @@ def _cascade_level(db: Session, user: dict, t: models.Task, prev_level: str) -> 
     Opened again (restricted -> org): the rows private only because of the
     task above them come back, top down - never one somebody made private by
     hand (that clears the marker), never one under a task still private.
-    `t` is locked first, then its subtree is read and locked in id order
-    (_lock_task_rows) and re-read under the lock, so a concurrent edit of one
-    of them is seen, never overwritten. One activity row on `t` says how many
+    The subtree is read, then `t` and it are locked in ONE id-ordered call
+    (_lock_task_rows), and read again under the lock (a subtask added
+    meanwhile is locked as well), so a concurrent edit of one of them is
+    seen, never overwritten. One activity row on `t` says how many
     went (their ids in its field_change). Returns the ids changed (the caller
     fires one realtime event for them)."""
     now_level = t.access_level or "org"
     if prev_level == now_level or "org" not in (prev_level, now_level):
         return []
-    _lock_task_rows(db, [t.id])
     ids = [r.id for r in _subtree_rows(db, t.id)[0]]
     if not ids:
         return []
-    _lock_task_rows(db, ids)
+    _lock_task_rows(db, [t.id, *ids])          # one call: every row in id order
+    # Read again under the lock; a subtask added meanwhile is locked too.
+    now_ids = [r.id for r in _subtree_rows(db, t.id)[0]]
+    fresh = [i for i in now_ids if i not in set(ids)]
+    if fresh:
+        _lock_task_rows(db, fresh)
+    ids = now_ids
     rows = (db.query(models.Task).execution_options(include_deleted=True)
             .filter(models.Task.id.in_(ids)).populate_existing().all())
     by_id = {r.id: r for r in rows}
@@ -1182,12 +1196,18 @@ def _apply_move(db: Session, user: dict, t: models.Task, plan: dict, now: str,
     if self_before is not None:
         task_history.record(db, t, self_before, user["email"], only=tracked)
     narrowed = False
-    # The moved task's "private because of its parent" marker (task_util.
-    # inherits_privacy) names its OLD parent: it follows to the new one only
-    # when _plan_move allowed it (_require_open_up_for_move), else it is
-    # cleared and the task stays private to its own people.
-    if (t.narrowed_by or "") and (parent is None or t.narrowed_by != parent.id):
-        t.narrowed_by = parent.id if (parent is not None and plan.get("marker_follows")) else ""
+    # A new parent: the moved task's "private because of its parent" marker
+    # (task_util.inherits_privacy) is judged again - whatever it names, even
+    # the new parent itself (a stale one). It follows only when _plan_move
+    # allowed it (_require_open_up_for_move), else it is cleared and the task
+    # stays private to its own people. Rows below that the mover may not
+    # open up lose theirs the same way.
+    if plan.get("old_parent", t.parent_task_id or "") != (parent.id if parent is not None else ""):
+        if t.narrowed_by or "":
+            t.narrowed_by = parent.id if (parent is not None and plan.get("marker_follows")) else ""
+        for row in plan["subtree"]:
+            if row.id in (plan.get("clear_markers") or ()):
+                row.narrowed_by = ""
     if parent is not None:
         for row in [t, *plan["subtree"]]:
             level = _narrow_to_parent(row.access_level, parent)
@@ -3659,7 +3679,7 @@ def restore_task_tree(db: Session, t: models.Task, now: str) -> list[models.Task
         row.deleted_with = ""
         row.modified_at = now
     if parent_gone:
-        t.parent_task_id = ""
+        t.parent_task_id, t.narrowed_by = "", ""
     # Re-link each one into its parent's list. A parent restored in this same
     # call is still binned in the database (nothing is flushed yet), so the
     # rows in hand are looked at first.
