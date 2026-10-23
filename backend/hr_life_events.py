@@ -370,6 +370,11 @@ def setting_problems(db: Session, s: HrPacketSetting) -> list:
     if s.subject_role not in keys:
         out.append(f"The template has no \"{s.subject_role}\" role for the person to sign as "
                    f"(its roles: {', '.join(keys) or 'none'}).")
+    # A promotion letter is countersigned (Pranshu, Oct 23 2026): the manager -
+    # or HR - signs after the person.
+    if s.event == "promotion" and s.subject_role in keys and len(keys) < 2:
+        out.append(f"A promotion letter is countersigned - the template \"{tpl.name}\" needs a second signer "
+                   f"(the manager, or HR) besides \"{s.subject_role}\".")
     # The person signs first whatever the template's order (_parties_for,
     # Neil, Oct 22 2026) - an old company-first template is never refused.
     return out

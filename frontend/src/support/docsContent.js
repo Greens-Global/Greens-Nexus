@@ -1528,7 +1528,7 @@ export const DOCS = [
       {
         title: "Promote or Change Someone's Role",
         steps: [
-          'Set up the letter once in Settings > Hiring > Hiring Documents under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A packet can be for every role or for particular roles.',
+          'Set up the letter once in Settings > Hiring > Hiring Documents under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A promotion letter is always countersigned: the employee signs, then their manager (or HR) - a letter with only the employee\'s signature box is not accepted. A packet can be for every role or for particular roles.',
           'Only HR (People editors who are not limited to their own team), IT Admins and Global Admins can change a role or promote someone - managers do not see Change Role or Promote; a manager asks HR. There is no approval step.',
           'In People: open the person, click Change Role and choose Role Change Without Promotion. Pick the new role, write the reason (required), and click Change Role. It takes effect right away. Their manager and the employee get a bell, and the manager sees the reason. Your own role is changed by someone else in HR or a Global Admin.',
           'In Settings > Access: pick the person and click Change Role. There is no promotion here. Pick the new role, write the reason (required), and click Change Role. It takes effect right away, the same as in People.',
