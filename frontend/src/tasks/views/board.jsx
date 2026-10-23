@@ -35,7 +35,7 @@ import { projectLook } from '../projectLook';
 import {
   boardSetup, boardHasSections, PRIORITY_COLUMNS, dueColumns, dueColumnOf, labelLaneTags, assigneeLanePeople, laneAddDefaults,
 } from '../boardLayout';
-import { moveTaskToDay } from '../calendarMove';
+import { awaitingFirstDate, clearingStopsSeries, moveTaskToDay } from '../calendarMove';
 import CardPreview from '../CardPreview';
 
 const SECTION_PALETTE = ['#4573fa', '#8b6bf0', '#14a76c', '#e8a33d', '#e0844e', '#e8384f', '#29a8ab', '#db2777'];
@@ -334,8 +334,13 @@ export default function BoardView({
     return {};
   };
 
-  // Due Date columns: a completed card stays where it is (as on the Calendar).
-  const canDrag = (t) => canEditTask(t) && !(colKind === 'due' && t.completed);
+  // Due Date columns: a completed card, or one whose first date is waiting
+  // for approval, stays where it is (as on the Calendar).
+  const canDrag = (t) => canEditTask(t) && !(colKind === 'due' && (t.completed || awaitingFirstDate(t)));
+  // A column that will not take this card: Overdue takes none, and No Date
+  // will not take the live occurrence of a repeating series (it keeps its
+  // date - the server refuses it too).
+  const refuses = (col, t) => !!col.noDrop || (colKind === 'due' && col.key === 'none' && !!t && clearingStopsSeries(t));
 
   const drop = (col, lane) => {
     const id = dragId;
@@ -343,7 +348,7 @@ export default function BoardView({
     setDragId(null); setDragOver(null); setDragFrom(null);
     if (!id || !col || col.noDrop) return;
     const t = taskOf(id);
-    if (!t || !canDrag(t)) return;
+    if (!t || !canDrag(t) || refuses(col, t)) return;
     const patch = { ...columnPatch(t, col), ...lanePatch(t, from, lane) };
     const keys = Object.keys(patch);
     const moveDay = colKind === 'due' && !col.match(t);
@@ -510,7 +515,10 @@ export default function BoardView({
   // Drop-target wiring for a column (or a lane's cell): a column that takes
   // no drops (Overdue) never claims the drag, so the cursor says so.
   const dropZone = (zoneKey, col, lane) => (col.noDrop ? {} : {
-    onDragOver: (e) => { e.preventDefault(); if (dragOver !== zoneKey) setDragOver(zoneKey); },
+    onDragOver: (e) => {
+      if (dragId && refuses(col, taskOf(dragId))) return;
+      e.preventDefault(); if (dragOver !== zoneKey) setDragOver(zoneKey);
+    },
     onDragLeave: () => setDragOver((d) => (d === zoneKey ? null : d)),
     onDrop: (e) => { e.preventDefault(); e.stopPropagation(); drop(col, lane); },
   });

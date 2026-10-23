@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import {
-  bulkDatesSummary, calendarMovePatch, canMoveOnCalendar, daysBetween, movedLabel, previousDates, undoEntryAt, wasSentForApproval,
+  bulkDatesSummary, calendarMovePatch, daysBetween, movedLabel, previousDates, undoEntryAt, wasSentForApproval,
 } from './calendarMove';
 import { CalendarView } from './views/extras';
 import BulkActionBar from './BulkActionBar';
@@ -71,17 +71,6 @@ describe('calendarMovePatch', () => {
     const patch = { dueOn: '2026-11-02' };
     expect(wasSentForApproval({ dueOn: '2026-10-30', dueAgreement: 'extension_requested', dueProposal: { dueOn: '2026-11-02' } }, patch)).toBe(true);
     expect(wasSentForApproval({ dueOn: '2026-11-02', dueAgreement: 'accepted' }, patch)).toBe(false);
-  });
-});
-
-describe('canMoveOnCalendar', () => {
-  const projects = [{ id: 'p', accessLevel: 'restricted', memberIds: ['v@x.com', 'e@x.com'], memberRoles: { 'v@x.com': 'viewer', 'e@x.com': 'editor' } }];
-  const task = { id: 'a', projectId: 'p', dueOn: '2026-10-22' };
-  it('an editor may, a viewer may not, and a completed task stays put', () => {
-    expect(canMoveOnCalendar(task, { projects, email: 'e@x.com' })).toBe(true);
-    expect(canMoveOnCalendar(task, { projects, email: 'v@x.com' })).toBe(false);
-    expect(canMoveOnCalendar({ ...task, completed: true }, { projects, email: 'e@x.com' })).toBe(false);
-    expect(canMoveOnCalendar(task, { projects, email: 'v@x.com', isManager: true })).toBe(true);
   });
 });
 
@@ -177,6 +166,17 @@ describe('CalendarView drag', () => {
     setup();
     fireEvent.keyDown(screen.getByText('Pour Footings').closest('button'), { key: 'F10', shiftKey: true });
     expect(screen.getAllByText('Move To Date').length).toBeGreaterThan(0);
+  });
+
+  it('who may drag is useCanEditTask\'s rule: an editor yes, a viewer no, a completed task never', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 15, 10, 0, 0));
+    const list = [...tasks, { id: 'c', title: 'Done Already', projectId: 'p', dueOn: '2026-10-16', completed: true, status: 'completed' }];
+    const store = { projects: [editorProject, viewerProject], teams: [], taskById: Object.fromEntries(list.map((t) => [t.id, t])), myEmail: 'me@x.com', updateTask: vi.fn() };
+    render(<CalendarView tasks={list} store={store} onOpen={vi.fn()} />);
+    expect(screen.getByText('Pour Footings').closest('button').getAttribute('draggable')).toBe('true');
+    expect(screen.getByText('Read Only').closest('button').getAttribute('draggable')).toBeNull();
+    expect(screen.getByText('Done Already').closest('button').getAttribute('draggable')).toBeNull();
   });
 
   it('without a store the calendar is read-only, as before', () => {

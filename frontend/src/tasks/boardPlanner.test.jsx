@@ -194,9 +194,26 @@ describe('Due Date columns use the Calendar day move', () => {
     setup();
     await dragTo('Late One', '[data-board-column="none"]');
     expect(store.updateTask).toHaveBeenLastCalledWith('b', { dueOn: '' });
-    expect(store.offerUndo.mock.calls.at(-1)[0]).toBe('Due date cleared');
+    expect(store.offerUndo.mock.calls.at(-1)[0]).toBe('Due date removed');
     await dragTo('Undated', '[data-board-column="today"]');
     expect(store.updateTask).toHaveBeenLastCalledWith('c', { dueOn: '2026-10-20' });
+    expect(store.offerUndo.mock.calls.at(-1)[0]).toBe('Scheduled for 10/20/2026');
+  });
+
+  it('a first date awaiting approval cannot be dragged; No Date refuses a live repeating occurrence', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 20, 10, 0, 0));
+    const more = [
+      { ...base, id: 'w', title: 'Waiting', dueAgreement: 'extension_requested', dueProposal: { dueOn: '2026-10-30' } },
+      { ...base, id: 'r', title: 'Weekly', dueOn: '2026-10-21', status: 'recurring', recurrence: { freq: 'weekly', daysOfWeek: [3] } },
+    ];
+    store = boardStore(more);
+    render(<BoardView visible={more} ctx={ctx} store={store} onOpen={() => {}} lockedProjectId="p1" group="none" columns="due" />);
+    expect(screen.getByText('Waiting').closest('[data-task-row]').getAttribute('draggable')).toBe('false');
+    await dragTo('Weekly', '[data-board-column="none"]');
+    expect(store.updateTask).not.toHaveBeenCalled();
+    await dragTo('Weekly', '[data-board-column="later"]');
+    expect(store.updateTask).toHaveBeenCalledWith('r', { dueOn: '2026-11-01' });
   });
 
   it('Overdue takes no drops, and a move held for approval offers no Undo', async () => {

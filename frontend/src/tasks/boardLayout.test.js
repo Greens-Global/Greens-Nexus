@@ -4,7 +4,7 @@ import {
   boardPrefs, boardSetup, boardHasSections, columnOptions, dueColumns, dueColumnOf, effectiveLanes, laneOptions,
   labelLaneTags, assigneeLanePeople, laneAddDefaults, isCoverCandidate,
 } from './boardLayout';
-import { dueMovePatch } from './calendarMove';
+import { calendarDatePatch } from './calendarMove';
 import { todayISO } from './lib';
 
 const ORIGINAL_TZ = process.env.TZ;
@@ -68,13 +68,13 @@ describe('Due Date columns', () => {
   });
 });
 
-describe('dueMovePatch (the Calendar day move, used by Due Date columns)', () => {
+describe('calendarDatePatch (the Calendar day move, used by Due Date columns)', () => {
   it('moves a dated task like the Calendar, dates an undated one, and clears', () => {
-    expect(dueMovePatch({ startOn: '2026-10-20', dueOn: '2026-10-22' }, '2026-10-24')).toEqual({ dueOn: '2026-10-24', startOn: '2026-10-22' });
-    expect(dueMovePatch({ dueOn: '' }, '2026-10-24')).toEqual({ dueOn: '2026-10-24' });
-    expect(dueMovePatch({ dueOn: '2026-10-22' }, '')).toEqual({ dueOn: '' });
-    expect(dueMovePatch({ dueOn: '' }, '')).toBeNull();
-    expect(dueMovePatch({ dueOn: '2026-10-22' }, '2026-10-22')).toBeNull();
+    expect(calendarDatePatch({ startOn: '2026-10-20', dueOn: '2026-10-22' }, '2026-10-24')).toEqual({ dueOn: '2026-10-24', startOn: '2026-10-22' });
+    expect(calendarDatePatch({ dueOn: '' }, '2026-10-24')).toEqual({ dueOn: '2026-10-24' });
+    expect(calendarDatePatch({ dueOn: '2026-10-22' }, '')).toEqual({ dueOn: '' });
+    expect(calendarDatePatch({ dueOn: '' }, '')).toBeNull();
+    expect(calendarDatePatch({ dueOn: '2026-10-22' }, '2026-10-22')).toBeNull();
   });
 });
 
