@@ -28,7 +28,7 @@ import { downloadBlob } from './reportModel';
 const TOOLS = [
   { key: 'statement', title: 'Bank Statement to Intacct', text: 'A bank or brokerage statement as a journal entry import.', Icon: Landmark },
   { key: 'hours', title: 'Payroll Hours to QuickBooks', text: 'Approved time sheet hours as a QuickBooks time import.', Icon: Clock },
-  { key: 'qb-payroll', title: 'QuickBooks Payroll to Intacct', text: 'A QuickBooks payroll report as the Intacct payroll entry.', Icon: ArrowRightLeft },
+  { key: 'qb-payroll', title: 'QuickBooks Payroll to Intacct', text: 'A QuickBooks Desktop or Online payroll report as the Intacct payroll entry.', Icon: ArrowRightLeft },
 ];
 const TOOL_KEY = 'nexus.importhub.tool';
 

@@ -85,4 +85,37 @@ describe('Import Hub', () => {
     fireEvent.click(download);
     expect(saved).toEqual(['payroll_intacct_payroll_import.csv']);
   });
+
+  it('reads a QuickBooks Online Excel file past its empty first sheet (Priyanka, 10/22)', async () => {
+    const XLSX = await import('xlsx');
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[]]), 'QuickBooks Desktop Export Tips');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['', '', '', '', 'Dana Fox(E-0001)', '', '', '', '', '', 'TOTAL'],
+      ['', '', '', '', 'Hours', '', 'Rate', '', 'Oct 10 - 23, 26', '', 'Hours', '', 'Rate', '', 'Oct 10 - 23, 26'],
+      ['', '', '', 'Hourly', '10', '', '20.00', '', '200.00', '', '10', '', '', '', '200.00'],
+      ['', '', 'Federal Withholding', '', '', '', '', '', '-20.00', '', '', '', '', '', '-20.00'],
+      ['Net Pay', '', '', '', '10', '', '', '', '180.00', '', '10', '', '', '', '180.00'],
+      ['', 'Qualified OT Tracking', '', '', '', '', '', '', '0.00', '', '', '', '', '', '0.00'],
+    ]), 'Sheet1');
+    const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    const file = new File([bytes], 'OSM Payroll .xlsx');
+    file.arrayBuffer = async () => bytes;
+    render(<ImportHub />);
+    fireEvent.click(screen.getByRole('tab', { name: /QuickBooks Payroll to Intacct/ }));
+    fireEvent.change(screen.getByLabelText('QuickBooks payroll file'), { target: { files: [file] } });
+    expect(await screen.findByText('Balanced')).toBeTruthy();
+    expect(screen.getByText(/Payroll Summary \(QuickBooks Online\) - 1 employees - Oct 10 - 23, 26/)).toBeTruthy();
+    expect(screen.queryByText(/Map or ignore/)).toBeNull();
+  });
+
+  it('names the missing column when a payroll file cannot be read', async () => {
+    render(<ImportHub />);
+    fireEvent.click(screen.getByRole('tab', { name: /QuickBooks Payroll to Intacct/ }));
+    const csv = 'Employee,Payroll Item,Hours\nDana Fox,Hourly,10\n';
+    const file = new File([csv], 'payroll.csv', { type: 'text/csv' });
+    file.text = async () => csv;
+    fireEvent.change(screen.getByLabelText('QuickBooks payroll file'), { target: { files: [file] } });
+    expect(await screen.findByText(/^No Amount column found\./)).toBeTruthy();
+  });
 });

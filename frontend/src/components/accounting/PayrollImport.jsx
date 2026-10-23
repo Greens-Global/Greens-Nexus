@@ -8,7 +8,7 @@ import { downloadBlob } from './reportModel';
 import { readSheetFile, toCsv } from './statementImport';
 import {
   DEFAULT_PAYROLL_MAPPING, HOUR_BUCKETS, ITEM_KINDS, buildIif, buildPayrollEntries, checkBalance, employeeInfo, employeeKey, hoursFromNexus,
-  hoursFromPayroll, hoursRows, loadPayrollPrefs, netPayMismatches, parseHoursFile, parseQbPayroll, payrollRows, savePayrollPrefs,
+  hoursFromPayroll, hoursRows, loadPayrollPrefs, netPayMismatches, parseHoursFile, parsePayrollSheets, payrollFileProblem, payrollRows, readPayrollSheets, savePayrollPrefs,
   totalsFromHoursFile, unmappedItems,
 } from './payrollConvert';
 
@@ -398,8 +398,9 @@ export function QbPayrollToIntacct() {
     if (!f) return;
     setError('');
     try {
-      const report = parseQbPayroll((await readSheetFile(f)).filter((r) => r.some((c) => c !== '')));
-      if (!report.employees.length) { setError('No employees found. Upload the QuickBooks Payroll Summary (employees across the top) or a payroll detail export with Employee, Payroll Item and Amount columns.'); return; }
+      // Every sheet: QuickBooks Online saves an empty "Export Tips" sheet first.
+      const report = parsePayrollSheets(await readPayrollSheets(f));
+      if (!report.employees.length) { setError(payrollFileProblem(report)); return; }
       setFile({ name: f.name, report });
     } catch (e) { setError(e?.message || 'Could not read that file.'); }
   };
@@ -441,7 +442,7 @@ export function QbPayrollToIntacct() {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-        Upload the QuickBooks Payroll Summary (or a payroll detail export) and download Intacct's payroll journal entry import - one balanced entry per employee - and the statistical hours import. Built in your browser; nothing is sent to QuickBooks or Intacct.
+        Upload the QuickBooks Payroll Summary from QuickBooks Desktop or Online (or a payroll detail export) and download Intacct's payroll journal entry import - one balanced entry per employee - and the statistical hours import. Built in your browser; nothing is sent to QuickBooks or Intacct.
       </div>
 
       {!file ? (
@@ -449,7 +450,7 @@ export function QbPayrollToIntacct() {
       ) : (
         <div style={{ ...card, padding: 14, display: 'grid', gap: 14 }}>
           <FileBar name={file.name}
-            detail={`${file.report.format === 'summary' ? 'Payroll Summary' : 'Payroll Detail'} - ${employees.length} employees${file.report.period ? ` - ${file.report.period}` : ''}`}
+            detail={`${file.report.format === 'summary' ? `Payroll Summary (QuickBooks ${file.report.source === 'online' ? 'Online' : 'Desktop'})` : 'Payroll Detail'} - ${employees.length} employees${file.report.period ? ` - ${file.report.period}` : ''}`}
             onReset={() => setFile(null)} />
 
           <div>
