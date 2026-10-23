@@ -20,6 +20,8 @@ import json
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy import func
+
 import hr_checklists as hc
 from models import HrDocument, HrEntity, NexusEmployee, NexusNotification
 
@@ -43,7 +45,10 @@ def gaps(db, emp: NexusEmployee, docs: list = None) -> list:
     today = _today().isoformat()
     docs = docs if docs is not None else db.query(HrDocument).filter(HrDocument.employee_id == emp.id).all()
     out = []
-    if not emp.manager_email:
+    # The top of the org (Neil Kadakia) manages others and has nobody above.
+    if not emp.manager_email and not (emp.work_email and db.query(NexusEmployee.id).filter(
+            NexusEmployee.status.in_(STATUSES),
+            func.lower(NexusEmployee.manager_email) == emp.work_email.lower()).first()):
         out.append("No manager")
     if not emp.start_date:
         out.append("No start date")
