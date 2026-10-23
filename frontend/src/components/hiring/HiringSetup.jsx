@@ -62,7 +62,7 @@ export default function HiringSetup({ toastOk, toastErr, initialCompanyId = null
               )}
               <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>{c.summary}</div>
             </div>
-            <button type="button" className="primary-btn" style={btn} onClick={() => setOpen(c.id)} aria-label={`Set Up Hiring - ${c.name}`}>Set Up Hiring</button>
+            <button type="button" className="primary-btn" style={btn} onClick={() => setOpen(c.id)} aria-label={`Set Up - ${c.name}`}>Set Up</button>
           </div>
         ))}
       </div>

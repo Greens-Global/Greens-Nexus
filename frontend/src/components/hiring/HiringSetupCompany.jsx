@@ -38,9 +38,9 @@ const SECTION = {
   hiring: { heading: 'Set Up Hiring', grid: 'What Each Hire Gets', kind: 'Kind Of Hire', main: 'offer', done: 'Everything is set. You can make an offer.',
     blocked: 'a hire here would be blocked', who: 'that kind of hire', another: 'Hiring in another state or country?' },
   promotion: { heading: 'Set Up Promotions', grid: 'What Each Promotion Gets', kind: 'Kind Of Person', main: 'letter', done: 'Everything is set. You can promote with a letter.',
-    blocked: 'Promote is off there - Change Role Now still works', who: 'those people', another: 'People in another state or country?' },
+    blocked: 'Promote is off there - Change Role Now still works', who: 'those people', handles: 'Handles Promotions', another: 'People in another state or country?' },
   offboarding: { heading: 'Set Up Offboarding', grid: 'What Each Offboarding Gets', kind: 'Kind Of Person', main: 'package', done: 'Everything is set. Offboarding sends the separation package.',
-    blocked: 'offboarding there runs without documents', who: 'those people', another: 'People in another state or country?' },
+    blocked: 'offboarding there runs without documents', who: 'those people', handles: 'Handles Offboarding', another: 'People in another state or country?' },
 };
 const HIRING_COLUMNS = [{ key: 'offer', label: 'Offer Letter' }, { key: 'packet', label: 'Hiring Packet' }, { key: 'jd', label: 'Job Description' }];
 const sectionOf = (f) => f?.section || (f?.column === 'letter' ? 'promotion' : f?.column === 'package' ? 'offboarding' : 'hiring');
@@ -258,7 +258,7 @@ export default function HiringSetupCompany({ entityId = '', onBack, onAdvanced, 
         <section ref={aboutRef} style={card}>
           <h2 style={h2}>About This Company</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
-            {view.about.map(a => (
+            {view.about.map(a => ({ ...a, label: a.key === 'handlesHiring' && S.handles ? S.handles : a.label })).map(a => (   // the API names it for hiring in every section
               <div key={a.key} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' }}>
                 <div style={{ ...cap, padding: 0 }}>{a.label}</div>
                 <div style={{ fontSize: 14, fontWeight: 600, marginTop: 4, color: a.empty ? 'var(--muted)' : 'var(--ink)' }}>{a.value || 'Not set'}</div>

@@ -121,7 +121,8 @@ describe('Screen 1: Hiring Setup', () => {
     expect(screen.getAllByText('Not Started')).toHaveLength(3);               // a chip per section
     fireEvent.click(screen.getByText('Advanced: All Packets And Signing Orders'));
     expect(onAdvanced).toHaveBeenCalled();
-    fireEvent.click(screen.getByLabelText('Set Up Hiring - Greens Global'));
+    expect(screen.queryByText('Set Up Hiring')).toBeNull();                   // the page covers all three sections
+    fireEvent.click(screen.getByLabelText('Set Up - Greens Global'));
     expect(await screen.findByText('Set Up Hiring - Greens Global')).toBeTruthy();
     expect(m.getHiringSetupCompany).toHaveBeenCalledWith('e-gg', '', 'hiring');
     fireEvent.click(screen.getByText('< Hiring Setup'));
@@ -135,7 +136,7 @@ describe('Screen 1: Hiring Setup', () => {
     expect(onFocusUsed).toHaveBeenCalled();
     fireEvent.click(screen.getByText('Cancel'));
     fireEvent.click(screen.getByText('< Hiring Setup'));
-    fireEvent.click(await screen.findByLabelText('Set Up Hiring - Greens Global'));
+    fireEvent.click(await screen.findByLabelText('Set Up - Greens Global'));
     expect(await screen.findByText('Set Up Hiring - Greens Global')).toBeTruthy();
     expect(screen.queryByText('Hiring Packet - Contractors In California')).toBeNull();   // not popped again
   });
@@ -404,6 +405,18 @@ const offboardingView = (over = {}) => ggView({
 const bySection = (s) => (s === 'promotion' ? promotionView() : s === 'offboarding' ? offboardingView() : ggView({ section: 'hiring', sections: SECTIONS }));
 
 describe('Promotion and Offboarding sections', () => {
+  it('the About line names the section: Handles Promotions / Handles Offboarding, Hiring unchanged', async () => {
+    m.getHiringSetupCompany.mockImplementation((e, r, s) => Promise.resolve(bySection(s)));
+    company();
+    expect(await screen.findByText('Handles Hiring')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /Promotion/ }));
+    expect(await screen.findByText('Handles Promotions')).toBeTruthy();
+    expect(screen.getByLabelText('Edit Handles Promotions')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /Offboarding/ }));
+    expect(await screen.findByText('Handles Offboarding')).toBeTruthy();
+    expect(screen.queryByText('Handles Hiring')).toBeNull();
+  });
+
   it('the section control refetches with the section and swaps the grid', async () => {
     m.getHiringSetupCompany.mockImplementation((e, r, s) => Promise.resolve(bySection(s)));
     company();
