@@ -100,7 +100,6 @@ export function guessFill(label, ctx = {}) {
     if (/phone|telephone|mobile|number/.test(l) && !/e-?mail/.test(l)) return { fill: 'nexus', token: 'emergency_phone' };
     if (/name/.test(l)) return { fill: 'nexus', token: 'emergency_name' };
   }
-  if (/duties|responsibilit|job description|scope of work/.test(l)) return { fill: 'nexus', token: 'role_description' };
   if (PERSONAL.test(l) || /business name|doing business|\bdba\b|trade name/.test(l)) return { fill: 'ask' };
   if (/client/.test(l)) return { fill: 'same' };
   if (/work location|place of work|location of work|primary location|office location|work site/.test(l)) return { fill: 'nexus', token: 'work_location' };
@@ -125,6 +124,8 @@ export function guessFill(label, ctx = {}) {
   return { fill: 'ask' };
 }
 
+// A {{variable}} already in place (wordSamples existingTokens): textOf skips it, so it must not read as empty.
+const hasField = (n) => !!n && (n.type === 'mergeField' || (n.content || []).some(hasField));
 const isBlankText = (t) => !clean(t).replace(/[_.\-–—]/g, '').trim();
 const BOXES = /[☐☑☒]/;
 
@@ -182,7 +183,7 @@ export function findBlanks(doc) {
         cells.forEach((cell, c) => {
           const label = cleanLabel(textOf(cell));
           const next = cells[c + 1];
-          if (!label || label.length > 70 || !next) return;
+          if (!label || label.length > 70 || !next || hasField(next)) return;
           const nt = textOf(next);
           if (!isBlankText(nt) && !BOXES.test(nt)) return;
           const options = BOXES.test(nt) ? boxChoices(nt) : [];
@@ -234,7 +235,7 @@ export function findBlanks(doc) {
       || /^[([•\-–]|^\d+[.)]/.test(after.text) && !/^\[[\s\u00a0]*\]$/.test(after.text));
     // "COMPANY:" / "CONTRACTOR:" in capitals heads a signature section; "Company:" is a blank.
     const heading = line && /^(COMPANY|CONTRACTOR|EMPLOYEE|CLIENT|EMPLOYER)$/.test(cleanLabel(line[1]));
-    if (line && !leadIn && !heading) {
+    if (line && !leadIn && !heading && !hasField(b)) {
       const label = cleanLabel(line[1]);
       out.push({ kind: 'line', at: [i], label, context: t,
         ...guessFill(label, { companySigner: lastSigner === 'company' }) });
@@ -267,13 +268,16 @@ const mf = (token) => ({ type: 'mergeField', attrs: { token } });
 /** Replace the k-th match of `re` in a paragraph with a merge field, even when
  *  Word split the match across several runs. */
 function replaceMatch(par, re, k, token) {
+  const full = (par.content || []).map(r => (r.type === 'text' ? r.text || '' : '\u0001')).join('');
+  const m = [...full.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`))][k];
+  if (m) replaceSpan(par, [m.index, m.index + m[0].length], mf(token));
+}
+
+/** Replace [start, end) of a paragraph's text (a non-text run counts as one
+ *  character) with `node`, even when Word split the text across runs. */
+function replaceSpan(par, span, node) {
   const runs = par.content || [];
   const ONE = '\u0001';
-  const full = runs.map(r => (r.type === 'text' ? r.text || '' : ONE)).join('');
-  const spans = [...full.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`))]
-    .map(m => [m.index, m.index + m[0].length]);
-  const span = spans[k];
-  if (!span) return;
   const out = [];
   let pos = 0;
   let placed = false;
@@ -284,7 +288,7 @@ function replaceMatch(par, re, k, token) {
     pos = end;
     if (r.type !== 'text' || end <= span[0] || start >= span[1]) { out.push(r); continue; }
     if (span[0] > start) out.push({ ...r, text: t.slice(0, span[0] - start) });
-    if (!placed) { out.push(mf(token)); placed = true; }
+    if (!placed) { out.push(node); placed = true; }
     if (span[1] < end) out.push({ ...r, text: t.slice(span[1] - start) });
   }
   par.content = out.filter(r => r.type !== 'text' || r.text);
@@ -320,6 +324,19 @@ export function applyBlanks(doc, blanks) {
   const remove = new Set();
   const defs = new Map();
   const signers = new Set();
+  // Sample text Nexus recognized (lib/wordSamples.js), at the exact spans it
+  // claimed, before anything below replaces blocks. Leave Blank For Paper
+  // prints a line in place of the sample.
+  const spans = new Map();
+  blanks.forEach((b, n) => {
+    if (b.kind !== 'text' || !b.rule) return;
+    const node = tokens[n] ? mf(tokens[n]) : b.fill === 'leave' ? { type: 'text', text: '________' } : null;
+    if (node) (b.places || []).forEach(pl => { const k = pl.path.join('.'); spans.set(k, [...(spans.get(k) || []), [pl.start, pl.end, node]]); });
+  });
+  spans.forEach((list, k) => {
+    const par = nodeAt(out, k.split('.').map(Number));
+    if (par && Array.isArray(par.content)) list.sort((a, b) => b[0] - a[0]).forEach(([s, e, node]) => replaceSpan(par, [s, e], node));
+  });
   blanks.forEach((b, n) => {
     const token = tokens[n];
     if (b.kind === 'signature') {
@@ -339,6 +356,7 @@ export function applyBlanks(doc, blanks) {
       for (let j = s + 2; j <= e; j++) remove.add(j);
       return;
     }
+    if (b.kind === 'existing' && b.fill === 'leave') { swapField(out, b.orig, { type: 'text', text: '________' }); return; }
     if (!token) return;
     if (b.fill === 'ask' || b.fill === 'same' || b.fill === 'hr') {
       const prev = defs.get(token);
@@ -354,7 +372,7 @@ export function applyBlanks(doc, blanks) {
       });
     }
     if (b.kind === 'existing') {                     // already in place - renamed only when HR picked a Nexus field
-      if (token !== b.orig) renameField(out, b.orig, token);
+      if (token !== b.orig) swapField(out, b.orig, token);
       return;
     }
     if (b.kind === 'text' || !b.at) return;          // placed below, wherever it appears
@@ -375,15 +393,10 @@ export function applyBlanks(doc, blanks) {
       replaceMatch(target, GAP, b.occurrence, token);
     }
   });
-  // Sample text Nexus recognized (lib/wordSamples.js): every place it appears,
-  // longest first so "Jane Smith" is placed before "Jane".
-  blanks.map((b, n) => [b, tokens[n]]).filter(([b, token]) => b.kind === 'text' && b.pattern && token)
-    .sort(([a], [b]) => b.match.length - a.match.length)
-    .forEach(([b, token]) => eachPar(out, par => replaceAll(par, new RegExp(b.pattern, 'g'), token)));
   // Text HR picked by hand ("Missed one?"): every chosen place it appears.
   blanks.forEach((b, n) => {
     const token = tokens[n];
-    if (b.kind !== 'text' || b.pattern || !token || !b.match) return;
+    if (b.kind !== 'text' || b.rule || !token || !b.match) return;
     const re = new RegExp(escapeRe(b.match), 'gi');
     const byPar = new Map();
     (b.places || []).forEach(pl => {
@@ -401,22 +414,12 @@ export function applyBlanks(doc, blanks) {
   return { doc: out, fieldDefs: [...defs.values()], signers: [...signers] };
 }
 
-export function eachPar(node, fn) {
-  if (!node || typeof node !== 'object') return;
-  if ((node.type === 'paragraph' || node.type === 'heading') && Array.isArray(node.content)) { fn(node); return; }
-  (node.content || []).forEach(c => eachPar(c, fn));
-}
-function replaceAll(par, re, token) {
-  for (let guard = 0; guard < 100; guard++) {
-    const before = par.content;
-    replaceMatch(par, re, 0, token);
-    if (par.content === before) return;
-  }
-}
-function renameField(node, from, to) {
-  if (!node || typeof node !== 'object') return;
-  if (node.type === 'mergeField' && node.attrs?.token === from) node.attrs = { ...node.attrs, token: to };
-  (node.content || []).forEach(c => renameField(c, from, to));
+// Every {{from}} becomes {{to}} (a token), or a copy of the node `to`.
+function swapField(node, from, to) {
+  (node?.content || []).forEach((c, i) => {
+    if (c.type === 'mergeField' && c.attrs?.token === from) node.content[i] = typeof to === 'string' ? { ...c, attrs: { ...c.attrs, token: to } } : { ...to };
+    else swapField(c, from, to);
+  });
 }
 
 export const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

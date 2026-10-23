@@ -160,3 +160,20 @@ describe('applyBlanks', () => {
     expect(guessFill('Notary Seal / Stamp').fill).toBe('leave');
   });
 });
+
+describe('review findings (Oct 23)', () => {
+  const par = (...c) => ({ type: 'paragraph', content: c });
+  const txt = (text) => ({ type: 'text', text });
+  const field = (token) => ({ type: 'mergeField', attrs: { token } });
+
+  it('a duties label is not the role description outside a duties section', () => {
+    expect(guessFill('Duties And Responsibilities')).toEqual({ fill: 'ask' });
+  });
+
+  it('a line or cell that already holds a variable is not a blank', () => {
+    const cellOf = (...c) => ({ type: 'tableCell', content: [par(...c)] });
+    const doc = { type: 'doc', content: [par(txt('Bonus: '), field('signing_bonus')),
+      { type: 'table', content: [{ type: 'tableRow', content: [cellOf(txt('PAN')), cellOf(field('pan'))] }] }] };
+    expect(findBlanks(doc)).toEqual([]);
+  });
+});

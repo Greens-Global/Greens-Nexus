@@ -7,8 +7,8 @@
 // are the WordTemplateWizard's own (lib/wordBlanks.js + lib/wordSamples.js);
 // this screen only changes them, applyBlanks writes the template.
 import { useMemo, useState } from 'react';
-import { NEXUS_FIELDS, applyBlanks, tokensFor } from '../../lib/wordBlanks';
-import { WHO, WHO_COLOR, becameOf, setWho, whoOf } from '../../lib/wordSamples';
+import { NEXUS_FIELDS, applyBlanks, isPersonal, tokensFor } from '../../lib/wordBlanks';
+import { HIRE_TOKENS, WHO, WHO_COLOR, becameOf, setWho, whoOf } from '../../lib/wordSamples';
 import { formatDate } from '../../lib/datetime';
 
 const box = { background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' };
@@ -58,6 +58,15 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
   const company = sigs.filter(s => s.fill === 'sign' && s.who !== 'employee');
   const signers = [...new Set(sigs.filter(s => s.fill === 'sign').map(s => s.who))].sort((a, b) => (b === 'employee') - (a === 'employee'));
   const asks = purpose === 'offer' ? [] : company.concat(sigs.filter(s => s.fill !== 'sign'));
+  // An offer has no new hire form: The New Hire only for built-ins Nexus already holds (phone, address).
+  const whoChoices = (b) => WHO.filter(([k]) => k !== 'hire' || purpose !== 'offer' || HIRE_TOKENS.has(b.token));
+  // Found blanks ("Notice Period: ____") whose guess is a person's answer but not clearly the new hire's own detail.
+  // Picked once, so the question stays while HR changes the answer.
+  const [unsureIds] = useState(() => new Set(fields.filter(b => ['line', 'gap', 'bracket', 'cell'].includes(b.kind)
+    && ['hr', 'ask'].includes(b.fill) && !isPersonal(b.label)).map(b => b.id)));
+  const unsure = fields.filter(b => unsureIds.has(b.id));
+  const unsureChoices = [['hire', 'The New Hire'], ['you', 'I Answer On The Offer'], ['same', 'Same Every Time'], ['paper', 'Leave Blank']]
+    .filter(([k]) => k !== 'hire' || purpose !== 'offer');
   const counts = `Found ${fields.length} blank${fields.length === 1 ? '' : 's'}, ${sigs.length} signature line${sigs.length === 1 ? '' : 's'}${section ? ` and a ${section.label} section` : ''}.`;
 
   // ── the preview ──
@@ -123,7 +132,7 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           <select className="form-input" style={{ flex: '1 1 180px', fontSize: 12.5 }} value={who} aria-label={`Who fills ${becameOf(b)}`}
             onChange={e => set(b.id, x => setWho(x, e.target.value))}>
-            {WHO.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            {whoChoices(b).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
           {who === 'nexus' && (
             <select className="form-input" style={{ flex: '1 1 180px', fontSize: 12.5 }} value={b.token} aria-label={`Nexus field for ${becameOf(b)}`}
@@ -163,7 +172,11 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
             </div>
           </div>
 
-          {(section || asks.length > 0) && (
+          {purpose === 'offer' && (
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>An offer letter has no form for the new hire, so their own details are answered by you on the offer. The hiring packet asks the new hire.</div>
+          )}
+
+          {(section || asks.length > 0 || unsure.length > 0) && (
             <div style={{ ...box, border: '2px solid var(--ink)', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ fontSize: 14, fontWeight: 800 }}>Nexus Needs Your Help With</div>
               {section && (
@@ -190,6 +203,17 @@ export default function UploadReview({ doc, blanks, setBlanks, purpose, context 
                       return <button key={k} type="button" role="radio" aria-checked={on} style={pill(on)}
                         onClick={() => set(s.id, x => (k === 'leave' ? { ...x, fill: 'leave' } : { ...x, fill: 'sign', who: k }))}>{l}</button>;
                     })}
+                  </div>
+                </div>
+              ))}
+              {unsure.map(b => (
+                <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>Who fills in "{b.context}"?</div>
+                  <div role="radiogroup" aria-label={`Who fills in ${b.context}`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {unsureChoices.map(([k, l]) => (
+                      <button key={k} type="button" role="radio" aria-checked={whoOf(b) === k} style={pill(whoOf(b) === k)}
+                        onClick={() => set(b.id, x => setWho(x, k))}>{l}</button>
+                    ))}
                   </div>
                 </div>
               ))}

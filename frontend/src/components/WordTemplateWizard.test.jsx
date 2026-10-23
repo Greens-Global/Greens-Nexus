@@ -141,3 +141,77 @@ describe('WordTemplateWizard - Hiring Setup upload', () => {
     expect(screen.queryByText(/looks like a job description/)).toBeNull();
   });
 });
+
+// Review findings (Oct 23).
+describe('WordTemplateWizard - Hiring Setup review fixes', () => {
+  const CTX = { companyLegal: 'Greens Global, LLC', companyName: 'Greens Global', signatoryName: 'Raj Patel', roleNames: [] };
+  const go = async (purpose, doc) => {
+    imported.current = doc;
+    createDocTemplate.mockClear();
+    const onCreated = vi.fn();
+    render(<WordTemplateWizard purpose={purpose} context={CTX} onClose={() => {}} onCreated={onCreated} />);
+    fireEvent.change(screen.getByLabelText('Word file'), { target: { files: [new File(['x'], 'Letter.docx')] } });
+    fireEvent.click(screen.getByText('Read The File'));
+    await waitFor(() => expect(screen.getByText('Check What Nexus Found')).toBeTruthy());
+    const done = async () => {
+      fireEvent.click(screen.getByText('Use This'));
+      await waitFor(() => expect(onCreated).toHaveBeenCalled());
+      const body = createDocTemplate.mock.calls[0][0];
+      return { body, json: JSON.stringify(body.content.pages), placed: onCreated.mock.calls[0][0].jdPlacement };
+    };
+    return done;
+  };
+  const DUTIES = { type: 'doc', content: [p('Dear Jane Smith,'), p('Duties And Responsibilities:'), p('Keep the books.'), p('File taxes.'), p('Signature:')] };
+
+  it('a "Duties And Responsibilities:" line is the section question only - the duties print once, and the answer is the placement', async () => {
+    let done = await go('hire', DUTIES);
+    let out = await done();
+    expect(out.json.match(/"token":"role_description"/g)).toHaveLength(1);
+    expect(out.json).toContain('Duties And Responsibilities:"');
+    expect(out.placed).toBe('inside');
+    document.body.innerHTML = '';
+    done = await go('hire', DUTIES);
+    fireEvent.click(screen.getByRole('radio', { name: 'On Their Own Page After This' }));
+    out = await done();
+    expect(out.json).not.toContain('role_description');
+    expect(out.json).toContain('Keep the books.');
+    expect(out.placed).toBe('page');
+  });
+
+  it('variables already in the file are kept, not re-guessed', async () => {
+    const cellOf = (...c) => ({ type: 'tableCell', content: [{ type: 'paragraph', content: c }] });
+    const t = (text) => ({ type: 'text', text });
+    const done = await go('hire', { type: 'doc', content: [{ type: 'paragraph', content: [t('Bonus: {{signing_bonus}}')] },
+      { type: 'table', content: [{ type: 'tableRow', content: [cellOf(t('PAN')), cellOf(t('{{pan}}'))] }] }] });
+    const { body, json } = await done();
+    expect(json).toContain('"token":"signing_bonus"');
+    expect(json).toContain('"token":"pan"');
+    expect(json).not.toContain('pan_number');
+    expect(body.fieldDefs.map(f => f.token).sort()).toEqual(['pan', 'signing_bonus']);
+  });
+
+  it('on an offer letter the new hire\'s details are HR\'s answers; Same Every Time needs its value', async () => {
+    const done = await go('offer', { type: 'doc', content: [p('Dear Jane Smith,'), p('Business Name: Jane Consulting LLC')] });
+    const row = screen.getByText('Jane Consulting LLC').closest('[id^="ur-"]');
+    expect(within(row).queryByRole('option', { name: 'The New Hire Fills It' })).toBeNull();
+    // the row moves to its new group, so it is found again each time
+    fireEvent.change(screen.getByLabelText('Who fills Full Name'), { target: { value: 'same' } });
+    expect(screen.getByLabelText('Value for Full Name').value).toBe('Jane Smith');
+    fireEvent.change(screen.getByLabelText('Value for Full Name'), { target: { value: '' } });
+    expect(screen.getByText('Use This').closest('button').disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Who fills Full Name'), { target: { value: 'nexus' } });
+    const { body } = await done();
+    expect(body.fieldDefs).toEqual([expect.objectContaining({ token: 'business_name', source: 'hr' })]);
+  });
+
+  it("asks who fills a found blank that is not clearly the new hire's", async () => {
+    const done = await go('hire', { type: 'doc', content: [p('Dear Jane Smith,'), p('Notice Period: ____'), p('PAN Number: ____')] });
+    expect(screen.getByText('Who fills in "Notice Period: ____"?')).toBeTruthy();
+    expect(screen.queryByText('Who fills in "PAN Number: ____"?')).toBeNull();
+    fireEvent.click(screen.getByRole('radio', { name: 'Same Every Time' }));
+    expect(screen.getByRole('radio', { name: 'Same Every Time' }).getAttribute('aria-checked')).toBe('true');   // the question stays
+    fireEvent.click(screen.getByRole('radio', { name: 'I Answer On The Offer' }));
+    const { body } = await done();
+    expect(body.fieldDefs.find(f => f.token === 'notice_period')).toMatchObject({ source: 'hr' });
+  });
+});

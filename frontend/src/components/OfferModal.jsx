@@ -59,7 +59,7 @@ const isoDay = (d) => d.toISOString().slice(0, 10);
 
 export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted, onMoveWithout, toastErr, toastOk }) {
   const { data: people = [] } = usePeopleDirectory();
-  const first = c.firstName || 'They';
+  const getsTitle = c.firstName ? `What ${c.firstName} Gets` : 'What They Get';
   const [tried, setTried] = useState(false);
   // Where they work picks the paperwork - country AND state (Neil, Oct 22).
   const [who, setWho] = useState({ hired_as: '', country: '', region: '' });
@@ -84,6 +84,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const [opts, setOpts] = useState(null);              // which letter + packet, what they ask, what the hire gets
   const [chosenId, setChosenId] = useState('');         // HR picked another offer letter by hand
   const [loading, setLoading] = useState(false);
+  const [optsErr, setOptsErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [fix, setFix] = useState(null);                 // the Hiring Setup opened over the offer
   const [reload, setReload] = useState(0);
@@ -112,11 +113,11 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
                              new_role: isOther ? '1' : '', department: isOther ? f.department : '' })
       .then(o => {
         if (!alive) return;
-        setOpts(o);
+        setOpts(o); setOptsErr('');
         setWho(w => (w.country ? (w.region || w.country !== o.country ? w : { ...w, region: o.region || '' })
           : { ...w, country: o.country || '', region: o.region || '' }));
       })
-      .catch(e => { if (alive) { setOpts(null); toastErr?.(e?.message || 'Could not find the offer letter.'); } })
+      .catch(e => { if (alive) { setOpts(null); setOptsErr(e?.message || 'Could not find the offer letter.'); toastErr?.(e?.message || 'Could not find the offer letter.'); } })
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
   }, [c.id, who.hired_as, who.country, who.region, roleId, chosenId, isOther, f.department, reload]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -370,17 +371,19 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   );
 
   const panel = (
-    <div aria-label={`What ${first} Gets`} style={{ flex: '1 1 320px', minWidth: 0, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12, alignSelf: 'flex-start' }}>
-      <div style={{ fontSize: 15, fontWeight: 800 }}>What {first} Gets</div>
+    <div aria-label={getsTitle} style={{ flex: '1 1 320px', minWidth: 0, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12, alignSelf: 'flex-start' }}>
+      <div style={{ fontSize: 15, fontWeight: 800 }}>{getsTitle}</div>
       {!who.hired_as ? <div style={{ ...hint, marginTop: 0 }}>Pick how they are hired to see the offer letter, the hiring packet and the job description they get.</div>
         : loading && !gets.length ? <Spinner size={16} />
+          : !opts && optsErr ? <div role="alert" style={{ fontSize: 13, color: '#b45309', fontWeight: 600 }}>{optsErr}</div>
           : gets.map(g => {
-            const bad = g.tone === 'missing';
+            const bad = !!g.blocks;
+            const soft = !bad && g.tone === 'missing';
             return (
               <div key={g.key} data-line={g.key} style={{ background: bad ? '#fffbeb' : 'var(--card)', border: `1px solid ${bad ? '#f59e0b' : 'var(--line)'}`, borderRadius: 10, padding: '10px 12px' }}>
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{g.label}</div>
                 <div style={{ fontSize: 14, fontWeight: 700, marginTop: 3, color: bad ? '#92400e' : 'var(--ink)' }}>{g.name}</div>
-                {g.sourceLabel && <div style={{ fontSize: 12, marginTop: 2, fontWeight: g.tone === 'same' ? 400 : 700, color: bad ? '#b45309' : g.tone === 'own' ? '#1d4ed8' : 'var(--muted)' }}>{g.sourceLabel}</div>}
+                {g.sourceLabel && <div style={{ fontSize: 12, marginTop: 2, fontWeight: g.tone === 'same' ? 400 : 700, color: bad ? '#b45309' : soft ? 'var(--muted)' : g.tone === 'own' ? '#1d4ed8' : 'var(--muted)' }}>{g.sourceLabel}</div>}
                 {g.fix && FIX_LABEL[g.fix.action] && (
                   <button type="button" onClick={() => setFix({ entityId: g.fix.target?.entityId || c.company, ...(g.fix.target || {}) })}
                     style={{ display: 'inline-flex', alignItems: 'center', minHeight: 34, marginTop: 8, padding: '0 12px', borderRadius: 8, background: '#fff', border: '1px solid #d97706', color: '#92400e', font: '700 12.5px Inter,sans-serif', cursor: 'pointer' }}>

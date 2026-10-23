@@ -118,12 +118,14 @@ describe('applyBlanks with samples', () => {
   });
 
   it('a renamed label changes the token; a new hire label uses the canonical token', () => {
-    const notice = { kind: 'text', match: '30 days', pattern: '30 days', places: [], label: 'Notice Period', fill: 'hr', rule: 'label' };
+    const line = 'Notice: 30 days. PAN: ABCDE1234F';
+    const at = (s) => [{ path: [0], start: line.indexOf(s), end: line.indexOf(s) + s.length }];
+    const notice = { kind: 'text', match: '30 days', places: at('30 days'), label: 'Notice Period', fill: 'hr', rule: 'label' };
     const renamed = { ...notice, label: 'Notice Window' };
-    const pan = { kind: 'text', match: 'ABCDE1234F', pattern: 'ABCDE1234F', places: [], label: 'PAN', fill: 'ask', rule: 'label' };
+    const pan = { kind: 'text', match: 'ABCDE1234F', places: at('ABCDE1234F'), label: 'PAN', fill: 'ask', rule: 'label' };
     expect(tokensFor([notice, pan])).toEqual(['notice_period', 'pan_number']);
     expect(tokensFor([renamed])).toEqual(['notice_window']);
-    const doc = { type: 'doc', content: [p('Notice: 30 days. PAN: ABCDE1234F')] };
+    const doc = { type: 'doc', content: [p(line)] };
     const out = applyBlanks(doc, [renamed, pan]);
     expect(JSON.stringify(out.doc)).toContain('"token":"notice_window"');
     expect(out.fieldDefs.map(f => [f.token, f.source])).toEqual([['notice_window', 'hr'], ['pan_number', 'person']]);
@@ -137,5 +139,52 @@ describe('signatures and who signs', () => {
     const out = applyBlanks(doc, blanks);
     expect(out.doc.content.map(n => n.attrs?.role)).toEqual(['employee', undefined, 'signatory']);
     expect(out.signers).toEqual(['employee', 'signatory']);
+  });
+});
+
+// Review findings (Oct 23): claims are text spans, distinct values stay distinct.
+describe('findSamples claims spans, not strings', () => {
+  const run = (pars, ctx = CTX) => {
+    const doc = { type: 'doc', content: pars.map(x => p(x)) };
+    const found = findSamples(doc, ctx);
+    return { found, text: applyBlanks(doc, found).doc.content.map(n => n.content.map(r => (r.type === 'text' ? r.text : `{{${r.attrs.token}}}`)).join('')) };
+  };
+
+  it('the same pay again, a short value inside a later address, a first name inside an email', () => {
+    expect(run(['Your salary of $85,000 per year is paid monthly.', 'In total you will earn $85,000 in your first year.']).text)
+      .toEqual(['Your salary of {{salary}} is paid monthly.', 'In total you will earn {{salary}} in your first year.']);
+    expect(run(['Work Location: Fresno, CA', 'Our office is at 123 Main St, Fresno, CA 93721.']).text)
+      .toEqual(['Work Location: {{work_location}}', 'Our office is at {{company_address}}.']);
+    expect(run(['Dear Jane Smith,', 'Write to jane.smith@gmail.com.', 'Jane, welcome.']).text)
+      .toEqual(['Dear {{full_name}},', 'Write to {{email}}.', '{{first_name}}, welcome.']);
+  });
+
+  it('a bonus, another role and two plain dates are their own variables', () => {
+    const { found, text } = run(['Your salary is $85,000 per year and a signing bonus of $5,000.',
+      'You will report to the Project Manager.', 'Your review is on 01/15/2027 and benefits begin 03/01/2027.']);
+    expect(text[0]).toBe('Your salary is {{salary}} and a signing bonus of {{signing_bonus}}.');
+    expect(found.find(b => b.match === '$5,000')).toMatchObject({ fill: 'hr', label: 'Signing Bonus', pay: true, who: 'you' });
+    expect(text[1]).toBe('You will report to the Project Manager.');
+    expect(text[2]).toBe('Your review is on {{review_date}} and benefits begin {{benefits_begin_date}}.');
+  });
+
+  it('a known role name is taken from the title phrase only', () => {
+    expect(run(['We offer you the position of Project Manager At Greens.']).text).toEqual(['We offer you the position of {{job_title}} At Greens.']);
+  });
+});
+
+describe('review choices on a sample', () => {
+  const found = findSamples(LETTER, CTX);
+  const name = byToken(found, 'full_name');
+
+  it('Leave Blank For Paper prints a line, not the sample', () => {
+    const { doc } = applyBlanks(LETTER, found.map(b => (b === name ? setWho(b, 'paper') : b)));
+    expect(JSON.stringify(doc)).not.toContain('Jane Smith');
+    expect(doc.content[4].content.map(r => r.text).join('')).toBe('Dear ________,');
+  });
+
+  it('Same Every Time starts from the found text; Nexus keeps a new hire built-in', () => {
+    expect(setWho(name, 'same')).toMatchObject({ fill: 'same', value: 'Jane Smith' });
+    expect(setWho(byToken(found, 'phone'), 'nexus')).toMatchObject({ fill: 'nexus', token: 'phone', label: 'Phone' });
   });
 });

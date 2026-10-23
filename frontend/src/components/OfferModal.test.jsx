@@ -210,4 +210,19 @@ describe('OfferModal - the supervisor follows the role', () => {
     people.current = [];
     hiringOptions.mockResolvedValue(plainOptions);
   });
+  it('a missing line that does not block is not amber; a failed fetch says so; no first name reads What They Get', async () => {
+    offerOptions.mockImplementation((cid, p) => standard(cid, p).then(o => ({ ...o,
+      whatTheyGet: p.hired_as ? [...gets(p).slice(0, 2), line('jd', 'Job Description', 'Leasing Agent - no duties yet', 'The hiring packet prints them blank', 'missing')] : [] })));
+    const { unmount } = render(<OfferModal candidate={{ ...cand, firstName: '' }} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    expect(screen.getByText('What They Get')).toBeTruthy();
+    hire('Contractor');
+    const jd = (await screen.findByText('Leasing Agent - no duties yet')).closest('[data-line]');
+    expect(jd.style.background).not.toBe('rgb(255, 251, 235)');
+    expect(screen.getByText('Send Offer Letter').closest('button').disabled).toBe(false);
+    unmount();
+    offerOptions.mockImplementation(() => Promise.reject(new Error('Could not reach Nexus.')));
+    render(<OfferModal candidate={cand} canSeePay onClose={() => {}} onStarted={() => {}} toastErr={() => {}} />);
+    hire('Contractor');
+    expect((await screen.findByRole('alert')).textContent).toBe('Could not reach Nexus.');
+  });
 });

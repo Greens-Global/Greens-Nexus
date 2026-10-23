@@ -137,12 +137,18 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
       // Variables the file already has are kept; with none, Nexus makes them from the sample text.
       const { doc: withVars, tokens } = existingTokens(json);
       const vars = tokens.length ? await api.getDocVariables().catch(() => []) : [];
-      const found = findBlanks(withVars).map(b => (b.kind === 'signature' && b.who === 'company' ? { ...b, who: 'signatory' } : b));
+      // A duties heading ("Duties And Responsibilities:") is the section question, never a blank of its own.
+      const section = findSection(withVars);
+      const found = findBlanks(withVars)
+        .filter(b => !(section && b.kind === 'line' && b.at[0] === section.at[0]))
+        .map(b => (b.kind === 'signature' && b.who === 'company' ? { ...b, who: 'signatory' } : b));
       const extra = tokens.length
-        ? [...tokens.map(t => existingBlank(t, vars)), ...(tokens.includes('role_description') ? [] : [findSection(withVars)].filter(Boolean))]
+        ? [...tokens.map(t => existingBlank(t, vars)), ...(tokens.includes('role_description') || !section ? [] : [section])]
         : findSamples(withVars, context || {});
+      // An offer has no new hire form - what they would fill is HR's answer on the offer.
+      const forOffer = (b) => (purpose === 'offer' && b.fill === 'ask' ? { ...b, fill: 'hr' } : b);
       setDoc({ json: withVars, pageSetup: out.pageSetup || null });
-      setBlanks([...found, ...extra.filter(b => b.kind !== 'section' || purpose === 'hire').map((b, n) => ({ ...b, id: `s${n + 1}` }))]);
+      setBlanks([...found, ...extra.filter(b => b.kind !== 'section' || purpose === 'hire').map((b, n) => ({ ...b, id: `s${n + 1}` }))].map(forOffer));
       setStep('review');
     } catch (e) { setError(e?.message || 'Could not read the file.'); }
     setBusy('');
@@ -177,7 +183,8 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
       const pub = await api.publishDocTemplate(row.id, `Created from ${file?.name || 'a Word file'}`);
       if (purpose) {
         const section = blanks.find(b => b.kind === 'section');
-        const jdPlacement = JSON.stringify(built).includes('"token":"role_description"') ? 'inside' : section ? jdChoice : '';
+        // HR's answer to the duties question; 'inside' without one only when the file itself prints the duties
+        const jdPlacement = section ? jdChoice : JSON.stringify(built).includes('"token":"role_description"') ? 'inside' : '';
         onCreated?.({ templateId: row.id, name: name.trim(), jdPlacement, signerKeys });
         setBusy('');
         return;
@@ -368,8 +375,11 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
           )}
           {step === 'review' && purpose && (
             <>
+              {missingValues.length > 0 && (
+                <span style={{ flex: 1, fontSize: 12.5, color: '#b45309', fontWeight: 600 }}>Type the value for {missingValues.map(b => b.label).join(', ')}, or pick who fills it.</span>
+              )}
               <button type="button" className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
-              <button type="button" className="primary-btn" onClick={create} disabled={!!busy || !name.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <button type="button" className="primary-btn" onClick={create} disabled={!!busy || !name.trim() || missingValues.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {busy === 'create' ? <Spinner size={13} /> : <CheckCircle size={13} />} Use This
               </button>
             </>

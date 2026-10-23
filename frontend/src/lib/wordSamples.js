@@ -38,8 +38,8 @@ export function whoOf(b) {
 export function setWho(b, who, token) {
   if (who === 'nexus') {
     const guess = guessFill(b.label);
-    const t = token || (b.fill === 'nexus' && !HIRE_TOKENS.has(b.token) ? b.token : '')
-      || (guess.fill === 'nexus' && !HIRE_TOKENS.has(guess.token) ? guess.token : '') || NEXUS_FIELDS[0][0];
+    // a new hire's built-in (phone, address) keeps its token: Nexus prints what they typed
+    const t = token || (b.fill === 'nexus' ? b.token : '') || (guess.fill === 'nexus' ? guess.token : '') || NEXUS_FIELDS[0][0];
     return { ...b, fill: 'nexus', token: t, ...(b.rule && t !== b.token ? { label: NEXUS_LABEL[t] || b.label } : {}) };
   }
   if (who === 'hire') {
@@ -47,7 +47,9 @@ export function setWho(b, who, token) {
     return t ? { ...b, fill: 'nexus', token: t } : { ...b, fill: 'ask', token: b.kind === 'existing' ? b.token : undefined };
   }
   const fill = { you: 'hr', same: 'same', paper: 'leave' }[who] || 'leave';
-  return { ...b, fill, token: b.kind === 'existing' ? b.token : undefined };
+  // Same Every Time starts from the sample text it was found as
+  const value = fill === 'same' && !b.value && b.kind === 'text' ? { value: b.found || b.match || '' } : {};
+  return { ...b, fill, token: b.kind === 'existing' ? b.token : undefined, ...value };
 }
 
 /** What a blank became, in words ("Full Name"). */
@@ -100,68 +102,100 @@ function paragraphs(doc) {
   return out;
 }
 
-function placesOf(pars, pattern) {
-  const re = new RegExp(pattern, 'g');
-  const out = [];
-  pars.forEach(({ path, text }) => {
-    let k = 0;
-    for (const m of text.matchAll(re)) {
-      const from = Math.max(0, m.index - 50);
-      out.push({ path, occurrence: k, context: clean(`${from ? '...' : ''}${text.slice(from, m.index + m[0].length + 50)}`.split('\u0001').join(' ')) });
-      k += 1;
-    }
-  });
-  return out;
+const contextAt = (text, start, end) => {
+  const from = Math.max(0, start - 50);
+  return clean(`${from ? '...' : ''}${text.slice(from, end + 50)}`.split('\u0001').join(' '));
+};
+
+// A label from the words just before a value: "a signing bonus of $5,000" -> "Signing Bonus".
+const STOP = new Set('a an the of is are was be will on at to for by in and or your you our we with from as per its their this that'.split(' '));
+function leadLabel(text, at, fallback, suffix = '') {
+  const words = text.slice(Math.max(0, at - 60), at).replace(/[^A-Za-z' ]/g, ' ').split(/\s+/).filter(w => /[A-Za-z]/.test(w));
+  if (at > 60) words.shift();                       // cut mid-word
+  while (words.length && STOP.has(words[words.length - 1].toLowerCase())) words.pop();
+  const w = words.slice(-3);
+  while (w.length && STOP.has(w[0].toLowerCase())) w.shift();
+  const base = w.map(x => x[0].toUpperCase() + x.slice(1).toLowerCase()).join(' ');
+  if (!base) return fallback;
+  return suffix && !new RegExp(`\\b${suffix}\\b`, 'i').test(base) ? `${base} ${suffix}` : base;
 }
 
 /**
  * The sample values in a document with no variables, each as a blank of
- * kind 'text' ({match, pattern, places, label, fill, token, who, found,
- * became, rule}), plus a duties section ({kind:'section'}) when there is one.
- * `ctx` is the Hiring Setup uploadContext (company legal name, address,
- * phone, signatory, role names).
+ * kind 'text' ({match, places: [{path, start, end, context}], label, fill,
+ * token, who, found, became, rule}), plus a duties section
+ * ({kind:'section'}) when there is one. `ctx` is the Hiring Setup
+ * uploadContext (company legal name, address, phone, signatory, role names).
+ *
+ * The first rule that claims a text span wins: a value is dropped only when
+ * the spot it was found at overlaps a span an earlier rule matched, or sits
+ * inside a longer value. A longer value found later takes back the places
+ * of a shorter one inside it ("Fresno, CA" inside the company address).
  */
 export function findSamples(doc, ctx = {}) {
   const pars = paragraphs(doc);
-  const claimed = [];
+  const claims = [];                                // {pi, start, end, len, primary, owner}
   const out = [];
-  const take = (match, rule, def, pattern) => {
+  const labels = new Set();
+  const uniq = (label) => {
+    let l = label;
+    for (let n = 2; labels.has(l.toLowerCase()); n++) l = `${label} ${n}`;
+    labels.add(l.toLowerCase());
+    return l;
+  };
+  // `pi`: the paragraph the rule found it in (undefined: anywhere - a ctx value)
+  const take = (match, rule, def, pi) => {
     let m = clean(match).replace(/[,;:]+$/, '');
     if (/\.$/.test(m) && !/\b(Inc|Corp|Ltd|Co|L\.L\.C)\.$/.test(m)) m = m.slice(0, -1);
     if (m.length < 2) return;
-    const low = m.toLowerCase();
-    // an explicit pattern (the first name) already keeps clear of the longer match
-    if (!pattern && claimed.some(c => c.includes(low) || low.includes(c))) return;
-    const pat = pattern || wordRe(m);
-    const places = placesOf(pars, pat);
-    if (!places.length) return;
-    claimed.push(low);
-    const b = { kind: 'text', match: m, pattern: pat, places, context: places[0].context, found: m, rule, ...def };
-    out.push({ ...b, who: whoOf(b), became: becameOf(b) });
+    const re = new RegExp(wordRe(m).replace(/ /g, '\\s+'), 'g');
+    const hits = [];
+    pars.forEach(({ text }, i) => { for (const x of text.matchAll(re)) hits.push({ pi: i, start: x.index, end: x.index + x[0].length }); });
+    const over = (h, c) => h.pi === c.pi && h.start < c.end && c.start < h.end;
+    const blocked = (h) => claims.some(c => over(h, c) && (c.primary || c.len >= m.length));
+    const free = hits.filter(h => !blocked(h));
+    const primary = free.find(h => pi === undefined || h.pi === pi);
+    if (!primary) return;
+    // a longer value takes back a shorter one's other places inside it
+    for (let j = claims.length - 1; j >= 0; j--) {
+      const c = claims[j];
+      if (!free.some(h => over(h, c))) continue;
+      c.owner.places = c.owner.places.filter(pl => pl !== c.place);
+      claims.splice(j, 1);
+    }
+    const b = { kind: 'text', match: m, found: m, rule, ...def, places: [] };
+    if (b.label && b.fill !== 'nexus') b.label = uniq(b.label);
+    free.forEach(h => {
+      const place = { path: pars[h.pi].path, start: h.start, end: h.end, context: contextAt(pars[h.pi].text, h.start, h.end) };
+      b.places.push(place);
+      claims.push({ ...h, len: m.length, primary: h === primary, owner: b, place });
+    });
+    out.push(b);
   };
   const nexus = (token, label) => ({ fill: 'nexus', token, label });
   const company = [ctx.companyLegal, ctx.companyName].map(clean).filter(Boolean);
   const companyPhone = digits(ctx.companyPhone);
 
   // 1 "Label: Value" lines with a real value
-  pars.forEach(({ text }) => {
+  pars.forEach(({ text }, pi) => {
     const m = clean(text.split('\u0001').join(' ')).match(LABEL_VALUE);
     if (!m || BLANKISH.test(m[2]) || m[2].split(' ').length > 10) return;
     const [, label, raw] = m;
     const value = raw.replace(/[.;,]$/, '');
-    if (company.some(c => c.toLowerCase() === value.toLowerCase())) return take(value, 'label', nexus('company_legal', 'Company Legal Name'));
-    if (ctx.companyAddress && clean(ctx.companyAddress).toLowerCase() === value.toLowerCase()) return take(value, 'label', nexus('company_address', 'Company Address'));
+    const here = (def) => take(value, 'label', def, pi);
+    if (company.some(c => c.toLowerCase() === value.toLowerCase())) return here(nexus('company_legal', 'Company Legal Name'));
+    if (ctx.companyAddress && clean(ctx.companyAddress).toLowerCase() === value.toLowerCase()) return here(nexus('company_address', 'Company Address'));
     if (companyPhone && digits(value) === companyPhone) return;
     const canon = hireLabel(label);
-    if (canon) return take(value, 'label', { fill: 'ask', label: canon.label });
+    if (canon) return here({ fill: 'ask', label: canon.label });
     const g = guessFill(label);
     if (g.fill === 'leave' || (g.fill === 'ask' && !isPersonal(label))) return;   // "Re: Offer Of Employment" stays text
-    take(value, 'label', { ...g, label: g.fill === 'nexus' ? (NEXUS_LABEL[g.token] || clean(label)) : clean(label), ...(g.fill === 'same' ? { value } : {}) });
+    here({ ...g, label: g.fill === 'nexus' ? (NEXUS_LABEL[g.token] || clean(label)) : clean(label), ...(g.fill === 'same' ? { value } : {}) });
   });
 
   // 2 the company's legal name
   company.forEach(c => take(c, 'company', nexus('company_legal', 'Company Legal Name')));
-  pars.forEach(({ text }) => { for (const m of text.matchAll(LEGAL)) take(m[0], 'company', nexus('company_legal', 'Company Legal Name')); });
+  pars.forEach(({ text }, pi) => { for (const m of text.matchAll(LEGAL)) take(m[0], 'company', nexus('company_legal', 'Company Legal Name'), pi); });
   const legal = out.filter(b => b.token === 'company_legal').map(b => b.match.toLowerCase());
   const legalAt = pars.findIndex(({ text }) => legal.some(l => text.toLowerCase().includes(l)));
 
@@ -171,48 +205,58 @@ export function findSamples(doc, ctx = {}) {
     for (const m of text.matchAll(STREET)) {
       const near = i < 3 || (legalAt >= 0 && i > legalAt && i <= legalAt + 3);
       take(m[0], 'address', near && !out.some(b => b.token === 'company_address')
-        ? nexus('company_address', 'Company Address') : nexus('address', 'Home Address'));
+        ? nexus('company_address', 'Company Address') : nexus('address', 'Home Address'), i);
     }
   });
 
-  // 4 the person's name, and their first name on its own
-  pars.forEach(({ text }) => NAMES.forEach(re => {
+  // 4 the person's name, and their first name on its own (not the one inside the full name)
+  pars.forEach(({ text }, pi) => NAMES.forEach(re => {
     for (const m of text.matchAll(re)) {
       if (company.some(c => c.toLowerCase().includes(m[1].toLowerCase()))) continue;
       const before = out.length;
-      take(m[1], 'name', nexus('full_name', 'Full Name'));
-      if (out.length > before) {
-        const [firstWord, ...rest] = m[1].split(/\s+/);
-        take(firstWord, 'name', nexus('first_name', 'First Name'), `${wordRe(firstWord)}(?!\\s+${escapeRe(rest[0])})`);
-      }
+      take(m[1], 'name', nexus('full_name', 'Full Name'), pi);
+      if (out.length > before) take(m[1].split(/\s+/)[0], 'name', nexus('first_name', 'First Name'));
     }
   }));
 
-  // 5 dates, by what is said just before them
+  // 5 dates, by what is said just before them; any other date is HR's, named by the words before it
   pars.forEach(({ text }, i) => {
     for (const m of text.matchAll(DATE)) {
       const lead = text.slice(Math.max(0, m.index - 60), m.index).toLowerCase();
       const def = /start|commenc|join|effective/.test(lead) ? nexus('start_date', 'Start Date')
         : /expire|accept by|respond by|valid until/.test(lead) ? nexus('offer_expires', 'Offer Expires')
           : i < 3 && clean(text.split('\u0001').join(' ')).length <= m[0].length + 12 ? nexus('today', "Today's Date")
-            : { fill: 'hr', label: 'Date' };
-      take(m[0], 'date', def);
+            : { fill: 'hr', label: leadLabel(text, m.index, 'Date', 'Date') };
+      take(m[0], 'date', def, i);
     }
   });
 
-  // 6 money
-  pars.forEach(({ text }) => { for (const m of text.matchAll(MONEY)) take(m[0], 'pay', nexus('salary', 'Pay')); });
+  // 6 money: the pay is the salary-like amount (or the first); the same amount again is the pay too,
+  // any other amount is HR's answer named by the words before it ("Signing Bonus")
+  const money = pars.flatMap(({ text }, pi) => [...text.matchAll(MONEY)].map(m => ({ m, pi, text })));
+  const payish = ({ m, text }) => /(?:per|\/)\s*(?:year|annum|month|week|hour)$/i.test(m[0])
+    || /salary|wage|\bpay\b|compensation|\bctc\b|stipend|\bfees?\b|remuneration/i.test(text.slice(Math.max(0, m.index - 60), m.index));
+  const amount = (s) => digits(s.replace(/(?:per|\/).*$/i, ''));
+  const pay = money.find(payish) || money[0];
+  money.forEach(({ m, pi, text }) => take(m[0], 'pay', amount(m[0]) === amount(pay.m[0]) ? nexus('salary', 'Pay')
+    : { fill: 'hr', label: leadLabel(text, m.index, 'Amount'), pay: true }, pi));
 
-  // 7 the job title
-  pars.forEach(({ text }) => { for (const m of text.matchAll(TITLE)) take(m[1], 'title', nexus('job_title', 'Job Title')); });
-  (ctx.roleNames || []).forEach(r => take(r, 'title', nexus('job_title', 'Job Title')));
+  // 7 the job title, right after "position of" / "as a" ... (a known role name when it starts there)
+  const roles = [...(ctx.roleNames || [])].filter(Boolean).sort((a, b) => b.length - a.length);
+  pars.forEach(({ text }, pi) => {
+    for (const m of text.matchAll(TITLE)) {
+      const role = roles.find(r => m[1].toLowerCase().startsWith(r.toLowerCase()) && !/\w/.test(m[1][r.length] || ''));
+      take(role ? m[1].slice(0, role.length) : m[1], 'title', nexus('job_title', 'Job Title'), pi);
+    }
+  });
 
   // 8 phone numbers (not the company's), 9 email
-  pars.forEach(({ text }) => {
-    for (const m of text.matchAll(PHONE)) if (!companyPhone || digits(m[0]) !== companyPhone) take(m[0], 'phone', nexus('phone', 'Phone'));
-    for (const m of text.matchAll(EMAIL)) take(m[0], 'email', nexus('email', 'Personal Email'));
+  pars.forEach(({ text }, pi) => {
+    for (const m of text.matchAll(PHONE)) if (!companyPhone || digits(m[0]) !== companyPhone) take(m[0], 'phone', nexus('phone', 'Phone'), pi);
+    for (const m of text.matchAll(EMAIL)) take(m[0], 'email', nexus('email', 'Personal Email'), pi);
   });
 
   const section = findSection(doc);
-  return [...out, ...(section ? [section] : [])];
+  const samples = out.filter(b => b.places.length).map(b => ({ ...b, context: b.places[0].context, who: whoOf(b), became: becameOf(b) }));
+  return [...samples, ...(section ? [section] : [])];
 }
