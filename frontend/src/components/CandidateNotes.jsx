@@ -114,8 +114,9 @@ export default function CandidateNotes({ candidateId, refreshKey, draft, onDraft
                     <Icon size={13} style={{ flexShrink: 0, marginTop: 2 }} />
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{head}</span>
-                      {e.note && e.note !== 'Candidate added' && <span> - {e.note}</span>}
-                      <span>{e.byName ? ` · ${e.byName}` : ''}{when ? ` · ${when}` : ''}</span>
+                      {e.note && e.note !== 'Candidate added' && <span>{head ? ' - ' : ''}{e.note}</span>}
+                      {/* "Verified and sent by Charmi Desai" already names them */}
+                      <span>{e.byName && !(e.note || '').includes(e.byName) ? ` · ${e.byName}` : ''}{when ? ` · ${when}` : ''}</span>
                     </span>
                   </div>
                 );
