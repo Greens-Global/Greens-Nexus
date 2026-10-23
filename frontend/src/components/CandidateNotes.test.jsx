@@ -29,4 +29,13 @@ describe('CandidateNotes', () => {
     await waitFor(() => expect(screen.getByText('Checked references')).toBeTruthy());
     expect(add).toHaveBeenCalledWith('c1', 'Checked references');
   });
+
+  it('a stage note with no move reads once: no stray dash, the name not twice', async () => {
+    history = [{ kind: 'move', fromStage: 'offer', toStage: 'offer', note: 'Verified and sent by Charmi Desai', byName: 'Charmi Desai', createdAt: '2026-10-07T16:00:00Z' }];
+    const { container } = render(<CandidateNotes candidateId="c2" />);
+    await waitFor(() => expect(screen.getByText('Verified and sent by Charmi Desai')).toBeTruthy());
+    const line = container.textContent;
+    expect(line).not.toMatch(/- Verified/);
+    expect(line.split('Charmi Desai').length - 1).toBe(1);
+  });
 });

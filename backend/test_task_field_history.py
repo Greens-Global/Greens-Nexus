@@ -507,7 +507,7 @@ class ReviewFixTests(Base):
                                                owner_email=ASSIGNEE["email"], owner_emails=ASSIGNEE["email"],
                                                sort_order=i, due_date="2026-11-0%d" % (i + 1)))
         self.db.commit()
-        [pid] = hc.sync_tasks(self.db, cl, emp, by=MANAGER["email"], first=True)
+        pid = hc.sync_tasks(self.db, cl, emp, by=MANAGER["email"], first=True)[0]   # the checklist's one task first
         self.db.commit()
         self.db.query(models.TaskActivity).delete()
         self.db.commit()
@@ -522,11 +522,11 @@ class ReviewFixTests(Base):
     def test_completing_a_checklist_task_records_each_change_once(self):
         parent, subs = self._checklist()
         self.patch(parent, user=MANAGER, completed=True)
-        # The parent: its completion and the title the sync rewrote, once each,
-        # credited to the person (record_edit), not again by the sync.
+        # The parent: its completion, once, credited to the person
+        # (record_edit), not again by the sync. Its title names the person
+        # only (Oct 23 2026: "Onboarding - Jo New"), so no step count rewrites it.
         got = self._rows(parent)
-        self.assertEqual(sorted(got), sorted([("completed", "status", MANAGER["email"]),
-                                              ("field_changed", "title", MANAGER["email"])]))
+        self.assertEqual(got, [("completed", "status", MANAGER["email"])])
         # Its subtasks closed with it - recorded from before the close.
         for s in subs:
             self.assertEqual(self._rows(s), [("status_changed", "status", MANAGER["email"])])
@@ -535,9 +535,8 @@ class ReviewFixTests(Base):
         parent, subs = self._checklist()
         self.patch(subs[0], user=MANAGER, completed=True)
         self.assertEqual(self._rows(subs[0]), [("completed", "status", MANAGER["email"])])
-        # The sync rewrites the parent (one step left, its date) - once each.
-        self.assertEqual(sorted(self._rows(parent)), [("due_changed", "dueOn", MANAGER["email"]),
-                                                      ("field_changed", "title", MANAGER["email"])])
+        # The sync moves the parent's date (one step left) - once.
+        self.assertEqual(sorted(self._rows(parent)), [("due_changed", "dueOn", MANAGER["email"])])
 
     def test_bulk_completing_steps_records_each_once(self):
         parent, subs = self._checklist()

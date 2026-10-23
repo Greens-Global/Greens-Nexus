@@ -639,7 +639,13 @@ def intake_email(db: Session, ev: HrLifeEvent, link: str) -> tuple:
     role = escape((ev.inputs or {}).get("job_title") or "your new role")
     expires = _long((ev.intake_expires_on or "")[:10])
     accent = "#15803d"
-    if (ev.inputs or {}).get("after_offer"):
+    doc = {"promotion": "Promotion Letter", "separation": "Separation Package"}.get(ev.kind, "")
+    if doc:
+        # An employee's promotion letter or separation package (Oct 23 2026).
+        head = _heading(f"Hi {first}, a few details first", accent)
+        intro = _p(f"Before HR sends your {doc.lower()}, please fill in a few details. They are saved to your record.")
+        after = "It takes a few minutes and works on your phone - no password needed."
+    elif (ev.inputs or {}).get("after_offer"):
         # The offer is signed (Oct 14) - this is the onboarding paperwork.
         head = _heading(f"Welcome aboard, {first}!", accent)
         intro = _p(f"Thank you for accepting your offer for <b>{role}</b> at {escape(company)}. The next step is "
@@ -663,11 +669,27 @@ def intake_email(db: Session, ev: HrLifeEvent, link: str) -> tuple:
     brand = (f'<span style="font-family:{FONT};font-size:17px;font-weight:800;color:{INK}">'
              f'{escape(company)}</span>')
     top = _band(brand, pad="22px 40px", extra=f"border-bottom:4px solid {accent}")
-    pre = _preheader("Confirm your details for your hiring documents")
+    pre = _preheader(f"A few details for your {doc.lower()}" if doc else "Confirm your details for your hiring documents")
     html = (f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>'
             f'<body style="margin:0;padding:0;background:#ffffff;font-family:{FONT}">{pre}{top}'
             f'{_band(body, pad="40px 40px 36px")}</body></html>')
+    if doc:
+        return f"A Few Details For Your {doc} - {company}", html
     return f"{company} - please confirm your details", html
+
+
+def offer_sender(db: Session, req) -> Optional[dict]:
+    """Offer Comes From (Neil, Oct 22: defaults to the head of HR, or the
+    department head): who an offer's email is from - None when it is not an
+    offer, or nobody was picked (the envelope's own sender, as before)."""
+    ev = (db.query(HrLifeEvent).filter(HrLifeEvent.id == req.link_id).first()
+          if getattr(req, "link_kind", "") == "life_event" and req.link_id else None)
+    frm = ((ev.inputs or {}).get("offer_from_email") or "") if ev is not None and ev.kind == "offer" else ""
+    if not frm:
+        return None
+    from types import SimpleNamespace
+    from routers import esign
+    return esign._sender_identity(db, SimpleNamespace(created_by=frm, entity_id=req.entity_id))
 
 
 def _event_email(db: Session, req: HrSignRequest, party, sender: dict, link: str, stage: str):
@@ -679,8 +701,10 @@ def _event_email(db: Session, req: HrSignRequest, party, sender: dict, link: str
     if not is_subject and not (ev.kind == "promotion" and role == "manager" and stage == "invite"):
         return None
     company, location, manager = _context(db, ev)
-    # Who signed before this person (the packet arrives countersigned) and
-    # who still signs after them - read from the envelope, never assumed.
+    sender = offer_sender(db, req) or sender
+    # Who signed before this person (only on an envelope sent before Oct 22
+    # 2026 - the person now signs first) and who still signs after them -
+    # read from the envelope, never assumed.
     signed_by, after_me = [], []
     if stage == "invite" and req.id:
         mine = getattr(party, "ordinal", None) or 0
@@ -749,10 +773,12 @@ def preview(db: Session, user: dict, event: str, entity_id: str, template_name: 
     inputs, pay = SAMPLE.get(event, ({}, {}))
     if event == "promotion" and role == "subject":
         fake_party.kind = "internal"          # an employee signs behind their Nexus login
-    # The sample envelope: the company (the sender) has signed a hire or
-    # separation before the person sees it; a promotion goes to the manager next.
-    signed_by = [(sender.get("name") or "HR", now)] if event in ("offer", "hire", "separation") else []
-    after_me = ["Max Manager"] if event == "promotion" else []
+    # The sample envelope: the person signs first (Neil, Oct 22 2026) - the
+    # company countersigns a hire or separation after them, a promotion goes
+    # to the manager next, and nobody signs an offer for the company.
+    signed_by = []
+    after_me = (["Max Manager"] if event == "promotion" else
+                [sender.get("name") or "HR"] if event in ("hire", "separation") else [])
     return compose(event, stage=stage, role=role, first_name="Jane" if role == "subject" else "Max", company=company,
                    location=location, inputs=inputs, pay=pay, manager="Max Manager", note=note,
                    docs=_docs_of(fake_req), link="#", sender=sender, party=fake_party, req=fake_req,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findBlanks, applyBlanks, findText, guessFill, splitPages, tokensFor } from './wordBlanks';
+import { findBlanks, applyBlanks, companySignerOf, findSection, findText, guessFill, splitPages, tokensFor } from './wordBlanks';
 
 // The shapes a Word file comes in as (lib/docxToTiptap.js): label + empty
 // cell tables, "Label:" lines, [   ] brackets, "Rs.     per month" gaps and
@@ -90,13 +90,17 @@ describe('applyBlanks', () => {
     expect(signers.sort()).toEqual(['company', 'employee']);
     const client = fieldDefs.find(f => f.default === 'Greens Global LLC');
     expect(client).toBeTruthy();
-    expect(fieldDefs.find(f => f.token === 'type_of_account')).toMatchObject({ type: 'dropdown', options: ['Savings Account', 'Current Account'] });
+    expect(fieldDefs.find(f => f.token === 'account_type')).toMatchObject({ type: 'dropdown', options: ['Savings Account', 'Current Account'] });
     // the original is untouched
     expect(JSON.stringify(DOC)).not.toContain('mergeField');
   });
 
   it('never names a custom variable after a built-in one', () => {
     expect(tokensFor([{ fill: 'ask', label: 'Salary' }, { fill: 'ask', label: 'Phone' }])).toEqual(['salary_value', 'phone_value']);
+  });
+
+  it('never names an asked blank email or work_email (the server fills those itself)', () => {
+    expect(tokensFor([{ fill: 'ask', label: 'Email' }, { fill: 'ask', label: 'Work Email' }])).toEqual(['email_value', 'work_email_value']);
   });
 
   it('splits pages at Word page breaks', () => {
@@ -154,9 +158,74 @@ describe('applyBlanks', () => {
   });
 
   it('guesses by label', () => {
-    expect(guessFill('Personal Email Address')).toMatchObject({ token: 'email' });
+    expect(guessFill('Personal Email Address')).toMatchObject({ token: 'personal_email' });
     expect(guessFill('Bank Account Number').fill).toBe('ask');
     expect(guessFill('Client(s) Name').fill).toBe('same');
     expect(guessFill('Notary Seal / Stamp').fill).toBe('leave');
+  });
+});
+
+describe('review findings (Oct 23)', () => {
+  const par = (...c) => ({ type: 'paragraph', content: c });
+  const txt = (text) => ({ type: 'text', text });
+  const field = (token) => ({ type: 'mergeField', attrs: { token } });
+
+  it('a duties label is not the role description outside a duties section', () => {
+    expect(guessFill('Duties And Responsibilities')).toEqual({ fill: 'ask' });
+  });
+
+  it('a line or cell that already holds a variable is not a blank', () => {
+    const cellOf = (...c) => ({ type: 'tableCell', content: [par(...c)] });
+    const doc = { type: 'doc', content: [par(txt('Bonus: '), field('signing_bonus')),
+      { type: 'table', content: [{ type: 'tableRow', content: [cellOf(txt('PAN')), cellOf(field('pan'))] }] }] };
+    expect(findBlanks(doc)).toEqual([]);
+  });
+});
+
+// End-to-end test findings (Oct 23): signature lines written as a party word over a line.
+describe('party signature lines', () => {
+  it('"Employee: ____ Date: ____" and "By: ____ (Manager) Date: ____" are signatures; a lone "Employee: ____" stays a blank', () => {
+    const doc = { type: 'doc', content: [p('Employee: ______________________   Date: __________'),
+      p('By: ______________________ (Manager)   Date: __________'), p('Accepted By: ____________'), p('Employee: ____________')] };
+    const found = findBlanks(doc, { purpose: 'promotion' });
+    expect(found.map(b => [b.kind, b.label, b.who || b.fill])).toEqual([
+      ['signature', 'Employee', 'employee'], ['signature', 'Manager', 'company'], ['signature', 'Accepted By', 'employee'], ['line', 'Employee', 'ask']]);
+  });
+
+  it('a bare "By:" under the employee line is the company side', () => {
+    const doc = { type: 'doc', content: [p('Employee: ________   Date: ______'), p('By: ________   Date: ______')] };
+    expect(findBlanks(doc).map(b => b.who)).toEqual(['employee', 'company']);
+  });
+
+  it('Hiring Setup reads who signs a company line from its words', () => {
+    expect(['Manager', 'Supervisor', 'HR', 'Human Resources', 'Company', '', 'HR Manager', 'Manager, Human Resources'].map(companySignerOf))
+      .toEqual(['manager', 'manager', 'hr', 'hr', 'signatory', 'signatory', 'hr', 'hr']);
+  });
+
+  it('a duties section ends at the signature line and at a closing paragraph', () => {
+    const h = (text) => ({ type: 'heading', attrs: { level: 2 }, content: [t(text)] });
+    const doc = { type: 'doc', content: [h('Responsibilities'), p('Lead the monthly close.'), p('Please sign below to accept.'), p('Employee: ______   Date: ____')] };
+    expect(findSection(doc)).toMatchObject({ at: [0, 1] });
+    const noClosing = { type: 'doc', content: [h('Responsibilities'), p('Lead the monthly close.'), p('Employee: ______   Date: ____')] };
+    expect(findSection(noClosing)).toMatchObject({ at: [0, 1] });
+  });
+
+  it('a duty that starts with "Contact" / "Questions" / "Welcome" stays in the duties section', () => {
+    const h = (text) => ({ type: 'heading', attrs: { level: 2 }, content: [t(text)] });
+    const doc = { type: 'doc', content: [h('Responsibilities'), p('Prepare monthly reports.'), p('Contact vendors to resolve invoice disputes.'),
+      p('Questions from staff about benefits are routed to you.'), p('Reconcile bank accounts.'), p('Sincerely,')] };
+    expect(findSection(doc)).toMatchObject({ at: [0, 4] });
+    const list = { type: 'bulletList', content: [{ type: 'listItem', content: [p('Welcome and onboard new hires.')] }] };
+    expect(findSection({ type: 'doc', content: [h('Duties'), list, p('Welcome to the team!')] })).toMatchObject({ at: [0, 1] });
+  });
+
+  it('with no line of the person\'s, applyBlanks adds one at the end (before a countersign)', () => {
+    const doc = { type: 'doc', content: [p('Hello.'), p('By: ________ (Manager)   Date: ____')] };
+    const out = applyBlanks(doc, findBlanks(doc).map(b => (b.who === 'company' ? { ...b, who: 'manager' } : b)), { person: true });
+    expect(out.doc.content.filter(n => n.type === 'signatureBlock').map(n => n.attrs.role)).toEqual(['manager', 'employee']);
+    expect(out.signers).toEqual(['manager', 'employee']);
+    const none = applyBlanks({ type: 'doc', content: [p('Hello.')] }, [], { person: true, countersign: 'manager' });
+    expect(none.doc.content.filter(n => n.type === 'signatureBlock').map(n => n.attrs.role)).toEqual(['employee', 'manager']);
+    expect(applyBlanks({ type: 'doc', content: [p('Hello.')] }, []).signers).toEqual([]);
   });
 });

@@ -166,7 +166,8 @@ class LifeEventDocsCase(unittest.TestCase):
 
 class PromotionDocsTests(LifeEventDocsCase):
     def test_letter_generated_verified_signed_and_applied(self):
-        body = {"inputs": {"change_type": "promotion", "role_id": "jr-2", "effective_date": "2030-01-01"},
+        body = {"inputs": {"change_type": "promotion", "role_id": "jr-2", "effective_date": "2030-01-01",
+                           "reason": "Exceeded targets"},
                 "pay": {"base": 40, "payBasis": "hourly", "currency": "USD"}}
         preview = self.client.post("/hr/employees/e-erin/promotion/preview", json=body).json()
         self.assertEqual(preview["engine"], "documents")
@@ -202,10 +203,11 @@ class SeparationDocsTests(LifeEventDocsCase):
         self.assertEqual((ev["status"], ev["applyStatus"]), ("review", "scheduled"))
         self.assertEqual(ev["subjectEmail"], ERIN)                 # still here: the work email
         sent = self._verify(ev["id"])
-        self.assertEqual(sent["status"], "awaiting_sender")       # HR signs for the company first
+        self.assertEqual(sent["status"], "sent")                  # the person signs first (Neil, Oct 22 2026)
         req = self._ev(ev["id"]).sign_request_id
-        self._sign(self._party(req, HR))
         self._sign(self._party(req, ERIN))
+        self.assertEqual(self._ev(ev["id"]).status, "sent")       # the company countersigns after
+        self._sign(self._party(req, HR))
         self.assertEqual(self._ev(ev["id"]).status, "completed")
         self.assertEqual(self._ev(ev["id"]).apply_status, "scheduled")   # Left on the day, not at signing
 

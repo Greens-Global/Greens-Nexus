@@ -14,12 +14,13 @@ vi.mock('../api', () => ({
     getDocLetterheads: () => Promise.resolve([]),
     saveDocumentsPacket: (...a) => save(...a),
     packetReadiness: () => Promise.resolve({ readiness: [] }),
+    packetIntakePreview: () => Promise.resolve({ standard: [], form: [], hrAtOffer: [], problems: [] }),
     getPeopleDirectory: () => Promise.resolve([]),
     signOnceStatus: () => Promise.resolve([{ key: 'company', roleLabel: 'HR', name: 'Charmi Shah', email: 'charmi@x.com', signed: false, isMe: true }]),
   },
 }));
 vi.mock('./ESign', () => ({ SignaturePad: () => null }));
-const { DocumentsPacketEditor } = await import('./DocumentsPacketEditor');
+const { DocumentsPacketEditor, packetCopy } = await import('./DocumentsPacketEditor');
 
 const catalog = {
   docTemplates: [{ id: 't1', name: 'Contractor Agreement', publishedVersion: 1, signs: ['company', 'employee'],
@@ -31,7 +32,7 @@ const catalog = {
   actions: [{ key: 'sign', label: 'Signs' }, { key: 'copy', label: 'Gets A Copy' }],
   countries: ['US', 'IN'],
 };
-const packet = { id: 's1', engine: 'documents', name: 'Admin Associate - India', docTemplateIds: ['t1'],
+const packet = { id: 's1', engine: 'documents', name: 'Admin Associate - India', docTemplateIds: ['t1'], country: 'IN', workerType: 'contractor',
   flow: [{ key: 'company', role: 'hr', action: 'sign', once: true }, { key: 'employee', role: 'employee', action: 'sign' }],
   verifyRole: 'hr', detailsForm: [],
   readiness: [{ key: 'payPrints', ok: false, severity: 'warn', label: 'Pay Shows In A Document', detail: 'Not printed anywhere.',
@@ -89,4 +90,54 @@ describe('DocumentsPacketEditor', () => {
     expect(save.mock.calls[0][0]).toMatchObject({ name: 'India Contractor Hire', worker_type: 'contractor', country: 'IN',
       doc_template_ids: ['t1'], extra_docs: [{ match: 'department', value: 'Administration', templateIds: ['t-ca'] }] });
   });
+
+  it('Copy From starts a new packet as a copy of another; the company and role can change before saving', async () => {
+    save.mockClear();
+    const src = { ...packet, id: 's-ca', event: 'hire', entityId: 'co-ca', name: 'CA Employee', roleIds: ['jr-ca'], roleNames: ['Analyst'],
+      workerType: 'employee', country: 'US', egnyteSubfolder: 'Hiring', detailsForm: [{ key: 'bank', label: 'Bank Name', type: 'text' }],
+      signOnce: [{ key: 'company', signed: true }] };
+    const companies = [{ id: 'co', name: 'Greens India' }, { id: 'co-ca', name: 'Greens California' }];
+    render(<DocumentsPacketEditor {...props} packet={null} companies={companies}
+      catalog={{ ...catalog, settings: [src], events: [{ key: 'hire', label: 'Hiring Packet' }] }} />);
+    await waitFor(() => expect(screen.getByLabelText('Only for this role')).toBeTruthy());
+    const pick = screen.getByLabelText('Copy From');
+    expect(screen.getByText('Greens California - Hiring Packet - CA Employee - Analyst - Employees - United States')).toBeTruthy();
+    fireEvent.change(pick, { target: { value: 's-ca' } });
+    expect(screen.getByLabelText('Name').value).toBe('CA Employee (Copy)');
+    expect(screen.getByLabelText('Only for this role').value).toBe('');        // Greens India has no Analyst role
+    fireEvent.change(screen.getByLabelText('Hired As'), { target: { value: 'contractor' } });
+    fireEvent.change(screen.getByLabelText('Company'), { target: { value: 'co-ca' } });
+    fireEvent.click(screen.getByText('Continue'));
+    expect(screen.getByText('Contractor Agreement')).toBeTruthy();             // the documents came along
+    fireEvent.click(screen.getByText('Continue'));
+    fireEvent.click(screen.getByText('Save Packet'));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    // Switching who it is for renames the copy from its place - never a stale "CA Employee (Copy)" on a contractor packet.
+    expect(save.mock.calls[0][0]).toMatchObject({ id: '', entity_id: 'co-ca', name: 'United States Contractor Hiring Packet', worker_type: 'contractor',
+      country: 'US', doc_template_ids: ['t1'], verify_role: 'hr', egnyte_subfolder: 'Hiring',
+      flow: [{ key: 'company', role: 'hr', action: 'sign', once: true }, { key: 'employee', role: 'employee', action: 'sign' }],
+      details_form: [{ key: 'bank', label: 'Bank Name', type: 'text' }] });
+  });
+
+  it('packetCopy drops the id and the Sign Once signatures', () => {
+    expect(packetCopy({ ...packet, signOnce: [{ signed: true }] })).toMatchObject({ id: '', engine: '', name: 'Admin Associate - India (Copy)', signOnce: [], docTemplateIds: ['t1'] });
+  });
 });
+
+// Neil, Oct 22: a hiring packet is a place's paperwork, never "any country",
+// and its name says the place until HR types one.
+describe('DocumentsPacketEditor - place first', () => {
+  it('a new hiring packet asks where and who before anything, and names itself from that', async () => {
+    render(<DocumentsPacketEditor {...props} packet={null} />);
+    fireEvent.click(screen.getByText(/Continue/));
+    expect(await screen.findByText(/Pick where these hires work/)).toBeTruthy();
+    expect(screen.getByText('Pick employees or contractors.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Works In'), { target: { value: 'US' } });
+    fireEvent.change(screen.getByLabelText('State'), { target: { value: 'CA' } });
+    fireEvent.change(screen.getByLabelText('Hired As'), { target: { value: 'employee' } });
+    expect(screen.getByLabelText('Name').value).toBe('California Employee Hiring Packet');
+    // The role is tucked away and off by default.
+    expect(screen.getByLabelText('Only for this role').value).toBe('');
+  });
+});
+

@@ -12,7 +12,7 @@ Checklist Library (and per company in Company Settings > Checklists). Each row:
   title     the step (Title Case); hint = one sentence of how-to (sentence case)
   owner     a ROLE, resolved per person when the checklist is created:
             hr (the company's HR contact), manager (reports-to), employee,
-            it, accounting (set per company in Checklist Owners; Neil, Oct 19:
+            it, accounting (the head and backup of that department; Neil, Oct 19:
             payroll is Accounting, equipment is IT, there is no Finance)
   anchor    S (start date - the effective date on a promotion), X (exit date /
             leave start), created (the day the
@@ -23,7 +23,8 @@ Checklist Library (and per company in Company Settings > Checklists). Each row:
   applies   who the row is for: types (full_time, part_time, intern,
             contractor, or "employee" = anything but contractor), countries
             (US, IN), exit_types (offboarding only). Empty = everyone.
-  signal    optional - lets Nexus tick the row by itself (hr_checklists.SIGNALS)
+  signal    optional - lets Nexus tick the row by itself (hr_checklists.SIGNALS);
+            several are joined by "|" and any one met ticks it
 
 Rows never ask for, or store, a full SSN, Aadhaar, PAN or bank number.
 """
@@ -76,6 +77,11 @@ ONBOARDING = [
          signal="contract_end", hint="Nexus reminds HR from this date."),
     _row("ON-08", P1, "Emergency Contact, Address And Date Of Birth On The Profile", "hr", "S", -7,
          signal="personal_details"),
+    # Everyone, contractors and India too (Neil, Oct 22 - the Colin case: a
+    # full packet and no picture ID on file). hr_checklists.backfill_id_evidence
+    # adds it to templates seeded before it.
+    _row("ON-34", P1, "Picture ID On File", "hr", "S", -7, signal="id_on_file",
+         hint="A driver's license, passport or other photo ID on the Documents tab, with its expiry date."),
     _row("ON-09", P1, "Equipment Picked And Set Aside", "manager", "S", -7,
          hint="Write the asset tags down. Item Management needs the work email, so the assignment is made after provisioning."),
     _row("ON-10", P1, "System Access List Agreed", "manager", "S", -7,
@@ -103,8 +109,10 @@ ONBOARDING = [
          hint="Provisioning already sets Active. Tick this once the person has actually started, signed in and done I-9 Section 1."),
 
     _row("ON-23", P4, "Form I-9 Section 2 (And E-Verify If Used)", "hr", "S", 3, bd=True, applies=US_EMP,
+         signal="id_on_file",
          hint="The employer examines the original documents within 3 business days of the start date."),
     _row("ON-24", P4, "Right-To-Work Recorded On The Compliance Tab", "hr", "S", 3, bd=True,
+         signal="work_auth_verified",
          hint="Dates only, no document numbers."),
     _row("ON-25", P4, "Benefits Notice And Enrollment", "hr", "S", 14, applies=US_EMP),
     _row("ON-26", P4, "PF And ESI Enrollment", "accounting", "none", applies=IN_EMP,

@@ -37,7 +37,26 @@ export const RESERVED_TYPES = ['signature', 'initials', 'image', 'file'];
 export const OPTION_TYPES = ['dropdown', 'radio'];
 // Who fills a variable when the template is part of an HR packet (Oct 14):
 // the person on their own form (no login), or HR when they make the offer.
-export const FIELD_SOURCES = [['', 'Typed Each Time'], ['person', 'Ask The Person'], ['hr', 'HR Answers At Offer']];
+// The stored values ('', 'person', 'hr') never change; only the words do.
+export const FIELD_SOURCES = [['', 'Whoever Makes The Document'], ['person', 'The New Hire (Intake Form)'], ['hr', 'HR At The Offer']];
+export const FIELD_SOURCE_HELP = {
+  '': 'Typed in by whoever makes a document from this template.',
+  person: "Asked on the new hire's intake form, once however many documents print it.",
+  hr: 'Asked of HR on the Make An Offer form, before anything is sent.',
+};
+
+// When Nexus fills a built-in variable by itself (services/merge_fields.py
+// builtin_when) - the group the insert picker files it under, and where the
+// Template Fields panel says its value comes from.
+export const FILLED_WHEN = [
+  ['person', 'Filled From The Person', "From the person's profile, or the new hire's intake form"],
+  ['company', 'Filled From The Company', "From the company's settings"],
+  ['offer', 'Filled At The Offer / Hire', 'From what HR enters on the offer or hire'],
+  ['promotion', 'Filled At A Promotion', 'From what HR enters on the promotion or role change'],
+  ['separation', 'Filled At A Separation', 'From what HR enters on the separation'],
+  ['signers', 'Signers', "From the packet's signing order"],
+  ['document', 'Document', 'From the document itself'],
+];
 
 // Which validation keys apply to which type - drives which validation
 // sub-fields the Define Merge Field modal shows.

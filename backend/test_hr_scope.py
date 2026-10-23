@@ -318,6 +318,22 @@ class HrScopeTests(unittest.TestCase):
                 self.assertEqual(at_site["work_site_id"], site_id)
             finally:
                 db.close()
+            # Hybrid (Neil, Oct 22): stored as 2, remote allowed, a site still resolves to it
+            r = self.client.put(f"/hr/employees/{EMP_A}/geofence", json={"mode": "hybrid"})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual((r.json()["mode"], r.json()["remote"]), ("hybrid", True))
+            db = database.SessionLocal()
+            try:
+                self.assertEqual(db.query(models.NexusEmployee).filter(models.NexusEmployee.id == EMP_A).first().work_remote, 2)
+                self.assertEqual(_geofence(db, FAR[0], FAR[1], 10, email=email)["geo_status"], "remote")
+                at_site = _geofence(db, "12.0001", "-150.0001", 10, email=email)
+                self.assertEqual((at_site["geo_status"], at_site["work_site_id"]), ("in_fence", site_id))
+            finally:
+                db.close()
+            self.assertEqual(self.client.put(f"/hr/employees/{EMP_A}/geofence", json={"mode": "sometimes"}).status_code, 400)
+            self.assertEqual(self.client.get(f"/hr/employees/{EMP_A}/geofence").json()["geofence"]["mode"], "hybrid")
+            r = self.client.put(f"/hr/employees/{EMP_A}/geofence", json={"mode": "onsite"})
+            self.assertEqual((r.json()["mode"], r.json()["remote"]), ("onsite", False))
             self.client.put(f"/hr/employees/{EMP_A}/geofence", json={"remote": False})
             self.assertFalse(self.client.get(f"/hr/employees/{EMP_A}/geofence").json()["geofence"]["remote"])
         finally:

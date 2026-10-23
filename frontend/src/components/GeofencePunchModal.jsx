@@ -173,7 +173,7 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
           <div>
             <h3 style={{ margin: 0 }}>Geofence Punch For {data?.name || name || email}</h3>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              {start && end ? `${formatDate(start)} - ${formatDate(end)}` : 'All dates'}{data?.remote ? ' · marked Remote (nothing is flagged)' : ''}{data?.assignedSiteId ? ` · assigned to ${sites.find((s) => s.id === data.assignedSiteId)?.name || 'one site'}` : ''}
+              {start && end ? `${formatDate(start)} - ${formatDate(end)}` : 'All dates'}{data?.hybrid ? ' · marked Hybrid (away from a site counts as remote)' : data?.remote ? ' · marked Remote (nothing is flagged)' : ''}{data?.assignedSiteId ? ` · assigned to ${sites.find((s) => s.id === data.assignedSiteId)?.name || 'one site'}` : ''}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

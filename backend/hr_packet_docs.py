@@ -32,10 +32,19 @@ Two packet features from Oct 14 (Pranshu):
     like pay (Pay & Benefits only, never written on a document row); a field
     marked Last 4 Only is kept - and printed - as its last four characters.
   - Signs Once (a flow step with `once`): the company signs a packet ONCE and
-    that adopted signature is applied to every packet sent after it. It
+    that adopted signature is applied to every packet sent after it - when
+    its turn comes, after the person has signed, never at send. It
     belongs to whoever holds the step's role for the company: when the HR
     contact (or the signatory) changes, the old one stops counting and the
     new holder signs once before the next packet can go.
+
+The signing order (Neil, Oct 22 2026): "The company never signs prior to the
+employee, ever." The person signs FIRST and the company countersigns after
+them; an offer letter ("Offer is just saying, do you accept?") is signed by
+the person ONLY - no company signer, and a company signature block in an
+offer template prints nothing. signing_flow applies this to every packet,
+including configs saved with the company first - they are reordered when
+read, never refused.
 """
 import hashlib
 import json
@@ -65,6 +74,12 @@ PAY_MODES = ("", "always", "auto")
 EVENT_NOUN = {"offer": "offer letter", "hire": "hiring packet", "promotion": "promotion letter",
               "separation": "separation package"}
 CANDIDATE_KINDS = ("offer", "hire")
+# Where a hiring packet's job description page goes (Hiring Setup, Oct 23
+# 2026): this id in doc_template_ids is filled at the event with the role's
+# formatted Job Description, else the built-in one when there are duties to
+# print, else dropped. Never a template.
+JD_MARKER = "@jd"
+BUILTIN_JD_ID = "builtin-job-description"
 
 
 class PacketProblem(ValueError):
@@ -89,6 +104,58 @@ def default_role(key: str, prints_signatory: bool = False) -> str:
     if hc.norm_role(k) in hc.ROLES:
         return hc.norm_role(k)
     return "hr"
+
+
+def signing_flow(setting: HrPacketSetting) -> list:
+    """The order a packet is actually signed in (Neil, Oct 22 2026): The
+    Person first, everyone else after in the order HR set; on an offer
+    letter nobody but The Person signs (approve / copy steps stay, after
+    them). A config saved with the company first is reordered here."""
+    flow = clean_flow(setting.flow)
+    rest = [s for s in flow if s["role"] != SUBJECT_ROLE]
+    if setting.event == "offer":
+        rest = [s for s in rest if s["action"] != "sign"]
+    return [s for s in flow if s["role"] == SUBJECT_ROLE] + rest
+
+
+def _without_blocks(node, keep: set):
+    """Content minus every signature block whose signer is not in `keep`."""
+    if isinstance(node, dict):
+        return {k: _without_blocks(v, keep) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_without_blocks(v, keep) for v in node
+                if not (isinstance(v, dict) and v.get("type") == "signatureBlock"
+                        and str((v.get("attrs") or {}).get("role") or "").strip().lower() not in keep)]
+    return node
+
+
+def signed_snaps(setting: HrPacketSetting, snaps: list) -> list:
+    """An offer's documents with only The Person's signature blocks: a
+    company block in an offer template prints nothing - no box, no line,
+    no signature - and never holds the offer back."""
+    if setting.event != "offer":
+        return snaps
+    keep = {s["key"] for s in signing_flow(setting) if s["action"] == "sign"}
+    return [x if x.signature_roles <= keep else Snap(x.tpl, _without_blocks(x.content, keep), x.meta, x.version)
+            for x in snaps]
+
+
+def unsigned_names(db: Session, setting: HrPacketSetting, ctx: dict) -> dict:
+    """{{signer.<key>}} for the company steps an offer no longer signs, so a
+    letter closing "Sincerely, {{signer.company}}" still prints the name -
+    as text, never a signature."""
+    if setting.event != "offer":
+        return {}
+    out = {}
+    for step in clean_flow(setting.flow):
+        if step["role"] == SUBJECT_ROLE or step["action"] != "sign":
+            continue
+        email = resolve_role(db, step["role"], ctx)
+        p = person(db, email) if email else None
+        if p is not None:
+            out[f"signer.{step['key']}"] = (p.display_name or f"{p.first_name} {p.last_name}").strip()
+            out[f"signer.{step['key']}.title"] = p.job_title or ""
+    return out
 
 
 def clean_flow(flow) -> list:
@@ -142,6 +209,63 @@ def content_tokens(content) -> set:
     return found
 
 
+# Fill-in blanks a template still prints as lines (Neil, 10/22 56:42: "this
+# stuff should be stuff you fill in ... that wiring is not yet done"): the
+# patterns of the Word import's blank finder (frontend lib/wordBlanks.js).
+_GAP_RE = re.compile(r"_{3,}|\[[\s ]*\]")
+_LABEL_LINE_RE = re.compile(r"^([^:\x01]{2,40}?):\s*$")
+_SECTION_HEAD_RE = re.compile(r"^(COMPANY|CONTRACTOR|EMPLOYEE|CLIENT|EMPLOYER)$")
+_LIST_LEAD_RE = re.compile(r"^\s*(?:[([•\-–]|\d+[.)])")
+# Filled by hand on the printed copy (a notary page), never by Nexus.
+_PAPER_RE = re.compile(r"notar|witness|\bseal\b|stamp|franking|e-stamp|registration number|place of|purchased by|"
+                       r"date of issue|state of issue|work e-?mail", re.I)
+_TABLE_NODES = ("table", "tableRow", "tableCell", "tableHeader")
+
+
+def _par_text(node) -> str:
+    """A paragraph's text; a {{variable}} chip counts as filled (\\x01)."""
+    out = []
+    for c in node.get("content") or []:
+        t = c.get("type") if isinstance(c, dict) else ""
+        out.append((c.get("text") or "") if t == "text" else "\n" if t == "hardBreak" else "\x01")
+    return "".join(out)
+
+
+def fill_in_blanks(content) -> list:
+    """The label of every fill-in blank nothing fills: "______" or "[   ]" in
+    a sentence, and a "Label:" line with nothing after it (not a list's
+    lead-in, not next to a signature block, not inside a table) - body,
+    header and footer."""
+    found = []
+
+    def walk(nodes, in_table):
+        nodes = [n for n in nodes if isinstance(n, dict)]
+        for i, n in enumerate(nodes):
+            if n.get("type") != "paragraph":
+                tbl = in_table or n.get("type") in _TABLE_NODES
+                for v in n.values():
+                    walk(v if isinstance(v, list) else [v], tbl)
+                continue
+            text = _par_text(n)
+            if _PAPER_RE.search(text) or not re.sub(r"[_\[\]\s .\-]", "", text):
+                continue        # a notary line, or a bare line drawn for a pen
+            for m in _GAP_RE.finditer(text):
+                found.append(" ".join(_GAP_RE.sub(" ", text[:m.start()]).replace("\x01", " ").split()[-4:]) or "Blank")
+            prev, nxt = (nodes[i - 1] if i else {}), (nodes[i + 1] if i + 1 < len(nodes) else {})
+            # shortcut: an empty table cell beside a label is not looked at; add the wizard's 'cell' rule if HR hits it.
+            if in_table or "signatureBlock" in (prev.get("type"), nxt.get("type")):
+                continue
+            nxt_text = _par_text(nxt) if nxt.get("type") == "paragraph" else ""
+            for line in text.split("\n"):
+                m = _LABEL_LINE_RE.match(line.strip())
+                if (m and not _SECTION_HEAD_RE.match(m.group(1).strip()) and "List" not in str(nxt.get("type"))
+                        and not _LIST_LEAD_RE.match(nxt_text)):
+                    found.append(m.group(1).strip())
+
+    walk([content] if isinstance(content, dict) else [], False)
+    return found
+
+
 class Snap:
     """One template of a packet, as its published version reads."""
 
@@ -171,6 +295,8 @@ def load_snaps(db: Session, template_ids: list) -> tuple:
     from routers.documents import TemplateNotPublished, published_snapshot
     snaps, problems = [], []
     for tid in template_ids or []:
+        if tid == JD_MARKER:
+            continue
         tpl = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
         if not tpl:
             problems.append("A document in this packet no longer exists in Documents - remove it from the packet.")
@@ -324,11 +450,11 @@ def build_parties(db: Session, setting: HrPacketSetting, ctx: dict) -> tuple:
 
     Two CONSECUTIVE sign steps that land on the same person collapse into one
     party (their second key's fields are re-pointed with `remap`), so one
-    signature covers both blocks. Order is otherwise kept exactly."""
+    signature covers both blocks. Order is signing_flow's: the person first."""
     problems, rows = [], []
     subject = (ctx.get("subject_email") or "").strip().lower()
     subject_alts = {subject} | {(e or "").strip().lower() for e in ctx.get("subject_emails") or []}
-    for step in clean_flow(setting.flow):
+    for step in signing_flow(setting):
         role, action, key = step["role"], step["action"], step["key"]
         label = role_label(role)
         email = resolve_role(db, role, ctx)
@@ -371,16 +497,16 @@ def _nobody(role: str, ctx: dict) -> str:
     if role == SUBJECT_ROLE:
         return f"{ctx.get('subject_name') or 'The person'} has no email to send it to."
     if role == "hr":
-        return (f"{company} has no HR contact - set one in People > Companies, or HR in "
-                f"Company Settings > Checklists > Role Owners.")
+        return (f"{company} has no HR contact - set a head for its HR department in "
+                f"Company Settings > Departments, or an HR contact in People > Companies.")
     if role == "manager":
         return "No manager - pick the supervisor (or set their manager in People) first."
     if role == "signatory":
         return f"{company} has no Authorized Signatory person - pick one in People > Companies."
     if role == "sender":
         return "Nobody started this packet."
-    return (f"No {role_label(role)} owner for {company} - set one in Company Settings > Checklists > "
-            f"Role Owners.")
+    return (f"No {role_label(role)} owner for {company} - set a head for its {role_label(role)} "
+            f"department in Company Settings > Departments.")
 
 
 def signer_values(parties: list, remap: dict) -> dict:
@@ -424,14 +550,19 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
     and enforced at save and at send."""
     if snaps is None:
         snaps, snap_problems = load_snaps(db, setting.doc_template_ids or [])
+    snaps = signed_snaps(setting, snaps)
     out = []
     if not (setting.name or "").strip():
         out.append("Give the packet a name.")
-    if not (setting.doc_template_ids or []):
+    if not [t for t in (setting.doc_template_ids or []) if t != JD_MARKER]:
         out.append("Add at least one document from Documents > Templates.")
+    if JD_MARKER in (setting.doc_template_ids or []):
+        if setting.event == "offer":
+            out.append("An offer letter never carries the job description - it goes in the hiring packet.")
+        elif setting.event == "separation":
+            out.append("A separation package never carries the job description - take it out of this one.")
     out += list(snap_problems or [])
     flow = clean_flow(setting.flow)
-    by_key = {s["key"]: s for s in flow}
     for step in flow:
         if step["role"] not in FLOW_ROLES:
             out.append(f'"{step["key"]}" has no valid role - pick who signs as it.')
@@ -442,11 +573,15 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
         out.append("Exactly one step must be The Person (the one the packet is about).")
     elif subjects[0]["action"] != "sign":
         out.append("The Person must sign the packet.")
-    elif setting.event in ("offer", "hire", "separation"):
-        signs = [s for s in flow if s["action"] == "sign"]
-        if signs and signs[-1]["role"] != SUBJECT_ROLE:
-            out.append("The Person signs last on an offer letter, a hiring packet or a separation package - "
-                       "move their step to the end of the signing order.")
+    # A promotion letter is countersigned (Pranshu, Oct 23 2026, settling Oct 8
+    # vs Oct 22): the manager - or HR - signs after the person.
+    if setting.event == "promotion" and not any(s["role"] != SUBJECT_ROLE and s["action"] == "sign" for s in flow):
+        out.append("A promotion letter is countersigned - add a signature spot for their manager (or HR) "
+                   "to the letter, so someone signs after the person.")
+    # Never "move the person": signing_flow puts them first (Neil, Oct 22 2026),
+    # so an order saved with the company first still loads and sends.
+    flow = signing_flow(setting)
+    by_key = {s["key"]: s for s in flow}
     for step in flow:
         if not step.get("once"):
             continue
@@ -471,7 +606,7 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
         # The name printed over a signature is the person who signs it: a
         # letter closing "Sincerely, {{signatory}}" must be signed by the
         # authorized signatory, not by HR (s4.3 of the plan).
-        if "signatory" in snap.tokens:
+        if "signatory" in snap.tokens and setting.event != "offer":
             if not any((by_key.get(k) or {}).get("role") == "signatory" for k in snap.signature_roles):
                 out.append(f'"{snap.name}" prints the authorized signatory ({{{{signatory}}}}) but nobody signs it as '
                            f'Authorized Signatory - set the company step to Authorized Signatory, or write '
@@ -598,12 +733,16 @@ def values_hash(values: dict) -> str:
 def ser_flow(db: Session, setting: HrPacketSetting) -> list:
     return [{**s, "roleLabel": role_label(s["role"]),
              "actionLabel": "Signs Once (Saved)" if s.get("once") else ACTION_LABELS.get(s["action"], s["action"])}
-            for s in clean_flow(setting.flow)]
+            for s in signing_flow(setting)]
 
 
 def ser_documents(db: Session, setting: HrPacketSetting) -> list:
     out = []
     for tid in setting.doc_template_ids or []:
+        if tid == JD_MARKER:
+            out.append({"id": JD_MARKER, "name": "Job Description - Goes Here", "marker": True, "status": "active",
+                        "publishedVersion": 1, "hasUnpublishedChanges": False, "signs": []})
+            continue
         tpl = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
         if not tpl:
             out.append({"id": tid, "name": "A template that no longer exists", "missing": True})
@@ -625,6 +764,7 @@ def event_values(db: Session, kind: str, d: dict) -> dict:
     out = {}
     if kind in CANDIDATE_KINDS:
         out.update({"job_title": d.get("job_title", ""), "department": d.get("department", ""),
+                    "role_description": d.get("role_description", ""),
                     "start_date": d.get("start_date", ""), "offer_expires": d.get("offer_expires", ""),
                     "employment_type": (d.get("employment_type") or "full_time").replace("_", "-").title(),
                     # What HR answered on the offer (Oct 14).
@@ -633,6 +773,11 @@ def event_values(db: Session, kind: str, d: dict) -> dict:
                     "work_location": d.get("work_location", ""), "work_country": _country_name(d.get("country", ""))})
         if d.get("manager_email"):
             out["manager"] = out["supervisor"] = name_of(db, d["manager_email"])
+        if kind == "offer" and d.get("offer_from_email"):
+            # Offer Comes From (Neil, Oct 22): the name the letter closes with.
+            p = person(db, d["offer_from_email"])
+            title = ((p.job_title or p.designation) if p else "") or ""
+            out["signatory"] = ", ".join(x for x in (name_of(db, d["offer_from_email"]), title.strip()) if x)
         if d.get("employee_code"):
             out["employee_code"] = d["employee_code"]
     elif kind == "promotion":
@@ -642,7 +787,9 @@ def event_values(db: Session, kind: str, d: dict) -> dict:
                     "job_title": d.get("job_title", ""), "old_role": d.get("old_role_name") or d.get("old_title", ""),
                     "new_role": d.get("role_name", ""), "department": d.get("department", ""),
                     "effective_date": d.get("effective_date", ""),
-                    "responsibilities": d.get("responsibilities", "")})
+                    "responsibilities": d.get("responsibilities", ""),
+                    # The built-in Job Description page (the "@jd" marker) prints these.
+                    "role_description": d.get("role_description") or d.get("responsibilities", "")})
         if d.get("manager_email"):
             out["manager"] = name_of(db, d["manager_email"])
     elif kind == "separation":
@@ -668,10 +815,13 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
          extra_template_ids: Optional[list] = None) -> dict:
     """The packet as it would go out: its documents (with what is still
     unfilled in each), the signing order with real names, the verifier, and
-    every problem. Writes nothing."""
-    ids = list(setting.doc_template_ids or [])
-    ids += [t for t in (extra_template_ids or []) if t and t not in ids]
+    every problem. Writes nothing. An event's resolved order (extra_template_ids,
+    from template_ids_for) is the order its documents are generated in - the
+    job description page where the marker put it, a role's document in the
+    place of the one it replaces."""
+    ids = list(extra_template_ids) if extra_template_ids else list(setting.doc_template_ids or [])
     snaps, snap_problems = load_snaps(db, ids)
+    snaps = signed_snaps(setting, snaps)
     problems = config_problems(db, setting, snaps, snap_problems)
     parties, remap, party_problems = build_parties(db, setting, ctx)
     problems += party_problems
@@ -685,7 +835,7 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
         problems.append(f"{name_of(db, vemail)} verifies this packet ({role_label(vrole)}) but cannot see pay - "
                         f"give them Pay & Benefits access or change Verified By.")
     problems += pay_exposure(db, parties, prints)
-    values = {**(overrides or {}), **signer_values(parties, remap)}
+    values = {**(overrides or {}), **unsigned_names(db, setting, ctx), **signer_values(parties, remap)}
     pay_values = pay_merge(pay, ctx.get("pay_values")) if can_see_pay else {}
     docs = []
     for snap in snaps:
@@ -744,7 +894,7 @@ def person_values(ev) -> dict:
 
 def event_ctx(db: Session, ev, setting: HrPacketSetting, sender: str) -> dict:
     """Who each role is for THIS event, right now - read live, so a change of
-    HR contact or Checklist Owner moves an unsent packet with it."""
+    HR contact or HR department head moves an unsent packet with it."""
     from models import HrCandidate
     entity = db.query(HrEntity).filter(HrEntity.id == ev.entity_id).first() if ev.entity_id else None
     d = ev.inputs or {}
@@ -801,7 +951,7 @@ def event_plan(db: Session, ev, setting: HrPacketSetting, *, sender: str, can_se
     p["restrictedHash"] = values_hash(answer_values(form, event_answers(ev))[1])
     p["form"] = form
     extra = []
-    missing = missing_answers(form, event_answers(ev)) if ev.kind in ("hire", "offer") else []
+    missing = missing_answers(form, event_answers(ev))
     if missing:
         extra.append("Still needed on the Details Form: " + ", ".join(missing) + ".")
     for s in p["signOnce"]:
@@ -867,7 +1017,7 @@ def sync_documents(db: Session, ev, setting: HrPacketSetting, p: dict, by: str) 
                                    edited_by=by, edited_at=now, note=f"Generated (template v{snap.version})"))
             changed = True
         elif (row.template_version != snap.version or (e or {}).get("valuesHash") != h
-              or (row.letterhead_id or "") != lh or row.status == "archived"):
+              or (row.letterhead_id or "") != lh or row.status == "archived" or row.content != snap.content):
             row.content, row.template_version, row.merge_overrides = snap.content, snap.version, values
             row.letterhead_id, row.title, row.status = lh, title, "final"
             row.current_version = (row.current_version or 1) + 1
@@ -911,7 +1061,9 @@ def render_row(db: Session, row: Document, pay: dict, anchors: Optional[list] = 
 
 def status_at_send(parties: list, subject_email: str) -> str:
     """awaiting_sender while anyone acts before the person; sent only when the
-    person is invited at once. Never derived from who clicked Send."""
+    person is invited at once. Never derived from who clicked Send. Since
+    Oct 22 2026 the person is always first (signing_flow), so a new packet is
+    'sent'; awaiting_sender is left only on envelopes sent before that."""
     want = (subject_email or "").strip().lower()
     subj = next((p for p in parties if (p["email"] or "").lower() == want), None)
     if subj is None:
@@ -952,10 +1104,31 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
         problems.append("This packet must be verified by someone other than who started it.")
     if not can_see_pay and p["printsPay"]:
         problems.append("These documents show pay - only someone with Pay & Benefits access can verify and send them.")
+    # What the person left empty that a document prints (Neil, 10/22 56:42),
+    # named before Verify And Send: a standard detail stops the packet, an
+    # optional answer prints blank.
+    from services.merge_fields import BUILTIN_VARIABLES
+    labels = {t: lbl.title() for t, lbl, _ in BUILTIN_VARIABLES}
+    labels.update({f["key"]: f["label"] for f in form_fields(p["form"])})
+    first = (ev.subject_name or "").split(" ")[0] or "The person"
+
+    def them(n):
+        return "it" if n == 1 else "them"
     for d in docs:
-        if d["unresolved"]:
+        left = [t for t in d["unresolved"] if t in PERSON_KEYS]
+        if left:
+            problems.append(f'{first} left {", ".join(labels.get(t, t) for t in left)} empty, and "{d["title"]}" '
+                            f'prints {them(len(left))} - click Edit to fill {them(len(left))} in.')
+        rest = [t for t in d["unresolved"] if t not in left]
+        if rest:
             problems.append(f'"{d["title"]}" still has unfilled details: '
-                            + ", ".join(t.replace("_", " ") for t in d["unresolved"]) + ".")
+                            + ", ".join(t.replace("_", " ") for t in rest) + ".")
+    empty = {k for part in answer_values(p["form"], event_answers(ev)) for k, v in part.items() if v == ""}
+    # A field with a Default Value prints that default, not a blank.
+    blank = [f"{labels.get(t, t)} ({s.name})" for s in p["snaps"] for t in sorted(s.tokens & empty)
+             if not str((s.defs.get(t) or {}).get("default") or "").strip()]
+    warnings = ([f"Prints blank: {', '.join(blank)} - {first} left {them(len(blank))} empty. "
+                 f"Click Edit to fill {them(len(blank))} in, or send as is."] if blank else [])
     me = (user["email"] or "").lower()
     can_verify = (ev.status == "review" and bool(p["verifier"]["email"]) and p["verifier"]["email"] == me
                   and not problems and not any(stale.values()))
@@ -974,7 +1147,7 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
     out = {"event": hle.ser_event(db, ev, show_pay=can_see_pay), "packetName": setting.name or "",
            "packetId": setting.id, "entityId": ev.entity_id or "", "companyName": entity.name if entity else "",
            "offer": offer, "documents": docs, "recipients": p["recipients"], "verifier": p["verifier"],
-           "printsPay": p["printsPay"], "problems": list(dict.fromkeys(problems)),
+           "printsPay": p["printsPay"], "problems": list(dict.fromkeys(problems)), "warnings": warnings,
            "outdated": any(stale.values()), "canVerify": can_verify,
            "isVerifier": p["verifier"]["email"] == me,
            "details": {k: v for k, v in (ev.intake or {}).items() if k != "answers"},
@@ -1015,7 +1188,8 @@ def _hire_problems(db: Session, ev) -> list:
         out.append("The offer expiry date has passed - change Offer Expires before sending.")
     if not d.get("packet_id"):
         wt = d.get("worker_type") or hle.worker_type_of(d.get("employment_type", ""))
-        want = hle.resolve_setting(db, ev.entity_id or "", ev.kind, wt, d.get("role_id", ""), d.get("country", ""))
+        want = hle.resolve_setting(db, ev.entity_id or "", ev.kind, wt, d.get("role_id", ""), d.get("country", ""),
+                                   region=d.get("region", ""))
         if want is not None and want.id != ev.setting_id:
             out.append(f'This hire now gets the "{want.name or "other"}" {EVENT_NOUN.get(ev.kind, "packet")} - void this '
                        f'one and start again.')
@@ -1079,6 +1253,10 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
     from pypdf import PdfReader
     from routers import esign
     from routers.documents import signing_fields
+    first = next((x for x in p["parties"] if x["partyRole"] != "cc"), None)
+    if first is None or first["role"] != SUBJECT_ROLE:
+        # Fail closed (Neil, Oct 22 2026): nobody acts before the person.
+        raise hle.PacketError("The person must sign first - nobody signs for the company before them.", 409)
     pay = event_pay(db, ev, setting)
     remap = p["remap"]
     docs = []
@@ -1101,7 +1279,8 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
                              ordinal=x["ordinal"], party_role=x["partyRole"], title=x.get("title", ""))
                for x in p["parties"]]
     me = (user["email"] or "").lower()
-    # Signs Once: the adopted signature goes on when that step's turn comes.
+    # Signs Once: the adopted signature goes on when that step's turn comes -
+    # after the person, who signs first (Neil, Oct 22 2026); never at send.
     saved = {x["key"]: x["saved"] for x in p["parties"] if x.get("saved")}
     first = next((x for x in p["parties"] if not x.get("saved")), None)
     sender_first = bool(first and first["kind"] == "internal" and first["email"] == me
@@ -1257,6 +1436,7 @@ class FormView:
         derived = [f for f in template_form(snaps) if f["key"] not in keys]
         self.details_form = own + derived
         self.derived_keys = {f["key"] for f in derived}
+        self.tokens = {t for s in snaps for t in s.tokens}      # every variable the documents print
 
 
 def form_view(db: Session, setting: Optional[HrPacketSetting], template_ids: Optional[list] = None) -> FormView:
@@ -1266,6 +1446,46 @@ def form_view(db: Session, setting: Optional[HrPacketSetting], template_ids: Opt
     ids += [t for t in (template_ids or []) if t and t not in ids]
     snaps, _ = load_snaps(db, ids)
     return FormView(setting, snaps)
+
+
+def intake_preview(db: Session, template_ids: list, details_form, entity_id: str = "",
+                   role_ids: Optional[list] = None) -> dict:
+    """What the new hire will be asked, for a packet as its editor has it now
+    (saved or not): the SAME FormView the intake page reads, each field with
+    the documents that print it, plus what HR answers at the offer - and what
+    each role's own hiring documents add for its hires (the packet's roles,
+    else every role of its company). Raises PacketProblem for a Details Form
+    that would not save."""
+    import hr_life_events as hle
+    from models import NexusGroup
+    own = clean_form(details_form)
+    ids = list(dict.fromkeys(t for t in template_ids or [] if t))
+    snaps, problems = load_snaps(db, ids)
+    view = FormView(SimpleNamespace(details_form=own), snaps)
+
+    def printed_in(token):
+        return [s.name for s in snaps if token and token in s.tokens]
+    rq = db.query(NexusGroup).filter(NexusGroup.is_job_role == 1)
+    if role_ids:
+        rq = rq.filter(NexusGroup.id.in_(list(role_ids)))
+    elif entity_id:
+        rq = rq.filter(NexusGroup.company_id.in_(("", entity_id)))
+    asked, names, roles = {f.get("key") for f in view.details_form}, {s.tpl.id: s.name for s in snaps}, []
+    for r in sorted(rq.all(), key=lambda r: (r.name or "").lower()):
+        mine = with_role_docs(ids, r.hiring_docs or [])
+        added, _ = load_snaps(db, [t for t in mine if t not in ids])
+        if not added:
+            continue
+        role_view = FormView(SimpleNamespace(details_form=own), snaps + added)
+        roles.append({"id": r.id, "name": r.name or "", "documents": [s.name for s in added],
+                      "replaces": [names[t] for t in ids if t not in mine and t in names],
+                      "asks": [f["label"] for f in role_view.details_form
+                               if f.get("key") not in asked and f.get("type") != "heading"]})
+    return {"standard": hle.intake_standard_fields(view.tokens),
+            "form": [{**f, "documents": printed_in(f.get("key")), "packetOnly": f.get("key") not in view.derived_keys}
+                     for f in view.details_form],
+            "hrAtOffer": [{**q, "documents": printed_in(q["token"])} for q in hr_questions(snaps)],
+            "roles": roles, "problems": problems}
 
 
 # ── building blocks (Oct 14) ────────────────────────────────────────────────
@@ -1323,17 +1543,74 @@ def all_block_ids(setting: Optional[HrPacketSetting]) -> list:
     return out
 
 
+def with_role_docs(ids: list, role_docs) -> list:
+    """The packet's documents with the role's own filled in (Neil, Oct 22: "the
+    role gets filled into the hiring packet"): a role document that replaces
+    one of the packet's - the standard confidentiality agreement - takes its
+    place in the order; any other is added after the packet's own. So one
+    California packet serves every role, and the construction associate still
+    signs the construction confidentiality agreement."""
+    out = list(ids)
+    for r in role_docs or []:
+        if not isinstance(r, dict):
+            continue
+        tid, rep = str(r.get("templateId") or ""), str(r.get("replaces") or "")
+        if not tid or tid in out:
+            continue
+        if rep and rep in out:
+            out[out.index(rep)] = tid
+        else:
+            out.append(tid)
+    return out
+
+
 def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str) -> list:
     """Every template a packet prints for one person: its own documents, the
     ones for their team and role, then (not on an offer) their job
-    description."""
+    description - where the packet's JD_MARKER puts it (the role's formatted
+    one, else the built-in page when there are duties), else at the end as
+    before (a legacy jd_template_id, the role's formatted one, else the
+    built-in page - unless a document prints the duties inside)."""
     d = inputs or {}
     ids = list((setting.doc_template_ids or []) if setting is not None else [])
     ids += [t for t in block_ids(setting, d.get("department", ""), d.get("role_id", "")) if t not in ids]
-    jd = d.get("jd_template_id") or "" if kind != "offer" else ""
-    if jd and jd not in ids:
-        ids.append(jd)
+    if kind == "offer":
+        return [t for t in ids if t != JD_MARKER]
+    role_docs = d.get("role_docs") or []
+    if kind == "promotion":   # only the role's formatted JD, only into the marker
+        role_docs = [r for r in role_docs if isinstance(r, dict) and r.get("replaces") == JD_MARKER] if JD_MARKER in ids else []
+    is_jd = [isinstance(r, dict) and r.get("replaces") == JD_MARKER for r in role_docs]
+    if any(is_jd) and JD_MARKER not in ids and _prints_inside(setting, ids):
+        role_docs = [r for r, j in zip(role_docs, is_jd) if not j]   # the duties print inside - never twice
+    ids = with_role_docs(ids, role_docs)               # a role doc replacing "@jd" takes the marker's place
+    legacy = d.get("jd_template_id") or ""
+    if JD_MARKER in ids:
+        fill = (legacy if legacy and legacy not in ids
+                else BUILTIN_JD_ID if (d.get("role_description") or "").strip() and BUILTIN_JD_ID not in ids else "")
+        ids = [fill if t == JD_MARKER else t for t in ids if t != JD_MARKER or fill]
+    elif legacy and legacy not in ids:
+        ids.append(legacy)                             # today's behavior, untouched
+    elif (not legacy and kind == "hire" and setting is not None and not any(is_jd) and BUILTIN_JD_ID not in ids
+          and (d.get("role_description") or "").strip() and not _prints_inside(setting, ids)):
+        ids.append(BUILTIN_JD_ID)                      # no marker, nothing inside: its own page at the end, as before
     return ids
+
+
+def prints_duties(snaps: list, event: str = "hire") -> bool:
+    """A document prints the role's duties itself ({{role_description}}, or
+    a promotion letter's {{responsibilities}}) - no separate job description
+    page is needed."""
+    tokens = {"role_description"} | ({"responsibilities"} if event == "promotion" else set())
+    return any(tokens & s.tokens for s in snaps)
+
+
+def _prints_inside(setting: Optional[HrPacketSetting], ids: list) -> bool:
+    """Whether these packet documents print the duties themselves. Reads
+    through the setting's own session so template_ids_for keeps its
+    signature; a setting with no session counts as not printing them."""
+    from sqlalchemy.orm import object_session
+    db = object_session(setting) if setting is not None else None
+    return bool(db is not None and prints_duties(load_snaps(db, ids)[0], setting.event or "hire"))
 
 
 def event_template_ids(ev, setting: Optional[HrPacketSetting]) -> list:
@@ -1503,7 +1780,7 @@ def company_once_status(db: Session, setting: HrPacketSetting, entity: Optional[
     company today, and whether that person has signed it."""
     ctx = {"entity": entity, "owners": hc.role_owners(db, entity.id if entity else "")}
     out = []
-    for step in clean_flow(setting.flow):
+    for step in signing_flow(setting):
         if not step.get("once"):
             continue
         email = resolve_role(db, step["role"], ctx)
@@ -1526,7 +1803,7 @@ def adopt_signature(db: Session, setting: HrPacketSetting, *, step_key: str, ent
     the person who holds the step's role there today may. The caller has
     checked the signature and the one-time code; the caller commits."""
     from datetime import datetime, timezone
-    step = next((s for s in clean_flow(setting.flow) if s["key"] == step_key and s.get("once")), None)
+    step = next((s for s in signing_flow(setting) if s["key"] == step_key and s.get("once")), None)
     if step is None:
         raise PacketProblem("That step does not Sign Once - save the packet with Signs Once ticked first.")
     entity_id = entity.id if entity else ""
@@ -1588,7 +1865,7 @@ def unfilled_variables(setting: HrPacketSetting, snaps: list) -> list:
     return out
 
 
-def readiness(db: Session, setting: HrPacketSetting) -> list:
+def readiness(db: Session, setting: HrPacketSetting, entity: Optional[HrEntity] = None) -> list:
     """The packet's Ready To Send checklist: what is fine, what stops a hire
     from going out (block) and what would come out wrong (warn) - each with
     the fix the screen offers. A team's or role's documents are checked too."""
@@ -1609,11 +1886,13 @@ def readiness(db: Session, setting: HrPacketSetting) -> list:
     out.append(_check("signing", not order, "Signing Order", order[0] if order else "Every signature block has a signer"))
     # 3. The company holds every role the packet needs (a company's packet;
     #    a packet for every company is checked per company when it starts).
-    entity = db.query(HrEntity).filter(HrEntity.id == setting.entity_id).first() if setting.entity_id else None
+    # entity given (Hiring Setup): a shared row is checked for that company too.
+    if entity is None:
+        entity = db.query(HrEntity).filter(HrEntity.id == setting.entity_id).first() if setting.entity_id else None
     verify = setting.verify_role or "hr"
     if entity is not None:
         ctx = {"entity": entity, "owners": hc.role_owners(db, entity.id)}
-        roles = list(dict.fromkeys([s["role"] for s in clean_flow(setting.flow)
+        roles = list(dict.fromkeys([s["role"] for s in signing_flow(setting)
                                     if s["role"] not in (SUBJECT_ROLE, "manager", "sender")] + [verify]))
         for role in roles:
             email = resolve_role(db, role, ctx)
@@ -1668,8 +1947,17 @@ def readiness(db: Session, setting: HrPacketSetting) -> list:
                       "Nothing fills " + ", ".join(m["label"] for m in missing[:6]) + ("..." if len(missing) > 6 else "") +
                       (" - in the template mark each one Ask The Person or HR Answers, give it a Default Value, "
                        "or add it to the Details Form."
-                       if setting.event == "hire" else
+                       if setting.event != "offer" else
                        " - in the template mark each one HR Answers, or give it a Default Value."),
-                      fix={"kind": "addToForm" if setting.event == "hire" else "template", "variables": missing,
+                      fix={"kind": "addToForm" if setting.event != "offer" else "template", "variables": missing,
                            "templateId": missing[0]["templateId"] if missing else ""}))
+    # 8. No fill-in line is left that nothing fills - it would print empty.
+    blanks = [(s, b) for s in snaps for b in [fill_in_blanks(s.content)] if b]
+    out.append(_check("blanks", not blanks, "No Fill-In Blanks Left",
+                      "No ____ lines or empty Label: lines left in the documents" if not blanks else
+                      "; ".join(f'"{s.name}" has {len(b)} fill-in blank{"s" if len(b) != 1 else ""} nothing fills ('
+                                + ", ".join(b[:3]) + ("..." if len(b) > 3 else "") + ")" for s, b in blanks[:4]) +
+                      " - they print empty. In the template, replace each one with a variable (Ask The Person, "
+                      "HR Answers or a Nexus field).",
+                      severity="warn", fix={"kind": "template", "templateId": blanks[0][0].tpl.id} if blanks else None))
     return out

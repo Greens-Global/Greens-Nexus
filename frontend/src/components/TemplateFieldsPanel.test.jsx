@@ -56,6 +56,54 @@ describe('TemplateFieldsPanel', () => {
     expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ token: 'start_date' }));
   });
 
+  it('a built-in is Filled By Nexus, read-only, never NEW', () => {
+    const builtins = { first_name: { label: 'First name', when: 'person' }, job_title: { label: 'Job title', when: 'person' } };
+    render(<TemplateFieldsPanel fieldDefs={[]} tokens={['first_name', 'pan_number']} highlight={['pan_number']}
+      docTokens={['first_name', 'job_title', 'pan_number']} builtins={builtins}
+      onChange={() => {}} onEdit={() => {}} onClose={() => {}} />);
+    expect(screen.getByText('Filled By Nexus')).toBeTruthy();
+    const row = screen.getByTestId('nexus-first_name');
+    expect(row.textContent).toContain("From the person's profile");
+    expect(row.querySelector('select')).toBeNull();
+    expect(screen.queryByLabelText('Who fills First name')).toBeNull();
+    expect(screen.getByTestId('nexus-job_title')).toBeTruthy();
+    expect(screen.getAllByText('NEW')).toHaveLength(1);          // only the custom one
+    // ...and the custom one is guessed as Text, not Number.
+    expect(screen.getByLabelText('Type for Pan Number').value).toBe('text');
+  });
+
+  it('who fills reads in plain words and keeps the stored values', () => {
+    const onChange = vi.fn();
+    render(<TemplateFieldsPanel fieldDefs={[{ token: 'pan_number', label: 'PAN', type: 'text', source: 'person' }]}
+      onChange={onChange} onEdit={() => {}} onClose={() => {}} />);
+    const sel = screen.getByLabelText('Who fills PAN');
+    expect([...sel.options].map(o => o.textContent)).toEqual(
+      ['Whoever Makes The Document', 'The New Hire (Intake Form)', 'HR At The Offer']);
+    expect(sel.value).toBe('person');
+    expect(screen.getByText(/Asked on the new hire's intake form/)).toBeTruthy();
+    fireEvent.change(sel, { target: { value: 'hr' } });
+    expect(onChange.mock.calls[0][0][0].source).toBe('hr');
+  });
+
+  it('a new field starts from the setting another template gave it', () => {
+    const shared = { pan_number: { templateName: 'NDA', type: 'text', source: 'person', required: true, sensitive: true } };
+    const onChange = vi.fn();
+    render(<TemplateFieldsPanel fieldDefs={[]} tokens={['pan_number']} shared={shared}
+      onChange={onChange} onEdit={() => {}} onClose={() => {}} />);
+    expect(screen.getByLabelText('Who fills Pan Number').value).toBe('person');
+    expect(screen.getByText('Same as in NDA')).toBeTruthy();
+  });
+
+  it('warns when another template defines it differently, and brings it in step', () => {
+    const shared = { pan_number: { templateName: 'NDA', type: 'text', source: 'person', required: true, sensitive: true } };
+    const onChange = vi.fn();
+    render(<TemplateFieldsPanel fieldDefs={[{ token: 'pan_number', label: 'PAN', type: 'number', source: '' }]} shared={shared}
+      onChange={onChange} onEdit={() => {}} onClose={() => {}} />);
+    expect(screen.getByText(/Defined differently in NDA/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Use The Same Setting'));
+    expect(onChange.mock.calls[0][0][0]).toMatchObject({ token: 'pan_number', label: 'PAN', type: 'text', source: 'person', required: true, sensitive: true });
+  });
+
   it('says so when the template has no variables yet', () => {
     render(<TemplateFieldsPanel fieldDefs={[]} onChange={() => {}} onEdit={() => {}} onClose={() => {}} />);
     expect(screen.getByText(/no variables yet/)).toBeTruthy();
