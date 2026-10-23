@@ -298,9 +298,13 @@ def _tick() -> dict:
         # HR's corrected cards nobody signed in time are accepted as sent (Oct 22).
         import timesheet_review as tr
         accepted = tr.accept_unsigned_corrections(db)
+        # Reviews nobody can decide any more leave the reviewer's list (Oct 22).
+        retired = tr.retire_stale(db)
         db.commit()
         if accepted:
             print(f"[period-close] accepted {accepted} unsigned corrected time sheet(s)")
+        if retired:
+            print(f"[period-close] retired {retired} stale time sheet review(s)")
     except Exception as e:   # noqa: BLE001 - the notices below still run
         db.rollback()
         print(f"[period-close] correction acceptance failed: {e}")

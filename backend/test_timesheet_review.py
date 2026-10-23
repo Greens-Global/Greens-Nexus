@@ -803,6 +803,86 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertTrue(rows[0]["url"].endswith("/hr/hr-time"))   # People > Time (Oct 22)
 
 
+class StaleReviewTests(ReviewCase):
+    """Oct 22 (Neil): a submitted review nobody can decide any more - its
+    period predates the review launch, was finalized on the payroll screen, or
+    is no longer one of the person's pay periods - leaves the reviewer's list
+    and is retired with the reason, instead of sitting there for good."""
+
+    def setUp(self):
+        super().setUp()
+        self._launch = tsr.REVIEW_LAUNCH
+        tsr.REVIEW_LAUNCH = "2000-01-01"          # the test period counts as after launch
+
+    def tearDown(self):
+        tsr.REVIEW_LAUNCH = self._launch
+        super().tearDown()
+
+    def _retire(self):
+        n = tsr.retire_stale(self.db)
+        self.db.commit()
+        self.db.expire_all()
+        return n
+
+    def _retired(self, rid):
+        self.db.expire_all()
+        return self.db.query(models.TimesheetReview).filter(models.TimesheetReview.id == rid).first()
+
+    def test_a_live_review_stays(self):
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual(tsr.stale_reason(self.db, r), "")
+        self.assertEqual(self._retire(), 0)
+        self.assertEqual(self._r().status, "with_manager")
+        self.assertEqual([x.id for x in tsr.waiting_on(self.db, MGR)], [r.id])
+
+    def test_a_period_before_the_review_launch_is_retired(self):
+        """Sagar's case: submitted 09/28 for September under the old rules,
+        Approve blocked by missing punches - on the list for good."""
+        rid = tsr.submit(self.db, EMP, ANCHOR).id
+        self._punch(self.end, "in", "16:00:00")                 # a missing clock-out: Approve is blocked
+        self.db.commit()
+        tsr.REVIEW_LAUNCH = (datetime.fromisoformat(self.end) + timedelta(days=1)).strftime("%Y-%m-%d")
+        self.assertEqual(self._retire(), 1)
+        r = self._retired(rid)
+        self.assertEqual(r.status, tsr.RETIRED)
+        self.assertEqual((r.rounds[-1]["action"], r.rounds[-1]["by"]), ("retired", "nexus"))
+        self.assertIn("signed off the old way", r.rounds[-1]["note"])
+        self.assertEqual(tsr.waiting_on(self.db, MGR), [])
+        self.assertIsNone(tsr.review_covering(self.db, EMP, self.start))   # no longer locks the period
+        self.assertEqual(self._retire(), 0)                                # once
+
+    def test_a_finalized_period_leaves_the_list(self):
+        rid = tsr.submit(self.db, EMP, ANCHOR).id
+        self.db.add(models.TimeApproval(id="ta-final", employee_email=EMP, period_start=self.start,
+                                        period_end=self.end, approved_by=HR, kind="final"))
+        self.db.commit()
+        self.assertEqual(tsr.waiting_on(self.db, MGR), [])        # at once, before the sweep
+        self.assertEqual(self._retire(), 1)
+        self.assertIn("finalized on the payroll screen", self._retired(rid).rounds[-1]["note"])
+
+    def test_a_pay_schedule_change_retires_the_old_period(self):
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        tsr.send_back(self.db, r, MGR, "Check Monday")             # with the employee: retired too
+        rid = r.id
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="fixed", currency="INR",
+                                       monthly_salary=30000, full_day_hours=8, overtime_rule="none"))
+        self.db.commit()
+        self.assertEqual(self._retire(), 1)
+        r = self._retired(rid)
+        self.assertEqual(r.status, tsr.RETIRED)
+        self.assertIn("pay schedule changed", r.rounds[-1]["note"])
+
+    def test_a_person_now_exempt_leaves_the_list(self):
+        rid = tsr.submit(self.db, EMP, ANCHOR).id
+        self.db.add(models.NexusGroup(id="g-ts-stale", name="Managing Principal", is_job_role=1,
+                                      time_tracking_exempt=1))
+        self.db.add(models.NexusGroupMember(group_id="g-ts-stale", email=EMP))
+        self.db.commit()
+        self.assertEqual(tsr.waiting_on(self.db, MGR), [])
+        self.assertEqual(self._retire(), 1)
+        self.assertIn("exempt from time tracking", self._retired(rid).rounds[-1]["note"])
+
+
 class SentByNexusTests(ReviewCase):
     """Neil, Oct 20: the envelope is created by Nexus, not the approving
     manager - the manager gets no completion bell, sealed copy or decline bell
