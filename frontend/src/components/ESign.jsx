@@ -479,7 +479,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
             <button className="secondary-btn" onClick={onClose}>Cancel</button>
             <button className="primary-btn" onClick={adopt} disabled={tab === 'draw' ? !hasInk : !typed.trim()}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (tab === 'draw' ? hasInk : typed.trim()) ? 1 : 0.55 }}>
-              <CheckCircle size={14} /> Adopt &amp; sign
+              <CheckCircle size={14} /> Adopt &amp; Sign
             </button>
           </div>
         </div>

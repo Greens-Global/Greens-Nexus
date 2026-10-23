@@ -104,6 +104,13 @@ class RecordsAuditTests(unittest.TestCase):
         self.assertEqual(ra.gaps(self.db, emp), ["No manager", "No personal email", "No emergency contact",
                                                  "Work authorization not verified"])
 
+    def test_the_top_of_the_org_needs_no_manager(self):
+        top = self._person("e-top", manager_email="")
+        self._doc(top.id, "id", FUTURE)
+        self.assertEqual(ra.gaps(self.db, top), ["No manager"])
+        self._person("e-report", manager_email="E-Top@greensglobal.com")
+        self.assertEqual(ra.gaps(self.db, top), [])
+
     def test_expired_documents_and_a_renewed_one(self):
         emp = self._person(compliance={"status": "verified", "expiryDate": PAST},
                            contractor={"contract_end": PAST})

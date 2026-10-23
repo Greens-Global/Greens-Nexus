@@ -99,6 +99,10 @@ describe('applyBlanks', () => {
     expect(tokensFor([{ fill: 'ask', label: 'Salary' }, { fill: 'ask', label: 'Phone' }])).toEqual(['salary_value', 'phone_value']);
   });
 
+  it('never names an asked blank email or work_email (the server fills those itself)', () => {
+    expect(tokensFor([{ fill: 'ask', label: 'Email' }, { fill: 'ask', label: 'Work Email' }])).toEqual(['email_value', 'work_email_value']);
+  });
+
   it('splits pages at Word page breaks', () => {
     const pages = splitPages(DOC);
     expect(pages).toHaveLength(2);
@@ -154,7 +158,7 @@ describe('applyBlanks', () => {
   });
 
   it('guesses by label', () => {
-    expect(guessFill('Personal Email Address')).toMatchObject({ token: 'email' });
+    expect(guessFill('Personal Email Address')).toMatchObject({ token: 'personal_email' });
     expect(guessFill('Bank Account Number').fill).toBe('ask');
     expect(guessFill('Client(s) Name').fill).toBe('same');
     expect(guessFill('Notary Seal / Stamp').fill).toBe('leave');

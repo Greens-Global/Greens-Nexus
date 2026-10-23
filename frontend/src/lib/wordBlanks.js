@@ -26,7 +26,7 @@ const cleanLabel = (s) => clean(s).replace(/[:\s_]+$/, '').replace(/^[\s:_]+/, '
 // What Nexus fills by itself - the choices of "Nexus fills it".
 export const NEXUS_FIELDS = [
   ['full_name', 'Full Name'], ['first_name', 'First Name'], ['last_name', 'Last Name'],
-  ['address', 'Current Address'], ['phone', 'Phone'], ['email', 'Personal Email'],
+  ['address', 'Current Address'], ['phone', 'Phone'], ['personal_email', 'Personal Email'],
   ['job_title', 'Job Title'], ['department', 'Department'], ['start_date', 'Start Date'],
   ['salary', 'Salary / Pay'], ['manager', 'Manager'], ['company_legal', 'Company Legal Name'],
   ['company', 'Company Name'], ['company_address', 'Company Address'], ['today', "Today's Date"],
@@ -44,7 +44,8 @@ export const NEXUS_FIELDS = [
   ['old_role', 'Old Role'], ['new_role', 'New Role'], ['change_type', 'Promotion Or Role Change'],
   ['responsibilities', 'New Responsibilities'], ['last_day', 'Last Day'], ['separation_type', 'Why They Are Leaving'],
 ];
-const NEXUS_KEYS = new Set(NEXUS_FIELDS.map(([k]) => k));
+// email / work_email are filled server-side too (not offered: work first), so an asked blank must not take them.
+const NEXUS_KEYS = new Set([...NEXUS_FIELDS.map(([k]) => k), 'email', 'work_email']);
 // Fields only one event fills - a hiring upload is never offered "Last Day".
 const EVENT_ONLY = { effective_date: 'promotion', old_title: 'promotion', new_title: 'promotion', old_role: 'promotion',
   new_role: 'promotion', change_type: 'promotion', responsibilities: 'promotion', last_day: 'separation', separation_type: 'separation' };
@@ -142,7 +143,7 @@ export function guessFill(label, ctx = {}) {
   if (/company.*address|business address|registered address|office address/.test(l)) return { fill: 'nexus', token: 'company_address' };
   if (/company|employer|organi[sz]ation/.test(l)) return { fill: 'nexus', token: 'company_legal' };
   if (/emergency|alternate contact/.test(l)) return { fill: 'nexus', token: 'emergency_name' };
-  if (/e-?mail/.test(l)) return { fill: 'nexus', token: 'email' };
+  if (/e-?mail/.test(l)) return { fill: 'nexus', token: 'personal_email' };   // never `email` (work first for staff)
   if (/address/.test(l)) return { fill: 'nexus', token: 'address' };
   if (/\bname\b/.test(l)) return { fill: 'nexus', token: 'full_name' };
   if (/mobile|phone|telephone|contact number/.test(l)) return { fill: 'nexus', token: 'phone' };

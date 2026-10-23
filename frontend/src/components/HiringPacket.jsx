@@ -839,7 +839,7 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
   const filingColor = ev.filingStatus === 'filed' ? 'hsl(var(--color-green))' : ev.filingStatus === 'failed' ? 'hsl(var(--color-red))' : 'var(--muted)';
   const filingText = ev.filingStatus === 'filed' ? `Filed in Egnyte: ${ev.filingPath}`
     : ev.filingStatus === 'failed' ? `Not filed in Egnyte: ${ev.filingError}`
-      : `Filing in Egnyte${ev.filingError ? ` - try ${ev.filingAttempts || 1} did not work: ${ev.filingError}. Nexus tries again by itself` : '...'}`;
+      : `Filing in Egnyte${ev.filingError ? ` - try ${ev.filingAttempts || 1} did not work: ${ev.filingError.replace(/\.+$/, '')}. Nexus tries again by itself` : '...'}`;
   const filingButtons = unfiled && (
     <>
       <button className="secondary-btn" onClick={() => act('retry')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>

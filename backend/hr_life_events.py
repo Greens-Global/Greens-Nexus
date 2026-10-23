@@ -1575,7 +1575,7 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
             "firstName": (cand.first_name if cand else "") or "", "lastName": (cand.last_name if cand else "") or "",
             "phone": (cand.phone if cand else "") or "", "role": (ev.inputs or {}).get("job_title", ""),
             "expiresOn": ev.intake_expires_on or "", "prefill": known,
-            "afterOffer": bool((ev.inputs or {}).get("after_offer")), "kind": ev.kind,
+            "afterOffer": bool((ev.inputs or {}).get("after_offer")), "kind": ev.kind or "",
             # An employee's name and address are on People already - only the documents' questions.
             "fields": intake_standard_fields(view.tokens) if ev.kind in CANDIDATE_KINDS else [],
             # The packet's own Details Form (Oct 14) - any country, any field.
